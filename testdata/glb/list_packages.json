@@ -1,0 +1,9 @@
+[
+  {
+    "id": "pkg-1",
+    "name": "<name>",
+    "description": "<description>",
+    "enabled": true,
+    "baseConnectionRate": 100
+  }
+]

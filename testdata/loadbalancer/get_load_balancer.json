@@ -1,0 +1,16 @@
+{
+  "data": {
+    "uuid": "lb-1",
+    "name": "<name>",
+    "displayStatus": "ACTIVE",
+    "address": "<ip>",
+    "privateSubnetId": "subnet-1",
+    "privateSubnetCidr": "<cidr>",
+    "type": "Layer 4",
+    "displayType": "Layer 4",
+    "loadBalancerSchema": "INTERNET",
+    "packageId": "pkg-1",
+    "status": "ACTIVE",
+    "zoneId": "zone-a"
+  }
+}

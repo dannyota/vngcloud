@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "uuid": "zone-a",
+      "code": "hcm-3",
+      "name": "<name>",
+      "vnetworkDashboard": "<internal-url>"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "region-1",
+    "name": "<name>",
+    "description": "<description>",
+    "status": "ACTIVE",
+    "vServerEndpoint": "<internal-url>",
+    "vlbEndpoint": "<internal-url>",
+    "uiServerEndpoint": "<internal-url>"
+  }
+]

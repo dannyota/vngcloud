@@ -1,0 +1,28 @@
+{
+  "listData": [
+    {
+      "id": "vpc-1",
+      "displayName": "<name>",
+      "status": "ACTIVE",
+      "cidr": "<cidr>",
+      "zone": {
+        "uuid": "zone-1",
+        "name": "<name>",
+        "zoneType": "standard",
+        "isDefault": true,
+        "description": "<description>",
+        "isEnabled": true,
+        "openstackZone": "nova",
+        "ipRanges": ["<cidr>"]
+      },
+      "routeTableId": "rt-1",
+      "routeTableName": "<name>",
+      "dnsStatus": "ACTIVE",
+      "dnsId": "dns-1"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

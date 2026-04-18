@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "id": "snapshot-1",
+      "name": "<name>",
+      "volumeId": "volume-1",
+      "status": "AVAILABLE"
+    }
+  ],
+  "page": 2,
+  "pageSize": 25,
+  "totalPages": 2,
+  "totalItems": 26
+}

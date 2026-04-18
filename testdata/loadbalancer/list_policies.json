@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "uuid": "policy-1",
+      "name": "<name>",
+      "action": "REDIRECT_TO_POOL",
+      "redirectPoolId": "pool-1",
+      "position": 1,
+      "displayStatus": "ACTIVE"
+    }
+  ]
+}

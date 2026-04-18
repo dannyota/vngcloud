@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "uuid": "pool-1",
+      "name": "<name>",
+      "protocol": "HTTP",
+      "loadBalanceMethod": "ROUND_ROBIN",
+      "displayStatus": "ACTIVE",
+      "members": [
+        {
+          "uuid": "member-1",
+          "poolId": "pool-1",
+          "address": "<ip>",
+          "protocolPort": 80
+        }
+      ]
+    }
+  ]
+}

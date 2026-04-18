@@ -1,0 +1,1846 @@
+{
+  "regions": [
+    {
+      "region": "<value>",
+      "projectId": "<value>",
+      "count": 10,
+      "items": [
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 16,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 32,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 58,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": true,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": true,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 32,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 89,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 143,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 488,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 143,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 143,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 143,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": false,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 2,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 666,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 175,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 488,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        }
+      ]
+    },
+    {
+      "region": "<value>",
+      "projectId": "<value>",
+      "count": 10,
+      "items": [
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 2,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 298,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 439,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": false,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 8,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 148,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 439,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 295,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": true,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": true,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 8,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 611,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": false,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 2,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 1246,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": false,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "",
+          "serverGroupName": "",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 2,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 4,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 1246,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 4,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 439,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        },
+        {
+          "bootVolumeId": "",
+          "createdAt": "<value>",
+          "encryptionVolume": true,
+          "licence": false,
+          "location": "<value>",
+          "metadata": "<value>",
+          "migrateState": "",
+          "name": "<name>",
+          "product": "<value>",
+          "serverGroupId": "<value>",
+          "serverGroupName": "<value>",
+          "sshKeyName": "",
+          "status": "<value>",
+          "stopBeforeMigrate": false,
+          "user": "<value>",
+          "uuid": "<value>",
+          "image": {
+            "flavorZoneIds": [
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>",
+              "<id>"
+            ],
+            "id": "<value>",
+            "imageType": "<value>",
+            "imageVersion": "<value>",
+            "licence": false,
+            "packageLimit": {
+              "cpu": 1,
+              "diskSize": 20,
+              "memory": 1
+            }
+          },
+          "flavor": {
+            "bandwidth": 1,
+            "bandwidthUnit": "<value>",
+            "cpu": 8,
+            "cpuPlatformDescription": "",
+            "flavorId": "<value>",
+            "gpu": 0,
+            "group": "",
+            "memory": 16,
+            "metaData": "<value>",
+            "name": "<name>",
+            "remainingVms": 295,
+            "zoneId": "<id>"
+          },
+          "secGroups": [
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            },
+            {
+              "name": "<name>",
+              "uuid": "<value>"
+            }
+          ],
+          "externalInterfaces": [],
+          "internalInterfaces": [
+            {
+              "createdAt": "<value>",
+              "fixedIp": "<ip>",
+              "floatingIp": "",
+              "floatingIpId": "",
+              "interfaceType": "<value>",
+              "mac": "<value>",
+              "networkUuid": "<value>",
+              "portUuid": "<id>",
+              "product": "<value>",
+              "serverUuid": "<value>",
+              "status": "<value>",
+              "subnetUuid": "<value>",
+              "type": "<value>",
+              "updatedAt": "<value>",
+              "uuid": "<value>"
+            }
+          ],
+          "zoneId": "<value>"
+        }
+      ]
+    }
+  ]
+}

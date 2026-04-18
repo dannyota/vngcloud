@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "uuid": "listener-1",
+      "name": "<name>",
+      "protocol": "HTTPS",
+      "protocolPort": 443,
+      "defaultPoolId": "pool-1",
+      "displayStatus": "ACTIVE"
+    }
+  ]
+}

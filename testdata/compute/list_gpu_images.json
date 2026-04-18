@@ -1,0 +1,9 @@
+{
+  "images": [
+    {
+      "id": "gpu-image-1",
+      "name": "<name>",
+      "osType": "linux"
+    }
+  ]
+}

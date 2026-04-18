@@ -1,0 +1,22 @@
+{
+  "listData": [
+    {
+      "hostedZoneId": "zone-1",
+      "domainName": "<hostname>",
+      "status": "ACTIVE",
+      "type": "PRIVATE",
+      "countRecords": 1,
+      "assocVpcIds": ["vpc-1"],
+      "assocVpcMapRegion": [
+        {
+          "vpcId": "vpc-1",
+          "region": "hcm-3"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalPage": 1,
+  "totalItem": 1
+}

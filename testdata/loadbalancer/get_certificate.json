@@ -1,0 +1,7 @@
+{
+  "uuid": "cert-1",
+  "name": "<name>",
+  "certificateType": "SERVER",
+  "domainName": "<hostname>",
+  "inUse": true
+}

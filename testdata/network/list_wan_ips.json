@@ -1,0 +1,17 @@
+{
+  "listData": [
+    {
+      "uuid": "wan-1",
+      "name": "<name>",
+      "ipAddress": "<ip>",
+      "status": "ACTIVE",
+      "networkInterfaceId": "nic-1",
+      "serverId": "server-1",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

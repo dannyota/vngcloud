@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "name": "<name>",
+      "visibility": "PRIVATE",
+      "status": "ACTIVE"
+    }
+  ],
+  "page": 1,
+  "pageSize": 25,
+  "totalPage": 1,
+  "totalItem": 1
+}

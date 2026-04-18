@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "uuid": "<address-pair-id>",
+      "virtualIpAddressId": "<virtual-ip-id>",
+      "virtualSubnetId": "<subnet-id>",
+      "networkInterfaceIp": "<ip>",
+      "networkInterfaceId": "<interface-id>",
+      "cidr": "<ip>/32"
+    }
+  ]
+}

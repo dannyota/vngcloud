@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "uuid": "policy-1",
+      "name": "<name>",
+      "status": "ACTIVE",
+      "description": "<description>",
+      "descriptionVi": "<description>"
+    }
+  ]
+}

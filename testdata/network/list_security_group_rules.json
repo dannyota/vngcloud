@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "ruleId": "rule-1",
+      "direction": "ingress",
+      "etherType": "IPv4",
+      "protocol": "tcp",
+      "portRangeMin": 80,
+      "portRangeMax": 80,
+      "remoteIpPrefix": "<cidr>",
+      "status": "ACTIVE"
+    }
+  ]
+}

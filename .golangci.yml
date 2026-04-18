@@ -1,0 +1,74 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.24"
+
+linters:
+  enable:
+    # Error handling
+    - errorlint
+    - errcheck
+
+    # Bugs and correctness
+    - staticcheck
+    - govet
+    - ineffassign
+    - bodyclose
+    - durationcheck
+    - nilerr
+
+    # Style and simplification
+    - unused
+    - unconvert
+    - wastedassign
+
+    # Security
+    - gosec
+
+    # Code quality
+    - gocritic
+    - noctx
+    - sloglint
+    - fatcontext
+    - perfsprint
+
+    # Parameters
+    - unparam
+
+    # Spelling
+    - misspell
+    - dupword
+
+  settings:
+    gosec:
+      excludes:
+        - G101  # endpoint constants are public service URLs, not credentials
+        - G301  # example output directories are local, ignored, and non-secret
+        - G304  # test fixtures and smoke files use controlled local paths
+        - G306  # 0644 is fine for non-secret committed fixtures
+        - G505  # TOTP uses HMAC-SHA1 by RFC 6238
+        - G705  # tests synthesize local callback URLs from httptest request hosts
+    sloglint:
+      context: "scope"
+    misspell:
+      locale: US
+      ignore-rules:
+        - VNG
+        - VPC
+        - VPCs
+        - VLB
+        - GLB
+        - VCR
+        - Licence
+
+formatters:
+  enable:
+    - gofmt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(danny.vn/vngcloud)

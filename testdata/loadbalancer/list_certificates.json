@@ -1,0 +1,24 @@
+{
+  "listData": [
+    {
+      "uuid": "cert-1",
+      "name": "<name>",
+      "certificateType": "IMPORTED",
+      "expiredAt": "2027-01-01T00:00:00Z",
+      "importedAt": "2026-01-01T00:00:00Z",
+      "notAfter": 1798761600,
+      "keyAlgorithm": "RSA",
+      "serial": "<value>",
+      "subject": "<value>",
+      "domainName": "<hostname>",
+      "inUse": true,
+      "issuer": "<value>",
+      "signatureAlgorithm": "SHA256-RSA",
+      "notBefore": 1767225600
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

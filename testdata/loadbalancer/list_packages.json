@@ -1,0 +1,14 @@
+{
+  "listData": [
+    {
+      "uuid": "pkg-1",
+      "name": "<name>",
+      "type": "Layer 4",
+      "connectionNumber": 1000,
+      "dataTransfer": 100,
+      "mode": "standard",
+      "lbType": "l4",
+      "displayLbType": "Layer 4"
+    }
+  ]
+}

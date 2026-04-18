@@ -1,0 +1,25 @@
+{
+  "id": "glb-1",
+  "name": "<name>",
+  "description": "<description>",
+  "status": "ACTIVE",
+  "package": "pkg-1",
+  "type": "PUBLIC",
+  "vips": [
+    {
+      "id": 1,
+      "address": "<ip>",
+      "status": "ACTIVE",
+      "region": "hcm-3",
+      "globalLoadBalancerId": "glb-1"
+    }
+  ],
+  "domains": [
+    {
+      "id": 1,
+      "hostname": "<hostname>",
+      "status": "ACTIVE",
+      "globalLoadBalancerId": "glb-1"
+    }
+  ]
+}

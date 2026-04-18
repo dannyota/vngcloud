@@ -1,0 +1,18 @@
+{
+  "listData": [
+    {
+      "uuid": "group-1",
+      "name": "<name>",
+      "servers": [
+        {
+          "uuid": "server-1",
+          "name": "<name>"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

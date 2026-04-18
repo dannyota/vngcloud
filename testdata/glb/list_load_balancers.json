@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "id": "glb-1",
+      "name": "<name>",
+      "status": "ACTIVE",
+      "package": "pkg-1",
+      "type": "PUBLIC"
+    }
+  ],
+  "offset": 0,
+  "limit": 10000,
+  "total": 1
+}

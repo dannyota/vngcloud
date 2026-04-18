@@ -1,0 +1,9 @@
+{
+  "data": {
+    "uuid": "volume-1",
+    "name": "<name>",
+    "status": "AVAILABLE",
+    "volumeTypeId": "type-1",
+    "zoneId": "zone-a"
+  }
+}

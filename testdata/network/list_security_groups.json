@@ -1,0 +1,16 @@
+{
+  "listData": [
+    {
+      "id": "sg-1",
+      "name": "<name>",
+      "description": "<description>",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "isSystem": true
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

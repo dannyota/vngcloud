@@ -1,0 +1,18 @@
+# Example credentials and live smoke output.
+*.json
+examples/basic/output/
+!examples/basic/config.example.json
+!testdata/**/*.json
+
+# OS metadata.
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.fseventsd
+.localized

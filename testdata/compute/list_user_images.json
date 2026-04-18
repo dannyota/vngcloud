@@ -1,0 +1,13 @@
+{
+  "listData": [
+    {
+      "uuid": "user-image-1",
+      "name": "<name>",
+      "status": "ACTIVE"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

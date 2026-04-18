@@ -1,0 +1,10 @@
+{
+  "data": {
+    "healthCheckProtocol": "HTTP",
+    "interval": 30,
+    "healthyThreshold": 3,
+    "unhealthyThreshold": 3,
+    "timeout": 5,
+    "displayStatus": "ACTIVE"
+  }
+}

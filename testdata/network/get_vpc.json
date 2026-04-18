@@ -1,0 +1,8 @@
+{
+  "data": {
+    "id": "vpc-1",
+    "displayName": "<name>",
+    "cidr": "<cidr>",
+    "status": "ACTIVE"
+  }
+}

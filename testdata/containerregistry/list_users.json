@@ -1,0 +1,13 @@
+{
+  "listData": [
+    {
+      "username": "<account>",
+      "role": "reader",
+      "status": "ACTIVE"
+    }
+  ],
+  "page": 2,
+  "pageSize": 10,
+  "totalPage": 3,
+  "totalItem": 21
+}

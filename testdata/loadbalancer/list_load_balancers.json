@@ -1,0 +1,34 @@
+{
+  "listData": [
+    {
+      "uuid": "lb-1",
+      "name": "<name>",
+      "displayStatus": "ACTIVE",
+      "address": "<ip>",
+      "privateSubnetId": "subnet-1",
+      "privateSubnetCidr": "<cidr>",
+      "type": "Layer 4",
+      "displayType": "Layer 4",
+      "loadBalancerSchema": "INTERNET",
+      "packageId": "pkg-1",
+      "description": "<description>",
+      "location": "hcm-3",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z",
+      "progressStatus": "",
+      "status": "ACTIVE",
+      "backendSubnetId": "subnet-1",
+      "internal": false,
+      "autoScalable": true,
+      "zoneId": "zone-a",
+      "minSize": 1,
+      "maxSize": 2,
+      "totalNodes": 1,
+      "nodes": [{"status":"ACTIVE","zoneId":"zone-a","zoneName": "<name>","subnetId":"subnet-1"}]
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

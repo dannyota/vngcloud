@@ -1,0 +1,8 @@
+{
+  "regions": ["hcm-3", "han-1"],
+  "rootEmail": "<root-email>",
+  "username": "<iam-username>",
+  "password": "<password>",
+  "totpSecret": "<totp-secret-or-empty>",
+  "totpCode": ""
+}

@@ -1,0 +1,15 @@
+{
+  "data": {
+    "recordId": "record-1",
+    "hostedZoneId": "zone-1",
+    "subDomain": "<name>",
+    "status": "ACTIVE",
+    "type": "A",
+    "value": [
+      {
+        "value": "<ip>"
+      }
+    ],
+    "ttl": 300
+  }
+}

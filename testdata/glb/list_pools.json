@@ -1,0 +1,21 @@
+[
+  {
+    "id": "pool-1",
+    "name": "<name>",
+    "globalLoadBalancerId": "glb-1",
+    "algorithm": "round_robin",
+    "protocol": "HTTP",
+    "status": "ACTIVE",
+    "health": {
+      "id": "health-1",
+      "globalPoolId": "pool-1",
+      "globalLoadBalancerId": "glb-1",
+      "protocol": "HTTP",
+      "timeout": 5,
+      "intervalTime": 30,
+      "healthyThreshold": 3,
+      "unhealthyThreshold": 3,
+      "status": "ACTIVE"
+    }
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "listData": [
+    {
+      "uuid": "volume-1",
+      "projectId": "project-1",
+      "name": "<name>",
+      "size": 100,
+      "status": "IN-USE",
+      "volumeTypeId": "type-1",
+      "volumeTypeZoneName": "<name>",
+      "iops": "3000",
+      "serverId": "server-1",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": null,
+      "bootable": false,
+      "encryptionType": "aes-xts-plain64_128",
+      "bootIndex": -1,
+      "multiAttach": true,
+      "serverIdList": ["server-1", "server-2"],
+      "location": "hcm-3",
+      "product": "vserver",
+      "persistentVolume": false,
+      "migrateState": "",
+      "zone": {
+        "uuid": "zone-a",
+        "name": "<name>"
+      }
+    }
+  ],
+  "page": 2,
+  "pageSize": 10,
+  "totalPage": 3,
+  "totalItem": 21
+}

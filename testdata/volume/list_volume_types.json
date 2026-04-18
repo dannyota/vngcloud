@@ -1,0 +1,13 @@
+{
+  "volumeTypes": [
+    {
+      "id": "type-1",
+      "name": "<name>",
+      "iops": 3000,
+      "maxSize": 1000,
+      "minSize": 20,
+      "throughPut": 200,
+      "zoneId": "zone-a"
+    }
+  ]
+}

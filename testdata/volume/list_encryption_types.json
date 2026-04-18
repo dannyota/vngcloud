@@ -1,0 +1,6 @@
+{
+  "encryptionTypes": [
+    "aes-xts-plain64_128",
+    "aes-xts-plain64_256"
+  ]
+}

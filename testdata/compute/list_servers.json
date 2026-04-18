@@ -1,0 +1,32 @@
+{
+  "listData": [
+    {
+      "uuid": "server-1",
+      "name": "<name>",
+      "status": "ACTIVE",
+      "flavor": {
+        "id": "flavor-1",
+        "name": "<name>",
+        "cpu": 2,
+        "ram": 4096
+      },
+      "internalInterfaces": [
+        {
+          "uuid": "interface-1",
+          "ipAddress": "<ip>",
+          "networkId": "vpc-1"
+        }
+      ],
+      "secgroups": [
+        {
+          "uuid": "secgroup-1",
+          "name": "<name>"
+        }
+      ]
+    }
+  ],
+  "page": 2,
+  "pageSize": 10,
+  "totalPage": 3,
+  "totalItem": 21
+}

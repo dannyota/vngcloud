@@ -1,0 +1,12 @@
+{
+  "data": {
+    "uuid": "subnet-1",
+    "name": "<name>",
+    "networkUuid": "vpc-1",
+    "cidr": "<cidr>",
+    "status": "ACTIVE",
+    "zone": {
+      "uuid": "zone-a"
+    }
+  }
+}

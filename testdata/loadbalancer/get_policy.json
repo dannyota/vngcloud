@@ -1,0 +1,28 @@
+{
+  "data": {
+    "uuid": "<policy-id>",
+    "name": "<name>",
+    "description": "<description>",
+    "redirectPoolId": "<pool-id>",
+    "redirectPoolName": "<name>",
+    "action": "REDIRECT_TO_POOL",
+    "redirectUrl": "",
+    "redirectHttpCode": 302,
+    "keepQueryString": false,
+    "position": 1,
+    "displayStatus": "ACTIVE",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "progressStatus": "",
+    "l7Rules": [
+      {
+        "uuid": "<rule-id>",
+        "compareType": "EQUAL_TO",
+        "ruleValue": "/",
+        "ruleType": "PATH",
+        "provisioningStatus": "ACTIVE",
+        "operatingStatus": "ONLINE"
+      }
+    ]
+  }
+}

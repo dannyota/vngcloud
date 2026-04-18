@@ -1,0 +1,10 @@
+{
+  "volumeTypes": [
+    {
+      "id": "type-1",
+      "name": "<name>",
+      "zoneId": "zone-a",
+      "throughPut": 200
+    }
+  ]
+}

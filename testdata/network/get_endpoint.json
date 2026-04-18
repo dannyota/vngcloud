@@ -1,0 +1,10 @@
+{
+  "data": {
+    "uuid": "endpoint-1",
+    "endpointName": "<name>",
+    "endpointUrl": "<internal-url>",
+    "status": "ACTIVE",
+    "vpcId": "vpc-1",
+    "subnetId": "subnet-1"
+  }
+}

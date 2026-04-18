@@ -1,0 +1,9 @@
+{
+  "volumeTypeZones": [
+    {
+      "id": "volume-zone-1",
+      "name": "<name>",
+      "poolName": ["<name>"]
+    }
+  ]
+}

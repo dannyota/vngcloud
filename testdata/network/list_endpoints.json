@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "uuid": "endpoint-1",
+      "endpointName": "<name>",
+      "endpointUrl": "<internal-url>",
+      "vpcId": "vpc-1",
+      "status": "ACTIVE"
+    }
+  ],
+  "page": 2,
+  "size": 25,
+  "totalPage": 2,
+  "total": 26
+}

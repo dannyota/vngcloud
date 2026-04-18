@@ -1,0 +1,19 @@
+{
+  "listData": [
+    {
+      "uuid": "nic-1",
+      "name": "<name>",
+      "fixedIp": "<ip>",
+      "mac": "fa:16:3e:00:00:01",
+      "networkId": "vpc-1",
+      "subnetId": "subnet-1",
+      "serverId": "server-1",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

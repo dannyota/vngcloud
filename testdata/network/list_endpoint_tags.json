@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "uuid": "tag-1",
+      "tagKey": "env",
+      "tagValue": "<value>",
+      "resourceUuid": "endpoint-1"
+    }
+  ]
+}

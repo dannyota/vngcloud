@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "uuid": "member-1",
+      "poolId": "pool-1",
+      "address": "<ip>",
+      "protocolPort": 80,
+      "weight": 1,
+      "displayStatus": "ACTIVE"
+    }
+  ]
+}

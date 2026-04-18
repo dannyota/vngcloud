@@ -1,0 +1,10 @@
+{
+  "data": {
+    "uuid": "vip-1",
+    "name": "<name>",
+    "ipAddress": "<ip>",
+    "networkId": "vpc-1",
+    "subnetId": "subnet-1",
+    "status": "ACTIVE"
+  }
+}

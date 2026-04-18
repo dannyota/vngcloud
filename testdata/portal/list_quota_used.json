@@ -1,0 +1,9 @@
+{
+  "quotas": [
+    {
+      "name": "<name>",
+      "used": 1,
+      "limit": 10
+    }
+  ]
+}

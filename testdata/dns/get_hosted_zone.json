@@ -1,0 +1,9 @@
+{
+  "data": {
+    "hostedZoneId": "zone-1",
+    "domainName": "<hostname>",
+    "status": "ACTIVE",
+    "type": "PRIVATE",
+    "assocVpcIds": ["vpc-1"]
+  }
+}

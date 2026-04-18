@@ -1,0 +1,13 @@
+[
+  {
+    "id": "member-1",
+    "name": "<name>",
+    "region": "hcm-3",
+    "globalPoolId": "pool-1",
+    "globalLoadBalancerId": "glb-1",
+    "trafficDial": 100,
+    "vpcId": "vpc-1",
+    "type": "IP",
+    "status": "ACTIVE"
+  }
+]

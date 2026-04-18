@@ -1,0 +1,25 @@
+{
+  "listData": [
+    {
+      "uuid": "rt-1",
+      "name": "<name>",
+      "status": "ACTIVE",
+      "networkId": "vpc-1",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "routes": [
+        {
+          "uuid": "route-1",
+          "routeTableId": "rt-1",
+          "routingType": "internet",
+          "destinationCidrBlock": "<cidr>",
+          "target": "igw-1",
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

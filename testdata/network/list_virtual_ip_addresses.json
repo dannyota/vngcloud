@@ -1,0 +1,19 @@
+{
+  "listData": [
+    {
+      "uuid": "vip-1",
+      "name": "<name>",
+      "ipAddress": "<ip>",
+      "networkId": "vpc-1",
+      "subnetId": "subnet-1",
+      "description": "<description>",
+      "addressPairIps": ["<ip>"],
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "totalPage": 1,
+  "totalItem": 1
+}

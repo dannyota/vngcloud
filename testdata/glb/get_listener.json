@@ -1,0 +1,14 @@
+{
+  "id": "listener-1",
+  "name": "<name>",
+  "description": "<description>",
+  "protocol": "HTTP",
+  "port": 80,
+  "globalLoadBalancerId": "glb-1",
+  "globalPoolId": "pool-1",
+  "timeoutClient": 50,
+  "timeoutMember": 50,
+  "timeoutConnection": 5,
+  "allowedCidrs": "<cidr>",
+  "status": "ACTIVE"
+}
