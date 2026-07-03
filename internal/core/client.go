@@ -196,6 +196,15 @@ func buildHTTPClient(cfg clientConfig) *http.Client {
 	return &http.Client{
 		Transport: roundTripper,
 		Timeout:   cfg.timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			if req.URL.Host != via[0].URL.Host {
+				return fmt.Errorf("redirected from %q to %q: API endpoints have moved, update the endpoint configuration", via[0].URL.Host, req.URL.Host)
+			}
+			return nil
+		},
 	}
 }
 
