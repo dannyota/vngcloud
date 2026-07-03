@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -113,5 +114,30 @@ func TestDoJSONCapturesResponse(t *testing.T) {
 
 	if out.Items[0].ID != "one" {
 		t.Fatal("captured body mutation changed decoded output")
+	}
+}
+
+func TestDecodeErrorArrayBody(t *testing.T) {
+	err := decodeError("Compute.ListServers", 403, []byte(`[{"code":"IAM_PERMISSION_DENIED","message":"IAM denied action"}]`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Code != "IAM_PERMISSION_DENIED" {
+		t.Fatalf("unexpected code: %q", apiErr.Code)
+	}
+	if apiErr.Message != "IAM denied action" {
+		t.Fatalf("unexpected message: %q", apiErr.Message)
+	}
+}
+
+func TestDecodeErrorObjectBody(t *testing.T) {
+	err := decodeError("Op", 404, []byte(`{"code":"NOT_FOUND","message":"missing"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Code != "NOT_FOUND" || apiErr.Message != "missing" {
+		t.Fatalf("unexpected error fields: %+v", apiErr)
 	}
 }

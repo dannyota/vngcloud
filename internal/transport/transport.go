@@ -297,8 +297,16 @@ type errorBody struct {
 
 func decodeError(operation string, status int, body []byte) error {
 	var eb errorBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &eb)
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 {
+		if trimmed[0] == '[' {
+			var items []errorBody
+			if err := json.Unmarshal(trimmed, &items); err == nil && len(items) > 0 {
+				eb = items[0]
+			}
+		} else {
+			_ = json.Unmarshal(trimmed, &eb)
+		}
 	}
 	msg := eb.Message
 	if msg == "" {
