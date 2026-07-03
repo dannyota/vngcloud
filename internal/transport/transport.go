@@ -178,6 +178,8 @@ func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
 		}
 		return retryAfter
 	}
+	// Shift may overflow negative for very large attempt values; the <= 0
+	// guard below caps it to maxRetryDelay intentionally.
 	d := c.retryInterval << attempt
 	if d <= 0 || d > maxRetryDelay {
 		d = maxRetryDelay

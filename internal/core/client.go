@@ -106,6 +106,9 @@ func (c *Client) Authenticate(ctx context.Context) error {
 
 type staticTokenSource string
 
+// Token returns the static token with a rolling 24-hour expiry window.
+// NeedsRefresh will periodically re-invoke this source, which simply
+// re-issues the same unchanging token; a static token never truly refreshes.
 func (s staticTokenSource) Token(context.Context) (transport.Token, error) {
 	return transport.Token{AccessToken: string(s), ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
 }
