@@ -16,15 +16,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"danny.vn/vngcloud/internal/endpoints"
 )
 
 const (
-	defaultSigninBaseURL = "https://signin.vngcloud.vn"
-	defaultTokenURL      = "https://dashboard.console.vngcloud.vn/accounts-api/v1/auth/token"
-	defaultDashboardURI  = "https://dashboard.console.vngcloud.vn/"
-	dashboardClientID    = "c9e78411-f2a2-41ba-a9e4-3c56263c181a"
-	loginPath            = "/ap/auth/iam/login"
-	twoFAPathMatch       = "/ap/auth/iam/google"
+	dashboardClientID = "c9e78411-f2a2-41ba-a9e4-3c56263c181a"
+	loginPath         = "/ap/auth/iam/login"
+	twoFAPathMatch    = "/ap/auth/iam/google"
 )
 
 type TOTPProvider interface {
@@ -45,17 +44,17 @@ type LoginRequest struct {
 func Login(ctx context.Context, req LoginRequest) (accessToken string, expiresAt time.Time, err error) {
 	signinBaseURL := req.SigninBaseURL
 	if signinBaseURL == "" {
-		signinBaseURL = defaultSigninBaseURL
+		signinBaseURL = endpoints.DefaultSignin
 	}
 	signinBaseURL = strings.TrimRight(signinBaseURL, "/")
 
 	tokenURL := req.TokenURL
 	if tokenURL == "" {
-		tokenURL = defaultTokenURL
+		tokenURL = endpoints.DefaultToken
 	}
 	dashboardURI := req.DashboardURI
 	if dashboardURI == "" {
-		dashboardURI = defaultDashboardURI
+		dashboardURI = endpoints.DefaultDashboard
 	}
 
 	jar, _ := cookiejar.New(nil)

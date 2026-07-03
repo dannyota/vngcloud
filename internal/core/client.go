@@ -46,11 +46,13 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	}
 
 	resolvedEndpoints := endpoints.ResolveIAMUser(cfg.Region, endpoints.Overrides(settings.endpoints))
-	cfg.IAMUser.SigninBaseURL = resolvedEndpoints.Signin
-	cfg.IAMUser.TokenURL = resolvedEndpoints.Token
 
 	httpClient := buildHTTPClient(settings)
-	ts := &iamTokenSource{auth: cfg.IAMUser}
+	ts := &iamTokenSource{auth: cfg.IAMUser, endpoints: loginEndpoints{
+		signin:    resolvedEndpoints.Signin,
+		token:     resolvedEndpoints.Token,
+		dashboard: resolvedEndpoints.Dashboard,
+	}}
 	var capture transport.CaptureFunc
 	if settings.capture != nil {
 		capture = func(captured transport.Capture) {
@@ -198,11 +200,12 @@ func buildHTTPClient(cfg clientConfig) *http.Client {
 }
 
 type iamTokenSource struct {
-	auth *IAMUserAuth
+	auth      *IAMUserAuth
+	endpoints loginEndpoints
 }
 
 func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
-	token, expiresAt, err := s.auth.token(ctx)
+	token, expiresAt, err := s.auth.token(ctx, s.endpoints)
 	if err != nil {
 		return transport.Token{}, err
 	}

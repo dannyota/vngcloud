@@ -28,6 +28,12 @@ type IAMUserAuth struct {
 	expiresAt   time.Time
 }
 
+type loginEndpoints struct {
+	signin    string
+	token     string
+	dashboard string
+}
+
 func (a *IAMUserAuth) validate() error {
 	if a == nil {
 		return fmt.Errorf("%w: IAMUser is required", ErrInvalidConfig)
@@ -44,7 +50,7 @@ func (a *IAMUserAuth) validate() error {
 	return nil
 }
 
-func (a *IAMUserAuth) token(ctx context.Context) (string, time.Time, error) {
+func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, time.Time, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -57,9 +63,9 @@ func (a *IAMUserAuth) token(ctx context.Context) (string, time.Time, error) {
 		Username:      a.Username,
 		Password:      a.Password,
 		TOTP:          a.TOTP,
-		SigninBaseURL: a.SigninBaseURL,
-		TokenURL:      a.TokenURL,
-		DashboardURI:  a.DashboardURI,
+		SigninBaseURL: firstNonEmpty(a.SigninBaseURL, ep.signin),
+		TokenURL:      firstNonEmpty(a.TokenURL, ep.token),
+		DashboardURI:  firstNonEmpty(a.DashboardURI, ep.dashboard),
 		HTTPClient:    a.HTTPClient,
 	}
 	token, expiresAt, err := iamuser.Login(ctx, req)
@@ -69,4 +75,13 @@ func (a *IAMUserAuth) token(ctx context.Context) (string, time.Time, error) {
 	a.cachedToken = token
 	a.expiresAt = expiresAt
 	return token, expiresAt, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
