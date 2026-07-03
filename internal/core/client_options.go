@@ -26,6 +26,7 @@ type clientConfig struct {
 	logger        *slog.Logger
 	endpoints     EndpointOverrides
 	capture       ResponseCaptureFunc
+	staticToken   string
 }
 
 type ResponseCapture struct {
@@ -78,6 +79,15 @@ func WithLogger(logger *slog.Logger) ClientOption {
 func WithEndpointOverrides(overrides EndpointOverrides) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.endpoints = overrides
+	})
+}
+
+// WithStaticToken bypasses IAM User login and sends the given bearer token on
+// every request. Useful with a token captured from an authenticated console
+// session. When set, Config.IAMUser may be nil.
+func WithStaticToken(token string) ClientOption {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.staticToken = token
 	})
 }
 

@@ -31,10 +31,6 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	if cfg.Region == "" {
 		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
 	}
-	if err := cfg.IAMUser.validate(); err != nil {
-		return nil, err
-	}
-
 	settings := clientConfig{
 		timeout:       120 * time.Second,
 		retryCount:    3,
@@ -44,6 +40,11 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		opt.apply(&settings)
 	}
+	if settings.staticToken == "" {
+		if err := cfg.IAMUser.validate(); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.UserAgent != "" {
 		settings.userAgent = cfg.UserAgent
 	}
@@ -51,11 +52,16 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	resolvedEndpoints := endpoints.ResolveIAMUser(cfg.Region, endpoints.Overrides(settings.endpoints))
 
 	httpClient := buildHTTPClient(settings)
-	ts := &iamTokenSource{auth: cfg.IAMUser, endpoints: loginEndpoints{
-		signin:    resolvedEndpoints.Signin,
-		token:     resolvedEndpoints.Token,
-		dashboard: resolvedEndpoints.Dashboard,
-	}}
+	var ts transport.TokenSource
+	if settings.staticToken != "" {
+		ts = staticTokenSource(settings.staticToken)
+	} else {
+		ts = &iamTokenSource{auth: cfg.IAMUser, endpoints: loginEndpoints{
+			signin:    resolvedEndpoints.Signin,
+			token:     resolvedEndpoints.Token,
+			dashboard: resolvedEndpoints.Dashboard,
+		}}
+	}
 	var capture transport.CaptureFunc
 	if settings.capture != nil {
 		capture = func(captured transport.Capture) {
@@ -90,6 +96,18 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 		logger:    logger,
 	}
 	return c, nil
+}
+
+// Authenticate performs the login flow eagerly and caches the token, so
+// configuration and credential errors surface before the first API call.
+func (c *Client) Authenticate(ctx context.Context) error {
+	return c.transport.EnsureToken(ctx)
+}
+
+type staticTokenSource string
+
+func (s staticTokenSource) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: string(s), ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
 }
 
 func (c *Client) Region() string {

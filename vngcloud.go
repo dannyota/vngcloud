@@ -201,6 +201,7 @@ var (
 	WithLogger            = core.WithLogger
 	WithEndpointOverrides = core.WithEndpointOverrides
 	WithResponseCapture   = core.WithResponseCapture
+	WithStaticToken       = core.WithStaticToken
 
 	IsNotFound         = core.IsNotFound
 	IsPermissionDenied = core.IsPermissionDenied

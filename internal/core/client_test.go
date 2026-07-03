@@ -72,3 +72,28 @@ func TestRequireProjectIDConcurrent(t *testing.T) {
 		t.Fatalf("unexpected project: %s", c.ProjectID())
 	}
 }
+
+func TestNewClientWithStaticToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"projects":[{"projectId":"project-1","region":"hcm-3"}]}`))
+	}))
+	defer server.Close()
+
+	c, err := NewClient(Config{Region: "hcm-3"},
+		WithStaticToken("static-token"),
+		WithEndpointOverrides(EndpointOverrides{VServer: server.URL}))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if err := c.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if _, err := c.ListProjects(context.Background(), nil); err != nil {
+		t.Fatalf("ListProjects() error = %v", err)
+	}
+	if gotAuth != "Bearer static-token" {
+		t.Fatalf("unexpected Authorization header: %q", gotAuth)
+	}
+}

@@ -28,7 +28,6 @@ type Client struct {
 }
 
 func NewClient(ctx context.Context, cfg core.Config, opts ...core.ClientOption) (*Client, error) {
-	_ = ctx
 	base, err := core.NewClient(cfg, opts...)
 	if err != nil {
 		return nil, err
@@ -42,5 +41,8 @@ func NewClient(ctx context.Context, cfg core.Config, opts ...core.ClientOption) 
 	c.DNS = dns.New(base)
 	c.ContainerRegistry = containerregistry.New(base)
 	c.Portal = portal.New(base)
+	if err := c.Authenticate(ctx); err != nil {
+		return nil, err
+	}
 	return c, nil
 }

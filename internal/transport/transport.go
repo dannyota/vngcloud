@@ -124,7 +124,7 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 		req.OK = []int{http.StatusOK}
 	}
 	if !req.SkipAuth {
-		if err := c.ensureToken(ctx); err != nil {
+		if err := c.EnsureToken(ctx); err != nil {
 			return err
 		}
 	}
@@ -281,7 +281,9 @@ func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
 	})
 }
 
-func (c *Client) ensureToken(ctx context.Context) error {
+// EnsureToken fetches and caches a token if the current one is missing or
+// near expiry. Safe for concurrent use.
+func (c *Client) EnsureToken(ctx context.Context) error {
 	if c.tokenSource == nil {
 		return nil
 	}
