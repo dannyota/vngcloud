@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -153,6 +155,53 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 	return nil
 }
 
+const maxRetryDelay = 30 * time.Second
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// backoff doubles the base interval per attempt with equal jitter so
+// concurrent clients do not retry in lockstep. A server Retry-After hint
+// wins over the computed value; both are capped at maxRetryDelay.
+func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		if retryAfter > maxRetryDelay {
+			return maxRetryDelay
+		}
+		return retryAfter
+	}
+	d := c.retryInterval << attempt
+	if d <= 0 || d > maxRetryDelay {
+		d = maxRetryDelay
+	}
+	half := d / 2
+	return half + rand.N(half+1)
+}
+
+func retryAfterHint(h http.Header) time.Duration {
+	value := h.Get("Retry-After")
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		if d := time.Until(when); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 	body, err := jsonBody(req.Body)
 	if err != nil {
@@ -188,7 +237,9 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 		if err != nil {
 			lastErr = err
 			if attempt < c.retryCount {
-				time.Sleep(c.retryInterval)
+				if serr := sleepContext(ctx, c.backoff(attempt, 0)); serr != nil {
+					return 0, nil, &APIError{Operation: req.Operation, Err: serr}
+				}
 				continue
 			}
 			return 0, nil, &APIError{Operation: req.Operation, Retryable: true, Err: err}
@@ -204,7 +255,9 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 		}
 
 		if retryableStatus(resp.StatusCode) && attempt < c.retryCount {
-			time.Sleep(c.retryInterval)
+			if serr := sleepContext(ctx, c.backoff(attempt, retryAfterHint(resp.Header))); serr != nil {
+				return 0, nil, &APIError{Operation: req.Operation, Err: serr}
+			}
 			continue
 		}
 		c.captureResponse(req, resp.StatusCode, respBody)

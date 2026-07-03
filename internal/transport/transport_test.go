@@ -117,6 +117,60 @@ func TestDoJSONCapturesResponse(t *testing.T) {
 	}
 }
 
+func TestDoJSONContextCancelDuringRetryWait(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client(), RetryCount: 3, RetryInterval: 10 * time.Second})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := c.DoJSON(ctx, Request{Operation: "Op", URL: server.URL, SkipAuth: true}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("retry wait ignored context cancellation (took %s)", time.Since(start))
+	}
+}
+
+func TestBackoffBounds(t *testing.T) {
+	c := New(Config{RetryInterval: time.Second})
+	for attempt := 0; attempt < 10; attempt++ {
+		d := c.backoff(attempt, 0)
+		if d <= 0 || d > 30*time.Second {
+			t.Fatalf("attempt %d: backoff %s out of bounds", attempt, d)
+		}
+	}
+	if d := c.backoff(0, 5*time.Second); d != 5*time.Second {
+		t.Fatalf("expected Retry-After to win, got %s", d)
+	}
+	if d := c.backoff(0, 10*time.Minute); d != 30*time.Second {
+		t.Fatalf("expected Retry-After to be capped, got %s", d)
+	}
+}
+
+func TestRetryAfterHint(t *testing.T) {
+	h := http.Header{}
+	if retryAfterHint(h) != 0 {
+		t.Fatal("expected 0 for missing header")
+	}
+	h.Set("Retry-After", "7")
+	if retryAfterHint(h) != 7*time.Second {
+		t.Fatalf("unexpected hint: %s", retryAfterHint(h))
+	}
+	h.Set("Retry-After", "garbage")
+	if retryAfterHint(h) != 0 {
+		t.Fatal("expected 0 for unparseable header")
+	}
+}
+
 func TestDecodeErrorArrayBody(t *testing.T) {
 	err := decodeError("Compute.ListServers", 403, []byte(`[{"code":"IAM_PERMISSION_DENIED","message":"IAM denied action"}]`))
 	var apiErr *APIError
