@@ -1,5 +1,6 @@
 # Example credentials and live smoke output.
 .env
+PLAN.md
 *.json
 examples/basic/output/
 !examples/basic/config.example.json
