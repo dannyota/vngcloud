@@ -5,8 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 func TestNewClientDoesNotMutateAuthConfig(t *testing.T) {
@@ -41,5 +45,30 @@ func TestBuildHTTPClientRejectsCrossHostRedirects(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "endpoints have moved") {
 		t.Fatalf("expected cross-host redirect error, got %v", err)
+	}
+}
+
+func TestRequireProjectIDConcurrent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"projects":[{"projectId":"project-1","region":"hcm-3","userId":7}]}`))
+	}))
+	defer server.Close()
+
+	c := NewTestClient("hcm-3", "", endpoints.Set{VServer: server.URL + "/"},
+		transport.New(transport.Config{HTTPClient: server.Client()}))
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.RequireProjectID(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if c.ProjectID() != "project-1" {
+		t.Fatalf("unexpected project: %s", c.ProjectID())
 	}
 }

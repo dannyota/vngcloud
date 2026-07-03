@@ -59,7 +59,9 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 	return projects, nil
 }
 
-func (c *Client) discoverProject(ctx context.Context) error {
+// discoverProjectLocked requires c.projectMu to be held; ListProjects itself
+// does not touch the guarded fields.
+func (c *Client) discoverProjectLocked(ctx context.Context) error {
 	projects, err := c.ListProjects(ctx, nil)
 	if err != nil {
 		return err

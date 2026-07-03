@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/core"
@@ -16,7 +17,9 @@ import (
 )
 
 type Service struct {
-	client       *core.Client
+	client *core.Client
+
+	mu           sync.Mutex
 	vnetZoneID   string
 	vnetEndpoint string
 }
@@ -80,24 +83,34 @@ func (s *Service) ListVNetworkRegions(ctx context.Context) ([]VNetworkRegion, er
 }
 
 func (s *Service) listVNetworkRegions(ctx context.Context, baseURL string) ([]VNetworkRegion, error) {
-	previous := s.vnetEndpoint
-	s.vnetEndpoint = baseURL
-	defer func() {
-		s.vnetEndpoint = previous
-	}()
-
 	var resp struct {
 		Data []VNetworkRegion `json:"data"`
 	}
 	if err := s.client.DoJSON(ctx, transport.Request{
 		Operation: "Network.ListVNetworkRegions",
 		Method:    "GET",
-		URL:       s.routeURL(routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}),
-		OK:        []int{200},
+		URL: routes.URL(fixedVNetEndpoint{base: baseURL, next: s}, routes.Route{
+			Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"},
+		}),
+		OK: []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Data, nil
+}
+
+// fixedVNetEndpoint pins the vNetwork base URL for a single request without
+// mutating shared Service state.
+type fixedVNetEndpoint struct {
+	base string
+	next routes.Endpoints
+}
+
+func (f fixedVNetEndpoint) Endpoint(product routes.Product) string {
+	if product == routes.ProductVNet {
+		return f.base
+	}
+	return f.next.Endpoint(product)
 }
 
 func uniqueNonEmptyStrings(values []string) []string {
@@ -600,27 +613,40 @@ func (s *Service) routeURL(route routes.Route) string {
 }
 
 func (s *Service) Endpoint(product routes.Product) string {
-	if product == routes.ProductVNet && s.vnetEndpoint != "" {
-		return s.vnetEndpoint
+	if product == routes.ProductVNet {
+		s.mu.Lock()
+		endpoint := s.vnetEndpoint
+		s.mu.Unlock()
+		if endpoint != "" {
+			return endpoint
+		}
 	}
 	return s.client.Endpoint(product)
 }
 
 func (s *Service) requireVNetworkZoneID(ctx context.Context) string {
+	s.mu.Lock()
 	if s.vnetZoneID != "" {
-		return s.vnetZoneID
+		id := s.vnetZoneID
+		s.mu.Unlock()
+		return id
 	}
+	s.mu.Unlock()
+
 	regions, err := s.ListVNetworkRegions(ctx)
 	if err != nil {
 		return s.client.Region()
 	}
 	for _, region := range regions {
 		if region.matches(s.client.Region()) {
+			s.mu.Lock()
 			s.vnetZoneID = region.UUID
 			if endpoint := region.endpoint(); endpoint != "" {
 				s.vnetEndpoint = endpoint
 			}
-			return s.vnetZoneID
+			id := s.vnetZoneID
+			s.mu.Unlock()
+			return id
 		}
 	}
 	return s.client.Region()

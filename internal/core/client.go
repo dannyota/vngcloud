@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"danny.vn/vngcloud/internal/endpoints"
@@ -16,12 +17,14 @@ import (
 const defaultUserAgent = "danny.vn/vngcloud"
 
 type Client struct {
-	region        string
+	region    string
+	endpoints endpoints.Set
+	transport *transport.Client
+	logger    *slog.Logger
+
+	projectMu     sync.Mutex
 	projectID     string
 	projectUserID int
-	endpoints     endpoints.Set
-	transport     *transport.Client
-	logger        *slog.Logger
 }
 
 func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
@@ -94,18 +97,24 @@ func (c *Client) Region() string {
 }
 
 func (c *Client) ProjectID() string {
+	c.projectMu.Lock()
+	defer c.projectMu.Unlock()
 	return c.projectID
 }
 
 func (c *Client) ProjectUserID() int {
+	c.projectMu.Lock()
+	defer c.projectMu.Unlock()
 	return c.projectUserID
 }
 
 func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
+	c.projectMu.Lock()
+	defer c.projectMu.Unlock()
 	if c.projectID != "" {
 		return c.projectID, nil
 	}
-	if err := c.discoverProject(ctx); err != nil {
+	if err := c.discoverProjectLocked(ctx); err != nil {
 		return "", err
 	}
 	return c.projectID, nil
@@ -116,6 +125,8 @@ func (c *Client) RequireProject(ctx context.Context) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
+	c.projectMu.Lock()
+	defer c.projectMu.Unlock()
 	if c.projectID != "" {
 		for _, project := range projects {
 			if project.ID == c.projectID {
