@@ -47,6 +47,12 @@ regions hcm-3 and han-1). Key facts:
   host does not have a `greennode.ai` equivalent without the prefix).
 - Legacy `*.vngcloud.vn` hosts 301-redirect to the new domains.
 
+Live verification (2026-07-03, `make live`): full pass across hcm-3 and han-1
+for all read services. Headless IAM login worked with password + computed TOTP
+and no captcha. The token endpoint DOES return a `refreshToken` alongside the
+access token — a refresh-token grant is feasible follow-up work to avoid full
+re-login (and TOTP) on token expiry.
+
 ## Playwright MCP Workflow
 
 1. Start from the console login page.
