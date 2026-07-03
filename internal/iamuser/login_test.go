@@ -37,7 +37,7 @@ func TestLoginWithout2FA(t *testing.T) {
 	defer token.Close()
 	tokenURL = token.URL
 
-	accessToken, expiresAt, err := Login(context.Background(), LoginRequest{
+	result, err := Login(context.Background(), LoginRequest{
 		RootEmail:     "<root-email>",
 		Username:      "user",
 		Password:      "password",
@@ -48,10 +48,61 @@ func TestLoginWithout2FA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if accessToken != "token-value" {
-		t.Fatalf("unexpected token: %s", accessToken)
+	if result.AccessToken != "token-value" {
+		t.Fatalf("unexpected token: %s", result.AccessToken)
 	}
-	if time.Until(expiresAt) < 59*time.Minute {
-		t.Fatalf("unexpected expiry: %s", expiresAt)
+	if time.Until(result.ExpiresAt) < 59*time.Minute {
+		t.Fatalf("unexpected expiry: %s", result.ExpiresAt)
+	}
+}
+
+func TestLoginErrorsOnLoginPageFailure(t *testing.T) {
+	signin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer signin.Close()
+
+	_, err := Login(context.Background(), LoginRequest{
+		RootEmail: "r", Username: "u", Password: "p",
+		SigninBaseURL: signin.URL, TokenURL: signin.URL, DashboardURI: signin.URL + "/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("expected status 500 error, got %v", err)
+	}
+}
+
+func TestLoginErrorsOnMovedEndpoint(t *testing.T) {
+	signin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`<html><input name="_csrf" value="csrf-login"></html>`))
+		default:
+			w.Header().Set("Location", "https://elsewhere.example/ap/auth/iam/login")
+			w.WriteHeader(http.StatusMovedPermanently)
+		}
+	}))
+	defer signin.Close()
+
+	_, err := Login(context.Background(), LoginRequest{
+		RootEmail: "r", Username: "u", Password: "p",
+		SigninBaseURL: signin.URL, TokenURL: signin.URL, DashboardURI: signin.URL + "/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "moved permanently") {
+		t.Fatalf("expected moved-endpoint error, got %v", err)
+	}
+}
+
+func TestLoginErrorsOnFormRedisplay(t *testing.T) {
+	signin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><input name="_csrf" value="csrf-login"></html>`))
+	}))
+	defer signin.Close()
+
+	_, err := Login(context.Background(), LoginRequest{
+		RootEmail: "r", Username: "u", Password: "p",
+		SigninBaseURL: signin.URL, TokenURL: signin.URL, DashboardURI: signin.URL + "/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "login rejected") {
+		t.Fatalf("expected login-rejected error, got %v", err)
 	}
 }

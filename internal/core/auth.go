@@ -68,13 +68,13 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 		DashboardURI:  firstNonEmpty(a.DashboardURI, ep.dashboard),
 		HTTPClient:    a.HTTPClient,
 	}
-	token, expiresAt, err := iamuser.Login(ctx, req)
+	result, err := iamuser.Login(ctx, req)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("%w: %w", ErrAuth, err)
 	}
-	a.cachedToken = token
-	a.expiresAt = expiresAt
-	return token, expiresAt, nil
+	a.cachedToken = result.AccessToken
+	a.expiresAt = result.ExpiresAt
+	return a.cachedToken, a.expiresAt, nil
 }
 
 func firstNonEmpty(values ...string) string {
