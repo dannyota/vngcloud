@@ -18,5 +18,6 @@ type EndpointOverrides struct {
 	VCR                string
 	Portal             string
 	Signin             string
+	Dashboard          string
 	Token              string
 }

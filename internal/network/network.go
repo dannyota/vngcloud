@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -66,7 +66,7 @@ type ListEndpointsResult = core.ListResult[NetworkEndpoint]
 func (s *Service) ListVNetworkRegions(ctx context.Context) ([]VNetworkRegion, error) {
 	bases := []string{
 		s.client.Endpoint(routes.ProductVNet),
-		vnetworkDashboardGateway(s.client.Region()),
+		endpoints.VNetworkRegionalGateway(s.client.Region()),
 	}
 	var lastErr error
 	for _, base := range uniqueNonEmptyStrings(bases) {
@@ -98,13 +98,6 @@ func (s *Service) listVNetworkRegions(ctx context.Context, baseURL string) ([]VN
 		return nil, err
 	}
 	return resp.Data, nil
-}
-
-func vnetworkDashboardGateway(region string) string {
-	if region == "" {
-		return ""
-	}
-	return fmt.Sprintf("https://%s-vnetwork.console.vngcloud.vn/vnetwork-gateway/", region)
 }
 
 func uniqueNonEmptyStrings(values []string) []string {
