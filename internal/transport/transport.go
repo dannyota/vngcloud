@@ -183,7 +183,7 @@ func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
 		d = maxRetryDelay
 	}
 	half := d / 2
-	return half + rand.N(half+1)
+	return half + rand.N(half+1) //nolint:gosec // retry jitter does not need cryptographic randomness
 }
 
 func retryAfterHint(h http.Header) time.Duration {
