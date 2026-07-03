@@ -1,4 +1,4 @@
-.PHONY: help test vet lint fmt
+.PHONY: help test vet lint fmt live
 
 SHELL := bash
 
@@ -16,5 +16,8 @@ lint: ## Run golangci-lint
 
 fmt: ## Auto-fix formatting and import sorting
 	@golangci-lint fmt ./...
+
+live: ## Run live smoke tests against the real API (reads .env)
+	@go test -tags live -count=1 -v -run TestLive .
 
 .DEFAULT_GOAL := help

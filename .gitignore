@@ -1,4 +1,5 @@
 # Example credentials and live smoke output.
+.env
 *.json
 examples/basic/output/
 !examples/basic/config.example.json
