@@ -34,6 +34,40 @@ IAMUser: &vngcloud.IAMUserAuth{
 Root-user auth is not supported because the browser login flow requires a
 reCAPTCHA challenge. Service account auth is also not supported.
 
+### Static Token (Captcha Workaround)
+
+When IAM User login is blocked by a captcha challenge, use `WithStaticToken`
+to bypass the login flow entirely. Capture a bearer token from an
+authenticated console session (browser DevTools) and pass it to the client:
+
+```go
+client, err := vngcloud.NewClient(ctx, vngcloud.Config{
+	Region: "hcm-3",
+}, vngcloud.WithStaticToken("<bearer-token>"))
+```
+
+The SDK skips IAM login and uses the provided token for all requests. No
+IAM User credentials are needed. The token is not refreshed automatically;
+when it expires, create a new client with a fresh token.
+
+### Dashboard Endpoint Override
+
+`EndpointOverrides.Dashboard` controls the OAuth `redirectUri` used during
+IAM login. Overriding `Dashboard` automatically derives the `Token`
+endpoint unless `Token` is also set explicitly:
+
+```go
+client, err := vngcloud.NewClient(ctx, vngcloud.Config{
+	Region: "hcm-3",
+	IAMUser: &vngcloud.IAMUserAuth{ /* ... */ },
+}, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{
+	Dashboard: "https://custom-dashboard.example.com",
+}))
+```
+
+This is useful when targeting a non-default environment where the dashboard
+host differs from the production default.
+
 ## Project Discovery
 
 `ProjectID` is optional in `Config`.

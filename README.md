@@ -1,6 +1,6 @@
 # vngcloud
 
-Read-only Go SDK for VNG Cloud IAM User workflows.
+Read-only Go SDK for VNG Cloud (now GreenNode) IAM User workflows.
 
 This SDK currently supports IAM User authentication, project discovery, and
 read-only APIs for Compute, Volume, Network, top-level Load Balancer resources,
@@ -92,6 +92,25 @@ go run ./examples/basic -config examples/basic/config.local.json
 The basic example reads IAM User credentials, runs read-only API calls, writes
 local output under `examples/basic/output/`, and validates the output shape before
 exit. The output directory is ignored by git and may contain sensitive data.
+
+## Endpoints
+
+Defaults target the GreenNode domains (`*.console.greennode.ai`,
+`signin.greennode.ai`) — VNG Cloud's rebranded infrastructure. The legacy
+`*.vngcloud.vn` hosts only issue redirects that drop the Authorization
+header, so the SDK never follows a cross-host redirect; it fails with a
+clear error instead. Use `WithEndpointOverrides` to target other
+environments.
+
+## Live smoke test
+
+	cp .env.example .env   # fill in IAM User credentials
+	make live
+
+The live test logs in once against the real signin flow, then exercises one
+read-only list call per service. If interactive login is impossible
+(captcha), set `VNGCLOUD_ACCESS_TOKEN` in `.env` with a bearer token
+captured from an authenticated console session.
 
 ## Docs
 

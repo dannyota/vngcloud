@@ -1,5 +1,33 @@
 # Release Notes
 
+## v0.2.0 - GreenNode Domain Migration
+
+### Highlights
+
+- Migrated all default endpoints to GreenNode domains
+  (`*.console.greennode.ai`, `signin.greennode.ai`). The vDNS API moved to
+  a new host and gained the `/vdns-api/` path prefix
+  (`vdns.console.greennode.ai/vdns-api/`).
+- Fixed JSON error-body decoding to handle array-shaped error responses
+  returned by some endpoints.
+- Hardened the login flow with HTTP status checks, cross-host redirect
+  guards (legacy `*.vngcloud.vn` hosts 301-redirect but Go strips
+  Authorization cross-domain), and clearer error messages including a hint
+  when captcha is required.
+- Added context-aware retries with jittered exponential backoff and
+  Retry-After header support.
+- Fixed goroutine-safety in project discovery and vNetwork endpoint
+  caching.
+- Added eager authentication in `NewClient` so bad credentials fail fast
+  at construction time.
+- Added `WithStaticToken` option to bypass IAM login using a bearer token
+  captured from the console (captcha workaround).
+- Added `EndpointOverrides.Dashboard` field for the OAuth redirectUri;
+  overriding Dashboard derives Token unless Token is set explicitly.
+- Added `make live` smoke test that reads `.env` and exercises one
+  read-only call per service against the real API (defaults to regions
+  hcm-3 and han-1).
+
 ## v0.1.0 - Initial Read-Only IAM User SDK
 
 This release introduces `danny.vn/vngcloud`, a read-only Go SDK for VNG Cloud
