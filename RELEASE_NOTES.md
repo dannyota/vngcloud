@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.2.1 - Canonical License Text
+
+### Highlights
+
+- Restored the canonical Apache License 2.0 text (the previous file had
+  reflowed wording and a missing appendix, which pkg.go.dev's license
+  detector did not recognize, hiding the documentation).
+
 ## v0.2.0 - GreenNode Domain Migration
 
 ### Highlights
