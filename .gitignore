@@ -18,3 +18,7 @@ Icon?
 .VolumeIcon.icns
 .fseventsd
 .localized
+
+# Local notes and IDE settings.
+DISCOVERY_WORKFLOW_NOTES.md
+.idea/
