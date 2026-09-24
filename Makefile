@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live browser-creds
 
 SHELL := bash
 
@@ -43,5 +43,8 @@ semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI r
 
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive .
+
+browser-creds: ## Serve .env IAM User values once to scripts/browser-login.js for Playwright MCP
+	@python3 scripts/browser-creds.py
 
 .DEFAULT_GOAL := help
