@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Blocks secrets and oversize files before they reach a commit. The repository
+# is public, so a pushed secret cannot be recalled; rotating it is the only fix.
+# Install with: make hooks-install
+set -Eeuo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed; cannot scan staged content." >&2
+  echo "Install it with: go install github.com/zricethezav/gitleaks/v8@v8.30.1" >&2
+  exit 1
+fi
+
+gitleaks protect --staged --redact --no-banner
+bash scripts/check-lengths.sh

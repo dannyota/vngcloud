@@ -1,0 +1,27 @@
+name: Wiki
+
+# Publishes docs/wiki/ to the GitHub wiki. See docs/adr/0001-wiki-from-docs.md.
+on:
+  push:
+    branches: [master]
+    paths:
+      - docs/wiki/**
+      - scripts/wiki-sync.sh
+      - .github/workflows/wiki.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash scripts/wiki-sync.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

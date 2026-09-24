@@ -1,6 +1,5 @@
 # Example credentials and live smoke output.
 .env
-PLAN.md
 *.json
 examples/basic/output/
 !examples/basic/config.example.json
@@ -19,6 +18,11 @@ Icon?
 .fseventsd
 .localized
 
-# Local notes and IDE settings.
-DISCOVERY_WORKFLOW_NOTES.md
-.idea/
+# Shared agent roles. Everything else under .claude/ and .codex/ stays local.
+!.claude/
+.claude/*
+!.claude/agents/
+!.claude/settings.json
+!.codex/
+.codex/*
+!.codex/agents/

@@ -1,0 +1,6 @@
+# gitleaks configuration. The pre-commit hook scans staged content and CI scans
+# full history. Add an allowlist only for a verified false positive, pinned to
+# one rule and one path, with the reason.
+
+[extend]
+useDefault = true
