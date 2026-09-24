@@ -6,7 +6,7 @@
 go get danny.vn/vngcloud
 ```
 
-The module needs Go 1.24 or later.
+The module needs Go 1.27.1 or later.
 
 ## Create a client
 

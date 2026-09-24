@@ -2,7 +2,7 @@
 
 Code rules and the checks each change needs. Implementers, the reviewer, and the manager read this file.
 
-- Go 1.24 is the minimum the module supports (`go.mod`); `.tool-versions` pins the toolchain for local work and CI. Follow Google Go style with `gofmt` and `goimports`.
+- `go.mod` requires Go 1.27.1, the same version `.tool-versions` pins for local work and CI. Raise both together when a Go patch release fixes a security issue. Follow Google Go style with `gofmt` and `goimports`.
 - Keep the public API in one package. A new public type, option, or method in `internal/*` gets a re-export in `vngcloud.go`.
 - Tests are deterministic: inject clocks and randomness, and use `httptest` servers, never the real API. Never retry a flaky test into a pass.
 - `golangci-lint` stays at 0 issues. A justified `//nolint:<linter>` needs a reason on the same line.
