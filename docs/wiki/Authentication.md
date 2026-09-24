@@ -1,7 +1,7 @@
 # Authentication
 
-The SDK supports IAM User login and static bearer tokens. Root-account and
-service-account login are not supported yet.
+The SDK logs in as an IAM User, or uses a static bearer token. It does not
+support root-account or service-account login.
 
 ## IAM User
 
@@ -49,7 +49,8 @@ client, err := vngcloud.NewClient(ctx, vngcloud.Config{
 The SDK does not refresh a static token. When it expires, create a new client
 with a fresh token.
 
-## Root account
+## Permissions
 
-Root login is not supported. The root sign-in page requires a Google reCAPTCHA
-before it accepts the password, so it needs a browser step.
+The SDK can do only what the IAM User's policies allow. For full access, grant
+the IAM User broad policies in the console instead of using the root account.
+The root sign-in page requires a Google reCAPTCHA, so it cannot be automated.

@@ -35,9 +35,8 @@ For 2FA, set either `totpSecret` to the base32 shared secret or `totpCode` to th
 current 6-digit code. Leave both empty when the IAM user does not enforce OTP.
 `totpCode` is only useful for one immediate smoke run.
 
-Root-user auth is intentionally unsupported. The observed browser flow requires
-Google reCAPTCHA validation before the SSO server accepts the password step, so
-it is not suitable for a non-interactive SDK auth path.
+The example logs in as an IAM User. Root-account login is not supported,
+because the root sign-in page requires a Google reCAPTCHA.
 
 The example writes focused local output under `examples/basic/output/`.
 That folder is gitignored. Raw HTTP response captures and SDK-decoded model
