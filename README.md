@@ -1,118 +1,47 @@
 # vngcloud
 
-Read-only Go SDK for VNG Cloud (now GreenNode) IAM User workflows.
+[![CI](https://github.com/dannyota/vngcloud/actions/workflows/ci.yml/badge.svg)](https://github.com/dannyota/vngcloud/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/danny.vn/vngcloud.svg)](https://pkg.go.dev/danny.vn/vngcloud)
 
-This SDK currently supports IAM User authentication, project discovery, and
-read-only APIs for Compute, Volume, Network, top-level Load Balancer resources,
-Global Load Balancer metadata, DNS, and Container Registry.
+An unofficial Go SDK and command-line tool for VNG Cloud (now GreenNode), in
+the spirit of the AWS SDK and AWS CLI.
 
-Service account authentication and write APIs are intentionally out of scope for now.
+I built it because I wanted what the AWS CLI gives me on AWS: one tool that I
+and AI coding agents can use to inspect and change cloud resources from a
+terminal or a script.
 
-## Install
+This is a personal project. I don't work for VNG Cloud or GreenNode, and the
+project is not affiliated with or endorsed by them. It is free to use, change,
+and redistribute under the [Apache 2.0 license](LICENSE).
+
+## Status
+
+| Part | State |
+|-|-|
+| Go SDK, read APIs | Compute, Volume, Network, Load Balancer, Global Load Balancer, DNS, Container Registry, Portal |
+| Go SDK, write APIs | Planned |
+| `vngcloud` CLI | Planned, shaped like the AWS CLI: `vngcloud <service> <operation> [flags]` |
+
+Expect breaking changes until `v1.0.0`.
+
+## Quick start
 
 ```bash
 go get danny.vn/vngcloud
 ```
 
-Requires Go 1.24+.
-
-## Quick Start
-
 ```go
-package main
-
-import (
-	"context"
-	"log"
-
-	"danny.vn/vngcloud"
-)
-
-func main() {
-	ctx := context.Background()
-
-	client, err := vngcloud.NewClient(ctx, vngcloud.Config{
-		Region: "hcm-3",
-		IAMUser: &vngcloud.IAMUserAuth{
-			RootEmail: "<root-email>",
-			Username:  "<iam-username>",
-			Password:  "<password>",
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	servers, err := client.Compute.ListServers(ctx, &vngcloud.ListServersOptions{
-		Page: 1,
-		Size: vngcloud.DefaultPageSize,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("servers: %d", len(servers.Items))
-}
+client, err := vngcloud.NewClient(ctx, vngcloud.Config{
+	Region:  "hcm-3",
+	IAMUser: &vngcloud.IAMUserAuth{RootEmail: "<root-email>", Username: "<iam-username>", Password: "<password>"},
+})
+servers, err := client.Compute.ListServers(ctx, nil)
 ```
 
-`ProjectID` is optional. When a service method needs a project, the SDK lists IAM
-User projects for the configured region and auto-selects the project when exactly
-one match exists. You can also call `client.ListProjects(ctx, nil)` explicitly.
+Read the [wiki](https://github.com/dannyota/vngcloud/wiki) for authentication,
+configuration, and every service method.
 
-## SDK Shape
+## Contributing
 
-The SDK exposes one flat public package. Service clients are grouped by VNG Cloud
-product:
-
-```go
-client.Compute
-client.Volume
-client.Network
-client.LoadBalancer
-client.GlobalLoadBalancer
-client.DNS
-client.ContainerRegistry
-client.Portal
-```
-
-Public resource models live in the root package, for example
-`vngcloud.Server`, `vngcloud.Volume`, and `vngcloud.VPC`.
-
-Server URL versions such as `v1` and `v2` are internal route metadata, not SDK
-package versions.
-
-## Example
-
-```bash
-cp examples/basic/config.example.json examples/basic/config.local.json
-$EDITOR examples/basic/config.local.json
-go run ./examples/basic -config examples/basic/config.local.json
-```
-
-The basic example reads IAM User credentials, runs read-only API calls, writes
-local output under `examples/basic/output/`, and validates the output shape before
-exit. The output directory is ignored by git and may contain sensitive data.
-
-## Endpoints
-
-Defaults target the GreenNode domains (`*.console.greennode.ai`,
-`signin.greennode.ai`) — VNG Cloud's rebranded infrastructure. The legacy
-`*.vngcloud.vn` hosts only issue redirects that drop the Authorization
-header, so the SDK never follows a cross-host redirect; it fails with a
-clear error instead. Use `WithEndpointOverrides` to target other
-environments.
-
-## Live smoke test
-
-	cp .env.example .env   # fill in IAM User credentials
-	make live
-
-The live test logs in once against the real signin flow, then exercises one
-read-only list call per service. If interactive login is impossible
-(captcha), set `VNGCLOUD_ACCESS_TOKEN` in `.env` with a bearer token
-captured from an authenticated console session.
-
-## Docs
-
-- [Guides](GUIDES.md)
-- [Features](FEATURES.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as
+described in [SECURITY.md](SECURITY.md).
