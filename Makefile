@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview semgrep live
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview semgrep semgrep-ci live
 
 SHELL := bash
 
@@ -31,6 +31,9 @@ wiki-preview: ## Render docs/wiki/ as the wiki will serve it, without pushing
 
 semgrep: ## Offline Semgrep scan with registry packs; CI runs the connected scan
 	@semgrep --config p/golang --config p/gosec --config p/secrets --error .
+
+semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI runs it; needs SEMGREP_APP_TOKEN
+	@semgrep ci --code --supply-chain --secrets --no-suppress-errors
 
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive .

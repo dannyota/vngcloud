@@ -44,8 +44,8 @@ jobs:
           go install github.com/zricethezav/gitleaks/v8@v8.30.1
           "$(go env GOPATH)/bin/gitleaks" detect --redact --no-banner
 
-  # Connected scan: Semgrep Code, Supply Chain, and Secrets. Authenticates to
-  # Semgrep with SEMGREP_APP_TOKEN, not GITHUB_TOKEN.
+  # Connected Semgrep Pro scan: Code (Pro rules), Supply Chain, and Secrets.
+  # Authenticates to Semgrep with SEMGREP_APP_TOKEN, not GITHUB_TOKEN.
   semgrep:
     runs-on: ubuntu-latest
     steps:
