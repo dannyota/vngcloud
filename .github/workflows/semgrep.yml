@@ -1,0 +1,37 @@
+name: Semgrep
+
+# Docs-only pushes skip this scan; gitleaks in ci.yml still scans every push
+# for secrets. Most of the run time is Semgrep's own config fetch, rule
+# loading, and Pro scan.
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - docs/**
+      - LICENSE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Connected Semgrep Pro scan: Code (Pro rules), Supply Chain, and Secrets.
+  # The official image, pinned by digest, skips Python setup and pip install.
+  # Keep its tag equal to the semgrep pin in .tool-versions.
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # semgrep ci is diff-aware
+      - run: semgrep ci --code --supply-chain --secrets --no-suppress-errors
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}

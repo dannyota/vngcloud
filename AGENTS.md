@@ -44,7 +44,7 @@ A path outside every row belongs to the manager, which assigns it in a brief. Ev
 
 Security comes before features and convenience, as in the AWS CLI. When a choice trades safety for ease, pick safety and tell the owner.
 
-- Stay on the latest Go, tool, and GitHub Action releases. `.tool-versions` holds every tool version; `go.mod` and the Semgrep image tag in `ci.yml` mirror it, and Actions are pinned by SHA with a version comment. The weekly Tools workflow (`make tools-outdated`) fails when anything is behind; update the pins, the owner's laptop tools, and the Semgrep image digest in one commit that week.
+- Stay on the latest Go, tool, and GitHub Action releases. `.tool-versions` holds every tool version; `go.mod` and the Semgrep image tag in `semgrep.yml` mirror it, and Actions are pinned by SHA with a version comment. The weekly Tools workflow (`make tools-outdated`) fails when anything is behind; update the pins, the owner's laptop tools, and the Semgrep image digest in one commit that week.
 - Secure defaults, with no switch to weaken them: TLS verification always on, no cross-host redirects, credentials files mode 0600, token cache mode 0600 in a 0700 directory.
 - Never print, log, or return in an error: passwords, TOTP secrets, tokens, authorization codes, cookies, or the Authorization header. `--debug` and error messages are checked by tests for this.
 - Destructive CLI commands need `--yes`. Nothing prompts in a way that can hang an agent.
@@ -55,7 +55,7 @@ Security comes before features and convenience, as in the AWS CLI. When a choice
 ## How we work
 
 - **Small releases.** One feature per `v0.x.y` tag. Ship a feature when it is done and CI is green; do not batch features.
-- **Local checks, CI gate.** Run `make check` before each commit; it takes seconds. GitHub CI runs the same checks plus a full-history gitleaks scan and a connected Semgrep scan (Code, Supply Chain, Secrets). A red run is fixed forward at once. A tag needs green CI on that exact commit.
+- **Local checks, CI gate.** Run `make check` before each commit; it takes seconds. GitHub CI runs the same checks plus a full-history gitleaks scan and, on pushes that change code, a connected Semgrep Pro scan (Code, Supply Chain, Secrets). A red run is fixed forward at once. A tag needs green CI on that exact commit.
 - **Merge to `master` locally and push; no pull requests.** Use a branch for multi-commit work and delete it after merging.
 - **Parallel work:** at most three workers, on disjoint file sets. Do not spawn workers to repeat verification.
 - Match review depth to risk. Do not invent extra gates.

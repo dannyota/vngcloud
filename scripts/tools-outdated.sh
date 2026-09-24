@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails when a pinned tool or GitHub Action is behind its latest release, or
 # when a pin disagrees with its mirror. .tool-versions is the source for tool
-# versions; go.mod and the Semgrep image tag in ci.yml mirror it. Actions are
+# versions; go.mod and the Semgrep image tag in semgrep.yml mirror it. Actions are
 # pinned by SHA with a "# vX.Y.Z" comment that this script compares.
 #
 # Set GH_TOKEN to avoid GitHub API rate limits.
@@ -44,8 +44,8 @@ check govulncheck "$(pin govulncheck)" "$(curl -fsSL https://proxy.golang.org/go
 
 mod_go=$(awk '$1 == "go" { print $2 }' go.mod)
 [[ "$mod_go" == "$(pin golang)" ]] || report "go.mod says go $mod_go, .tool-versions says $(pin golang)"
-image_tag=$(grep -oE 'semgrep/semgrep:[0-9.]+' .github/workflows/ci.yml | head -1 | cut -d: -f2)
-[[ "$image_tag" == "$(pin semgrep)" ]] || report "ci.yml Semgrep image $image_tag, .tool-versions says $(pin semgrep)"
+image_tag=$(grep -oE 'semgrep/semgrep:[0-9.]+' .github/workflows/semgrep.yml | head -1 | cut -d: -f2)
+[[ "$image_tag" == "$(pin semgrep)" ]] || report "semgrep.yml image $image_tag, .tool-versions says $(pin semgrep)"
 
 while read -r action version; do
   check "$action" "$version" "$(gh_latest "$action")"
