@@ -205,16 +205,24 @@ func (c *Client) RouteURL(route routes.Route) string {
 }
 
 func (c *Client) DoJSON(ctx context.Context, req transport.Request, out any) error {
+	_, err := c.DoJSONStatus(ctx, req, out)
+	return err
+}
+
+// DoJSONStatus is DoJSON but also returns the final HTTP status, so a
+// service can build an error envelope that names the actual status a 2xx
+// response carried.
+func (c *Client) DoJSONStatus(ctx context.Context, req transport.Request, out any) (int, error) {
 	if c.err != nil {
-		return c.err
+		return 0, c.err
 	}
-	err := c.transport.DoJSON(ctx, req, out)
+	status, err := c.transport.DoJSONStatus(ctx, req, out)
 	if err == nil {
-		return nil
+		return status, nil
 	}
 	var terr *transport.APIError
 	if !errors.As(err, &terr) {
-		return err
+		return status, err
 	}
 	apiErr := &APIError{
 		Operation:  terr.Operation,
@@ -227,7 +235,7 @@ func (c *Client) DoJSON(ctx context.Context, req transport.Request, out any) err
 	if apiErr.Err == nil {
 		apiErr.Err = terr.Err
 	}
-	return apiErr
+	return status, apiErr
 }
 
 func buildHTTPClient(cfg clientConfig) *http.Client {

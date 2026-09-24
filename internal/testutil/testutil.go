@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
@@ -19,13 +20,30 @@ func NewCoreClient(t testing.TB, handler http.Handler) *core.Client {
 }
 
 // NewConfig builds a Config wired to an httptest server that closes with t,
-// for tests exercising the shared-Config surface directly.
+// for tests exercising the shared-Config surface directly. Its transport
+// never retries, so a test sees exactly one call per request.
 func NewConfig(t testing.TB, handler http.Handler) core.Config {
+	t.Helper()
+
+	return newConfig(t, handler, transport.Config{})
+}
+
+// NewRetryConfig is NewConfig with a transport that retries up to 3 times
+// with a 1ms interval, so a test can prove what is and is not retried
+// without slowing the suite down.
+func NewRetryConfig(t testing.TB, handler http.Handler) core.Config {
+	t.Helper()
+
+	return newConfig(t, handler, transport.Config{RetryCount: 3, RetryInterval: time.Millisecond})
+}
+
+func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.Config {
 	t.Helper()
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
+	tcfg.HTTPClient = server.Client()
 	return core.NewTestConfig("hcm-3", "project-1", endpoints.Set{
 		Region:   "hcm-3",
 		VServer:  server.URL + "/",
@@ -35,7 +53,7 @@ func NewConfig(t testing.TB, handler http.Handler) core.Config {
 		DNS:      server.URL + "/",
 		VCR:      server.URL + "/",
 		Portal:   server.URL + "/",
-	}, transport.New(transport.Config{HTTPClient: server.Client()}))
+	}, transport.New(tcfg))
 }
 
 func FixtureBody(t testing.TB, path string) string {

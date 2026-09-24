@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -115,9 +116,34 @@ type Request struct {
 	Body      any
 	OK        []int
 	SkipAuth  bool
+
+	// Idempotent marks a request as safe to retry after a failure that may
+	// have already reached the server. GET, HEAD, PUT, and DELETE are
+	// idempotent regardless of this field; POST and PATCH are not unless it
+	// is set true, which a caller does only when the call has no side
+	// effect, such as a price quote.
+	Idempotent bool
+}
+
+// idempotent reports whether req may be retried after an ambiguous failure.
+func (r Request) idempotent() bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete:
+		return true
+	default:
+		return r.Idempotent
+	}
 }
 
 func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
+	_, err := c.DoJSONStatus(ctx, req, out)
+	return err
+}
+
+// DoJSONStatus is DoJSON but also returns the final HTTP status, including
+// on error, so a caller can build an error envelope that names the actual
+// status a 2xx response carried.
+func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, error) {
 	if req.Method == "" {
 		req.Method = http.MethodGet
 	}
@@ -126,34 +152,34 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 	}
 	if !req.SkipAuth {
 		if err := c.EnsureToken(ctx); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	statusCode, body, err := c.do(ctx, req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
 		c.clearToken()
 		if err := c.refreshToken(ctx); err != nil {
-			return err
+			return 0, err
 		}
 		statusCode, body, err = c.do(ctx, req)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	if !containsStatus(req.OK, statusCode) {
-		return decodeError(req.Operation, statusCode, body)
+		return statusCode, decodeError(req, statusCode, body)
 	}
 	if out != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, out); err != nil {
-			return &APIError{Operation: req.Operation, Err: err}
+			return statusCode, &APIError{Operation: req.Operation, Err: err}
 		}
 	}
-	return nil
+	return statusCode, nil
 }
 
 const maxRetryDelay = 30 * time.Second
@@ -221,6 +247,7 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 	}
 
 	var lastErr error
+	var lastRetryable bool
 	for attempt := 0; attempt <= c.retryCount; attempt++ {
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
@@ -248,13 +275,14 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
 			lastErr = err
-			if attempt < c.retryCount {
+			lastRetryable = req.idempotent() || isDialError(err)
+			if lastRetryable && attempt < c.retryCount {
 				if serr := sleepContext(ctx, c.backoff(attempt, 0)); serr != nil {
 					return 0, nil, &APIError{Operation: req.Operation, Err: serr}
 				}
 				continue
 			}
-			return 0, nil, &APIError{Operation: req.Operation, Retryable: true, Err: err}
+			return 0, nil, &APIError{Operation: req.Operation, Retryable: lastRetryable, Err: err}
 		}
 
 		respBody, readErr := io.ReadAll(resp.Body)
@@ -266,7 +294,11 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 			return 0, nil, &APIError{Operation: req.Operation, Err: closeErr}
 		}
 
-		if retryableStatus(resp.StatusCode) && attempt < c.retryCount {
+		// A non-idempotent request retries only on 429: the server has not
+		// acted on it, unlike a 502/503/504 that may have reached a handler.
+		retryStatus := resp.StatusCode == http.StatusTooManyRequests ||
+			(req.idempotent() && retryableStatus(resp.StatusCode))
+		if retryStatus && attempt < c.retryCount {
 			if serr := sleepContext(ctx, c.backoff(attempt, retryAfterHint(resp.Header))); serr != nil {
 				return 0, nil, &APIError{Operation: req.Operation, Err: serr}
 			}
@@ -276,7 +308,16 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 		return resp.StatusCode, respBody, nil
 	}
 
-	return 0, nil, &APIError{Operation: req.Operation, Retryable: true, Err: lastErr}
+	return 0, nil, &APIError{Operation: req.Operation, Retryable: lastRetryable, Err: lastErr}
+}
+
+// isDialError reports whether err is a failed dial, found by unwrapping
+// through the *url.Error that http.Client.Do returns. The server cannot
+// have received a request that never established a connection, so a dial
+// failure is safe to retry even for a non-idempotent request.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
@@ -356,13 +397,31 @@ func retryableStatus(status int) bool {
 }
 
 type errorBody struct {
-	Code    string `json:"code"`
-	Error   string `json:"error"`
-	Message string `json:"message"`
-	Detail  string `json:"detail"`
+	Code    json.RawMessage `json:"code"`
+	Error   string          `json:"error"`
+	Message string          `json:"message"`
+	Detail  string          `json:"detail"`
 }
 
-func decodeError(operation string, status int, body []byte) error {
+// codeString renders an envelope code as decimal text: null or an empty
+// value gives "", a JSON string gives its value, and a JSON number is
+// already decimal text, so it is returned as is.
+func codeString(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return ""
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err == nil {
+			return s
+		}
+		return ""
+	}
+	return string(trimmed)
+}
+
+func decodeError(req Request, status int, body []byte) error {
 	var eb errorBody
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 {
@@ -387,11 +446,11 @@ func decodeError(operation string, status int, body []byte) error {
 	}
 
 	apiErr := &APIError{
-		Operation:  operation,
+		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       eb.Code,
+		Code:       codeString(eb.Code),
 		Message:    strings.TrimSpace(msg),
-		Retryable:  retryableStatus(status),
+		Retryable:  status == http.StatusTooManyRequests || (req.idempotent() && retryableStatus(status)),
 	}
 	switch status {
 	case http.StatusUnauthorized:

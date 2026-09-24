@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,6 +71,73 @@ func TestRequireProjectIDConcurrent(t *testing.T) {
 	wg.Wait()
 	if c.ProjectID() != "project-1" {
 		t.Fatalf("unexpected project: %s", c.ProjectID())
+	}
+}
+
+func TestDoJSONStatusReturnsFinalStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	c := NewTestClient("hcm-3", "", endpoints.Set{VServer: server.URL + "/"},
+		transport.New(transport.Config{HTTPClient: server.Client()}))
+
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	status, err := c.DoJSONStatus(context.Background(), transport.Request{
+		Operation: "Op",
+		Method:    http.MethodPost,
+		URL:       server.URL,
+		OK:        []int{http.StatusCreated},
+		SkipAuth:  true,
+	}, &out)
+	if err != nil {
+		t.Fatalf("DoJSONStatus() error = %v", err)
+	}
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", status, http.StatusCreated)
+	}
+	if !out.OK {
+		t.Fatal("response was not decoded")
+	}
+}
+
+func TestDoJSONStatusReturnsStatusOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"bad"}`))
+	}))
+	defer server.Close()
+
+	c := NewTestClient("hcm-3", "", endpoints.Set{VServer: server.URL + "/"},
+		transport.New(transport.Config{HTTPClient: server.Client()}))
+
+	status, err := c.DoJSONStatus(context.Background(), transport.Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		OK:        []int{http.StatusOK},
+		SkipAuth:  true,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", status, http.StatusBadRequest)
+	}
+}
+
+func TestDoJSONStatusZeroConfig(t *testing.T) {
+	c := ClientOf(Config{})
+	status, err := c.DoJSONStatus(context.Background(), transport.Request{Operation: "x.Y", Method: "GET", URL: "http://127.0.0.1/", OK: []int{200}}, nil)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+	if status != 0 {
+		t.Fatalf("status = %d, want 0", status)
 	}
 }
 

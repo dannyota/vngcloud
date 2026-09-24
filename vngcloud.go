@@ -13,6 +13,10 @@ import (
 	"danny.vn/vngcloud/internal/volume"
 )
 
+// Ptr returns a pointer to v, for setting an optional field of an update
+// Input without a temporary variable.
+func Ptr[T any](v T) *T { return &v }
+
 type Client = sdk.Client
 type Config = core.Config
 type LoadOption = core.Option

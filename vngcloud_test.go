@@ -28,3 +28,14 @@ func TestPublicFacadeCompile(t *testing.T) {
 		t.Fatal("NewClient is nil")
 	}
 }
+
+func TestPtr(t *testing.T) {
+	p := vngcloud.Ptr(false)
+	if *p != false {
+		t.Fatalf("*Ptr(false) = %v, want false", *p)
+	}
+	q := vngcloud.Ptr(false)
+	if p == q {
+		t.Fatal("Ptr returned the same pointer for two calls")
+	}
+}
