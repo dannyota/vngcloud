@@ -1,6 +1,6 @@
 # SDK and CLI Design
 
-Status: Draft, awaiting owner approval.
+Status: Approved (2026-09-25).
 
 This design restructures the Go SDK and adds the `vngcloud` command-line tool.
 It covers the SDK layout, configuration and credentials, the CLI, errors,
