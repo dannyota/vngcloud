@@ -232,6 +232,25 @@ func TestOtherBadRequestNotMapped(t *testing.T) {
 	}
 }
 
+func TestNoEnvelopeIsError(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"foo":1}`))
+	}))
+
+	_, err := client.GetBudget(context.Background(), &GetBudgetInput{BudgetUUID: "budget-1"})
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *vngcloud.APIError, got %v", err)
+	}
+	if apiErr.Operation != "billing.GetBudget" {
+		t.Fatalf("Operation = %q", apiErr.Operation)
+	}
+	if apiErr.Message != "response had no envelope" {
+		t.Fatalf("Message = %q", apiErr.Message)
+	}
+}
+
 func TestEnvelopeNotFoundOn200(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -214,7 +214,7 @@ func (c *Client) GetBalances(ctx context.Context, in *GetBalancesInput) (*GetBal
 		URL:       c.route([]string{"navbar", "balances", "v1"}, nil),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &balances); err != nil {
+	if err := c.doBalances(ctx, req, &balances); err != nil {
 		return nil, err
 	}
 	return &GetBalancesOutput{Balances: balances}, nil

@@ -43,33 +43,30 @@ type envelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// do sends req and decodes its envelope into out. A body with neither a
-// "code" nor a "data" key is decoded directly into out instead: the
-// balances endpoint is enveloped today but was not always, and this is a
-// defense against it reverting.
-func (c *Client) do(ctx context.Context, req transport.Request, out any) error {
+// doRaw sends req and returns the raw response body and HTTP status.
+func (c *Client) doRaw(ctx context.Context, req transport.Request) (json.RawMessage, int, error) {
 	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
-	if err != nil {
-		return mapNotFound(err)
-	}
+	return raw, status, err
+}
 
+// decodeEnvelope unmarshals raw into an envelope. An empty raw body decodes
+// to a zero envelope rather than an error, so a 204 with no body is not
+// mistaken for a missing envelope.
+func decodeEnvelope(raw json.RawMessage) (envelope, error) {
 	var env envelope
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &env); err != nil {
-			return &core.APIError{Operation: req.Operation, Err: err}
-		}
+	if len(raw) == 0 {
+		return env, nil
 	}
-
-	if env.Code == nil && env.Data == nil {
-		if out != nil && len(raw) > 0 {
-			if err := json.Unmarshal(raw, out); err != nil {
-				return &core.APIError{Operation: req.Operation, Err: err}
-			}
-		}
-		return nil
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return envelope{}, err
 	}
+	return env, nil
+}
 
+// finishEnvelope maps a non-200 envelope code to an error, and otherwise
+// decodes Data into out.
+func (c *Client) finishEnvelope(req transport.Request, status int, env envelope, out any) error {
 	code := envelopeCode(env.Code)
 	if code != "" && code != "200" {
 		return mapNotFound(&core.APIError{
@@ -85,6 +82,61 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) error {
 		}
 	}
 	return nil
+}
+
+// do sends req and decodes its envelope into out. A non-empty body with
+// neither a "code" nor a "data" key is an error: every dashboard gateway
+// operation except GetBalances is enveloped, so an unenveloped body means
+// the response does not match what the caller asked for.
+func (c *Client) do(ctx context.Context, req transport.Request, out any) error {
+	raw, status, err := c.doRaw(ctx, req)
+	if err != nil {
+		return mapNotFound(err)
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	env, err := decodeEnvelope(raw)
+	if err != nil {
+		return &core.APIError{Operation: req.Operation, Err: err}
+	}
+	if env.Code == nil && env.Data == nil {
+		return &core.APIError{
+			Operation:  req.Operation,
+			StatusCode: status,
+			Message:    "response had no envelope",
+		}
+	}
+	return c.finishEnvelope(req, status, env, out)
+}
+
+// doBalances is do, but a body with neither a "code" nor a "data" key is
+// decoded directly into out instead of treated as an error. The balances
+// endpoint is enveloped today but was not always, and this is a defense
+// against it reverting; no other operation gets this fallback.
+func (c *Client) doBalances(ctx context.Context, req transport.Request, out any) error {
+	raw, status, err := c.doRaw(ctx, req)
+	if err != nil {
+		return mapNotFound(err)
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	env, err := decodeEnvelope(raw)
+	if err != nil {
+		return &core.APIError{Operation: req.Operation, Err: err}
+	}
+	if env.Code == nil && env.Data == nil {
+		if out != nil {
+			if err := json.Unmarshal(raw, out); err != nil {
+				return &core.APIError{Operation: req.Operation, Err: err}
+			}
+		}
+		return nil
+	}
+	return c.finishEnvelope(req, status, env, out)
 }
 
 // envelopeCode renders the envelope's code field as decimal text: an absent
