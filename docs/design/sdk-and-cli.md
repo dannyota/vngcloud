@@ -4,8 +4,9 @@ Status: Approved (2026-09-25).
 
 This design restructures the Go SDK and adds the `vngcloud` command-line tool.
 It covers the SDK layout, configuration and credentials, the CLI, errors,
-testing, docs, and release order. Write APIs are out of scope; each gets its
-own design later.
+testing, docs, and release order. Write APIs follow
+[ADR 0002](../adr/0002-write-api-conventions.md), and each service's writes
+get their own design; [billing](billing.md) has the first.
 
 ## Goals
 
@@ -43,8 +44,8 @@ aboutme needs, from the CLI, most frequent first:
   cannot be automated. Users who need full access grant an IAM User broad
   policies.
 - Service-account login.
-- Write APIs, prebuilt binaries, and OS keyring storage. Each gets its own
-  design when needed.
+- Prebuilt binaries and OS keyring storage. Each gets its own design when
+  needed.
 - A generated API model format like AWS botocore.
 
 ## Decisions
@@ -108,6 +109,7 @@ Service packages may import each other for shared models; `network` imports
 | `containerregistry` | `internal/containerregistry` |
 | `portal` | `internal/portal` |
 | `project` | Wraps the project listing that `internal/core` keeps for discovery |
+| `billing`, `pricing` | New; see [billing](billing.md) |
 
 Every operation has one signature:
 
@@ -129,14 +131,15 @@ directly.
 
 List inputs carry `Page` and `Size`. The default size is 10000
 (`DefaultPageSize`), so one call returns every item for every API the SDK
-covers today. The SDK has no pagination helper until an API caps page size.
+covers today. An API that caps page size states its default and cap in its
+design; the SDK has no pagination helper until a design adds one.
 
 Service code moves from `internal/<service>` into its public package.
 `internal/transport`, `internal/endpoints`, `internal/routes`, and
 `internal/iamuser` stay internal. `vngcloud.go` stops re-exporting service
 types.
 
-The restructure changes no API coverage. Every current method keeps its
+The restructure itself changes no API coverage. Every current method keeps its
 behavior under the new signature, and every fixture test moves with its
 service. `examples/basic` and `live_test.go` move to the new API in the same
 release, and so does the one-package rule in `instructions/verification.md`.
@@ -243,7 +246,7 @@ A missing file is not an error. A missing region after all sources is.
 - After an HTTP 401, the transport calls `Invalidate` with the rejected token,
   which clears it from memory and disk. The next `Token` call logs in, and the
   request is retried once. Today's code re-sends the same cached token on that
-  retry (`internal/core/auth.go`); `v0.4.0` fixes it.
+  retry (`internal/core/auth.go`); `v0.5.0` fixes it.
 - A refresh-token grant would avoid full logins. The token endpoint returns a
   refresh token, but the grant is unverified, so it is follow-up work.
 
@@ -278,18 +281,19 @@ var computeOps = []cli.Op{
 }
 ```
 
-`cli.Read` and, later, `cli.Write` are generic over the client, Input, and
-Output types, so the compiler checks each entry against the SDK method.
-`cli.Write` takes `cli.Destructive` and `cli.WaitFor(...)` options; the first
-write-API design defines them.
+`cli.Read` and `cli.Write` are generic over the client, Input, and Output
+types, so the compiler checks each entry against the SDK method.
+[Billing](billing.md#cliwrite-and-clidestructive) defines `cli.Write` and
+`cli.Destructive`; the first asynchronous write defines `cli.WaitFor`.
 
 Flags come from the Input struct by reflection. A field name becomes a
 kebab-case flag: `ServerID` becomes `--server-id`, and an uppercase run stays
 one word, so `VPCID` becomes `--vpcid`. `cli.Flag("VPCID", "vpc-id")` on a
 table entry overrides a name. Supported field types are string, integer,
-boolean, `[]string`, and `time.Time`. Other field types are set through
-`--cli-input-json '<json>'` or `--cli-input-json file://input.json`, whose
-keys are the Go field names.
+boolean, `[]string`, `time.Time`, and pointers to string, integer, and
+boolean, which the CLI sets only when the flag is given. Other field types
+are set through `--cli-input-json '<json>'` or
+`--cli-input-json file://input.json`, whose keys are the Go field names.
 
 The CLI builds the Input from `--cli-input-json` first, then applies every
 flag the user set (cobra reports it `Changed`). It checks
@@ -398,14 +402,24 @@ Each release ships when CI is green on its commit.
 
 | Version | Content |
 |-|-|
-| `v0.3.0` | Package per service and the uniform method signature. Breaking. Built on a branch and merged when every service has moved |
-| `v0.4.0` | `LoadConfig`, profile files, environment variables, and the token cache |
-| `v0.5.0` | CLI foundation: `configure`, `version`, output, `--query`, errors, `compute`, `network`, and `dns` read commands, and generated docs |
+| `v0.3.0` | Shared `Config` and the new `billing` and `pricing` packages. Other services stay behind a transitional `vngcloud.NewClient(ctx, cfg)`. Breaking |
+| `v0.4.0` | The other services move to packages with the uniform method signature, and `NewClient` goes. Breaking. Built on a branch and merged when every service has moved |
+| `v0.5.0` | `LoadConfig`, profile files, environment variables, and the token cache |
+| `v0.6.0` | CLI foundation: `configure`, `version`, output, `--query`, errors, generated docs, `billing` and `pricing` commands, and `compute`, `network`, and `dns` read commands |
+
+Budgets and price quotes come first so that spend can be capped and priced
+before any paid write lands. New code uses the package layout from the
+start, so `v0.3.0` ships the shared `Config` with them. The cost is two
+breaking releases instead of one, and one release in which two API styles
+coexist. Before `v1.0.0`, with the owner as the only SDK user, that cost is
+small. Waiting for the whole restructure would give one break but delay
+budgets by nine service moves. The CLI cannot ship earlier, because it needs
+`LoadConfig`.
 
 Install is `go install danny.vn/vngcloud/cmd/vngcloud@<version>`, pinned to a
 tag, until prebuilt binaries get their own design.
 
-After `v0.5.0`, designs follow aboutme's needs in this order, each covering
+After `v0.6.0`, designs follow aboutme's needs in this order, each covering
 the SDK and CLI together:
 
 1. vCDN: origin IP ranges first, then cache rules, the origin header, and the
