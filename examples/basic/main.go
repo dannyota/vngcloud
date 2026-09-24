@@ -79,12 +79,15 @@ func main() {
 				}
 			}
 
-			client, err := vngcloud.NewClient(ctx, vngcloud.Config{
-				Region:  region,
-				IAMUser: iamUser,
-			}, vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
-				rawOutputs.add(configName, region, captured)
-			}))
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithIAMUser(iamUser),
+				vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
+					rawOutputs.add(configName, region, captured)
+				}))
+			if err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "build config for config %s region %s: %v\n", configName, region, err)
+				os.Exit(1)
+			}
+			client, err := vngcloud.NewClient(ctx, cfg)
 			if err != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "create client for config %s region %s: %v\n", configName, region, err)
 				os.Exit(1)

@@ -27,6 +27,9 @@ type listProjectsResponse struct {
 }
 
 func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([]Project, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
 	region := c.region
 	if opts != nil && opts.Region != "" {
 		region = opts.Region

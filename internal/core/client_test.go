@@ -15,8 +15,8 @@ import (
 
 func TestNewClientDoesNotMutateAuthConfig(t *testing.T) {
 	auth := &IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "pass"}
-	if _, err := NewClient(Config{Region: "hcm-3", IAMUser: auth}); err != nil {
-		t.Fatalf("NewClient() error = %v", err)
+	if _, err := newClient(WithRegion("hcm-3"), WithIAMUser(auth)); err != nil {
+		t.Fatalf("newClient() error = %v", err)
 	}
 	if auth.SigninBaseURL != "" || auth.TokenURL != "" || auth.DashboardURI != "" {
 		t.Fatalf("NewClient mutated the caller's IAMUserAuth: %+v", auth)
@@ -81,11 +81,11 @@ func TestNewClientWithStaticToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c, err := NewClient(Config{Region: "hcm-3"},
+	c, err := newClient(WithRegion("hcm-3"),
 		WithStaticToken("static-token"),
 		WithEndpointOverrides(EndpointOverrides{VServer: server.URL}))
 	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
+		t.Fatalf("newClient() error = %v", err)
 	}
 	if err := c.Authenticate(context.Background()); err != nil {
 		t.Fatalf("Authenticate() error = %v", err)

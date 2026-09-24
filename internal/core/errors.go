@@ -14,6 +14,7 @@ var (
 	ErrProjectAmbiguous = errors.New("vngcloud: multiple projects found for region")
 	ErrMissingProjectID = errors.New("vngcloud: project id is required")
 	ErrInvalidConfig    = errors.New("vngcloud: invalid config")
+	ErrInvalidInput     = errors.New("vngcloud: invalid input")
 )
 
 // APIError describes an error response returned by VNG Cloud.

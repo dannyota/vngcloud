@@ -17,3 +17,9 @@ func NewTestClient(region, projectID string, endpointSet endpoints.Set, tc *tran
 		logger:    logger,
 	}
 }
+
+// NewTestConfig builds a Config around a client wired for a test server,
+// bypassing NewConfig's option parsing and login.
+func NewTestConfig(region, projectID string, endpointSet endpoints.Set, tc *transport.Client) Config {
+	return Config{client: NewTestClient(region, projectID, endpointSet, tc)}
+}

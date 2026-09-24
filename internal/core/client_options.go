@@ -10,6 +10,9 @@ type ClientOption interface {
 	apply(*clientConfig)
 }
 
+// Option is the public name for ClientOption; NewConfig takes Options.
+type Option = ClientOption
+
 type clientOptionFunc func(*clientConfig)
 
 func (f clientOptionFunc) apply(cfg *clientConfig) {
@@ -27,6 +30,9 @@ type clientConfig struct {
 	endpoints     EndpointOverrides
 	capture       ResponseCaptureFunc
 	staticToken   string
+	region        string
+	projectID     string
+	iamUser       *IAMUserAuth
 }
 
 type ResponseCapture struct {
@@ -97,5 +103,29 @@ func WithStaticToken(token string) ClientOption {
 func WithResponseCapture(capture ResponseCaptureFunc) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.capture = capture
+	})
+}
+
+// WithRegion sets the region every service call targets. Required unless the
+// Config is never used to make a call.
+func WithRegion(region string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.region = region
+	})
+}
+
+// WithProjectID sets the project ID, skipping project discovery on the first
+// call that needs one.
+func WithProjectID(projectID string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.projectID = projectID
+	})
+}
+
+// WithIAMUser sets the IAM User credentials used to log in. Not required when
+// WithStaticToken is set.
+func WithIAMUser(auth *IAMUserAuth) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.iamUser = auth
 	})
 }

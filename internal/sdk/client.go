@@ -27,11 +27,8 @@ type Client struct {
 	Portal             *portal.Service
 }
 
-func NewClient(ctx context.Context, cfg core.Config, opts ...core.ClientOption) (*Client, error) {
-	base, err := core.NewClient(cfg, opts...)
-	if err != nil {
-		return nil, err
-	}
+func NewClient(ctx context.Context, cfg core.Config) (*Client, error) {
+	base := core.ClientOf(cfg)
 	c := &Client{Client: base}
 	c.Compute = compute.New(base)
 	c.Network = network.New(base)

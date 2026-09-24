@@ -15,10 +15,18 @@ import (
 func NewCoreClient(t testing.TB, handler http.Handler) *core.Client {
 	t.Helper()
 
+	return core.ClientOf(NewConfig(t, handler))
+}
+
+// NewConfig builds a Config wired to an httptest server that closes with t,
+// for tests exercising the shared-Config surface directly.
+func NewConfig(t testing.TB, handler http.Handler) core.Config {
+	t.Helper()
+
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	return core.NewTestClient("hcm-3", "project-1", endpoints.Set{
+	return core.NewTestConfig("hcm-3", "project-1", endpoints.Set{
 		Region:   "hcm-3",
 		VServer:  server.URL + "/",
 		VLB:      server.URL + "/",

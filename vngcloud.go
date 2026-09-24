@@ -15,6 +15,7 @@ import (
 
 type Client = sdk.Client
 type Config = core.Config
+type LoadOption = core.Option
 type EndpointOverrides = core.EndpointOverrides
 
 type IAMUserAuth = core.IAMUserAuth
@@ -22,7 +23,6 @@ type TOTPProvider = core.TOTPProvider
 type TOTPFunc = core.TOTPFunc
 type SecretTOTP = core.SecretTOTP
 
-type ClientOption = core.ClientOption
 type ResponseCapture = core.ResponseCapture
 type ResponseCaptureFunc = core.ResponseCaptureFunc
 
@@ -191,8 +191,13 @@ var (
 	ErrProjectAmbiguous = core.ErrProjectAmbiguous
 	ErrMissingProjectID = core.ErrMissingProjectID
 	ErrInvalidConfig    = core.ErrInvalidConfig
+	ErrInvalidInput     = core.ErrInvalidInput
 
+	NewConfig             = core.NewConfig
 	NewClient             = sdk.NewClient
+	WithRegion            = core.WithRegion
+	WithProjectID         = core.WithProjectID
+	WithIAMUser           = core.WithIAMUser
 	WithHTTPClient        = core.WithHTTPClient
 	WithTransport         = core.WithTransport
 	WithTimeout           = core.WithTimeout

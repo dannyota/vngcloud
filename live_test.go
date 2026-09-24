@@ -59,9 +59,15 @@ func TestLive(t *testing.T) {
 }
 
 func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
-	client, err := vngcloud.NewClient(ctx,
-		vngcloud.Config{Region: region, ProjectID: os.Getenv("VNGCLOUD_PROJECT_ID")},
-		vngcloud.WithStaticToken(token))
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion(region),
+		vngcloud.WithProjectID(os.Getenv("VNGCLOUD_PROJECT_ID")),
+		vngcloud.WithStaticToken(token),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	client, err := vngcloud.NewClient(ctx, cfg)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

@@ -15,17 +15,25 @@ func TestNewClientFailsFastOnBadAuth(t *testing.T) {
 	}))
 	defer signin.Close()
 
-	_, err := NewClient(context.Background(), core.Config{
-		Region:  "hcm-3",
-		IAMUser: &core.IAMUserAuth{RootEmail: "r", Username: "u", Password: "p", SigninBaseURL: signin.URL, TokenURL: signin.URL, DashboardURI: signin.URL + "/"},
-	})
+	cfg, err := core.NewConfig(
+		core.WithRegion("hcm-3"),
+		core.WithIAMUser(&core.IAMUserAuth{RootEmail: "r", Username: "u", Password: "p", SigninBaseURL: signin.URL, TokenURL: signin.URL, DashboardURI: signin.URL + "/"}),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig() error = %v", err)
+	}
+	_, err = NewClient(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected eager authentication failure")
 	}
 }
 
 func TestNewClientStaticTokenSkipsLogin(t *testing.T) {
-	c, err := NewClient(context.Background(), core.Config{Region: "hcm-3"}, core.WithStaticToken("tok"))
+	cfg, err := core.NewConfig(core.WithRegion("hcm-3"), core.WithStaticToken("tok"))
+	if err != nil {
+		t.Fatalf("NewConfig() error = %v", err)
+	}
+	c, err := NewClient(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}

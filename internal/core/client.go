@@ -22,15 +22,16 @@ type Client struct {
 	transport *transport.Client
 	logger    *slog.Logger
 
+	// err is set on a Client returned by ClientOf for a zero Config, so every
+	// call fails with ErrInvalidConfig instead of a nil-pointer panic.
+	err error
+
 	projectMu     sync.Mutex
 	projectID     string
 	projectUserID int
 }
 
-func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
-	if cfg.Region == "" {
-		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
-	}
+func newClient(opts ...Option) (*Client, error) {
 	settings := clientConfig{
 		timeout:       120 * time.Second,
 		retryCount:    3,
@@ -40,23 +41,23 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		opt.apply(&settings)
 	}
+	if settings.region == "" {
+		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
+	}
 	if settings.staticToken == "" {
-		if err := cfg.IAMUser.validate(); err != nil {
+		if err := settings.iamUser.validate(); err != nil {
 			return nil, err
 		}
 	}
-	if cfg.UserAgent != "" {
-		settings.userAgent = cfg.UserAgent
-	}
 
-	resolvedEndpoints := endpoints.ResolveIAMUser(cfg.Region, endpoints.Overrides(settings.endpoints))
+	resolvedEndpoints := endpoints.ResolveIAMUser(settings.region, endpoints.Overrides(settings.endpoints))
 
 	httpClient := buildHTTPClient(settings)
 	var ts transport.TokenSource
 	if settings.staticToken != "" {
 		ts = staticTokenSource(settings.staticToken)
 	} else {
-		ts = &iamTokenSource{auth: cfg.IAMUser, endpoints: loginEndpoints{
+		ts = &iamTokenSource{auth: settings.iamUser, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
 			token:     resolvedEndpoints.Token,
 			dashboard: resolvedEndpoints.Dashboard,
@@ -89,8 +90,8 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 	}
 
 	c := &Client{
-		region:    cfg.Region,
-		projectID: cfg.ProjectID,
+		region:    settings.region,
+		projectID: settings.projectID,
 		endpoints: resolvedEndpoints,
 		transport: tc,
 		logger:    logger,
@@ -101,6 +102,9 @@ func NewClient(cfg Config, opts ...ClientOption) (*Client, error) {
 // Authenticate performs the login flow eagerly and caches the token, so
 // configuration and credential errors surface before the first API call.
 func (c *Client) Authenticate(ctx context.Context) error {
+	if c.err != nil {
+		return c.err
+	}
 	return c.transport.EnsureToken(ctx)
 }
 
@@ -130,6 +134,9 @@ func (c *Client) ProjectUserID() int {
 }
 
 func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
+	if c.err != nil {
+		return "", c.err
+	}
 	c.projectMu.Lock()
 	defer c.projectMu.Unlock()
 	if c.projectID != "" {
@@ -142,6 +149,9 @@ func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
 }
 
 func (c *Client) RequireProject(ctx context.Context) (Project, error) {
+	if c.err != nil {
+		return Project{}, c.err
+	}
 	projects, err := c.ListProjects(ctx, nil)
 	if err != nil {
 		return Project{}, err
@@ -195,6 +205,9 @@ func (c *Client) RouteURL(route routes.Route) string {
 }
 
 func (c *Client) DoJSON(ctx context.Context, req transport.Request, out any) error {
+	if c.err != nil {
+		return c.err
+	}
 	err := c.transport.DoJSON(ctx, req, out)
 	if err == nil {
 		return nil
