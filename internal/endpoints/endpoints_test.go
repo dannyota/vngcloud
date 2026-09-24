@@ -25,6 +25,26 @@ func TestResolveIAMUser(t *testing.T) {
 	if got.Token != "https://dashboard.console.greennode.ai/accounts-api/v1/auth/token" {
 		t.Fatalf("unexpected token endpoint: %s", got.Token)
 	}
+	if got.Billing != "https://dashboard.console.greennode.ai/" {
+		t.Fatalf("unexpected billing endpoint: %s", got.Billing)
+	}
+}
+
+func TestResolveIAMUserBillingFollowsDashboardOverride(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{Dashboard: "https://d.example/"})
+	if got.Billing != "https://d.example/" {
+		t.Fatalf("unexpected billing endpoint: %s", got.Billing)
+	}
+}
+
+func TestResolveIAMUserBillingOverride(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{Billing: "https://b.example"})
+	if got.Billing != "https://b.example/" {
+		t.Fatalf("unexpected billing endpoint: %s", got.Billing)
+	}
+	if got.Dashboard != "https://dashboard.console.greennode.ai/" {
+		t.Fatalf("billing override changed dashboard: %s", got.Dashboard)
+	}
 }
 
 func TestResolveIAMUserOverrides(t *testing.T) {

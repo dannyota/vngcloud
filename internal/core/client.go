@@ -195,6 +195,8 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.VCR
 	case routes.ProductPortal:
 		return c.endpoints.Portal
+	case routes.ProductBilling:
+		return c.endpoints.Billing
 	default:
 		return ""
 	}

@@ -28,6 +28,7 @@ type Overrides struct {
 	Signin             string
 	Dashboard          string
 	Token              string
+	Billing            string
 }
 
 type Set struct {
@@ -42,6 +43,7 @@ type Set struct {
 	Signin    string
 	Dashboard string
 	Token     string
+	Billing   string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -89,6 +91,10 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.Token != "" {
 		set.Token = overrides.Token
 	}
+	set.Billing = set.Dashboard
+	if overrides.Billing != "" {
+		set.Billing = overrides.Billing
+	}
 	return set.Normalize()
 }
 
@@ -111,6 +117,7 @@ func (s Set) Normalize() Set {
 	s.Portal = normalizeURL(s.Portal)
 	s.Signin = strings.TrimRight(s.Signin, "/")
 	s.Dashboard = normalizeURL(s.Dashboard)
+	s.Billing = normalizeURL(s.Billing)
 	return s
 }
 

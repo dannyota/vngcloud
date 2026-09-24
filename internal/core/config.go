@@ -48,4 +48,5 @@ type EndpointOverrides struct {
 	Signin             string
 	Dashboard          string
 	Token              string
+	Billing            string
 }

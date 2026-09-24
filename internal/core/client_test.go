@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -138,6 +139,14 @@ func TestDoJSONStatusZeroConfig(t *testing.T) {
 	}
 	if status != 0 {
 		t.Fatalf("status = %d, want 0", status)
+	}
+}
+
+func TestClientEndpointReturnsBilling(t *testing.T) {
+	c := NewTestClient("hcm-3", "", endpoints.Set{Billing: "https://billing.example/"},
+		transport.New(transport.Config{}))
+	if got := c.Endpoint(routes.ProductBilling); got != "https://billing.example/" {
+		t.Fatalf("Endpoint(ProductBilling) = %s, want https://billing.example/", got)
 	}
 }
 

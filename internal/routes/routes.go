@@ -15,6 +15,7 @@ const (
 	ProductDNS     Product = "dns"
 	ProductVCR     Product = "vcr"
 	ProductPortal  Product = "portal"
+	ProductBilling Product = "billing"
 )
 
 type Endpoints interface {

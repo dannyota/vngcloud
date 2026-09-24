@@ -53,6 +53,7 @@ func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.C
 		DNS:      server.URL + "/",
 		VCR:      server.URL + "/",
 		Portal:   server.URL + "/",
+		Billing:  server.URL + "/",
 	}, transport.New(tcfg))
 }
 
