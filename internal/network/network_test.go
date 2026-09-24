@@ -263,7 +263,8 @@ func TestNetworkGetEndpoint(t *testing.T) {
 	service := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/vnetwork/v1/regions":
-			_, _ = w.Write([]byte(`{"data":[{"uuid":"zone-a","name":"hcm-3","vnetworkDashboard":"` + "http://" + r.Host + `" }]}`))
+			// The fake server writes its own host into the response; no user input.
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"zone-a","name":"hcm-3","vnetworkDashboard":"` + "http://" + r.Host + `" }]}`)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 		case "/vnetwork-gateway/vnetwork/v1/zone-a/project-1/endpoints/endpoint-1":
 			testutil.WriteFixture(t, w, "../../testdata/network/get_endpoint.json")
 		default:

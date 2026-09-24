@@ -43,7 +43,7 @@ A path outside every row belongs to the manager, which assigns it in a brief. Ev
 ## How we work
 
 - **Small releases.** One feature per `v0.x.y` tag. Ship a feature when it is done and CI is green; do not batch features.
-- **Local checks, CI gate.** Run `make check` before each commit; it takes seconds. GitHub CI runs the same checks plus a full-history gitleaks scan. A red run is fixed forward at once. A tag needs green CI on that exact commit.
+- **Local checks, CI gate.** Run `make check` before each commit; it takes seconds. GitHub CI runs the same checks plus a full-history gitleaks scan and a connected Semgrep scan (Code, Supply Chain, Secrets). A red run is fixed forward at once. A tag needs green CI on that exact commit.
 - **Merge to `master` locally and push; no pull requests.** Use a branch for multi-commit work and delete it after merging.
 - **Parallel work:** at most three workers, on disjoint file sets. Do not spawn workers to repeat verification.
 - Match review depth to risk. Do not invent extra gates.

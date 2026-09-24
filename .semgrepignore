@@ -1,0 +1,6 @@
+# Sanitized API fixtures: placeholder values, not code.
+testdata/
+
+# Live smoke output. Git-ignored already; listed so scans of an untracked copy
+# skip it too.
+examples/basic/output/
