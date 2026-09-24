@@ -123,8 +123,9 @@ plus the page metadata the code has today (`Page`, `PageSize`, `TotalPage`,
 
 Input and Output fields use Go names only; they carry no JSON tags. A required
 Input field has the tag `vngcloud:"required"`, and the SDK returns an error
-before any request when it is empty. Wire DTOs with API JSON tags stay
-unexported inside each service package.
+before any request when it is empty. Resource models such as
+`compute.Server` keep their API JSON tags, because they decode responses
+directly.
 
 List inputs carry `Page` and `Size`. The default size is 10000
 (`DefaultPageSize`), so one call returns every item for every API the SDK
@@ -314,8 +315,9 @@ credential.
 
 - JSON keys are the SDK's Go field names (`Items[].Name`), not the raw API
   names. Go field names are the SDK's public contract and stay stable when the
-  API renames a field. Output structs carry no JSON tags, so `encoding/json`
-  writes those names directly.
+  API renames a field. The CLI writes JSON with its own encoder, which uses Go
+  field names and ignores JSON tags, because resource models keep their API
+  tags.
 - Map-backed models (Portal, Container Registry) pass their keys through
   unchanged.
 - `--query` runs on that JSON. `table` and `text` render the query result:
