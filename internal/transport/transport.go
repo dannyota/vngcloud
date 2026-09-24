@@ -3,11 +3,12 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- retry jitter needs no cryptographic randomness
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -185,7 +186,16 @@ func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
 		d = maxRetryDelay
 	}
 	half := d / 2
-	return half + rand.N(half+1) //nolint:gosec // retry jitter does not need cryptographic randomness
+	return half + jitter(half)
+}
+
+// jitter returns a uniform duration in [0, limit].
+func jitter(limit time.Duration) time.Duration {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(limit)+1))
+	if err != nil {
+		return limit
+	}
+	return time.Duration(n.Int64())
 }
 
 func retryAfterHint(h http.Header) time.Duration {

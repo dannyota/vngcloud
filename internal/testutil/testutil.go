@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,6 +47,11 @@ func WriteFixture(t testing.TB, w http.ResponseWriter, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !json.Valid(data) {
+		t.Fatalf("%s: invalid JSON", path)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data)
+	if err := json.NewEncoder(w).Encode(json.RawMessage(data)); err != nil {
+		t.Error(err)
+	}
 }

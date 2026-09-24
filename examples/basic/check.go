@@ -116,33 +116,11 @@ func compareResource(rawPath, sdkPath string, report *resourceReport) error {
 		return err
 	}
 
-	rawKeys := map[string]bool{}
-	sdkKeys := map[string]bool{}
-	for _, entry := range raw.Regions {
-		if entry.StatusCode < 200 || entry.StatusCode >= 300 || len(entry.Body) == 0 {
-			continue
-		}
-		report.rawSuccess++
-		payloads := payloadsFromBody(entry.Body)
-		report.rawRows += len(payloads)
-		for _, payload := range payloads {
-			collectKeys(payload, rawKeys)
-		}
-	}
-	for _, entry := range sdk.Regions {
-		if entry.Error != "" {
-			report.sdkErrors++
-			continue
-		}
-		report.sdkRows += entry.Count
-		payloads := payloadsFromRaw(entry.Items)
-		for _, payload := range payloads {
-			collectKeys(payload, sdkKeys)
-		}
-	}
+	rawKeys := rawPayloadKeys(raw, report)
+	sdkKeys := sdkPayloadKeys(sdk, report)
 
 	report.noComparable = len(rawKeys) == 0 || len(sdkKeys) == 0
-	if len(rawKeys) == 0 || len(sdkKeys) == 0 {
+	if report.noComparable {
 		return nil
 	}
 	for key := range rawKeys {
@@ -152,6 +130,39 @@ func compareResource(rawPath, sdkPath string, report *resourceReport) error {
 	}
 	sort.Strings(report.missingKeys)
 	return nil
+}
+
+// rawPayloadKeys collects every field name in the successful raw responses.
+func rawPayloadKeys(raw rawFile, report *resourceReport) map[string]bool {
+	keys := map[string]bool{}
+	for _, entry := range raw.Regions {
+		if entry.StatusCode < 200 || entry.StatusCode >= 300 || len(entry.Body) == 0 {
+			continue
+		}
+		report.rawSuccess++
+		payloads := payloadsFromBody(entry.Body)
+		report.rawRows += len(payloads)
+		for _, payload := range payloads {
+			collectKeys(payload, keys)
+		}
+	}
+	return keys
+}
+
+// sdkPayloadKeys collects every field name in the decoded SDK output.
+func sdkPayloadKeys(sdk sdkFile, report *resourceReport) map[string]bool {
+	keys := map[string]bool{}
+	for _, entry := range sdk.Regions {
+		if entry.Error != "" {
+			report.sdkErrors++
+			continue
+		}
+		report.sdkRows += entry.Count
+		for _, payload := range payloadsFromRaw(entry.Items) {
+			collectKeys(payload, keys)
+		}
+	}
+	return keys
 }
 
 func readJSON(path string, out any) error {
