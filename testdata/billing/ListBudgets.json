@@ -1,0 +1,34 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": [
+    {
+      "uuid": "budget-1",
+      "id": 1,
+      "name": "prod-actual",
+      "periodType": "MONTHLY",
+      "type": "ACTUAL",
+      "limitAmount": 5000000000,
+      "status": "ACTIVE",
+      "actualCost": 1200000,
+      "forecastedCost": 1500000,
+      "actualPercentage": 24,
+      "forecastedPercentage": 30,
+      "thresholdPercentage": 80
+    },
+    {
+      "uuid": "budget-2",
+      "id": 2,
+      "name": "prod-forecast",
+      "periodType": "QUARTERLY",
+      "type": "FORECASTED",
+      "limitAmount": 10000000000,
+      "status": "PAUSED",
+      "actualCost": null,
+      "forecastedCost": null,
+      "actualPercentage": null,
+      "forecastedPercentage": null,
+      "thresholdPercentage": null
+    }
+  ]
+}

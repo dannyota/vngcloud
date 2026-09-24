@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "uuid": "budget-1",
+    "id": 1,
+    "name": "prod-actual",
+    "periodType": "MONTHLY",
+    "type": "ACTUAL",
+    "limitAmount": 5000000000,
+    "status": "ACTIVE"
+  }
+}

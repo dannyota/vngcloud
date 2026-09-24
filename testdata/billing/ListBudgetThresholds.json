@@ -1,0 +1,17 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": [
+    {
+      "uuid": "threshold-1",
+      "thresholdType": "ACTUAL",
+      "thresholdPercentage": 80,
+      "comparisonOperator": "GTE",
+      "enabled": true,
+      "maxAlertsPerPeriod": 1,
+      "reminderIntervalHours": 648,
+      "notificationState": "PENDING",
+      "lastAlertAt": ""
+    }
+  ]
+}

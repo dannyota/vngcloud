@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "items": [
+      {"resourceId": "server-1", "resourceName": "web-1", "resourceType": "server", "product": "compute", "cost": 250000},
+      {"resourceId": "vol-1", "resourceName": "data-1", "resourceType": "volume", "product": "volume", "cost": 90000}
+    ],
+    "pagination": {"page": 1, "size": 200, "total": 2, "totalPages": 1},
+    "summary": {"totalAll": 340000, "activeCount": 2, "avgPerResource": 170000}
+  }
+}

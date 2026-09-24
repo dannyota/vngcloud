@@ -1,0 +1,25 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "summary": {
+      "currentCost": 4200000,
+      "lastPeriodCost": 3900000,
+      "changePercent": 7.7,
+      "forecastCost": 5100000,
+      "activeCount": 5,
+      "breakdown": [
+        {"key": "compute", "cost": 2500000},
+        {"key": "volume", "cost": 1700000}
+      ]
+    },
+    "series": [
+      {"date": "2026-09-01", "cost": 165000},
+      {"date": "2026-09-02", "cost": 172000}
+    ],
+    "interval": "daily",
+    "startDate": "2026-09-01",
+    "endDate": "2026-09-02",
+    "groupBy": "product"
+  }
+}

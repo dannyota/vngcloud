@@ -1,0 +1,11 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "periodKey": "2026-09",
+    "periodStart": "2026-09-01",
+    "periodEnd": "2026-09-30",
+    "actualCost": 4200000,
+    "forecastedCost": 5100000
+  }
+}
