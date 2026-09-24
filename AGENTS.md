@@ -44,7 +44,7 @@ A path outside every row belongs to the manager, which assigns it in a brief. Ev
 
 Security comes before features and convenience, as in the AWS CLI. When a choice trades safety for ease, pick safety and tell the owner.
 
-- Stay on a supported Go release. `go.mod` and `.tool-versions` move together to each Go patch release that fixes a security issue.
+- Stay on the latest Go, tool, and GitHub Action releases. `.tool-versions` holds every tool version; `go.mod` and the Semgrep image tag in `ci.yml` mirror it, and Actions are pinned by SHA with a version comment. The weekly Tools workflow (`make tools-outdated`) fails when anything is behind; update the pins, the owner's laptop tools, and the Semgrep image digest in one commit that week.
 - Secure defaults, with no switch to weaken them: TLS verification always on, no cross-host redirects, credentials files mode 0600, token cache mode 0600 in a 0700 directory.
 - Never print, log, or return in an error: passwords, TOTP secrets, tokens, authorization codes, cookies, or the Authorization header. `--debug` and error messages are checked by tests for this.
 - Destructive CLI commands need `--yes`. Nothing prompts in a way that can hang an agent.

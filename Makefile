@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln semgrep semgrep-ci live
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live
 
 SHELL := bash
 
@@ -8,7 +8,7 @@ help: ## Show this help
 check: test vet lint lengths-check ## Run every local check; run before each commit
 
 test: ## Run tests
-	@go test ./...
+	@go test -race ./...
 
 vet: ## Run go vet
 	@go vet ./...
@@ -31,6 +31,9 @@ wiki-preview: ## Render docs/wiki/ as the wiki will serve it, without pushing
 
 vuln: ## Scan dependencies and the standard library for known vulnerabilities
 	@govulncheck ./...
+
+tools-outdated: ## Fail when Go, a pinned tool, or a GitHub Action has a newer release
+	@bash scripts/tools-outdated.sh
 
 semgrep: ## Offline Semgrep scan with registry packs; CI runs the connected scan
 	@semgrep --config p/golang --config p/gosec --config p/secrets --error .

@@ -1,0 +1,21 @@
+name: Tools
+
+# Fails when Go, a pinned tool, or a GitHub Action has a newer release, so a
+# red run in Actions (and its email) says it is time to update the pins.
+on:
+  schedule:
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  outdated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash scripts/tools-outdated.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

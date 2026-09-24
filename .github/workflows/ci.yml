@@ -1,5 +1,8 @@
 name: CI
 
+# Four jobs run in parallel; wall-clock time is the slowest one (Semgrep).
+# Tool versions come from .tool-versions; scripts/tools-outdated.sh and the
+# Tools workflow keep them current.
 on:
   push:
     branches: [master]
@@ -13,22 +16,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  go:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.27.1
-      - run: go test ./...
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: go test -race ./...
       - if: ${{ !cancelled() }}
-        run: go vet ./...
-      - if: ${{ !cancelled() }}
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.13.2
+        run: go vet ./... && go vet -tags live ./...
       - if: ${{ !cancelled() }}
         name: go mod tidy is a no-op
         run: |
@@ -38,33 +37,64 @@ jobs:
         run: bash scripts/check-lengths.sh
       - if: ${{ !cancelled() }}
         run: bash scripts/wiki-sync.sh --dry-run
-      - if: ${{ !cancelled() }}
-        name: Scan for known vulnerabilities
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Read the golangci-lint pin
+        run: echo "GOLANGCI_LINT=v$(awk '$1 == "golangci-lint" { print $2 }' .tool-versions)" >> "$GITHUB_ENV"
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT }}
+
+  # go install verifies each tool against the Go checksum database. The built
+  # binaries are cached per version, so most runs skip the build.
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Read tool pins
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          "$(go env GOPATH)/bin/govulncheck" ./...
-      - if: ${{ !cancelled() }}
-        name: Scan full history for secrets
+          echo "GITLEAKS=$(awk '$1 == "gitleaks" { print $2 }' .tool-versions)" >> "$GITHUB_ENV"
+          echo "GOVULNCHECK=$(awk '$1 == "govulncheck" { print $2 }' .tool-versions)" >> "$GITHUB_ENV"
+      - id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/tools
+          key: tools-go${{ hashFiles('go.mod') }}-gitleaks${{ env.GITLEAKS }}-govulncheck${{ env.GOVULNCHECK }}
+      - if: steps.tools.outputs.cache-hit != 'true'
         run: |
-          go install github.com/zricethezav/gitleaks/v8@v8.30.1
-          "$(go env GOPATH)/bin/gitleaks" detect --redact --no-banner
+          GOBIN="$HOME/tools" go install "github.com/zricethezav/gitleaks/v8@v$GITLEAKS"
+          GOBIN="$HOME/tools" go install "golang.org/x/vuln/cmd/govulncheck@v$GOVULNCHECK"
+      - run: ~/tools/gitleaks detect --redact --no-banner
+      - if: ${{ !cancelled() }}
+        run: ~/tools/govulncheck ./...
 
   # Connected Semgrep Pro scan: Code (Pro rules), Supply Chain, and Secrets.
-  # Authenticates to Semgrep with SEMGREP_APP_TOKEN, not GITHUB_TOKEN.
+  # The official image, pinned by digest, skips Python setup and pip install.
+  # Keep its tag equal to the semgrep pin in .tool-versions.
   semgrep:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # semgrep ci is diff-aware
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/pip
-          key: pip-semgrep-1.176.0-${{ runner.os }}
-      - run: pip install semgrep==1.176.0
       - run: semgrep ci --code --supply-chain --secrets --no-suppress-errors
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
