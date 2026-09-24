@@ -39,6 +39,11 @@ jobs:
       - if: ${{ !cancelled() }}
         run: bash scripts/wiki-sync.sh --dry-run
       - if: ${{ !cancelled() }}
+        name: Scan for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - if: ${{ !cancelled() }}
         name: Scan full history for secrets
         run: |
           go install github.com/zricethezav/gitleaks/v8@v8.30.1

@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview semgrep semgrep-ci live
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln semgrep semgrep-ci live
 
 SHELL := bash
 
@@ -28,6 +28,9 @@ hooks-install: ## Point git at .githooks so pre-commit runs gitleaks and the len
 
 wiki-preview: ## Render docs/wiki/ as the wiki will serve it, without pushing
 	@bash scripts/wiki-sync.sh --dry-run
+
+vuln: ## Scan dependencies and the standard library for known vulnerabilities
+	@govulncheck ./...
 
 semgrep: ## Offline Semgrep scan with registry packs; CI runs the connected scan
 	@semgrep --config p/golang --config p/gosec --config p/secrets --error .

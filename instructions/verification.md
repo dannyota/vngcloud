@@ -15,6 +15,7 @@ Code rules and the checks each change needs. Implementers, the reviewer, and the
 | Model or decoding change | A decode test on a sanitized raw fixture in `testdata/`, per [live-data](live-data.md) |
 | Public API change | `vngcloud.go` re-export and the matching `docs/wiki/` page |
 | Wiki page change | Links between pages use `Page-Name.md` so they work in the repo and the wiki |
+| Dependency or Go version change | `make vuln` |
 | Release | Green GitHub CI on the exact commit |
 
 `make live` runs against the real API and needs `.env`. Run it only when a brief asks for live verification.

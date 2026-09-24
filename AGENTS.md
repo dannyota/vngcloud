@@ -40,6 +40,18 @@ Every agent works in one role. The owner talks to the manager. Other roles take 
 
 A path outside every row belongs to the manager, which assigns it in a brief. Every Claude Code session starts as the manager (`"agent": "manager"` in `.claude/settings.json`). Role duties and models are in [`instructions/roles.md`](instructions/roles.md).
 
+## Security first
+
+Security comes before features and convenience, as in the AWS CLI. When a choice trades safety for ease, pick safety and tell the owner.
+
+- Stay on a supported Go release. `go.mod` and `.tool-versions` move together to each Go patch release that fixes a security issue.
+- Secure defaults, with no switch to weaken them: TLS verification always on, no cross-host redirects, credentials files mode 0600, token cache mode 0600 in a 0700 directory.
+- Never print, log, or return in an error: passwords, TOTP secrets, tokens, authorization codes, cookies, or the Authorization header. `--debug` and error messages are checked by tests for this.
+- Destructive CLI commands need `--yes`. Nothing prompts in a way that can hang an agent.
+- The SDK stays standard-library only. Every CLI dependency needs the owner's approval and a reason.
+- `govulncheck`, gitleaks, and Semgrep run in CI. A finding blocks release until fixed; suppress only a verified false positive, with the reason.
+- Auth, credential storage, and every write API get an adversarial review before release.
+
 ## How we work
 
 - **Small releases.** One feature per `v0.x.y` tag. Ship a feature when it is done and CI is green; do not batch features.
