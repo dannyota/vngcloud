@@ -117,7 +117,9 @@ from either place. Cobra itself marks no flag required.
   unchanged.
 - `--query` runs on that JSON. `table` and `text` render the query result:
   `text` prints tab-separated values, one row per list item, and `table` draws
-  a bordered grid.
+  a bordered grid. Both escape control characters in strings. They and
+  `--query` work on JSON numbers as float64, so an integer above 2^53 may
+  round there; plain `json` output keeps it exact.
 - Results go to stdout. Errors and debug logs go to stderr.
 
 ## Destructive commands

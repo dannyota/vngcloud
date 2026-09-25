@@ -35,8 +35,9 @@
   `NotFound`, `Conflict`, `Throttled`, `ServerError`, or `ClientError`. An
   envelope code equal to the HTTP status counts as none, so a billing 400 is
   `BadRequest` rather than `"400"`.
-- Login failures return `*vngcloud.LoginError`, which still matches
-  `ErrAuth`.
+- Login failures return `*vngcloud.LoginError`. It matches `ErrAuth`,
+  except when the login was cancelled or timed out: then it matches
+  `context.Canceled` or `context.DeadlineExceeded` instead.
 
 ### Dependencies
 

@@ -298,8 +298,9 @@ back to the code for the status:
 | 5xx | `ServerError` |
 | Other 4xx | `ClientError` |
 
-Every login failure returns `*vngcloud.LoginError`, which wraps `ErrAuth`,
-so `errors.Is(err, vngcloud.ErrAuth)` is true. It holds the HTTP status of the
+Every login failure returns `*vngcloud.LoginError`. It wraps `ErrAuth`, so
+`errors.Is(err, vngcloud.ErrAuth)` is true, except when the context ended
+during login: then it wraps `ctx.Err()` instead. It holds the HTTP status of the
 failed step, when there is one, and `CaptchaSuspected`, which is true when the
 sign-in page shows the form again after a submit. Its message is fixed text
 plus the status and, when suspected, a captcha hint. It never holds a
