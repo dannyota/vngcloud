@@ -229,8 +229,10 @@ The CLI prints errors to stderr as one JSON line:
 For an `*APIError`, `code` is `APIError.Code`, which falls back to the
 status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 `status` and `operation`, and `code` names the class: `InvalidUsage`,
-`ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, or
-`RequestFailed`.
+`ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`,
+`RequestFailed`, or `QueryFailed`. `QueryFailed` means `--query` failed after
+the operation succeeded; for a write, the message says the write succeeded,
+so an agent does not retry it.
 
 | Exit code | Meaning |
 |-|-|
@@ -241,7 +243,8 @@ status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 | 4 | `NotFound` |
 
 `ErrNoCredentials` and `ErrCredentialsFile` also match `ErrInvalidConfig`, so
-the CLI checks them first.
+the CLI checks them first. A cancelled context anywhere in the error chain,
+including during login, is checked before all of them and exits 1.
 
 ## Security
 
@@ -281,5 +284,7 @@ service from the operation tables. `make gen-docs` writes them into
 `configure` and `configure set` refuse to run, with exit code 2, while
 `VNGCLOUD_READ_ONLY` or `--read-only` is on, so an agent cannot clear a
 profile's `read_only` through the CLI. `configure get` and `configure list`
-still work. This guards against mistakes, not against a process that can edit
-`~/.vngcloud` directly.
+still work. `configure set read_only` refuses, with exit code 2, to turn
+`read_only` off for a profile that has it on; clearing it means editing the
+file by hand. This guards against mistakes, not against a process that can
+edit `~/.vngcloud` directly.

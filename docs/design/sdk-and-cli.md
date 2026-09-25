@@ -284,7 +284,8 @@ read-only profiles, `configure`, and exit codes.
 `*vngcloud.APIError` holds the operation, HTTP status, a stable code, the API
 message, and whether the call can be retried. `APIError.Code` is the API's own
 error code when the response has one. When the API gives none, including a
-null envelope `code`, it falls back to the code for the status:
+null envelope `code` or an envelope `code` equal to the HTTP status, it falls
+back to the code for the status:
 
 | Status | Code |
 |-|-|
