@@ -149,6 +149,9 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Fatalf("ListProjects: %v", err)
 	}
 	t.Logf("projects: %d", len(projects.Items))
+	if len(projects.Items) != 1 {
+		t.Fatalf("region %s has %d projects, want exactly 1: set VNGCLOUD_PROJECT_ID to disambiguate", region, len(projects.Items))
+	}
 
 	t.Run("servers", func(t *testing.T) {
 		res, err := compute.New(cfg).ListServers(ctx, &compute.ListServersInput{Page: 1, Size: 5})

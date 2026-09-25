@@ -29,6 +29,10 @@ func TestDNSListHostedZones(t *testing.T) {
 	if len(out.Items) != 1 || out.Items[0].ID != "zone-1" || out.Items[0].AssociatedVPCIDs[0] != "vpc-1" {
 		t.Fatalf("unexpected zones: %+v", out)
 	}
+	if len(out.Items[0].AssocVPCMapRegion) != 1 || out.Items[0].AssocVPCMapRegion[0].VPCID != "vpc-1" ||
+		out.Items[0].AssocVPCMapRegion[0].Region != "hcm-3" {
+		t.Fatalf("unexpected AssocVPCMapRegion: %+v", out.Items[0].AssocVPCMapRegion)
+	}
 }
 
 func TestDNSGetHostedZone(t *testing.T) {
@@ -106,6 +110,13 @@ func TestDNSOperationName(t *testing.T) {
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.Operation != "dns.GetHostedZone" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestDNSZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListHostedZones(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListHostedZones() err = %v, want ErrInvalidConfig", err)
 	}
 }
 

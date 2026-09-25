@@ -375,6 +375,11 @@ func (p serverGroupPolicyResp) toPolicy() ServerGroupPolicy {
 	}
 }
 
+// Zone is the vNetwork zone shape shared with other services' resource
+// models. It is the same type as network.Zone, so a compute-only caller does
+// not need to import network to name Server.Zone's type.
+type Zone = core.NetworkZone
+
 type Server struct {
 	BootVolumeID          string             `json:"bootVolumeId"`
 	CreatedAt             string             `json:"createdAt"`
@@ -403,7 +408,7 @@ type Server struct {
 	ExternalInterfaces    []NetworkInterface `json:"externalInterfaces"`
 	InternalInterfaces    []NetworkInterface `json:"internalInterfaces"`
 	ZoneID                string             `json:"zoneId"`
-	Zone                  core.NetworkZone   `json:"zone"`
+	Zone                  Zone               `json:"zone"`
 	AppLicense            any                `json:"appLicense"`
 	AppLicenseName        string             `json:"appLicenseName"`
 	AppPackageVersionName string             `json:"appPackageVersionName"`

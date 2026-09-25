@@ -259,6 +259,13 @@ func TestVolumeRequiredInput(t *testing.T) {
 	}
 }
 
+func TestVolumeZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListVolumes(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListVolumes() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 

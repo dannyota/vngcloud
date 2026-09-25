@@ -16,6 +16,13 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	return New(testutil.NewConfig(t, handler))
 }
 
+func TestBillingZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListBudgets(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListBudgets() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestListBudgets(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

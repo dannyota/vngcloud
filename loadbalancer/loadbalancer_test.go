@@ -253,6 +253,13 @@ func TestLoadBalancerRequiredInput(t *testing.T) {
 	}
 }
 
+func TestLoadBalancerZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListLoadBalancers(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListLoadBalancers() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 

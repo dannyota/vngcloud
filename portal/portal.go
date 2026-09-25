@@ -1,4 +1,4 @@
-// Package portal reads the VNG Cloud portal's user info, zones, and quotas.
+// Package portal reads the GreenNode portal's user info, zones, and quotas.
 package portal
 
 import (

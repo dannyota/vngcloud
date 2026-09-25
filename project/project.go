@@ -20,7 +20,7 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg)}
 }
 
-// Project is a VNG Cloud project.
+// Project is a GreenNode project.
 type Project = core.Project
 
 type ListProjectsInput struct {

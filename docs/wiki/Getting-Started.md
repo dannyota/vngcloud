@@ -36,6 +36,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Authenticate logs in now, so bad credentials fail here instead of on
+	// the first service call. It is optional: a call below would log in
+	// lazily on its own if this were skipped.
+	if err := cfg.Authenticate(ctx); err != nil {
+		log.Fatal(err)
+	}
+
 	servers, err := compute.New(cfg).ListServers(ctx, &compute.ListServersInput{
 		Page: 1,
 		Size: vngcloud.DefaultPageSize,
@@ -48,11 +55,12 @@ func main() {
 }
 ```
 
-`NewConfig` logs the IAM User in right away, so bad credentials fail before
-the first service call runs. Each Config targets one region. Build one
-Config per region you need, and pass it to a service package's `New`. Every
-service client built from the same Config shares one login and one project
-lookup.
+`NewConfig` does not log in. Call `cfg.Authenticate(ctx)` to log in now, so
+bad credentials fail before the first service call runs; skip it and the SDK
+logs in lazily on that first call instead. Each Config targets one region.
+Build one Config per region you need, and pass it to a service package's
+`New`. Every service client built from the same Config shares one login and
+one project lookup.
 
 ## Billing example
 

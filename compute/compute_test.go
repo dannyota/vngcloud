@@ -221,6 +221,13 @@ func TestComputeRequiredInput(t *testing.T) {
 	}
 }
 
+func TestComputeZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListServers(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListServers() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 

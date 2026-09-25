@@ -2,11 +2,20 @@ package project
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/testutil"
 )
+
+func TestProjectZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListProjects(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListProjects() err = %v, want ErrInvalidConfig", err)
+	}
+}
 
 func TestListProjects(t *testing.T) {
 	c := New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

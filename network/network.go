@@ -33,12 +33,18 @@ func New(cfg vngcloud.Config) *Client {
 }
 
 func (c *Client) ListVNetworkRegions(ctx context.Context, _ *ListVNetworkRegionsInput) (*ListVNetworkRegionsOutput, error) {
-	bases := []string{
+	bases := uniqueNonEmptyStrings([]string{
 		c.c.Endpoint(routes.ProductVNet),
 		endpoints.VNetworkRegionalGateway(c.c.Region()),
+	})
+	if len(bases) == 0 {
+		// An invalid Config resolves no endpoint at all; try one empty base so
+		// the DoJSON call below surfaces ErrInvalidConfig instead of the loop
+		// silently returning (nil, nil).
+		bases = []string{""}
 	}
 	var lastErr error
-	for _, base := range uniqueNonEmptyStrings(bases) {
+	for _, base := range bases {
 		regions, err := c.listVNetworkRegions(ctx, base)
 		if err == nil {
 			return &ListVNetworkRegionsOutput{Items: regions}, nil

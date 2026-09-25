@@ -182,6 +182,13 @@ func TestGLBRequiredInput(t *testing.T) {
 	}
 }
 
+func TestGLBZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListPackages(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListPackages() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 

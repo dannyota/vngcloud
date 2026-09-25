@@ -33,6 +33,14 @@ func decodeBody(t *testing.T, r *http.Request) map[string]any {
 	return body
 }
 
+func TestPricingZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	_, err := c.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+	if !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("GetQuote() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestGetQuoteSnapshot(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

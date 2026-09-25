@@ -10,6 +10,30 @@
   `volume`, `network`, `loadbalancer`, `globalloadbalancer`, `dns`,
   `containerregistry`, `portal`, and `project` (new; replaces
   `client.ListProjects`).
+- `NewClient` used to log in eagerly, so bad credentials failed before its
+  first return. `NewConfig` does not log in: call `cfg.Authenticate(ctx)`
+  right after it to get that same fail-fast check, or skip it and let the
+  first service call log in lazily.
+- Every root re-export of a service type is gone; import the service package
+  instead. `vngcloud.Server`, `NetworkInterface`, `SSHKey`, `ServerGroup`, and
+  their `List*Options`/`List*Result` types are now `compute.*`.
+  `vngcloud.Volume` and `Zone` are `volume.*`. `vngcloud.VPC`,
+  `SecurityGroup`, `Subnet`, `RouteTable`, and `Peering` are `network.*`.
+  `vngcloud.LoadBalancer`, `Certificate`, `Listener`, `Pool`, and `Policy` are
+  `loadbalancer.*`. `vngcloud.GlobalLoadBalancer`, `GlobalPool`, and
+  `GlobalListener` are `globalloadbalancer.*`. `vngcloud.HostedZone`,
+  `RecordValue`, and `DNSRecord` are `dns.*`. `vngcloud.PortalUserInfo`,
+  `PortalZone`, `PortalQuota`, and `PortalTagQuota` are `portal.UserInfo`,
+  `portal.Zone`, `portal.Quota`, and `portal.TagQuota`.
+  `vngcloud.ContainerRepository` and `ContainerRegistryUser` are
+  `containerregistry.Repository` and `containerregistry.User`.
+  `vngcloud.Project` and `ListProjectsOptions` are `project.Project` and
+  `project.ListProjectsInput`. Every `*Service` type (`ComputeService`,
+  `VolumeService`, `NetworkService`, `LoadBalancerService`,
+  `GlobalLoadBalancerService`, `DNSService`, `PortalService`,
+  `ContainerRegistryService`) is gone with `NewClient`; call the package's own
+  `New(cfg)`. `vngcloud.ListOptions`, `Page`, and `ListResult[T]` are gone;
+  see the paging change below.
 - Every operation takes one `*OpInput` and returns one `*OpOutput`, for
   example `compute.New(cfg).GetServer(ctx, &compute.GetServerInput{ServerID:
   id})`. Methods that took bare arguments, such as `GetServer(ctx, id)` and
@@ -17,22 +41,32 @@
   `ErrInvalidInput` before any request when it is empty, including a nil
   Input.
 - List outputs name their field: `Items` for the page, plus `Page`,
-  `PageSize`, `TotalPage`, and `TotalItem` for an API that pages. A Get
-  returns a struct with one named field, such as `GetServerOutput{Server
-  Server}`.
+  `PageSize`, `TotalPage`, and `TotalItem` for an API that pages. These sat
+  under a nested `Page` field before, for example `res.Page.TotalItem`; they
+  now sit directly on the result, for example `res.TotalItem`. A Get returns
+  a struct with one named field, such as `GetServerOutput{Server Server}`.
 - Model renames drop redundant package prefixes now that each service is its
   own package: `network` renames `NetworkRoute` to `Route`, `NetworkACL` to
   `ACL`, `NetworkEndpoint` to `Endpoint`, `NetworkEndpointDetail` to
-  `EndpointDetail`, and `NetworkZone` to `Zone`. `loadbalancer` renames
-  `LoadBalancerNode` to `Node`, `LoadBalancerPackage` to `Package`, and
-  `LoadBalancerTag` to `Tag`. `globalloadbalancer` (renamed from the `glb`
-  internal package) renames every `GLB`- and `Global`-prefixed type, for
-  example `GlobalLoadBalancer` to `LoadBalancer` and `GLBPackage` to
-  `Package`. `dns` renames `DNSRecord` to `Record` and `VpcMapRegion` to
-  `VPCMapRegion`. `portal` renames `PortalUserInfo`, `PortalZone`,
-  `PortalQuota`, and `PortalTagQuota` to `UserInfo`, `Zone`, `Quota`, and
-  `TagQuota`. `containerregistry` renames `ContainerRepository` to
-  `Repository` and `ContainerRegistryUser` to `User`.
+  `EndpointDetail` (its embedded `NetworkEndpoint` field is now `Endpoint`,
+  so `detail.NetworkEndpoint.Name` is now `detail.Endpoint.Name`), and
+  `NetworkZone` to `Zone`. `loadbalancer` renames `LoadBalancerNode` to
+  `Node`, `LoadBalancerPackage` to `Package`, and `LoadBalancerTag` to `Tag`;
+  its `ListLoadBalancerPackages` method is renamed to `ListPackages`, matching
+  `globalloadbalancer.ListPackages`. `globalloadbalancer` (renamed from the
+  `glb` internal package) renames every `GLB`- and `Global`-prefixed type,
+  for example `GlobalLoadBalancer` to `LoadBalancer`, `GLBPackage` to
+  `Package`, `GLBVLBPackage` (`vngcloud.GlobalLoadBalancerRegionalPackage`)
+  to `RegionalPackage`, and `GLBRegion`
+  (`vngcloud.GlobalLoadBalancerRegion`) to `Region`; the root re-export
+  `vngcloud.GlobalLoadBalancerPackage` is now `globalloadbalancer.Package`.
+  `dns` renames `DNSRecord` to `Record`, `VpcMapRegion` to `VPCMapRegion`,
+  and `HostedZone.AssocVpcMapRegion` to `AssocVPCMapRegion` (the
+  `assocVpcMapRegion` JSON key is unchanged). `portal` renames
+  `PortalUserInfo`, `PortalZone`, `PortalQuota`, and `PortalTagQuota` to
+  `UserInfo`, `Zone`, `Quota`, and `TagQuota`. `containerregistry` renames
+  `ContainerRepository` to `Repository` and `ContainerRegistryUser` to
+  `User`.
 - `APIError.Operation` is now `"<package>.<Method>"` in lowercase, such as
   `"compute.GetServer"`, everywhere including project discovery
   (`"project.ListProjects"`).

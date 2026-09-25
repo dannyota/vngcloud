@@ -160,7 +160,7 @@ type HostedZone struct {
 	Type              string         `json:"type"`
 	CountRecords      int            `json:"countRecords"`
 	AssociatedVPCIDs  []string       `json:"assocVpcIds"`
-	AssocVpcMapRegion []VPCMapRegion `json:"assocVpcMapRegion"`
+	AssocVPCMapRegion []VPCMapRegion `json:"assocVpcMapRegion"`
 	PortalUserID      int            `json:"portalUserId"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	DeletedAt         *time.Time     `json:"deletedAt"`

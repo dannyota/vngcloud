@@ -2,11 +2,20 @@ package containerregistry
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/testutil"
 )
+
+func TestContainerRegistryZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+	if _, err := c.ListRepositories(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListRepositories() err = %v, want ErrInvalidConfig", err)
+	}
+}
 
 func TestContainerRegistryListRepositories(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

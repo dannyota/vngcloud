@@ -8,8 +8,18 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/internal/testutil"
 )
+
+// TestZoneAliasMatchesComputeZone checks that network.Zone and compute.Zone
+// name the same underlying type, so either package's alias decodes and
+// assigns interchangeably with compute.Server.Zone.
+func TestZoneAliasMatchesComputeZone(t *testing.T) {
+	acceptsComputeZone := func(compute.Zone) {}
+	var z Zone
+	acceptsComputeZone(z)
+}
 
 func TestNetworkListVPCs(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -405,6 +415,17 @@ func TestNetworkRequiredInput(t *testing.T) {
 	}
 	if _, err := c.GetSubnet(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("nil input err = %v", err)
+	}
+}
+
+func TestNetworkZeroConfig(t *testing.T) {
+	c := New(vngcloud.Config{})
+
+	if _, err := c.ListVNetworkRegions(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListVNetworkRegions() err = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := c.ListVPCs(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("ListVPCs() err = %v, want ErrInvalidConfig", err)
 	}
 }
 
