@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"danny.vn/vngcloud"
@@ -64,11 +65,26 @@ func decodeEnvelope(raw json.RawMessage) (envelope, error) {
 	return env, nil
 }
 
-// finishEnvelope maps a non-200 envelope code to an error, and otherwise
-// decodes Data into out.
+// envelopeSuccess reports whether code, the envelope's decimal code text,
+// marks success. An empty code (a null code, pending the status-to-code
+// mapping) succeeds; otherwise the code must be 200 to 299, matching the
+// gateway, which sends 200 for reads and 201 for a create.
+func envelopeSuccess(code string) bool {
+	if code == "" {
+		return true
+	}
+	n, err := strconv.Atoi(code)
+	if err != nil {
+		return false
+	}
+	return n >= 200 && n <= 299
+}
+
+// finishEnvelope maps an envelope code outside 200 to 299 to an error, and
+// otherwise decodes Data into out.
 func (c *Client) finishEnvelope(req transport.Request, status int, env envelope, out any) error {
 	code := envelopeCode(env.Code)
-	if code != "" && code != "200" {
+	if !envelopeSuccess(code) {
 		return mapNotFound(&core.APIError{
 			Operation:  req.Operation,
 			StatusCode: status,

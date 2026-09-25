@@ -1,13 +1,20 @@
 {
-  "code": 200,
-  "message": "Success",
+  "code": 201,
+  "message": "notification.created",
   "data": {
-    "uuid": "budget-3",
     "id": 3,
+    "uuid": "budget-3",
+    "userId": 1,
     "name": "prod-actual-2",
     "periodType": "MONTHLY",
     "type": "ACTUAL",
     "limitAmount": 2000000000,
-    "status": "ACTIVE"
+    "currency": "credit",
+    "startDate": "2026-09-25",
+    "status": "PAUSED",
+    "createdBy": 1,
+    "createdAt": "2026-09-25T00:00:00Z",
+    "updatedAt": "2026-09-25T00:00:00Z",
+    "deletedAt": null
   }
 }

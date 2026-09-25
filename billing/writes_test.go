@@ -50,7 +50,8 @@ func TestCreateBudgetSendsFieldsAndDefaults(t *testing.T) {
 					t.Fatalf("body[%q] = %v, want %v (body = %+v)", k, body[k], v, body)
 				}
 			}
-			w.WriteHeader(http.StatusCreated)
+			// The API answers a create with HTTP 200 and an envelope code of
+			// 201; WriteFixture leaves the status at its default, 200.
 			testutil.WriteFixture(t, w, "../testdata/billing/CreateBudget.json")
 		}))
 
@@ -64,7 +65,13 @@ func TestCreateBudgetSendsFieldsAndDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateBudget() error = %v", err)
 		}
-		if out.Budget.UUID != "budget-3" {
+		if out.Budget.UUID != "budget-3" || out.Budget.LimitAmount != 2000000000 {
+			t.Fatalf("unexpected budget: %+v", out.Budget)
+		}
+		if out.Budget.Currency != "credit" || out.Budget.StartDate != "2026-09-25" {
+			t.Fatalf("unexpected budget: %+v", out.Budget)
+		}
+		if out.Budget.CreatedAt != "2026-09-25T00:00:00Z" || out.Budget.UpdatedAt != "2026-09-25T00:00:00Z" {
 			t.Fatalf("unexpected budget: %+v", out.Budget)
 		}
 	})

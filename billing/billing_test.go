@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -23,24 +24,48 @@ func TestListBudgets(t *testing.T) {
 		if r.URL.Path != "/gateway/api/v1/budgets" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("view") != "summary" || r.URL.Query().Get("status") != StatusActive {
+		if r.URL.Query().Get("view") != "summary" || r.URL.Query().Get("status") != StatusPaused {
 			t.Fatalf("query = %s", r.URL.RawQuery)
 		}
 		testutil.WriteFixture(t, w, "../testdata/billing/ListBudgets.json")
 	}))
 
-	out, err := client.ListBudgets(context.Background(), &ListBudgetsInput{Status: StatusActive})
+	out, err := client.ListBudgets(context.Background(), &ListBudgetsInput{Status: StatusPaused})
 	if err != nil {
 		t.Fatalf("ListBudgets() error = %v", err)
 	}
-	if len(out.Items) != 2 {
+	if len(out.Items) != 1 {
 		t.Fatalf("unexpected budgets: %+v", out.Items)
 	}
-	if out.Items[0].UUID != "budget-1" || out.Items[0].Status != StatusActive || *out.Items[0].ActualCost != 1200000 {
-		t.Fatalf("unexpected budget-1: %+v", out.Items[0])
+	b := out.Items[0]
+	if b.UUID != "budget-1" || b.ID != 1 || b.Name != "example-budget" {
+		t.Fatalf("unexpected budget: %+v", b)
 	}
-	if out.Items[1].Status != StatusPaused || out.Items[1].ActualCost != nil {
-		t.Fatalf("unexpected budget-2: %+v", out.Items[1])
+	if b.PeriodType != PeriodMonthly || b.Type != TypeActual || b.Status != StatusPaused {
+		t.Fatalf("unexpected budget: %+v", b)
+	}
+	// limitAmount arrives as a decimal (9999999999.0-shaped); it must still
+	// decode into the int64 field.
+	if b.LimitAmount != 1000000 {
+		t.Fatalf("LimitAmount = %d, want 1000000", b.LimitAmount)
+	}
+	if b.Currency != "credit" || b.PeriodKey != "2026-09" || b.PeriodStart != "2026-09-01" || b.PeriodEnd != "2026-09-30" {
+		t.Fatalf("unexpected budget: %+v", b)
+	}
+	if b.ActualCost == nil || *b.ActualCost != 0 || b.ForecastedCost == nil || *b.ForecastedCost != 0 {
+		t.Fatalf("unexpected costs: %+v", b)
+	}
+	if b.ActualPercentage == nil || *b.ActualPercentage != 0 || b.ForecastedPercentage == nil || *b.ForecastedPercentage != 0 {
+		t.Fatalf("unexpected percentages: %+v", b)
+	}
+	if b.ThresholdPercentage != nil {
+		t.Fatalf("ThresholdPercentage = %v, want nil", *b.ThresholdPercentage)
+	}
+	if b.Alarm {
+		t.Fatalf("Alarm = true, want false")
+	}
+	if b.ThresholdCount != 0 || b.AlarmThresholdCount != 0 {
+		t.Fatalf("unexpected threshold counts: %+v", b)
 	}
 }
 
@@ -149,6 +174,48 @@ func TestAlertRecipientsFallback(t *testing.T) {
 	}
 	if odd.RecipientsRaw != "not-an-array" {
 		t.Fatalf("RecipientsRaw = %q", odd.RecipientsRaw)
+	}
+}
+
+// TestEnvelopeSuccessRange checks that a 2xx HTTP response is only a
+// success when its envelope code is 200 to 299: CreateBudget answers 201,
+// and any code above 299 stays an error even though the HTTP status is OK.
+func TestEnvelopeSuccessRange(t *testing.T) {
+	cases := []struct {
+		name    string
+		code    int
+		wantErr bool
+	}{
+		{"201 succeeds", 201, false},
+		{"299 succeeds", 299, false},
+		{"300 fails", 300, true},
+		{"500 fails", 500, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = fmt.Fprintf(w, `{"code":%d,"message":"x","data":{"uuid":"budget-1"}}`, tc.code)
+			}))
+
+			out, err := client.GetBudget(context.Background(), &GetBudgetInput{BudgetUUID: "budget-1"})
+			if tc.wantErr {
+				var apiErr *vngcloud.APIError
+				if !errors.As(err, &apiErr) {
+					t.Fatalf("expected *vngcloud.APIError, got %v", err)
+				}
+				if apiErr.StatusCode != http.StatusOK {
+					t.Fatalf("StatusCode = %d, want 200", apiErr.StatusCode)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetBudget() error = %v", err)
+			}
+			if out.Budget.UUID != "budget-1" {
+				t.Fatalf("unexpected budget: %+v", out.Budget)
+			}
+		})
 	}
 }
 

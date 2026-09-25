@@ -3,6 +3,8 @@ package billing
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -25,12 +27,55 @@ type Budget struct {
 	PeriodType           string   `json:"periodType"`
 	Type                 string   `json:"type"`
 	LimitAmount          int64    `json:"limitAmount"`
+	Currency             string   `json:"currency"`
 	Status               string   `json:"status"`
+	PeriodKey            string   `json:"periodKey"`
+	PeriodStart          string   `json:"periodStart"`
+	PeriodEnd            string   `json:"periodEnd"`
+	StartDate            string   `json:"startDate"`
+	CreatedAt            string   `json:"createdAt"`
+	UpdatedAt            string   `json:"updatedAt"`
 	ActualCost           *float64 `json:"actualCost"`
 	ForecastedCost       *float64 `json:"forecastedCost"`
 	ActualPercentage     *float64 `json:"actualPercentage"`
 	ForecastedPercentage *float64 `json:"forecastedPercentage"`
 	ThresholdPercentage  *float64 `json:"thresholdPercentage"`
+	Alarm                bool     `json:"alarm"`
+	ThresholdCount       int      `json:"thresholdCount"`
+	AlarmThresholdCount  int      `json:"alarmThresholdCount"`
+}
+
+// budgetLimitAmount decodes limitAmount, which the API sends as a plain
+// integer from CreateBudget and as an integral decimal such as
+// 9999999999.0 from ListBudgets and GetBudget. A fractional value is
+// rejected rather than truncated.
+type budgetLimitAmount int64
+
+func (a *budgetLimitAmount) UnmarshalJSON(data []byte) error {
+	var f float64
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	if f != math.Trunc(f) {
+		return fmt.Errorf("billing: limitAmount %s is not an integer", data)
+	}
+	*a = budgetLimitAmount(f)
+	return nil
+}
+
+// UnmarshalJSON decodes Budget with LimitAmount routed through
+// budgetLimitAmount, so both wire shapes land in the int64 field.
+func (b *Budget) UnmarshalJSON(data []byte) error {
+	type alias Budget
+	aux := struct {
+		LimitAmount budgetLimitAmount `json:"limitAmount"`
+		*alias
+	}{alias: (*alias)(b)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	b.LimitAmount = int64(aux.LimitAmount)
+	return nil
 }
 
 // PeriodCost is the current billing period's actual and forecasted cost.

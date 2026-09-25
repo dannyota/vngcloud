@@ -1,33 +1,26 @@
 {
   "code": 200,
-  "message": "Success",
+  "message": "success",
   "data": [
     {
-      "uuid": "budget-1",
       "id": 1,
-      "name": "prod-actual",
+      "uuid": "budget-1",
+      "name": "example-budget",
       "periodType": "MONTHLY",
       "type": "ACTUAL",
-      "limitAmount": 5000000000,
-      "status": "ACTIVE",
-      "actualCost": 1200000,
-      "forecastedCost": 1500000,
-      "actualPercentage": 24,
-      "forecastedPercentage": 30,
-      "thresholdPercentage": 80
-    },
-    {
-      "uuid": "budget-2",
-      "id": 2,
-      "name": "prod-forecast",
-      "periodType": "QUARTERLY",
-      "type": "FORECASTED",
-      "limitAmount": 10000000000,
       "status": "PAUSED",
-      "actualCost": null,
-      "forecastedCost": null,
-      "actualPercentage": null,
-      "forecastedPercentage": null,
+      "limitAmount": 1000000.0,
+      "currency": "credit",
+      "periodKey": "2026-09",
+      "periodStart": "2026-09-01",
+      "periodEnd": "2026-09-30",
+      "actualCost": 0,
+      "forecastedCost": 0,
+      "actualPercentage": 0,
+      "forecastedPercentage": 0,
+      "alarm": false,
+      "thresholdCount": 0,
+      "alarmThresholdCount": 0,
       "thresholdPercentage": null
     }
   ]

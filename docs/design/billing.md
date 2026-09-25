@@ -96,15 +96,15 @@ Every dashboard gateway response is `{"code":<n>,"message":"...","data":...}`.
 today; as a defense, when a response has neither a `code` nor a `data` key,
 the decoder decodes the whole body. Fixtures cover both forms.
 
-A success is HTTP 200 with `code` 200. Its `message` is `Success` or
-`success`; the SDK never compares the message.
+A success is HTTP 200 with a `code` from 200 to 299: reads send 200 and
+creates send 201. The SDK never compares the `message`.
 
 `code` is a number or null. The shared error decoder in `internal/transport`
 accepts a numeric `code` and stores its decimal form in `APIError.Code`;
-today it expects a string and drops a number. For a null `code`,
+it once expected a string and dropped a number. For a null `code`,
 `APIError.Code` stays empty until the status-to-code mapping in
 [SDK and CLI](sdk-and-cli.md#errors) ships. A 2xx response whose envelope
-`code` is not 200 is an error: `billing` returns an `*APIError` with the
+`code` is outside 200 to 299 is an error: `billing` returns an `*APIError` with the
 actual HTTP status (200, 201, or 204), the envelope code, and the message.
 
 ### Identifiers
@@ -121,7 +121,9 @@ reach a different path than its caller named.
 ### Money and dates
 
 - All amounts are VND. Field names carry no currency.
-- `LimitAmount` is `int64`, because the API takes an integer up to 1e10.
+- `LimitAmount` is `int64`, because the API takes an integer below 1e10.
+  Lists return it as a decimal such as `9999999999.0`; the decoder accepts
+  an integral decimal and rejects a fractional one.
 - Costs, prices, and percentages are `float64`. Costs can be fractional, and
   float64 holds every integer VND value up to 2^53 exactly.
 - Numbers that the API may send as null decode to `*float64`.
@@ -151,7 +153,7 @@ reach a different path than its caller named.
 | `Name` | string | (r). The API requires `^[a-zA-Z][a-zA-Z0-9 _.@-]*$` |
 | `PeriodType` | string | (r). `MONTHLY` or `QUARTERLY` |
 | `Type` | string | (r). `ACTUAL` or `FORECASTED` |
-| `LimitAmount` | int64 | (r). VND, 1 to 1e10 |
+| `LimitAmount` | int64 | (r). VND, 1 to 1e10 - 1 |
 | `Status` | string | `ACTIVE` or `PAUSED`; empty sends `ACTIVE` |
 
 `UpdateBudgetInput` has `BudgetUUID` (r) and pointer fields `Name`,
@@ -164,10 +166,9 @@ The package exports the enum values as constants: `PeriodMonthly`,
 `StatusPaused`.
 
 `Budget` keeps its API JSON tags and holds `UUID`, `ID`, `Name`,
-`PeriodType`, `Type`, `LimitAmount`, `Status`, `ActualCost`,
-`ForecastedCost`, `ActualPercentage`, `ForecastedPercentage`, and
-`ThresholdPercentage`. `GetBudget` may omit the cost fields; the fixture
-shows which it returns. `PeriodCost` holds `PeriodKey`, `PeriodStart`,
+`PeriodType`, `Type`, `LimitAmount`, `Status`, `Currency`, `Alarm`, the
+period and timestamp strings, the threshold counts, and the nullable cost
+and percentage fields. It leaves out user and creator IDs. `PeriodCost` holds `PeriodKey`, `PeriodStart`,
 `PeriodEnd`, `ActualCost`, and `ForecastedCost`. A period key has the form
 `YYYY-MM`, both here and in the `ListBudgetAlerts` input.
 
@@ -363,7 +364,7 @@ cases this design adds:
 | Case | Result |
 |-|-|
 | Missing required field, bad UUID shape, bad date format | `ErrInvalidInput`, no request, exit 2 |
-| Envelope `code` other than 200 on an HTTP 2xx | `*APIError` with that code, exit 1 |
+| Envelope `code` outside 200 to 299 on an HTTP 2xx | `*APIError` with that code, exit 1 |
 | Unknown budget or threshold UUID | `NotFound`, exit 4 (see below) |
 | Name pattern, limit range, or second budget of a type | The server's `*APIError`, exit 1 |
 | `/v1/credits` or another billing API an IAM User cannot call | `Forbidden`, exit 1 |
@@ -418,7 +419,7 @@ server error above, and the tests assert them.
   1. Deletes leftover budgets whose names start with `vngcloud-live-`.
   2. Picks a budget type the account does not use yet, or skips.
   3. Creates `vngcloud-live-<random>` with `Status` `PAUSED` and
-     `LimitAmount` 1e10, so it cannot send an alert. If `CreateBudget`
+     `LimitAmount` 1e10 - 1, so it cannot send an alert. If `CreateBudget`
      fails, it lists budgets and deletes the one with its name, because an
      unretried `POST` may still have acted.
   4. Updates only `LimitAmount`, to another value of at least 1e9, then
@@ -445,5 +446,4 @@ ignore the region, and that a quote places no order. The release order is in
    every `cli.Write` command? It would let the owner hand an agent a profile
    that cannot change anything. Recommendation: yes, in the first CLI
    release, because billing brings the first writes.
-2. Should the SDK enforce one budget per type? Recommendation: no, until the
-   live test shows whether the server does.
+2. Should the SDK enforce one budget per type? No, until the live test shows.

@@ -128,7 +128,7 @@ func TestLiveWrite(t *testing.T) {
 		Name:        name,
 		PeriodType:  billing.PeriodMonthly,
 		Type:        budgetType,
-		LimitAmount: 10_000_000_000,
+		LimitAmount: 9_999_999_999,
 		Status:      billing.StatusPaused,
 	})
 	if err != nil {
@@ -247,7 +247,7 @@ func TestLiveWrite(t *testing.T) {
 		Name:        dupName,
 		PeriodType:  billing.PeriodMonthly,
 		Type:        budgetType,
-		LimitAmount: 10_000_000_000,
+		LimitAmount: 9_999_999_999,
 		Status:      billing.StatusPaused,
 	})
 	if err != nil {
