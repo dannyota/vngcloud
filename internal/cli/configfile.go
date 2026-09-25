@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -188,17 +189,49 @@ func writeAtomic(target writeTarget, content []byte) error {
 	return nil
 }
 
+// bomPrefix is the UTF-8 encoding of U+FEFF, matching internal/ini's own
+// leading-byte-order-mark handling exactly (see ini.Parse), so a BOM-prefixed
+// file parses to the same section and key values here as it does through
+// LoadConfig: without stripping it, "[default]" preceded by a BOM would never
+// match a bare "[" section-header check, silently hiding every key already
+// in the file (including read_only) from setINIValue and readINIValue alike.
+var bomPrefix = []byte{0xEF, 0xBB, 0xBF}
+
+// splitBOM reports whether content starts with a UTF-8 BOM and returns the
+// remainder to parse; the BOM itself is never part of section or key
+// matching, but setINIValue writes it back unchanged at the front of the
+// result so a BOM-prefixed file keeps its BOM across an edit.
+func splitBOM(content []byte) (hasBOM bool, rest []byte) {
+	if bytes.HasPrefix(content, bomPrefix) {
+		return true, content[len(bomPrefix):]
+	}
+	return false, content
+}
+
 // setINIValue returns content with key set to value inside [section],
-// keeping every other line, comments included. Section names are matched
-// exactly as internal/ini trims them, and keys are matched
-// case-insensitively, both mirroring the SDK's own parser. The section name
-// may appear more than once in the file (internal/ini merges every
-// occurrence into one logical section); when the key appears more than once
-// across those occurrences, the last one by file position is changed, since
-// that is the one the map-building parser ends up holding, and a new key is
-// added to the last occurrence of the section. A section absent from the
-// file is appended at the end.
+// keeping every other line, comments included, and keeping a leading UTF-8
+// BOM when content has one (see splitBOM). Section names are matched exactly
+// as internal/ini trims them, and keys are matched case-insensitively, both
+// mirroring the SDK's own parser. The section name may appear more than once
+// in the file (internal/ini merges every occurrence into one logical
+// section); when the key appears more than once across those occurrences,
+// the last one by file position is changed, since that is the one the
+// map-building parser ends up holding, and a new key is added to the last
+// occurrence of the section. A section absent from the file is appended at
+// the end.
 func setINIValue(content []byte, section, key, value string) []byte {
+	hasBOM, body := splitBOM(content)
+	result := setINIValueBody(body, section, key, value)
+	if !hasBOM {
+		return result
+	}
+	out := make([]byte, 0, len(bomPrefix)+len(result))
+	out = append(out, bomPrefix...)
+	out = append(out, result...)
+	return out
+}
+
+func setINIValueBody(content []byte, section, key, value string) []byte {
 	keyLower := strings.ToLower(key)
 	newLine := key + " = " + value
 
@@ -207,15 +240,22 @@ func setINIValue(content []byte, section, key, value string) []byte {
 		lines = strings.Split(string(content), "\n")
 	}
 
-	type occurrence struct{ header, end int }
+	// occurrence.insertAt is where a brand-new key belongs for that
+	// occurrence of the section: right after its last key line, or right
+	// after the header itself when the occurrence has no keys yet. A blank
+	// or comment line never advances it, so it always lands before any
+	// blank or comment lines trailing the section, even when those sit
+	// immediately before the next section's header.
+	type occurrence struct{ insertAt int }
 	var occurrences []occurrence
 	curSection, curHeader := "", -1
+	curInsertAt := -1
 	lastKeyLine := -1
 	lastKeyPrefix := ""
 
-	closeCurrent := func(end int) {
+	closeCurrent := func() {
 		if curSection == section && curHeader >= 0 {
-			occurrences = append(occurrences, occurrence{header: curHeader, end: end})
+			occurrences = append(occurrences, occurrence{insertAt: curInsertAt})
 		}
 	}
 
@@ -226,13 +266,15 @@ func setINIValue(content []byte, section, key, value string) []byte {
 		case trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";"):
 			continue
 		case strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]"):
-			closeCurrent(i)
+			closeCurrent()
 			curSection = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
 			curHeader = i
+			curInsertAt = i + 1
 		default:
 			if curSection != section {
 				continue
 			}
+			curInsertAt = i + 1
 			if idx := strings.Index(line, "="); idx >= 0 {
 				k := strings.ToLower(strings.TrimSpace(line[:idx]))
 				if k == keyLower {
@@ -242,34 +284,49 @@ func setINIValue(content []byte, section, key, value string) []byte {
 			}
 		}
 	}
-	closeCurrent(len(lines))
+	closeCurrent()
 
 	switch {
 	case lastKeyLine >= 0:
 		lines[lastKeyLine] = lastKeyPrefix + " " + value
-		return []byte(strings.Join(lines, "\n"))
+		return []byte(strings.Join(ensureTrailingNewline(lines), "\n"))
 	case len(occurrences) > 0:
-		last := occurrences[len(occurrences)-1]
+		insertAt := occurrences[len(occurrences)-1].insertAt
 		out := make([]string, 0, len(lines)+1)
-		out = append(out, lines[:last.end]...)
+		out = append(out, lines[:insertAt]...)
 		out = append(out, newLine)
-		out = append(out, lines[last.end:]...)
-		return []byte(strings.Join(out, "\n"))
+		out = append(out, lines[insertAt:]...)
+		return []byte(strings.Join(ensureTrailingNewline(out), "\n"))
 	default:
 		out := append([]string{}, lines...)
 		if len(out) > 0 && strings.TrimSpace(out[len(out)-1]) != "" {
 			out = append(out, "")
 		}
 		out = append(out, "["+section+"]", newLine)
-		return []byte(strings.Join(out, "\n"))
+		return []byte(strings.Join(ensureTrailingNewline(out), "\n"))
 	}
 }
 
+// ensureTrailingNewline returns lines with one more empty element appended
+// when it does not already end with one, so strings.Join(..., "\n") always
+// produces content ending in a single "\n": Join leaves no trailing
+// separator after its last element, so a lines slice that does not already
+// end with "" (the marker a trailing "\n" in the original content leaves
+// behind after Split) would otherwise silently drop the file's final
+// newline.
+func ensureTrailingNewline(lines []string) []string {
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		return lines
+	}
+	return append(lines, "")
+}
+
 // readINIValue returns key's value inside section (matched the same way
-// setINIValue matches it: section names trimmed as internal/ini trims them,
-// keys case-insensitively, the last occurrence winning), or "" when the
-// section or key is absent.
+// setINIValue matches it: a leading UTF-8 BOM stripped first, section names
+// trimmed as internal/ini trims them, keys case-insensitively, the last
+// occurrence winning), or "" when the section or key is absent.
 func readINIValue(content []byte, section, key string) string {
+	_, content = splitBOM(content)
 	if len(content) == 0 {
 		return ""
 	}

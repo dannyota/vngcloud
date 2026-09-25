@@ -64,5 +64,5 @@ var networkOps = []Op[network.Client]{
 }
 
 func newNetworkCmd(e *env) *cobra.Command {
-	return Service(e, "network", network.New, networkOps...)
+	return Service(e, "network", "VPCs, security groups, and network interfaces", network.New, networkOps...)
 }

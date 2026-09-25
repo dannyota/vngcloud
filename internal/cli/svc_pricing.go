@@ -15,5 +15,5 @@ var pricingOps = []Op[pricing.Client]{
 }
 
 func newPricingCmd(e *env) *cobra.Command {
-	return Service(e, "pricing", pricing.New, pricingOps...)
+	return Service(e, "pricing", "Price quotes for resources", pricing.New, pricingOps...)
 }

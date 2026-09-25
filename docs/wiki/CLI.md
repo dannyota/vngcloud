@@ -25,14 +25,18 @@
 | `--debug` | Log requests to stderr |
 | `--read-only` | Refuse every write command |
 
+## --cli-input-json
+
+Every operation command also accepts `--cli-input-json '<json>'` or `--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag given on the same command line is applied after it and wins for that field. Trailing data after the JSON value, and a key that names no field, are both usage errors.
+
 ## Exit codes
 
 | Code | Meaning |
 |-|-|
 | 0 | Success |
 | 1 | API or network error, or a canceled command |
-| 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, or a missing region |
-| 3 | No credentials, or a login failure |
+| 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a missing region, or an ambiguous project |
+| 3 | No credentials, a login failure, or a 401 after the retry |
 | 4 | Not found |
 
 ## Error classes
@@ -43,11 +47,30 @@ A failed command prints one JSON line to stderr:
 {"error":{"code":"NotFound","message":"server not found","status":404,"operation":"compute.GetServer"}}
 ```
 
-`status` and `operation` appear only for an API error, whose `code` is the API's own code. Every other error names one class: `InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, or `QueryFailed`.
+`status` and `operation` appear only for an API error, whose `code` is the API's own code, or a status-derived fallback code when the API gives none. Every other error names one class: `InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, or `QueryFailed`.
 
 ## Read-only
 
-Read-only refuses every write command before any request. Any of these turns it on, and none can turn it off: `--read-only`; `VNGCLOUD_READ_ONLY` set to `1` or `true`; the profile's own `read_only` config key set to `true`.
+Read-only refuses every write command before any request. Any of these turns it on, and none can turn it off: `--read-only`; `VNGCLOUD_READ_ONLY` set to `1` or `true`; the profile's own `read_only` config key set to `1` or `true` (`read_only = 1` in the config file).
+
+## configure
+
+`vngcloud configure` prompts for each value below; `configure set <key> <value>`, `configure get <key>`, and `configure list` script the same file edits and reads.
+
+| Key | File |
+|-|-|
+| `region` | config |
+| `project_id` | config |
+| `output` | config |
+| `read_only` | config |
+| `root_email` | credentials |
+| `username` | credentials |
+| `password` | credentials |
+| `totp_secret` | credentials |
+
+`configure set <key> -` reads the value from stdin instead of argv, so it never appears in `ps` output or shell history. `password` and `totp_secret` can only be set this way; a literal value for either is refused with exit code 2. `configure get` and `configure list` mask both as `****`.
+
+`configure` and `configure set` refuse to run, with exit code 2, while read-only is on, so an agent cannot clear a profile's `read_only` through the CLI; `configure get` and `configure list` still work. `configure set read_only` refuses, with exit code 2, to turn `read_only` off for a profile that already has it on; clearing it means editing the file by hand.
 
 ## Rename table
 

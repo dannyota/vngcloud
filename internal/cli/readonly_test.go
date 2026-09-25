@@ -84,6 +84,41 @@ func TestReadOnlyFromProfile(t *testing.T) {
 	}
 }
 
+func TestReadOnlyPreConfigBadValueIsInvalidConfig(t *testing.T) {
+	t.Setenv(envReadOnly, "ture")
+	_, _, err := readOnlyPreConfig(&globalFlags{})
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if classify(err).Code != "InvalidConfig" {
+		t.Fatalf("Code = %q, want InvalidConfig", classify(err).Code)
+	}
+}
+
+func TestReadOnlyFromProfileBadValueIsInvalidConfig(t *testing.T) {
+	home := withCleanEnv(t)
+	writeConfigFile(t, home, "[profile bad]\nregion = hcm-3\nread_only = ture\n")
+	writeCredentialsFile(t, home, "[bad]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+	cfg, err := vngcloud.LoadConfig(context.Background(), vngcloud.WithProfile("bad"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	_, _, err = readOnlyFromProfile(cfg, "bad")
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if classify(err).Code != "InvalidConfig" {
+		t.Fatalf("Code = %q, want InvalidConfig", classify(err).Code)
+	}
+}
+
 func TestResolvedProfileName(t *testing.T) {
 	t.Setenv(envProfile, "")
 	if got := resolvedProfileName(&globalFlags{}); got != "default" {

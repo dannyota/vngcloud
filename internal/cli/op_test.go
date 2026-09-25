@@ -124,7 +124,7 @@ func (h *fakeHarness) fakeOps() []Op[fakeClient] {
 }
 
 func (h *fakeHarness) serviceCmd() *cobra.Command {
-	return Service(h.e, "fake", h.newClient, h.fakeOps()...)
+	return Service(h.e, "fake", "fake service for tests", h.newClient, h.fakeOps()...)
 }
 
 // newTestRoot builds a minimal stand-in for the production root command,
@@ -283,6 +283,50 @@ func TestOpReadOnlyDoesNotBlockReads(t *testing.T) {
 	}
 }
 
+func TestOpReadOnlyRefusalComesBeforeRequiredFieldCheck(t *testing.T) {
+	h := newFakeHarness(t)
+	root := newTestRoot(h.e)
+	root.AddCommand(h.serviceCmd())
+
+	// fake-delete requires --id; omitting both --id and --yes must still
+	// surface the read-only refusal, not a missing-required-flag usage
+	// error, so an agent sees the one reason the command can never run.
+	err := execCmd(t, root, []string{"--read-only", "fake", "fake-delete"})
+	if err == nil {
+		t.Fatalf("expected a read-only refusal")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if classify(err).Code != "ReadOnly" {
+		t.Fatalf("Code = %q, want ReadOnly", classify(err).Code)
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 0 {
+		t.Fatalf("calls = %d, want 0", got)
+	}
+}
+
+func TestReadOnlyFlagFalseDoesNotOverrideEnvVar(t *testing.T) {
+	h := newFakeHarness(t)
+	t.Setenv(envReadOnly, "1")
+	root := newTestRoot(h.e)
+	root.AddCommand(h.serviceCmd())
+
+	// --read-only=false explicitly sets the flag to its own default; per the
+	// CLI design no flag or variable can turn read-only off once another
+	// source turned it on.
+	err := execCmd(t, root, []string{"--read-only=false", "--yes", "fake", "fake-delete", "--id", "x"})
+	if err == nil {
+		t.Fatalf("expected a read-only refusal")
+	}
+	if classify(err).Code != "ReadOnly" {
+		t.Fatalf("Code = %q, want ReadOnly", classify(err).Code)
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 0 {
+		t.Fatalf("calls = %d, want 0", got)
+	}
+}
+
 func TestOpUnknownSubcommandIsAUsageError(t *testing.T) {
 	h := newFakeHarness(t)
 	root := newTestRoot(h.e)
@@ -322,7 +366,7 @@ func TestServicePanicsOnMismatchedOperationName(t *testing.T) {
 		Read[billing.Client, billing.ListBudgetsInput, billing.ListBudgetsOutput]("list-the-budgets", (*billing.Client).ListBudgets),
 	}
 	h := newFakeHarness(t)
-	_ = Service(h.e, "billing", billing.New, ops...)
+	_ = Service(h.e, "billing", "test short", billing.New, ops...)
 }
 
 type collidingInput struct {
@@ -347,7 +391,7 @@ func TestServicePanicsOnFlagCollidingWithGlobalFlag(t *testing.T) {
 	ops := []Op[fakeClient]{
 		Read[fakeClient, collidingInput, collidingOutput]("fake-colliding-method", fakeCollidingMethod),
 	}
-	_ = Service(h.e, "fake", h.newClient, ops...)
+	_ = Service(h.e, "fake", "test short", h.newClient, ops...)
 }
 
 func TestFuncNameRecoversMethodExpressionName(t *testing.T) {

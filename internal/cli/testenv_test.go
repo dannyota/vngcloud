@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,39 @@ func (t refusingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	default:
 		return nil, errors.New("cli test transport: refusing non-loopback host " + req.URL.Hostname())
 	}
+}
+
+func TestRefusingTransportBlocksNonLoopbackHost(t *testing.T) {
+	rt := refusingTransport{base: http.DefaultTransport}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatalf("expected the non-loopback host to be refused")
+	}
+}
+
+func TestRefusingTransportAllowsLoopbackHost(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	rt := refusingTransport{base: server.Client().Transport}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	_ = resp.Body.Close()
 }
 
 // newFakeServer starts an httptest server using handler, and returns

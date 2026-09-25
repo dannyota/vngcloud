@@ -117,6 +117,105 @@ func TestGenDocsNoOSDependentContent(t *testing.T) {
 	}
 }
 
+func TestGenDocsExitCodeTableCoversAmbiguousProjectAndRetryUnauthorized(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	if !strings.Contains(data, "ambiguous project") {
+		t.Errorf("exit code table is missing the ambiguous-project case:\n%s", data)
+	}
+	if !strings.Contains(data, "401 after the retry") {
+		t.Errorf("exit code table is missing the 401-after-retry case:\n%s", data)
+	}
+}
+
+func TestGenDocsReadOnlyTextMentionsNumericOnValue(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	if !strings.Contains(data, "read_only = 1") {
+		t.Errorf("read-only text is missing the read_only = 1 example:\n%s", data)
+	}
+}
+
+func TestGenDocsErrorCodeTextMentionsStatusFallback(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	if !strings.Contains(data, "status-derived") {
+		t.Errorf("error class text is missing the status-derived fallback:\n%s", data)
+	}
+}
+
+func TestGenDocsHasConfigureSectionAndCLIInputJSONSyntax(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{
+		"## configure",
+		"configure set <key> -",
+		"password",
+		"totp_secret",
+		"read_only",
+		"--cli-input-json",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("CLI.md is missing %q", want)
+		}
+	}
+}
+
+func TestGenDocsRemovesStaleServicePages(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	stalePath := filepath.Join(dir, "CLI-OldService.md")
+	if err := os.WriteFile(stalePath, []byte(genDocsMarker+"\n\nstale\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale generated page was not removed: %v", err)
+	}
+}
+
+func TestGenDocsNeverRemovesAHandAuthoredFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	handAuthored := filepath.Join(dir, "CLI-Notes.md")
+	if err := os.WriteFile(handAuthored, []byte("# hand-written notes, no generated marker\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	if _, err := os.Stat(handAuthored); err != nil {
+		t.Fatalf("a file without the generated marker must be left alone: %v", err)
+	}
+}
+
+func mustReadGenDocsCLIMD(t *testing.T, dir string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "CLI.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI.md: %v", err)
+	}
+	return data
+}
+
 func TestGenDocsCommandIsHidden(t *testing.T) {
 	withCleanEnv(t)
 	out, err := runConfigure(t, "", []string{"--help"})

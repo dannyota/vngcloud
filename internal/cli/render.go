@@ -224,7 +224,7 @@ func cellText(v any) string {
 	case nil:
 		return ""
 	case string:
-		return val
+		return escapeControlChars(val)
 	case bool:
 		return strconv.FormatBool(val)
 	case float64:
@@ -236,4 +236,38 @@ func cellText(v any) string {
 		}
 		return string(data)
 	}
+}
+
+// escapeControlChars replaces every ASCII control character and DEL in s
+// with a visible escape (\t, \n, \r, or \xHH for anything else), so a string
+// cell can never break a tab-separated text row, a table border, or hide an
+// ANSI escape sequence such as ESC (\x1b) on a terminal. JSON output does not
+// go through this: encoding/json already escapes the same characters its own
+// way, and the two must not be conflated.
+func escapeControlChars(s string) string {
+	if !strings.ContainsFunc(s, isControlRune) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\t':
+			b.WriteString(`\t`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			if isControlRune(r) {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+func isControlRune(r rune) bool {
+	return r < 0x20 || r == 0x7f
 }

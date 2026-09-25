@@ -248,6 +248,120 @@ func TestBillingUpdateBudgetSendsOnlyTheChangedField(t *testing.T) {
 	}
 }
 
+func TestEveryServiceCommandHasAShortDescription(t *testing.T) {
+	withCleanEnv(t)
+	root := newRootCmd(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	for _, name := range []string{"billing", "pricing", "compute", "network", "dns"} {
+		cmd, _, err := root.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find(%s): %v", name, err)
+		}
+		if cmd.Short == "" {
+			t.Errorf("%s command has no Short description", name)
+		}
+	}
+}
+
+func TestBillingWriteRefusedByProfileReadOnlyWithZeroRequests(t *testing.T) {
+	home := withCleanEnv(t)
+	writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+	writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/gateway/api/v1/budgets/b-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	opts := newFakeServer(t, fixture.mux)
+	withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	root := newRootCmd(strings.NewReader(""), stdout, stderr)
+	root.SetArgs([]string{
+		"--profile", "agent", "--yes",
+		"billing", "update-budget", "--budget-uuid", "b-1", "--status", "PAUSED",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected a read-only refusal")
+	}
+	if classify(err).Code != "ReadOnly" {
+		t.Fatalf("Code = %q, want ReadOnly (stderr=%s)", classify(err).Code, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+func TestReadOnlyFlagFalseDoesNotOverrideProfile(t *testing.T) {
+	home := withCleanEnv(t)
+	writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+	writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/gateway/api/v1/budgets/b-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	opts := newFakeServer(t, fixture.mux)
+	withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	root := newRootCmd(strings.NewReader(""), stdout, stderr)
+	root.SetArgs([]string{
+		"--profile", "agent", "--read-only=false", "--yes",
+		"billing", "update-budget", "--budget-uuid", "b-1", "--status", "PAUSED",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected a read-only refusal")
+	}
+	if classify(err).Code != "ReadOnly" {
+		t.Fatalf("Code = %q, want ReadOnly (stderr=%s)", classify(err).Code, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+func TestBillingWriteDebugLogsStartAndFinishWithOnlyOperationName(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/gateway/api/v1/budgets/b-1": func(w http.ResponseWriter, r *http.Request) {
+			_ = r.Body.Close()
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--yes", "--debug",
+		"billing", "update-budget", "--budget-uuid", "b-1", "--status", "PAUSED",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var sawStart, sawFinish bool
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		switch {
+		case strings.Contains(line, "write started"):
+			sawStart = true
+		case strings.Contains(line, "write finished"):
+			sawFinish = true
+		default:
+			continue
+		}
+		if !strings.Contains(line, `operation="billing update-budget"`) {
+			t.Fatalf("write debug line missing the operation name: %s", line)
+		}
+		if strings.Contains(line, "PAUSED") || strings.Contains(line, "budget-uuid") || strings.Contains(line, "b-1") {
+			t.Fatalf("write debug line leaked more than the operation name: %s", line)
+		}
+	}
+	if !sawStart || !sawFinish {
+		t.Fatalf("stderr missing write started/write finished: %s", stderr.String())
+	}
+}
+
 func TestBillingGetCostOverviewSearchAndQuery(t *testing.T) {
 	overviewBody := `{"code":200,"data":{"summary":{"currentCost":100,"lastPeriodCost":90,"changePercent":11.1,"forecastCost":110,"activeCount":2,"breakdown":[]},"series":[{"date":"2026-01-01","cost":10}],"interval":"daily","startDate":"2026-01-01","endDate":"2026-01-31","groupBy":"product"}}`
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){

@@ -93,22 +93,24 @@ func funcName(method any) string {
 }
 
 // Service builds the cobra command for one SDK service: a parent command
-// named name, with one subcommand per op. It panics if any op's registered
-// name does not match the kebab-case form of its SDK method (outside the
-// rename table), or if any op's Input field would derive a flag name that
-// collides with a global flag: both are programmer mistakes in the
-// operation table, not something a CLI user can trigger, so tests catch
-// them by calling Service (or validateOps directly) for every real service
-// table.
-func Service[C any](e *env, name string, newClient func(vngcloud.Config) *C, ops ...Op[C]) *cobra.Command {
+// named name, with one subcommand per op. short is its one-line --help
+// summary, shown next to name in the parent command's own listing. It panics
+// if any op's registered name does not match the kebab-case form of its SDK
+// method (outside the rename table), or if any op's Input field would derive
+// a flag name that collides with a global flag: both are programmer mistakes
+// in the operation table, not something a CLI user can trigger, so tests
+// catch them by calling Service (or validateOps directly) for every real
+// service table.
+func Service[C any](e *env, name, short string, newClient func(vngcloud.Config) *C, ops ...Op[C]) *cobra.Command {
 	if err := validateOps(name, ops); err != nil {
 		panic(err)
 	}
 
 	cmd := &cobra.Command{
-		Use:  name,
-		Args: parentArgs,
-		RunE: unknownCommandRunE,
+		Use:   name,
+		Short: short,
+		Args:  parentArgs,
+		RunE:  unknownCommandRunE,
 	}
 	for _, op := range ops {
 		cmd.AddCommand(newOpCmd(e, name, newClient, op))
@@ -170,6 +172,20 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return err
 	}
 	applyChangedFlags(cmd, input, bound)
+
+	// A read-only refusal from the flag or environment source is checked
+	// before checkRequiredFlags, not after: read-only rejects the whole
+	// command outright, so an agent sees exactly one reason it was refused
+	// rather than a required-flag error that a --yes or a fixed flag set
+	// would not actually clear.
+	if op.kind == kindWrite {
+		if on, source, err := readOnlyPreConfig(e.flags); err != nil {
+			return err
+		} else if on {
+			return readOnlyError{source: source}
+		}
+	}
+
 	if err := checkRequiredFlags(input); err != nil {
 		return err
 	}
@@ -186,11 +202,6 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	if op.kind == kindWrite {
 		if op.destructive && !e.flags.yes {
 			return newUsageError("%s %s is destructive; pass --yes to confirm", serviceName, op.name)
-		}
-		if on, source, err := readOnlyPreConfig(e.flags); err != nil {
-			return err
-		} else if on {
-			return readOnlyError{source: source}
 		}
 	}
 

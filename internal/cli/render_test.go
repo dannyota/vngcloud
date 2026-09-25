@@ -189,6 +189,35 @@ func TestGoldenProjection(t *testing.T) {
 	checkGolden(t, "projection.text.golden", "text", query, v)
 }
 
+type goldenControlChars struct {
+	Name string
+}
+
+func TestGoldenControlCharsInStringCellsAreEscaped(t *testing.T) {
+	v := &goldenControlChars{Name: "a\tb\nc\rd\x1bE"}
+	checkGolden(t, "control-chars.json.golden", "json", "", v)
+	checkGolden(t, "control-chars.table.golden", "table", "", v)
+	checkGolden(t, "control-chars.text.golden", "text", "", v)
+}
+
+func TestEscapeControlChars(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"plain", "plain"},
+		{"a\tb", `a\tb`},
+		{"a\nb", `a\nb`},
+		{"a\rb", `a\rb`},
+		{"a\x1bb", `a\x1bb`},
+		{"a\x00b", `a\x00b`},
+		{"a\x7fb", `a\x7fb`},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := escapeControlChars(tt.in); got != tt.want {
+			t.Errorf("escapeControlChars(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestRenderOutputRejectsBadFormat(t *testing.T) {
 	var buf bytes.Buffer
 	err := renderOutput(&buf, "yaml", "", &goldenGetOutput{}, false)

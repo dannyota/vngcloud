@@ -48,7 +48,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:           "vngcloud",
-		Short:         "Command-line access to VNG Cloud (GreenNode)",
+		Short:         "Command-line access to GreenNode",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          parentArgs,

@@ -32,5 +32,5 @@ var computeOps = []Op[compute.Client]{
 }
 
 func newComputeCmd(e *env) *cobra.Command {
-	return Service(e, "compute", compute.New, computeOps...)
+	return Service(e, "compute", "Servers, images, and SSH keys", compute.New, computeOps...)
 }

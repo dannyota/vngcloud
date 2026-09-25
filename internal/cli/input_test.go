@@ -43,6 +43,68 @@ func TestApplyCLIInputJSONUnknownKeyIsAUsageError(t *testing.T) {
 	}
 }
 
+type caseTestInput struct {
+	ID string
+}
+
+func TestApplyCLIInputJSONKeysAreCaseSensitive(t *testing.T) {
+	in := &caseTestInput{}
+	// encoding/json's own struct decoding would match "id" to ID when no
+	// exact-case field exists; --cli-input-json must not fall back to that.
+	err := applyCLIInputJSON(`{"id":"lowercase"}`, in)
+	if err == nil {
+		t.Fatalf("expected an error for a key that only matches case-insensitively")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if in.ID != "" {
+		t.Fatalf("ID = %q, want unchanged", in.ID)
+	}
+}
+
+func TestApplyCLIInputJSONExactCaseMatchWorks(t *testing.T) {
+	in := &caseTestInput{}
+	if err := applyCLIInputJSON(`{"ID":"exact"}`, in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.ID != "exact" {
+		t.Fatalf("ID = %q, want exact", in.ID)
+	}
+}
+
+func TestApplyCLIInputJSONTrailingGarbageIsAUsageError(t *testing.T) {
+	in := &jsonTestInput{}
+	err := applyCLIInputJSON(`{"Name":"n"}garbage`, in)
+	if err == nil {
+		t.Fatalf("expected an error for trailing data after the JSON value")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+}
+
+func TestApplyCLIInputJSONTrailingSecondValueIsAUsageError(t *testing.T) {
+	in := &jsonTestInput{}
+	err := applyCLIInputJSON(`{"Name":"n"}{"Count":1}`, in)
+	if err == nil {
+		t.Fatalf("expected an error for a second JSON value")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+}
+
+func TestApplyCLIInputJSONTrailingWhitespaceIsFine(t *testing.T) {
+	in := &jsonTestInput{}
+	if err := applyCLIInputJSON("{\"Name\":\"n\"}\n  \t", in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.Name != "n" {
+		t.Fatalf("Name = %q, want n", in.Name)
+	}
+}
+
 func TestApplyCLIInputJSONFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "input.json")

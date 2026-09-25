@@ -20,5 +20,5 @@ var dnsOps = []Op[dns.Client]{
 }
 
 func newDNSCmd(e *env) *cobra.Command {
-	return Service(e, "dns", dns.New, dnsOps...)
+	return Service(e, "dns", "Hosted zones and DNS records", dns.New, dnsOps...)
 }

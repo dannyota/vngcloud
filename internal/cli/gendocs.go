@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,7 +98,10 @@ func docFieldsFor(inputPtr any) []docField {
 // runGenDocs writes CLI.md and one CLI-<Service>.md per registered service
 // into dir, deterministically: no timestamp, no home path, and no
 // OS-dependent default appears anywhere in the output, and the only
-// map iterated (the shared rename table) is iterated in sorted order.
+// map iterated (the shared rename table) is iterated in sorted order. It also
+// removes every CLI-*.md file already in dir that this run did not generate,
+// so a service renamed or removed from the operation tables does not leave
+// its old page behind.
 func runGenDocs(dir string) error {
 	services := []docService{
 		buildDocService("billing", billingOps),
@@ -111,12 +115,53 @@ func runGenDocs(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // wiki pages are meant to be world-readable once published
 		return err
 	}
+
+	generated := map[string]bool{"CLI.md": true}
+	for _, svc := range services {
+		generated["CLI-"+serviceTitle(svc.name)+".md"] = true
+	}
+	if err := removeStaleGenDocsFiles(dir, generated); err != nil {
+		return err
+	}
+
 	if err := os.WriteFile(filepath.Join(dir, "CLI.md"), []byte(renderCLIPage(services)), 0o644); err != nil { //nolint:gosec // a public documentation page
 		return err
 	}
 	for _, svc := range services {
 		path := filepath.Join(dir, "CLI-"+serviceTitle(svc.name)+".md")
 		if err := os.WriteFile(path, []byte(renderServicePage(svc)), 0o644); err != nil { //nolint:gosec // a public documentation page
+			return err
+		}
+	}
+	return nil
+}
+
+// removeStaleGenDocsFiles deletes every CLI-*.md file in dir that keep does
+// not name. It only ever deletes a file that starts with genDocsMarker, so a
+// hand-authored file that happens to match the CLI-*.md pattern is always
+// left alone.
+func removeStaleGenDocsFiles(dir string, keep map[string]bool) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || keep[name] || !strings.HasPrefix(name, "CLI-") || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path) //nolint:gosec // path is built from a directory entry this same call just listed
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(string(data), genDocsMarker) {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
 			return err
 		}
 	}
@@ -168,13 +213,21 @@ func renderCLIPage(services []docService) string {
 	}
 	b.WriteString("\n")
 
+	b.WriteString("## --cli-input-json\n\n")
+	b.WriteString("Every operation command also accepts `--cli-input-json '<json>'` or " +
+		"`--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, " +
+		"matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag " +
+		"given on the same command line is applied after it and wins for that field. Trailing data after the " +
+		"JSON value, and a key that names no field, are both usage errors.\n\n")
+
 	b.WriteString("## Exit codes\n\n")
 	b.WriteString("| Code | Meaning |\n|-|-|\n")
 	for _, row := range [][2]string{
 		{"0", "Success"},
 		{"1", "API or network error, or a canceled command"},
-		{"2", "Usage or config error: bad flags, a missing `--yes`, a read-only refusal, or a missing region"},
-		{"3", "No credentials, or a login failure"},
+		{"2", "Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a missing region, " +
+			"or an ambiguous project"},
+		{"3", "No credentials, a login failure, or a 401 after the retry"},
 		{"4", "Not found"},
 	} {
 		fmt.Fprintf(&b, "| %s | %s |\n", row[0], row[1])
@@ -185,13 +238,16 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("A failed command prints one JSON line to stderr:\n\n")
 	b.WriteString("```json\n{\"error\":{\"code\":\"NotFound\",\"message\":\"server not found\",\"status\":404,\"operation\":\"compute.GetServer\"}}\n```\n\n")
 	b.WriteString("`status` and `operation` appear only for an API error, whose `code` is the API's own " +
-		"code. Every other error names one class: `InvalidUsage`, `ReadOnly`, `InvalidConfig`, " +
-		"`NoCredentials`, `LoginFailed`, `RequestFailed`, or `QueryFailed`.\n\n")
+		"code, or a status-derived fallback code when the API gives none. Every other error names one class: " +
+		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, or " +
+		"`QueryFailed`.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
 		"and none can turn it off: `--read-only`; `VNGCLOUD_READ_ONLY` set to `1` or `true`; the profile's " +
-		"own `read_only` config key set to `true`.\n\n")
+		"own `read_only` config key set to `1` or `true` (`read_only = 1` in the config file).\n\n")
+
+	b.WriteString(renderConfigureSection())
 
 	b.WriteString("## Rename table\n\n")
 	b.WriteString("A flag or operation name the mechanical kebab-case conversion would otherwise get " +
@@ -205,6 +261,35 @@ func renderCLIPage(services []docService) string {
 	for _, k := range keys {
 		fmt.Fprintf(&b, "| `%s` | `%s` |\n", k, renameTable[k])
 	}
+	return b.String()
+}
+
+// renderConfigureSection documents vngcloud configure, built from the same
+// configureKeys and configureKeyOrder tables configure.go uses so the page
+// can never drift from the actual key set.
+func renderConfigureSection() string {
+	var b strings.Builder
+	b.WriteString("## configure\n\n")
+	b.WriteString("`vngcloud configure` prompts for each value below; `configure set <key> <value>`, " +
+		"`configure get <key>`, and `configure list` script the same file edits and reads.\n\n")
+
+	b.WriteString("| Key | File |\n|-|-|\n")
+	for _, key := range configureKeyOrder {
+		_, defaultName := fileFor(key)
+		fmt.Fprintf(&b, "| `%s` | %s |\n", key, defaultName)
+	}
+	b.WriteString("\n")
+
+	b.WriteString("`configure set <key> -` reads the value from stdin instead of argv, so it never appears " +
+		"in `ps` output or shell history. `password` and `totp_secret` can only be set this way; a literal " +
+		"value for either is refused with exit code 2. `configure get` and `configure list` mask both as " +
+		"`****`.\n\n")
+
+	b.WriteString("`configure` and `configure set` refuse to run, with exit code 2, while read-only is on, " +
+		"so an agent cannot clear a profile's `read_only` through the CLI; `configure get` and `configure " +
+		"list` still work. `configure set read_only` refuses, with exit code 2, to turn `read_only` off for " +
+		"a profile that already has it on; clearing it means editing the file by hand.\n\n")
+
 	return b.String()
 }
 

@@ -42,5 +42,5 @@ var billingOps = []Op[billing.Client]{
 }
 
 func newBillingCmd(e *env) *cobra.Command {
-	return Service(e, "billing", billing.New, billingOps...)
+	return Service(e, "billing", "Budgets, cost, and balances", billing.New, billingOps...)
 }

@@ -28,7 +28,7 @@ func readOnlyPreConfig(flags *globalFlags) (on bool, source string, err error) {
 	value := os.Getenv(envReadOnly)
 	on, ok := parseOnOff(value)
 	if !ok {
-		return false, "", newUsageError("%s must be 1, true, 0, false, or empty, got %q", envReadOnly, value)
+		return false, "", fmt.Errorf("%w: %s must be 1, true, 0, false, or empty, got %q", vngcloud.ErrInvalidConfig, envReadOnly, value)
 	}
 	if on {
 		return true, envReadOnly, nil
@@ -44,7 +44,7 @@ func readOnlyFromProfile(cfg vngcloud.Config, profileName string) (on bool, sour
 	value := cfg.ProfileSetting("read_only")
 	on, ok := parseOnOff(value)
 	if !ok {
-		return false, "", newUsageError("read_only in profile %q must be 1, true, 0, false, or empty, got %q", profileName, value)
+		return false, "", fmt.Errorf("%w: read_only in profile %q must be 1, true, 0, false, or empty, got %q", vngcloud.ErrInvalidConfig, profileName, value)
 	}
 	if on {
 		return true, fmt.Sprintf("read_only in profile %q", profileName), nil

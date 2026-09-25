@@ -47,6 +47,13 @@ func TestMainNoArgsPrintsHelp(t *testing.T) {
 	}
 }
 
+func TestRootShortMentionsGreenNode(t *testing.T) {
+	root := newRootCmd(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if want := "Command-line access to GreenNode"; root.Short != want {
+		t.Fatalf("Short = %q, want %q", root.Short, want)
+	}
+}
+
 func TestNoArgsWrapsCobraErrorAsUsageError(t *testing.T) {
 	err := noArgs(newRootCmd(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}), []string{"extra"})
 	if err == nil {

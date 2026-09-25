@@ -139,6 +139,21 @@ func validateConfigureValue(key, value string) error {
 	return nil
 }
 
+// validateProfileName rejects a profile name that could inject a new section
+// or key into a config or credentials file: a carriage return or newline, a
+// literal '[' or ']' (INI's own section-header syntax), or leading or
+// trailing whitespace, which a section header itself would have trimmed away
+// before comparison, so accepting it here could resolve to a different
+// section than the one the caller named. Checked before any configure
+// command reads or writes a file, so a hostile --profile or VNGCLOUD_PROFILE
+// value can never reach setINIValue or readINIValue.
+func validateProfileName(name string) error {
+	if strings.ContainsAny(name, "\r\n[]") || name != strings.TrimSpace(name) {
+		return newUsageError("profile name must not contain a newline, '[', ']', or leading or trailing whitespace")
+	}
+	return nil
+}
+
 // checkReadOnlyNotTurnedOff refuses newValue when it would turn read_only
 // off for a profile that currently has it on, per the CLI design's
 // "Configure under read-only". A current value the CLI cannot parse is
@@ -192,6 +207,9 @@ func runConfigureSet(e *env, key, value string) error {
 	}
 
 	profile := resolvedProfileName(e.flags)
+	if err := validateProfileName(profile); err != nil {
+		return err
+	}
 	envVar, defaultName := fileFor(key)
 	section := sectionFor(key, profile)
 
@@ -209,6 +227,9 @@ func runConfigureGet(e *env, key string) error {
 		return newUsageError("unknown configure key %q", key)
 	}
 	profile := resolvedProfileName(e.flags)
+	if err := validateProfileName(profile); err != nil {
+		return err
+	}
 	envVar, defaultName := fileFor(key)
 	value, err := currentConfigureValue(envVar, defaultName, sectionFor(key, profile), key)
 	if err != nil {
@@ -220,6 +241,9 @@ func runConfigureGet(e *env, key string) error {
 
 func runConfigureList(e *env) error {
 	profile := resolvedProfileName(e.flags)
+	if err := validateProfileName(profile); err != nil {
+		return err
+	}
 	for _, key := range configureKeyOrder {
 		meta := configureKeys[key]
 		envVar, defaultName := fileFor(key)
@@ -274,6 +298,9 @@ func runConfigureInteractive(e *env) error {
 	}
 
 	profile := resolvedProfileName(e.flags)
+	if err := validateProfileName(profile); err != nil {
+		return err
+	}
 	in := bufio.NewReader(e.stdin)
 
 	for _, key := range configureKeyOrder {
