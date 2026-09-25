@@ -1,0 +1,16 @@
+{
+  "Items": [
+    {
+      "Name": "a",
+      "Extra": "a string"
+    },
+    {
+      "Name": "b",
+      "Extra": 42
+    },
+    {
+      "Name": "c",
+      "Extra": null
+    }
+  ]
+}

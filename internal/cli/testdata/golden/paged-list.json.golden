@@ -1,0 +1,18 @@
+{
+  "Items": [
+    {
+      "UUID": "b-1",
+      "Name": "monthly",
+      "LimitAmount": 50
+    },
+    {
+      "UUID": "b-2",
+      "Name": "quarterly",
+      "LimitAmount": 150
+    }
+  ],
+  "Page": 1,
+  "PageSize": 10,
+  "TotalPage": 1,
+  "TotalItem": 2
+}

@@ -1,0 +1,18 @@
+{
+  "Summary": {
+    "CurrentCost": 120.5,
+    "ForecastCost": 200
+  },
+  "Series": [
+    {
+      "Date": "2026-01-01",
+      "Cost": 10.25
+    },
+    {
+      "Date": "2026-01-02",
+      "Cost": 20
+    }
+  ],
+  "StartDate": "2026-01-01",
+  "EndDate": "2026-01-31"
+}

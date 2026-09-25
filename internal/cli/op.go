@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
@@ -175,6 +173,15 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	if err := checkRequiredFlags(input); err != nil {
 		return err
 	}
+	// Compiled again in renderOutput once there is a result to run it
+	// against; compiling here too means a bad --query is refused before any
+	// request, including a destructive one.
+	if _, err := compileQuery(e.flags.query); err != nil {
+		return err
+	}
+	if e.flags.output != "" && !validOutputFormats[e.flags.output] {
+		return newUsageError("--output must be json, table, or text, got %q", e.flags.output)
+	}
 
 	if op.kind == kindWrite {
 		if op.destructive && !e.flags.yes {
@@ -191,6 +198,10 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	cfg, err := loadConfig(ctx, e, logger)
 	if err != nil {
 		return err
+	}
+	format := resolveOutput(e.flags, cfg)
+	if !validOutputFormats[format] {
+		return newUsageError("--output must be json, table, or text, got %q", format)
 	}
 
 	if op.kind == kindWrite {
@@ -213,17 +224,5 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	if callErr != nil {
 		return callErr
 	}
-	return writeOutput(e, out)
-}
-
-// writeOutput is a placeholder that prints out as indented JSON; Task 4
-// replaces it with the encoder, --query, and table/text rendering described
-// in the CLI design's "Output" section.
-func writeOutput(e *env, out any) error {
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(e.stdout, string(data))
-	return err
+	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)
 }

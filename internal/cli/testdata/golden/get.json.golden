@@ -1,0 +1,7 @@
+{
+  "Budget": {
+    "UUID": "b-1",
+    "Name": "monthly",
+    "LimitAmount": 50
+  }
+}
