@@ -1,6 +1,6 @@
-// Command vngcloud is the AWS-CLI-style command line for VNG Cloud
-// (GreenNode). All behavior lives in internal/cli; this file only wires
-// process signals and the exit code.
+// Command vngcloud is the AWS-CLI-style command line for GreenNode. All
+// behavior lives in internal/cli; this file only wires process signals and
+// the exit code.
 package main
 
 import (

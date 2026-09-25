@@ -1,6 +1,6 @@
 // Package cli implements the vngcloud command: a cobra root command built
 // fresh per invocation, one operation table per SDK service, output
-// formatting, and configure and gen-docs. It calls VNG Cloud only through
+// formatting, and configure and gen-docs. It calls GreenNode only through
 // the public danny.vn/vngcloud package.
 package cli
 

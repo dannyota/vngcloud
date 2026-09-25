@@ -1,6 +1,6 @@
 # Live data
 
-Rules for anything that touches the real VNG Cloud API or its output. Everyone who runs `make live`, the basic example, or a browser capture reads this file.
+Rules for anything that touches the real GreenNode API or its output. Everyone who runs `make live`, the basic example, or a browser capture reads this file.
 
 - Treat IP addresses, hostnames, project IDs, resource IDs, account names, emails, internal URLs, tokens, cookies, and certificates from live runs as sensitive.
 - Never read `.env` or `examples/basic/config.*.json` values into the conversation. Never print live output in chat, and never paste it into web searches or external tools.

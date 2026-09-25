@@ -95,6 +95,33 @@ if err != nil {
 log.Printf("budgets: %d", len(budgets.Items))
 ```
 
+## Command line
+
+Install the `vngcloud` command:
+
+```bash
+go install danny.vn/vngcloud/cmd/vngcloud@latest
+```
+
+It works like the AWS CLI: `vngcloud <service> <operation> [flags]`.
+
+```bash
+vngcloud configure                      # prompts; secrets are not echoed
+vngcloud billing list-budgets
+vngcloud compute list-servers --query 'Items[].Name' --output text
+vngcloud billing delete-budget --budget-uuid <uuid> --yes
+```
+
+- Output is JSON by default; `--output table` and `--output text` also work,
+  and `--query` takes a JMESPath expression.
+- Errors go to stderr as one JSON line with a stable exit code, so scripts
+  and AI agents can act on them.
+- Deletes need `--yes`, and nothing prompts without a terminal.
+- A profile with `read_only = true`, `VNGCLOUD_READ_ONLY=1`, or `--read-only`
+  refuses every write command. Give an AI agent a read-only profile.
+
+[CLI](CLI.md) lists every command and flag.
+
 ## Next steps
 
 - Pick an auth method in [Authentication](Authentication.md).

@@ -1,7 +1,8 @@
 # CDN
 
-`cdn` is a separate package, `danny.vn/vngcloud/cdn`. It is not a client on
-the root client from [Services](Services.md); it has its own `New(cfg)`.
+`cdn` is a separate package, `danny.vn/vngcloud/cdn`, with its own
+`New(cfg)`. Unlike the packages in [Services](Services.md), it reads a
+public page rather than an API.
 
 vCDN has no public API. `cdn.ListIPRanges` instead reads GreenNode's public
 FAQ page listing the CDN IP ranges an origin must allow, and parses the

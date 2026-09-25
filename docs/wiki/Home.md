@@ -16,6 +16,7 @@ rename; the module keeps the `vngcloud` name.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
+- [Security](Security.md): what is safe by default, and cannot be turned off.
 
 ## CLI
 

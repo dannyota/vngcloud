@@ -17,7 +17,7 @@ import (
 // a public clock option.
 var timeNow = time.Now
 
-// IAMUserAuth holds IAM User credentials for VNG Cloud console authentication.
+// IAMUserAuth holds IAM User credentials for GreenNode console authentication.
 type IAMUserAuth struct {
 	RootEmail string
 	Username  string

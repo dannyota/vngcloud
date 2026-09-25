@@ -34,7 +34,7 @@ var (
 	ErrCredentialsFile = fmt.Errorf("%w: vngcloud: credentials file error", ErrInvalidConfig)
 )
 
-// APIError describes an error response returned by VNG Cloud.
+// APIError describes an error response returned by GreenNode.
 type APIError struct {
 	Operation  string
 	StatusCode int

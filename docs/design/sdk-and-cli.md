@@ -11,7 +11,7 @@ get their own design; [billing](billing.md) has the first.
 ## Goals
 
 - One tool that the owner and AI agents can use to inspect and, later, change
-  VNG Cloud resources from a terminal or a script, in the style of the AWS CLI.
+  GreenNode resources from a terminal or a script, in the style of the AWS CLI.
 - An SDK whose public surface stays small and predictable as write APIs are
   added.
 - Credentials handled like the AWS CLI: profiles on disk, environment
