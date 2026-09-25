@@ -58,6 +58,7 @@ aboutme needs, from the CLI, most frequent first:
 | Method shape | `Method(ctx, *Input) (*Output, error)` for every operation |
 | CLI output | `--output json\|table\|text`, JSON by default, JMESPath `--query` |
 | Destructive commands | Fail unless `--yes` is given; never prompt |
+| Read-only profiles | A profile key, variable, or flag makes the CLI refuse every write |
 | CLI commands | One operation table per service; flags derived from Input structs |
 
 ## SDK
@@ -67,7 +68,11 @@ aboutme needs, from the CLI, most frequent first:
 `danny.vn/vngcloud` holds only what every service shares:
 
 - `Config`: region, project ID, credentials provider, endpoint overrides,
-  HTTP client, and retry settings.
+  HTTP client, retry settings, and logger.
+- `Config.ProfileSetting(key) string`: the value of `key` in the resolved
+  profile's config section, or an empty string. `NewConfig` configs have no
+  profile and always return an empty string. The CLI reads `output` and
+  `read_only` through it; the SDK never acts on either.
 - `LoadConfig(ctx, opts ...LoadOption) (Config, error)`: resolves a `Config`
   from options, environment variables, and profile files (see
   [Configuration](#configuration-and-credentials)).
@@ -84,6 +89,21 @@ aboutme needs, from the CLI, most frequent first:
 `internal/core`; the root package aliases them. The root package never imports
 a service package, and `internal/core` never imports the root package, so no
 import cycle is possible.
+
+### Logging
+
+`WithLogger(*slog.Logger)` is the only way to get logs; without it the SDK
+logs nothing. With it:
+
+- The transport logs each HTTP attempt at Debug level as `request` with the
+  method, the URL path without the query string, the status, and the
+  duration. An attempt with no response has no status.
+- IAM User login logs only `login started` and `login finished` with the
+  outcome, `ok` or `failed`. Its own HTTP requests are not logged.
+
+Nothing else is logged: no body, header, cookie, token, root email,
+authorization code, or credential. Tests assert this for a full login and a
+request with a query string.
 
 ### Shared session
 
@@ -209,7 +229,8 @@ option wins over both. The credentials file has no access token key.
 `LoadConfig` errors match `ErrInvalidConfig` under `errors.Is`. Two also match
 their own sentinel: `ErrNoCredentials` when no source sets credentials, and
 `ErrCredentialsFile` when the credentials file is missing at an explicit path,
-unreadable, or refused. The CLI [exit codes](#errors) follow these sentinels.
+unreadable, or refused. The CLI
+[exit codes](cli.md#errors-and-exit-codes) follow these sentinels.
 
 ### File safety
 
@@ -220,19 +241,8 @@ unreadable, or refused. The CLI [exit codes](#errors) follow these sentinels.
 - `LoadConfig` opens the credentials file, then checks the open file's mode,
   and refuses it when group or others can read it. The error names the file
   and the fix (`chmod 600`). On Windows the check is skipped.
-- The SDK never writes the credentials file. Only `vngcloud configure` writes
-  it, with mode 0600, through a temp file and rename in the directory of the
-  resolved path, so a symlinked file stays a symlink.
-- `vngcloud configure` prompts for each value without echoing the password or
-  TOTP secret. When stdin is not a terminal it exits with code 2 at once.
-- `configure set <key> <value>` serves scripts and `configure get <key>`
-  prints a value; `get` and `list` mask `password` and `totp_secret`. Each
-  key has one file:
-
-| Key | File |
-|-|-|
-| `region`, `project_id`, `output` | config |
-| `root_email`, `username`, `password`, `totp_secret` | credentials |
+- The SDK never writes the config or credentials file. Only
+  [`vngcloud configure`](cli.md#configure) writes them.
 
 ### Token cache
 
@@ -266,94 +276,15 @@ unreadable, or refused. The CLI [exit codes](#errors) follow these sentinels.
 
 ## CLI
 
-### Layout
-
-`cmd/vngcloud/main.go` is a thin entry point. Everything else lives in
-`internal/cli/`. The CLI adds two dependencies, `github.com/spf13/cobra` and a
-JMESPath library; the SDK packages import neither.
-
-### Commands
-
-| Command | Purpose |
-|-|-|
-| `vngcloud configure` | Prompt for a profile's region and credentials |
-| `vngcloud configure set\|get\|list` | Script-friendly profile edits and reads |
-| `vngcloud version` | Print the version |
-| `vngcloud <service> <operation>` | Call one SDK operation |
-
-Service names match the SDK packages. Operation names are the SDK method names
-in kebab case: `ListServers` becomes `list-servers`.
-
-### Operation table
-
-Each service registers its operations in one table:
-
-```go
-var computeOps = []cli.Op{
-	cli.Read("list-servers", (*compute.Client).ListServers),
-	cli.Read("get-server", (*compute.Client).GetServer),
-}
-```
-
-`cli.Read` and `cli.Write` are generic over the client, Input, and Output
-types, so the compiler checks each entry against the SDK method.
-[Billing](billing.md#cliwrite-and-clidestructive) defines `cli.Write` and
-`cli.Destructive`; the first asynchronous write defines `cli.WaitFor`.
-
-Flags come from the Input struct by reflection. A field name becomes a
-kebab-case flag: `ServerID` becomes `--server-id`, and an uppercase run stays
-one word, so `VPCID` becomes `--vpcid`. `cli.Flag("VPCID", "vpc-id")` on a
-table entry overrides a name. Supported field types are string, integer,
-boolean, `[]string`, `time.Time`, and pointers to string, integer, and
-boolean, which the CLI sets only when the flag is given. Other field types
-are set through `--cli-input-json '<json>'` or
-`--cli-input-json file://input.json`, whose keys are the Go field names.
-
-The CLI builds the Input from `--cli-input-json` first, then applies every
-flag the user set (cobra reports it `Changed`). It checks
-`vngcloud:"required"` fields after that merge, so a required value may come
-from either place. Cobra itself marks no flag required.
-
-### Global flags
-
-| Flag | Meaning |
-|-|-|
-| `--profile`, `--region`, `--project-id` | Override config |
-| `--output json\|table\|text` | Output format; default from config, else `json` |
-| `--query <jmespath>` | Filter output |
-| `--yes` | Confirm a destructive operation |
-| `--debug` | Log each request's method, URL, status, and timing to stderr |
-
-`--debug` logs request paths without query strings, and logs the login flow
-only as `login started` and `login finished` with the status. It never prints
-bodies, headers, cookies, the root email, the authorization code, or any
-credential.
-
-### Output
-
-- JSON keys are the SDK's Go field names (`Items[].Name`), not the raw API
-  names. Go field names are the SDK's public contract and stay stable when the
-  API renames a field. The CLI writes JSON with its own encoder, which uses Go
-  field names and ignores JSON tags, because resource models keep their API
-  tags.
-- Map-backed models (Portal, Container Registry) pass their keys through
-  unchanged.
-- `--query` runs on that JSON. `table` and `text` render the query result:
-  `text` prints tab-separated values, one row per list item, and `table` draws
-  a bordered grid.
-- Results go to stdout. Errors and debug logs go to stderr.
-
-### Destructive commands
-
-A command registered with `cli.Destructive` fails with exit code 2 and a
-message naming `--yes` unless `--yes` is given. It never prompts, so it cannot
-hang an agent. Create and update commands run without `--yes`.
+The CLI design is in [CLI](cli.md): dependencies, commands, flags, output,
+read-only profiles, `configure`, and exit codes.
 
 ## Errors
 
 `*vngcloud.APIError` holds the operation, HTTP status, a stable code, the API
-message, and whether the call can be retried. The code is the API's own error
-code when the response has one. Otherwise it comes from the status:
+message, and whether the call can be retried. `APIError.Code` is the API's own
+error code when the response has one. When the API gives none, including a
+null envelope `code`, it falls back to the code for the status:
 
 | Status | Code |
 |-|-|
@@ -366,21 +297,16 @@ code when the response has one. Otherwise it comes from the status:
 | 5xx | `ServerError` |
 | Other 4xx | `ClientError` |
 
-Login failures, including a suspected captcha, return `*vngcloud.LoginError`.
+Every login failure returns `*vngcloud.LoginError`, which wraps `ErrAuth`,
+so `errors.Is(err, vngcloud.ErrAuth)` is true. It holds the HTTP status of the
+failed step, when there is one, and `CaptchaSuspected`, which is true when the
+sign-in page shows the form again after a submit. Its message is fixed text
+plus the status and, when suspected, a captcha hint. It never holds a
+password, TOTP secret or code, token, cookie, authorization code, root email,
+or username, and neither does any error it wraps.
 
-The CLI prints errors to stderr as:
-
-```json
-{"error":{"code":"NotFound","message":"server not found","status":404,"operation":"compute.GetServer"}}
-```
-
-| Exit code | Meaning |
-|-|-|
-| 0 | Success |
-| 1 | API or network error, or a cancelled command |
-| 2 | Usage or config error: bad flags, a missing `--yes`, a missing region, or an ambiguous project |
-| 3 | Missing credentials, bad credentials file, `LoginError`, or a 401 after the retry |
-| 4 | `NotFound` |
+The CLI output and exit codes for these errors are in
+[CLI](cli.md#errors-and-exit-codes).
 
 ## Testing
 
@@ -395,20 +321,16 @@ The CLI prints errors to stderr as:
   sends a new token.
 - A test builds two service clients from one `Config` and checks a single
   login.
-- CLI tests run the root command in-process against an `httptest` fake API.
-  They check golden output for `json`, `table`, and `text`, `--query`, every
-  exit code, the `--yes` guard, required-field checks after a
-  `--cli-input-json` merge, and that `--debug` output holds no token, password,
-  TOTP secret, authorization code, root email, or cookie.
-- `make live` also runs one CLI read command per service.
+- Error tests cover each status-to-code fallback and a `*LoginError` that
+  matches `ErrAuth`, with and without a suspected captcha.
+- CLI tests are in [CLI](cli.md#testing).
 
 ## Docs
 
 - The SDK wiki pages in `docs/wiki/` are rewritten for the new layout in the
   release that ships it.
-- A hidden `vngcloud gen-docs <dir>` command writes one CLI reference page per
-  service from the operation tables. `make gen-docs` writes them into
-  `docs/wiki/`, and CI fails when the committed pages differ from the output.
+- CLI reference pages are generated from the operation tables, as
+  [CLI](cli.md#docs) defines.
 
 ## Releases
 
@@ -419,7 +341,7 @@ Each release ships when CI is green on its commit.
 | `v0.3.0` | Shared `Config` and the new `billing` and `pricing` packages. Other services stay behind a transitional `vngcloud.NewClient(ctx, cfg)`. Breaking |
 | `v0.4.0` | The other services move to packages with the uniform method signature, and `NewClient` goes. Breaking. Built on a branch and merged when every service has moved |
 | `v0.5.0` | `LoadConfig`, profile files, environment variables, and the token cache |
-| `v0.6.0` | CLI foundation: `configure`, `version`, output, `--query`, errors, generated docs, `billing` and `pricing` commands, and `compute`, `network`, and `dns` read commands |
+| `v0.6.0` | CLI foundation: `configure`, `version`, output, `--query`, read-only profiles, `--debug` logging, generated docs, `billing` and `pricing` commands, and `compute`, `network`, and `dns` read commands. SDK: `APIError.Code` fallback, `*LoginError`, `WithLogger` logging, and `Config.ProfileSetting` |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

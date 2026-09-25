@@ -100,10 +100,9 @@ A success is HTTP 200 with a `code` from 200 to 299: reads send 200 and
 creates send 201. The SDK never compares the `message`.
 
 `code` is a number or null. The shared error decoder in `internal/transport`
-accepts a numeric `code` and stores its decimal form in `APIError.Code`;
-it once expected a string and dropped a number. For a null `code`,
-`APIError.Code` stays empty until the status-to-code mapping in
-[SDK and CLI](sdk-and-cli.md#errors) ships. A 2xx response whose envelope
+accepts a numeric `code` and stores its decimal form in `APIError.Code`.
+For a null `code`, `APIError.Code` falls back to the status-derived code in
+[SDK and CLI](sdk-and-cli.md#errors). A 2xx response whose envelope
 `code` is outside 200 to 299 is an error: `billing` returns an `*APIError`
 with the actual HTTP status, the envelope code, and the message.
 
@@ -339,7 +338,7 @@ status. `--enabled=false` sends `false`.
 ### `cli.Write` and `cli.Destructive`
 
 `cli.Write(name, method, opts...)` has the same generic shape as `cli.Read`.
-It differs in four ways:
+It differs in five ways:
 
 1. `--debug` logs `write started` and `write finished` around the call.
 2. Generated docs mark the command as a write, and as destructive when it
@@ -347,10 +346,12 @@ It differs in four ways:
 3. The CLI never retries a write itself; only the transport rules in
    [ADR 0002](../adr/0002-write-api-conventions.md) apply.
 4. It accepts `cli.Destructive`.
+5. A [read-only](cli.md#read-only) profile, variable, or flag refuses it
+   with exit code 2 before any request.
 
 `cli.Destructive` makes the command fail with exit code 2 and a message
 naming `--yes` unless `--yes` is given, as
-[SDK and CLI](sdk-and-cli.md#destructive-commands) defines. A command is
+[CLI](cli.md#destructive-commands) defines. A command is
 destructive when it deletes a resource or data that the user cannot restore
 with one more command. Pausing a budget is not destructive, because
 `update-budget --status ACTIVE` restores it.
@@ -377,8 +378,8 @@ message starts with `Budget not found` or `Threshold not found`, on a 400
 or inside a 2xx envelope, to an `*APIError` with code `NotFound` that keeps
 the HTTP status and wraps `ErrNotFound`, so `IsNotFound` is true. Only
 `billing` maps it; other services return real 404s. If the server changes
-the text, the error is a plain 400 with an empty code and exit 1, which is
-safe; fixture tests pin both texts. The mapping applies only to a 400 or
+the text, the error is a plain 400 with code `BadRequest` and exit 1, which
+is safe; fixture tests pin both texts. The mapping applies only to a 400 or
 an error envelope on a 2xx, never to a 401, 403, or 5xx.
 
 The fixture capture records the status and envelope code of each other
@@ -441,10 +442,3 @@ The sdk role adds a Billing and Pricing page to `docs/wiki/` in the release
 that ships the packages. It states that amounts are VND, that billing calls
 ignore the region, and that a quote places no order. The release order is in
 [SDK and CLI](sdk-and-cli.md#releases).
-
-## Open questions
-
-1. Should a profile setting such as `read_only = true` make the CLI refuse
-   every `cli.Write` command? It would let the owner hand an agent a profile
-   that cannot change anything. Recommendation: yes, in the first CLI
-   release, because billing brings the first writes.

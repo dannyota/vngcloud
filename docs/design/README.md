@@ -7,4 +7,5 @@ code starts. Decisions with lasting trade-offs also get an
 | Design | Status |
 |-|-|
 | [SDK and CLI](sdk-and-cli.md) | Approved |
+| [CLI](cli.md) | Approved |
 | [Billing and pricing](billing.md) | Approved |
