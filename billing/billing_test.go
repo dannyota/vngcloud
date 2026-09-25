@@ -293,7 +293,7 @@ func TestEnvelopeNullCode(t *testing.T) {
 		}
 	})
 
-	t.Run("error keeps code empty", func(t *testing.T) {
+	t.Run("error falls back to the status code", func(t *testing.T) {
 		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"code":null,"message":"boom"}`))
@@ -302,8 +302,10 @@ func TestEnvelopeNullCode(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		if vngcloud.ErrorCode(err) != "" {
-			t.Fatalf("ErrorCode(err) = %q, want empty", vngcloud.ErrorCode(err))
+		// A null envelope code leaves Code empty for ResolvedCode to fill in
+		// from the status-derived table: 500 falls back to "ServerError".
+		if vngcloud.ErrorCode(err) != "ServerError" {
+			t.Fatalf("ErrorCode(err) = %q, want ServerError", vngcloud.ErrorCode(err))
 		}
 	})
 }
@@ -369,7 +371,9 @@ func TestOtherBadRequestNotMapped(t *testing.T) {
 	if vngcloud.IsNotFound(err) {
 		t.Fatalf("IsNotFound(err) = true, want false")
 	}
-	if vngcloud.ErrorCode(err) != "400" {
+	// The envelope's own code (400) equals the HTTP status, which counts as
+	// none, so Code falls back to the status-derived "BadRequest".
+	if vngcloud.ErrorCode(err) != "BadRequest" {
 		t.Fatalf("ErrorCode(err) = %q", vngcloud.ErrorCode(err))
 	}
 }

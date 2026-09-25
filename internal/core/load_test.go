@@ -383,6 +383,50 @@ func TestLoadConfigDefaultSectionNames(t *testing.T) {
 	}
 }
 
+func TestLoadConfigProfileSettingReadsResolvedSection(t *testing.T) {
+	home := setupHome(t)
+	writeFile(t, configPath(home), "[profile agent]\nregion = dev-region\noutput = text\nread_only = true\n", 0o600)
+	writeFile(t, credentialsPath(home), "[agent]\nroot_email = a\nusername = b\npassword = c\n", 0o600)
+
+	cfg, err := LoadConfig(context.Background(), WithProfile("agent"))
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.ProfileSetting("output"); got != "text" {
+		t.Fatalf(`ProfileSetting("output") = %q, want "text"`, got)
+	}
+	if got := cfg.ProfileSetting("read_only"); got != "true" {
+		t.Fatalf(`ProfileSetting("read_only") = %q, want "true"`, got)
+	}
+	if got := cfg.ProfileSetting("no_such_key"); got != "" {
+		t.Fatalf(`ProfileSetting("no_such_key") = %q, want ""`, got)
+	}
+}
+
+func TestLoadConfigProfileSettingEmptyWhenUnset(t *testing.T) {
+	home := setupHome(t)
+	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)
+	writeFile(t, credentialsPath(home), "[default]\nroot_email = a\nusername = b\npassword = c\n", 0o600)
+
+	cfg, err := LoadConfig(context.Background())
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.ProfileSetting("output"); got != "" {
+		t.Fatalf(`ProfileSetting("output") = %q, want ""`, got)
+	}
+}
+
+func TestNewConfigProfileSettingAlwaysEmpty(t *testing.T) {
+	cfg, err := NewConfig(WithRegion("hcm-3"), WithStaticToken("tok"))
+	if err != nil {
+		t.Fatalf("NewConfig() error = %v", err)
+	}
+	if got := cfg.ProfileSetting("output"); got != "" {
+		t.Fatalf(`ProfileSetting("output") = %q, want "" (NewConfig has no profile)`, got)
+	}
+}
+
 func TestLoadConfigNamedProfileNotFoundAnywhere(t *testing.T) {
 	home := setupHome(t)
 	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)

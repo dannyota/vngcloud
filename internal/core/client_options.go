@@ -101,6 +101,13 @@ func WithUserAgent(userAgent string) ClientOption {
 	})
 }
 
+// WithLogger is the only way to get logs from the SDK; without it, nothing
+// is logged. With it, at Debug level: the transport logs one "request"
+// record per HTTP attempt (method, path with no query string, status when
+// there is a response, duration), and an IAM User login logs "login
+// started" and "login finished" with its outcome. Login's own HTTP requests
+// are not logged as "request" records, and nothing else is logged: no body,
+// header, cookie, token, root email, authorization code, or credential.
 func WithLogger(logger *slog.Logger) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.logger = logger

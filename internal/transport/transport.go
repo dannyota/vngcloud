@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -68,6 +69,7 @@ type Client struct {
 	retryInterval time.Duration
 	userAgent     string
 	capture       CaptureFunc
+	logger        *slog.Logger
 
 	mu        sync.RWMutex
 	token     Token
@@ -91,6 +93,12 @@ type Config struct {
 	RetryInterval time.Duration
 	UserAgent     string
 	Capture       CaptureFunc
+
+	// Logger, when set, receives one Debug record named "request" per HTTP
+	// attempt, with the method, the URL path without its query string, the
+	// status (omitted when no response was received), and the duration. A
+	// nil Logger logs nothing.
+	Logger *slog.Logger
 }
 
 func New(cfg Config) *Client {
@@ -113,6 +121,7 @@ func New(cfg Config) *Client {
 		retryInterval: retryInterval,
 		userAgent:     cfg.UserAgent,
 		capture:       cfg.Capture,
+		logger:        cfg.Logger,
 	}
 }
 
@@ -275,6 +284,7 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 	var lastRetryable bool
 	var sentToken string
 	for attempt := 0; attempt <= c.retryCount; attempt++ {
+		start := time.Now()
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
 			return 0, nil, "", &APIError{Operation: req.Operation, Err: err}
@@ -305,7 +315,9 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 		}
 
 		resp, err := c.httpClient.Do(httpReq)
+		duration := time.Since(start)
 		if err != nil {
+			c.logRequest(ctx, httpReq, 0, false, duration)
 			lastErr = err
 			lastRetryable = req.idempotent() || isDialError(err)
 			if lastRetryable && attempt < c.retryCount {
@@ -316,6 +328,7 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 			}
 			return 0, nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
 		}
+		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration)
 
 		respBody, readErr := io.ReadAll(resp.Body)
 		closeErr := resp.Body.Close()
@@ -374,6 +387,23 @@ func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
 		StatusCode: statusCode,
 		Body:       bodyCopy,
 	})
+}
+
+// logRequest writes the one Debug "request" record for one HTTP attempt:
+// httpReq's method and URL path with no query string, its status (omitted
+// when hasStatus is false, for an attempt that never got a response), and
+// duration. Nothing else about the attempt, such as its headers, query
+// string, or body, is ever logged. A nil logger logs nothing.
+func (c *Client) logRequest(ctx context.Context, httpReq *http.Request, status int, hasStatus bool, duration time.Duration) {
+	if c.logger == nil {
+		return
+	}
+	attrs := []any{"method", httpReq.Method, "path", httpReq.URL.Path}
+	if hasStatus {
+		attrs = append(attrs, "status", status)
+	}
+	attrs = append(attrs, "duration", duration)
+	c.logger.DebugContext(ctx, "request", attrs...)
 }
 
 // EnsureToken fetches and caches a token if the current one is missing or

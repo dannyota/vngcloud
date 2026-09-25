@@ -11,6 +11,7 @@ rename; the module keeps the `vngcloud` name.
   resources.
 - [Authentication](Authentication.md): IAM User login, TOTP, and static tokens.
 - [Configuration](Configuration.md): regions, projects, and endpoints.
+- [Errors](Errors.md): `APIError`, `LoginError`, and debug logging.
 - [Services](Services.md): every service client and its methods.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.

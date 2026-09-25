@@ -23,6 +23,14 @@ func NewConfig(opts ...Option) (Config, error) {
 
 func (c Config) Region() string { return ClientOf(c).Region() }
 
+// ProfileSetting returns key's value in the resolved profile's config
+// section, or "" when there is none. LoadConfig sets this from the profile
+// it resolved; a Config built by NewConfig has no profile and always
+// returns "". The SDK reads nothing from this key itself; it exists for a
+// caller, such as the CLI, that wants a profile setting LoadConfig does not
+// otherwise act on (for example "output" or "read_only").
+func (c Config) ProfileSetting(key string) string { return ClientOf(c).ProfileSetting(key) }
+
 // Authenticate logs in now, so credential errors surface before the first call.
 func (c Config) Authenticate(ctx context.Context) error { return ClientOf(c).Authenticate(ctx) }
 

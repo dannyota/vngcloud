@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -64,7 +66,7 @@ func (a *IAMUserAuth) validate() error {
 // iamTokenSource instead calls cachedIfFresh, doLogin, and remember
 // directly, so the cross-process disk lock (not this mutex) is what
 // serializes the actual login.
-func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, time.Time, error) {
+func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -72,7 +74,7 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 		return a.cachedToken, a.expiresAt, nil
 	}
 
-	token, expiresAt, err := a.doLogin(ctx, ep)
+	token, expiresAt, err := a.doLogin(ctx, ep, logger)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -84,8 +86,11 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 
 // doLogin performs one physical login against ep. It touches no cache,
 // in-memory or on disk: callers decide separately whether to record the
-// result.
-func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints) (string, time.Time, error) {
+// result. logger, when non-nil, gets exactly "login started" before the
+// attempt and "login finished" with its outcome after; iamuser's own HTTP
+// requests are never logged.
+func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
+	debugLog(logger, ctx, "login started")
 	req := iamuser.LoginRequest{
 		RootEmail:     a.RootEmail,
 		Username:      a.Username,
@@ -98,9 +103,68 @@ func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints) (string, t
 	}
 	result, err := iamuser.Login(ctx, req)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("%w: %w", ErrAuth, err)
+		debugLog(logger, ctx, "login finished", "ok", false)
+		return "", time.Time{}, loginErrorFrom(ctx, err)
 	}
+	debugLog(logger, ctx, "login finished", "ok", true)
 	return result.AccessToken, result.ExpiresAt, nil
+}
+
+// debugLog writes msg at Debug level when logger is set, so a Config built
+// without WithLogger logs nothing.
+func debugLog(logger *slog.Logger, ctx context.Context, msg string, args ...any) {
+	if logger == nil {
+		return
+	}
+	logger.DebugContext(ctx, msg, args...)
+}
+
+// loginErrorFrom builds the *LoginError this package returns for every IAM
+// User login failure. Err is ErrAuth, unless ctx itself ended (canceled or
+// past its deadline), in which case it is ctx.Err(); either way, err's own
+// text is never surfaced or wrapped, only the Step, Status, and
+// CaptchaSuspected an *iamuser.LoginFailure carries, because err's cause can
+// hold a token response body or a full URL carrying an authorization code.
+func loginErrorFrom(ctx context.Context, err error) error {
+	le := &LoginError{Err: ErrAuth, Reason: "login failed"}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		le.Err = ctxErr
+	}
+	var failure *iamuser.LoginFailure
+	if errors.As(err, &failure) {
+		le.Status = failure.Status
+		le.CaptchaSuspected = failure.CaptchaSuspected
+		le.Reason = reasonForStep(failure.Step)
+	}
+	return le
+}
+
+// reasonForStep gives the fixed, safe LoginError.Reason text for step.
+func reasonForStep(step iamuser.FailureStep) string {
+	switch step {
+	case iamuser.StepSigninPage:
+		return "could not load the sign-in page"
+	case iamuser.StepSigninSubmit:
+		return "could not submit the sign-in form"
+	case iamuser.StepSigninRejected:
+		return "the sign-in form was rejected"
+	case iamuser.StepTOTPRequired:
+		return "the account requires a TOTP code but none was configured"
+	case iamuser.StepTOTPPage:
+		return "could not load the two-factor page"
+	case iamuser.StepTOTPCode:
+		return "could not get a TOTP code"
+	case iamuser.StepTOTPSubmit:
+		return "could not submit the two-factor code"
+	case iamuser.StepTOTPRejected:
+		return "the two-factor code was rejected"
+	case iamuser.StepAuthCode:
+		return "the sign-in response had no authorization code"
+	case iamuser.StepTokenExchange:
+		return "could not exchange the authorization code for a token"
+	default:
+		return "login failed"
+	}
 }
 
 // cachedIfFresh returns the in-memory token when present and not within 30

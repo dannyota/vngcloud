@@ -98,6 +98,7 @@ func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	c.profileSettings = configSection
 	return Config{client: c}, nil
 }
 

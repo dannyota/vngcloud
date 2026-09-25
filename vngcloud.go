@@ -24,6 +24,7 @@ type ResponseCapture = core.ResponseCapture
 type ResponseCaptureFunc = core.ResponseCaptureFunc
 
 type APIError = core.APIError
+type LoginError = core.LoginError
 
 const (
 	DefaultPage     = core.DefaultPage

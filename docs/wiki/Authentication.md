@@ -38,6 +38,11 @@ never sent without a token: if the token source (an `IAMUserAuth`, a static
 token, or a `CredentialsProvider`) has none to give, the call fails with
 `vngcloud.ErrAuth` before anything goes out.
 
+A failed IAM User login itself, from `cfg.Authenticate(ctx)` or the first
+call that needs a token, returns `*vngcloud.LoginError` rather than a bare
+`vngcloud.ErrAuth`; see [Errors](Errors.md#loginerror) for its fields and
+what it never exposes.
+
 ## Two-factor codes (TOTP)
 
 Omit `TOTP` when the IAM User has no 2FA. Otherwise, set it on the

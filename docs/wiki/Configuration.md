@@ -86,6 +86,23 @@ named profile that appears in neither file is an error naming it. The
 credentials file has no access token key: a static token comes only from
 `WithStaticToken` or `VNGCLOUD_ACCESS_TOKEN`.
 
+### Profile settings
+
+`Config.ProfileSetting(key)` returns `key`'s value in the resolved profile's
+config section, or `""` when there is no such key. `NewConfig` builds a
+`Config` with no profile, so it always returns `""`. The SDK does not act on
+any key through this method; it exists for a caller, such as the `vngcloud`
+CLI, that keeps its own settings (`output`, `read_only`) in the same config
+file:
+
+```go
+cfg, err := vngcloud.LoadConfig(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+output := cfg.ProfileSetting("output") // "" if the profile has no such key
+```
+
 ### File safety
 
 `LoadConfig` opens the credentials file, checks the open file's mode, and

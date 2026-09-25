@@ -23,6 +23,11 @@ type Client struct {
 	transport *transport.Client
 	logger    *slog.Logger
 
+	// profileSettings is the resolved profile's config section, set by
+	// LoadConfig only; a Client built by NewConfig or a direct option leaves
+	// it nil, so ProfileSetting always returns "" for it.
+	profileSettings map[string]string
+
 	// err is set on a Client returned by ClientOf for a zero Config, so every
 	// call fails with ErrInvalidConfig instead of a nil-pointer panic.
 	err error
@@ -30,6 +35,12 @@ type Client struct {
 	projectMu     sync.Mutex
 	projectID     string
 	projectUserID int
+}
+
+// ProfileSetting returns key's value in the resolved profile's config
+// section, or "" when there is no such profile (NewConfig) or no such key.
+func (c *Client) ProfileSetting(key string) string {
+	return c.profileSettings[key]
 }
 
 // defaultClientConfig is the clientConfig every option-application starts
@@ -66,6 +77,11 @@ func buildClient(settings clientConfig) (*Client, error) {
 		}
 	}
 
+	logger := settings.logger
+	if logger == nil {
+		logger = slog.New(nopHandler{})
+	}
+
 	resolvedEndpoints := endpoints.ResolveIAMUser(settings.region, endpoints.Overrides(settings.endpoints))
 
 	httpClient := buildHTTPClient(settings)
@@ -76,7 +92,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	case settings.staticToken != "":
 		ts = staticTokenSource(settings.staticToken)
 	default:
-		source := &iamTokenSource{auth: settings.iamUser, endpoints: loginEndpoints{
+		source := &iamTokenSource{auth: settings.iamUser, logger: logger, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
 			token:     resolvedEndpoints.Token,
 			dashboard: resolvedEndpoints.Dashboard,
@@ -117,12 +133,8 @@ func buildClient(settings clientConfig) (*Client, error) {
 		RetryInterval: settings.retryInterval,
 		UserAgent:     settings.userAgent,
 		Capture:       capture,
+		Logger:        logger,
 	})
-
-	logger := settings.logger
-	if logger == nil {
-		logger = slog.New(nopHandler{})
-	}
 
 	c := &Client{
 		region:    settings.region,
@@ -280,7 +292,7 @@ func wrapTransportErr(err error) error {
 	apiErr := &APIError{
 		Operation:  terr.Operation,
 		StatusCode: terr.StatusCode,
-		Code:       terr.Code,
+		Code:       ResolvedCode(terr.StatusCode, terr.Code),
 		Message:    terr.Message,
 		Retryable:  terr.Retryable,
 		Err:        mapStatusError(terr.StatusCode),
@@ -322,6 +334,7 @@ func buildHTTPClient(cfg clientConfig) *http.Client {
 type iamTokenSource struct {
 	auth      *IAMUserAuth
 	endpoints loginEndpoints
+	logger    *slog.Logger
 	cache     *tokencache.Cache
 	cacheKey  tokencache.Key
 
@@ -331,7 +344,7 @@ type iamTokenSource struct {
 
 func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 	if s.cache == nil {
-		token, expiresAt, err := s.auth.token(ctx, s.endpoints)
+		token, expiresAt, err := s.auth.token(ctx, s.endpoints, s.logger)
 		if err != nil {
 			return transport.Token{}, err
 		}
@@ -348,7 +361,7 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 	s.mu.Unlock()
 
 	cached, err := s.cache.Get(ctx, s.cacheKey, rejected, func(ctx context.Context) (tokencache.Token, error) {
-		token, expiresAt, err := s.auth.doLogin(ctx, s.endpoints)
+		token, expiresAt, err := s.auth.doLogin(ctx, s.endpoints, s.logger)
 		if err != nil {
 			return tokencache.Token{}, err
 		}

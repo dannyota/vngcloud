@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 )
 
 var (
@@ -86,3 +88,71 @@ func statusIs(err error, status int) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == status
 }
+
+// ResolvedCode returns the Code an APIError for status should carry, given
+// code as read from the API response. The API's own code wins, except that
+// an empty code, or one that is just the decimal status repeated (the
+// envelope carrying no real code of its own), falls back to the status
+// table below. No status in the table is ever left with an empty code; a
+// status outside it, including one with no HTTP status at all (0, for a
+// failure with no response), keeps whatever fallback applies, which is empty
+// unless it is a 4xx or 5xx.
+func ResolvedCode(status int, code string) string {
+	if code != "" && code != strconv.Itoa(status) {
+		return code
+	}
+	switch status {
+	case http.StatusBadRequest:
+		return "BadRequest"
+	case http.StatusUnauthorized:
+		return "Unauthorized"
+	case http.StatusForbidden:
+		return "Forbidden"
+	case http.StatusNotFound:
+		return "NotFound"
+	case http.StatusConflict:
+		return "Conflict"
+	case http.StatusTooManyRequests:
+		return "Throttled"
+	default:
+		switch {
+		case status >= 500:
+			return "ServerError"
+		case status >= 400:
+			return "ClientError"
+		default:
+			return ""
+		}
+	}
+}
+
+// LoginError is returned for every IAM User login failure. Reason is fixed
+// text naming the step that failed, and Status is the HTTP status observed
+// there, when one applies. CaptchaSuspected is true when the sign-in form
+// was redisplayed after a submit, which the console does both for wrong
+// credentials and for a required captcha. Err is always ErrAuth, or the
+// context error when the attempt ended because ctx was canceled or expired;
+// it is the only wrapped error; neither it nor the message built by Error
+// ever holds a password, TOTP secret or code, token, cookie, authorization
+// code, root email, or username, because both are built from Status,
+// CaptchaSuspected, and Reason alone, never from the failing step's own
+// error text (which can hold a token response body or a full URL).
+type LoginError struct {
+	Status           int
+	CaptchaSuspected bool
+	Reason           string
+	Err              error
+}
+
+func (e *LoginError) Error() string {
+	msg := e.Reason
+	if e.Status > 0 {
+		msg = fmt.Sprintf("%s (status %d)", msg, e.Status)
+	}
+	if e.CaptchaSuspected {
+		msg += "; a captcha may be required"
+	}
+	return msg
+}
+
+func (e *LoginError) Unwrap() error { return e.Err }

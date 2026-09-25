@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -139,8 +141,11 @@ func TestTwoPackagesOneLogin(t *testing.T) {
 
 // clearVNGCloudEnvAndHome points HOME and USERPROFILE at a fresh temp
 // directory and clears every VNGCLOUD_* variable, so LoadConfig never reads
-// the real home directory or a value left over from the host environment.
-func clearVNGCloudEnvAndHome(t *testing.T) {
+// the real home directory or a value left over from the host environment. It
+// returns the temp directory, so a caller that needs to write a file under
+// it uses this value directly rather than reading HOME back through
+// os.Getenv, which a path-traversal linter treats as tainted input.
+func clearVNGCloudEnvAndHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -152,6 +157,7 @@ func clearVNGCloudEnvAndHome(t *testing.T) {
 	} {
 		t.Setenv(key, "")
 	}
+	return dir
 }
 
 func TestLoadConfigFromOptionsOnly(t *testing.T) {
@@ -182,6 +188,73 @@ func TestLoadConfigNoCredentialsIsErrNoCredentials(t *testing.T) {
 
 	if _, err := vngcloud.LoadConfig(context.Background(), vngcloud.WithRegion("hcm-3")); !errors.Is(err, vngcloud.ErrNoCredentials) {
 		t.Fatalf("LoadConfig() err = %v, want ErrNoCredentials", err)
+	}
+}
+
+// TestAuthenticateReturnsLoginError checks that a login failure surfaces as
+// *vngcloud.LoginError through the public API, with ErrAuth in its chain and
+// no status-500 body text.
+func TestAuthenticateReturnsLoginError(t *testing.T) {
+	signin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer signin.Close()
+
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+			RootEmail:     "r",
+			Username:      "u",
+			Password:      "p",
+			SigninBaseURL: signin.URL,
+			TokenURL:      signin.URL,
+			DashboardURI:  signin.URL + "/",
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig() error = %v", err)
+	}
+
+	authErr := cfg.Authenticate(context.Background())
+	var loginErr *vngcloud.LoginError
+	if !errors.As(authErr, &loginErr) {
+		t.Fatalf("error is not a *vngcloud.LoginError: %v", authErr)
+	}
+	if loginErr.Status != http.StatusInternalServerError {
+		t.Fatalf("Status = %d, want 500", loginErr.Status)
+	}
+	if !errors.Is(authErr, vngcloud.ErrAuth) {
+		t.Fatalf("errors.Is(authErr, ErrAuth) = false")
+	}
+}
+
+// TestLoadConfigProfileSetting checks Config.ProfileSetting through the
+// public API: it returns the resolved profile's config-file value, and
+// NewConfig configs (no profile) always return "".
+func TestLoadConfigProfileSetting(t *testing.T) {
+	home := clearVNGCloudEnvAndHome(t)
+	if err := os.MkdirAll(filepath.Join(home, ".vngcloud"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configContent := "[default]\nregion = hcm-3\noutput = table\n"
+	if err := os.WriteFile(filepath.Join(home, ".vngcloud", "config"), []byte(configContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := vngcloud.LoadConfig(context.Background(), vngcloud.WithStaticToken("tok"))
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.ProfileSetting("output"); got != "table" {
+		t.Fatalf(`ProfileSetting("output") = %q, want "table"`, got)
+	}
+
+	staticCfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("tok"))
+	if err != nil {
+		t.Fatalf("NewConfig() error = %v", err)
+	}
+	if got := staticCfg.ProfileSetting("output"); got != "" {
+		t.Fatalf(`ProfileSetting("output") = %q, want "" for NewConfig`, got)
 	}
 }
 

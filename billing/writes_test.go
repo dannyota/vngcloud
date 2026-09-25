@@ -670,7 +670,9 @@ func TestCreateBudgetDuplicateType(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *vngcloud.APIError, got %v", err)
 	}
-	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "400" {
+	// The envelope's own code (400) equals the HTTP status, which counts as
+	// none, so Code falls back to the status-derived "BadRequest".
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "BadRequest" {
 		t.Fatalf("unexpected error: %+v", apiErr)
 	}
 }
