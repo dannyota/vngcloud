@@ -3,11 +3,13 @@ package cdn
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -123,6 +125,79 @@ func TestListIPRangesNotFoundIsAPIError(t *testing.T) {
 	if errors.Is(err, vngcloud.ErrAuth) {
 		t.Fatal("a docs-host error must never match ErrAuth: the request carried no credential")
 	}
+	if !errors.Is(err, vngcloud.ErrNotFound) {
+		t.Fatal("a 404 must match ErrNotFound, the same sentinel every other SDK error wraps for it")
+	}
+	if apiErr.Retryable {
+		t.Fatal("Retryable = true, want false for 404")
+	}
+}
+
+// TestListIPRangesUnauthorizedDoesNotMatchErrAuth checks the design's
+// exception to the usual status mapping: unlike every authenticated call, a
+// 401 here must never match ErrAuth, because ListIPRanges sends no
+// credential for the docs host to reject.
+func TestListIPRangesUnauthorizedDoesNotMatchErrAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := New(newTestConfig(server.URL, nil, nil))
+	_, err := client.ListIPRanges(context.Background(), nil)
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v, want *vngcloud.APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("StatusCode = %d, want 401", apiErr.StatusCode)
+	}
+	if errors.Is(err, vngcloud.ErrAuth) {
+		t.Fatal("a 401 from the docs host must not match ErrAuth: the request carried no credential")
+	}
+	if apiErr.Retryable {
+		t.Fatal("Retryable = true, want false for 401")
+	}
+}
+
+// TestListIPRangesForbiddenMatchesErrPermission checks that a 403 wraps
+// ErrPermission, the same sentinel every other SDK error wraps for it.
+func TestListIPRangesForbiddenMatchesErrPermission(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := New(newTestConfig(server.URL, nil, nil))
+	_, err := client.ListIPRanges(context.Background(), nil)
+	if !errors.Is(err, vngcloud.ErrPermission) {
+		t.Fatalf("error = %v, want to match ErrPermission", err)
+	}
+	if errors.Is(err, vngcloud.ErrAuth) {
+		t.Fatal("a 403 must not match ErrAuth")
+	}
+}
+
+// TestListIPRangesServiceUnavailableIsRetryable checks that a 503, unlike a
+// 404 or a 500, is reported as retryable.
+func TestListIPRangesServiceUnavailableIsRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := New(newTestConfig(server.URL, nil, nil))
+	_, err := client.ListIPRanges(context.Background(), nil)
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v, want *vngcloud.APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("StatusCode = %d, want 503", apiErr.StatusCode)
+	}
+	if !apiErr.Retryable {
+		t.Fatal("Retryable = false, want true for 503")
+	}
 }
 
 func TestListIPRangesServerErrorIsAPIError(t *testing.T) {
@@ -146,6 +221,9 @@ func TestListIPRangesServerErrorIsAPIError(t *testing.T) {
 	if errors.Is(err, ErrPageFormat) {
 		t.Fatal("a 500 must not match ErrPageFormat")
 	}
+	if apiErr.Retryable {
+		t.Fatal("Retryable = true, want false for 500")
+	}
 }
 
 func TestListIPRangesWrongContentType(t *testing.T) {
@@ -162,14 +240,24 @@ func TestListIPRangesWrongContentType(t *testing.T) {
 	}
 }
 
-func TestListIPRangesBodyTooLarge(t *testing.T) {
-	huge := make([]byte, maxBodyBytes+1)
-	for i := range huge {
-		huge[i] = 'a'
+// endlessBody yields 'a' forever. A test serving it as a response body, with
+// the package's fixed maxBodyBytes cap, proves the cap is enforced by
+// streaming (io.LimitReader in the transport) rather than by measuring a
+// large but finite byte slice after reading it all into memory: a body this
+// server would happily keep sending forever still fails fast.
+type endlessBody struct{}
+
+func (endlessBody) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'a'
 	}
+	return len(p), nil
+}
+
+func TestListIPRangesBodyTooLarge(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write(huge)
+		_, _ = io.Copy(w, endlessBody{})
 	}))
 	defer server.Close()
 
@@ -177,6 +265,35 @@ func TestListIPRangesBodyTooLarge(t *testing.T) {
 	_, err := client.ListIPRanges(context.Background(), nil)
 	if !errors.Is(err, ErrPageFormat) {
 		t.Fatalf("error = %v, want ErrPageFormat", err)
+	}
+}
+
+// TestListIPRangesLargeBody503IsAPIError checks the design's status-wins
+// rule: a body over the cap maps to ErrPageFormat only when the status is
+// 200. A non-200 status with an oversized body is instead an *APIError for
+// that status, retryable when the status is.
+func TestListIPRangesLargeBody503IsAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.Copy(w, endlessBody{})
+	}))
+	defer server.Close()
+
+	client := New(newTestConfig(server.URL, nil, nil))
+	_, err := client.ListIPRanges(context.Background(), nil)
+	if errors.Is(err, ErrPageFormat) {
+		t.Fatal("a 503 with an oversized body must not match ErrPageFormat: the status wins")
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v (%T), want *vngcloud.APIError", err, err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("StatusCode = %d, want 503", apiErr.StatusCode)
+	}
+	if !apiErr.Retryable {
+		t.Fatal("Retryable = false, want true for 503")
 	}
 }
 
@@ -213,7 +330,9 @@ func TestListIPRangesSameHostRedirectSucceeds(t *testing.T) {
 // different host is refused rather than followed, matching every other SDK
 // request.
 func TestListIPRangesCrossHostRedirectFails(t *testing.T) {
+	var targetHits atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits.Add(1)
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte("<html></html>"))
 	}))
@@ -234,5 +353,8 @@ func TestListIPRangesCrossHostRedirectFails(t *testing.T) {
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("error = %v (%T), want *vngcloud.APIError", err, err)
+	}
+	if targetHits.Load() != 0 {
+		t.Fatalf("redirect target was hit %d times, want 0: a refused redirect must never be followed", targetHits.Load())
 	}
 }

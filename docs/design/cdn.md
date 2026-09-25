@@ -146,15 +146,17 @@ only.
 
 1. Check the response. The final status must be 200 and the `Content-Type`
    media type must be `text/html`.
-2. Remove the contents of `<script>`, `<style>`, `<noscript>`, `<template>`,
-   and `<svg>` elements, so payload copies of the page do not count.
-3. Find every `<h1>` to `<h6>` element. For each, take its text: drop tags,
-   decode entities, collapse whitespace. A heading matches when its text
-   contains `CDN IP range`, ignoring case. Exactly one heading must match.
-   The table-of-contents link is an `<a>`, not a heading, so it never
-   matches.
+2. Remove HTML comments whole, then the contents of `<script>`, `<style>`,
+   `<noscript>`, `<template>`, and `<svg>` elements, so payload copies of the
+   page do not count. A tag ends at the first `>` outside quotes.
+3. Find every `<h1>` to `<h6>` element. For each, take its text: replace
+   each tag with a space, decode entities, collapse whitespace. A heading
+   matches when its text contains `CDN IP range`, ignoring case. Exactly one
+   heading must match. The table-of-contents link is an `<a>`, not a
+   heading, so it never matches.
 4. The section runs from the end of the matched heading to the next heading
-   open tag of any level. No following heading is an error, so a truncated
+   open tag of the same or a higher level (an `<h3>` section ends at the next
+   `<h1>`, `<h2>`, or `<h3>`). No following heading is an error, so a truncated
    page cannot pass.
 5. Turn the section into text as in step 3, then split it into tokens on
    every character that is not an ASCII letter, digit, `.`, `:`, or `/`.
@@ -163,6 +165,9 @@ only.
 6. Classify each token:
    - IPv4-shaped: four dot-separated digit groups, with or without `/n`.
    - IPv6-shaped: contains `/` and at least two `:`.
+   - A token that holds four dot-separated digit groups anywhere but is not
+     IPv4-shaped as a whole (for example `HN1.2.3.0/24`) fails the call, so
+     a CIDR glued to other text never disappears silently.
    - Anything else is ignored, which skips prose such as "Here is a list".
 7. Every shaped token must parse with `netip.ParsePrefix` and equal its own
    `Masked()` form. A bare address, a bad length, or set host bits fails the
@@ -177,15 +182,18 @@ only.
 | Network failure or cancelled context | As for every call |
 | Final status other than 200 | `*vngcloud.APIError` |
 | `Content-Type` not `text/html` | `ErrPageFormat` |
-| Body over 4 MiB | `ErrPageFormat` |
+| Body over 4 MiB with status 200 | `ErrPageFormat` (any other status is an `*APIError`) |
 | No matching heading, or more than one | `ErrPageFormat` |
 | No heading after the section | `ErrPageFormat` |
 | A shaped token that is not a canonical CIDR | `ErrPageFormat` |
 | No CIDR in the section | `ErrPageFormat` |
 
 The `*APIError` has operation `cdn.ListIPRanges`, the status, and the code
-from the [status table](sdk-and-cli.md#errors). A 401 or 403 from the docs
-host does not match `ErrAuth`, because the request carried no credential.
+from the [status table](sdk-and-cli.md#errors). It wraps the status sentinel
+(`ErrNotFound`, `ErrPermission`, `ErrRateLimited`) as other SDK errors do,
+and `Retryable` is true for 429, 502, 503, and 504. A 401 or 403 from the
+docs host does not match `ErrAuth`, because the request carried no
+credential.
 
 Every `ErrPageFormat` error wraps the sentinel and names the reason, for
 example `cdn: IP range page format not recognized: heading "CDN IP range"

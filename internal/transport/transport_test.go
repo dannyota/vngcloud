@@ -624,7 +624,9 @@ func TestDoRawSameHostRedirectSucceeds(t *testing.T) {
 }
 
 func TestDoRawCrossHostRedirectFails(t *testing.T) {
+	var targetHits atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits.Add(1)
 		_, _ = w.Write([]byte("final"))
 	}))
 	defer target.Close()
@@ -646,6 +648,88 @@ func TestDoRawCrossHostRedirectFails(t *testing.T) {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if targetHits.Load() != 0 {
+		t.Fatalf("redirect target was hit %d times, want 0: a refused redirect must never be followed", targetHits.Load())
+	}
+}
+
+// TestDoRawCallerCheckRedirectRunsAfterSameHost checks the design's
+// composition order in rawClient: the same-host rule runs first, and only a
+// redirect that passes it reaches a caller-supplied CheckRedirect. This
+// redirect is same-host, so it would succeed if the caller's CheckRedirect
+// were skipped; the caller's refusal proves it ran.
+func TestDoRawCallerCheckRedirectRunsAfterSameHost(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	mux.HandleFunc("/start", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, server.URL+"/final", http.StatusFound)
+	})
+	var finalHits atomic.Int64
+	mux.HandleFunc("/final", func(w http.ResponseWriter, r *http.Request) {
+		finalHits.Add(1)
+		_, _ = w.Write([]byte("final"))
+	})
+
+	httpClient := &http.Client{
+		Transport: server.Client().Transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return errors.New("caller refuses every redirect")
+		},
+	}
+	c := New(Config{HTTPClient: httpClient})
+	_, _, _, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL + "/start",
+		SkipAuth:  true,
+	})
+	if err == nil {
+		t.Fatal("expected error from the caller-supplied CheckRedirect")
+	}
+	if finalHits.Load() != 0 {
+		t.Fatalf("redirect target was hit %d times, want 0: the caller's CheckRedirect must have run", finalHits.Load())
+	}
+}
+
+// endlessReader yields 'a' forever. A test serving it as a response body,
+// with a small Request.MaxBody, proves the transport bounds the read by
+// streaming (io.LimitReader) rather than by measuring one large but finite
+// byte slice after reading it all into memory.
+type endlessReader struct{}
+
+func (endlessReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'a'
+	}
+	return len(p), nil
+}
+
+// TestDoRawMaxBodyExceededPreservesStatus checks that an oversized body on a
+// non-200 response still reports that status alongside ErrBodyTooLarge,
+// instead of the 0 a genuine network failure carries: the caller decides
+// what the status means, DoRaw does not discard it.
+func TestDoRawMaxBodyExceededPreservesStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.Copy(w, endlessReader{})
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	status, _, _, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+		MaxBody:   1024,
+	})
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("DoRaw() error = %v, want ErrBodyTooLarge", err)
+	}
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", status, http.StatusServiceUnavailable)
 	}
 }
 

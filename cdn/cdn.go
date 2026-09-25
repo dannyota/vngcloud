@@ -84,16 +84,19 @@ func (c *Client) ListIPRanges(ctx context.Context, in *ListIPRangesInput) (*List
 	})
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, fmt.Errorf("%w: body over %d bytes", ErrPageFormat, maxBodyBytes)
+			// The status wins over the body size: a 200 with too much body
+			// is a page format the parser cannot trust, but any other
+			// status is an ordinary API error for that status, same as if
+			// the body had never been read at all.
+			if status == http.StatusOK {
+				return nil, fmt.Errorf("%w: body over %d bytes", ErrPageFormat, maxBodyBytes)
+			}
+			return nil, statusError(op, status)
 		}
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, &core.APIError{
-			Operation:  op,
-			StatusCode: status,
-			Code:       core.ResolvedCode(status, ""),
-		}
+		return nil, statusError(op, status)
 	}
 	if mediaType, _, mErr := mime.ParseMediaType(contentType); mErr != nil || mediaType != "text/html" {
 		return nil, fmt.Errorf("%w: content-type %q is not text/html", ErrPageFormat, contentType)
@@ -104,4 +107,46 @@ func (c *Client) ListIPRanges(ctx context.Context, in *ListIPRangesInput) (*List
 		return nil, err
 	}
 	return &ListIPRangesOutput{Items: items, Source: source}, nil
+}
+
+// statusError builds the *core.APIError a non-200 response from the docs
+// host produces. It wraps the same sentinel other SDK errors wrap for the
+// status (core.ErrNotFound, core.ErrPermission, core.ErrRateLimited), except
+// that a 401 wraps nothing: the request carried no credential (SkipAuth is
+// always set), so it can never have failed authentication the way a 401 from
+// an authenticated call does, and errors.Is(err, vngcloud.ErrAuth) must stay
+// false for it.
+func statusError(op string, status int) *core.APIError {
+	return &core.APIError{
+		Operation:  op,
+		StatusCode: status,
+		Code:       core.ResolvedCode(status, ""),
+		Retryable:  retryableStatus(status),
+		Err:        sentinelForStatus(status),
+	}
+}
+
+func sentinelForStatus(status int) error {
+	switch status {
+	case http.StatusForbidden:
+		return core.ErrPermission
+	case http.StatusNotFound:
+		return core.ErrNotFound
+	case http.StatusTooManyRequests:
+		return core.ErrRateLimited
+	default:
+		return nil
+	}
+}
+
+// retryableStatus matches the transport's own retry policy for an idempotent
+// request: a GET is retried on 429 and every 5xx that a load balancer or
+// upstream commonly returns for a request the origin never acted on.
+func retryableStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }

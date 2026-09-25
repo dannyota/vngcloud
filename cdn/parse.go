@@ -31,7 +31,7 @@ type heading struct {
 // canonical CIDRs the matched section names. Any doubt about the page's
 // shape returns an error wrapping ErrPageFormat.
 func parseIPRanges(body []byte) ([]string, error) {
-	stripped := stripElements(string(body), nonContentTags)
+	stripped := stripElements(removeComments(string(body)), nonContentTags)
 
 	headings := findHeadings(stripped)
 	matchIdx := -1
@@ -50,10 +50,17 @@ func parseIPRanges(body []byte) ([]string, error) {
 	}
 
 	matched := headings[matchIdx]
-	if matchIdx == len(headings)-1 {
+	end := -1
+	for i := matchIdx + 1; i < len(headings); i++ {
+		if headings[i].level <= matched.level {
+			end = i
+			break
+		}
+	}
+	if end == -1 {
 		return nil, fmt.Errorf("%w: no heading found after the matched section", ErrPageFormat)
 	}
-	section := stripped[matched.afterCloseTag:headings[matchIdx+1].startLT]
+	section := stripped[matched.afterCloseTag:headings[end].startLT]
 
 	prefixes, err := extractPrefixes(section)
 	if err != nil {
@@ -85,9 +92,60 @@ func extractPrefixes(section string) ([]netip.Prefix, error) {
 				return nil, err
 			}
 			prefixes = append(prefixes, p)
+		case hasEmbeddedDottedQuad(tok):
+			return nil, fmt.Errorf("%w: token %s holds a CIDR glued to other text", ErrPageFormat, quoteToken(tok))
 		}
 	}
 	return prefixes, nil
+}
+
+// hasEmbeddedDottedQuad reports whether tok contains, anywhere within it, a
+// maximal run of digits and '.' that itself splits into four or more
+// non-empty groups: four dot-separated digit runs glued to other characters
+// that ipv4Shaped's whole-token check rejects, such as a two-letter code
+// (HN1.2.3.0/24) or a URL scheme (https://1.2.3.0/24). ipv4Shaped already
+// accepts the token when the whole address part has this shape; this instead
+// catches the same shape hiding inside a larger token, so extractPrefixes can
+// fail loudly on it instead of silently ignoring it.
+func hasEmbeddedDottedQuad(tok string) bool {
+	for i := 0; i < len(tok); {
+		if !isDigitOrDot(tok[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(tok) && isDigitOrDot(tok[j]) {
+			j++
+		}
+		if maxDottedGroups(tok[i:j]) >= 4 {
+			return true
+		}
+		i = j
+	}
+	return false
+}
+
+func isDigitOrDot(c byte) bool {
+	return (c >= '0' && c <= '9') || c == '.'
+}
+
+// maxDottedGroups returns the length of the longest run of consecutive
+// non-empty, dot-separated groups in run, a string holding only digits and
+// '.'. Two adjacent dots, or a leading or trailing one, produce an empty
+// group that breaks the run.
+func maxDottedGroups(run string) int {
+	best, cur := 0, 0
+	for _, group := range strings.Split(run, ".") {
+		if group == "" {
+			cur = 0
+			continue
+		}
+		cur++
+		if cur > best {
+			best = cur
+		}
+	}
+	return best
 }
 
 // canonicalPrefix parses tok as a CIDR and requires it to already be in
@@ -209,28 +267,81 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-// textOf renders s as visible text: every "<...>" span is dropped (this is
-// not a full HTML parser: a literal '>' inside a quoted attribute value ends
-// the drop early, which none of the tags this package looks at use), then
-// HTML entities are decoded and runs of whitespace collapse to one space.
+// textOf renders s as visible text: every "<...>" span is replaced with a
+// single space, so text from two adjacent elements (for example two table
+// cells with no whitespace between their tags in the source) never glues
+// into one token, then HTML entities are decoded and runs of whitespace
+// collapse to one space. It is not a full HTML parser: it does not track
+// element nesting, but tagEnd finds each tag's own closing '>' correctly
+// even when a quoted attribute value holds a literal '>'.
 func textOf(s string) string {
 	var b strings.Builder
-	depth := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '<':
-			depth++
-		case '>':
-			if depth > 0 {
-				depth--
+	for i := 0; i < len(s); {
+		if s[i] == '<' {
+			end := tagEnd(s, i)
+			if end == -1 {
+				// The rest of s is inside an unterminated tag: no more text
+				// follows.
+				break
 			}
-		default:
-			if depth == 0 {
-				b.WriteByte(s[i])
-			}
+			b.WriteByte(' ')
+			i = end + 1
+			continue
 		}
+		b.WriteByte(s[i])
+		i++
 	}
 	return strings.Join(strings.Fields(html.UnescapeString(b.String())), " ")
+}
+
+// tagEnd returns the index of the '>' that closes the tag starting at
+// s[start] (s[start] must be '<'), treating a '>' inside a single- or
+// double-quoted attribute value as ordinary text rather than the tag's end.
+// It returns -1 when no such '>' exists before the document ends.
+func tagEnd(s string, start int) int {
+	var quote byte
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '>':
+			return i
+		}
+	}
+	return -1
+}
+
+// removeComments removes every "<!--...-->" span from s whole, including its
+// content, before any other parsing step: an HTML comment can hold a literal
+// '>' that is not inside a quote, so tagEnd's rule for every other kind of
+// tag does not find a comment's real end. A comment left unterminated by the
+// document's end removes everything from its start onward, the same
+// convention stripElement and findHeadings use for an unterminated tag.
+func removeComments(s string) string {
+	const open, closeTag = "<!--", "-->"
+	var b strings.Builder
+	pos := 0
+	for {
+		start := strings.Index(s[pos:], open)
+		if start == -1 {
+			b.WriteString(s[pos:])
+			break
+		}
+		start += pos
+		b.WriteString(s[pos:start])
+		rest := s[start+len(open):]
+		end := strings.Index(rest, closeTag)
+		if end == -1 {
+			break
+		}
+		pos = start + len(open) + end + len(closeTag)
+	}
+	return b.String()
 }
 
 // isTagNameEnd reports whether c can follow a tag name: whitespace, the tag
@@ -292,11 +403,11 @@ func nextHeadingOpen(s string, from int) (level, tagStart, openEnd int, ok bool)
 		if i+3 < len(s) && !isTagNameEnd(s[i+3]) {
 			continue
 		}
-		gt := strings.IndexByte(s[i:], '>')
-		if gt == -1 {
+		end := tagEnd(s, i)
+		if end == -1 {
 			return 0, 0, 0, false
 		}
-		return int(c - '0'), i, i + gt + 1, true
+		return int(c - '0'), i, end + 1, true
 	}
 	return 0, 0, 0, false
 }
@@ -314,11 +425,11 @@ func headingClose(s string, openEnd, level int) (closeStart, closeEnd int) {
 		if after < len(s) && !isTagNameEnd(s[after]) {
 			continue
 		}
-		gt := strings.IndexByte(s[i:], '>')
-		if gt == -1 {
+		end := tagEnd(s, i)
+		if end == -1 {
 			return -1, -1
 		}
-		return i, i + gt + 1
+		return i, end + 1
 	}
 	return -1, -1
 }
@@ -374,12 +485,12 @@ func findOpenTag(s, tag string, from int) (start, openEnd int, selfClosing, ok b
 		if after < len(s) && !isTagNameEnd(s[after]) {
 			continue
 		}
-		gt := strings.IndexByte(s[i:], '>')
+		gt := tagEnd(s, i)
 		if gt == -1 {
 			return 0, 0, false, false
 		}
-		end := i + gt + 1
-		selfClosing = gt > 0 && s[i+gt-1] == '/'
+		end := gt + 1
+		selfClosing = gt > i && s[gt-1] == '/'
 		return i, end, selfClosing, true
 	}
 	return 0, 0, false, false
@@ -398,11 +509,11 @@ func findCloseTagEnd(s, tag string, from int) int {
 		if after < len(s) && !isTagNameEnd(s[after]) {
 			continue
 		}
-		gt := strings.IndexByte(s[i:], '>')
-		if gt == -1 {
+		end := tagEnd(s, i)
+		if end == -1 {
 			return -1
 		}
-		return i + gt + 1
+		return end + 1
 	}
 	return -1
 }

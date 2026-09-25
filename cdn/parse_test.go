@@ -118,6 +118,119 @@ func TestParseIPRangesEntityEncodedHeading(t *testing.T) {
 	}
 }
 
+// TestTextOfReplacesTagsWithSpace checks that textOf replaces each tag with
+// a space rather than deleting it, so text on either side of a tag never
+// glues into one token: "Ranges:" and "1.2.3.0/24" here come from separate
+// <p> elements with no space between the tags in the source.
+func TestTextOfReplacesTagsWithSpace(t *testing.T) {
+	got := textOf(`<p>Ranges:</p><p>1.2.3.0/24</p> 5.6.7.0/24`)
+	want := "Ranges: 1.2.3.0/24 5.6.7.0/24"
+	if got != want {
+		t.Fatalf("textOf() = %q, want %q", got, want)
+	}
+}
+
+// TestTextOfSeparatesAdjacentCellText checks the same rule for a table row,
+// the shape the real FAQ page never uses for its CIDR list but that a future
+// revision of the page might.
+func TestTextOfSeparatesAdjacentCellText(t *testing.T) {
+	got := textOf(`<td>HN</td><td>1.2.3.0/24</td>`)
+	want := "HN 1.2.3.0/24"
+	if got != want {
+		t.Fatalf("textOf() = %q, want %q", got, want)
+	}
+}
+
+// TestParseIPRangesFindsBothRangesAcrossTags checks the full pipeline for
+// the same shape as TestTextOfReplacesTagsWithSpace: both CIDRs are found,
+// and the text glued by a missing space between two tags never happens.
+func TestParseIPRangesFindsBothRangesAcrossTags(t *testing.T) {
+	page := `<html><body>
+<h3>CDN IP range</h3>
+<p>Ranges:</p><p>1.2.3.0/24</p> 5.6.7.0/24
+<h3>Next</h3>
+</body></html>`
+
+	got, err := parseIPRanges([]byte(page))
+	if err != nil {
+		t.Fatalf("parseIPRanges() error = %v", err)
+	}
+	want := []string{"1.2.3.0/24", "5.6.7.0/24"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestParseIPRangesCommentAndQuotedAttributeAddNothing checks that an HTML
+// comment is removed whole before any tag search, and that a tag ends only
+// at a '>' outside quotes: without both, "old > 6.6.6.0/24" and
+// "a>b 7.7.7.0/24" (a decoy CIDR inside the comment and inside a quoted
+// attribute value) would leak into the section's visible text and be
+// counted as ranges.
+func TestParseIPRangesCommentAndQuotedAttributeAddNothing(t *testing.T) {
+	page := `<html><body>
+<h3>CDN IP range</h3>
+<!-- old > 6.6.6.0/24 -->
+<span title="a>b 7.7.7.0/24">1.2.3.0/24</span>
+<h3>Next</h3>
+</body></html>`
+
+	got, err := parseIPRanges([]byte(page))
+	if err != nil {
+		t.Fatalf("parseIPRanges() error = %v", err)
+	}
+	want := []string{"1.2.3.0/24"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestParseIPRangesGluedIPv4Fails checks that a token holding four
+// dot-separated digit groups anywhere, but not IPv4-shaped as a whole, fails
+// the call instead of being silently ignored: a CIDR glued to a two-letter
+// code or a URL scheme must never disappear from the result.
+func TestParseIPRangesGluedIPv4Fails(t *testing.T) {
+	cases := []struct {
+		name string
+		page string
+	}{
+		// Each page also holds a genuinely valid CIDR, so a parser that
+		// merely ignores the malformed token (rather than failing on it)
+		// would otherwise succeed here instead of failing as it must.
+		{"glued prefix", "<html><body><h3>CDN IP range</h3><p>HN1.2.3.0/24 9.9.9.0/24</p><h3>Next</h3></body></html>"},
+		{"url scheme prefix", "<html><body><h3>CDN IP range</h3><p>https://1.2.3.0/24 9.9.9.0/24</p><h3>Next</h3></body></html>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseIPRanges([]byte(tc.page))
+			if !errors.Is(err, ErrPageFormat) {
+				t.Fatalf("parseIPRanges() error = %v, want ErrPageFormat", err)
+			}
+		})
+	}
+}
+
+// TestParseIPRangesH4InsideSectionDoesNotEndIt checks that the section ends
+// only at the next heading of the same or higher level: an <h4> nested
+// inside an <h3> section must not end it, so the section still reaches the
+// next <h3>.
+func TestParseIPRangesH4InsideSectionDoesNotEndIt(t *testing.T) {
+	page := `<html><body>
+<h3>CDN IP range</h3>
+<h4>Sub heading</h4>
+<p>1.2.3.0/24</p>
+<h3>Next</h3>
+</body></html>`
+
+	got, err := parseIPRanges([]byte(page))
+	if err != nil {
+		t.Fatalf("parseIPRanges() error = %v", err)
+	}
+	if len(got) != 1 || got[0] != "1.2.3.0/24" {
+		t.Fatalf("got %v, want [1.2.3.0/24]", got)
+	}
+}
+
 // TestParseIPRangesBadTokenMessageIsBounded checks that a parse error names
 // the offending token, quoted, and never grows unbounded: the design caps
 // it at 64 bytes with control characters removed.

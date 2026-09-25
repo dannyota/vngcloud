@@ -65,7 +65,11 @@ func (e *APIError) Unwrap() error {
 // ErrBodyTooLarge is returned by DoJSONStatus and DoRaw when a response body
 // exceeds Request.MaxBody. It is never wrapped in an APIError: a caller
 // that wants to tell it apart from a genuine HTTP or network failure uses
-// errors.Is directly.
+// errors.Is directly. DoRaw returns it alongside the response's real status
+// code, rather than 0, so a caller can tell an oversized body on a 200 from
+// one on a 503: the status, not the size, decides what the failure means.
+// DoJSONStatus still returns status 0 on this error, since no JSON caller
+// reads the status on an error path today.
 var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
 
 type Client struct {
@@ -233,7 +237,9 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 
 	statusCode, contentType, body, sent, err := c.send(ctx, req, client)
 	if err != nil {
-		return 0, "", nil, err
+		// statusCode carries a real value only for ErrBodyTooLarge (see its
+		// doc comment); every other error path in send leaves it 0.
+		return statusCode, "", nil, err
 	}
 	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
@@ -241,7 +247,7 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 		}
 		statusCode, contentType, body, _, err = c.send(ctx, req, client)
 		if err != nil {
-			return 0, "", nil, err
+			return statusCode, "", nil, err
 		}
 	}
 	return statusCode, contentType, body, nil
@@ -401,7 +407,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		respBody, readErr := readBody(resp.Body, req.MaxBody)
 		closeErr := resp.Body.Close()
 		if errors.Is(readErr, ErrBodyTooLarge) {
-			return 0, "", nil, sentToken, ErrBodyTooLarge
+			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
 		if readErr != nil {
 			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: readErr}
