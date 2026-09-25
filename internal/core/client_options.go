@@ -40,22 +40,24 @@ func (f clientOptionFunc) apply(cfg *clientConfig) {
 }
 
 type clientConfig struct {
-	httpClient    *http.Client
-	transport     http.RoundTripper
-	timeout       time.Duration
-	retryCount    int
-	retryInterval time.Duration
-	userAgent     string
-	logger        *slog.Logger
-	endpoints     EndpointOverrides
-	capture       ResponseCaptureFunc
-	staticToken   string
-	region        string
-	projectID     string
-	iamUser       *IAMUserAuth
-	credentials   CredentialsProvider
-	tokenCacheDir string
-	profile       string
+	httpClient      *http.Client
+	transport       http.RoundTripper
+	timeout         time.Duration
+	retryCount      int
+	retryInterval   time.Duration
+	userAgent       string
+	logger          *slog.Logger
+	endpoints       EndpointOverrides
+	capture         ResponseCaptureFunc
+	staticToken     string
+	region          string
+	projectID       string
+	iamUser         *IAMUserAuth
+	credentials     CredentialsProvider
+	tokenCacheDir   string
+	profile         string
+	configFile      string
+	credentialsFile string
 }
 
 type ResponseCapture struct {
@@ -176,8 +178,32 @@ func WithTokenCache(dir string) Option {
 // different profiles sharing one cache directory never collide. LoadConfig
 // sets this from the resolved profile name; a direct NewConfig caller using
 // WithTokenCache usually does not need it.
+//
+// Passed to LoadConfig, WithProfile also selects the profile explicitly:
+// credentials and the project ID then never come from the environment, only
+// from this option or the named profile's files.
 func WithProfile(name string) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.profile = name
+	})
+}
+
+// WithConfigFile sets an explicit path for LoadConfig's config file,
+// overriding VNGCLOUD_CONFIG_FILE and the default ~/.vngcloud/config. Unlike
+// the default, a path set this way is an error when it does not exist.
+// NewConfig ignores this option.
+func WithConfigFile(path string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.configFile = path
+	})
+}
+
+// WithSharedCredentialsFile sets an explicit path for LoadConfig's
+// credentials file, overriding VNGCLOUD_SHARED_CREDENTIALS_FILE and the
+// default ~/.vngcloud/credentials. Unlike the default, a path set this way
+// is an error when it does not exist. NewConfig ignores this option.
+func WithSharedCredentialsFile(path string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.credentialsFile = path
 	})
 }

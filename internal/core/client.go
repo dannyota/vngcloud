@@ -32,16 +32,31 @@ type Client struct {
 	projectUserID int
 }
 
-func newClient(opts ...Option) (*Client, error) {
-	settings := clientConfig{
+// defaultClientConfig is the clientConfig every option-application starts
+// from, whether from NewConfig's opts or LoadConfig's own resolution.
+func defaultClientConfig() clientConfig {
+	return clientConfig{
 		timeout:       120 * time.Second,
 		retryCount:    3,
 		retryInterval: time.Second,
 		userAgent:     defaultUserAgent,
 	}
+}
+
+func newClient(opts ...Option) (*Client, error) {
+	settings := defaultClientConfig()
 	for _, opt := range opts {
 		opt.apply(&settings)
 	}
+	return buildClient(settings)
+}
+
+// buildClient builds a Client from a fully-resolved clientConfig, applying
+// no further options. LoadConfig calls this directly after resolving
+// region, project ID, and credentials itself from options, environment
+// variables, and profile files, so those resolved values are set once, not
+// overridden by re-applying the caller's original options afterward.
+func buildClient(settings clientConfig) (*Client, error) {
 	if settings.region == "" {
 		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
 	}

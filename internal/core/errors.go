@@ -15,6 +15,18 @@ var (
 	ErrMissingProjectID = errors.New("vngcloud: project id is required")
 	ErrInvalidConfig    = errors.New("vngcloud: invalid config")
 	ErrInvalidInput     = errors.New("vngcloud: invalid input")
+
+	// ErrNoCredentials is LoadConfig's error when no source (options,
+	// environment variables, or the resolved profile) sets any credential
+	// value. It wraps ErrInvalidConfig, so errors.Is(err, ErrInvalidConfig)
+	// also matches.
+	ErrNoCredentials = fmt.Errorf("%w: vngcloud: no credentials found", ErrInvalidConfig)
+
+	// ErrCredentialsFile is LoadConfig's error for the credentials file
+	// itself: missing at an explicit path, unreadable, refused for unsafe
+	// permissions, or malformed. It wraps ErrInvalidConfig, so
+	// errors.Is(err, ErrInvalidConfig) also matches.
+	ErrCredentialsFile = fmt.Errorf("%w: vngcloud: credentials file error", ErrInvalidConfig)
 )
 
 // APIError describes an error response returned by VNG Cloud.

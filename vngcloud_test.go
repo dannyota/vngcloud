@@ -137,6 +137,54 @@ func TestTwoPackagesOneLogin(t *testing.T) {
 	}
 }
 
+// clearVNGCloudEnvAndHome points HOME and USERPROFILE at a fresh temp
+// directory and clears every VNGCLOUD_* variable, so LoadConfig never reads
+// the real home directory or a value left over from the host environment.
+func clearVNGCloudEnvAndHome(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	for _, key := range []string{
+		"VNGCLOUD_PROFILE", "VNGCLOUD_REGION", "VNGCLOUD_PROJECT_ID",
+		"VNGCLOUD_ROOT_EMAIL", "VNGCLOUD_USERNAME", "VNGCLOUD_PASSWORD", "VNGCLOUD_TOTP_SECRET",
+		"VNGCLOUD_ACCESS_TOKEN", "VNGCLOUD_CONFIG_FILE", "VNGCLOUD_SHARED_CREDENTIALS_FILE",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+func TestLoadConfigFromOptionsOnly(t *testing.T) {
+	clearVNGCloudEnvAndHome(t)
+
+	cfg, err := vngcloud.LoadConfig(context.Background(),
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithStaticToken("tok"),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Region() != "hcm-3" {
+		t.Fatalf("Region() = %q, want hcm-3", cfg.Region())
+	}
+}
+
+func TestLoadConfigMissingRegionIsInvalidConfig(t *testing.T) {
+	clearVNGCloudEnvAndHome(t)
+
+	if _, err := vngcloud.LoadConfig(context.Background(), vngcloud.WithStaticToken("tok")); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+		t.Fatalf("LoadConfig() err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestLoadConfigNoCredentialsIsErrNoCredentials(t *testing.T) {
+	clearVNGCloudEnvAndHome(t)
+
+	if _, err := vngcloud.LoadConfig(context.Background(), vngcloud.WithRegion("hcm-3")); !errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatalf("LoadConfig() err = %v, want ErrNoCredentials", err)
+	}
+}
+
 func TestPtr(t *testing.T) {
 	p := vngcloud.Ptr(false)
 	if *p != false {

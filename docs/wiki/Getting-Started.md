@@ -10,6 +10,12 @@ The module needs Go 1.27.1 or later.
 
 ## Create a client
 
+`vngcloud.LoadConfig` is the default way to build a `Config`: it resolves
+region, project, and credentials from options, `VNGCLOUD_*` environment
+variables, and the AWS-style profile files under `~/.vngcloud/`, in that
+order. See [Configuration](Configuration.md#loadconfig) for the precedence
+rules, the file formats, and every environment variable.
+
 ```go
 package main
 
@@ -24,14 +30,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := vngcloud.NewConfig(
-		vngcloud.WithRegion("hcm-3"),
-		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
-			RootEmail: "<root-email>",
-			Username:  "<iam-username>",
-			Password:  "<password>",
-		}),
-	)
+	cfg, err := vngcloud.LoadConfig(ctx, vngcloud.WithRegion("hcm-3"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,12 +54,29 @@ func main() {
 }
 ```
 
-`NewConfig` does not log in. Call `cfg.Authenticate(ctx)` to log in now, so
-bad credentials fail before the first service call runs; skip it and the SDK
-logs in lazily on that first call instead. Each Config targets one region.
-Build one Config per region you need, and pass it to a service package's
-`New`. Every service client built from the same Config shares one login and
-one project lookup.
+That example needs a `~/.vngcloud/credentials` file (see
+[Configuration](Configuration.md#loadconfig)) or `VNGCLOUD_ROOT_EMAIL`,
+`VNGCLOUD_USERNAME`, and `VNGCLOUD_PASSWORD` set. To build a `Config` from Go
+values only, with no environment or file lookups, use `vngcloud.NewConfig`
+instead:
+
+```go
+cfg, err := vngcloud.NewConfig(
+	vngcloud.WithRegion("hcm-3"),
+	vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+		RootEmail: "<root-email>",
+		Username:  "<iam-username>",
+		Password:  "<password>",
+	}),
+)
+```
+
+Neither `LoadConfig` nor `NewConfig` logs in. Call `cfg.Authenticate(ctx)` to
+log in now, so bad credentials fail before the first service call runs; skip
+it and the SDK logs in lazily on that first call instead. Each Config
+targets one region. Build one Config per region you need, and pass it to a
+service package's `New`. Every service client built from the same Config
+shares one login and one project lookup.
 
 ## Billing example
 
