@@ -1,7 +1,11 @@
 package core
 
 import (
+	"context"
 	"errors"
+	"net"
+	"net/url"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud/internal/transport"
@@ -70,6 +74,89 @@ func TestWrapTransportErrNoCodeFallsBackToStatus(t *testing.T) {
 	}
 	if apiErr.Code != "NotFound" {
 		t.Fatalf("Code = %q, want NotFound", apiErr.Code)
+	}
+}
+
+func TestAPIErrorNoCauseWhenNoErr(t *testing.T) {
+	err := &APIError{Operation: "compute.ListServers", StatusCode: 500, Code: "ServerError"}
+	want := "compute.ListServers: request failed (status 500)"
+	if got := err.Error(); got != want {
+		t.Fatalf("Error() = %q, want %q", got, want)
+	}
+}
+
+// TestAPIErrorNamesNetworkFailureCause covers each cause shape the design
+// names: a bare *net.OpError, a *url.Error wrapping one, a *url.Error
+// wrapping something else, and a canceled or expired context, bare or
+// wrapped in a *url.Error.
+func TestAPIErrorNamesNetworkFailureCause(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			"net.OpError",
+			&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")},
+			"compute.ListServers: request failed: dial: connect: connection refused",
+		},
+		{
+			"url.Error wrapping net.OpError",
+			&url.Error{Op: "Post", URL: "http://host/path?token=secret", Err: &net.OpError{Op: "dial", Err: errors.New("connect: connection refused")}},
+			"compute.ListServers: request failed: dial: connect: connection refused",
+		},
+		{
+			"url.Error wrapping another error",
+			&url.Error{Op: "Post", URL: "http://host/path?token=secret", Err: errors.New("tls: unknown authority")},
+			"compute.ListServers: request failed: tls: unknown authority",
+		},
+		{
+			"bare context.Canceled",
+			context.Canceled,
+			"compute.ListServers: request failed: canceled",
+		},
+		{
+			"bare context.DeadlineExceeded",
+			context.DeadlineExceeded,
+			"compute.ListServers: request failed: timed out",
+		},
+		{
+			"url.Error wrapping context.Canceled",
+			&url.Error{Op: "Post", URL: "http://host/path", Err: context.Canceled},
+			"compute.ListServers: request failed: canceled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &APIError{Operation: "compute.ListServers", Err: tt.err}
+			if got := err.Error(); got != tt.want {
+				t.Fatalf("Error() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAPIErrorNetworkFailureNeverLeaksURLOrQuery is the design's own
+// example: a refused connection to a URL carrying a token in its query
+// string must name the cause without the token or the host.
+func TestAPIErrorNetworkFailureNeverLeaksURLOrQuery(t *testing.T) {
+	err := &APIError{
+		Operation: "compute.ListServers",
+		Err: &url.Error{
+			Op:  "Post",
+			URL: "http://internal-host.example/v1/servers?token=secret-XYZ",
+			Err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")},
+		},
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "secret-XYZ") {
+		t.Fatalf("Error() leaked the query string: %q", msg)
+	}
+	if strings.Contains(msg, "internal-host.example") {
+		t.Fatalf("Error() leaked the host: %q", msg)
+	}
+	if !strings.Contains(msg, "connection refused") {
+		t.Fatalf("Error() = %q, want it to name the cause", msg)
 	}
 }
 

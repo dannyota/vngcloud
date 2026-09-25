@@ -64,6 +64,9 @@ func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 	if profile == "" {
 		profile = defaultProfile
 	}
+	if err := validateProfileName(profile); err != nil {
+		return Config{}, err
+	}
 
 	defaultConfigPath, defaultCredsPath := defaultFilePaths()
 	configFile, err := loadConfigFile(resolveFileSource(settings.configFile, envConfigFile, defaultConfigPath))
@@ -190,6 +193,20 @@ func loadIniFile(src fileSource, sentinelErr error, checkMode bool) (ini.File, e
 		return nil, fmt.Errorf("%w: %w", sentinelErr, err)
 	}
 	return parsed, nil
+}
+
+// validateProfileName rejects a profile name (from WithProfile or
+// VNGCLOUD_PROFILE) that could be misread as more than a plain name: CR or
+// LF, which could forge an extra line in a file or a log; '[' or ']', which
+// could forge a different section when matched against a config or
+// credentials file; or leading or trailing whitespace. It runs before
+// LoadConfig opens any file. The name itself may be attacker-controlled, so
+// the error names the rule rather than echoing the name.
+func validateProfileName(profile string) error {
+	if strings.ContainsAny(profile, "\r\n[]") || strings.TrimSpace(profile) != profile {
+		return fmt.Errorf("%w: profile name must not contain CR, LF, '[', ']', or leading or trailing whitespace", ErrInvalidConfig)
+	}
+	return nil
 }
 
 // configSectionName is the config file's section for profile: "default" is

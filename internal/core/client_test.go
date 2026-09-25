@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,51 @@ import (
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+// failingRoundTripper fails every RoundTrip with err, standing in for a
+// refused connection or similar network failure that never reaches the
+// server.
+type failingRoundTripper struct {
+	err error
+}
+
+func (f *failingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, f.err
+}
+
+// TestDoJSONNetworkFailureErrorHidesQueryString drives a real dial failure
+// through DoJSON and wrapTransportErr end to end, using a request URL that
+// carries a token in its query string. The resulting *APIError must still
+// name the cause without the token or the host, matching the direct
+// APIError.Error() tests in errors_test.go.
+func TestDoJSONNetworkFailureErrorHidesQueryString(t *testing.T) {
+	rt := &failingRoundTripper{err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")}}
+	tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: rt}})
+	c := NewTestClient("hcm-3", "", endpoints.Set{}, tc)
+
+	err := c.DoJSON(context.Background(), transport.Request{
+		Operation: "compute.ListServers",
+		Method:    http.MethodPost,
+		URL:       "http://vngcloud.invalid/v1/servers?token=secret-XYZ",
+		OK:        []int{200},
+		SkipAuth:  true,
+	}, nil)
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("DoJSON() error = %v, want *APIError", err)
+	}
+	msg := apiErr.Error()
+	if strings.Contains(msg, "secret-XYZ") {
+		t.Fatalf("Error() leaked the query string: %q", msg)
+	}
+	if strings.Contains(msg, "vngcloud.invalid") {
+		t.Fatalf("Error() leaked the host: %q", msg)
+	}
+	if !strings.Contains(msg, "connection refused") {
+		t.Fatalf("Error() = %q, want it to name the cause", msg)
+	}
+}
 
 func TestNewClientDoesNotMutateAuthConfig(t *testing.T) {
 	auth := &IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "pass"}

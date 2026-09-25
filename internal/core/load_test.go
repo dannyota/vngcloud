@@ -353,6 +353,69 @@ func TestLoadConfigExplicitProfileWithoutCredentialsIsErrNoCredentials(t *testin
 	}
 }
 
+// ---- Profile name safety ----
+
+// TestLoadConfigRejectsUnsafeProfileName covers every character or shape
+// LoadConfig must reject before it reads any file: CR, LF, the section
+// bracket characters, and leading or trailing whitespace. The error must
+// name the rule rather than echo the profile string, since a profile name
+// from WithProfile or VNGCLOUD_PROFILE can carry attacker-controlled text.
+func TestLoadConfigRejectsUnsafeProfileName(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile string
+	}{
+		{"embedded CR", "dev\rMARKER"},
+		{"embedded LF", "dev\nMARKER"},
+		{"open bracket", "dev [MARKER"},
+		{"close bracket", "devMARKER]"},
+		{"leading whitespace", " devMARKER"},
+		{"trailing whitespace", "devMARKER "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupHome(t)
+			_, err := LoadConfig(context.Background(), WithProfile(tt.profile))
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("err = %v, want ErrInvalidConfig", err)
+			}
+			if strings.Contains(err.Error(), "MARKER") {
+				t.Fatalf("err leaked the raw profile name: %v", err)
+			}
+		})
+	}
+}
+
+// TestLoadConfigRejectsUnsafeProfileNameFromEnv is the same rule applied to
+// VNGCLOUD_PROFILE rather than WithProfile.
+func TestLoadConfigRejectsUnsafeProfileNameFromEnv(t *testing.T) {
+	setupHome(t)
+	t.Setenv("VNGCLOUD_PROFILE", "dev\nMARKER")
+	_, err := LoadConfig(context.Background())
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+	if strings.Contains(err.Error(), "MARKER") {
+		t.Fatalf("err leaked the raw profile name: %v", err)
+	}
+}
+
+// TestLoadConfigRejectsUnsafeProfileNameBeforeReadingFiles points the
+// credentials file at a path that would itself fail to load, then confirms
+// LoadConfig still reports the profile-name error rather than a
+// credentials-file error, proving the name is checked before any file read.
+func TestLoadConfigRejectsUnsafeProfileNameBeforeReadingFiles(t *testing.T) {
+	home := setupHome(t)
+	t.Setenv("VNGCLOUD_SHARED_CREDENTIALS_FILE", filepath.Join(home, "missing-dir", "credentials"))
+	_, err := LoadConfig(context.Background(), WithProfile("dev\n"))
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+	if errors.Is(err, ErrCredentialsFile) {
+		t.Fatalf("err = %v, want the profile-name error, not a credentials-file error", err)
+	}
+}
+
 // ---- Section name conventions ----
 
 func TestLoadConfigProfileSectionNames(t *testing.T) {
