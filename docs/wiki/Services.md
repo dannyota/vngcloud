@@ -1,8 +1,13 @@
 # Services
 
-Each VNG Cloud product has a service client on the root client, for example
-`client.Compute`. All methods are reads today. A method can still return a
-permission error when the IAM User lacks access to that product or region.
+Each GreenNode product has a service client on the root client, for example
+`client.Compute`. All methods on the root client are reads today. A method
+can still return a permission error when the IAM User lacks access to that
+product or region.
+
+`billing` and `pricing` are separate packages, not clients on the root
+client; see [Billing and Pricing](Billing-and-Pricing.md). They cover writes
+too: budgets can be created, changed, paused, and deleted.
 
 ## Coverage
 

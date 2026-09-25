@@ -41,9 +41,14 @@ When login hits a captcha, copy a bearer token from a signed-in console session
 (browser DevTools) and skip login:
 
 ```go
-client, err := vngcloud.NewClient(ctx, vngcloud.Config{
-	Region: "hcm-3",
-}, vngcloud.WithStaticToken("<bearer-token>"))
+cfg, err := vngcloud.NewConfig(
+	vngcloud.WithRegion("hcm-3"),
+	vngcloud.WithStaticToken("<bearer-token>"),
+)
+if err != nil {
+	log.Fatal(err)
+}
+client, err := vngcloud.NewClient(ctx, cfg)
 ```
 
 The SDK does not refresh a static token. When it expires, create a new client

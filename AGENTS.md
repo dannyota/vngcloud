@@ -34,7 +34,7 @@ Every agent works in one role. The owner talks to the manager. Other roles take 
 |-|-|-|
 | manager | Plans, briefs, Git, releases, repo tooling (`AGENTS.md`, `instructions/`, `.claude/`, `.codex/`, `.github/`, `scripts/`, `Makefile`, `go.mod`, `README.md`) | Writes SDK or CLI code another role owns |
 | architect | `docs/design/`, `docs/adr/` | Implements the slice it designed |
-| sdk | `vngcloud.go`, `internal/` except `internal/cli/`, `testdata/`, `examples/`, `live_test.go`, SDK pages in `docs/wiki/` | Edits CLI code |
+| sdk | `vngcloud.go`, service packages (`billing/`, `pricing/`, and each later one), `internal/` except `internal/cli/`, `testdata/`, `examples/`, `live_test.go`, `live_write_test.go`, SDK pages in `docs/wiki/` | Edits CLI code |
 | cli | `cmd/vngcloud/`, `internal/cli/`, CLI pages in `docs/wiki/` | Calls the API except through the public SDK |
 | reviewer | Read-only review of a diff, plan, or release | Edits files, or reviews work it wrote |
 

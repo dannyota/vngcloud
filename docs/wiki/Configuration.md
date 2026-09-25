@@ -32,13 +32,21 @@ The SDK targets the GreenNode domains (`*.console.greennode.ai`,
 them and drop the Authorization header on the way, so the SDK refuses
 cross-host redirects and returns an error instead.
 
-Point any product at another host with `WithEndpointOverrides`:
+Point any product at another host with `WithEndpointOverrides`, passed to
+`NewConfig` alongside the region and auth options:
 
 ```go
-client, err := vngcloud.NewClient(ctx, cfg,
+cfg, err := vngcloud.NewConfig(
+	vngcloud.WithRegion("hcm-3"),
+	vngcloud.WithIAMUser(iamUser),
 	vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{
 		Dashboard: "https://custom-dashboard.example.com",
-	}))
+	}),
+)
+if err != nil {
+	log.Fatal(err)
+}
+client, err := vngcloud.NewClient(ctx, cfg)
 ```
 
 `Dashboard` sets the OAuth redirect URI used during IAM login. Setting it also

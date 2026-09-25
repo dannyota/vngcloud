@@ -1,8 +1,9 @@
 # vngcloud
 
 Documentation for `danny.vn/vngcloud`, an unofficial Go SDK and command-line
-tool for VNG Cloud (now GreenNode). This is a personal project under the Apache
-2.0 license, not affiliated with VNG Cloud or GreenNode.
+tool for GreenNode. This is a personal project under the Apache 2.0 license,
+not affiliated with GreenNode. GreenNode was called VNG Cloud until its
+rename; the module keeps the `vngcloud` name.
 
 ## SDK
 
@@ -11,6 +12,8 @@ tool for VNG Cloud (now GreenNode). This is a personal project under the Apache
 - [Authentication](Authentication.md): IAM User login, TOTP, and static tokens.
 - [Configuration](Configuration.md): regions, projects, and endpoints.
 - [Services](Services.md): every service client and its methods.
+- [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
+  price quotes.
 
 ## CLI
 

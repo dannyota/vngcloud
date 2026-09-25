@@ -1,5 +1,31 @@
 # Release Notes
 
+## v0.3.0 - Budgets and Price Quotes
+
+### Breaking changes
+
+- `vngcloud.Config` is an opaque handle built by `vngcloud.NewConfig` with
+  `WithRegion`, `WithProjectID`, `WithIAMUser`, and the existing options.
+  `vngcloud.NewClient(ctx, cfg)` takes that Config and no options. Every
+  client built from one Config shares one login and project lookup.
+- The `ClientOption` alias is now `LoadOption`.
+- A `POST` or `PATCH` is retried only after a 429 or a failed connection,
+  never after a 5xx or a network error that may have reached the server.
+  `IsRetryable` follows the same rule.
+
+### Highlights
+
+- New `billing` package: budgets, budget thresholds, alert history,
+  current-period cost, cost explorer, and balances. Budget and threshold
+  create, update, and delete are the first write APIs.
+- New `pricing` package: `GetQuote` prices a resource before it is created
+  and places no order.
+- `ErrInvalidInput` for a missing required field, a malformed ID, or a bad
+  date, returned before any request.
+- `vngcloud.Ptr` builds pointer fields for partial updates.
+- `EndpointOverrides.Billing` moves the dashboard billing gateway.
+- `make live-write` runs a gated live budget write test.
+
 ## v0.2.1 - Canonical License Text
 
 ### Highlights
