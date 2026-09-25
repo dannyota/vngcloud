@@ -74,6 +74,7 @@ Only the manager touches Git. Workers never add, commit, stash, reset, checkout,
 
 - Stage exact paths with `git add -- <paths>`. Never use `git add .`, `git add -A`, `git commit -a`, or force-add. Never stage `.env` or `examples/basic/config.*.json`.
 - Amend or reorder only commits that are not pushed.
+- Every commit and tag is signed (the owner's SSH key; `commit.gpgsign` and `tag.gpgSign` are on). Never pass `--no-gpg-sign` or `-c commit.gpgsign=false`, and never push an unsigned commit or tag.
 - Conventional Commits. Messages describe the change only and never mention agents, AI, or automated assistance.
 - Keep local-only paths in `.git/info/exclude`, not in the committed `.gitignore`. Of `.claude/` and `.codex/`, only `agents/` and `.claude/settings.json` are tracked.
 - Install the pre-commit hook once per clone with `make hooks-install`. It runs gitleaks on staged content and the length check.
