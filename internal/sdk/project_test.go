@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/testutil"
 )
 
@@ -30,6 +29,5 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	c := &Client{Client: testutil.NewCoreClient(t, handler)}
-	c.GlobalLoadBalancer = glb.New(c.Client)
 	return c
 }

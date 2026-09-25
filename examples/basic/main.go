@@ -101,9 +101,9 @@ func main() {
 			showVolume(ctx, client, cfg, sdkOutputs)
 			showNetwork(ctx, client, cfg, sdkOutputs)
 			showLoadBalancer(ctx, client, cfg, sdkOutputs)
-			showGlobalLoadBalancer(ctx, client, sdkOutputs)
+			showGlobalLoadBalancer(ctx, client, cfg, sdkOutputs)
 			if regionIndex == 0 {
-				showGlobalLoadBalancerCatalog(ctx, client, sdkOutputs)
+				showGlobalLoadBalancerCatalog(ctx, client, cfg, sdkOutputs)
 			}
 			showDNS(ctx, client, cfg, sdkOutputs)
 			showContainerRegistry(ctx, client, cfg, sdkOutputs)

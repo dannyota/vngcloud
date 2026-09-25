@@ -2,7 +2,6 @@ package vngcloud
 
 import (
 	"danny.vn/vngcloud/internal/core"
-	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/sdk"
 )
 
@@ -30,24 +29,6 @@ type ListResult[T any] = core.ListResult[T]
 
 type Project = core.Project
 type ListProjectsOptions = core.ListProjectsOptions
-
-type GlobalLoadBalancerService = glb.Service
-type ListGlobalLoadBalancersOptions = glb.ListGlobalLoadBalancersOptions
-type ListGlobalLoadBalancersResult = glb.ListGlobalLoadBalancersResult
-type ListGlobalLoadBalancerUsageHistoriesOptions = glb.ListGlobalLoadBalancerUsageHistoriesOptions
-type ListGlobalLoadBalancerUsageHistoriesResult = glb.ListGlobalLoadBalancerUsageHistoriesResult
-type GlobalLoadBalancerPackage = glb.GLBPackage
-type GlobalLoadBalancerRegionalPackage = glb.GLBVLBPackage
-type GlobalLoadBalancerRegion = glb.GLBRegion
-type GlobalLoadBalancer = glb.GlobalLoadBalancer
-type GlobalLoadBalancerVIP = glb.GlobalLoadBalancerVIP
-type GlobalLoadBalancerDomain = glb.GlobalLoadBalancerDomain
-type GlobalPool = glb.GlobalPool
-type GlobalPoolHealthMonitor = glb.GlobalPoolHealthMonitor
-type GlobalPoolMember = glb.GlobalPoolMember
-type GlobalPoolMemberDetail = glb.GlobalPoolMemberDetail
-type GlobalListener = glb.GlobalListener
-type GlobalLoadBalancerUsageHistory = glb.GlobalLoadBalancerUsageHistory
 
 const (
 	DefaultPage     = core.DefaultPage

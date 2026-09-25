@@ -14,6 +14,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
 	"danny.vn/vngcloud/loadbalancer"
@@ -182,7 +183,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("load balancers: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("global-load-balancers", func(t *testing.T) {
-		res, err := client.GlobalLoadBalancer.ListLoadBalancers(ctx, &vngcloud.ListGlobalLoadBalancersOptions{Limit: 5})
+		res, err := globalloadbalancer.New(cfg).ListLoadBalancers(ctx, &globalloadbalancer.ListLoadBalancersInput{Limit: 5})
 		if err != nil {
 			t.Fatalf("GLB ListLoadBalancers: %v", err)
 		}

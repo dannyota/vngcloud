@@ -37,7 +37,7 @@ func TestNewClientStaticTokenSkipsLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	if c.GlobalLoadBalancer == nil {
-		t.Fatal("services not wired")
+	if c.Region() != "hcm-3" {
+		t.Fatal("client not wired")
 	}
 }

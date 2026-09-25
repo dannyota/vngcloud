@@ -10,10 +10,6 @@ func TestPublicFacadeCompile(t *testing.T) {
 	_ = vngcloud.Config{}
 	_ = &vngcloud.IAMUserAuth{}
 	_ = vngcloud.ListOptions{}
-	_ = vngcloud.GlobalLoadBalancer{}
-	_ = (*vngcloud.GlobalLoadBalancerService)(nil)
-	_ = vngcloud.GlobalLoadBalancerPackage{}
-	_ = vngcloud.GlobalLoadBalancerRegion{}
 
 	if vngcloud.NewClient == nil {
 		t.Fatal("NewClient is nil")
