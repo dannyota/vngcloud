@@ -14,6 +14,7 @@ import (
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
+	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -198,11 +199,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("repositories: %d of %d", len(res.Items), res.Page.TotalItem)
 	})
 	t.Run("portal-user", func(t *testing.T) {
-		info, err := client.Portal.GetUserInfo(ctx)
+		info, err := portal.New(cfg).GetUserInfo(ctx, nil)
 		if err != nil {
 			t.Fatalf("GetUserInfo: %v", err)
 		}
-		t.Logf("portal user info retrieved: %+v", info)
+		t.Logf("portal user info retrieved: %+v", info.UserInfo)
 	})
 	t.Run("pricing-quote", func(t *testing.T) {
 		quoteClient := pricing.New(cfg)

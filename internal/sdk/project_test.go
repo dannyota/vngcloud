@@ -10,7 +10,6 @@ import (
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
-	"danny.vn/vngcloud/internal/portal"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/volume"
 )
@@ -42,6 +41,5 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	c.LoadBalancer = loadbalancer.New(c.Client)
 	c.GlobalLoadBalancer = glb.New(c.Client)
 	c.ContainerRegistry = containerregistry.New(c.Client)
-	c.Portal = portal.New(c.Client)
 	return c
 }

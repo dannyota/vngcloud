@@ -6,6 +6,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/portal"
 )
 
 func showProjects(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
@@ -13,42 +14,57 @@ func showProjects(ctx context.Context, client *vngcloud.Client, outputs *sdkOutp
 	record(outputs, client, "project/project", "visible projects in region", projects, err)
 }
 
-func showPortal(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
-	userInfo, err := client.Portal.GetUserInfo(ctx)
+func showPortal(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, outputs *sdkOutputStore) {
+	portalClient := portal.New(cfg)
+
+	userInfoOut, err := portalClient.GetUserInfo(ctx, nil)
+	var userInfo portal.UserInfo
+	if userInfoOut != nil {
+		userInfo = userInfoOut.UserInfo
+	}
 	recordOne(outputs, client, "portal/user_info", "portal user info", userInfo, err)
 
-	zones, err := client.Portal.ListZones(ctx)
+	zonesOut, err := portalClient.ListZones(ctx, nil)
+	zones := []portal.Zone(nil)
+	if zonesOut != nil {
+		zones = zonesOut.Items
+	}
 	record(outputs, client, "portal/zone", "portal zones", zones, err)
 
-	quotas, err := client.Portal.ListQuotaUsed(ctx)
+	quotasOut, err := portalClient.ListQuotaUsed(ctx, nil)
 	if err != nil {
 		fmt.Printf("portal quota used: error\n")
 		outputs.add("portal/quota_used", client, nil, err)
 	} else {
+		quotas := quotasOut.Items
 		fmt.Printf("portal quota used: %d\n", len(quotas))
 		outputs.add("portal/quota_used", client, quotas, nil)
-		quotaDetails := make([]vngcloud.PortalQuota, 0, len(quotas))
+		quotaDetails := make([]portal.Quota, 0, len(quotas))
 		for _, quota := range quotas {
 			name, ok := quotaName(quota)
 			if !ok {
 				continue
 			}
-			detail, detailErr := client.Portal.GetQuota(ctx, name)
+			detailOut, detailErr := portalClient.GetQuota(ctx, &portal.GetQuotaInput{Name: name})
 			if detailErr != nil {
 				fmt.Printf("portal quota detail: error\n")
 				continue
 			}
-			quotaDetails = append(quotaDetails, detail)
+			quotaDetails = append(quotaDetails, detailOut.Quota)
 		}
 		fmt.Printf("portal quota details: %d\n", len(quotaDetails))
 		outputs.add("portal/quota_detail", client, quotaDetails, nil)
 	}
 
-	tagQuota, err := client.Portal.GetTagQuota(ctx)
+	tagQuotaOut, err := portalClient.GetTagQuota(ctx, nil)
+	var tagQuota portal.TagQuota
+	if tagQuotaOut != nil {
+		tagQuota = tagQuotaOut.TagQuota
+	}
 	recordOne(outputs, client, "portal/tag_quota", "portal tag quota", tagQuota, err)
 }
 
-func quotaName(quota vngcloud.PortalQuota) (string, bool) {
+func quotaName(quota portal.Quota) (string, bool) {
 	for _, key := range []string{"name", "quotaName", "resourceName", "resource", "key", "type"} {
 		value, ok := quota[key]
 		if !ok {

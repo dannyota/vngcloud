@@ -7,7 +7,6 @@ import (
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
-	"danny.vn/vngcloud/internal/portal"
 	"danny.vn/vngcloud/internal/sdk"
 	"danny.vn/vngcloud/internal/volume"
 )
@@ -155,12 +154,6 @@ type GlobalPoolMember = glb.GlobalPoolMember
 type GlobalPoolMemberDetail = glb.GlobalPoolMemberDetail
 type GlobalListener = glb.GlobalListener
 type GlobalLoadBalancerUsageHistory = glb.GlobalLoadBalancerUsageHistory
-
-type PortalService = portal.Service
-type PortalUserInfo = portal.PortalUserInfo
-type PortalZone = portal.PortalZone
-type PortalQuota = portal.PortalQuota
-type PortalTagQuota = portal.PortalTagQuota
 
 type ContainerRegistryService = containerregistry.Service
 type ListContainerRepositoriesOptions = containerregistry.ListContainerRepositoriesOptions

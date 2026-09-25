@@ -37,7 +37,7 @@ func TestNewClientStaticTokenSkipsLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	if c.Compute == nil || c.Portal == nil {
+	if c.Compute == nil || c.Volume == nil {
 		t.Fatal("services not wired")
 	}
 }

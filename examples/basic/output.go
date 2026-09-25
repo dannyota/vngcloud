@@ -15,11 +15,11 @@ const outputRoot = "examples/basic/output"
 
 var operationOutputPaths = map[string]string{
 	"ListProjects":                               "project/project",
-	"Portal.GetUserInfo":                         "portal/user_info",
-	"Portal.ListZones":                           "portal/zone",
-	"Portal.ListQuotaUsed":                       "portal/quota_used",
-	"Portal.GetQuota":                            "portal/quota_detail",
-	"Portal.GetTagQuota":                         "portal/tag_quota",
+	"portal.GetUserInfo":                         "portal/user_info",
+	"portal.ListZones":                           "portal/zone",
+	"portal.ListQuotaUsed":                       "portal/quota_used",
+	"portal.GetQuota":                            "portal/quota_detail",
+	"portal.GetTagQuota":                         "portal/tag_quota",
 	"Compute.ListServers":                        "server/instance",
 	"Compute.ListSSHKeys":                        "server/ssh_key",
 	"Compute.ListServerGroups":                   "server/placement_group",
