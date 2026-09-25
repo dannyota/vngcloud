@@ -12,6 +12,9 @@
 - A `POST` or `PATCH` is retried only after a 429 or a failed connection,
   never after a 5xx or a network error that may have reached the server.
   `IsRetryable` follows the same rule.
+- `APIError.Code` and `ErrorCode` now return a numeric envelope code as
+  decimal text, such as `"400"`, for every service. They returned `""`
+  before.
 
 ### Highlights
 
@@ -25,6 +28,11 @@
 - `vngcloud.Ptr` builds pointer fields for partial updates.
 - `EndpointOverrides.Billing` moves the dashboard billing gateway.
 - `make live-write` runs a gated live budget write test.
+
+### Known limits
+
+- The cost explorer and alert history models follow the console's field
+  names but have not been checked against a live response with data yet.
 
 ## v0.2.1 - Canonical License Text
 

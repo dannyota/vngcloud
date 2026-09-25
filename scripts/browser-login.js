@@ -22,6 +22,13 @@ async (page) => {
     const m = page.url().match(/^(https?:\/\/[^/?#]+)([^?#]*)/);
     return { origin: m ? m[1] : '', pathname: m ? m[2] : '' };
   };
+  // Never type a credential into a page that is not the GreenNode sign-in
+  // host; a redirect elsewhere would receive it.
+  const assertSigninHost = () => {
+    if (urlParts().origin !== 'https://signin.greennode.ai') {
+      throw new Error('unexpected sign-in host ' + urlParts().origin + '; refusing to fill credentials');
+    }
+  };
   const clearFields = async () => {
     for (const field of fields) {
       await field.fill('', { timeout: 1000 }).catch(() => {});
@@ -35,6 +42,7 @@ async (page) => {
 
   await page.goto('https://dashboard.console.greennode.ai/');
   await page.getByRole('button', { name: /sign in with iam user account/i }).first().click();
+  assertSigninHost();
   try {
     await fields[0].fill(creds.rootEmail);
     await fields[1].fill(creds.username);
@@ -52,6 +60,7 @@ async (page) => {
     if (!totp.code) {
       throw new Error('2FA required but VNGCLOUD_TOTP_SECRET is empty');
     }
+    assertSigninHost();
     await page.locator('input:not([type=hidden])').first().fill(totp.code);
     await page.locator('button[type=submit]').first().click();
   }

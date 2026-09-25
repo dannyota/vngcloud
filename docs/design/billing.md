@@ -104,8 +104,8 @@ accepts a numeric `code` and stores its decimal form in `APIError.Code`;
 it once expected a string and dropped a number. For a null `code`,
 `APIError.Code` stays empty until the status-to-code mapping in
 [SDK and CLI](sdk-and-cli.md#errors) ships. A 2xx response whose envelope
-`code` is outside 200 to 299 is an error: `billing` returns an `*APIError` with the
-actual HTTP status (200, 201, or 204), the envelope code, and the message.
+`code` is outside 200 to 299 is an error: `billing` returns an `*APIError`
+with the actual HTTP status, the envelope code, and the message.
 
 ### Identifiers
 
@@ -168,9 +168,9 @@ The package exports the enum values as constants: `PeriodMonthly`,
 `Budget` keeps its API JSON tags and holds `UUID`, `ID`, `Name`,
 `PeriodType`, `Type`, `LimitAmount`, `Status`, `Currency`, `Alarm`, the
 period and timestamp strings, the threshold counts, and the nullable cost
-and percentage fields. It leaves out user and creator IDs. `PeriodCost` holds `PeriodKey`, `PeriodStart`,
-`PeriodEnd`, `ActualCost`, and `ForecastedCost`. A period key has the form
-`YYYY-MM`, both here and in the `ListBudgetAlerts` input.
+and percentage fields. It leaves out user and creator IDs. `PeriodCost`
+holds `PeriodKey`, `PeriodStart`, `PeriodEnd`, `ActualCost`, and
+`ForecastedCost`. Period keys are `YYYY-MM`, as in `ListBudgetAlerts`.
 
 ### Thresholds and alerts
 
@@ -194,9 +194,10 @@ and percentage fields. It leaves out user and creator IDs. `PeriodCost` holds `P
 
 The SDK always sends `comparisonOperator: "GTE"`, the only value the console
 offers. The server ignores `enabled` on create and starts every threshold
-enabled, so the create Input has no `Enabled`; disable with an update. `UpdateBudgetThresholdInput` has `BudgetUUID` (r), `ThresholdUUID`
-(r), and pointer fields for `ThresholdPercentage`, `Enabled`,
-`MaxAlertsPerPeriod`, and `ReminderIntervalHours`.
+enabled, so the create Input has no `Enabled`; disable with an update.
+`UpdateBudgetThresholdInput` has `BudgetUUID` (r), `ThresholdUUID` (r), and
+pointer fields for `ThresholdPercentage`, `Enabled`, `MaxAlertsPerPeriod`,
+and `ReminderIntervalHours`.
 
 `Alert` holds the delivery status, the triggered value, and `Recipients`.
 The API sends recipients as a JSON string that holds an array. The SDK
@@ -245,9 +246,10 @@ as `json.RawMessage`: adding it later breaks no caller.
 - Budget and threshold writes are synchronous. The response to a create,
   update, or delete reflects the final state, so no write waits.
 - `CreateBudget` and `CreateBudgetThreshold` return the new object from
-  `data`, including its `UUID`. If the live capture shows that `data` lacks
-  the UUID, implementation stops and the design is revised; the SDK never
-  finds a new budget by listing names.
+  `data`, including its `UUID`, as live runs confirm. A create response
+  without a UUID is an `*APIError`; the SDK never finds a new budget by
+  listing names.
+- An update with no field set is `ErrInvalidInput` and sends nothing.
 - `UpdateBudget`, `UpdateBudgetThreshold`, and both deletes return an empty
   Output. A caller that needs the new state calls `GetBudget` or
   `ListBudgetThresholds`. This keeps the Output stable whatever the API
@@ -256,8 +258,8 @@ as `json.RawMessage`: adding it later breaks no caller.
   repeat the server's other rules, such as the name pattern or the limit
   range, so a server change never blocks a valid request. The server's error
   reaches the caller as an `*APIError`.
-- The console allows one `ACTUAL` and one `FORECASTED` budget per account.
-  Whether the server enforces it is unverified. The SDK does not enforce it.
+- The server allows one `ACTUAL` and one `FORECASTED` budget per account
+  and rejects a second with HTTP 400. The SDK does not check it first.
 - `POST` creates are not idempotent. The transport does not retry them after
   a 5xx or a network error that may have reached the server (see
   [ADR 0002](../adr/0002-write-api-conventions.md)). `PUT` and `DELETE` are
@@ -376,8 +378,8 @@ or inside a 2xx envelope, to an `*APIError` with code `NotFound` that keeps
 the HTTP status and wraps `ErrNotFound`, so `IsNotFound` is true. Only
 `billing` maps it; other services return real 404s. If the server changes
 the text, the error is a plain 400 with an empty code and exit 1, which is
-safe; a fixture test pins the text. The live write test records the
-threshold message, which no capture has shown yet.
+safe; fixture tests pin both texts. The mapping applies only to a 400 or
+an error envelope on a 2xx, never to a 401, 403, or 5xx.
 
 The fixture capture records the status and envelope code of each other
 server error above, and the tests assert them.
@@ -446,4 +448,3 @@ ignore the region, and that a quote places no order. The release order is in
    every `cli.Write` command? It would let the owner hand an agent a profile
    that cannot change anything. Recommendation: yes, in the first CLI
    release, because billing brings the first writes.
-2. Should the SDK enforce one budget per type? No, until the live test shows.
