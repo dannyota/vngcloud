@@ -26,6 +26,8 @@ func (s *testTokenSource) Token(context.Context) (Token, error) {
 	}, nil
 }
 
+func (s *testTokenSource) Invalidate(string) {}
+
 func TestDoJSONRefreshesOn401(t *testing.T) {
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

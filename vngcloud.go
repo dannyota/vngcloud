@@ -17,6 +17,9 @@ type TOTPProvider = core.TOTPProvider
 type TOTPFunc = core.TOTPFunc
 type SecretTOTP = core.SecretTOTP
 
+type Token = core.Token
+type CredentialsProvider = core.CredentialsProvider
+
 type ResponseCapture = core.ResponseCapture
 type ResponseCaptureFunc = core.ResponseCaptureFunc
 
@@ -38,19 +41,20 @@ var (
 	ErrInvalidConfig    = core.ErrInvalidConfig
 	ErrInvalidInput     = core.ErrInvalidInput
 
-	NewConfig             = core.NewConfig
-	WithRegion            = core.WithRegion
-	WithProjectID         = core.WithProjectID
-	WithIAMUser           = core.WithIAMUser
-	WithHTTPClient        = core.WithHTTPClient
-	WithTransport         = core.WithTransport
-	WithTimeout           = core.WithTimeout
-	WithRetry             = core.WithRetry
-	WithUserAgent         = core.WithUserAgent
-	WithLogger            = core.WithLogger
-	WithEndpointOverrides = core.WithEndpointOverrides
-	WithResponseCapture   = core.WithResponseCapture
-	WithStaticToken       = core.WithStaticToken
+	NewConfig               = core.NewConfig
+	WithRegion              = core.WithRegion
+	WithProjectID           = core.WithProjectID
+	WithIAMUser             = core.WithIAMUser
+	WithCredentialsProvider = core.WithCredentialsProvider
+	WithHTTPClient          = core.WithHTTPClient
+	WithTransport           = core.WithTransport
+	WithTimeout             = core.WithTimeout
+	WithRetry               = core.WithRetry
+	WithUserAgent           = core.WithUserAgent
+	WithLogger              = core.WithLogger
+	WithEndpointOverrides   = core.WithEndpointOverrides
+	WithResponseCapture     = core.WithResponseCapture
+	WithStaticToken         = core.WithStaticToken
 
 	IsNotFound         = core.IsNotFound
 	IsPermissionDenied = core.IsPermissionDenied

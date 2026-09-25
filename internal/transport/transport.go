@@ -22,12 +22,20 @@ type Token struct {
 	ExpiresAt   time.Time
 }
 
+// NeedsRefresh reports whether t should be replaced before use. A zero
+// ExpiresAt makes this always true, so a TokenSource that leaves it unset
+// has Token called before every request.
 func (t Token) NeedsRefresh() bool {
 	return t.AccessToken == "" || time.Until(t.ExpiresAt) < 30*time.Second
 }
 
+// TokenSource supplies access tokens. Invalidate drops accessToken from
+// every cache the source holds, but only while it is still the token the
+// source would otherwise hand out; a token another call already replaced is
+// left alone. Invalidate is never called with an empty string.
 type TokenSource interface {
 	Token(ctx context.Context) (Token, error)
+	Invalidate(accessToken string)
 }
 
 type APIError struct {
@@ -154,18 +162,24 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 		if err := c.EnsureToken(ctx); err != nil {
 			return 0, err
 		}
+		// A nil tokenSource means this Client was built without any
+		// authentication at all (test wiring); it sends unauthenticated
+		// requests on purpose. A configured source that yields an empty
+		// token, in contrast, must never let the request go out.
+		if c.tokenSource != nil && c.currentToken().AccessToken == "" {
+			return 0, &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+		}
 	}
 
-	statusCode, body, err := c.do(ctx, req)
+	statusCode, body, sent, err := c.do(ctx, req)
 	if err != nil {
 		return 0, err
 	}
 	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
-		c.clearToken()
-		if err := c.refreshToken(ctx); err != nil {
+		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
 			return 0, err
 		}
-		statusCode, body, err = c.do(ctx, req)
+		statusCode, body, _, err = c.do(ctx, req)
 		if err != nil {
 			return 0, err
 		}
@@ -181,6 +195,12 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 	}
 	return statusCode, nil
 }
+
+// errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
+// leaves the token empty, so an authenticated request is never sent without
+// one. It carries StatusCode so the caller's status-to-sentinel mapping
+// (401 -> ErrAuth) applies exactly as it would for a real 401 response.
+var errNoToken = errors.New("no access token available")
 
 const maxRetryDelay = 30 * time.Second
 
@@ -240,18 +260,24 @@ func retryAfterHint(h http.Header) time.Duration {
 	return 0
 }
 
-func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
+// do sends req, retrying per the idempotency and status rules below. Its
+// third return value is the exact access token placed in the Authorization
+// header for the final attempt (empty when SkipAuth is set or no token was
+// available), so a caller handling a 401 knows exactly which token to
+// invalidate.
+func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, error) {
 	body, err := jsonBody(req.Body)
 	if err != nil {
-		return 0, nil, &APIError{Operation: req.Operation, Err: err}
+		return 0, nil, "", &APIError{Operation: req.Operation, Err: err}
 	}
 
 	var lastErr error
 	var lastRetryable bool
+	var sentToken string
 	for attempt := 0; attempt <= c.retryCount; attempt++ {
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
-			return 0, nil, &APIError{Operation: req.Operation, Err: err}
+			return 0, nil, "", &APIError{Operation: req.Operation, Err: err}
 		}
 		if req.Body != nil {
 			httpReq.Header.Set("Content-Type", "application/json")
@@ -267,8 +293,9 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 			httpReq.Header.Set(key, value)
 		}
 		if !req.SkipAuth {
-			if token := c.currentToken(); token.AccessToken != "" {
-				httpReq.Header.Set("Authorization", "Bearer "+token.AccessToken)
+			sentToken = c.currentToken().AccessToken
+			if sentToken != "" {
+				httpReq.Header.Set("Authorization", "Bearer "+sentToken)
 			}
 		}
 
@@ -278,20 +305,20 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 			lastRetryable = req.idempotent() || isDialError(err)
 			if lastRetryable && attempt < c.retryCount {
 				if serr := sleepContext(ctx, c.backoff(attempt, 0)); serr != nil {
-					return 0, nil, &APIError{Operation: req.Operation, Err: serr}
+					return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 				}
 				continue
 			}
-			return 0, nil, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
+			return 0, nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
 		}
 
 		respBody, readErr := io.ReadAll(resp.Body)
 		closeErr := resp.Body.Close()
 		if readErr != nil {
-			return 0, nil, &APIError{Operation: req.Operation, Err: readErr}
+			return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: readErr}
 		}
 		if closeErr != nil {
-			return 0, nil, &APIError{Operation: req.Operation, Err: closeErr}
+			return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: closeErr}
 		}
 
 		// A non-idempotent request retries only on 429: the server has not
@@ -300,15 +327,15 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 			(req.idempotent() && retryableStatus(resp.StatusCode))
 		if retryStatus && attempt < c.retryCount {
 			if serr := sleepContext(ctx, c.backoff(attempt, retryAfterHint(resp.Header))); serr != nil {
-				return 0, nil, &APIError{Operation: req.Operation, Err: serr}
+				return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 			}
 			continue
 		}
 		c.captureResponse(req, resp.StatusCode, respBody)
-		return resp.StatusCode, respBody, nil
+		return resp.StatusCode, respBody, sentToken, nil
 	}
 
-	return 0, nil, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
+	return 0, nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
 }
 
 // retryableForContext reports retryable, unless ctx is already done: a
@@ -360,6 +387,34 @@ func (c *Client) refreshToken(ctx context.Context) error {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
 
+	if !c.currentToken().NeedsRefresh() {
+		return nil
+	}
+	token, err := c.tokenSource.Token(ctx)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.token = token
+	c.mu.Unlock()
+	return nil
+}
+
+// invalidateAndRefresh runs the 401 recovery for one request under
+// refreshMu: while the client's current token is still the one this request
+// sent, it clears that token and asks the token source to invalidate it too.
+// If another call already replaced the token, both steps are skipped, since
+// invalidating a token this request never sent could drop a still-good
+// token another goroutine is relying on. Either way, it leaves a usable
+// token in place (fetching one if needed) before the caller retries.
+func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	if sent != "" && c.currentToken().AccessToken == sent {
+		c.clearToken()
+		c.tokenSource.Invalidate(sent)
+	}
 	if !c.currentToken().NeedsRefresh() {
 		return nil
 	}

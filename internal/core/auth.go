@@ -10,6 +10,11 @@ import (
 	"danny.vn/vngcloud/internal/iamuser"
 )
 
+// timeNow is overridden in tests to control the 30-second freshness window
+// that decides whether a 401 invalidates a cached IAM token, without adding
+// a public clock option.
+var timeNow = time.Now
+
 // IAMUserAuth holds IAM User credentials for VNG Cloud console authentication.
 type IAMUserAuth struct {
 	RootEmail string
@@ -26,6 +31,7 @@ type IAMUserAuth struct {
 	mu          sync.Mutex
 	cachedToken string
 	expiresAt   time.Time
+	obtainedAt  time.Time
 }
 
 type loginEndpoints struct {
@@ -74,7 +80,25 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 	}
 	a.cachedToken = result.AccessToken
 	a.expiresAt = result.ExpiresAt
+	a.obtainedAt = timeNow()
 	return a.cachedToken, a.expiresAt, nil
+}
+
+// Invalidate drops the cached token when sent is still the cached one and it
+// has been held at least 30 seconds. A token younger than that is left in
+// place: the retry after a 401 then reuses it, the server rejects it again,
+// and the call ends in ErrAuth instead of a second login inside the same
+// 30-second TOTP window.
+func (a *IAMUserAuth) Invalidate(sent string) {
+	if sent == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cachedToken == sent && timeNow().Sub(a.obtainedAt) >= 30*time.Second {
+		a.cachedToken = ""
+		a.expiresAt = time.Time{}
+	}
 }
 
 func firstNonEmpty(values ...string) string {

@@ -44,7 +44,7 @@ func newClient(opts ...Option) (*Client, error) {
 	if settings.region == "" {
 		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
 	}
-	if settings.staticToken == "" {
+	if settings.credentials == nil && settings.staticToken == "" {
 		if err := settings.iamUser.validate(); err != nil {
 			return nil, err
 		}
@@ -54,9 +54,12 @@ func newClient(opts ...Option) (*Client, error) {
 
 	httpClient := buildHTTPClient(settings)
 	var ts transport.TokenSource
-	if settings.staticToken != "" {
+	switch {
+	case settings.credentials != nil:
+		ts = settings.credentials
+	case settings.staticToken != "":
 		ts = staticTokenSource(settings.staticToken)
-	} else {
+	default:
 		ts = &iamTokenSource{auth: settings.iamUser, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
 			token:     resolvedEndpoints.Token,
@@ -116,6 +119,10 @@ type staticTokenSource string
 func (s staticTokenSource) Token(context.Context) (transport.Token, error) {
 	return transport.Token{AccessToken: string(s), ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
 }
+
+// Invalidate is a no-op: a static token is supplied by the caller and the
+// SDK never refreshes it.
+func (s staticTokenSource) Invalidate(string) {}
 
 func (c *Client) Region() string {
 	return c.region
@@ -274,6 +281,10 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		return transport.Token{}, err
 	}
 	return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
+}
+
+func (s *iamTokenSource) Invalidate(sent string) {
+	s.auth.Invalidate(sent)
 }
 
 func mapStatusError(status int) error {

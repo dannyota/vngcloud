@@ -1,10 +1,30 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"danny.vn/vngcloud/internal/transport"
 )
+
+// Token is an access token and the time it expires. It aliases
+// transport.Token, so any CredentialsProvider is directly usable as the
+// transport layer's token source with no adapter.
+type Token = transport.Token
+
+// CredentialsProvider supplies access tokens for authenticated requests. A
+// custom provider must return a non-empty AccessToken with a nil error; an
+// empty token with a nil error is treated as ErrAuth. A zero ExpiresAt makes
+// the SDK call Token before every request. Invalidate drops accessToken from
+// the provider's own cache, but only while it is still the token the
+// provider would otherwise hand out; it is never called with an empty
+// string.
+type CredentialsProvider interface {
+	Token(ctx context.Context) (Token, error)
+	Invalidate(accessToken string)
+}
 
 type ClientOption interface {
 	apply(*clientConfig)
@@ -33,6 +53,7 @@ type clientConfig struct {
 	region        string
 	projectID     string
 	iamUser       *IAMUserAuth
+	credentials   CredentialsProvider
 }
 
 type ResponseCapture struct {
@@ -123,9 +144,18 @@ func WithProjectID(projectID string) Option {
 }
 
 // WithIAMUser sets the IAM User credentials used to log in. Not required when
-// WithStaticToken is set.
+// WithStaticToken or WithCredentialsProvider is set.
 func WithIAMUser(auth *IAMUserAuth) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.iamUser = auth
+	})
+}
+
+// WithCredentialsProvider sets a custom source of access tokens. It wins
+// over WithStaticToken, which wins over WithIAMUser; setting more than one
+// is not an error, only the highest-precedence one is used.
+func WithCredentialsProvider(p CredentialsProvider) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.credentials = p
 	})
 }
