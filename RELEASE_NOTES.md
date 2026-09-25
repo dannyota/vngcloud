@@ -34,6 +34,14 @@
   `ContainerRegistryService`) is gone with `NewClient`; call the package's own
   `New(cfg)`. `vngcloud.ListOptions`, `Page`, and `ListResult[T]` are gone;
   see the paging change below.
+- These root types moved to their package with the same name: `compute`:
+  `Flavor`, `Image`, `PackageLimit`, `ServerSecgroup`, `ServerGroupMember`,
+  `ServerSecurityGroup`, `ServerGroupMembership`, `ServerGroupPolicy`,
+  `OSImage`, and `UserImage`. `network`: `WANIP`, `ElasticNetworkInterface`,
+  `VirtualIPAddress`, `SubnetSecondarySubnet`, `SecurityGroupRule`,
+  `RouteTableRoute`, `Tag`, `Interconnect`, `AddressPair`, and
+  `VNetworkRegion`. `loadbalancer`: `PoolMember`, `HealthMonitor`, `L7Rule`,
+  and `ListenerInsertHeader`.
 - Every operation takes one `*OpInput` and returns one `*OpOutput`, for
   example `compute.New(cfg).GetServer(ctx, &compute.GetServerInput{ServerID:
   id})`. Methods that took bare arguments, such as `GetServer(ctx, id)` and
@@ -58,7 +66,12 @@
   for example `GlobalLoadBalancer` to `LoadBalancer`, `GLBPackage` to
   `Package`, `GLBVLBPackage` (`vngcloud.GlobalLoadBalancerRegionalPackage`)
   to `RegionalPackage`, and `GLBRegion`
-  (`vngcloud.GlobalLoadBalancerRegion`) to `Region`; the root re-export
+  (`vngcloud.GlobalLoadBalancerRegion`) to `Region`, `GlobalLoadBalancerVIP`
+  to `VIP`, `GlobalLoadBalancerDomain` to `Domain`, `GlobalPool` to `Pool`,
+  `GlobalPoolHealthMonitor` to `PoolHealthMonitor`, `GlobalPoolMember` to
+  `PoolMember`, `GlobalPoolMemberDetail` to `PoolMemberDetail`,
+  `GlobalListener` to `Listener`, and `GlobalLoadBalancerUsageHistory` to
+  `UsageHistory`; the root re-export
   `vngcloud.GlobalLoadBalancerPackage` is now `globalloadbalancer.Package`.
   `dns` renames `DNSRecord` to `Record`, `VpcMapRegion` to `VPCMapRegion`,
   and `HostedZone.AssocVpcMapRegion` to `AssocVPCMapRegion` (the
