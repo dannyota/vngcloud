@@ -79,41 +79,6 @@ func quotaName(quota portal.Quota) (string, bool) {
 	return "", false
 }
 
-func showCompute(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
-	servers, err := collectPages(vngcloud.DefaultPageSize, func(page, size int) (*vngcloud.ListServersResult, error) {
-		return client.Compute.ListServers(ctx, &vngcloud.ListServersOptions{Page: page, Size: size})
-	})
-	record(outputs, client, "server/instance", "servers", servers, err)
-
-	keys, err := collectPages(vngcloud.DefaultPageSize, func(page, size int) (*vngcloud.ListSSHKeysResult, error) {
-		return client.Compute.ListSSHKeys(ctx, &vngcloud.ListSSHKeysOptions{Page: page, Size: size})
-	})
-	record(outputs, client, "server/ssh_key", "ssh keys", keys, err)
-
-	groups, err := client.Compute.ListServerGroups(ctx, &vngcloud.ListServerGroupsOptions{Page: 0, Size: vngcloud.DefaultPageSize})
-	record(outputs, client, "server/placement_group", "placement groups", itemsOf(groups), err)
-
-	serverSecgroups, err := client.Compute.ListServerSecurityGroups(ctx)
-	record(outputs, client, "server/instance_security_group", "server security groups", serverSecgroups, err)
-
-	groupMembers, err := client.Compute.ListServerGroupMembers(ctx)
-	record(outputs, client, "server/placement_group_member", "placement group members", groupMembers, err)
-
-	policies, err := client.Compute.ListServerGroupPolicies(ctx)
-	record(outputs, client, "server/placement_group_policy", "placement group policies", policies, err)
-
-	osImages, err := client.Compute.ListOSImages(ctx, nil)
-	record(outputs, client, "server/system_image_os", "os images", osImages, err)
-
-	gpuImages, err := client.Compute.ListGPUImages(ctx)
-	record(outputs, client, "server/system_image_gpu", "gpu images", gpuImages, err)
-
-	userImages, err := collectPages(vngcloud.DefaultPageSize, func(page, size int) (*vngcloud.ListUserImagesResult, error) {
-		return client.Compute.ListUserImages(ctx, &vngcloud.ListUserImagesOptions{Page: page, Size: size})
-	})
-	record(outputs, client, "server/user_image", "user images", userImages, err)
-}
-
 func showVolume(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
 	volumes, err := collectPages(vngcloud.DefaultPageSize, func(page, size int) (*vngcloud.ListVolumesResult, error) {
 		return client.Volume.ListVolumes(ctx, &vngcloud.ListVolumesOptions{Page: page, Size: size})
@@ -202,7 +167,10 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, outputs *sdkOutpu
 	record(outputs, client, "network/security_group", "security groups", securityGroups, err)
 
 	securityGroupDetails := make([]*vngcloud.SecurityGroup, 0, len(securityGroups))
-	securityGroupServers := make([]vngcloud.Server, 0)
+	// securityGroupServers holds *network.Server values (an internal type
+	// this package does not name directly) until network moves to its own
+	// public package and starts returning compute.Server.
+	securityGroupServers := make([]any, 0)
 	securityGroupDetailErr := err
 	if securityGroupDetailErr == nil {
 		for _, securityGroup := range securityGroups {
@@ -221,7 +189,9 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, outputs *sdkOutpu
 				securityGroupDetailErr = serversErr
 				break
 			}
-			securityGroupServers = append(securityGroupServers, servers...)
+			for _, server := range servers {
+				securityGroupServers = append(securityGroupServers, server)
+			}
 		}
 	}
 	record(outputs, client, "network/security_group_detail", "security group details", securityGroupDetails, securityGroupDetailErr)

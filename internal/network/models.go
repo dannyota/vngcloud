@@ -1,6 +1,112 @@
 package network
 
-import "strings"
+import (
+	"strings"
+
+	"danny.vn/vngcloud/internal/core"
+)
+
+// Server duplicates the public compute package's Server shape. network
+// cannot import that package yet: the root package still imports this
+// internal package directly, and compute imports the root package for its
+// Config parameter, so importing compute here would form an import cycle.
+// This copy is removed once network itself becomes a public package that
+// the root package no longer imports directly.
+type Server struct {
+	BootVolumeID          string             `json:"bootVolumeId"`
+	CreatedAt             string             `json:"createdAt"`
+	Description           string             `json:"description"`
+	EncryptionVolume      bool               `json:"encryptionVolume"`
+	EnableLog             bool               `json:"enableLog"`
+	EnableMetric          bool               `json:"enableMetric"`
+	Licence               bool               `json:"licence"`
+	LicenseKey            string             `json:"licenseKey"`
+	Location              string             `json:"location"`
+	Metadata              string             `json:"metadata"`
+	MigrateState          string             `json:"migrateState"`
+	MigrationStatus       string             `json:"migrationStatus"`
+	Name                  string             `json:"name"`
+	Product               string             `json:"product"`
+	ServerGroupID         any                `json:"serverGroupId"`
+	ServerGroupName       string             `json:"serverGroupName"`
+	SSHKeyName            string             `json:"sshKeyName"`
+	Status                string             `json:"status"`
+	StopBeforeMigrate     bool               `json:"stopBeforeMigrate"`
+	User                  string             `json:"user"`
+	UUID                  string             `json:"uuid"`
+	Image                 ServerImage        `json:"image"`
+	Flavor                ServerFlavor       `json:"flavor"`
+	SecurityGroups        []ServerSecgroup   `json:"secGroups"`
+	ExternalInterfaces    []NetworkInterface `json:"externalInterfaces"`
+	InternalInterfaces    []NetworkInterface `json:"internalInterfaces"`
+	ZoneID                string             `json:"zoneId"`
+	Zone                  core.NetworkZone   `json:"zone"`
+	AppLicense            any                `json:"appLicense"`
+	AppLicenseName        string             `json:"appLicenseName"`
+	AppPackageVersionName string             `json:"appPackageVersionName"`
+	DefaultTagIDs         []string           `json:"defaultTagIds"`
+	FlavorZoneID          string             `json:"flavorZoneId"`
+	FlavorZones           any                `json:"flavorZones"`
+	GPUMemory             any                `json:"gpuMemory"`
+	HostGroupID           string             `json:"hostGroupId"`
+}
+
+type NetworkInterface struct {
+	CreatedAt     string `json:"createdAt"`
+	FixedIP       string `json:"fixedIp"`
+	FloatingIP    string `json:"floatingIp"`
+	FloatingIPID  string `json:"floatingIpId"`
+	InterfaceType string `json:"interfaceType"`
+	MAC           string `json:"mac"`
+	NetworkUUID   string `json:"networkUuid"`
+	PortUUID      string `json:"portUuid"`
+	Product       string `json:"product"`
+	ServerUUID    string `json:"serverUuid"`
+	Status        string `json:"status"`
+	SubnetUUID    string `json:"subnetUuid"`
+	Type          string `json:"type"`
+	UpdatedAt     string `json:"updatedAt"`
+	UUID          string `json:"uuid"`
+}
+
+// ServerFlavor duplicates compute.Flavor; see the comment on Server.
+type ServerFlavor struct {
+	Bandwidth              int64  `json:"bandwidth"`
+	BandwidthUnit          string `json:"bandwidthUnit"`
+	CPU                    int64  `json:"cpu"`
+	CPUPlatformDescription string `json:"cpuPlatformDescription"`
+	FlavorID               string `json:"flavorId"`
+	GPU                    int64  `json:"gpu"`
+	Group                  string `json:"group"`
+	Memory                 int64  `json:"memory"`
+	Metadata               string `json:"metaData"`
+	Name                   string `json:"name"`
+	RemainingVMs           int64  `json:"remainingVms"`
+	ZoneID                 string `json:"zoneId"`
+}
+
+// ServerImage duplicates compute.Image; see the comment on Server.
+type ServerImage struct {
+	FlavorZoneIDs []string             `json:"flavorZoneIds"`
+	ID            string               `json:"id"`
+	ImageType     string               `json:"imageType"`
+	ImageVersion  string               `json:"imageVersion"`
+	Licence       bool                 `json:"licence"`
+	PackageLimit  ServerImagePackLimit `json:"packageLimit"`
+}
+
+// ServerImagePackLimit duplicates compute.PackageLimit; see the comment on
+// Server.
+type ServerImagePackLimit struct {
+	CPU      int64 `json:"cpu"`
+	DiskSize int64 `json:"diskSize"`
+	Memory   int64 `json:"memory"`
+}
+
+type ServerSecgroup struct {
+	Name string `json:"name"`
+	UUID string `json:"uuid"`
+}
 
 type listVPCsResponse struct {
 	ListData  []VPC `json:"listData"`

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"sync"
 
-	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/routes"
@@ -27,7 +26,6 @@ func New(client *core.Client) *Service {
 	return &Service{client: client}
 }
 
-type Server = compute.Server
 type NetworkZone = core.NetworkZone
 
 type NetworkListOptions struct {

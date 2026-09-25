@@ -97,7 +97,7 @@ func main() {
 			sdkOutputs.setConfig(configName)
 			showProjects(ctx, client, sdkOutputs)
 			showPortal(ctx, client, cfg, sdkOutputs)
-			showCompute(ctx, client, sdkOutputs)
+			showCompute(ctx, client, cfg, sdkOutputs)
 			showVolume(ctx, client, sdkOutputs)
 			showNetwork(ctx, client, sdkOutputs)
 			showLoadBalancer(ctx, client, sdkOutputs)

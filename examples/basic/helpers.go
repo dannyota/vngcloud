@@ -58,11 +58,27 @@ func printError(label string, err error) {
 	fmt.Printf("  %s: %v\n", label, err)
 }
 
-func itemsOf[T any](result *vngcloud.ListResult[T]) []T {
-	if result == nil {
-		return nil
+// pagedFetcher fetches one page of a migrated service's paginated list
+// operation, returning that page's items and the total page count.
+type pagedFetcher[T any] func(page, size int) ([]T, int, error)
+
+// collectPaged gathers every page from a migrated service's paginated list
+// operation, whose Output type carries page fields directly rather than
+// nested under a Page struct.
+func collectPaged[T any](size int, fetch pagedFetcher[T]) ([]T, error) {
+	items, totalPage, err := fetch(1, size)
+	if err != nil {
+		return nil, err
 	}
-	return result.Items
+	result := append([]T(nil), items...)
+	for page := 2; page <= totalPage; page++ {
+		more, _, err := fetch(page, size)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, more...)
+	}
+	return result, nil
 }
 
 func collectPages[T any](size int, fetch pageFetcher[T]) ([]T, error) {

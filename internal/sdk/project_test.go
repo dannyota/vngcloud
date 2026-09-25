@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
@@ -34,7 +33,6 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	c := &Client{Client: testutil.NewCoreClient(t, handler)}
-	c.Compute = compute.New(c.Client)
 	c.Network = network.New(c.Client)
 	c.Volume = volume.New(c.Client)
 	c.LoadBalancer = loadbalancer.New(c.Client)

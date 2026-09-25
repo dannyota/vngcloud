@@ -1,100 +1,111 @@
+// Package compute lists and reads vServer instances, SSH keys, server
+// groups, and images.
 package compute
 
 import (
 	"context"
-	"errors"
 	"net/url"
 	"strconv"
 	"strings"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
 
-type Service struct {
-	client *core.Client
+// Client is the compute service client.
+type Client struct {
+	c *core.Client
 }
 
-func New(client *core.Client) *Service {
-	return &Service{client: client}
+// New builds a Client from cfg. A Client built from the same Config as
+// another service client shares its login and token cache.
+func New(cfg vngcloud.Config) *Client {
+	return &Client{c: core.ClientOf(cfg)}
 }
 
-type ListServersOptions = core.ListOptions
-type ListSSHKeysOptions struct {
-	Name string
+type ListServersInput struct {
 	Page int
 	Size int
 }
-type ListServerGroupsOptions struct {
-	Name string
-	Page int
-	Size int
-}
-type ListOSImagesOptions struct {
-	ZoneID string
-}
-type ListUserImagesOptions = core.ListOptions
 
-type ListServersResult = core.ListResult[Server]
-type ListSSHKeysResult = core.ListResult[SSHKey]
-type ListServerGroupsResult = core.ListResult[ServerGroup]
-type ListUserImagesResult = core.ListResult[UserImage]
+type ListServersOutput = core.PagedList[Server]
 
-func (s *Service) ListServers(ctx context.Context, opts *ListServersOptions) (*ListServersResult, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (*ListServersOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
+	page, size := 0, 0
+	if in != nil {
+		page, size = in.Page, in.Size
+	}
 	var resp listServersResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListServers",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListServers",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "servers"}, core.ListQuery(opts)),
+		URL:       c.computeURL("v2", []string{projectID, "servers"}, core.PageQuery(page, size)),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (s *Service) GetServer(ctx context.Context, id string) (*Server, error) {
-	if id == "" {
-		return nil, errors.New("vngcloud: server id is required")
+type GetServerInput struct {
+	ServerID string `vngcloud:"required"`
+}
+
+type GetServerOutput struct {
+	Server Server
+}
+
+func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerOutput, error) {
+	if err := core.CheckRequired("compute.GetServer", in); err != nil {
+		return nil, err
 	}
-	projectID, err := s.client.RequireProjectID(ctx)
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Data Server `json:"data"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.GetServer",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.GetServer",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "servers", id}, nil),
+		URL:       c.computeURL("v2", []string{projectID, "servers", in.ServerID}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	return &GetServerOutput{Server: resp.Data}, nil
 }
 
-func (s *Service) ListSSHKeys(ctx context.Context, opts *ListSSHKeysOptions) (*ListSSHKeysResult, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListSSHKeysInput struct {
+	Name string
+	Page int
+	Size int
+}
+
+type ListSSHKeysOutput = core.PagedList[SSHKey]
+
+func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSSHKeysOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
 	name := ""
 	page, size := core.DefaultPage, core.DefaultPageSize
-	if opts != nil {
-		name = opts.Name
-		if opts.Page > 0 {
-			page = opts.Page
+	if in != nil {
+		name = in.Name
+		if in.Page > 0 {
+			page = in.Page
 		}
-		if opts.Size > 0 {
-			size = opts.Size
+		if in.Size > 0 {
+			size = in.Size
 		}
 	}
 	q.Set("name", name)
@@ -102,19 +113,27 @@ func (s *Service) ListSSHKeys(ctx context.Context, opts *ListSSHKeysOptions) (*L
 	q.Set("size", strconv.Itoa(size))
 
 	var resp listSSHKeysResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListSSHKeys",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListSSHKeys",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "sshKeys"}, q),
+		URL:       c.computeURL("v2", []string{projectID, "sshKeys"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (s *Service) ListServerGroups(ctx context.Context, opts *ListServerGroupsOptions) (*ListServerGroupsResult, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListServerGroupsInput struct {
+	Name string
+	Page int
+	Size int
+}
+
+type ListServerGroupsOutput = core.PagedList[ServerGroup]
+
+func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput) (*ListServerGroupsOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -122,30 +141,34 @@ func (s *Service) ListServerGroups(ctx context.Context, opts *ListServerGroupsOp
 	q.Set("name", "")
 	q.Set("offset", "0")
 	q.Set("limit", strconv.Itoa(core.DefaultPageSize))
-	if opts != nil {
-		q.Set("name", opts.Name)
-		if opts.Page > 0 {
-			q.Set("offset", strconv.Itoa(opts.Page))
+	if in != nil {
+		q.Set("name", in.Name)
+		if in.Page > 0 {
+			q.Set("offset", strconv.Itoa(in.Page))
 		}
-		if opts.Size > 0 {
-			q.Set("limit", strconv.Itoa(opts.Size))
+		if in.Size > 0 {
+			q.Set("limit", strconv.Itoa(in.Size))
 		}
 	}
 
 	var resp listServerGroupsResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListServerGroups",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListServerGroups",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "serverGroups"}, q),
+		URL:       c.computeURL("v2", []string{projectID, "serverGroups"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (s *Service) ListServerSecurityGroups(ctx context.Context) ([]ServerSecurityGroup, error) {
-	servers, err := s.ListServers(ctx, nil)
+type ListServerSecurityGroupsInput struct{}
+
+type ListServerSecurityGroupsOutput = core.List[ServerSecurityGroup]
+
+func (c *Client) ListServerSecurityGroups(ctx context.Context, _ *ListServerSecurityGroupsInput) (*ListServerSecurityGroupsOutput, error) {
+	servers, err := c.ListServers(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +182,15 @@ func (s *Service) ListServerSecurityGroups(ctx context.Context) ([]ServerSecurit
 			})
 		}
 	}
-	return items, nil
+	return &ListServerSecurityGroupsOutput{Items: items}, nil
 }
 
-func (s *Service) ListServerGroupMembers(ctx context.Context) ([]ServerGroupMembership, error) {
-	groups, err := s.ListServerGroups(ctx, nil)
+type ListServerGroupMembersInput struct{}
+
+type ListServerGroupMembersOutput = core.List[ServerGroupMembership]
+
+func (c *Client) ListServerGroupMembers(ctx context.Context, _ *ListServerGroupMembersInput) (*ListServerGroupMembersOutput, error) {
+	groups, err := c.ListServerGroups(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -177,21 +204,25 @@ func (s *Service) ListServerGroupMembers(ctx context.Context) ([]ServerGroupMemb
 			})
 		}
 	}
-	return items, nil
+	return &ListServerGroupMembersOutput{Items: items}, nil
 }
 
-func (s *Service) ListServerGroupPolicies(ctx context.Context) ([]ServerGroupPolicy, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListServerGroupPoliciesInput struct{}
+
+type ListServerGroupPoliciesOutput = core.List[ServerGroupPolicy]
+
+func (c *Client) ListServerGroupPolicies(ctx context.Context, _ *ListServerGroupPoliciesInput) (*ListServerGroupPoliciesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Data []serverGroupPolicyResp `json:"data"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListServerGroupPolicies",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListServerGroupPolicies",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "serverGroups", "policies"}, nil),
+		URL:       c.computeURL("v2", []string{projectID, "serverGroups", "policies"}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
@@ -200,70 +231,91 @@ func (s *Service) ListServerGroupPolicies(ctx context.Context) ([]ServerGroupPol
 	for _, p := range resp.Data {
 		policies = append(policies, p.toPolicy())
 	}
-	return policies, nil
+	return &ListServerGroupPoliciesOutput{Items: policies}, nil
 }
 
-func (s *Service) ListOSImages(ctx context.Context, opts *ListOSImagesOptions) ([]OSImage, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListOSImagesInput struct {
+	ZoneID string
+}
+
+type ListOSImagesOutput = core.List[OSImage]
+
+func (c *Client) ListOSImages(ctx context.Context, in *ListOSImagesInput) (*ListOSImagesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	if opts != nil && opts.ZoneID != "" {
-		q.Set("zoneId", opts.ZoneID)
+	if in != nil && in.ZoneID != "" {
+		q.Set("zoneId", in.ZoneID)
 	}
 	var resp struct {
 		Images []OSImage `json:"images"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListOSImages",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListOSImages",
 		Method:    "GET",
-		URL:       s.computeURL("v1", []string{projectID, "images", "os"}, q),
+		URL:       c.computeURL("v1", []string{projectID, "images", "os"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Images, nil
+	return &ListOSImagesOutput{Items: resp.Images}, nil
 }
 
-func (s *Service) ListGPUImages(ctx context.Context) ([]OSImage, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListGPUImagesInput struct{}
+
+type ListGPUImagesOutput = core.List[OSImage]
+
+func (c *Client) ListGPUImages(ctx context.Context, _ *ListGPUImagesInput) (*ListGPUImagesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Images []OSImage `json:"images"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListGPUImages",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListGPUImages",
 		Method:    "GET",
-		URL:       s.computeURL("v1", []string{projectID, "images", "gpu"}, nil),
+		URL:       c.computeURL("v1", []string{projectID, "images", "gpu"}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Images, nil
+	return &ListGPUImagesOutput{Items: resp.Images}, nil
 }
 
-func (s *Service) ListUserImages(ctx context.Context, opts *ListUserImagesOptions) (*ListUserImagesResult, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListUserImagesInput struct {
+	Page int
+	Size int
+}
+
+type ListUserImagesOutput = core.PagedList[UserImage]
+
+func (c *Client) ListUserImages(ctx context.Context, in *ListUserImagesInput) (*ListUserImagesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
+	}
+	page, size := 0, 0
+	if in != nil {
+		page, size = in.Page, in.Size
 	}
 	var resp listUserImagesResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Compute.ListUserImages",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "compute.ListUserImages",
 		Method:    "GET",
-		URL:       s.computeURL("v2", []string{projectID, "user-images"}, core.ListQuery(opts)),
+		URL:       c.computeURL("v2", []string{projectID, "user-images"}, core.PageQuery(page, size)),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (s *Service) computeURL(version string, parts []string, q url.Values) string {
-	return s.client.RouteURL(routes.Route{
+func (c *Client) computeURL(version string, parts []string, q url.Values) string {
+	return c.c.RouteURL(routes.Route{
 		Product: routes.ProductVServer,
 		Version: version,
 		Parts:   parts,

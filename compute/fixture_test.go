@@ -1,25 +1,23 @@
-package sdk
+package compute
 
 import (
 	"encoding/json"
 	"os"
 	"testing"
-
-	"danny.vn/vngcloud/internal/compute"
 )
 
 func TestSanitizedServerInstanceFixture(t *testing.T) {
-	data, err := os.ReadFile("../../testdata/server/instance.json")
+	data, err := os.ReadFile("../testdata/server/instance.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var fixture struct {
 		Regions []struct {
-			Region    string           `json:"region"`
-			ProjectID string           `json:"projectId"`
-			Count     int              `json:"count"`
-			Items     []compute.Server `json:"items"`
+			Region    string   `json:"region"`
+			ProjectID string   `json:"projectId"`
+			Count     int      `json:"count"`
+			Items     []Server `json:"items"`
 		} `json:"regions"`
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {

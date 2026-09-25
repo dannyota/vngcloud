@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
@@ -150,11 +151,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 	t.Logf("project %s in %s", project.ID, project.Region)
 
 	t.Run("servers", func(t *testing.T) {
-		res, err := client.Compute.ListServers(ctx, &vngcloud.ListServersOptions{Page: 1, Size: 5})
+		res, err := compute.New(cfg).ListServers(ctx, &compute.ListServersInput{Page: 1, Size: 5})
 		if err != nil {
 			t.Fatalf("ListServers: %v", err)
 		}
-		t.Logf("servers: %d of %d", len(res.Items), res.Page.TotalItem)
+		t.Logf("servers: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("volumes", func(t *testing.T) {
 		res, err := client.Volume.ListVolumes(ctx, &vngcloud.ListVolumesOptions{Page: 1, Size: 5})

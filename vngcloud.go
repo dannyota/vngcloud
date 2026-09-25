@@ -1,7 +1,6 @@
 package vngcloud
 
 import (
-	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
@@ -34,31 +33,6 @@ type ListResult[T any] = core.ListResult[T]
 
 type Project = core.Project
 type ListProjectsOptions = core.ListProjectsOptions
-
-type ComputeService = compute.Service
-type ListServersOptions = compute.ListServersOptions
-type ListSSHKeysOptions = compute.ListSSHKeysOptions
-type ListServerGroupsOptions = compute.ListServerGroupsOptions
-type ListOSImagesOptions = compute.ListOSImagesOptions
-type ListUserImagesOptions = compute.ListUserImagesOptions
-type ListServersResult = compute.ListServersResult
-type ListSSHKeysResult = compute.ListSSHKeysResult
-type ListServerGroupsResult = compute.ListServerGroupsResult
-type ListUserImagesResult = compute.ListUserImagesResult
-type Server = compute.Server
-type NetworkInterface = compute.NetworkInterface
-type Flavor = compute.Flavor
-type Image = compute.Image
-type PackageLimit = compute.PackageLimit
-type ServerSecgroup = compute.ServerSecgroup
-type SSHKey = compute.SSHKey
-type ServerGroup = compute.ServerGroup
-type ServerGroupMember = compute.ServerGroupMember
-type ServerSecurityGroup = compute.ServerSecurityGroup
-type ServerGroupMembership = compute.ServerGroupMembership
-type ServerGroupPolicy = compute.ServerGroupPolicy
-type OSImage = compute.OSImage
-type UserImage = compute.UserImage
 
 type VolumeService = volume.Service
 type ListVolumesOptions = volume.ListVolumesOptions
