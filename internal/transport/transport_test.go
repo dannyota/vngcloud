@@ -7,7 +7,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -447,6 +449,203 @@ func TestRetryableMatchesRetryRule(t *testing.T) {
 	}
 	if !apiErr.Retryable {
 		t.Fatal("POST dial error: Retryable = false, want true")
+	}
+}
+
+// failTokenSource fails the test if Token or Invalidate is ever called, so a
+// test using it proves a request never consulted a credentials provider.
+type failTokenSource struct{ t *testing.T }
+
+func (f failTokenSource) Token(context.Context) (Token, error) {
+	f.t.Helper()
+	f.t.Fatal("token source called for a request with SkipAuth set")
+	return Token{}, nil
+}
+
+func (f failTokenSource) Invalidate(string) {
+	f.t.Helper()
+	f.t.Fatal("token source invalidated for a request with SkipAuth set")
+}
+
+func TestDoRawSkipsAuthAndReturnsBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("Authorization = %q, want none", got)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html>ok</html>"))
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client(), TokenSource: failTokenSource{t}})
+	status, contentType, body, err := c.DoRaw(context.Background(), Request{
+		Operation: "cdn.ListIPRanges",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+	})
+	if err != nil {
+		t.Fatalf("DoRaw() error = %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if contentType != "text/html; charset=utf-8" {
+		t.Fatalf("contentType = %q", contentType)
+	}
+	if string(body) != "<html>ok</html>" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestDoRawNonOKStatusIsNotAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	status, _, body, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+	})
+	if err != nil {
+		t.Fatalf("DoRaw() error = %v, want nil for a non-2xx status", err)
+	}
+	if status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", status)
+	}
+	if string(body) != "not found" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestDoRawMaxBodyExactLimitSucceeds(t *testing.T) {
+	payload := strings.Repeat("a", 10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	_, _, body, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+		MaxBody:   int64(len(payload)),
+	})
+	if err != nil {
+		t.Fatalf("DoRaw() error = %v, want nil for a body exactly at MaxBody", err)
+	}
+	if string(body) != payload {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestDoRawMaxBodyExceededFails(t *testing.T) {
+	payload := strings.Repeat("a", 11)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	_, _, _, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+		MaxBody:   10,
+	})
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("DoRaw() error = %v, want ErrBodyTooLarge", err)
+	}
+}
+
+func TestDoRawStripsCallerCookieJar(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("session"); err == nil {
+			t.Fatal("Cookie header reached the server")
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New() error = %v", err)
+	}
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	jar.SetCookies(serverURL, []*http.Cookie{{Name: "session", Value: "secret", HttpOnly: true, SameSite: http.SameSiteLaxMode}}) //nolint:gosec // Secure must stay false: the test server is plain HTTP, and the jar would never attach a Secure cookie to it
+
+	httpClient := &http.Client{Transport: server.Client().Transport, Jar: jar}
+	c := New(Config{HTTPClient: httpClient})
+	if _, _, _, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+	}); err != nil {
+		t.Fatalf("DoRaw() error = %v", err)
+	}
+}
+
+func TestDoRawSameHostRedirectSucceeds(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	mux.HandleFunc("/start", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, server.URL+"/final", http.StatusFound)
+	})
+	mux.HandleFunc("/final", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("final"))
+	})
+
+	c := New(Config{HTTPClient: server.Client()})
+	status, _, body, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL + "/start",
+		SkipAuth:  true,
+	})
+	if err != nil {
+		t.Fatalf("DoRaw() error = %v", err)
+	}
+	if status != http.StatusOK || string(body) != "final" {
+		t.Fatalf("status = %d, body = %q", status, body)
+	}
+}
+
+func TestDoRawCrossHostRedirectFails(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("final"))
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/", http.StatusFound)
+	}))
+	defer source.Close()
+
+	c := New(Config{HTTPClient: source.Client()})
+	_, _, _, err := c.DoRaw(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       source.URL,
+		SkipAuth:  true,
+	})
+	if err == nil {
+		t.Fatal("expected error for a cross-host redirect")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
 	}
 }
 

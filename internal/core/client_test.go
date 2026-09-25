@@ -196,6 +196,56 @@ func TestClientEndpointReturnsBilling(t *testing.T) {
 	}
 }
 
+func TestClientEndpointReturnsCDNDocs(t *testing.T) {
+	c := NewTestClient("hcm-3", "", endpoints.Set{CDNDocs: "https://docs.example/faq/vcdn"},
+		transport.New(transport.Config{}))
+	if got := c.Endpoint(routes.ProductCDNDocs); got != "https://docs.example/faq/vcdn" {
+		t.Fatalf("Endpoint(ProductCDNDocs) = %s, want https://docs.example/faq/vcdn", got)
+	}
+}
+
+func TestDoRawZeroConfig(t *testing.T) {
+	c := ClientOf(Config{})
+	status, contentType, body, err := c.DoRaw(context.Background(), transport.Request{Operation: "x.Y", Method: "GET", URL: "http://127.0.0.1/"})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+	if status != 0 || contentType != "" || body != nil {
+		t.Fatalf("status = %d, contentType = %q, body = %v, want zero values", status, contentType, body)
+	}
+}
+
+func TestDoRawReturnsStatusAndBodyWithoutError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("nope"))
+	}))
+	defer server.Close()
+
+	c := NewTestClient("hcm-3", "", endpoints.Set{},
+		transport.New(transport.Config{HTTPClient: server.Client()}))
+
+	status, contentType, body, err := c.DoRaw(context.Background(), transport.Request{
+		Operation: "cdn.ListIPRanges",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+	})
+	if err != nil {
+		t.Fatalf("DoRaw() error = %v", err)
+	}
+	if status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", status)
+	}
+	if contentType != "text/html; charset=utf-8" {
+		t.Fatalf("contentType = %q", contentType)
+	}
+	if string(body) != "nope" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
 func TestNewClientWithStaticToken(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -28,6 +28,20 @@ func TestResolveIAMUser(t *testing.T) {
 	if got.Billing != "https://dashboard.console.greennode.ai/" {
 		t.Fatalf("unexpected billing endpoint: %s", got.Billing)
 	}
+	if got.CDNDocs != "https://docs.greennode.ai/faq/vcdn" {
+		t.Fatalf("unexpected cdndocs endpoint: %s", got.CDNDocs)
+	}
+}
+
+// TestResolveIAMUserCDNDocsOverrideNotSlashNormalized checks that CDNDocs, a
+// full page URL rather than a base to build paths under, is left exactly as
+// given: unlike every other endpoint, Normalize must never append a trailing
+// slash to it.
+func TestResolveIAMUserCDNDocsOverrideNotSlashNormalized(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{CDNDocs: "https://docs.example/faq/vcdn"})
+	if got.CDNDocs != "https://docs.example/faq/vcdn" {
+		t.Fatalf("unexpected cdndocs override: %s", got.CDNDocs)
+	}
 }
 
 func TestResolveIAMUserBillingFollowsDashboardOverride(t *testing.T) {

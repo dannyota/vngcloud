@@ -8,6 +8,7 @@
 - [Errors](Errors.md)
 - [Services](Services.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
+- [CDN](CDN.md)
 
 **CLI**
 

@@ -57,4 +57,5 @@ type EndpointOverrides struct {
 	Dashboard          string
 	Token              string
 	Billing            string
+	CDNDocs            string
 }

@@ -13,6 +13,12 @@ const (
 	DefaultSignin    = "https://signin.greennode.ai"
 	DefaultDashboard = "https://dashboard.console.greennode.ai/"
 	DefaultToken     = DefaultDashboard + "accounts-api/v1/auth/token"
+
+	// DefaultCDNDocs is the public FAQ page listing GreenNode's CDN IP
+	// ranges. It must stay on greennode.ai: the old docs.vngcloud.vn URL
+	// redirects here, and the SDK's same-host redirect rule refuses to
+	// follow that redirect itself.
+	DefaultCDNDocs = "https://docs.greennode.ai/faq/vcdn"
 )
 
 type Overrides struct {
@@ -29,6 +35,7 @@ type Overrides struct {
 	Dashboard          string
 	Token              string
 	Billing            string
+	CDNDocs            string
 }
 
 type Set struct {
@@ -44,6 +51,7 @@ type Set struct {
 	Dashboard string
 	Token     string
 	Billing   string
+	CDNDocs   string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -59,6 +67,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		Signin:    DefaultSignin,
 		Dashboard: DefaultDashboard,
 		Token:     DefaultToken,
+		CDNDocs:   DefaultCDNDocs,
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -95,6 +104,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.Billing != "" {
 		set.Billing = overrides.Billing
 	}
+	if overrides.CDNDocs != "" {
+		set.CDNDocs = overrides.CDNDocs
+	}
 	return set.Normalize()
 }
 
@@ -107,6 +119,9 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// Normalize trims or adds trailing slashes so every field is ready to have a
+// path joined onto it. CDNDocs is left untouched: it is the full CDN IP
+// range FAQ page URL, not a base to build paths under.
 func (s Set) Normalize() Set {
 	s.VServer = normalizeURL(s.VServer)
 	s.VLB = normalizeURL(s.VLB)

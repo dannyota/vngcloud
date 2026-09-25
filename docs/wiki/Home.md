@@ -15,6 +15,7 @@ rename; the module keeps the `vngcloud` name.
 - [Services](Services.md): every service client and its methods.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
+- [CDN](CDN.md): the published GreenNode CDN IP ranges.
 
 ## CLI
 

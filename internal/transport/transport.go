@@ -62,6 +62,12 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// ErrBodyTooLarge is returned by DoJSONStatus and DoRaw when a response body
+// exceeds Request.MaxBody. It is never wrapped in an APIError: a caller
+// that wants to tell it apart from a genuine HTTP or network failure uses
+// errors.Is directly.
+var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
+
 type Client struct {
 	httpClient    *http.Client
 	tokenSource   TokenSource
@@ -140,6 +146,13 @@ type Request struct {
 	// is set true, which a caller does only when the call has no side
 	// effect, such as a price quote.
 	Idempotent bool
+
+	// MaxBody caps the response body at MaxBody bytes; zero means unlimited.
+	// The transport reads at most MaxBody+1 bytes, so it can tell a body
+	// that exactly fills the cap from one that overflows it: reading that
+	// many means the real body is larger, and the call fails with
+	// ErrBodyTooLarge instead of returning a partial body.
+	MaxBody int64
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -167,31 +180,10 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 	if len(req.OK) == 0 {
 		req.OK = []int{http.StatusOK}
 	}
-	if !req.SkipAuth {
-		if err := c.EnsureToken(ctx); err != nil {
-			return 0, err
-		}
-		// A nil tokenSource means this Client was built without any
-		// authentication at all (test wiring); it sends unauthenticated
-		// requests on purpose. A configured source that yields an empty
-		// token, in contrast, must never let the request go out.
-		if c.tokenSource != nil && c.currentToken().AccessToken == "" {
-			return 0, &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
-		}
-	}
 
-	statusCode, body, sent, err := c.do(ctx, req)
+	statusCode, _, body, err := c.doAuthenticated(ctx, req, c.httpClient)
 	if err != nil {
 		return 0, err
-	}
-	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
-		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
-			return 0, err
-		}
-		statusCode, body, _, err = c.do(ctx, req)
-		if err != nil {
-			return 0, err
-		}
 	}
 
 	if !containsStatus(req.OK, statusCode) {
@@ -203,6 +195,82 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 		}
 	}
 	return statusCode, nil
+}
+
+// DoRaw sends req and returns the response's status, its Content-Type
+// header, and the raw body, without decoding JSON and without treating any
+// status as an error. It never rides a cookie: it sends req through a copy
+// of the underlying *http.Client with Jar cleared (see rawClient), so a
+// caller-configured cookie jar never reaches the request, and it enforces
+// the SDK's same-host redirect rule even when the underlying client is one
+// the caller supplied. It otherwise applies the same retry policy and, when
+// req.SkipAuth is not set, the same token handling as DoJSONStatus.
+func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, error) {
+	if req.Method == "" {
+		req.Method = http.MethodGet
+	}
+	return c.doAuthenticated(ctx, req, c.rawClient())
+}
+
+// doAuthenticated attaches a token to req (unless req.SkipAuth is set),
+// sends it through client with send's retry policy, and retries once more
+// with a refreshed token after a 401 that req did not opt out of
+// authentication for. It returns the final status, Content-Type header, and
+// raw body.
+func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, error) {
+	if !req.SkipAuth {
+		if err := c.EnsureToken(ctx); err != nil {
+			return 0, "", nil, err
+		}
+		// A nil tokenSource means this Client was built without any
+		// authentication at all (test wiring); it sends unauthenticated
+		// requests on purpose. A configured source that yields an empty
+		// token, in contrast, must never let the request go out.
+		if c.tokenSource != nil && c.currentToken().AccessToken == "" {
+			return 0, "", nil, &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+		}
+	}
+
+	statusCode, contentType, body, sent, err := c.send(ctx, req, client)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
+		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
+			return 0, "", nil, err
+		}
+		statusCode, contentType, body, _, err = c.send(ctx, req, client)
+		if err != nil {
+			return 0, "", nil, err
+		}
+	}
+	return statusCode, contentType, body, nil
+}
+
+// rawClient returns a copy of c.httpClient with Jar cleared, so a request
+// sent through it carries no cookie even when the configured client has a
+// cookie jar. The copy's CheckRedirect enforces the SDK's same-host, at
+// most 10 hops rule first, then calls the original client's own
+// CheckRedirect, if it had one: a caller-supplied client that never set
+// CheckRedirect at all otherwise follows a redirect to any host, which
+// DoRaw must never do.
+func (c *Client) rawClient() *http.Client {
+	cp := *c.httpClient
+	cp.Jar = nil
+	inner := c.httpClient.CheckRedirect
+	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if req.URL.Host != via[0].URL.Host {
+			return fmt.Errorf("redirected from %q to %q: cross-host redirect refused", via[0].URL.Host, req.URL.Host)
+		}
+		if inner != nil {
+			return inner(req, via)
+		}
+		return nil
+	}
+	return &cp
 }
 
 // errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
@@ -269,15 +337,15 @@ func retryAfterHint(h http.Header) time.Duration {
 	return 0
 }
 
-// do sends req, retrying per the idempotency and status rules below. Its
-// third return value is the exact access token placed in the Authorization
-// header for the final attempt (empty when SkipAuth is set or no token was
-// available), so a caller handling a 401 knows exactly which token to
-// invalidate.
-func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, error) {
+// send sends req through client, retrying per the idempotency and status
+// rules below. Its third return value is the raw body and its fourth is the
+// exact access token placed in the Authorization header for the final
+// attempt (empty when SkipAuth is set or no token was available), so a
+// caller handling a 401 knows exactly which token to invalidate.
+func (c *Client) send(ctx context.Context, req Request, client *http.Client) (int, string, []byte, string, error) {
 	body, err := jsonBody(req.Body)
 	if err != nil {
-		return 0, nil, "", &APIError{Operation: req.Operation, Err: err}
+		return 0, "", nil, "", &APIError{Operation: req.Operation, Err: err}
 	}
 
 	var lastErr error
@@ -287,7 +355,7 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 		start := time.Now()
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
-			return 0, nil, "", &APIError{Operation: req.Operation, Err: err}
+			return 0, "", nil, "", &APIError{Operation: req.Operation, Err: err}
 		}
 		if req.Body != nil {
 			httpReq.Header.Set("Content-Type", "application/json")
@@ -307,14 +375,14 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 			if sentToken == "" && c.tokenSource != nil {
 				// A configured token source with nothing to hand out: never
 				// send this request unauthenticated on its behalf.
-				return 0, nil, "", &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+				return 0, "", nil, "", &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
 			}
 			if sentToken != "" {
 				httpReq.Header.Set("Authorization", "Bearer "+sentToken)
 			}
 		}
 
-		resp, err := c.httpClient.Do(httpReq)
+		resp, err := client.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
 			c.logRequest(ctx, httpReq, 0, false, duration)
@@ -322,21 +390,24 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 			lastRetryable = req.idempotent() || isDialError(err)
 			if lastRetryable && attempt < c.retryCount {
 				if serr := sleepContext(ctx, c.backoff(attempt, 0)); serr != nil {
-					return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
+					return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 				}
 				continue
 			}
-			return 0, nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
 		}
 		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration)
 
-		respBody, readErr := io.ReadAll(resp.Body)
+		respBody, readErr := readBody(resp.Body, req.MaxBody)
 		closeErr := resp.Body.Close()
+		if errors.Is(readErr, ErrBodyTooLarge) {
+			return 0, "", nil, sentToken, ErrBodyTooLarge
+		}
 		if readErr != nil {
-			return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: readErr}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: readErr}
 		}
 		if closeErr != nil {
-			return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: closeErr}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: closeErr}
 		}
 
 		// A non-idempotent request retries only on 429: the server has not
@@ -345,15 +416,32 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 			(req.idempotent() && retryableStatus(resp.StatusCode))
 		if retryStatus && attempt < c.retryCount {
 			if serr := sleepContext(ctx, c.backoff(attempt, retryAfterHint(resp.Header))); serr != nil {
-				return 0, nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
+				return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 			}
 			continue
 		}
 		c.captureResponse(req, resp.StatusCode, respBody)
-		return resp.StatusCode, respBody, sentToken, nil
+		return resp.StatusCode, resp.Header.Get("Content-Type"), respBody, sentToken, nil
 	}
 
-	return 0, nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
+	return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
+}
+
+// readBody reads r fully when maxBody is not positive. Otherwise it reads at
+// most maxBody+1 bytes: reading that many means the real body is larger than
+// maxBody, and it returns ErrBodyTooLarge instead of a partial body.
+func readBody(r io.Reader, maxBody int64) ([]byte, error) {
+	if maxBody <= 0 {
+		return io.ReadAll(r)
+	}
+	data, err := io.ReadAll(io.LimitReader(r, maxBody+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBody {
+		return nil, ErrBodyTooLarge
+	}
+	return data, nil
 }
 
 // retryableForContext reports retryable, unless ctx is already done: a

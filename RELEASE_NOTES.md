@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.7.0 - vCDN IP Ranges
+
+### Highlights
+
+- New `cdn` package: `cdn.New(cfg).ListIPRanges(ctx, nil)` returns the
+  current GreenNode CDN IP ranges an origin must allow, as sorted,
+  de-duplicated, canonical CIDR strings. vCDN has no API, so the SDK reads
+  GreenNode's public FAQ page instead; the request carries no credential
+  and no cookie. Any doubt about the page's shape fails the call with
+  `cdn.ErrPageFormat` rather than an empty or partial list. See
+  [CDN](https://github.com/dannyota/vngcloud/wiki/CDN).
+- New `vngcloud cdn list-ip-ranges` command, a read allowed under a
+  read-only profile.
+- `EndpointOverrides` gains `CDNDocs`, for pointing the read at a mirror or
+  a test server.
+
+### Behavior changes
+
+None: this release adds a package, an endpoint field, and an internal
+transport option. No existing method, field, or command changes.
+
 ## v0.6.0 - The vngcloud Command
 
 ### Highlights

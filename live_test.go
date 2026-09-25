@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
@@ -102,9 +104,10 @@ func TestLive(t *testing.T) {
 	}
 	t.Log("login ok")
 
-	// Billing ignores the configured region, so it runs once here instead of
-	// once per region inside testLiveRegion.
+	// Billing and cdn both ignore the configured region, so they run once
+	// here instead of once per region inside testLiveRegion.
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
+	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 
 	for i, region := range regions {
 		cfg := firstCfg
@@ -203,6 +206,25 @@ func setBalanceFields(b billing.Balances) string {
 		return "none"
 	}
 	return strings.Join(fields, ",")
+}
+
+// testLiveCDN reads the published CDN IP ranges. It logs only the count: the
+// design does not pin it, since a list change must not fail CI, but every
+// item must still parse as a CIDR.
+func testLiveCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	out, err := cdn.New(cfg).ListIPRanges(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListIPRanges: %v", err)
+	}
+	t.Logf("cdn ip ranges: %d", len(out.Items))
+	if len(out.Items) == 0 {
+		t.Fatal("expected at least one CDN IP range")
+	}
+	for _, item := range out.Items {
+		if _, err := netip.ParsePrefix(item); err != nil {
+			t.Fatalf("item %q did not parse as a CIDR: %v", item, err)
+		}
+	}
 }
 
 func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {

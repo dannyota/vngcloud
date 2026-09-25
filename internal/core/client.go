@@ -250,6 +250,8 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.Portal
 	case routes.ProductBilling:
 		return c.endpoints.Billing
+	case routes.ProductCDNDocs:
+		return c.endpoints.CDNDocs
 	default:
 		return ""
 	}
@@ -273,6 +275,19 @@ func (c *Client) DoJSONStatus(ctx context.Context, req transport.Request, out an
 	}
 	status, err := c.transport.DoJSONStatus(ctx, req, out)
 	return status, wrapTransportErr(err)
+}
+
+// DoRaw sends req and returns the response's status, its Content-Type
+// header, and the raw body, without decoding a JSON envelope: for a source
+// that is not JSON, such as an HTML page. Unlike DoJSONStatus, a non-2xx
+// status is not itself treated as an error; the caller decides what counts
+// as success for its own response shape.
+func (c *Client) DoRaw(ctx context.Context, req transport.Request) (int, string, []byte, error) {
+	if c.err != nil {
+		return 0, "", nil, c.err
+	}
+	status, contentType, body, err := c.transport.DoRaw(ctx, req)
+	return status, contentType, body, wrapTransportErr(err)
 }
 
 // wrapTransportErr converts a *transport.APIError into the SDK's own
