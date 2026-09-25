@@ -6,18 +6,18 @@ import (
 	"danny.vn/vngcloud"
 )
 
-func record[T any](outputs *sdkOutputStore, client *vngcloud.Client, path, label string, items []T, err error) {
-	outputs.add(path, client, items, err)
+func record[T any](outputs *sdkOutputStore, cfg vngcloud.Config, path, label string, items []T, err error) {
+	outputs.add(path, cfg, items, err)
 	printResult(label, len(items), err)
 }
 
-func recordGlobal[T any](outputs *sdkOutputStore, client *vngcloud.Client, path, label string, items []T, err error) {
-	outputs.addGlobal(path, client, items, err)
+func recordGlobal[T any](outputs *sdkOutputStore, cfg vngcloud.Config, path, label string, items []T, err error) {
+	outputs.addGlobal(path, cfg, items, err)
 	printResult(label, len(items), err)
 }
 
-func recordOne[T any](outputs *sdkOutputStore, client *vngcloud.Client, path, label string, item T, err error) {
-	outputs.add(path, client, item, err)
+func recordOne[T any](outputs *sdkOutputStore, cfg vngcloud.Config, path, label string, item T, err error) {
+	outputs.add(path, cfg, item, err)
 	if err != nil {
 		fmt.Printf("%s: error\n", label)
 		return

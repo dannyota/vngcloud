@@ -37,7 +37,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 
 	var resp listProjectsResponse
 	err := c.DoJSON(ctx, transport.Request{
-		Operation: "ListProjects",
+		Operation: "project.ListProjects",
 		Method:    "GET",
 		URL: c.RouteURL(routes.Route{
 			Product: routes.ProductVServer,

@@ -9,10 +9,9 @@ import (
 func TestPublicFacadeCompile(t *testing.T) {
 	_ = vngcloud.Config{}
 	_ = &vngcloud.IAMUserAuth{}
-	_ = vngcloud.ListOptions{}
 
-	if vngcloud.NewClient == nil {
-		t.Fatal("NewClient is nil")
+	if vngcloud.NewConfig == nil {
+		t.Fatal("NewConfig is nil")
 	}
 }
 

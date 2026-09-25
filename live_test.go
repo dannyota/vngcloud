@@ -21,6 +21,7 @@ import (
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
+	"danny.vn/vngcloud/project"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -143,16 +144,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
-	client, err := vngcloud.NewClient(ctx, cfg)
+	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		t.Fatalf("ListProjects: %v", err)
 	}
-
-	project, err := client.RequireProject(ctx)
-	if err != nil {
-		t.Fatalf("RequireProject: %v", err)
-	}
-	t.Logf("project %s in %s", project.ID, project.Region)
+	t.Logf("projects: %d", len(projects.Items))
 
 	t.Run("servers", func(t *testing.T) {
 		res, err := compute.New(cfg).ListServers(ctx, &compute.ListServersInput{Page: 1, Size: 5})

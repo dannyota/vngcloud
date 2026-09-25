@@ -87,26 +87,20 @@ func main() {
 				_, _ = fmt.Fprintf(os.Stderr, "build config for config %s region %s: %v\n", configName, region, err)
 				os.Exit(1)
 			}
-			client, err := vngcloud.NewClient(ctx, cfg)
-			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "create client for config %s region %s: %v\n", configName, region, err)
-				os.Exit(1)
-			}
-
-			fmt.Printf("region: %s\n", client.Region())
+			fmt.Printf("region: %s\n", cfg.Region())
 			sdkOutputs.setConfig(configName)
-			showProjects(ctx, client, sdkOutputs)
-			showPortal(ctx, client, cfg, sdkOutputs)
-			showCompute(ctx, client, cfg, sdkOutputs)
-			showVolume(ctx, client, cfg, sdkOutputs)
-			showNetwork(ctx, client, cfg, sdkOutputs)
-			showLoadBalancer(ctx, client, cfg, sdkOutputs)
-			showGlobalLoadBalancer(ctx, client, cfg, sdkOutputs)
+			showProjects(ctx, cfg, sdkOutputs)
+			showPortal(ctx, cfg, sdkOutputs)
+			showCompute(ctx, cfg, sdkOutputs)
+			showVolume(ctx, cfg, sdkOutputs)
+			showNetwork(ctx, cfg, sdkOutputs)
+			showLoadBalancer(ctx, cfg, sdkOutputs)
+			showGlobalLoadBalancer(ctx, cfg, sdkOutputs)
 			if regionIndex == 0 {
-				showGlobalLoadBalancerCatalog(ctx, client, cfg, sdkOutputs)
+				showGlobalLoadBalancerCatalog(ctx, cfg, sdkOutputs)
 			}
-			showDNS(ctx, client, cfg, sdkOutputs)
-			showContainerRegistry(ctx, client, cfg, sdkOutputs)
+			showDNS(ctx, cfg, sdkOutputs)
+			showContainerRegistry(ctx, cfg, sdkOutputs)
 			showPricing(ctx, cfg, region, sdkOutputs)
 			if regionIndex == 0 {
 				showBilling(ctx, cfg, sdkOutputs)

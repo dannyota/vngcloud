@@ -8,7 +8,7 @@ import (
 	"danny.vn/vngcloud/network"
 )
 
-func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, outputs *sdkOutputStore) {
+func showNetwork(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	networkClient := network.New(cfg)
 
 	vnetRegionsOut, err := networkClient.ListVNetworkRegions(ctx, nil)
@@ -16,7 +16,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 	if vnetRegionsOut != nil {
 		vnetRegions = vnetRegionsOut.Items
 	}
-	record(outputs, client, "network/vnetwork_region", "vnetwork regions", vnetRegions, err)
+	record(outputs, cfg, "network/vnetwork_region", "vnetwork regions", vnetRegions, err)
 
 	vpcs, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.VPC, int, error) {
 		out, err := networkClient.ListVPCs(ctx, &network.ListVPCsInput{Page: page, Size: size})
@@ -25,7 +25,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/vpc", "vpcs", vpcs, err)
+	record(outputs, cfg, "network/vpc", "vpcs", vpcs, err)
 
 	vpcDetails, vpcDetailErr := collectDetails(vpcs,
 		func(vpc network.VPC) string { return vpc.UUID },
@@ -40,14 +40,14 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 	if err != nil {
 		vpcDetailErr = err
 	}
-	record(outputs, client, "network/vpc_detail", "vpc details", vpcDetails, vpcDetailErr)
+	record(outputs, cfg, "network/vpc_detail", "vpc details", vpcDetails, vpcDetailErr)
 
 	subnetsOut, err := networkClient.ListSubnets(ctx, nil)
 	subnets := []network.Subnet(nil)
 	if subnetsOut != nil {
 		subnets = subnetsOut.Items
 	}
-	record(outputs, client, "network/subnet", "subnets", subnets, err)
+	record(outputs, cfg, "network/subnet", "subnets", subnets, err)
 
 	subnetDetails, subnetDetailErr := collectDetails2(subnets,
 		func(subnet network.Subnet) (string, string) { return subnet.NetworkID, subnet.UUID },
@@ -62,7 +62,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 	if err != nil {
 		subnetDetailErr = err
 	}
-	record(outputs, client, "network/subnet_detail", "subnet details", subnetDetails, subnetDetailErr)
+	record(outputs, cfg, "network/subnet_detail", "subnet details", subnetDetails, subnetDetailErr)
 
 	wanIPs, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.WANIP, int, error) {
 		out, err := networkClient.ListWANIPs(ctx, &network.ListWANIPsInput{Page: page, Size: size})
@@ -71,7 +71,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/floating_ip", "floating ips", wanIPs, err)
+	record(outputs, cfg, "network/floating_ip", "floating ips", wanIPs, err)
 
 	interfaces, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.ElasticNetworkInterface, int, error) {
 		out, err := networkClient.ListNetworkInterfaces(ctx, &network.ListNetworkInterfacesInput{Page: page, Size: size})
@@ -80,7 +80,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/interface", "network interfaces", interfaces, err)
+	record(outputs, cfg, "network/interface", "network interfaces", interfaces, err)
 
 	securityGroups, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.SecurityGroup, int, error) {
 		out, err := networkClient.ListSecurityGroups(ctx, &network.ListSecurityGroupsInput{Page: page, Size: size})
@@ -89,7 +89,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/security_group", "security groups", securityGroups, err)
+	record(outputs, cfg, "network/security_group", "security groups", securityGroups, err)
 
 	securityGroupDetails := make([]*network.SecurityGroup, 0, len(securityGroups))
 	securityGroupServers := make([]compute.Server, 0)
@@ -114,15 +114,15 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 			securityGroupServers = append(securityGroupServers, serversOut.Items...)
 		}
 	}
-	record(outputs, client, "network/security_group_detail", "security group details", securityGroupDetails, securityGroupDetailErr)
-	record(outputs, client, "network/security_group_server", "security group servers", securityGroupServers, securityGroupDetailErr)
+	record(outputs, cfg, "network/security_group_detail", "security group details", securityGroupDetails, securityGroupDetailErr)
+	record(outputs, cfg, "network/security_group_server", "security group servers", securityGroupServers, securityGroupDetailErr)
 
 	securityGroupRulesOut, err := networkClient.ListAllSecurityGroupRules(ctx, nil)
 	securityGroupRules := []network.SecurityGroupRule(nil)
 	if securityGroupRulesOut != nil {
 		securityGroupRules = securityGroupRulesOut.Items
 	}
-	record(outputs, client, "network/security_group_rule", "security group rules", securityGroupRules, err)
+	record(outputs, cfg, "network/security_group_rule", "security group rules", securityGroupRules, err)
 
 	virtualIPs, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.VirtualIPAddress, int, error) {
 		out, err := networkClient.ListVirtualIPAddresses(ctx, &network.ListVirtualIPAddressesInput{Page: page, Size: size})
@@ -131,7 +131,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/virtual_ip", "virtual ips", virtualIPs, err)
+	record(outputs, cfg, "network/virtual_ip", "virtual ips", virtualIPs, err)
 
 	virtualIPDetails := make([]*network.VirtualIPAddress, 0, len(virtualIPs))
 	addressPairs := make([]network.AddressPair, 0)
@@ -162,9 +162,9 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 			}
 		}
 	}
-	record(outputs, client, "network/virtual_ip_detail", "virtual ip details", virtualIPDetails, err)
-	record(outputs, client, "network/virtual_ip_address_pair", "virtual ip address pairs", addressPairs, err)
-	record(outputs, client, "network/virtual_subnet_address_pair", "virtual subnet address pairs", subnetAddressPairs, err)
+	record(outputs, cfg, "network/virtual_ip_detail", "virtual ip details", virtualIPDetails, err)
+	record(outputs, cfg, "network/virtual_ip_address_pair", "virtual ip address pairs", addressPairs, err)
+	record(outputs, cfg, "network/virtual_subnet_address_pair", "virtual subnet address pairs", subnetAddressPairs, err)
 
 	routeTables, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.RouteTable, int, error) {
 		out, err := networkClient.ListRouteTables(ctx, &network.ListRouteTablesInput{Page: page, Size: size})
@@ -173,14 +173,14 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/route_table", "route tables", routeTables, err)
+	record(outputs, cfg, "network/route_table", "route tables", routeTables, err)
 
 	routeTableRoutesOut, err := networkClient.ListRouteTableRoutes(ctx, nil)
 	routeTableRoutes := []network.RouteTableRoute(nil)
 	if routeTableRoutesOut != nil {
 		routeTableRoutes = routeTableRoutesOut.Items
 	}
-	record(outputs, client, "network/route_table_route", "route table routes", routeTableRoutes, err)
+	record(outputs, cfg, "network/route_table_route", "route table routes", routeTableRoutes, err)
 
 	peerings, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.Peering, int, error) {
 		out, err := networkClient.ListPeerings(ctx, &network.ListPeeringsInput{Page: page, Size: size})
@@ -189,7 +189,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/peering", "peerings", peerings, err)
+	record(outputs, cfg, "network/peering", "peerings", peerings, err)
 
 	acls, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.ACL, int, error) {
 		out, err := networkClient.ListNetworkACLs(ctx, &network.ListNetworkACLsInput{Page: page, Size: size})
@@ -198,7 +198,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/network_acl", "network acls", acls, err)
+	record(outputs, cfg, "network/network_acl", "network acls", acls, err)
 
 	interconnects, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.Interconnect, int, error) {
 		out, err := networkClient.ListInterconnects(ctx, &network.ListInterconnectsInput{Page: page, Size: size})
@@ -207,7 +207,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/interconnect", "interconnects", interconnects, err)
+	record(outputs, cfg, "network/interconnect", "interconnects", interconnects, err)
 
 	endpoints, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]network.Endpoint, int, error) {
 		out, err := networkClient.ListEndpoints(ctx, &network.ListEndpointsInput{Page: page, Size: size})
@@ -216,7 +216,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "network/endpoint", "endpoints", endpoints, err)
+	record(outputs, cfg, "network/endpoint", "endpoints", endpoints, err)
 
 	endpointDetails, endpointErr := collectDetails(endpoints,
 		func(endpoint network.Endpoint) string { return endpoint.UUID },
@@ -231,7 +231,7 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 	if err != nil {
 		endpointErr = err
 	}
-	record(outputs, client, "network/endpoint_detail", "endpoint details", endpointDetails, endpointErr)
+	record(outputs, cfg, "network/endpoint_detail", "endpoint details", endpointDetails, endpointErr)
 
 	endpointTags := make([]network.Tag, 0)
 	endpointTagErr := err
@@ -245,5 +245,5 @@ func showNetwork(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Conf
 			endpointTags = append(endpointTags, tagsOut.Items...)
 		}
 	}
-	record(outputs, client, "network/endpoint_tag", "endpoint tags", endpointTags, endpointTagErr)
+	record(outputs, cfg, "network/endpoint_tag", "endpoint tags", endpointTags, endpointTagErr)
 }

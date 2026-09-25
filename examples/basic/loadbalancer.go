@@ -7,7 +7,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 )
 
-func showLoadBalancer(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, outputs *sdkOutputStore) {
+func showLoadBalancer(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	lbClient := loadbalancer.New(cfg)
 
 	loadBalancers, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]loadbalancer.LoadBalancer, int, error) {
@@ -17,21 +17,21 @@ func showLoadBalancer(ctx context.Context, client *vngcloud.Client, cfg vngcloud
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "loadbalancer/load_balancer", "load balancers", loadBalancers, err)
+	record(outputs, cfg, "loadbalancer/load_balancer", "load balancers", loadBalancers, err)
 
 	var children loadBalancerChildren
 	nestedErr := err
 	if nestedErr == nil {
 		children, nestedErr = collectLoadBalancerChildren(ctx, lbClient, loadBalancers)
 	}
-	recordLoadBalancerChildren(outputs, client, children, nestedErr)
+	recordLoadBalancerChildren(outputs, cfg, children, nestedErr)
 
 	packagesOut, err := lbClient.ListPackages(ctx, nil)
 	packages := []loadbalancer.Package(nil)
 	if packagesOut != nil {
 		packages = packagesOut.Items
 	}
-	record(outputs, client, "loadbalancer/package", "load balancer packages", packages, err)
+	record(outputs, cfg, "loadbalancer/package", "load balancer packages", packages, err)
 
 	certificates, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]loadbalancer.Certificate, int, error) {
 		out, err := lbClient.ListCertificates(ctx, &loadbalancer.ListCertificatesInput{Page: page, Size: size})
@@ -40,7 +40,7 @@ func showLoadBalancer(ctx context.Context, client *vngcloud.Client, cfg vngcloud
 		}
 		return out.Items, out.TotalPage, nil
 	})
-	record(outputs, client, "loadbalancer/certificate", "certificates", certificates, err)
+	record(outputs, cfg, "loadbalancer/certificate", "certificates", certificates, err)
 
 	certificateDetails, certificateErr := collectDetails(certificates,
 		func(certificate loadbalancer.Certificate) string { return certificate.UUID },
@@ -55,7 +55,7 @@ func showLoadBalancer(ctx context.Context, client *vngcloud.Client, cfg vngcloud
 	if err != nil {
 		certificateErr = err
 	}
-	record(outputs, client, "loadbalancer/certificate_detail", "certificate details", certificateDetails, certificateErr)
+	record(outputs, cfg, "loadbalancer/certificate_detail", "certificate details", certificateDetails, certificateErr)
 }
 
 type loadBalancerChildren struct {
@@ -71,30 +71,30 @@ type loadBalancerChildren struct {
 	tags            []loadbalancer.Tag
 }
 
-func recordLoadBalancerChildren(outputs *sdkOutputStore, client *vngcloud.Client, children loadBalancerChildren, err error) {
+func recordLoadBalancerChildren(outputs *sdkOutputStore, cfg vngcloud.Config, children loadBalancerChildren, err error) {
 	if err != nil {
-		record(outputs, client, "loadbalancer/load_balancer_detail", "load balancer details", []*loadbalancer.LoadBalancer(nil), err)
-		record(outputs, client, "loadbalancer/listener", "load balancer listeners", []loadbalancer.Listener(nil), err)
-		record(outputs, client, "loadbalancer/listener_detail", "load balancer listener details", []*loadbalancer.Listener(nil), err)
-		record(outputs, client, "loadbalancer/pool", "load balancer pools", []loadbalancer.Pool(nil), err)
-		record(outputs, client, "loadbalancer/pool_detail", "load balancer pool details", []*loadbalancer.Pool(nil), err)
-		record(outputs, client, "loadbalancer/pool_health_monitor", "load balancer pool health monitors", []*loadbalancer.HealthMonitor(nil), err)
-		record(outputs, client, "loadbalancer/pool_member", "load balancer pool members", []loadbalancer.PoolMember(nil), err)
-		record(outputs, client, "loadbalancer/policy", "load balancer policies", []loadbalancer.Policy(nil), err)
-		record(outputs, client, "loadbalancer/policy_detail", "load balancer policy details", []*loadbalancer.Policy(nil), err)
-		record(outputs, client, "loadbalancer/tag", "load balancer tags", []loadbalancer.Tag(nil), err)
+		record(outputs, cfg, "loadbalancer/load_balancer_detail", "load balancer details", []*loadbalancer.LoadBalancer(nil), err)
+		record(outputs, cfg, "loadbalancer/listener", "load balancer listeners", []loadbalancer.Listener(nil), err)
+		record(outputs, cfg, "loadbalancer/listener_detail", "load balancer listener details", []*loadbalancer.Listener(nil), err)
+		record(outputs, cfg, "loadbalancer/pool", "load balancer pools", []loadbalancer.Pool(nil), err)
+		record(outputs, cfg, "loadbalancer/pool_detail", "load balancer pool details", []*loadbalancer.Pool(nil), err)
+		record(outputs, cfg, "loadbalancer/pool_health_monitor", "load balancer pool health monitors", []*loadbalancer.HealthMonitor(nil), err)
+		record(outputs, cfg, "loadbalancer/pool_member", "load balancer pool members", []loadbalancer.PoolMember(nil), err)
+		record(outputs, cfg, "loadbalancer/policy", "load balancer policies", []loadbalancer.Policy(nil), err)
+		record(outputs, cfg, "loadbalancer/policy_detail", "load balancer policy details", []*loadbalancer.Policy(nil), err)
+		record(outputs, cfg, "loadbalancer/tag", "load balancer tags", []loadbalancer.Tag(nil), err)
 		return
 	}
-	record(outputs, client, "loadbalancer/load_balancer_detail", "load balancer details", children.details, nil)
-	record(outputs, client, "loadbalancer/listener", "load balancer listeners", children.listeners, nil)
-	record(outputs, client, "loadbalancer/listener_detail", "load balancer listener details", children.listenerDetails, nil)
-	record(outputs, client, "loadbalancer/pool", "load balancer pools", children.pools, nil)
-	record(outputs, client, "loadbalancer/pool_detail", "load balancer pool details", children.poolDetails, nil)
-	record(outputs, client, "loadbalancer/pool_health_monitor", "load balancer pool health monitors", children.healthMonitors, nil)
-	record(outputs, client, "loadbalancer/pool_member", "load balancer pool members", children.poolMembers, nil)
-	record(outputs, client, "loadbalancer/policy", "load balancer policies", children.policies, nil)
-	record(outputs, client, "loadbalancer/policy_detail", "load balancer policy details", children.policyDetails, nil)
-	record(outputs, client, "loadbalancer/tag", "load balancer tags", children.tags, nil)
+	record(outputs, cfg, "loadbalancer/load_balancer_detail", "load balancer details", children.details, nil)
+	record(outputs, cfg, "loadbalancer/listener", "load balancer listeners", children.listeners, nil)
+	record(outputs, cfg, "loadbalancer/listener_detail", "load balancer listener details", children.listenerDetails, nil)
+	record(outputs, cfg, "loadbalancer/pool", "load balancer pools", children.pools, nil)
+	record(outputs, cfg, "loadbalancer/pool_detail", "load balancer pool details", children.poolDetails, nil)
+	record(outputs, cfg, "loadbalancer/pool_health_monitor", "load balancer pool health monitors", children.healthMonitors, nil)
+	record(outputs, cfg, "loadbalancer/pool_member", "load balancer pool members", children.poolMembers, nil)
+	record(outputs, cfg, "loadbalancer/policy", "load balancer policies", children.policies, nil)
+	record(outputs, cfg, "loadbalancer/policy_detail", "load balancer policy details", children.policyDetails, nil)
+	record(outputs, cfg, "loadbalancer/tag", "load balancer tags", children.tags, nil)
 }
 
 func collectLoadBalancerChildren(ctx context.Context, lbClient *loadbalancer.Client, loadBalancers []loadbalancer.LoadBalancer) (loadBalancerChildren, error) {

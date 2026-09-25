@@ -2,14 +2,12 @@ package vngcloud
 
 import (
 	"danny.vn/vngcloud/internal/core"
-	"danny.vn/vngcloud/internal/sdk"
 )
 
 // Ptr returns a pointer to v, for setting an optional field of an update
 // Input without a temporary variable.
 func Ptr[T any](v T) *T { return &v }
 
-type Client = sdk.Client
 type Config = core.Config
 type LoadOption = core.Option
 type EndpointOverrides = core.EndpointOverrides
@@ -23,12 +21,6 @@ type ResponseCapture = core.ResponseCapture
 type ResponseCaptureFunc = core.ResponseCaptureFunc
 
 type APIError = core.APIError
-type ListOptions = core.ListOptions
-type Page = core.Page
-type ListResult[T any] = core.ListResult[T]
-
-type Project = core.Project
-type ListProjectsOptions = core.ListProjectsOptions
 
 const (
 	DefaultPage     = core.DefaultPage
@@ -47,7 +39,6 @@ var (
 	ErrInvalidInput     = core.ErrInvalidInput
 
 	NewConfig             = core.NewConfig
-	NewClient             = sdk.NewClient
 	WithRegion            = core.WithRegion
 	WithProjectID         = core.WithProjectID
 	WithIAMUser           = core.WithIAMUser

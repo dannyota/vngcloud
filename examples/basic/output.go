@@ -14,7 +14,7 @@ import (
 const outputRoot = "examples/basic/output"
 
 var operationOutputPaths = map[string]string{
-	"ListProjects":                               "project/project",
+	"project.ListProjects":                       "project/project",
 	"portal.GetUserInfo":                         "portal/user_info",
 	"portal.ListZones":                           "portal/zone",
 	"portal.ListQuotaUsed":                       "portal/quota_used",
@@ -176,16 +176,20 @@ func (s *sdkOutputStore) setConfig(config string) {
 	s.config = config
 }
 
-func (s *sdkOutputStore) add(path string, client *vngcloud.Client, items any, err error) {
-	s.addWithScope(path, client, "region", items, err)
+func (s *sdkOutputStore) add(path string, cfg vngcloud.Config, items any, err error) {
+	s.addWithScope(path, cfg, "region", items, err)
 }
 
-func (s *sdkOutputStore) addGlobal(path string, client *vngcloud.Client, items any, err error) {
-	s.addWithScope(path, client, "global", items, err)
+func (s *sdkOutputStore) addGlobal(path string, cfg vngcloud.Config, items any, err error) {
+	s.addWithScope(path, cfg, "global", items, err)
 }
 
-func (s *sdkOutputStore) addWithScope(path string, client *vngcloud.Client, scope string, items any, err error) {
-	s.record(path, client.Region(), client.ProjectID() != "", scope, items, err)
+// addWithScope records a region- or project-scoped call. projectSelected
+// approximates whether the shared Config resolved a project: a project-
+// scoped call fails before this point when the project cannot be resolved,
+// so success implies a project was selected.
+func (s *sdkOutputStore) addWithScope(path string, cfg vngcloud.Config, scope string, items any, err error) {
+	s.record(path, cfg.Region(), err == nil, scope, items, err)
 }
 
 // addAccount records billing, which ignores the configured region and has no
