@@ -1,0 +1,229 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"runtime"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"danny.vn/vngcloud"
+)
+
+type opKind int
+
+const (
+	kindRead opKind = iota
+	kindWrite
+)
+
+// Op is one operation of a service's typed operation table, parameterized
+// only by the client type C. Its own Input and Output types are erased
+// behind newInput and call, so a []Op[C] can hold operations with differing
+// Input and Output types side by side, while the compiler still rejects an
+// Op built from another client type's method.
+type Op[C any] struct {
+	name        string
+	methodName  string
+	kind        opKind
+	destructive bool
+	newInput    func() any
+	call        func(client *C, ctx context.Context, in any) (any, error)
+}
+
+// writeOption configures a Write operation. Destructive is the only one
+// today; cli.WaitFor (for an asynchronous write) is undefined until the
+// first such write needs it.
+type writeOption struct{ destructive bool }
+
+// Destructive marks a Write operation as not undoable by one more command:
+// it fails with exit code 2 and names --yes unless --yes is given.
+func Destructive() writeOption { return writeOption{destructive: true} }
+
+// Read registers a read operation: name is its kebab-case command name, and
+// method is an SDK method expression such as (*compute.Client).ListServers.
+func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error)) Op[C] {
+	return Op[C]{
+		name:       name,
+		methodName: funcName(method),
+		kind:       kindRead,
+		newInput:   func() any { return new(In) },
+		call: func(client *C, ctx context.Context, in any) (any, error) {
+			return method(client, ctx, in.(*In))
+		},
+	}
+}
+
+// Write registers a write operation: one that changes server state, whatever
+// its HTTP method. --debug logs write started and write finished around the
+// call; under read-only, or without --yes for a Destructive write, the
+// command is refused before a client is built.
+func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...writeOption) Op[C] {
+	op := Op[C]{
+		name:       name,
+		methodName: funcName(method),
+		kind:       kindWrite,
+		newInput:   func() any { return new(In) },
+		call: func(client *C, ctx context.Context, in any) (any, error) {
+			return method(client, ctx, in.(*In))
+		},
+	}
+	for _, o := range opts {
+		if o.destructive {
+			op.destructive = true
+		}
+	}
+	return op
+}
+
+// funcName recovers the Go name of an SDK method expression such as
+// (*compute.Client).ListServers, for example "ListServers". A method
+// expression compiles to a plain, unwrapped function, so
+// runtime.FuncForPC reports its fully qualified name with no receiver value
+// bound to it; only the last path segment is kept.
+func funcName(method any) string {
+	ptr := reflect.ValueOf(method).Pointer()
+	full := runtime.FuncForPC(ptr).Name()
+	full = strings.TrimSuffix(full, "-fm")
+	if idx := strings.LastIndex(full, "."); idx >= 0 {
+		full = full[idx+1:]
+	}
+	return full
+}
+
+// Service builds the cobra command for one SDK service: a parent command
+// named name, with one subcommand per op. It panics if any op's registered
+// name does not match the kebab-case form of its SDK method (outside the
+// rename table), or if any op's Input field would derive a flag name that
+// collides with a global flag: both are programmer mistakes in the
+// operation table, not something a CLI user can trigger, so tests catch
+// them by calling Service (or validateOps directly) for every real service
+// table.
+func Service[C any](e *env, name string, newClient func(vngcloud.Config) *C, ops ...Op[C]) *cobra.Command {
+	if err := validateOps(name, ops); err != nil {
+		panic(err)
+	}
+
+	cmd := &cobra.Command{
+		Use:  name,
+		Args: parentArgs,
+		RunE: unknownCommandRunE,
+	}
+	for _, op := range ops {
+		cmd.AddCommand(newOpCmd(e, name, newClient, op))
+	}
+	return cmd
+}
+
+// validateOps checks every op in ops against the two invariants Service
+// enforces; see Service's doc comment.
+func validateOps[C any](serviceName string, ops []Op[C]) error {
+	for _, op := range ops {
+		if err := checkOpName(op.methodName, op.name); err != nil {
+			return newUsageError("service %q: %s", serviceName, err)
+		}
+		specs, err := flagSpecsFor(op.newInput())
+		if err != nil {
+			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
+		}
+		for _, spec := range specs {
+			if globalFlagNames[spec.flagName] {
+				return newUsageError("service %q op %q: flag --%s collides with a global flag",
+					serviceName, op.name, spec.flagName)
+			}
+		}
+	}
+	return nil
+}
+
+// newOpCmd builds the leaf command for one operation: its flags (from the
+// Input struct), --cli-input-json, and the guarded call to the SDK method.
+func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config) *C, op Op[C]) *cobra.Command {
+	input := op.newInput()
+	specs, err := flagSpecsFor(input)
+	if err != nil {
+		panic(err)
+	}
+
+	cmd := &cobra.Command{
+		Use:  op.name,
+		Args: noArgs,
+	}
+	bound := registerFlags(cmd, specs)
+	cmd.Flags().String("cli-input-json", "", "a JSON object ('<json>' or file://path) supplying Input fields by their Go name")
+
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runOp(cmd.Context(), e, cmd, serviceName, newClient, op, input, bound)
+	}
+	return cmd
+}
+
+// runOp builds the Input, enforces every guard, and, once every guard has
+// passed, builds the Config and client and calls the operation.
+func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName string, newClient func(vngcloud.Config) *C, op Op[C], input any, bound []boundFlag) error {
+	rawJSON, err := cmd.Flags().GetString("cli-input-json")
+	if err != nil {
+		return usageError{msg: err.Error()}
+	}
+	if err := applyCLIInputJSON(rawJSON, input); err != nil {
+		return err
+	}
+	applyChangedFlags(cmd, input, bound)
+	if err := checkRequiredFlags(input); err != nil {
+		return err
+	}
+
+	if op.kind == kindWrite {
+		if op.destructive && !e.flags.yes {
+			return newUsageError("%s %s is destructive; pass --yes to confirm", serviceName, op.name)
+		}
+		if on, source, err := readOnlyPreConfig(e.flags); err != nil {
+			return err
+		} else if on {
+			return readOnlyError{source: source}
+		}
+	}
+
+	logger := debugLogger(e)
+	cfg, err := loadConfig(ctx, e, logger)
+	if err != nil {
+		return err
+	}
+
+	if op.kind == kindWrite {
+		if on, source, err := readOnlyFromProfile(cfg, resolvedProfileName(e.flags)); err != nil {
+			return err
+		} else if on {
+			return readOnlyError{source: source}
+		}
+		if logger != nil {
+			logger.DebugContext(ctx, "write started", "operation", serviceName+" "+op.name)
+		}
+	}
+
+	client := newClient(cfg)
+	out, callErr := op.call(client, ctx, input)
+
+	if op.kind == kindWrite && logger != nil {
+		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
+	}
+	if callErr != nil {
+		return callErr
+	}
+	return writeOutput(e, out)
+}
+
+// writeOutput is a placeholder that prints out as indented JSON; Task 4
+// replaces it with the encoder, --query, and table/text rendering described
+// in the CLI design's "Output" section.
+func writeOutput(e *env, out any) error {
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(e.stdout, string(data))
+	return err
+}
