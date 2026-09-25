@@ -50,7 +50,9 @@ func TestLive(t *testing.T) {
 	// cacheDir is shared by every Config this run builds, and the two files
 	// below are empty, so LoadConfig resolves credentials from .env's
 	// environment variables and never reads the real ~/.vngcloud.
-	cacheDir := t.TempDir()
+	// The cache creates this subdirectory with mode 0700; t.TempDir itself is
+	// 0755, which the cache refuses.
+	cacheDir := filepath.Join(t.TempDir(), "cache")
 	emptyConfigFile := emptyFile(t, "config")
 	emptyCredentialsFile := emptyFile(t, "credentials")
 
