@@ -34,6 +34,55 @@ func TestListBudgets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBudgets() error = %v", err)
 	}
+	// The live capture behind this fixture found the test account with no
+	// budgets at all three points it called ListBudgets. An empty list is
+	// the real shape of a successful call; TestListBudgetsDecodesSummaryFields
+	// below covers a populated item with a synthetic body instead.
+	if len(out.Items) != 0 {
+		t.Fatalf("unexpected budgets: %+v", out.Items)
+	}
+}
+
+// TestListBudgetsDecodesSummaryFields checks that every field the summary
+// view (view=summary) can send decodes correctly. No live capture has shown
+// a populated ListBudgets response, so this uses a synthetic body instead of
+// a testdata fixture; GetBudget and CreateBudget cover the fields a live
+// capture did confirm.
+func TestListBudgetsDecodesSummaryFields(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"code": 200,
+			"message": "success",
+			"data": [
+				{
+					"id": 1,
+					"uuid": "budget-1",
+					"name": "example-budget",
+					"periodType": "MONTHLY",
+					"type": "ACTUAL",
+					"status": "PAUSED",
+					"limitAmount": 1000000.0,
+					"currency": "credit",
+					"periodKey": "2026-09",
+					"periodStart": "2026-09-01",
+					"periodEnd": "2026-09-30",
+					"actualCost": 0,
+					"forecastedCost": 0,
+					"actualPercentage": 0,
+					"forecastedPercentage": 0,
+					"alarm": false,
+					"thresholdCount": 0,
+					"alarmThresholdCount": 0,
+					"thresholdPercentage": null
+				}
+			]
+		}`))
+	}))
+
+	out, err := client.ListBudgets(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListBudgets() error = %v", err)
+	}
 	if len(out.Items) != 1 {
 		t.Fatalf("unexpected budgets: %+v", out.Items)
 	}
@@ -94,8 +143,13 @@ func TestGetBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBudget() error = %v", err)
 	}
-	if out.Budget.UUID != "budget-1" || out.Budget.Name != "prod-actual" {
+	if out.Budget.UUID != "budget-1" || out.Budget.Name != "example-budget" {
 		t.Fatalf("unexpected budget: %+v", out.Budget)
+	}
+	// GetBudget sends limitAmount as a decimal, unlike CreateBudget's plain
+	// integer; it must still decode into the int64 field.
+	if out.Budget.LimitAmount != 1000000 {
+		t.Fatalf("LimitAmount = %d, want 1000000", out.Budget.LimitAmount)
 	}
 	if out.Budget.ActualCost != nil {
 		t.Fatalf("expected omitted ActualCost to stay nil, got %v", *out.Budget.ActualCost)
@@ -131,8 +185,16 @@ func TestListBudgetThresholds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBudgetThresholds() error = %v", err)
 	}
-	if len(out.Items) != 1 || out.Items[0].UUID != "threshold-1" || !out.Items[0].Enabled {
+	// The fixture captures the threshold after it was disabled and its
+	// reminder interval changed, per the live write test's sequence.
+	if len(out.Items) != 1 || out.Items[0].UUID != "threshold-1" || out.Items[0].Enabled {
 		t.Fatalf("unexpected thresholds: %+v", out.Items)
+	}
+	if out.Items[0].ReminderIntervalHours != 24 {
+		t.Fatalf("ReminderIntervalHours = %d, want 24", out.Items[0].ReminderIntervalHours)
+	}
+	if out.Items[0].LastAlertAt != "" {
+		t.Fatalf("LastAlertAt = %q, want empty for a null value", out.Items[0].LastAlertAt)
 	}
 }
 

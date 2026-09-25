@@ -65,13 +65,15 @@ func TestCreateBudgetSendsFieldsAndDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateBudget() error = %v", err)
 		}
-		if out.Budget.UUID != "budget-3" || out.Budget.LimitAmount != 2000000000 {
+		if out.Budget.UUID != "budget-1" || out.Budget.LimitAmount != 1000000 {
 			t.Fatalf("unexpected budget: %+v", out.Budget)
 		}
-		if out.Budget.Currency != "credit" || out.Budget.StartDate != "2026-09-25" {
+		if out.Budget.Currency != "credit" || out.Budget.StartDate != "2026-09-01T00:00:00.000000000" {
 			t.Fatalf("unexpected budget: %+v", out.Budget)
 		}
-		if out.Budget.CreatedAt != "2026-09-25T00:00:00Z" || out.Budget.UpdatedAt != "2026-09-25T00:00:00Z" {
+		// The API answers a create with no time zone suffix and nanosecond
+		// precision; the SDK holds the value as an opaque string.
+		if out.Budget.CreatedAt != "2026-09-01T00:00:00.000000000" || out.Budget.UpdatedAt != "2026-09-01T00:00:00.000000000" {
 			t.Fatalf("unexpected budget: %+v", out.Budget)
 		}
 	})
@@ -352,8 +354,16 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateBudgetThreshold() error = %v", err)
 		}
-		if out.Threshold.UUID != "threshold-2" {
+		if out.Threshold.UUID != "threshold-1" {
 			t.Fatalf("unexpected threshold: %+v", out.Threshold)
+		}
+		// The server always starts a new threshold enabled, whatever Enabled
+		// value a create request would send if it sent one at all.
+		if !out.Threshold.Enabled || out.Threshold.NotificationState != "OK" {
+			t.Fatalf("unexpected threshold: %+v", out.Threshold)
+		}
+		if out.Threshold.LastAlertAt != "" {
+			t.Fatalf("LastAlertAt = %q, want empty for a null value", out.Threshold.LastAlertAt)
 		}
 	})
 
@@ -548,4 +558,57 @@ func TestWritePathIDs(t *testing.T) {
 			t.Fatalf("err = %v, want ErrInvalidInput", err)
 		}
 	})
+}
+
+// TestCreateBudgetDuplicateType checks the server's rejection of a second
+// budget of a type the account already has. The message names neither
+// "Budget" nor "Threshold" as missing, so it stays a plain error rather than
+// mapping to NotFound.
+func TestCreateBudgetDuplicateType(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		testutil.WriteFixture(t, w, "../testdata/billing/DuplicateBudgetType.json")
+	}))
+
+	_, err := client.CreateBudget(context.Background(), &CreateBudgetInput{
+		Name:        "example-budget-dup",
+		PeriodType:  PeriodMonthly,
+		Type:        TypeActual,
+		LimitAmount: 1000000,
+	})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("IsNotFound(err) = true, want false")
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *vngcloud.APIError, got %v", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "400" {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+}
+
+// TestDeleteBudgetThresholdNotFound checks that a second delete of the same
+// threshold, which the server answers with "Threshold not found: <uuid>",
+// maps to NotFound.
+func TestDeleteBudgetThresholdNotFound(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		testutil.WriteFixture(t, w, "../testdata/billing/ThresholdNotFound.json")
+	}))
+
+	_, err := client.DeleteBudgetThreshold(context.Background(), &DeleteBudgetThresholdInput{
+		BudgetUUID:    "budget-1",
+		ThresholdUUID: "threshold-1",
+	})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("IsNotFound(err) = false, err = %v", err)
+	}
+	if vngcloud.ErrorCode(err) != "NotFound" {
+		t.Fatalf("ErrorCode(err) = %q", vngcloud.ErrorCode(err))
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

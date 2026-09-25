@@ -1,13 +1,20 @@
 {
   "code": 200,
-  "message": "Success",
+  "message": "success",
   "data": {
-    "uuid": "budget-1",
     "id": 1,
-    "name": "prod-actual",
+    "uuid": "budget-1",
+    "userId": 1,
+    "name": "example-budget",
     "periodType": "MONTHLY",
     "type": "ACTUAL",
-    "limitAmount": 5000000000,
-    "status": "ACTIVE"
+    "limitAmount": 1000000.0,
+    "currency": "credit",
+    "startDate": "2026-09-01T00:00:00",
+    "status": "PAUSED",
+    "createdBy": 1,
+    "createdAt": "2026-09-01T00:00:00",
+    "updatedAt": "2026-09-01T00:00:00",
+    "deletedAt": null
   }
 }

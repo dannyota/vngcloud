@@ -2,19 +2,19 @@
   "code": 201,
   "message": "notification.created",
   "data": {
-    "id": 3,
-    "uuid": "budget-3",
+    "id": 1,
+    "uuid": "budget-1",
     "userId": 1,
-    "name": "prod-actual-2",
+    "name": "example-budget",
     "periodType": "MONTHLY",
     "type": "ACTUAL",
-    "limitAmount": 2000000000,
+    "limitAmount": 1000000,
     "currency": "credit",
-    "startDate": "2026-09-25",
+    "startDate": "2026-09-01T00:00:00.000000000",
     "status": "PAUSED",
     "createdBy": 1,
-    "createdAt": "2026-09-25T00:00:00Z",
-    "updatedAt": "2026-09-25T00:00:00Z",
+    "createdAt": "2026-09-01T00:00:00.000000000",
+    "updatedAt": "2026-09-01T00:00:00.000000000",
     "deletedAt": null
   }
 }

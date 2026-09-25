@@ -1,17 +1,24 @@
 {
   "code": 200,
-  "message": "Success",
+  "message": "success",
   "data": [
     {
+      "id": 1,
       "uuid": "threshold-1",
+      "budgetId": 1,
       "thresholdType": "ACTUAL",
-      "thresholdPercentage": 80,
+      "thresholdPercentage": 100.0,
       "comparisonOperator": "GTE",
-      "enabled": true,
+      "enabled": false,
+      "notificationState": "OK",
+      "statePeriodKey": null,
+      "lastStateChangedAt": null,
       "maxAlertsPerPeriod": 1,
-      "reminderIntervalHours": 648,
-      "notificationState": "PENDING",
-      "lastAlertAt": ""
+      "reminderIntervalHours": 24,
+      "lastAlertAt": null,
+      "realarmRequested": false,
+      "createdAt": "2026-09-01T00:00:00",
+      "updatedAt": "2026-09-01T00:00:00"
     }
   ]
 }
