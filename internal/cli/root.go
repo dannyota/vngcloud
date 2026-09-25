@@ -70,6 +70,11 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.readOnly, "read-only", false, "refuse every write command")
 
 	root.AddCommand(newVersionCmd(e))
+	root.AddCommand(newBillingCmd(e))
+	root.AddCommand(newPricingCmd(e))
+	root.AddCommand(newComputeCmd(e))
+	root.AddCommand(newNetworkCmd(e))
+	root.AddCommand(newDNSCmd(e))
 
 	return root
 }
