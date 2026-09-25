@@ -71,10 +71,13 @@ de-duplicated: the source page lists a few ranges more than once.
 
 ## Errors
 
-A non-200 response from the docs host is a `*vngcloud.APIError`, exactly as
-for any other SDK call, with operation `cdn.ListIPRanges`. A 401 or 403 from
-the docs host does not match `vngcloud.ErrAuth`: the request never carried a
-credential for that to mean.
+A non-200 response from the docs host is a `*vngcloud.APIError` with
+operation `cdn.ListIPRanges`. It wraps the status sentinel as other SDK
+errors do: 403 matches `vngcloud.ErrPermission`, 404 `vngcloud.ErrNotFound`,
+and 429 `vngcloud.ErrRateLimited`. `vngcloud.IsRetryable` is true for 429,
+502, 503, and 504. A 401 does not match `vngcloud.ErrAuth`: the request never
+carried a credential for that to mean. A body over 4 MiB is `ErrPageFormat`
+only when the status is 200; otherwise the status decides the error.
 
 ```go
 var ErrPageFormat = errors.New("cdn: IP range page format not recognized")
