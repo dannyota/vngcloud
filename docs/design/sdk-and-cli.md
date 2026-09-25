@@ -75,7 +75,9 @@ aboutme needs, from the CLI, most frequent first:
   options only, reading no environment variables or files.
 - `CredentialsProvider`: an interface with `Token(ctx)`, which returns a
   valid access token, and `Invalidate(token)`, which drops that token from
-  every cache. Built-in providers are IAM User login and static token.
+  every cache. Built-in providers are IAM User login and static token. For a
+  custom provider, an empty token with a nil error is an error, and a zero
+  expiry makes the SDK call `Token` before every request.
 - `*APIError` and `*LoginError` (see [Errors](#errors)).
 
 `Config`, the credentials providers, and the shared session live in
@@ -180,10 +182,13 @@ Highest first:
 2. Environment variables.
 3. The selected profile in the files.
 
-An explicit profile (`--profile` or `WithProfile`) is the exception: its
-credentials win over credentials in environment variables, as in the AWS
-CLI. This stops a `.env` file for one account from sending `--profile prod`
-calls to that account. `VNGCLOUD_PROFILE` is not explicit in this sense.
+An empty value from an option, a variable, or a file key counts as unset.
+An explicit profile (`--profile` or `WithProfile`) skips step 2 for
+credentials and the project ID, so a `.env` file for one account cannot send
+`--profile prod` calls to that account. Region names no account, so it may
+still come from the environment. An explicit profile with no credential in its
+credentials section, and none from options, is an error naming it.
+`VNGCLOUD_PROFILE` is never explicit.
 
 | Variable | Meaning |
 |-|-|
@@ -198,24 +203,31 @@ calls to that account. `VNGCLOUD_PROFILE` is not explicit in this sense.
 Credentials resolve as a set: `LoadConfig` takes the credentials from the
 first source, in the order above, that sets any credential value, so a
 profile's password is never mixed with another source's username. Within one
-source, an access token wins over IAM User values.
+source, an access token wins over IAM User values. A credentials provider
+option wins over both. The credentials file has no access token key.
 
-A missing file is not an error. A missing region after all sources is.
+`LoadConfig` errors match `ErrInvalidConfig` under `errors.Is`. Two also match
+their own sentinel: `ErrNoCredentials` when no source sets credentials, and
+`ErrCredentialsFile` when the credentials file is missing at an explicit path,
+unreadable, or refused. The CLI [exit codes](#errors) follow these sentinels.
 
 ### File safety
 
+- A missing file is an error only when an option, `VNGCLOUD_CONFIG_FILE`, or
+  `VNGCLOUD_SHARED_CREDENTIALS_FILE` named its path. A path that cannot be read
+  or is not a regular file is an error. Unknown keys are ignored. Errors name
+  the file and the line or the fix, never a value.
 - `LoadConfig` opens the credentials file, then checks the open file's mode,
   and refuses it when group or others can read it. The error names the file
   and the fix (`chmod 600`). On Windows the check is skipped.
 - The SDK never writes the credentials file. Only `vngcloud configure` writes
   it, with mode 0600, through a temp file and rename in the directory of the
   resolved path, so a symlinked file stays a symlink.
-- `vngcloud configure` prompts for each value and does not echo the password
-  or TOTP secret. When stdin is not a terminal it exits with code 2 instead of
-  waiting, so it cannot hang an agent.
-- `vngcloud configure set <key> <value>` serves scripts, and
-  `configure get <key>` prints a value. `get` and `list` print `password` and
-  `totp_secret` masked. Each key has one file:
+- `vngcloud configure` prompts for each value without echoing the password or
+  TOTP secret. When stdin is not a terminal it exits with code 2 at once.
+- `configure set <key> <value>` serves scripts and `configure get <key>`
+  prints a value; `get` and `list` mask `password` and `totp_secret`. Each
+  key has one file:
 
 | Key | File |
 |-|-|
@@ -224,27 +236,33 @@ A missing file is not an error. A missing region after all sources is.
 
 ### Token cache
 
-- The SDK caches tokens only when given `vngcloud.WithTokenCache(dir)`. The CLI
-  always passes `~/.vngcloud/cache/`. Library users get no disk writes they did
-  not ask for.
-- The cache directory is created with mode 0700. Each credential set's token
-  lives in `<dir>/<hash>.json`, mode 0600. The hash is SHA-256 hex over the
+- Only `vngcloud.WithTokenCache(dir)` turns on caching, so library users get
+  no disk writes they did not ask for. The CLI passes `~/.vngcloud/cache/`.
+- The cache directory has mode 0700. Each credential set's token lives in
+  `<dir>/<hash>.json`, mode 0600. The hash is SHA-256 hex over the
   length-prefixed profile name, root email, username, sign-in URL, and token
-  URL. Changing credentials or endpoints therefore stops an old token from
-  being used. Static tokens are never cached.
-- The file holds the access token and its expiry. The SDK uses a token until
-  30 seconds before expiry, as the code does today, then logs in again.
-- Concurrent processes share the cache safely. The SDK holds an exclusive
-  `flock` on `<hash>.lock` while it reads the cache, logs in if needed, and
-  writes the result through a temp file and rename. A second process waits on
-  the lock and then finds the fresh token, so two processes never log in with
-  the same TOTP code. An unreadable or malformed cache file counts as a miss.
-- After an HTTP 401, the transport calls `Invalidate` with the rejected token,
-  which clears it from memory and disk. The next `Token` call logs in, and the
-  request is retried once. Today's code re-sends the same cached token on that
-  retry (`internal/core/auth.go`); `v0.5.0` fixes it.
-- A refresh-token grant would avoid full logins. The token endpoint returns a
-  refresh token, but the grant is unverified, so it is follow-up work.
+  URL, so changed credentials or endpoints never reuse an old token. Static
+  tokens are never cached.
+- The file holds the access token, its expiry, and its login time. The SDK
+  uses a token until 30 seconds before expiry, then logs in again. An
+  unreadable or malformed cache file counts as a miss.
+- One locked operation on `<hash>.lock` reads the cache, applies any pending
+  invalidation, logs in if needed, and writes the result through a temp file
+  and rename. A second process then finds the fresh token, so two processes
+  never log in with the same TOTP code.
+- The lock is tried without blocking and retried with backoff until the
+  call's context ends, so a stuck process cannot hang another. Unix uses
+  `flock`; Windows opens the lock file with share mode 0 through
+  `syscall.CreateFile`. Either lock ends with its process. Lock files are kept.
+- A failed cache write after a successful login is not a call error: the SDK
+  returns the fresh token and removes its temp file.
+- After an HTTP 401, the transport invalidates exactly the token it sent:
+  memory and disk are cleared only while they still hold it. The request is
+  retried once with a new token. A token whose login time is under 30 seconds
+  old is not invalidated; the call returns `ErrAuth`. So a 401 that a new login
+  cannot fix never causes repeated logins or two logins in one TOTP window.
+  A request that needs auth is never sent without a token.
+- The refresh-token grant is unverified, so every renewal is a full login.
 
 ## CLI
 
@@ -412,8 +430,7 @@ small. Waiting for the whole restructure would give one break but delay
 budgets by nine service moves. The CLI cannot ship earlier, because it needs
 `LoadConfig`.
 
-Install is `go install danny.vn/vngcloud/cmd/vngcloud@<version>`, pinned to a
-tag, until prebuilt binaries get their own design.
+Install is `go install danny.vn/vngcloud/cmd/vngcloud@<version>`.
 
 After `v0.6.0`, designs follow aboutme's needs in this order, each covering
 the SDK and CLI together:
