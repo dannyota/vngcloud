@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
@@ -192,11 +193,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("hosted zones: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("container-repositories", func(t *testing.T) {
-		res, err := client.ContainerRegistry.ListRepositories(ctx, &vngcloud.ListContainerRepositoriesOptions{})
+		res, err := containerregistry.New(cfg).ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})
 		if err != nil {
 			t.Fatalf("ListRepositories: %v", err)
 		}
-		t.Logf("repositories: %d of %d", len(res.Items), res.Page.TotalItem)
+		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("portal-user", func(t *testing.T) {
 		info, err := portal.New(cfg).GetUserInfo(ctx, nil)

@@ -106,7 +106,7 @@ func main() {
 				showGlobalLoadBalancerCatalog(ctx, client, sdkOutputs)
 			}
 			showDNS(ctx, client, cfg, sdkOutputs)
-			showContainerRegistry(ctx, client, sdkOutputs)
+			showContainerRegistry(ctx, client, cfg, sdkOutputs)
 			showPricing(ctx, cfg, region, sdkOutputs)
 			if regionIndex == 0 {
 				showBilling(ctx, cfg, sdkOutputs)

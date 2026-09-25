@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/portal"
 )
@@ -647,8 +648,10 @@ func showDNS(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, 
 	outputs.add("dns/record_detail", client, recordDetails, nil)
 }
 
-func showContainerRegistry(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
-	repositories, err := client.ContainerRegistry.ListRepositories(ctx, nil)
+func showContainerRegistry(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, outputs *sdkOutputStore) {
+	vcrClient := containerregistry.New(cfg)
+
+	repositories, err := vcrClient.ListRepositories(ctx, nil)
 	if err != nil {
 		printError("container registry repositories", err)
 		outputs.add("containerregistry/repository", client, nil, err)
@@ -656,7 +659,7 @@ func showContainerRegistry(ctx context.Context, client *vngcloud.Client, outputs
 		record(outputs, client, "containerregistry/repository", "container registry repositories", repositories.Items, nil)
 	}
 
-	users, err := client.ContainerRegistry.ListUsers(ctx, nil)
+	users, err := vcrClient.ListUsers(ctx, nil)
 	if err != nil {
 		printError("container registry users", err)
 		outputs.add("containerregistry/user", client, nil, err)

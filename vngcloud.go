@@ -2,7 +2,6 @@ package vngcloud
 
 import (
 	"danny.vn/vngcloud/internal/compute"
-	"danny.vn/vngcloud/internal/containerregistry"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
@@ -154,14 +153,6 @@ type GlobalPoolMember = glb.GlobalPoolMember
 type GlobalPoolMemberDetail = glb.GlobalPoolMemberDetail
 type GlobalListener = glb.GlobalListener
 type GlobalLoadBalancerUsageHistory = glb.GlobalLoadBalancerUsageHistory
-
-type ContainerRegistryService = containerregistry.Service
-type ListContainerRepositoriesOptions = containerregistry.ListContainerRepositoriesOptions
-type ListContainerRegistryUsersOptions = containerregistry.ListContainerRegistryUsersOptions
-type ListContainerRepositoriesResult = containerregistry.ListContainerRepositoriesResult
-type ListContainerRegistryUsersResult = containerregistry.ListContainerRegistryUsersResult
-type ContainerRepository = containerregistry.ContainerRepository
-type ContainerRegistryUser = containerregistry.ContainerRegistryUser
 
 const (
 	DefaultPage     = core.DefaultPage

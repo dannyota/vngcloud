@@ -19,8 +19,6 @@ func TestPublicFacadeCompile(t *testing.T) {
 	_ = (*vngcloud.GlobalLoadBalancerService)(nil)
 	_ = vngcloud.GlobalLoadBalancerPackage{}
 	_ = vngcloud.GlobalLoadBalancerRegion{}
-	_ = vngcloud.ContainerRepository{}
-	_ = (*vngcloud.ContainerRegistryService)(nil)
 
 	if vngcloud.NewClient == nil {
 		t.Fatal("NewClient is nil")
