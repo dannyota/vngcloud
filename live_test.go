@@ -5,6 +5,7 @@ package vngcloud_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,30 @@ import (
 	"danny.vn/vngcloud/project"
 	"danny.vn/vngcloud/volume"
 )
+
+// liveHome is one temp directory, created once per test binary run, that
+// every live-tagged test in this package may use as HOME. TestLiveCLI (in
+// live_cli_test.go) points HOME at it so the CLI's fixed ~/.vngcloud/cache
+// path resolves to the same directory as cacheDir below: TestLive and
+// TestLiveCLI then share one cached token for the same credentials instead
+// of each performing its own IAM login inside one 30-second TOTP window.
+var liveHome string
+
+// TestMain creates liveHome before any test runs and removes it once every
+// test in the binary (TestLive and, under the same build tag, TestLiveCLI)
+// has finished, so the shared cache directory outlives whichever test
+// creates it first regardless of run order.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "vngcloud-live-home-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vngcloud: create live home dir: %v\n", err)
+		os.Exit(1)
+	}
+	liveHome = dir
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestLive(t *testing.T) {
 	if err := envfile.Load(".env"); err != nil {
@@ -47,12 +72,12 @@ func TestLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// cacheDir is shared by every Config this run builds, and the two files
-	// below are empty, so LoadConfig resolves credentials from .env's
+	// cacheDir is under liveHome (see TestMain and its doc comment above), so
+	// a CLI command TestLiveCLI runs in this process reuses the token this
+	// login caches. It is shared by every Config this run builds, and the two
+	// files below are empty, so LoadConfig resolves credentials from .env's
 	// environment variables and never reads the real ~/.vngcloud.
-	// The cache creates this subdirectory with mode 0700; t.TempDir itself is
-	// 0755, which the cache refuses.
-	cacheDir := filepath.Join(t.TempDir(), "cache")
+	cacheDir := filepath.Join(liveHome, ".vngcloud", "cache")
 	emptyConfigFile := emptyFile(t, "config")
 	emptyCredentialsFile := emptyFile(t, "credentials")
 
