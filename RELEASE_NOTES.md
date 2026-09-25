@@ -1,5 +1,49 @@
 # Release Notes
 
+## v0.4.0 - Service Packages
+
+### Breaking changes
+
+- `vngcloud.NewClient` and the transitional `vngcloud.Client` type are gone.
+  Every service is now its own top-level package with `New(cfg
+  vngcloud.Config) *Client`, matching `billing` and `pricing`: `compute`,
+  `volume`, `network`, `loadbalancer`, `globalloadbalancer`, `dns`,
+  `containerregistry`, `portal`, and `project` (new; replaces
+  `client.ListProjects`).
+- Every operation takes one `*OpInput` and returns one `*OpOutput`, for
+  example `compute.New(cfg).GetServer(ctx, &compute.GetServerInput{ServerID:
+  id})`. Methods that took bare arguments, such as `GetServer(ctx, id)` and
+  `ListSubnets(ctx)`, moved to Input structs. A required Input field returns
+  `ErrInvalidInput` before any request when it is empty, including a nil
+  Input.
+- List outputs name their field: `Items` for the page, plus `Page`,
+  `PageSize`, `TotalPage`, and `TotalItem` for an API that pages. A Get
+  returns a struct with one named field, such as `GetServerOutput{Server
+  Server}`.
+- Model renames drop redundant package prefixes now that each service is its
+  own package: `network` renames `NetworkRoute` to `Route`, `NetworkACL` to
+  `ACL`, `NetworkEndpoint` to `Endpoint`, `NetworkEndpointDetail` to
+  `EndpointDetail`, and `NetworkZone` to `Zone`. `loadbalancer` renames
+  `LoadBalancerNode` to `Node`, `LoadBalancerPackage` to `Package`, and
+  `LoadBalancerTag` to `Tag`. `globalloadbalancer` (renamed from the `glb`
+  internal package) renames every `GLB`- and `Global`-prefixed type, for
+  example `GlobalLoadBalancer` to `LoadBalancer` and `GLBPackage` to
+  `Package`. `dns` renames `DNSRecord` to `Record` and `VpcMapRegion` to
+  `VPCMapRegion`. `portal` renames `PortalUserInfo`, `PortalZone`,
+  `PortalQuota`, and `PortalTagQuota` to `UserInfo`, `Zone`, `Quota`, and
+  `TagQuota`. `containerregistry` renames `ContainerRepository` to
+  `Repository` and `ContainerRegistryUser` to `User`.
+- `APIError.Operation` is now `"<package>.<Method>"` in lowercase, such as
+  `"compute.GetServer"`, everywhere including project discovery
+  (`"project.ListProjects"`).
+
+### Highlights
+
+- `network` imports `compute` for `compute.Server`, since
+  `ListServersBySecurityGroup` returns full server objects.
+- No API coverage changed: every method that existed before keeps its
+  behavior under the new signature.
+
 ## v0.3.0 - Budgets and Price Quotes
 
 ### Breaking changes

@@ -18,6 +18,7 @@ import (
 	"log"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/compute"
 )
 
 func main() {
@@ -35,12 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := vngcloud.NewClient(ctx, cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	servers, err := client.Compute.ListServers(ctx, &vngcloud.ListServersOptions{
+	servers, err := compute.New(cfg).ListServers(ctx, &compute.ListServersInput{
 		Page: 1,
 		Size: vngcloud.DefaultPageSize,
 	})
@@ -53,15 +49,16 @@ func main() {
 ```
 
 `NewConfig` logs the IAM User in right away, so bad credentials fail before
-`NewClient` runs. Each Config targets one region. Build one Config per region
-you need, and pass it to `NewClient` or to a service package's `New`.
+the first service call runs. Each Config targets one region. Build one
+Config per region you need, and pass it to a service package's `New`. Every
+service client built from the same Config shares one login and one project
+lookup.
 
 ## Billing example
 
-`billing` and `pricing` are separate packages built from the same Config;
-they do not hang off the client `NewClient` returns. See
-[Billing and Pricing](Billing-and-Pricing.md) for their full surface. A
-minimal read:
+`billing` and `pricing` are separate packages built from the same Config,
+exactly like `compute`. See [Billing and Pricing](Billing-and-Pricing.md) for
+their full surface. A minimal read:
 
 ```go
 import "danny.vn/vngcloud/billing"

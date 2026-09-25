@@ -66,12 +66,12 @@ cfg, err := vngcloud.NewConfig(
 if err != nil {
 	log.Fatal(err)
 }
-client, err := vngcloud.NewClient(ctx, cfg)
+computeClient := compute.New(cfg)
 ```
 
 The SDK does not refresh a static token. When it expires, build a new
-`Config` with `vngcloud.NewConfig` and a fresh token, then build a new client
-from it.
+`Config` with `vngcloud.NewConfig` and a fresh token, then build new service
+clients from it.
 
 ## Permissions
 

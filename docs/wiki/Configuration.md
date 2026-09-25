@@ -11,16 +11,16 @@ serves one region.
 the SDK lists the projects visible to the IAM User in the region and uses the
 only match. If more than one project matches, set `ProjectID`.
 
-List projects yourself:
+List projects yourself with the `project` package:
 
 ```go
-projects, err := client.ListProjects(ctx, nil)
+projects, err := project.New(cfg).ListProjects(ctx, nil)
 ```
 
 Or for another region:
 
 ```go
-projects, err := client.ListProjects(ctx, &vngcloud.ListProjectsOptions{
+projects, err := project.New(cfg).ListProjects(ctx, &project.ListProjectsInput{
 	Region: "han-1",
 })
 ```
@@ -46,7 +46,7 @@ cfg, err := vngcloud.NewConfig(
 if err != nil {
 	log.Fatal(err)
 }
-client, err := vngcloud.NewClient(ctx, cfg)
+computeClient := compute.New(cfg)
 ```
 
 `Dashboard` sets the OAuth redirect URI used during IAM login. Setting it also

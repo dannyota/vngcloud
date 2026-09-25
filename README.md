@@ -31,12 +31,17 @@ command. It talks to the GreenNode hosts (`*.console.greennode.ai`,
 |-|-|-|-|
 | Budgets, cost, balances | `billing` | Yes | Budgets and thresholds |
 | Price quotes | `pricing` | Yes | None; a quote never orders |
-| Compute, volume, network, load balancers, DNS, registry, portal | `vngcloud.NewClient` | Yes | Planned |
+| Compute | `compute` | Yes | Planned |
+| Volumes | `volume` | Yes | Planned |
+| Networking | `network` | Yes | Planned |
+| Load balancers | `loadbalancer`, `globalloadbalancer` | Yes | Planned |
+| DNS | `dns` | Yes | Planned |
+| Container registry | `containerregistry` | Yes | Planned |
+| Portal, quotas | `portal` | Yes | Planned |
+| Project listing | `project` | Yes | N/A |
 | Command-line tool | | Planned | Planned |
 
-Expect breaking changes until `v1.0.0`. The services behind
-`vngcloud.NewClient` move into their own packages next, like `billing` and
-`pricing`.
+Expect breaking changes until `v1.0.0`.
 
 ## Install
 
@@ -62,6 +67,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -101,11 +107,7 @@ func main() {
 	}
 	fmt.Printf("snapshot: %.0f VND\n", quote.OptimumPrice)
 
-	client, err := vngcloud.NewClient(ctx, cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-	servers, err := client.Compute.ListServers(ctx, nil)
+	servers, err := compute.New(cfg).ListServers(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -113,8 +115,8 @@ func main() {
 }
 ```
 
-Every client built from one `Config` shares a single login, so the program
-signs in once.
+Every service client built from the same `Config` shares a single login, so
+the program signs in once no matter how many packages it calls.
 
 ## Authentication
 

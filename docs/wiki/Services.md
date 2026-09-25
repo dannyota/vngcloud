@@ -1,182 +1,199 @@
 # Services
 
-Each GreenNode product has a service client on the root client, for example
-`client.Compute`. All methods on the root client are reads today. A method
-can still return a permission error when the IAM User lacks access to that
-product or region.
+Each GreenNode product is its own package, for example
+`danny.vn/vngcloud/compute`. Every package has `New(cfg vngcloud.Config)
+*Client`, built from the same `Config` other services use, and read methods
+shaped `Method(ctx, *MethodInput) (*MethodOutput, error)`. All methods are
+reads today. A method can still return a permission error when the IAM User
+lacks access to that product or region. A required Input field is marked
+"required"; passing it empty, or passing a nil Input when a field is
+required, returns `vngcloud.ErrInvalidInput` before any request.
 
-`billing` and `pricing` are separate packages, not clients on the root
-client; see [Billing and Pricing](Billing-and-Pricing.md). They cover writes
-too: budgets can be created, changed, paused, and deleted.
+`billing` and `pricing` cover writes too: budgets can be created, changed,
+paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
 
 ## Coverage
 
-| Product | Coverage | Model Shape | Notes |
-|---|---|---|---|
-| Project | Project listing for the configured region | Typed | Used by optional project discovery. |
-| Portal | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
-| Compute | Servers, server detail, SSH keys, placement groups, placement policies, images | Typed | Some helpers flatten nested data already returned by list APIs. |
-| Volume | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes convenience helpers for walking snapshots. |
-| Network | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints | Typed | Some methods discover VNetwork region metadata before reading resources. |
-| Load Balancer | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates | Typed | Requires IAM User permissions for the target load balancer resources. |
-| Global Load Balancer | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
-| DNS | Hosted zones and records | Typed | DNS APIs are not project-scoped in the same way as regional compute resources. |
-| Container Registry | Repositories and users | Map-backed | Map-backed until the API surface is stable enough for typed structs. |
+| Product | Package | Coverage | Model Shape | Notes |
+|---|---|---|---|---|
+| Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
+| Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
+| Compute | `compute` | Servers, server detail, SSH keys, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs. |
+| Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes a convenience method for walking snapshots. |
+| Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints | Typed | Some methods discover VNetwork region metadata before reading resources. |
+| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates | Typed | Requires IAM User permissions for the target load balancer resources. |
+| Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
+| DNS | `dns` | Hosted zones and records | Typed | DNS APIs are not project-scoped in the same way as regional compute resources. |
+| Container Registry | `containerregistry` | Repositories and users | Map-backed | Map-backed until the API surface is stable enough for typed structs. |
 
-## Compute
-
-Compute APIs are exposed under `client.Compute`.
+## Project
 
 ```go
-client.Compute.ListServers(ctx, opts)
-client.Compute.GetServer(ctx, id)
-client.Compute.ListSSHKeys(ctx, opts)
-client.Compute.ListServerGroups(ctx, opts)
-client.Compute.ListServerSecurityGroups(ctx)
-client.Compute.ListServerGroupMembers(ctx)
-client.Compute.ListServerGroupPolicies(ctx)
-client.Compute.ListOSImages(ctx, opts)
-client.Compute.ListGPUImages(ctx)
-client.Compute.ListUserImages(ctx, opts)
+projectClient := project.New(cfg)
+projectClient.ListProjects(ctx, in) // Region (optional; defaults to cfg's region)
 ```
 
-`ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
-already returned by server and server-group list APIs. They do not require extra
-API calls.
+Every other service discovers its project the same way when `Config` has no
+`ProjectID` set and exactly one project matches the region.
 
-## Volume
-
-Volume APIs are exposed under `client.Volume`.
+## Portal
 
 ```go
-client.Volume.ListVolumes(ctx, opts)
-client.Volume.GetVolume(ctx, id)
-client.Volume.GetUnderlyingVolume(ctx, id)
-client.Volume.ListVolumeTypeZones(ctx, opts)
-client.Volume.ListVolumeTypes(ctx, opts)
-client.Volume.GetVolumeType(ctx, id)
-client.Volume.GetDefaultVolumeType(ctx)
-client.Volume.ListEncryptionTypes(ctx)
-client.Volume.ListSnapshots(ctx, volumeID, opts)
-client.Volume.ListAllSnapshots(ctx)
-```
-
-`ProjectID` is optional in client config. Volume methods discover the project for
-the configured region when needed.
-
-`ListAllSnapshots` is a convenience helper that walks visible volumes and returns
-their snapshots.
-
-## Network
-
-Network APIs are exposed under `client.Network`.
-
-```go
-client.Network.ListVNetworkRegions(ctx)
-client.Network.ListVPCs(ctx, opts)
-client.Network.GetVPC(ctx, id)
-client.Network.ListWANIPs(ctx, opts)
-client.Network.ListNetworkInterfaces(ctx, opts)
-client.Network.ListSecurityGroups(ctx, opts)
-client.Network.GetSecurityGroup(ctx, id)
-client.Network.ListServersBySecurityGroup(ctx, id)
-client.Network.ListVirtualIPAddresses(ctx, opts)
-client.Network.ListRouteTables(ctx, opts)
-client.Network.ListPeerings(ctx, opts)
-client.Network.ListNetworkACLs(ctx, opts)
-client.Network.ListInterconnects(ctx, opts)
-client.Network.ListSubnets(ctx)
-client.Network.ListSubnetsByVPC(ctx, vpcID)
-client.Network.GetSubnet(ctx, vpcID, subnetID)
-client.Network.ListSecurityGroupRules(ctx, securityGroupID)
-client.Network.ListAllSecurityGroupRules(ctx)
-client.Network.ListRouteTableRoutes(ctx)
-client.Network.GetVirtualIPAddress(ctx, id)
-client.Network.ListAddressPairsByVirtualIPAddress(ctx, id)
-client.Network.ListAddressPairsByVirtualSubnet(ctx, virtualSubnetID)
-client.Network.ListAllVirtualIPAddressAddressPairs(ctx)
-client.Network.ListEndpoints(ctx, opts)
-client.Network.GetEndpoint(ctx, id)
-client.Network.ListEndpointTags(ctx, id)
-```
-
-`ListEndpoints` discovers VNetwork region metadata when needed before reading
-endpoint resources.
-
-The SDK has no method for network ACL rules or for a single network interface.
-
-## Load Balancing
-
-Regional Load Balancer APIs are exposed under `client.LoadBalancer`.
-
-```go
-client.LoadBalancer.ListLoadBalancers(ctx, opts)
-client.LoadBalancer.GetLoadBalancer(ctx, id)
-client.LoadBalancer.ListListeners(ctx, loadBalancerID)
-client.LoadBalancer.GetListener(ctx, loadBalancerID, listenerID)
-client.LoadBalancer.ListPools(ctx, loadBalancerID)
-client.LoadBalancer.GetPool(ctx, loadBalancerID, poolID)
-client.LoadBalancer.GetPoolHealthMonitor(ctx, loadBalancerID, poolID)
-client.LoadBalancer.ListPoolMembers(ctx, loadBalancerID, poolID)
-client.LoadBalancer.ListPolicies(ctx, loadBalancerID, listenerID)
-client.LoadBalancer.GetPolicy(ctx, loadBalancerID, listenerID, policyID)
-client.LoadBalancer.ListTags(ctx, loadBalancerID)
-client.LoadBalancer.ListLoadBalancerPackages(ctx, opts)
-client.LoadBalancer.ListCertificates(ctx, opts)
-client.LoadBalancer.GetCertificate(ctx, id)
-```
-
-Global Load Balancer APIs are exposed under `client.GlobalLoadBalancer`.
-
-```go
-client.GlobalLoadBalancer.ListPackages(ctx)
-client.GlobalLoadBalancer.ListRegions(ctx)
-client.GlobalLoadBalancer.ListLoadBalancers(ctx, opts)
-client.GlobalLoadBalancer.GetLoadBalancer(ctx, id)
-client.GlobalLoadBalancer.ListPools(ctx, loadBalancerID)
-client.GlobalLoadBalancer.ListListeners(ctx, loadBalancerID)
-client.GlobalLoadBalancer.GetListener(ctx, loadBalancerID, listenerID)
-client.GlobalLoadBalancer.ListPoolMembers(ctx, loadBalancerID, poolID)
-client.GlobalLoadBalancer.GetPoolMember(ctx, loadBalancerID, poolID, poolMemberID)
-client.GlobalLoadBalancer.ListUsageHistories(ctx, loadBalancerID, opts)
-```
-
-Package and region catalog methods are global metadata calls. Inventory and
-nested resource methods require IAM User access to the target resources.
-
-## DNS, Portal, and Container Registry
-
-DNS APIs are exposed under `client.DNS`.
-
-```go
-client.DNS.ListHostedZones(ctx, opts)
-client.DNS.GetHostedZone(ctx, id)
-client.DNS.ListRecords(ctx, hostedZoneID, opts)
-client.DNS.GetRecord(ctx, hostedZoneID, recordID)
-```
-
-DNS APIs are not project-scoped in the same way as regional compute resources.
-They may still require IAM User permissions for the DNS product.
-
-Portal APIs are exposed under `client.Portal`.
-
-```go
-client.Portal.GetUserInfo(ctx)
-client.Portal.ListZones(ctx)
-client.Portal.ListQuotaUsed(ctx)
-client.Portal.GetQuota(ctx, name)
-client.Portal.GetTagQuota(ctx)
+portalClient := portal.New(cfg)
+portalClient.GetUserInfo(ctx, nil)
+portalClient.ListZones(ctx, nil)
+portalClient.ListQuotaUsed(ctx, nil)
+portalClient.GetQuota(ctx, in)     // Name (required)
+portalClient.GetTagQuota(ctx, nil)
 ```
 
 Portal models are map-backed so the SDK preserves returned fields without
 requiring a breaking model update when the portal payload changes.
 
-Container Registry APIs are exposed under `client.ContainerRegistry`.
+## Compute
 
 ```go
-client.ContainerRegistry.ListRepositories(ctx, opts)
-client.ContainerRegistry.ListUsers(ctx, opts)
+computeClient := compute.New(cfg)
+computeClient.ListServers(ctx, in)              // Page, Size
+computeClient.GetServer(ctx, in)                // ServerID (required)
+computeClient.ListSSHKeys(ctx, in)              // Name, Page, Size
+computeClient.ListServerGroups(ctx, in)         // Name, Page, Size
+computeClient.ListServerSecurityGroups(ctx, nil)
+computeClient.ListServerGroupMembers(ctx, nil)
+computeClient.ListServerGroupPolicies(ctx, nil)
+computeClient.ListOSImages(ctx, in)             // ZoneID
+computeClient.ListGPUImages(ctx, nil)
+computeClient.ListUserImages(ctx, in)           // Page, Size
 ```
 
-Repository and user items are map-backed, so the SDK keeps every field the API
-returns.
+`ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
+already returned by server and server-group list APIs. They do not require
+extra API calls.
+
+## Volume
+
+```go
+volumeClient := volume.New(cfg)
+volumeClient.ListVolumes(ctx, in)          // Name, Page, Size
+volumeClient.GetVolume(ctx, in)            // VolumeID (required)
+volumeClient.GetUnderlyingVolume(ctx, in)  // VolumeID (required)
+volumeClient.ListVolumeTypeZones(ctx, in)  // ZoneID
+volumeClient.ListVolumeTypes(ctx, in)      // VolumeTypeZoneID
+volumeClient.GetVolumeType(ctx, in)        // VolumeTypeID (required)
+volumeClient.GetDefaultVolumeType(ctx, nil)
+volumeClient.ListEncryptionTypes(ctx, nil)
+volumeClient.ListSnapshots(ctx, in)        // VolumeID (required), Page, Size
+volumeClient.ListAllSnapshots(ctx, nil)
+```
+
+`ProjectID` is optional in `Config`. Volume methods discover the project for
+the configured region when needed.
+
+`ListAllSnapshots` is a convenience method that walks visible volumes and
+returns their snapshots.
+
+## Network
+
+`network` imports `compute` for the `compute.Server` model, since
+`ListServersBySecurityGroup` returns full server objects.
+
+```go
+networkClient := network.New(cfg)
+networkClient.ListVNetworkRegions(ctx, nil)
+networkClient.ListVPCs(ctx, in)                            // Name, Page, Size
+networkClient.GetVPC(ctx, in)                               // VPCID (required)
+networkClient.ListWANIPs(ctx, in)                           // Name, Page, Size
+networkClient.ListNetworkInterfaces(ctx, in)                // Name, Page, Size
+networkClient.ListSecurityGroups(ctx, in)                   // Name, Page, Size
+networkClient.GetSecurityGroup(ctx, in)                     // SecurityGroupID (required)
+networkClient.ListServersBySecurityGroup(ctx, in)           // SecurityGroupID (required)
+networkClient.ListVirtualIPAddresses(ctx, in)               // Name, Page, Size
+networkClient.ListRouteTables(ctx, in)                      // Name, Page, Size
+networkClient.ListPeerings(ctx, in)                         // Name, Page, Size
+networkClient.ListNetworkACLs(ctx, in)                      // Name, Page, Size
+networkClient.ListInterconnects(ctx, in)                    // Name, Page, Size
+networkClient.ListSubnets(ctx, nil)
+networkClient.ListSubnetsByVPC(ctx, in)                     // VPCID (required)
+networkClient.GetSubnet(ctx, in)                            // VPCID, SubnetID (both required)
+networkClient.ListSecurityGroupRules(ctx, in)               // SecurityGroupID (required)
+networkClient.ListAllSecurityGroupRules(ctx, nil)
+networkClient.ListRouteTableRoutes(ctx, nil)
+networkClient.GetVirtualIPAddress(ctx, in)                  // VirtualIPAddressID (required)
+networkClient.ListAddressPairsByVirtualIPAddress(ctx, in)   // VirtualIPAddressID (required)
+networkClient.ListAddressPairsByVirtualSubnet(ctx, in)      // VirtualSubnetID (required)
+networkClient.ListAllVirtualIPAddressAddressPairs(ctx, nil)
+networkClient.ListEndpoints(ctx, in)                        // ZoneID, VPCID, UUID, Page, Size
+networkClient.GetEndpoint(ctx, in)                          // EndpointID (required)
+networkClient.ListEndpointTags(ctx, in)                     // EndpointID (required)
+```
+
+`ListEndpoints` and `GetEndpoint` discover VNetwork region metadata when
+needed before reading endpoint resources.
+
+The SDK has no method for network ACL rules or for a single network
+interface.
+
+## Load Balancing
+
+Regional Load Balancer APIs are in `loadbalancer`.
+
+```go
+lbClient := loadbalancer.New(cfg)
+lbClient.ListLoadBalancers(ctx, in)         // Name, Page, Size
+lbClient.GetLoadBalancer(ctx, in)           // LoadBalancerID (required)
+lbClient.ListListeners(ctx, in)             // LoadBalancerID (required)
+lbClient.GetListener(ctx, in)               // LoadBalancerID, ListenerID (both required)
+lbClient.ListPools(ctx, in)                 // LoadBalancerID (required)
+lbClient.GetPool(ctx, in)                   // LoadBalancerID, PoolID (both required)
+lbClient.GetPoolHealthMonitor(ctx, in)      // LoadBalancerID, PoolID (both required)
+lbClient.ListPoolMembers(ctx, in)           // LoadBalancerID, PoolID (both required)
+lbClient.ListPolicies(ctx, in)              // LoadBalancerID, ListenerID (both required)
+lbClient.GetPolicy(ctx, in)                 // LoadBalancerID, ListenerID, PolicyID (all required)
+lbClient.ListTags(ctx, in)                  // LoadBalancerID (required)
+lbClient.ListPackages(ctx, in)              // ZoneID
+lbClient.ListCertificates(ctx, in)          // Name, Page, Size
+lbClient.GetCertificate(ctx, in)            // CertificateID (required)
+```
+
+Global Load Balancer APIs are in `globalloadbalancer`.
+
+```go
+glbClient := globalloadbalancer.New(cfg)
+glbClient.ListPackages(ctx, nil)
+glbClient.ListRegions(ctx, nil)
+glbClient.ListLoadBalancers(ctx, in)   // Name, Offset, Limit
+glbClient.GetLoadBalancer(ctx, in)     // LoadBalancerID (required)
+glbClient.ListPools(ctx, in)           // LoadBalancerID (required)
+glbClient.ListListeners(ctx, in)       // LoadBalancerID (required)
+glbClient.GetListener(ctx, in)         // LoadBalancerID, ListenerID (both required)
+glbClient.ListPoolMembers(ctx, in)     // LoadBalancerID, PoolID (both required)
+glbClient.GetPoolMember(ctx, in)       // LoadBalancerID, PoolID, PoolMemberID (all required)
+glbClient.ListUsageHistories(ctx, in)  // LoadBalancerID (required), From, To, Type
+```
+
+Package and region catalog methods are global metadata calls. Inventory and
+nested resource methods require IAM User access to the target resources.
+
+## DNS
+
+```go
+dnsClient := dns.New(cfg)
+dnsClient.ListHostedZones(ctx, in)  // Name
+dnsClient.GetHostedZone(ctx, in)    // HostedZoneID (required)
+dnsClient.ListRecords(ctx, in)      // HostedZoneID (required), Name
+dnsClient.GetRecord(ctx, in)        // HostedZoneID, RecordID (both required)
+```
+
+DNS APIs are not project-scoped in the same way as regional compute
+resources. They may still require IAM User permissions for the DNS product.
+
+## Container Registry
+
+```go
+vcrClient := containerregistry.New(cfg)
+vcrClient.ListRepositories(ctx, in)  // AccessLevel
+vcrClient.ListUsers(ctx, in)         // Name, Page, Size
+```
+
+Repository and user items are map-backed, so the SDK keeps every field the
+API returns.
