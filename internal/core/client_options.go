@@ -54,6 +54,8 @@ type clientConfig struct {
 	projectID     string
 	iamUser       *IAMUserAuth
 	credentials   CredentialsProvider
+	tokenCacheDir string
+	profile       string
 }
 
 type ResponseCapture struct {
@@ -157,5 +159,25 @@ func WithIAMUser(auth *IAMUserAuth) Option {
 func WithCredentialsProvider(p CredentialsProvider) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.credentials = p
+	})
+}
+
+// WithTokenCache turns on an on-disk token cache shared across processes,
+// rooted at dir (created with mode 0700). Only IAM User credentials use it;
+// a static token or a custom CredentialsProvider is never written to disk.
+// Without this option, the SDK writes nothing to dir.
+func WithTokenCache(dir string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.tokenCacheDir = dir
+	})
+}
+
+// WithProfile names the profile used in the token cache key, so tokens for
+// different profiles sharing one cache directory never collide. LoadConfig
+// sets this from the resolved profile name; a direct NewConfig caller using
+// WithTokenCache usually does not need it.
+func WithProfile(name string) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.profile = name
 	})
 }

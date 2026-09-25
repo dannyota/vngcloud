@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/routes"
+	"danny.vn/vngcloud/internal/tokencache"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -60,11 +61,22 @@ func newClient(opts ...Option) (*Client, error) {
 	case settings.staticToken != "":
 		ts = staticTokenSource(settings.staticToken)
 	default:
-		ts = &iamTokenSource{auth: settings.iamUser, endpoints: loginEndpoints{
+		source := &iamTokenSource{auth: settings.iamUser, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
 			token:     resolvedEndpoints.Token,
 			dashboard: resolvedEndpoints.Dashboard,
 		}}
+		if settings.tokenCacheDir != "" {
+			source.cache = tokencache.New(settings.tokenCacheDir, time.Now)
+			source.cacheKey = tokencache.Key{
+				Profile:   settings.profile,
+				RootEmail: settings.iamUser.RootEmail,
+				Username:  settings.iamUser.Username,
+				SigninURL: firstNonEmpty(settings.iamUser.SigninBaseURL, resolvedEndpoints.Signin),
+				TokenURL:  firstNonEmpty(settings.iamUser.TokenURL, resolvedEndpoints.Token),
+			}
+		}
+		ts = source
 	}
 	var capture transport.CaptureFunc
 	if settings.capture != nil {
@@ -270,21 +282,63 @@ func buildHTTPClient(cfg clientConfig) *http.Client {
 	}
 }
 
+// iamTokenSource adapts an IAMUserAuth to transport.TokenSource. With no
+// cache configured it delegates straight to auth's own in-memory caching.
+// With a cache configured, it checks memory first, then the disk cache
+// (which performs the login itself when needed), and remembers whatever the
+// disk cache returns so this process's later calls skip the disk.
 type iamTokenSource struct {
 	auth      *IAMUserAuth
 	endpoints loginEndpoints
+	cache     *tokencache.Cache
+	cacheKey  tokencache.Key
+
+	mu       sync.Mutex
+	rejected string
 }
 
 func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
-	token, expiresAt, err := s.auth.token(ctx, s.endpoints)
+	if s.cache == nil {
+		token, expiresAt, err := s.auth.token(ctx, s.endpoints)
+		if err != nil {
+			return transport.Token{}, err
+		}
+		return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
+	}
+
+	if token, expiresAt, ok := s.auth.cachedIfFresh(); ok {
+		return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
+	}
+
+	s.mu.Lock()
+	rejected := s.rejected
+	s.rejected = ""
+	s.mu.Unlock()
+
+	cached, err := s.cache.Get(ctx, s.cacheKey, rejected, func(ctx context.Context) (tokencache.Token, error) {
+		token, expiresAt, err := s.auth.doLogin(ctx, s.endpoints)
+		if err != nil {
+			return tokencache.Token{}, err
+		}
+		return tokencache.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
+	})
 	if err != nil {
 		return transport.Token{}, err
 	}
-	return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
+	s.auth.remember(cached.AccessToken, cached.ExpiresAt)
+	return transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}, nil
 }
 
+// Invalidate clears auth's in-memory token as usual and, when a disk cache
+// is configured, remembers sent so the next Token call passes it to
+// Cache.Get as the rejected token. It never records an empty string.
 func (s *iamTokenSource) Invalidate(sent string) {
 	s.auth.Invalidate(sent)
+	if s.cache != nil && sent != "" {
+		s.mu.Lock()
+		s.rejected = sent
+		s.mu.Unlock()
+	}
 }
 
 func mapStatusError(status int) error {

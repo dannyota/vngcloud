@@ -46,6 +46,8 @@ var (
 	WithProjectID           = core.WithProjectID
 	WithIAMUser             = core.WithIAMUser
 	WithCredentialsProvider = core.WithCredentialsProvider
+	WithTokenCache          = core.WithTokenCache
+	WithProfile             = core.WithProfile
 	WithHTTPClient          = core.WithHTTPClient
 	WithTransport           = core.WithTransport
 	WithTimeout             = core.WithTimeout

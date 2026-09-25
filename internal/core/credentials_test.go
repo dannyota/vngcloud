@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -287,6 +289,68 @@ func TestCustomCredentialsProvider(t *testing.T) {
 	defer provider.mu.Unlock()
 	if len(provider.invalidated) != 1 || provider.invalidated[0] != "tok-1" {
 		t.Fatalf("invalidated = %v, want [tok-1]", provider.invalidated)
+	}
+}
+
+// TestTwoConfigsSharedTokenCacheLogInOnce builds two Configs from two
+// independent IAMUserAuth values (not a shared pointer) with the same
+// credentials, pointed at one token cache directory. Only the on-disk cache
+// can make this share a login, since the two IAMUserAuth values have no
+// in-memory state in common.
+func TestTwoConfigsSharedTokenCacheLogInOnce(t *testing.T) {
+	signinURL, tokenURL, logins := fakeIAMServers(t)
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
+
+	c1, err := newClient(WithRegion("hcm-3"), WithIAMUser(fakeIAMUser(signinURL, tokenURL)),
+		WithTokenCache(cacheDir), WithEndpointOverrides(EndpointOverrides{VServer: api.URL}))
+	if err != nil {
+		t.Fatalf("newClient() #1 error = %v", err)
+	}
+	c2, err := newClient(WithRegion("hcm-3"), WithIAMUser(fakeIAMUser(signinURL, tokenURL)),
+		WithTokenCache(cacheDir), WithEndpointOverrides(EndpointOverrides{VServer: api.URL}))
+	if err != nil {
+		t.Fatalf("newClient() #2 error = %v", err)
+	}
+
+	if err := c1.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate() #1 error = %v", err)
+	}
+	if err := c2.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate() #2 error = %v", err)
+	}
+
+	if logins.Load() != 1 {
+		t.Fatalf("logins = %d, want 1", logins.Load())
+	}
+}
+
+// TestStaticTokenConfigWithTokenCacheWritesNothing confirms that a static
+// token never touches the token cache directory, even when one is
+// configured: the cache is IAM-User-only.
+func TestStaticTokenConfigWithTokenCacheWritesNothing(t *testing.T) {
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
+
+	c, err := newClient(WithRegion("hcm-3"), WithStaticToken("static-tok"),
+		WithTokenCache(cacheDir), WithEndpointOverrides(EndpointOverrides{VServer: api.URL}))
+	if err != nil {
+		t.Fatalf("newClient() error = %v", err)
+	}
+	if _, err := doRequest(t, c, api.URL); err != nil {
+		t.Fatalf("DoJSONStatus() error = %v", err)
+	}
+
+	if _, err := os.Stat(cacheDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cache dir stat error = %v, want os.ErrNotExist (nothing should be written)", err)
 	}
 }
 

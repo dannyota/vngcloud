@@ -56,6 +56,14 @@ func (a *IAMUserAuth) validate() error {
 	return nil
 }
 
+// token returns a token for ep, reusing the in-memory cache when it is
+// fresh and otherwise performing one login while holding mu, so concurrent
+// callers sharing this IAMUserAuth (whether from one Config or several)
+// never log in more than once for the same request. This is the path used
+// when no token cache directory is configured; with one configured,
+// iamTokenSource instead calls cachedIfFresh, doLogin, and remember
+// directly, so the cross-process disk lock (not this mutex) is what
+// serializes the actual login.
 func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, time.Time, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -64,6 +72,20 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 		return a.cachedToken, a.expiresAt, nil
 	}
 
+	token, expiresAt, err := a.doLogin(ctx, ep)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	a.cachedToken = token
+	a.expiresAt = expiresAt
+	a.obtainedAt = timeNow()
+	return a.cachedToken, a.expiresAt, nil
+}
+
+// doLogin performs one physical login against ep. It touches no cache,
+// in-memory or on disk: callers decide separately whether to record the
+// result.
+func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints) (string, time.Time, error) {
 	req := iamuser.LoginRequest{
 		RootEmail:     a.RootEmail,
 		Username:      a.Username,
@@ -78,10 +100,29 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints) (string, tim
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("%w: %w", ErrAuth, err)
 	}
-	a.cachedToken = result.AccessToken
-	a.expiresAt = result.ExpiresAt
+	return result.AccessToken, result.ExpiresAt, nil
+}
+
+// cachedIfFresh returns the in-memory token when present and not within 30
+// seconds of expiry, without touching the network or disk.
+func (a *IAMUserAuth) cachedIfFresh() (string, time.Time, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
+		return a.cachedToken, a.expiresAt, true
+	}
+	return "", time.Time{}, false
+}
+
+// remember records token as the in-memory cache, for this process to reuse
+// without a disk read, after it came from the token cache (either reused
+// from disk or freshly logged in there).
+func (a *IAMUserAuth) remember(token string, expiresAt time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cachedToken = token
+	a.expiresAt = expiresAt
 	a.obtainedAt = timeNow()
-	return a.cachedToken, a.expiresAt, nil
 }
 
 // Invalidate drops the cached token when sent is still the cached one and it
