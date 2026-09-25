@@ -4,6 +4,7 @@ package pricing
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"danny.vn/vngcloud"
@@ -95,7 +96,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		return nil, err
 	}
 
-	var resp quoteResponse
+	var raw json.RawMessage
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPost,
@@ -108,8 +109,25 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		OK:         []int{200},
 		Idempotent: true,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
 		return nil, err
+	}
+
+	// A quote response always carries optimumPrice. Its absence, on an
+	// otherwise successful HTTP 200, means the body is an error shape (such
+	// as a billing-style envelope) rather than a priced quote; decoding it
+	// as one would silently return a zero-value price.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, &core.APIError{Operation: op, Err: err}
+	}
+	if _, ok := probe["optimumPrice"]; !ok {
+		return nil, &core.APIError{Operation: op, Message: "quote response had no price"}
+	}
+
+	var resp quoteResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, &core.APIError{Operation: op, Err: err}
 	}
 
 	properties := make([]PriceProperty, len(resp.PropertiesPrice))

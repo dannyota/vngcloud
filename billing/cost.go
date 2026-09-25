@@ -80,7 +80,7 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 		URL:       c.route([]string{"gateway", "api", "v2", "cost-explorer", "overview"}, q),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &data); err != nil {
+	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
 	}
 	return &GetCostOverviewOutput{
@@ -164,7 +164,7 @@ func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInp
 		URL:       c.route([]string{"gateway", "api", "v2", "cost-explorer", "resources"}, q),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &data); err != nil {
+	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
 	}
 	return &ListCostResourcesOutput{

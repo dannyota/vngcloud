@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -37,7 +38,7 @@ func (c *Client) ListBudgets(ctx context.Context, in *ListBudgetsInput) (*ListBu
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets"}, q),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &budgets); err != nil {
+	if _, err := c.do(ctx, req, &budgets); err != nil {
 		return nil, err
 	}
 	return &ListBudgetsOutput{Items: budgets}, nil
@@ -68,7 +69,7 @@ func (c *Client) GetBudget(ctx context.Context, in *GetBudgetInput) (*GetBudgetO
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID}, nil),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &budget); err != nil {
+	if _, err := c.do(ctx, req, &budget); err != nil {
 		return nil, err
 	}
 	return &GetBudgetOutput{Budget: budget}, nil
@@ -95,7 +96,7 @@ func (c *Client) GetCurrentPeriodCost(ctx context.Context, in *GetCurrentPeriodC
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", "cost", "overview"}, nil),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &cost); err != nil {
+	if _, err := c.do(ctx, req, &cost); err != nil {
 		return nil, err
 	}
 	return &GetCurrentPeriodCostOutput{PeriodCost: cost}, nil
@@ -124,7 +125,7 @@ func (c *Client) ListBudgetThresholds(ctx context.Context, in *ListBudgetThresho
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "thresholds"}, nil),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &thresholds); err != nil {
+	if _, err := c.do(ctx, req, &thresholds); err != nil {
 		return nil, err
 	}
 	return &ListBudgetThresholdsOutput{Items: thresholds}, nil
@@ -159,7 +160,7 @@ func (c *Client) ListBudgetAlerts(ctx context.Context, in *ListBudgetAlertsInput
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "alerts"}, q),
 		OK:        []int{200},
 	}
-	if err := c.do(ctx, req, &alerts); err != nil {
+	if _, err := c.do(ctx, req, &alerts); err != nil {
 		return nil, err
 	}
 	return &ListBudgetAlertsOutput{Items: alerts}, nil
@@ -217,8 +218,12 @@ func (c *Client) CreateBudget(ctx context.Context, in *CreateBudgetInput) (*Crea
 		},
 		OK: writeOK,
 	}
-	if err := c.do(ctx, req, &budget); err != nil {
+	httpStatus, err := c.do(ctx, req, &budget)
+	if err != nil {
 		return nil, err
+	}
+	if budget.UUID == "" {
+		return nil, &core.APIError{Operation: op, StatusCode: httpStatus, Message: "create response had no uuid"}
 	}
 	return &CreateBudgetOutput{Budget: budget}, nil
 }
@@ -245,6 +250,9 @@ func (c *Client) UpdateBudget(ctx context.Context, in *UpdateBudgetInput) (*Upda
 	if err := core.CheckPathID(op, "BudgetUUID", in.BudgetUUID); err != nil {
 		return nil, err
 	}
+	if in.Name == nil && in.PeriodType == nil && in.Type == nil && in.LimitAmount == nil && in.Status == nil {
+		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
+	}
 
 	body := map[string]any{}
 	if in.Name != nil {
@@ -270,7 +278,7 @@ func (c *Client) UpdateBudget(ctx context.Context, in *UpdateBudgetInput) (*Upda
 		Body:      body,
 		OK:        writeOK,
 	}
-	if err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.do(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &UpdateBudgetOutput{}, nil
@@ -299,7 +307,7 @@ func (c *Client) DeleteBudget(ctx context.Context, in *DeleteBudgetInput) (*Dele
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID}, nil),
 		OK:        writeOK,
 	}
-	if err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.do(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &DeleteBudgetOutput{}, nil
@@ -370,8 +378,12 @@ func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThre
 		},
 		OK: writeOK,
 	}
-	if err := c.do(ctx, req, &threshold); err != nil {
+	httpStatus, err := c.do(ctx, req, &threshold)
+	if err != nil {
 		return nil, err
+	}
+	if threshold.UUID == "" {
+		return nil, &core.APIError{Operation: op, StatusCode: httpStatus, Message: "create response had no uuid"}
 	}
 	return &CreateBudgetThresholdOutput{Threshold: threshold}, nil
 }
@@ -399,6 +411,9 @@ func (c *Client) UpdateBudgetThreshold(ctx context.Context, in *UpdateBudgetThre
 	if err := core.CheckPathID(op, "ThresholdUUID", in.ThresholdUUID); err != nil {
 		return nil, err
 	}
+	if in.ThresholdPercentage == nil && in.Enabled == nil && in.MaxAlertsPerPeriod == nil && in.ReminderIntervalHours == nil {
+		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
+	}
 
 	body := map[string]any{}
 	if in.ThresholdPercentage != nil {
@@ -421,7 +436,7 @@ func (c *Client) UpdateBudgetThreshold(ctx context.Context, in *UpdateBudgetThre
 		Body:      body,
 		OK:        writeOK,
 	}
-	if err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.do(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &UpdateBudgetThresholdOutput{}, nil
@@ -453,7 +468,7 @@ func (c *Client) DeleteBudgetThreshold(ctx context.Context, in *DeleteBudgetThre
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "thresholds", in.ThresholdUUID}, nil),
 		OK:        writeOK,
 	}
-	if err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.do(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &DeleteBudgetThresholdOutput{}, nil

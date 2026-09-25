@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -100,31 +101,34 @@ func (c *Client) finishEnvelope(req transport.Request, status int, env envelope,
 	return nil
 }
 
-// do sends req and decodes its envelope into out. A non-empty body with
-// neither a "code" nor a "data" key is an error: every dashboard gateway
-// operation except GetBalances is enveloped, so an unenveloped body means
-// the response does not match what the caller asked for.
-func (c *Client) do(ctx context.Context, req transport.Request, out any) error {
+// do sends req and decodes its envelope into out, returning the actual HTTP
+// status alongside any error so a caller that must inspect a successful
+// response, such as a create checking for a returned id, has it on hand. A
+// non-empty body with neither a "code" nor a "data" key is an error: every
+// dashboard gateway operation except GetBalances is enveloped, so an
+// unenveloped body means the response does not match what the caller asked
+// for.
+func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, error) {
 	raw, status, err := c.doRaw(ctx, req)
 	if err != nil {
-		return mapNotFound(err)
+		return status, mapNotFound(err)
 	}
 	if len(raw) == 0 {
-		return nil
+		return status, nil
 	}
 
 	env, err := decodeEnvelope(raw)
 	if err != nil {
-		return &core.APIError{Operation: req.Operation, Err: err}
+		return status, &core.APIError{Operation: req.Operation, Err: err}
 	}
 	if env.Code == nil && env.Data == nil {
-		return &core.APIError{
+		return status, &core.APIError{
 			Operation:  req.Operation,
 			StatusCode: status,
 			Message:    "response had no envelope",
 		}
 	}
-	return c.finishEnvelope(req, status, env, out)
+	return status, c.finishEnvelope(req, status, env, out)
 }
 
 // doBalances is do, but a body with neither a "code" nor a "data" key is
@@ -179,10 +183,18 @@ func isJSONNull(raw json.RawMessage) bool {
 
 // mapNotFound turns a "Budget not found" or "Threshold not found" message
 // into a NotFound error. The API sends these as a 400, or as an error
-// envelope inside an HTTP 2xx, rather than a real 404.
+// envelope inside an HTTP 2xx, rather than a real 404. A 401, 403, or 5xx
+// that happens to carry the same text is left as its original error: those
+// statuses are not the server's not-found signal, and mapping them away
+// would hide a real auth or server failure.
 func mapNotFound(err error) error {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) {
+		return err
+	}
+	is400or2xx := apiErr.StatusCode == http.StatusBadRequest ||
+		(apiErr.StatusCode >= 200 && apiErr.StatusCode <= 299)
+	if !is400or2xx {
 		return err
 	}
 	if !strings.HasPrefix(apiErr.Message, "Budget not found") &&

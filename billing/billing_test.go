@@ -37,7 +37,7 @@ func TestListBudgets(t *testing.T) {
 	// The live capture behind this fixture found the test account with no
 	// budgets at all three points it called ListBudgets. An empty list is
 	// the real shape of a successful call; TestListBudgetsDecodesSummaryFields
-	// below covers a populated item with a synthetic body instead.
+	// below covers a populated item with a synthetic fixture instead.
 	if len(out.Items) != 0 {
 		t.Fatalf("unexpected budgets: %+v", out.Items)
 	}
@@ -45,38 +45,12 @@ func TestListBudgets(t *testing.T) {
 
 // TestListBudgetsDecodesSummaryFields checks that every field the summary
 // view (view=summary) can send decodes correctly. No live capture has shown
-// a populated ListBudgets response, so this uses a synthetic body instead of
-// a testdata fixture; GetBudget and CreateBudget cover the fields a live
-// capture did confirm.
+// a populated ListBudgets response, so ListBudgetsSummary.json holds
+// synthetic values rather than a sanitized live one; GetBudget and
+// CreateBudget cover the fields a live capture did confirm.
 func TestListBudgetsDecodesSummaryFields(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{
-			"code": 200,
-			"message": "success",
-			"data": [
-				{
-					"id": 1,
-					"uuid": "budget-1",
-					"name": "example-budget",
-					"periodType": "MONTHLY",
-					"type": "ACTUAL",
-					"status": "PAUSED",
-					"limitAmount": 1000000.0,
-					"currency": "credit",
-					"periodKey": "2026-09",
-					"periodStart": "2026-09-01",
-					"periodEnd": "2026-09-30",
-					"actualCost": 0,
-					"forecastedCost": 0,
-					"actualPercentage": 0,
-					"forecastedPercentage": 0,
-					"alarm": false,
-					"thresholdCount": 0,
-					"alarmThresholdCount": 0,
-					"thresholdPercentage": null
-				}
-			]
-		}`))
+		testutil.WriteFixture(t, w, "../testdata/billing/ListBudgetsSummary.json")
 	}))
 
 	out, err := client.ListBudgets(context.Background(), nil)
@@ -343,6 +317,38 @@ func TestBudgetNotFound(t *testing.T) {
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestNotFoundMessageOnlyMappedFor400Or2xx checks that mapNotFound applies
+// only to the two shapes the server actually uses for "not found": a 400,
+// or an error code inside a 2xx envelope. A 401, 403, or 5xx that happens to
+// carry the same message text keeps its original error and status.
+func TestNotFoundMessageOnlyMappedFor400Or2xx(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+	}{
+		{"401", http.StatusUnauthorized},
+		{"403", http.StatusForbidden},
+		{"500", http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"message":"Budget not found: budget-x"}`))
+			}))
+
+			_, err := client.GetBudget(context.Background(), &GetBudgetInput{BudgetUUID: "budget-x"})
+			if vngcloud.IsNotFound(err) {
+				t.Fatalf("IsNotFound(err) = true, want false for status %d", tc.status)
+			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 

@@ -82,6 +82,11 @@ if _, err := client.UpdateBudget(ctx, &billing.UpdateBudgetInput{
 
 `UpdateBudget` sends only the fields you set; every other field of the
 budget stays as it was. There is no separate pause operation.
+`UpdateBudget` and `UpdateBudgetThreshold` need at least one field set;
+calling either with none is an error before any request goes out.
+`CreateBudget` and `CreateBudgetThreshold` return the new object's UUID; a
+create response with no UUID is an error too, rather than a budget or
+threshold the SDK cannot name.
 
 ### Thresholds
 
@@ -123,6 +128,11 @@ if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{
 ```
 
 ## Cost and balances
+
+`GetCostOverview`, `ListCostResources`, and `ListBudgetAlerts` decode the
+console's own field names, but no live capture has yet shown a response
+with real cost or alert data for these three. Until one does, treat a field
+that reads as zero as unconfirmed rather than as a true zero.
 
 `GetCurrentPeriodCost` reports the account's current billing period:
 

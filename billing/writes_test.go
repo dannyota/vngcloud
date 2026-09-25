@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -124,21 +125,74 @@ func TestCreateBudgetRequiredFields(t *testing.T) {
 }
 
 func TestCreateBudgetMissingUUID(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"code":200,"message":"Success","data":{"id":4,"name":"x","periodType":"MONTHLY","type":"ACTUAL","limitAmount":1000000,"status":"ACTIVE"}}`))
-	}))
-
-	out, err := client.CreateBudget(context.Background(), &CreateBudgetInput{
-		Name:        "x",
-		PeriodType:  PeriodMonthly,
-		Type:        TypeActual,
-		LimitAmount: 1000000,
-	})
-	if err != nil {
-		t.Fatalf("CreateBudget() error = %v", err)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"data omits uuid", `{"code":200,"message":"Success","data":{"id":4,"name":"x","periodType":"MONTHLY","type":"ACTUAL","limitAmount":1000000,"status":"ACTIVE"}}`},
+		{"data is null", `{"code":200,"message":"Success","data":null}`},
+		{"empty body", ``},
 	}
-	if out.Budget.UUID != "" {
-		t.Fatalf("expected empty UUID when data omits it, got %q", out.Budget.UUID)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+
+			_, err := client.CreateBudget(context.Background(), &CreateBudgetInput{
+				Name:        "x",
+				PeriodType:  PeriodMonthly,
+				Type:        TypeActual,
+				LimitAmount: 1000000,
+			})
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected *vngcloud.APIError, got %v", err)
+			}
+			if apiErr.Message != "create response had no uuid" {
+				t.Fatalf("Message = %q", apiErr.Message)
+			}
+			if apiErr.Operation != "billing.CreateBudget" {
+				t.Fatalf("Operation = %q", apiErr.Operation)
+			}
+		})
+	}
+}
+
+// TestCreateBudgetThresholdMissingUUID mirrors TestCreateBudgetMissingUUID
+// for CreateBudgetThreshold: a create response without a threshold uuid is
+// an error, since the SDK never finds a new threshold by any other means.
+func TestCreateBudgetThresholdMissingUUID(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"data omits uuid", `{"code":200,"message":"Success","data":{"thresholdType":"ACTUAL","thresholdPercentage":80}}`},
+		{"data is null", `{"code":200,"message":"Success","data":null}`},
+		{"empty body", ``},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+
+			_, err := client.CreateBudgetThreshold(context.Background(), &CreateBudgetThresholdInput{
+				BudgetUUID:          "budget-1",
+				ThresholdType:       TypeActual,
+				ThresholdPercentage: 80,
+			})
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected *vngcloud.APIError, got %v", err)
+			}
+			if apiErr.Message != "create response had no uuid" {
+				t.Fatalf("Message = %q", apiErr.Message)
+			}
+			if apiErr.Operation != "billing.CreateBudgetThreshold" {
+				t.Fatalf("Operation = %q", apiErr.Operation)
+			}
+		})
 	}
 }
 
@@ -279,6 +333,21 @@ func TestDeleteBudgetNotFound(t *testing.T) {
 	_, err := client.DeleteBudget(context.Background(), &DeleteBudgetInput{BudgetUUID: "budget-x"})
 	if !vngcloud.IsNotFound(err) {
 		t.Fatalf("IsNotFound(err) = false, err = %v", err)
+	}
+}
+
+func TestUpdateBudgetNoFieldsSet(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+	client := newTestClient(t, failIfCalled)
+
+	_, err := client.UpdateBudget(context.Background(), &UpdateBudgetInput{BudgetUUID: "budget-1"})
+	if !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if !strings.Contains(err.Error(), "requires at least one field to change") {
+		t.Fatalf("err = %v, want a message naming at least one field to change", err)
 	}
 }
 
@@ -473,6 +542,24 @@ func TestUpdateBudgetThresholdSendsOnlySetFields(t *testing.T) {
 				t.Fatalf("UpdateBudgetThreshold() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestUpdateBudgetThresholdNoFieldsSet(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+	client := newTestClient(t, failIfCalled)
+
+	_, err := client.UpdateBudgetThreshold(context.Background(), &UpdateBudgetThresholdInput{
+		BudgetUUID:    "budget-1",
+		ThresholdUUID: "threshold-1",
+	})
+	if !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if !strings.Contains(err.Error(), "requires at least one field to change") {
+		t.Fatalf("err = %v, want a message naming at least one field to change", err)
 	}
 }
 

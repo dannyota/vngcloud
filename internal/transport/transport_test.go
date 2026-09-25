@@ -143,6 +143,38 @@ func TestDoJSONContextCancelDuringRetryWait(t *testing.T) {
 	}
 }
 
+// TestCancelledContextNotRetryable checks that a request made with an
+// already-canceled context fails with Retryable false, even for an
+// idempotent GET that would otherwise be retried after this kind of
+// transport error.
+func TestCancelledContextNotRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := c.DoJSON(ctx, Request{
+		Operation: "Op",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		SkipAuth:  true,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Retryable {
+		t.Fatal("Retryable = true, want false for a canceled context")
+	}
+}
+
 func TestBackoffBounds(t *testing.T) {
 	c := New(Config{RetryInterval: time.Second})
 	for attempt := 0; attempt < 10; attempt++ {

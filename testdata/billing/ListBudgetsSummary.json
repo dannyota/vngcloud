@@ -1,0 +1,27 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "id": 1,
+      "uuid": "budget-1",
+      "name": "example-budget",
+      "periodType": "MONTHLY",
+      "type": "ACTUAL",
+      "status": "PAUSED",
+      "limitAmount": 1000000.0,
+      "currency": "credit",
+      "periodKey": "2026-09",
+      "periodStart": "2026-09-01",
+      "periodEnd": "2026-09-30",
+      "actualCost": 0,
+      "forecastedCost": 0,
+      "actualPercentage": 0,
+      "forecastedPercentage": 0,
+      "alarm": false,
+      "thresholdCount": 0,
+      "alarmThresholdCount": 0,
+      "thresholdPercentage": null
+    }
+  ]
+}

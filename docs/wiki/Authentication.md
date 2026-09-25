@@ -5,13 +5,20 @@ support root-account or service-account login.
 
 ## IAM User
 
-Pass the root account email, the IAM username, and the password:
+Pass the root account email, the IAM username, and the password to
+`vngcloud.WithIAMUser` in `NewConfig`:
 
 ```go
-IAMUser: &vngcloud.IAMUserAuth{
-	RootEmail: "<root-email>",
-	Username:  "<iam-username>",
-	Password:  "<password>",
+cfg, err := vngcloud.NewConfig(
+	vngcloud.WithRegion("hcm-3"),
+	vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+		RootEmail: "<root-email>",
+		Username:  "<iam-username>",
+		Password:  "<password>",
+	}),
+)
+if err != nil {
+	log.Fatal(err)
 }
 ```
 
@@ -20,18 +27,29 @@ request once after an HTTP 401.
 
 ## Two-factor codes (TOTP)
 
-Omit `TOTP` when the IAM User has no 2FA. Otherwise, give the SDK the base32
-shared secret so it computes codes itself:
+Omit `TOTP` when the IAM User has no 2FA. Otherwise, set it on the
+`IAMUserAuth` literal with the base32 shared secret so the SDK computes codes
+itself:
 
 ```go
-TOTP: &vngcloud.SecretTOTP{Secret: "<totp-secret>"},
+vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+	RootEmail: "<root-email>",
+	Username:  "<iam-username>",
+	Password:  "<password>",
+	TOTP:      &vngcloud.SecretTOTP{Secret: "<totp-secret>"},
+}),
 ```
 
 Or supply codes from your own source:
 
 ```go
-TOTP: vngcloud.TOTPFunc(func(ctx context.Context) (string, error) {
-	return promptForCode(ctx)
+vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+	RootEmail: "<root-email>",
+	Username:  "<iam-username>",
+	Password:  "<password>",
+	TOTP: vngcloud.TOTPFunc(func(ctx context.Context) (string, error) {
+		return promptForCode(ctx)
+	}),
 }),
 ```
 
@@ -51,8 +69,9 @@ if err != nil {
 client, err := vngcloud.NewClient(ctx, cfg)
 ```
 
-The SDK does not refresh a static token. When it expires, create a new client
-with a fresh token.
+The SDK does not refresh a static token. When it expires, build a new
+`Config` with `vngcloud.NewConfig` and a fresh token, then build a new client
+from it.
 
 ## Permissions
 

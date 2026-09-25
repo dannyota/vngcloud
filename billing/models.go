@@ -3,6 +3,7 @@ package billing
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -57,7 +58,7 @@ func (a *budgetLimitAmount) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if f != math.Trunc(f) {
-		return fmt.Errorf("billing: limitAmount %s is not an integer", data)
+		return errors.New("billing: limitAmount is not an integer")
 	}
 	*a = budgetLimitAmount(f)
 	return nil
@@ -209,27 +210,29 @@ func (b *Balances) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var err error
-	if b.Cash, err = decodeMoney(wire.Cash); err != nil {
+	if b.Cash, err = decodeMoney("cash", wire.Cash); err != nil {
 		return err
 	}
-	if b.POC, err = decodeMoney(wire.POC); err != nil {
+	if b.POC, err = decodeMoney("poc", wire.POC); err != nil {
 		return err
 	}
-	if b.CashAvailable, err = decodeMoney(wire.CashAvailable); err != nil {
+	if b.CashAvailable, err = decodeMoney("cashAvailable", wire.CashAvailable); err != nil {
 		return err
 	}
-	if b.CashHolding, err = decodeMoney(wire.CashHolding); err != nil {
+	if b.CashHolding, err = decodeMoney("cashHolding", wire.CashHolding); err != nil {
 		return err
 	}
-	if b.POCHolding, err = decodeMoney(wire.POCHolding); err != nil {
+	if b.POCHolding, err = decodeMoney("pocHolding", wire.POCHolding); err != nil {
 		return err
 	}
 	return nil
 }
 
 // decodeMoney accepts a JSON null, a JSON number, or a numeric string, since
-// the balances endpoint has sent amounts as quoted strings.
-func decodeMoney(raw json.RawMessage) (*float64, error) {
+// the balances endpoint has sent amounts as quoted strings. field names the
+// balance field being decoded, for an error message that says which field
+// failed without echoing the value that failed to parse.
+func decodeMoney(field string, raw json.RawMessage) (*float64, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
 		return nil, nil
@@ -237,17 +240,17 @@ func decodeMoney(raw json.RawMessage) (*float64, error) {
 	if trimmed[0] == '"' {
 		var s string
 		if err := json.Unmarshal(trimmed, &s); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("billing: %s is not a string", field)
 		}
 		f, err := strconv.ParseFloat(s, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("billing: %s is not a number", field)
 		}
 		return &f, nil
 	}
 	var f float64
 	if err := json.Unmarshal(trimmed, &f); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("billing: %s is not a number", field)
 	}
 	return &f, nil
 }

@@ -282,7 +282,7 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 				}
 				continue
 			}
-			return 0, nil, &APIError{Operation: req.Operation, Retryable: lastRetryable, Err: err}
+			return 0, nil, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
 		}
 
 		respBody, readErr := io.ReadAll(resp.Body)
@@ -308,7 +308,17 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, error) {
 		return resp.StatusCode, respBody, nil
 	}
 
-	return 0, nil, &APIError{Operation: req.Operation, Retryable: lastRetryable, Err: lastErr}
+	return 0, nil, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
+}
+
+// retryableForContext reports retryable, unless ctx is already done: a
+// canceled or expired context is why the request failed, not a transient
+// server or network condition, so it is never worth a caller retrying.
+func retryableForContext(ctx context.Context, retryable bool) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	return retryable
 }
 
 // isDialError reports whether err is a failed dial, found by unwrapping

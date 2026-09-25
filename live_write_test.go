@@ -135,18 +135,18 @@ func TestLiveWrite(t *testing.T) {
 	if err != nil {
 		// A POST is not retried after an ambiguous failure, so the create may
 		// still have reached the server. Find and delete it by its exact name.
-		deleteBudgetByName(ctx, t, client, name)
+		deleteBudgetByName(t, client, name)
 		t.Fatalf("step 3 CreateBudget: %s", safeErr(err))
 	}
 	budgetUUID := created.Budget.UUID
 	if budgetUUID == "" {
-		deleteBudgetByName(ctx, t, client, name)
+		deleteBudgetByName(t, client, name)
 		t.Fatal("step 3: CreateBudget returned an empty UUID; the design requires one")
 	}
 	t.Log("step 3: created budget")
 
 	// Step 4: register the fallback delete immediately, before anything else
-	// can fail and skip the explicit delete in step 8.
+	// can fail and skip the explicit delete in step 7.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -249,46 +249,16 @@ func TestLiveWrite(t *testing.T) {
 		t.Fatalf("step 6: second threshold delete: unexpected code %s", vngcloud.ErrorCode(secondDeleteErr))
 	}
 
-	// Step 7: try a second budget of the same type. Whether the server
-	// allows this is an open question the live run settles.
-	dupName := name + "-dup"
-	dup, err := client.CreateBudget(ctx, &billing.CreateBudgetInput{
-		Name:        dupName,
-		PeriodType:  billing.PeriodMonthly,
-		Type:        budgetType,
-		LimitAmount: 9_999_999_999,
-		Status:      billing.StatusPaused,
-	})
-	if err != nil {
-		t.Logf("step 7: second budget of the same type rejected, code %s", vngcloud.ErrorCode(err))
-	} else {
-		dupUUID := dup.Budget.UUID
-		if dupUUID != "" {
-			t.Cleanup(func() {
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				if _, err := client.DeleteBudget(cleanupCtx, &billing.DeleteBudgetInput{BudgetUUID: dupUUID}); err != nil && !vngcloud.IsNotFound(err) {
-					t.Errorf("cleanup: delete second budget: %s", safeErr(err))
-				}
-			})
-			// Delete it now, not only in the cleanup above, so step 8's count
-			// of remaining vngcloud-live budgets is accurate before the test
-			// returns; the cleanup is a safety net for an earlier failure.
-			if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{BudgetUUID: dupUUID}); err != nil {
-				t.Fatalf("step 7 delete second budget: %s", safeErr(err))
-			}
-		}
-		t.Log("server allows a second budget per type")
-	}
-
-	// Step 8: delete the budget and confirm none named vngcloud-live-*
-	// remain.
-	if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{BudgetUUID: budgetUUID}); err != nil {
-		t.Fatalf("step 8 DeleteBudget: %s", safeErr(err))
+	// Step 7: delete the budget and confirm none named vngcloud-live-*
+	// remain. DELETE is retried as a read is, so a retry that reaches the
+	// server after an earlier attempt already deleted the budget returns
+	// NotFound; that is success for a delete, not a failure.
+	if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{BudgetUUID: budgetUUID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7 DeleteBudget: %s", safeErr(err))
 	}
 	final, err := client.ListBudgets(ctx, &billing.ListBudgetsInput{})
 	if err != nil {
-		t.Fatalf("step 8 final ListBudgets: %s", safeErr(err))
+		t.Fatalf("step 7 final ListBudgets: %s", safeErr(err))
 	}
 	remaining := 0
 	for _, budget := range final.Items {
@@ -296,17 +266,22 @@ func TestLiveWrite(t *testing.T) {
 			remaining++
 		}
 	}
-	t.Logf("step 8: vngcloud-live budgets remaining: %d", remaining)
+	t.Logf("step 7: vngcloud-live budgets remaining: %d", remaining)
 	if remaining != 0 {
-		t.Fatalf("step 8: expected 0 vngcloud-live budgets, found %d", remaining)
+		t.Fatalf("step 7: expected 0 vngcloud-live budgets, found %d", remaining)
 	}
 }
 
 // deleteBudgetByName lists budgets and deletes the one matching name. It is
 // used after a CreateBudget failure, since a POST that returned an error may
-// still have reached the server.
-func deleteBudgetByName(ctx context.Context, t *testing.T, client *billing.Client, name string) {
+// still have reached the server. It runs on its own timeout, not the calling
+// test step's context, so it can still clean up after that step's context
+// is the reason the step failed.
+func deleteBudgetByName(t *testing.T, client *billing.Client, name string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	list, err := client.ListBudgets(ctx, &billing.ListBudgetsInput{})
 	if err != nil {
 		t.Errorf("cleanup: list budgets by name: %s", safeErr(err))

@@ -183,6 +183,37 @@ func TestGetQuoteRetriedAfter502(t *testing.T) {
 	}
 }
 
+// TestGetQuoteNoPriceIsError checks that an HTTP 200 body without an
+// optimumPrice key is an error rather than a silent zero-price quote. The
+// price gateway is not enveloped in the normal case, but an error can still
+// arrive as a billing-style envelope on a 200; either shape lacks
+// optimumPrice and must not decode into a fake zero-value quote.
+func TestGetQuoteNoPriceIsError(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty object", `{}`},
+		{"error envelope", `{"code":400,"message":"x"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+
+			_, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected *vngcloud.APIError, got %v", err)
+			}
+			if apiErr.Message != "quote response had no price" {
+				t.Fatalf("Message = %q", apiErr.Message)
+			}
+		})
+	}
+}
+
 func TestGetQuoteBadRequestIsAPIError(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

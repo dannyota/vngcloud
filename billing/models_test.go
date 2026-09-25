@@ -2,6 +2,7 @@ package billing
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -34,8 +35,26 @@ func TestBudgetLimitAmountDecode(t *testing.T) {
 	t.Run("fractional value is rejected", func(t *testing.T) {
 		var b Budget
 		raw := `{"uuid":"budget-1","limitAmount":1.5}`
-		if err := json.Unmarshal([]byte(raw), &b); err == nil {
+		err := json.Unmarshal([]byte(raw), &b)
+		if err == nil {
 			t.Fatal("expected an error for a fractional limitAmount, got nil")
 		}
+		if strings.Contains(err.Error(), "1.5") {
+			t.Fatalf("error text names the input value: %v", err)
+		}
 	})
+}
+
+// TestBalancesParseErrorOmitsValue checks that a balance field the API sends
+// as an unparseable string fails without echoing that string in the error.
+func TestBalancesParseErrorOmitsValue(t *testing.T) {
+	var b Balances
+	raw := `{"cash":"not-a-number-xyz","poc":null,"cashAvailable":null,"cashHolding":null,"pocHolding":null}`
+	err := json.Unmarshal([]byte(raw), &b)
+	if err == nil {
+		t.Fatal("expected an error for an unparseable cash value, got nil")
+	}
+	if strings.Contains(err.Error(), "not-a-number-xyz") {
+		t.Fatalf("error text names the input value: %v", err)
+	}
 }
