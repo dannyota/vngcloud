@@ -3,7 +3,6 @@ package vngcloud
 import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/glb"
-	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/sdk"
 )
 
@@ -31,25 +30,6 @@ type ListResult[T any] = core.ListResult[T]
 
 type Project = core.Project
 type ListProjectsOptions = core.ListProjectsOptions
-
-type LoadBalancerService = loadbalancer.Service
-type ListLoadBalancersOptions = loadbalancer.ListLoadBalancersOptions
-type ListLoadBalancerPackagesOptions = loadbalancer.ListLoadBalancerPackagesOptions
-type ListCertificatesOptions = loadbalancer.ListCertificatesOptions
-type ListLoadBalancersResult = loadbalancer.ListLoadBalancersResult
-type ListCertificatesResult = loadbalancer.ListCertificatesResult
-type LoadBalancer = loadbalancer.LoadBalancer
-type LoadBalancerNode = loadbalancer.LoadBalancerNode
-type LoadBalancerPackage = loadbalancer.LoadBalancerPackage
-type Certificate = loadbalancer.Certificate
-type LoadBalancerTag = loadbalancer.LoadBalancerTag
-type ListenerInsertHeader = loadbalancer.ListenerInsertHeader
-type Listener = loadbalancer.Listener
-type Pool = loadbalancer.Pool
-type PoolMember = loadbalancer.PoolMember
-type HealthMonitor = loadbalancer.HealthMonitor
-type Policy = loadbalancer.Policy
-type L7Rule = loadbalancer.L7Rule
 
 type GlobalLoadBalancerService = glb.Service
 type ListGlobalLoadBalancersOptions = glb.ListGlobalLoadBalancersOptions

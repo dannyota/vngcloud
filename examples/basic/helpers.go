@@ -6,8 +6,6 @@ import (
 	"danny.vn/vngcloud"
 )
 
-type pageFetcher[T any] func(page, size int) (*vngcloud.ListResult[T], error)
-
 func record[T any](outputs *sdkOutputStore, client *vngcloud.Client, path, label string, items []T, err error) {
 	outputs.add(path, client, items, err)
 	printResult(label, len(items), err)
@@ -79,27 +77,6 @@ func collectPaged[T any](size int, fetch pagedFetcher[T]) ([]T, error) {
 		result = append(result, more...)
 	}
 	return result, nil
-}
-
-func collectPages[T any](size int, fetch pageFetcher[T]) ([]T, error) {
-	first, err := fetch(1, size)
-	if err != nil {
-		return nil, err
-	}
-	if first == nil {
-		return nil, nil
-	}
-	items := append([]T(nil), first.Items...)
-	for page := 2; page <= first.Page.TotalPage; page++ {
-		next, err := fetch(page, size)
-		if err != nil {
-			return nil, err
-		}
-		if next != nil {
-			items = append(items, next.Items...)
-		}
-	}
-	return items, nil
 }
 
 func collectDetails[T any, R any](items []T, id func(T) string, get func(string) (*R, error)) ([]*R, error) {

@@ -100,7 +100,7 @@ func main() {
 			showCompute(ctx, client, cfg, sdkOutputs)
 			showVolume(ctx, client, cfg, sdkOutputs)
 			showNetwork(ctx, client, cfg, sdkOutputs)
-			showLoadBalancer(ctx, client, sdkOutputs)
+			showLoadBalancer(ctx, client, cfg, sdkOutputs)
 			showGlobalLoadBalancer(ctx, client, sdkOutputs)
 			if regionIndex == 0 {
 				showGlobalLoadBalancerCatalog(ctx, client, sdkOutputs)

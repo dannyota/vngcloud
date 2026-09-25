@@ -10,7 +10,6 @@ func TestPublicFacadeCompile(t *testing.T) {
 	_ = vngcloud.Config{}
 	_ = &vngcloud.IAMUserAuth{}
 	_ = vngcloud.ListOptions{}
-	_ = vngcloud.LoadBalancer{}
 	_ = vngcloud.GlobalLoadBalancer{}
 	_ = (*vngcloud.GlobalLoadBalancerService)(nil)
 	_ = vngcloud.GlobalLoadBalancerPackage{}
