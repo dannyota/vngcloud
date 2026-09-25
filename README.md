@@ -39,7 +39,7 @@ command. It talks to the GreenNode hosts (`*.console.greennode.ai`,
 | Container registry | `containerregistry` | Yes | Planned |
 | Portal, quotas | `portal` | Yes | Planned |
 | Project listing | `project` | Yes | N/A |
-| Command-line tool | | Planned | Planned |
+| Command-line tool | `vngcloud` | Billing, pricing, compute, network, DNS | Budgets and thresholds |
 
 Expect breaking changes until `v1.0.0`.
 
@@ -49,7 +49,13 @@ Expect breaking changes until `v1.0.0`.
 go get danny.vn/vngcloud@latest
 ```
 
-It needs Go 1.27 or later and uses only the standard library.
+It needs Go 1.27 or later. The SDK packages use only the standard library.
+
+To install the command-line tool:
+
+```bash
+go install danny.vn/vngcloud/cmd/vngcloud@latest
+```
 
 ## Example
 
@@ -112,6 +118,28 @@ func main() {
 
 Every service client built from the same `Config` shares a single login, so
 the program signs in once no matter how many packages it calls.
+
+## Command line
+
+`vngcloud` works like the AWS CLI: `vngcloud <service> <operation> [flags]`.
+
+```bash
+vngcloud configure                      # prompts; secrets are not echoed
+vngcloud billing list-budgets
+vngcloud compute list-servers --query 'Items[].Name' --output text
+vngcloud billing delete-budget --budget-uuid <uuid> --yes
+```
+
+- Output is JSON by default; `--output table` and `--output text` also work,
+  and `--query` takes a JMESPath expression.
+- Errors go to stderr as one JSON line with a stable exit code, so scripts
+  and AI agents can act on them.
+- Deletes need `--yes`, and nothing ever prompts without a terminal.
+- A profile with `read_only = true`, `VNGCLOUD_READ_ONLY=1`, or `--read-only`
+  refuses every write command. Give an AI agent a read-only profile.
+
+The [CLI reference](https://github.com/dannyota/vngcloud/wiki/CLI) lists
+every command and flag.
 
 ## Authentication
 

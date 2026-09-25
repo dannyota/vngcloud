@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.6.0 - The vngcloud Command
+
+### Highlights
+
+- New `vngcloud` command, installed with
+  `go install danny.vn/vngcloud/cmd/vngcloud@latest`. It covers `billing`,
+  `pricing`, `compute`, `network`, and `dns`, with one subcommand per SDK
+  operation and flags derived from each operation's Input.
+- `--output json|table|text`, `--query` (JMESPath), `--cli-input-json`, and
+  `--debug`, which logs each request's method, path, status, and timing and
+  never a body, header, token, or credential.
+- Errors print to stderr as one JSON line with stable exit codes: 1 for API
+  or network errors and cancellation, 2 for usage and config errors, 3 for
+  credential and login errors, 4 for not found.
+- Destructive commands (`billing delete-budget`, `delete-budget-threshold`)
+  need `--yes`. Nothing prompts without a terminal.
+- Read-only profiles: `read_only = true`, `VNGCLOUD_READ_ONLY=1`, or
+  `--read-only` makes every write command fail before any request.
+- `vngcloud configure` and `configure set|get|list` edit
+  `~/.vngcloud/config` and `credentials` safely: mode 0600 files in a 0700
+  directory, written through a temp file and rename, symlinks kept, secrets
+  never taken from the command line.
+- Generated CLI reference pages in the wiki.
+- SDK: `vngcloud.LoginError` reports a failed login step, its HTTP status,
+  and a suspected captcha, and never carries a credential. `WithLogger` now
+  logs requests at Debug level. `Config.ProfileSetting` reads a key from the
+  resolved profile.
+
+### Behavior changes
+
+- `APIError.Code` (and `ErrorCode`) now falls back to a status-derived code
+  when the API gives none: `BadRequest`, `Unauthorized`, `Forbidden`,
+  `NotFound`, `Conflict`, `Throttled`, `ServerError`, or `ClientError`. An
+  envelope code equal to the HTTP status counts as none, so a billing 400 is
+  `BadRequest` rather than `"400"`.
+- Login failures return `*vngcloud.LoginError`, which still matches
+  `ErrAuth`.
+
+### Dependencies
+
+The command adds `github.com/spf13/cobra`, `github.com/spf13/pflag`,
+`github.com/jmespath/go-jmespath`, and `golang.org/x/term` (with
+`golang.org/x/sys` and, on Windows, `github.com/inconshreveable/mousetrap`).
+Only `cmd/vngcloud` and `internal/cli` import them; the SDK packages stay
+standard-library only, and CI checks it.
+
 ## v0.5.0 - LoadConfig, Profiles, and the Token Cache
 
 ### Highlights
