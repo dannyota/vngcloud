@@ -9,7 +9,7 @@
     "enabled": true,
     "maxAlertsPerPeriod": 1,
     "reminderIntervalHours": 648,
-    "notificationState": "PENDING",
+    "notificationState": "OK",
     "lastAlertAt": ""
   }
 }

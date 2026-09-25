@@ -328,7 +328,6 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 				"thresholdType":         "ACTUAL",
 				"thresholdPercentage":   float64(90),
 				"comparisonOperator":    "GTE",
-				"enabled":               false,
 				"maxAlertsPerPeriod":    float64(3),
 				"reminderIntervalHours": float64(24),
 			}
@@ -337,6 +336,9 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 					t.Fatalf("body[%q] = %v, want %v (body = %+v)", k, body[k], v, body)
 				}
 			}
+			if _, ok := body["enabled"]; ok {
+				t.Fatalf("body contains enabled, want it omitted since the server ignores it on create: %+v", body)
+			}
 			testutil.WriteFixture(t, w, "../testdata/billing/CreateBudgetThreshold.json")
 		}))
 
@@ -344,7 +346,6 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 			BudgetUUID:            "budget-1",
 			ThresholdType:         TypeActual,
 			ThresholdPercentage:   90,
-			Enabled:               vngcloud.Ptr(false),
 			MaxAlertsPerPeriod:    3,
 			ReminderIntervalHours: 24,
 		})
@@ -361,7 +362,6 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 			body := decodeBody(t, r)
 			want := map[string]any{
 				"comparisonOperator":    "GTE",
-				"enabled":               true,
 				"maxAlertsPerPeriod":    float64(1),
 				"reminderIntervalHours": float64(648),
 			}
@@ -369,6 +369,9 @@ func TestCreateBudgetThresholdSendsFieldsAndDefaults(t *testing.T) {
 				if body[k] != v {
 					t.Fatalf("body[%q] = %v, want %v (body = %+v)", k, body[k], v, body)
 				}
+			}
+			if _, ok := body["enabled"]; ok {
+				t.Fatalf("body contains enabled, want it omitted since the server ignores it on create: %+v", body)
 			}
 			testutil.WriteFixture(t, w, "../testdata/billing/CreateBudgetThreshold.json")
 		}))

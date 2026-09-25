@@ -318,8 +318,6 @@ type CreateBudgetThresholdInput struct {
 	ThresholdType string `vngcloud:"required"`
 	// ThresholdPercentage must be 1 or more; the server enforces it.
 	ThresholdPercentage int `vngcloud:"required"`
-	// Enabled nil sends true.
-	Enabled *bool
 	// MaxAlertsPerPeriod 0 sends the console default, 1.
 	MaxAlertsPerPeriod int
 	// ReminderIntervalHours 0 sends the console default, 648.
@@ -330,11 +328,12 @@ type CreateBudgetThresholdOutput struct {
 	Threshold Threshold
 }
 
+// createThresholdBody has no enabled field: the server ignores it on create
+// and always starts the threshold enabled. Disable it with UpdateBudgetThreshold.
 type createThresholdBody struct {
 	ThresholdType         string `json:"thresholdType"`
 	ThresholdPercentage   int    `json:"thresholdPercentage"`
 	ComparisonOperator    string `json:"comparisonOperator"`
-	Enabled               bool   `json:"enabled"`
 	MaxAlertsPerPeriod    int    `json:"maxAlertsPerPeriod"`
 	ReminderIntervalHours int    `json:"reminderIntervalHours"`
 }
@@ -348,10 +347,6 @@ func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThre
 		return nil, err
 	}
 
-	enabled := true
-	if in.Enabled != nil {
-		enabled = *in.Enabled
-	}
 	maxAlerts := in.MaxAlertsPerPeriod
 	if maxAlerts == 0 {
 		maxAlerts = defaultMaxAlertsPerPeriod
@@ -370,7 +365,6 @@ func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThre
 			ThresholdType:         in.ThresholdType,
 			ThresholdPercentage:   in.ThresholdPercentage,
 			ComparisonOperator:    "GTE",
-			Enabled:               enabled,
 			MaxAlertsPerPeriod:    maxAlerts,
 			ReminderIntervalHours: reminder,
 		},

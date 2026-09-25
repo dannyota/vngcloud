@@ -189,12 +189,12 @@ and percentage fields. It leaves out user and creator IDs. `PeriodCost` holds `P
 | `BudgetUUID` | string | (r) |
 | `ThresholdType` | string | (r). `ACTUAL` or `FORECASTED`; the console sends the budget's `Type` |
 | `ThresholdPercentage` | int | (r). 1 or more |
-| `Enabled` | *bool | nil sends `true` |
 | `MaxAlertsPerPeriod` | int | 0 sends the console default, 1 |
 | `ReminderIntervalHours` | int | 0 sends the console default, 648 |
 
 The SDK always sends `comparisonOperator: "GTE"`, the only value the console
-offers. `UpdateBudgetThresholdInput` has `BudgetUUID` (r), `ThresholdUUID`
+offers. The server ignores `enabled` on create and starts every threshold
+enabled, so the create Input has no `Enabled`; disable with an update. `UpdateBudgetThresholdInput` has `BudgetUUID` (r), `ThresholdUUID`
 (r), and pointer fields for `ThresholdPercentage`, `Enabled`,
 `MaxAlertsPerPeriod`, and `ReminderIntervalHours`.
 
@@ -425,9 +425,9 @@ server error above, and the tests assert them.
   4. Updates only `LimitAmount`, to another value of at least 1e9, then
      reads the budget and checks every other field is unchanged, `Status`
      `PAUSED` in particular.
-  5. Creates a threshold with `Enabled` false and `ThresholdPercentage`
-     100, updates only `ReminderIntervalHours`, checks `Enabled` is still
-     false, and deletes it. It never enables the threshold.
+  5. Creates a threshold at 100 percent, disables it at once, updates only
+     `ReminderIntervalHours`, checks `Enabled` is still false, and deletes
+     it. The budget stays paused throughout, so no alert can fire.
   6. Deletes the budget in `t.Cleanup` with its own
      `context.WithTimeout(context.Background(), ...)`, never the test's
      context, then asserts that no `vngcloud-live-` budget remains, logging

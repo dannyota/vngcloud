@@ -26,8 +26,9 @@ const liveWriteCaptureDir = "examples/basic/output/raw/billing/live-write"
 
 // TestLiveWrite exercises budget and threshold writes against the real
 // account named in .env. It creates one PAUSED budget with a limit high
-// enough that it can never fire an alert, changes it, and deletes it; it
-// never leaves a budget behind and never enables a threshold.
+// enough that it can never fire an alert, changes it, and deletes it. A
+// threshold it creates is disabled right after create, while the budget
+// stays paused throughout; it never leaves a budget behind.
 func TestLiveWrite(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live budget write test")
@@ -175,13 +176,13 @@ func TestLiveWrite(t *testing.T) {
 	}
 	t.Log("step 5: updated limit; other fields unchanged")
 
-	// Step 6: create a disabled threshold, update only its reminder
-	// interval, confirm it is still disabled, then delete it twice.
+	// Step 6: create a threshold (the server always starts it enabled),
+	// disable it at once, update only its reminder interval, confirm it
+	// stayed disabled, then delete it twice.
 	thresholdCreated, err := client.CreateBudgetThreshold(ctx, &billing.CreateBudgetThresholdInput{
 		BudgetUUID:          budgetUUID,
 		ThresholdType:       budgetType,
 		ThresholdPercentage: 100,
-		Enabled:             vngcloud.Ptr(false),
 	})
 	if err != nil {
 		t.Fatalf("step 6 CreateBudgetThreshold: %s", safeErr(err))
@@ -192,11 +193,19 @@ func TestLiveWrite(t *testing.T) {
 	}
 
 	if _, err := client.UpdateBudgetThreshold(ctx, &billing.UpdateBudgetThresholdInput{
+		BudgetUUID:    budgetUUID,
+		ThresholdUUID: thresholdUUID,
+		Enabled:       vngcloud.Ptr(false),
+	}); err != nil {
+		t.Fatalf("step 6 UpdateBudgetThreshold (disable): %s", safeErr(err))
+	}
+
+	if _, err := client.UpdateBudgetThreshold(ctx, &billing.UpdateBudgetThresholdInput{
 		BudgetUUID:            budgetUUID,
 		ThresholdUUID:         thresholdUUID,
 		ReminderIntervalHours: vngcloud.Ptr(24),
 	}); err != nil {
-		t.Fatalf("step 6 UpdateBudgetThreshold: %s", safeErr(err))
+		t.Fatalf("step 6 UpdateBudgetThreshold (reminder): %s", safeErr(err))
 	}
 
 	thresholds, err := client.ListBudgetThresholds(ctx, &billing.ListBudgetThresholdsInput{BudgetUUID: budgetUUID})
@@ -210,7 +219,7 @@ func TestLiveWrite(t *testing.T) {
 		}
 		found = true
 		if th.Enabled {
-			t.Fatal("step 6: threshold became enabled; it must stay disabled")
+			t.Fatal("step 6: threshold did not stay disabled")
 		}
 		break
 	}
