@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live browser-creds
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds
 
 SHELL := bash
 
@@ -43,6 +43,9 @@ semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI r
 
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive .
+
+live-write: ## Run the gated live billing write test; needs owner approval per run and VNGCLOUD_LIVE_WRITE=1
+	@go test -tags livewrite -count=1 -v -run TestLiveWrite .
 
 browser-creds: ## Serve .env IAM User values once to scripts/browser-login.js for Playwright MCP
 	@python3 scripts/browser-creds.py

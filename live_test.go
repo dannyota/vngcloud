@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
+	"danny.vn/vngcloud/pricing"
 )
 
 func TestLive(t *testing.T) {
@@ -27,6 +29,9 @@ func TestLive(t *testing.T) {
 				regions = append(regions, region)
 			}
 		}
+	}
+	if len(regions) == 0 {
+		t.Fatal("no regions resolved from VNGCLOUD_REGIONS")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -53,9 +58,72 @@ func TestLive(t *testing.T) {
 		token = result.AccessToken
 	}
 
+	// Billing ignores the configured region, so it runs once here instead of
+	// once per region inside testLiveRegion.
+	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, regions[0], token) })
+
 	for _, region := range regions {
 		t.Run(region, func(t *testing.T) { testLiveRegion(ctx, t, region, token) })
 	}
+}
+
+// testLiveBilling reads budgets, the current period cost, and balances. It
+// logs counts and field presence only, never amounts or account values.
+func testLiveBilling(ctx context.Context, t *testing.T, region, token string) {
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion(region),
+		vngcloud.WithStaticToken(token),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	client := billing.New(cfg)
+
+	t.Run("budgets", func(t *testing.T) {
+		res, err := client.ListBudgets(ctx, &billing.ListBudgetsInput{})
+		if err != nil {
+			t.Fatalf("ListBudgets: %v", err)
+		}
+		t.Logf("budgets: %d", len(res.Items))
+	})
+	t.Run("current-period-cost", func(t *testing.T) {
+		if _, err := client.GetCurrentPeriodCost(ctx, &billing.GetCurrentPeriodCostInput{}); err != nil {
+			t.Fatalf("GetCurrentPeriodCost: %v", err)
+		}
+		t.Log("ok")
+	})
+	t.Run("balances", func(t *testing.T) {
+		res, err := client.GetBalances(ctx, &billing.GetBalancesInput{})
+		if err != nil {
+			t.Fatalf("GetBalances: %v", err)
+		}
+		t.Logf("balances set fields: %s", setBalanceFields(res.Balances))
+	})
+}
+
+// setBalanceFields names which Balances fields are non-nil, never their
+// values.
+func setBalanceFields(b billing.Balances) string {
+	var fields []string
+	if b.Cash != nil {
+		fields = append(fields, "Cash")
+	}
+	if b.POC != nil {
+		fields = append(fields, "POC")
+	}
+	if b.CashAvailable != nil {
+		fields = append(fields, "CashAvailable")
+	}
+	if b.CashHolding != nil {
+		fields = append(fields, "CashHolding")
+	}
+	if b.POCHolding != nil {
+		fields = append(fields, "POCHolding")
+	}
+	if len(fields) == 0 {
+		return "none"
+	}
+	return strings.Join(fields, ",")
 }
 
 func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
@@ -133,5 +201,12 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 			t.Fatalf("GetUserInfo: %v", err)
 		}
 		t.Logf("portal user info retrieved: %+v", info)
+	})
+	t.Run("pricing-quote", func(t *testing.T) {
+		quoteClient := pricing.New(cfg)
+		if _, err := quoteClient.GetQuote(ctx, &pricing.GetQuoteInput{ResourceType: pricing.ResourceSnapshot}); err != nil {
+			t.Fatalf("GetQuote: %v", err)
+		}
+		t.Log("ok")
 	})
 }

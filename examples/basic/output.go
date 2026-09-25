@@ -90,6 +90,10 @@ var operationOutputPaths = map[string]string{
 	"DNS.GetRecord":                              "dns/record_detail",
 	"VCR.ListRepositories":                       "containerregistry/repository",
 	"VCR.ListUsers":                              "containerregistry/user",
+	"billing.ListBudgets":                        "billing/budget",
+	"billing.GetCurrentPeriodCost":               "billing/current_period_cost",
+	"billing.GetBalances":                        "billing/balance",
+	"pricing.GetQuote":                           "pricing/quote",
 }
 
 type rawCaptureStore struct {
@@ -181,6 +185,21 @@ func (s *sdkOutputStore) addGlobal(path string, client *vngcloud.Client, items a
 }
 
 func (s *sdkOutputStore) addWithScope(path string, client *vngcloud.Client, scope string, items any, err error) {
+	s.record(path, client.Region(), client.ProjectID() != "", scope, items, err)
+}
+
+// addAccount records billing, which ignores the configured region and has no
+// project; region is always "".
+func (s *sdkOutputStore) addAccount(path string, items any, err error) {
+	s.record(path, "", false, "account", items, err)
+}
+
+// addPricing records pricing, which is scoped to region but has no project.
+func (s *sdkOutputStore) addPricing(path, region string, items any, err error) {
+	s.record(path, region, false, "region", items, err)
+}
+
+func (s *sdkOutputStore) record(path, region string, projectSelected bool, scope string, items any, err error) {
 	resource := s.resources[path]
 	if resource == nil {
 		resource = &sdkResourceOutput{}
@@ -189,8 +208,8 @@ func (s *sdkOutputStore) addWithScope(path string, client *vngcloud.Client, scop
 
 	item := sdkRegionOutput{
 		Config:          s.config,
-		Region:          client.Region(),
-		ProjectSelected: client.ProjectID() != "",
+		Region:          region,
+		ProjectSelected: projectSelected,
 		Scope:           scope,
 		Count:           countItems(items),
 		Items:           items,

@@ -107,6 +107,10 @@ func main() {
 			}
 			showDNS(ctx, client, sdkOutputs)
 			showContainerRegistry(ctx, client, sdkOutputs)
+			showPricing(ctx, cfg, region, sdkOutputs)
+			if regionIndex == 0 {
+				showBilling(ctx, cfg, sdkOutputs)
+			}
 		}
 	}
 

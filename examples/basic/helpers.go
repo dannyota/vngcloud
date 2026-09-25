@@ -27,6 +27,33 @@ func recordOne[T any](outputs *sdkOutputStore, client *vngcloud.Client, path, la
 	fmt.Printf("%s: 1\n", label)
 }
 
+// recordAccount records a billing slice result: no region, no project.
+func recordAccount[T any](outputs *sdkOutputStore, path, label string, items []T, err error) {
+	outputs.addAccount(path, items, err)
+	printResult(label, len(items), err)
+}
+
+// recordAccountOne is recordAccount for a single-item result.
+func recordAccountOne[T any](outputs *sdkOutputStore, path, label string, item T, err error) {
+	outputs.addAccount(path, item, err)
+	if err != nil {
+		fmt.Printf("%s: error\n", label)
+		return
+	}
+	fmt.Printf("%s: 1\n", label)
+}
+
+// recordPricing is recordAccountOne for a pricing result, which is scoped to
+// region but has no project.
+func recordPricing[T any](outputs *sdkOutputStore, region, path, label string, item T, err error) {
+	outputs.addPricing(path, region, item, err)
+	if err != nil {
+		fmt.Printf("%s: error\n", label)
+		return
+	}
+	fmt.Printf("%s: 1\n", label)
+}
+
 func printError(label string, err error) {
 	fmt.Printf("  %s: %v\n", label, err)
 }
