@@ -109,6 +109,7 @@ func runGenDocs(dir string) error {
 		buildDocService("compute", computeOps),
 		buildDocService("network", networkOps),
 		buildDocService("dns", dnsOps),
+		buildDocService("cdn", cdnOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -175,11 +176,14 @@ func readableGoType(t reflect.Type) string {
 }
 
 // serviceTitle capitalizes a service's command name for its page title and
-// file name: "billing" becomes "Billing", but the DNS initialism stays
-// upper case.
+// file name: "billing" becomes "Billing", but the DNS and CDN initialisms
+// stay upper case.
 func serviceTitle(name string) string {
-	if name == "dns" {
+	switch name {
+	case "dns":
 		return "DNS"
+	case "cdn":
+		return "CDN"
 	}
 	return strings.ToUpper(name[:1]) + name[1:]
 }
@@ -239,8 +243,9 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("```json\n{\"error\":{\"code\":\"NotFound\",\"message\":\"server not found\",\"status\":404,\"operation\":\"compute.GetServer\"}}\n```\n\n")
 	b.WriteString("`status` and `operation` appear only for an API error, whose `code` is the API's own " +
 		"code, or a status-derived fallback code when the API gives none. Every other error names one class: " +
-		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, or " +
-		"`QueryFailed`.\n\n")
+		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
+		"`QueryFailed`, or `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
+		"shape its parser expects; see [CDN](CDN.md)).\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

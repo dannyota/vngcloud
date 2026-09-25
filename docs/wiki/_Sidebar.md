@@ -18,3 +18,4 @@
 - [CLI: Compute](CLI-Compute.md)
 - [CLI: Network](CLI-Network.md)
 - [CLI: DNS](CLI-DNS.md)
+- [CLI: CDN](CLI-CDN.md)

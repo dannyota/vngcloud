@@ -100,6 +100,7 @@ func newFakeServer(t *testing.T, handler http.Handler) []vngcloud.LoadOption {
 		Dashboard:         base,
 		Token:             base + "accounts-api/v1/auth/token",
 		Billing:           base,
+		CDNDocs:           base + "faq/vcdn",
 	}
 	return []vngcloud.LoadOption{
 		vngcloud.WithEndpointOverrides(overrides),

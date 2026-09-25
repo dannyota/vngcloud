@@ -74,6 +74,9 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("dns", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "dns", "list-hosted-zones")
 	})
+	t.Run("cdn", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "cdn", "list-ip-ranges")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length

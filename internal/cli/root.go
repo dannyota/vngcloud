@@ -77,6 +77,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newComputeCmd(e))
 	root.AddCommand(newNetworkCmd(e))
 	root.AddCommand(newDNSCmd(e))
+	root.AddCommand(newCDNCmd(e))
 
 	return root
 }

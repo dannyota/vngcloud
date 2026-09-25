@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/cdn"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -62,7 +63,8 @@ type errorEnvelope struct {
 // the SDK), or "RequestFailed" when the error carries neither a code nor an
 // HTTP status. Every other error is named by one of the CLI's own classes:
 // InvalidUsage, ReadOnly, InvalidConfig, NoCredentials, LoginFailed,
-// RequestFailed, or QueryFailed.
+// RequestFailed, QueryFailed, or PageFormat (a public page, such as the CDN
+// IP range FAQ, no longer matches the shape its parser expects).
 func classify(err error) errorEnvelope {
 	var apiErr *vngcloud.APIError
 	if errors.As(err, &apiErr) {
@@ -107,6 +109,9 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, vngcloud.ErrInvalidConfig) {
 		return errorEnvelope{Code: "InvalidConfig", Message: err.Error()}
+	}
+	if errors.Is(err, cdn.ErrPageFormat) {
+		return errorEnvelope{Code: "PageFormat", Message: err.Error()}
 	}
 	return errorEnvelope{Code: "RequestFailed", Message: err.Error()}
 }
