@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
+	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/volume"
@@ -166,11 +167,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("volumes: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("vpcs", func(t *testing.T) {
-		res, err := client.Network.ListVPCs(ctx, &vngcloud.ListVPCsOptions{Page: 1, Size: 5})
+		res, err := network.New(cfg).ListVPCs(ctx, &network.ListVPCsInput{Page: 1, Size: 5})
 		if err != nil {
 			t.Fatalf("ListVPCs: %v", err)
 		}
-		t.Logf("vpcs: %d of %d", len(res.Items), res.Page.TotalItem)
+		t.Logf("vpcs: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("load-balancers", func(t *testing.T) {
 		res, err := client.LoadBalancer.ListLoadBalancers(ctx, &vngcloud.ListLoadBalancersOptions{Page: 1, Size: 5})

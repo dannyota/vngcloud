@@ -99,7 +99,7 @@ func main() {
 			showPortal(ctx, client, cfg, sdkOutputs)
 			showCompute(ctx, client, cfg, sdkOutputs)
 			showVolume(ctx, client, cfg, sdkOutputs)
-			showNetwork(ctx, client, sdkOutputs)
+			showNetwork(ctx, client, cfg, sdkOutputs)
 			showLoadBalancer(ctx, client, sdkOutputs)
 			showGlobalLoadBalancer(ctx, client, sdkOutputs)
 			if regionIndex == 0 {

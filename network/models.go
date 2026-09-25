@@ -6,107 +6,9 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
-// Server duplicates the public compute package's Server shape. network
-// cannot import that package yet: the root package still imports this
-// internal package directly, and compute imports the root package for its
-// Config parameter, so importing compute here would form an import cycle.
-// This copy is removed once network itself becomes a public package that
-// the root package no longer imports directly.
-type Server struct {
-	BootVolumeID          string             `json:"bootVolumeId"`
-	CreatedAt             string             `json:"createdAt"`
-	Description           string             `json:"description"`
-	EncryptionVolume      bool               `json:"encryptionVolume"`
-	EnableLog             bool               `json:"enableLog"`
-	EnableMetric          bool               `json:"enableMetric"`
-	Licence               bool               `json:"licence"`
-	LicenseKey            string             `json:"licenseKey"`
-	Location              string             `json:"location"`
-	Metadata              string             `json:"metadata"`
-	MigrateState          string             `json:"migrateState"`
-	MigrationStatus       string             `json:"migrationStatus"`
-	Name                  string             `json:"name"`
-	Product               string             `json:"product"`
-	ServerGroupID         any                `json:"serverGroupId"`
-	ServerGroupName       string             `json:"serverGroupName"`
-	SSHKeyName            string             `json:"sshKeyName"`
-	Status                string             `json:"status"`
-	StopBeforeMigrate     bool               `json:"stopBeforeMigrate"`
-	User                  string             `json:"user"`
-	UUID                  string             `json:"uuid"`
-	Image                 ServerImage        `json:"image"`
-	Flavor                ServerFlavor       `json:"flavor"`
-	SecurityGroups        []ServerSecgroup   `json:"secGroups"`
-	ExternalInterfaces    []NetworkInterface `json:"externalInterfaces"`
-	InternalInterfaces    []NetworkInterface `json:"internalInterfaces"`
-	ZoneID                string             `json:"zoneId"`
-	Zone                  core.NetworkZone   `json:"zone"`
-	AppLicense            any                `json:"appLicense"`
-	AppLicenseName        string             `json:"appLicenseName"`
-	AppPackageVersionName string             `json:"appPackageVersionName"`
-	DefaultTagIDs         []string           `json:"defaultTagIds"`
-	FlavorZoneID          string             `json:"flavorZoneId"`
-	FlavorZones           any                `json:"flavorZones"`
-	GPUMemory             any                `json:"gpuMemory"`
-	HostGroupID           string             `json:"hostGroupId"`
-}
-
-type NetworkInterface struct {
-	CreatedAt     string `json:"createdAt"`
-	FixedIP       string `json:"fixedIp"`
-	FloatingIP    string `json:"floatingIp"`
-	FloatingIPID  string `json:"floatingIpId"`
-	InterfaceType string `json:"interfaceType"`
-	MAC           string `json:"mac"`
-	NetworkUUID   string `json:"networkUuid"`
-	PortUUID      string `json:"portUuid"`
-	Product       string `json:"product"`
-	ServerUUID    string `json:"serverUuid"`
-	Status        string `json:"status"`
-	SubnetUUID    string `json:"subnetUuid"`
-	Type          string `json:"type"`
-	UpdatedAt     string `json:"updatedAt"`
-	UUID          string `json:"uuid"`
-}
-
-// ServerFlavor duplicates compute.Flavor; see the comment on Server.
-type ServerFlavor struct {
-	Bandwidth              int64  `json:"bandwidth"`
-	BandwidthUnit          string `json:"bandwidthUnit"`
-	CPU                    int64  `json:"cpu"`
-	CPUPlatformDescription string `json:"cpuPlatformDescription"`
-	FlavorID               string `json:"flavorId"`
-	GPU                    int64  `json:"gpu"`
-	Group                  string `json:"group"`
-	Memory                 int64  `json:"memory"`
-	Metadata               string `json:"metaData"`
-	Name                   string `json:"name"`
-	RemainingVMs           int64  `json:"remainingVms"`
-	ZoneID                 string `json:"zoneId"`
-}
-
-// ServerImage duplicates compute.Image; see the comment on Server.
-type ServerImage struct {
-	FlavorZoneIDs []string             `json:"flavorZoneIds"`
-	ID            string               `json:"id"`
-	ImageType     string               `json:"imageType"`
-	ImageVersion  string               `json:"imageVersion"`
-	Licence       bool                 `json:"licence"`
-	PackageLimit  ServerImagePackLimit `json:"packageLimit"`
-}
-
-// ServerImagePackLimit duplicates compute.PackageLimit; see the comment on
-// Server.
-type ServerImagePackLimit struct {
-	CPU      int64 `json:"cpu"`
-	DiskSize int64 `json:"diskSize"`
-	Memory   int64 `json:"memory"`
-}
-
-type ServerSecgroup struct {
-	Name string `json:"name"`
-	UUID string `json:"uuid"`
-}
+// Zone is the vNetwork zone shape shared with other services' resource
+// models, such as compute.Server.Zone.
+type Zone = core.NetworkZone
 
 type listVPCsResponse struct {
 	ListData  []VPC `json:"listData"`
@@ -165,11 +67,11 @@ type listPeeringsResponse struct {
 }
 
 type listNetworkACLsResponse struct {
-	ListData  []NetworkACL `json:"listData"`
-	Page      int          `json:"page"`
-	PageSize  int          `json:"pageSize"`
-	TotalPage int          `json:"totalPage"`
-	TotalItem int          `json:"totalItem"`
+	ListData  []ACL `json:"listData"`
+	Page      int   `json:"page"`
+	PageSize  int   `json:"pageSize"`
+	TotalPage int   `json:"totalPage"`
+	TotalItem int   `json:"totalItem"`
 }
 
 type listInterconnectsResponse struct {
@@ -181,11 +83,11 @@ type listInterconnectsResponse struct {
 }
 
 type listEndpointsResponse struct {
-	Data      []NetworkEndpoint `json:"data"`
-	Page      int               `json:"page"`
-	Size      int               `json:"size"`
-	TotalPage int               `json:"totalPage"`
-	Total     int               `json:"total"`
+	Data      []Endpoint `json:"data"`
+	Page      int        `json:"page"`
+	Size      int        `json:"size"`
+	TotalPage int        `json:"totalPage"`
+	Total     int        `json:"total"`
 }
 
 type subnetResponse struct {
@@ -219,22 +121,22 @@ func (s subnetResponse) toSubnet() Subnet {
 }
 
 type VPC struct {
-	UUID           string      `json:"id"`
-	Status         string      `json:"status"`
-	ElasticIPs     []string    `json:"elasticIps"`
-	Name           string      `json:"displayName"`
-	CreatedAt      string      `json:"createdAt"`
-	CIDR           string      `json:"cidr"`
-	DHCPOptionName string      `json:"dhcpOptionName"`
-	DHCPOptionID   string      `json:"dhcpOptionId"`
-	RouteTableName string      `json:"routeTableName"`
-	RouteTableID   string      `json:"routeTableId"`
-	Zone           NetworkZone `json:"zone"`
-	DNSStatus      string      `json:"dnsStatus"`
-	DNSID          string      `json:"dnsId"`
-	MTU            int         `json:"mtu"`
-	ServerCount    int         `json:"serverCount"`
-	VolumeCount    int         `json:"volumeCount"`
+	UUID           string   `json:"id"`
+	Status         string   `json:"status"`
+	ElasticIPs     []string `json:"elasticIps"`
+	Name           string   `json:"displayName"`
+	CreatedAt      string   `json:"createdAt"`
+	CIDR           string   `json:"cidr"`
+	DHCPOptionName string   `json:"dhcpOptionName"`
+	DHCPOptionID   string   `json:"dhcpOptionId"`
+	RouteTableName string   `json:"routeTableName"`
+	RouteTableID   string   `json:"routeTableId"`
+	Zone           Zone     `json:"zone"`
+	DNSStatus      string   `json:"dnsStatus"`
+	DNSID          string   `json:"dnsId"`
+	MTU            int      `json:"mtu"`
+	ServerCount    int      `json:"serverCount"`
+	VolumeCount    int      `json:"volumeCount"`
 }
 
 type WANIP struct {
@@ -278,26 +180,26 @@ type SecurityGroup struct {
 }
 
 type VirtualIPAddress struct {
-	UUID            string      `json:"uuid"`
-	ID              string      `json:"id"`
-	Name            string      `json:"name"`
-	EndpointAddress string      `json:"ipAddress"`
-	VPCID           string      `json:"networkId"`
-	SubnetID        string      `json:"subnetId"`
-	Description     string      `json:"description"`
-	SubnetCIDR      string      `json:"subnetCIDR"`
-	VPCCIDR         string      `json:"networkCIDR"`
-	AddressPairIPs  []string    `json:"addressPairIps"`
-	Status          string      `json:"status"`
-	CreatedAt       string      `json:"createdAt"`
-	NetworkName     string      `json:"networkName"`
-	SubnetName      string      `json:"subnetName"`
-	Type            string      `json:"type"`
-	Mode            string      `json:"mode"`
-	Zone            NetworkZone `json:"zone"`
+	UUID            string   `json:"uuid"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	EndpointAddress string   `json:"ipAddress"`
+	VPCID           string   `json:"networkId"`
+	SubnetID        string   `json:"subnetId"`
+	Description     string   `json:"description"`
+	SubnetCIDR      string   `json:"subnetCIDR"`
+	VPCCIDR         string   `json:"networkCIDR"`
+	AddressPairIPs  []string `json:"addressPairIps"`
+	Status          string   `json:"status"`
+	CreatedAt       string   `json:"createdAt"`
+	NetworkName     string   `json:"networkName"`
+	SubnetName      string   `json:"subnetName"`
+	Type            string   `json:"type"`
+	Mode            string   `json:"mode"`
+	Zone            Zone     `json:"zone"`
 }
 
-type NetworkRoute struct {
+type Route struct {
 	UUID                 string `json:"uuid"`
 	RouteTableID         string `json:"routeTableId"`
 	RoutingType          string `json:"routingType"`
@@ -307,12 +209,12 @@ type NetworkRoute struct {
 }
 
 type RouteTable struct {
-	UUID      string         `json:"uuid"`
-	Name      string         `json:"name"`
-	Status    string         `json:"status"`
-	NetworkID string         `json:"networkId"`
-	CreatedAt string         `json:"createdAt"`
-	Routes    []NetworkRoute `json:"routes"`
+	UUID      string  `json:"uuid"`
+	Name      string  `json:"name"`
+	Status    string  `json:"status"`
+	NetworkID string  `json:"networkId"`
+	CreatedAt string  `json:"createdAt"`
+	Routes    []Route `json:"routes"`
 }
 
 type Peering struct {
@@ -328,7 +230,7 @@ type Peering struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
-type NetworkACL struct {
+type ACL struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -352,7 +254,7 @@ type Subnet struct {
 	RouteTableID           string                  `json:"routeTableId"`
 	RouteTableUUID         string                  `json:"routeTableUuid"`
 	ZoneID                 string                  `json:"zoneId"`
-	Zone                   NetworkZone             `json:"zone"`
+	Zone                   Zone                    `json:"zone"`
 	Description            string                  `json:"description"`
 	CreatedAt              string                  `json:"createdAt"`
 	UpdatedAt              string                  `json:"updatedAt"`
@@ -392,7 +294,7 @@ type RouteTableRoute struct {
 	Status               string `json:"status"`
 }
 
-type NetworkEndpoint struct {
+type Endpoint struct {
 	UUID                      string `json:"uuid"`
 	ID                        string `json:"id"`
 	Name                      string `json:"name"`
@@ -454,8 +356,8 @@ type NetworkEndpoint struct {
 	ZoneUUID                  string `json:"zoneUuid"`
 }
 
-type NetworkEndpointDetail struct {
-	NetworkEndpoint
+type EndpointDetail struct {
+	Endpoint
 }
 
 type Tag struct {

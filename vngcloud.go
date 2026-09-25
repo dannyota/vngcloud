@@ -4,7 +4,6 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
-	"danny.vn/vngcloud/internal/network"
 	"danny.vn/vngcloud/internal/sdk"
 )
 
@@ -32,49 +31,6 @@ type ListResult[T any] = core.ListResult[T]
 
 type Project = core.Project
 type ListProjectsOptions = core.ListProjectsOptions
-
-type NetworkService = network.Service
-type NetworkListOptions = network.NetworkListOptions
-type ListVPCsOptions = network.ListVPCsOptions
-type ListWANIPsOptions = network.ListWANIPsOptions
-type ListNetworkInterfacesOptions = network.ListNetworkInterfacesOptions
-type ListSecurityGroupsOptions = network.ListSecurityGroupsOptions
-type ListVirtualIPAddressesOptions = network.ListVirtualIPAddressesOptions
-type ListRouteTablesOptions = network.ListRouteTablesOptions
-type ListPeeringsOptions = network.ListPeeringsOptions
-type ListNetworkACLsOptions = network.ListNetworkACLsOptions
-type ListInterconnectsOptions = network.ListInterconnectsOptions
-type ListEndpointsOptions = network.ListEndpointsOptions
-type ListVPCsResult = network.ListVPCsResult
-type ListWANIPsResult = network.ListWANIPsResult
-type ListNetworkInterfacesResult = network.ListNetworkInterfacesResult
-type ListSecurityGroupsResult = network.ListSecurityGroupsResult
-type ListVirtualIPAddressesResult = network.ListVirtualIPAddressesResult
-type ListRouteTablesResult = network.ListRouteTablesResult
-type ListPeeringsResult = network.ListPeeringsResult
-type ListNetworkACLsResult = network.ListNetworkACLsResult
-type ListInterconnectsResult = network.ListInterconnectsResult
-type ListEndpointsResult = network.ListEndpointsResult
-type VPC = network.VPC
-type NetworkZone = network.NetworkZone
-type WANIP = network.WANIP
-type ElasticNetworkInterface = network.ElasticNetworkInterface
-type SecurityGroup = network.SecurityGroup
-type VirtualIPAddress = network.VirtualIPAddress
-type NetworkRoute = network.NetworkRoute
-type RouteTable = network.RouteTable
-type Peering = network.Peering
-type NetworkACL = network.NetworkACL
-type Subnet = network.Subnet
-type SubnetSecondarySubnet = network.SubnetSecondarySubnet
-type SecurityGroupRule = network.SecurityGroupRule
-type RouteTableRoute = network.RouteTableRoute
-type NetworkEndpoint = network.NetworkEndpoint
-type NetworkEndpointDetail = network.NetworkEndpointDetail
-type Tag = network.Tag
-type Interconnect = network.Interconnect
-type AddressPair = network.AddressPair
-type VNetworkRegion = network.VNetworkRegion
 
 type LoadBalancerService = loadbalancer.Service
 type ListLoadBalancersOptions = loadbalancer.ListLoadBalancersOptions
