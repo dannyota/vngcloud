@@ -54,7 +54,11 @@ It needs Go 1.27 or later and uses only the standard library.
 ## Example
 
 Sign in as an IAM User, set a monthly budget, price a snapshot, and list
-servers:
+servers. `LoadConfig` reads the region and credentials from
+`VNGCLOUD_REGION`, `VNGCLOUD_ROOT_EMAIL`, `VNGCLOUD_USERNAME`,
+`VNGCLOUD_PASSWORD`, and `VNGCLOUD_TOTP_SECRET`, or from an
+`~/.vngcloud/credentials` profile; see
+[Configuration](https://github.com/dannyota/vngcloud/wiki/Configuration#loadconfig):
 
 ```go
 package main
@@ -63,7 +67,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
@@ -74,15 +77,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := vngcloud.NewConfig(
-		vngcloud.WithRegion("hcm-3"),
-		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
-			RootEmail: os.Getenv("VNGCLOUD_ROOT_EMAIL"),
-			Username:  os.Getenv("VNGCLOUD_USERNAME"),
-			Password:  os.Getenv("VNGCLOUD_PASSWORD"),
-			TOTP:      &vngcloud.SecretTOTP{Secret: os.Getenv("VNGCLOUD_TOTP_SECRET")},
-		}),
-	)
+	cfg, err := vngcloud.LoadConfig(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

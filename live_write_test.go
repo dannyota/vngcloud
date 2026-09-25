@@ -37,21 +37,6 @@ func TestLiveWrite(t *testing.T) {
 		t.Fatalf("load .env: %v", err)
 	}
 
-	rootEmail := os.Getenv("VNGCLOUD_ROOT_EMAIL")
-	username := os.Getenv("VNGCLOUD_USERNAME")
-	password := os.Getenv("VNGCLOUD_PASSWORD")
-	if rootEmail == "" || username == "" || password == "" {
-		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD in .env")
-	}
-	iamUser := &vngcloud.IAMUserAuth{
-		RootEmail: rootEmail,
-		Username:  username,
-		Password:  password,
-	}
-	if secret := os.Getenv("VNGCLOUD_TOTP_SECRET"); secret != "" {
-		iamUser.TOTP = &vngcloud.SecretTOTP{Secret: secret}
-	}
-
 	region := "hcm-3"
 	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
 		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
@@ -66,17 +51,25 @@ func TestLiveWrite(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cfg, err := vngcloud.NewConfig(
+	// Empty, explicit config and credentials files keep LoadConfig from
+	// reading the real ~/.vngcloud, which could hold a different profile
+	// than the account named in .env; credentials come from .env's
+	// environment variables instead.
+	cfg, err := vngcloud.LoadConfig(ctx,
 		vngcloud.WithRegion(region),
-		vngcloud.WithIAMUser(iamUser),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
 		vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
 			if err := appendLiveWriteCapture(captured); err != nil {
 				t.Errorf("write capture: %v", err)
 			}
 		}),
 	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
 	if err != nil {
-		t.Fatalf("NewConfig: %v", err)
+		t.Fatalf("LoadConfig: %v", err)
 	}
 	client := billing.New(cfg)
 
@@ -308,6 +301,18 @@ func safeErr(err error) string {
 		return fmt.Sprintf("status=%d code=%s", apiErr.StatusCode, apiErr.Code)
 	}
 	return fmt.Sprintf("non-API error (%T)", err)
+}
+
+// emptyWriteFile creates an empty, mode-0600 file named name in a fresh temp
+// directory, for a LoadConfig file option that must point at a file which
+// exists but has no sections to resolve from.
+func emptyWriteFile(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create empty %s: %v", name, err)
+	}
+	return path
 }
 
 // randomHex returns n*2 lowercase hex characters from a cryptographically

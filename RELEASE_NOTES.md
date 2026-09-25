@@ -1,5 +1,59 @@
 # Release Notes
 
+## v0.5.0 - LoadConfig, Profiles, and the Token Cache
+
+### Highlights
+
+- `vngcloud.LoadConfig(ctx, opts...)` resolves a `Config` from options,
+  `VNGCLOUD_*` environment variables, and AWS-style profile files
+  (`~/.vngcloud/config` and `~/.vngcloud/credentials`, or
+  `WithConfigFile`/`WithSharedCredentialsFile` and their environment
+  variables). `NewConfig` keeps building from options only. Precedence is
+  options, then environment variables, then the resolved profile's file
+  section; credentials resolve as one set from the first source that sets
+  any value, so a profile's password is never mixed with another source's
+  username, and an access token wins over IAM User values within one
+  source. See [Configuration](https://github.com/dannyota/vngcloud/wiki/Configuration#loadconfig)
+  for the full precedence table, file formats, and environment variables.
+- `WithProfile(name)` selects a profile explicitly; `VNGCLOUD_PROFILE` never
+  does. An explicit profile skips environment variables for credentials and
+  the project ID, so a `.env` file for one account can never send a call
+  made with another profile to that account. An explicit profile with no
+  credentials, from options or its own file section, fails with the new
+  `vngcloud.ErrNoCredentials`, naming the profile.
+- New sentinels `vngcloud.ErrNoCredentials` and `vngcloud.ErrCredentialsFile`
+  both match `vngcloud.ErrInvalidConfig` via `errors.Is`.
+  `ErrCredentialsFile` covers the credentials file missing at an explicit
+  path, unreadable, refused for unsafe permissions, or malformed.
+  `LoadConfig` refuses a credentials file that group or others can read,
+  naming the file and `chmod 600`, before reading it; the check is skipped
+  on Windows. A path that is not a regular file, such as a directory or a
+  FIFO, is also an error. No `LoadConfig` error names a credential value.
+- New `vngcloud.CredentialsProvider` interface (`Token(ctx)`,
+  `Invalidate(accessToken)`) and `vngcloud.WithCredentialsProvider` for a
+  custom token source, such as a secrets manager. It wins over
+  `WithStaticToken`, which wins over `WithIAMUser`. A provider returning an
+  empty token with a nil error is `vngcloud.ErrAuth`; a zero `ExpiresAt`
+  makes the SDK call `Token` before every request.
+- `vngcloud.WithTokenCache(dir)` turns on an on-disk token cache shared
+  across processes, so a program run repeatedly, or several programs
+  sharing one profile, log in only once per token lifetime. Only IAM User
+  credentials use it; a static token or a custom `CredentialsProvider` is
+  never written to disk, and without this option the SDK writes nothing.
+  The cache directory is mode 0700, each token file mode 0600, and one
+  locked operation per credential set reads, logs in only if needed, and
+  writes back, so two processes sharing one profile never log in with the
+  same TOTP code.
+- Fixed the retry after an HTTP 401: the SDK used to clear its in-memory
+  token but let the IAM User's own cache immediately hand back that same
+  rejected token, so the retry failed the same way every time. It now
+  invalidates exactly the token it sent, in memory and (with a token cache)
+  on disk, and logs in again before retrying once. A token younger than 30
+  seconds is left in place instead, so a 401 that a fresh login cannot fix
+  ends the call with `vngcloud.ErrAuth` rather than forcing a second login
+  inside the same 30-second TOTP window. Parallel requests that all get a
+  401 for the same token cause at most one new login.
+
 ## v0.4.0 - Service Packages
 
 ### Breaking changes

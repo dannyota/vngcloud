@@ -4,7 +4,9 @@ package vngcloud_test
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +18,6 @@ import (
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/internal/envfile"
-	"danny.vn/vngcloud/internal/iamuser"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
@@ -46,46 +47,88 @@ func TestLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	token := os.Getenv("VNGCLOUD_ACCESS_TOKEN")
-	if token == "" {
-		if os.Getenv("VNGCLOUD_ROOT_EMAIL") == "" {
-			t.Skip("set VNGCLOUD_ROOT_EMAIL/VNGCLOUD_USERNAME/VNGCLOUD_PASSWORD or VNGCLOUD_ACCESS_TOKEN in .env")
-		}
-		req := iamuser.LoginRequest{
-			RootEmail: os.Getenv("VNGCLOUD_ROOT_EMAIL"),
-			Username:  os.Getenv("VNGCLOUD_USERNAME"),
-			Password:  os.Getenv("VNGCLOUD_PASSWORD"),
-		}
-		if secret := os.Getenv("VNGCLOUD_TOTP_SECRET"); secret != "" {
-			req.TOTP = &vngcloud.SecretTOTP{Secret: secret}
-		}
-		result, err := iamuser.Login(ctx, req)
-		if err != nil {
-			t.Fatalf("IAM login against default endpoints failed: %v", err)
-		}
-		t.Logf("login ok; token expires %s; refresh token present: %v", result.ExpiresAt.Format(time.RFC3339), result.RefreshToken != "")
-		token = result.AccessToken
+	// cacheDir is shared by every Config this run builds, and the two files
+	// below are empty, so LoadConfig resolves credentials from .env's
+	// environment variables and never reads the real ~/.vngcloud.
+	cacheDir := t.TempDir()
+	emptyConfigFile := emptyFile(t, "config")
+	emptyCredentialsFile := emptyFile(t, "credentials")
+
+	buildConfig := func(region string) (vngcloud.Config, error) {
+		return vngcloud.LoadConfig(ctx,
+			vngcloud.WithRegion(region),
+			vngcloud.WithTokenCache(cacheDir),
+			vngcloud.WithConfigFile(emptyConfigFile),
+			vngcloud.WithSharedCredentialsFile(emptyCredentialsFile),
+		)
 	}
+
+	firstCfg, err := buildConfig(regions[0])
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Skip("set VNGCLOUD_ROOT_EMAIL/VNGCLOUD_USERNAME/VNGCLOUD_PASSWORD or VNGCLOUD_ACCESS_TOKEN in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if err := firstCfg.Authenticate(ctx); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	t.Log("login ok")
 
 	// Billing ignores the configured region, so it runs once here instead of
 	// once per region inside testLiveRegion.
-	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, regions[0], token) })
+	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 
-	for _, region := range regions {
-		t.Run(region, func(t *testing.T) { testLiveRegion(ctx, t, region, token) })
+	for i, region := range regions {
+		cfg := firstCfg
+		if i > 0 {
+			cfg, err = buildConfig(region)
+			if err != nil {
+				t.Fatalf("LoadConfig(%s): %v", region, err)
+			}
+		}
+		t.Run(region, func(t *testing.T) { testLiveRegion(ctx, t, cfg) })
 	}
+
+	// A second Config built from the same credentials and cache directory
+	// must reuse the cached token rather than log in again. There is no
+	// public hook to observe a login directly, so this checks wall-clock
+	// time instead: a fresh login is a multi-step web flow that takes
+	// noticeably longer than reading a local file.
+	t.Run("second-config-reuses-cached-token", func(t *testing.T) {
+		cfg, err := buildConfig(regions[0])
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		start := time.Now()
+		if err := cfg.Authenticate(ctx); err != nil {
+			t.Fatalf("Authenticate: %v", err)
+		}
+		elapsed := time.Since(start)
+		t.Logf("authenticate with a cached token took %s", elapsed)
+		const maxCachedAuthenticate = 3 * time.Second
+		if elapsed > maxCachedAuthenticate {
+			t.Fatalf("authenticate took %s, want under %s: a fresh login likely ran instead of reusing the cache",
+				elapsed, maxCachedAuthenticate)
+		}
+	})
+}
+
+// emptyFile creates an empty, mode-0600 file named name in a fresh temp
+// directory, for a LoadConfig file option that must point at a file which
+// exists but has no sections to resolve from.
+func emptyFile(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create empty %s: %v", name, err)
+	}
+	return path
 }
 
 // testLiveBilling reads budgets, the current period cost, and balances. It
 // logs counts and field presence only, never amounts or account values.
-func testLiveBilling(ctx context.Context, t *testing.T, region, token string) {
-	cfg, err := vngcloud.NewConfig(
-		vngcloud.WithRegion(region),
-		vngcloud.WithStaticToken(token),
-	)
-	if err != nil {
-		t.Fatalf("NewConfig: %v", err)
-	}
+func testLiveBilling(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := billing.New(cfg)
 
 	t.Run("budgets", func(t *testing.T) {
@@ -135,22 +178,14 @@ func setBalanceFields(b billing.Balances) string {
 	return strings.Join(fields, ",")
 }
 
-func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
-	cfg, err := vngcloud.NewConfig(
-		vngcloud.WithRegion(region),
-		vngcloud.WithProjectID(os.Getenv("VNGCLOUD_PROJECT_ID")),
-		vngcloud.WithStaticToken(token),
-	)
-	if err != nil {
-		t.Fatalf("NewConfig: %v", err)
-	}
+func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
 	t.Logf("projects: %d", len(projects.Items))
 	if len(projects.Items) != 1 {
-		t.Fatalf("region %s has %d projects, want exactly 1: set VNGCLOUD_PROJECT_ID to disambiguate", region, len(projects.Items))
+		t.Fatalf("region %s has %d projects, want exactly 1: set VNGCLOUD_PROJECT_ID to disambiguate", cfg.Region(), len(projects.Items))
 	}
 
 	t.Run("servers", func(t *testing.T) {
