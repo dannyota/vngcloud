@@ -48,7 +48,7 @@ Security comes before features and convenience, as in the AWS CLI. When a choice
 - Secure defaults, with no switch to weaken them: TLS verification always on, no cross-host redirects, credentials files mode 0600, token cache mode 0600 in a 0700 directory.
 - Never print, log, or return in an error: passwords, TOTP secrets, tokens, authorization codes, cookies, or the Authorization header. `--debug` and error messages are checked by tests for this.
 - Destructive CLI commands need `--yes`. Nothing prompts in a way that can hang an agent.
-- The SDK stays standard-library only. Every CLI dependency needs the owner's approval and a reason.
+- The SDK stays standard-library only. The CLI and tooling may add a dependency without asking (standing owner approval) after vetting it (latest version, license, maintenance, transitive deps, `make vuln`); record the reason in the design or plan.
 - `govulncheck`, gitleaks, and Semgrep run in CI. A finding blocks release until fixed; suppress only a verified false positive, with the reason.
 - Auth, credential storage, and every write API get an adversarial review before release.
 
