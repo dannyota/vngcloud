@@ -80,13 +80,15 @@ types, so the compiler checks each entry against the SDK method.
 `cli.Destructive`; the first asynchronous write defines `cli.WaitFor`.
 
 Flags come from the Input struct by reflection. A field name becomes a
-kebab-case flag: `ServerID` becomes `--server-id`, and an uppercase run stays
-one word, so `VPCID` becomes `--vpcid`. `cli.Flag("VPCID", "vpc-id")` on a
-table entry overrides a name. Supported field types are string, integer,
-boolean, `[]string`, `time.Time`, and pointers to string, integer, and
-boolean, which the CLI sets only when the flag is given. Other field types
-are set through `--cli-input-json '<json>'` or
-`--cli-input-json file://input.json`, whose keys are the Go field names.
+kebab-case flag: `ServerID` becomes `--server-id`, and a run of capitals
+followed by a lowercase letter gives its last capital to the next word, so
+`VirtualIPAddressID` becomes `--virtual-ip-address-id`. One shared rename
+table holds the exceptions: `VPCID` becomes `--vpc-id`, and `Query` becomes
+`--search` so no Input flag shadows a global flag. Supported field types are
+string, integer, boolean, and pointers to string, integer, and boolean; the
+CLI applies a field only when its flag is given. Other field types are set
+through `--cli-input-json '<json>'` or `--cli-input-json file://input.json`,
+whose keys are the Go field names.
 
 The CLI builds the Input from `--cli-input-json` first, then applies every
 flag the user set (cobra reports it `Changed`). It checks
