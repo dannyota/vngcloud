@@ -79,46 +79,6 @@ func quotaName(quota portal.Quota) (string, bool) {
 	return "", false
 }
 
-func showVolume(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
-	volumes, err := collectPages(vngcloud.DefaultPageSize, func(page, size int) (*vngcloud.ListVolumesResult, error) {
-		return client.Volume.ListVolumes(ctx, &vngcloud.ListVolumesOptions{Page: page, Size: size})
-	})
-	record(outputs, client, "volume/volume", "volumes", volumes, err)
-
-	underlyingVolumes, underlyingErr := collectDetails(volumes,
-		func(volume vngcloud.Volume) string { return volume.UUID },
-		func(id string) (*vngcloud.Volume, error) { return client.Volume.GetUnderlyingVolume(ctx, id) },
-	)
-	if err != nil {
-		underlyingErr = err
-	}
-	record(outputs, client, "volume/underlying_volume", "underlying volumes", underlyingVolumes, underlyingErr)
-
-	defaultType, err := client.Volume.GetDefaultVolumeType(ctx)
-	recordOne(outputs, client, "volume/default_type", "default volume type", defaultType, err)
-
-	typeZones, err := client.Volume.ListVolumeTypeZones(ctx, nil)
-	record(outputs, client, "volume/type_zone", "volume type zones", typeZones, err)
-
-	types, err := client.Volume.ListVolumeTypes(ctx, nil)
-	record(outputs, client, "volume/type", "volume types", types, err)
-
-	typeDetails, typeDetailErr := collectDetails(types,
-		func(volumeType vngcloud.VolumeType) string { return volumeType.ID },
-		func(id string) (*vngcloud.VolumeType, error) { return client.Volume.GetVolumeType(ctx, id) },
-	)
-	if err != nil {
-		typeDetailErr = err
-	}
-	record(outputs, client, "volume/type_detail", "volume type details", typeDetails, typeDetailErr)
-
-	encryptionTypes, err := client.Volume.ListEncryptionTypes(ctx)
-	record(outputs, client, "volume/encryption_type", "encryption types", encryptionTypes, err)
-
-	snapshots, err := client.Volume.ListAllSnapshots(ctx)
-	record(outputs, client, "volume/snapshot", "snapshots", snapshots, err)
-}
-
 func showNetwork(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
 	vnetRegions, err := client.Network.ListVNetworkRegions(ctx)
 	record(outputs, client, "network/vnetwork_region", "vnetwork regions", vnetRegions, err)

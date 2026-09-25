@@ -6,7 +6,6 @@ import (
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
 	"danny.vn/vngcloud/internal/sdk"
-	"danny.vn/vngcloud/internal/volume"
 )
 
 // Ptr returns a pointer to v, for setting an optional field of an update
@@ -33,20 +32,6 @@ type ListResult[T any] = core.ListResult[T]
 
 type Project = core.Project
 type ListProjectsOptions = core.ListProjectsOptions
-
-type VolumeService = volume.Service
-type ListVolumesOptions = volume.ListVolumesOptions
-type ListVolumeTypeZonesOptions = volume.ListVolumeTypeZonesOptions
-type ListVolumeTypesOptions = volume.ListVolumeTypesOptions
-type ListSnapshotsOptions = volume.ListSnapshotsOptions
-type ListVolumesResult = volume.ListVolumesResult
-type ListSnapshotsResult = volume.ListSnapshotsResult
-type Volume = volume.Volume
-type Zone = volume.Zone
-type VolumeType = volume.VolumeType
-type VolumeTypeZone = volume.VolumeTypeZone
-type EncryptionType = volume.EncryptionType
-type Snapshot = volume.Snapshot
 
 type NetworkService = network.Service
 type NetworkListOptions = network.NetworkListOptions

@@ -98,7 +98,7 @@ func main() {
 			showProjects(ctx, client, sdkOutputs)
 			showPortal(ctx, client, cfg, sdkOutputs)
 			showCompute(ctx, client, cfg, sdkOutputs)
-			showVolume(ctx, client, sdkOutputs)
+			showVolume(ctx, client, cfg, sdkOutputs)
 			showNetwork(ctx, client, sdkOutputs)
 			showLoadBalancer(ctx, client, sdkOutputs)
 			showGlobalLoadBalancer(ctx, client, sdkOutputs)

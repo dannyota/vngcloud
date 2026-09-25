@@ -1,60 +1,55 @@
+// Package volume lists and reads vServer volumes, volume types, and
+// snapshots.
 package volume
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
 
-type Service struct {
-	client *core.Client
+// Client is the volume service client.
+type Client struct {
+	c *core.Client
 }
 
-func New(client *core.Client) *Service {
-	return &Service{client: client}
+// New builds a Client from cfg. A Client built from the same Config as
+// another service client shares its login and token cache.
+func New(cfg vngcloud.Config) *Client {
+	return &Client{c: core.ClientOf(cfg)}
 }
 
-type ListVolumesOptions struct {
+type ListVolumesInput struct {
 	Name string
 	Page int
 	Size int
 }
 
-type ListVolumeTypeZonesOptions struct {
-	ZoneID string
-}
+type ListVolumesOutput = core.PagedList[Volume]
 
-type ListVolumeTypesOptions struct {
-	VolumeTypeZoneID string
-}
-type ListSnapshotsOptions = core.ListOptions
-
-type ListVolumesResult = core.ListResult[Volume]
-type ListSnapshotsResult = core.ListResult[Snapshot]
-
-func (s *Service) ListVolumes(ctx context.Context, opts *ListVolumesOptions) (*ListVolumesResult, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+func (c *Client) ListVolumes(ctx context.Context, in *ListVolumesInput) (*ListVolumesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
 	name := ""
 	page, size := core.DefaultPage, core.DefaultPageSize
-	if opts != nil {
-		name = opts.Name
-		if opts.Page > 0 {
-			page = opts.Page
+	if in != nil {
+		name = in.Name
+		if in.Page > 0 {
+			page = in.Page
 		}
-		if opts.Size > 0 {
-			size = opts.Size
+		if in.Size > 0 {
+			size = in.Size
 		}
 	}
 	q.Set("name", name)
@@ -62,22 +57,30 @@ func (s *Service) ListVolumes(ctx context.Context, opts *ListVolumesOptions) (*L
 	q.Set("size", strconv.Itoa(size))
 
 	var resp listVolumesResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.ListVolumes",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.ListVolumes",
 		Method:    "GET",
-		URL:       s.volumeURL("v2", []string{projectID, "volumes"}, q),
+		URL:       c.volumeURL("v2", []string{projectID, "volumes"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (s *Service) GetVolume(ctx context.Context, id string) (*Volume, error) {
-	if id == "" {
-		return nil, errors.New("vngcloud: volume id is required")
+type GetVolumeInput struct {
+	VolumeID string `vngcloud:"required"`
+}
+
+type GetVolumeOutput struct {
+	Volume Volume
+}
+
+func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeOutput, error) {
+	if err := core.CheckRequired("volume.GetVolume", in); err != nil {
+		return nil, err
 	}
-	projectID, err := s.client.RequireProjectID(ctx)
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -85,114 +88,148 @@ func (s *Service) GetVolume(ctx context.Context, id string) (*Volume, error) {
 	var resp struct {
 		Data Volume `json:"data"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.GetVolume",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.GetVolume",
 		Method:    "GET",
-		URL:       s.volumeURL("v2", []string{projectID, "volumes", id}, nil),
+		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	return &GetVolumeOutput{Volume: resp.Data}, nil
 }
 
-func (s *Service) GetUnderlyingVolume(ctx context.Context, id string) (*Volume, error) {
-	if id == "" {
-		return nil, errors.New("vngcloud: volume id is required")
+type GetUnderlyingVolumeInput struct {
+	VolumeID string `vngcloud:"required"`
+}
+
+type GetUnderlyingVolumeOutput struct {
+	Volume Volume
+}
+
+func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolumeInput) (*GetUnderlyingVolumeOutput, error) {
+	if err := core.CheckRequired("volume.GetUnderlyingVolume", in); err != nil {
+		return nil, err
 	}
-	projectID, err := s.client.RequireProjectID(ctx)
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var resp Volume
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.GetUnderlyingVolume",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.GetUnderlyingVolume",
 		Method:    "GET",
-		URL:       s.volumeURL("v2", []string{projectID, "volumes", id, "mapping"}, nil),
+		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "mapping"}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &GetUnderlyingVolumeOutput{Volume: resp}, nil
 }
 
-func (s *Service) ListVolumeTypeZones(ctx context.Context, opts *ListVolumeTypeZonesOptions) ([]VolumeTypeZone, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListVolumeTypeZonesInput struct {
+	ZoneID string
+}
+
+type ListVolumeTypeZonesOutput = core.List[VolumeTypeZone]
+
+func (c *Client) ListVolumeTypeZones(ctx context.Context, in *ListVolumeTypeZonesInput) (*ListVolumeTypeZonesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	if opts != nil && opts.ZoneID != "" {
-		q.Set("zoneId", opts.ZoneID)
+	if in != nil && in.ZoneID != "" {
+		q.Set("zoneId", in.ZoneID)
 	}
 
 	var resp struct {
 		VolumeTypeZones []VolumeTypeZone `json:"volumeTypeZones"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.ListVolumeTypeZones",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.ListVolumeTypeZones",
 		Method:    "GET",
-		URL:       s.volumeURL("v1", []string{projectID, "volume_type_zones"}, q),
+		URL:       c.volumeURL("v1", []string{projectID, "volume_type_zones"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.VolumeTypeZones, nil
+	return &ListVolumeTypeZonesOutput{Items: resp.VolumeTypeZones}, nil
 }
 
-func (s *Service) ListVolumeTypes(ctx context.Context, opts *ListVolumeTypesOptions) ([]VolumeType, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListVolumeTypesInput struct {
+	VolumeTypeZoneID string
+}
+
+type ListVolumeTypesOutput = core.List[VolumeType]
+
+func (c *Client) ListVolumeTypes(ctx context.Context, in *ListVolumeTypesInput) (*ListVolumeTypesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	parts := []string{projectID, "volume_types"}
-	if opts != nil && opts.VolumeTypeZoneID != "" {
-		parts = []string{projectID, opts.VolumeTypeZoneID, "volume_types"}
+	if in != nil && in.VolumeTypeZoneID != "" {
+		parts = []string{projectID, in.VolumeTypeZoneID, "volume_types"}
 	}
 
 	var resp struct {
 		VolumeTypes []VolumeType `json:"volumeTypes"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.ListVolumeTypes",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.ListVolumeTypes",
 		Method:    "GET",
-		URL:       s.volumeURL("v1", parts, nil),
+		URL:       c.volumeURL("v1", parts, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.VolumeTypes, nil
+	return &ListVolumeTypesOutput{Items: resp.VolumeTypes}, nil
 }
 
-func (s *Service) GetVolumeType(ctx context.Context, id string) (*VolumeType, error) {
-	if id == "" {
-		return nil, errors.New("vngcloud: volume type id is required")
+type GetVolumeTypeInput struct {
+	VolumeTypeID string `vngcloud:"required"`
+}
+
+type GetVolumeTypeOutput struct {
+	VolumeType VolumeType
+}
+
+func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*GetVolumeTypeOutput, error) {
+	if err := core.CheckRequired("volume.GetVolumeType", in); err != nil {
+		return nil, err
 	}
-	projectID, err := s.client.RequireProjectID(ctx)
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var resp struct {
 		VolumeTypes []VolumeType `json:"volumeTypes"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.GetVolumeType",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.GetVolumeType",
 		Method:    "GET",
-		URL:       s.volumeURL("v1", []string{projectID, "volume_types", id}, nil),
+		URL:       c.volumeURL("v1", []string{projectID, "volume_types", in.VolumeTypeID}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
 	if len(resp.VolumeTypes) == 0 {
-		return nil, fmt.Errorf("%w: volume type %s", core.ErrNotFound, id)
+		return nil, fmt.Errorf("%w: volume type %s", core.ErrNotFound, in.VolumeTypeID)
 	}
-	return &resp.VolumeTypes[0], nil
+	return &GetVolumeTypeOutput{VolumeType: resp.VolumeTypes[0]}, nil
 }
 
-func (s *Service) GetDefaultVolumeType(ctx context.Context) (*VolumeType, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type GetDefaultVolumeTypeInput struct{}
+
+type GetDefaultVolumeTypeOutput struct {
+	VolumeType VolumeType
+}
+
+func (c *Client) GetDefaultVolumeType(ctx context.Context, _ *GetDefaultVolumeTypeInput) (*GetDefaultVolumeTypeOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -200,10 +237,10 @@ func (s *Service) GetDefaultVolumeType(ctx context.Context) (*VolumeType, error)
 		ID     string `json:"volumeTypeId"`
 		ZoneID string `json:"volumeTypeZoneId"`
 	}
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.GetDefaultVolumeType",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.GetDefaultVolumeType",
 		Method:    "GET",
-		URL:       s.volumeURL("v1", []string{projectID, "volume_default_id"}, nil),
+		URL:       c.volumeURL("v1", []string{projectID, "volume_default_id"}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
@@ -211,73 +248,91 @@ func (s *Service) GetDefaultVolumeType(ctx context.Context) (*VolumeType, error)
 	if resp.ID == "" {
 		return nil, fmt.Errorf("%w: default volume type", core.ErrNotFound)
 	}
-	return &VolumeType{ID: resp.ID, VolumeTypeID: resp.ID, ZoneID: resp.ZoneID, VolumeTypeZoneID: resp.ZoneID}, nil
+	return &GetDefaultVolumeTypeOutput{VolumeType: VolumeType{
+		ID: resp.ID, VolumeTypeID: resp.ID, ZoneID: resp.ZoneID, VolumeTypeZoneID: resp.ZoneID,
+	}}, nil
 }
 
-func (s *Service) ListEncryptionTypes(ctx context.Context) ([]EncryptionType, error) {
-	projectID, err := s.client.RequireProjectID(ctx)
+type ListEncryptionTypesInput struct{}
+
+type ListEncryptionTypesOutput = core.List[EncryptionType]
+
+func (c *Client) ListEncryptionTypes(ctx context.Context, _ *ListEncryptionTypesInput) (*ListEncryptionTypesOutput, error) {
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var raw json.RawMessage
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.ListEncryptionTypes",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.ListEncryptionTypes",
 		Method:    "GET",
-		URL:       s.volumeURL("v1", []string{projectID, "volumes", "encryption_types"}, nil),
+		URL:       c.volumeURL("v1", []string{projectID, "volumes", "encryption_types"}, nil),
 		OK:        []int{200},
 	}, &raw); err != nil {
 		return nil, err
 	}
 	var items []EncryptionType
 	if err := json.Unmarshal(raw, &items); err == nil {
-		return items, nil
+		return &ListEncryptionTypesOutput{Items: items}, nil
 	}
 	var resp listEncryptionTypesResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Items, nil
+	return &ListEncryptionTypesOutput{Items: resp.Items}, nil
 }
 
-func (s *Service) ListSnapshots(ctx context.Context, volumeID string, opts *ListSnapshotsOptions) (*ListSnapshotsResult, error) {
-	if volumeID == "" {
-		return nil, errors.New("vngcloud: volume id is required")
+type ListSnapshotsInput struct {
+	VolumeID string `vngcloud:"required"`
+	Page     int
+	Size     int
+}
+
+type ListSnapshotsOutput = core.PagedList[Snapshot]
+
+func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*ListSnapshotsOutput, error) {
+	if err := core.CheckRequired("volume.ListSnapshots", in); err != nil {
+		return nil, err
 	}
-	projectID, err := s.client.RequireProjectID(ctx)
+	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var resp listSnapshotsResponse
-	if err := s.client.DoJSON(ctx, transport.Request{
-		Operation: "Volume.ListSnapshots",
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "volume.ListSnapshots",
 		Method:    "GET",
-		URL:       s.volumeURL("v2", []string{projectID, "volumes", volumeID, "snapshots"}, core.ListQuery(opts)),
+		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "snapshots"}, core.PageQuery(in.Page, in.Size)),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.PageResult(resp.Items, resp.Page, resp.PageSize, resp.TotalPages, resp.TotalItems), nil
+	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPages, resp.TotalItems), nil
 }
 
-func (s *Service) ListAllSnapshots(ctx context.Context) ([]Snapshot, error) {
-	volumes, err := s.ListVolumes(ctx, nil)
+type ListAllSnapshotsInput struct{}
+
+type ListAllSnapshotsOutput = core.List[Snapshot]
+
+func (c *Client) ListAllSnapshots(ctx context.Context, _ *ListAllSnapshotsInput) (*ListAllSnapshotsOutput, error) {
+	volumes, err := c.ListVolumes(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]Snapshot, 0)
-	for _, volume := range volumes.Items {
-		snapshots, err := s.ListSnapshots(ctx, volume.UUID, nil)
+	for _, vol := range volumes.Items {
+		snapshots, err := c.ListSnapshots(ctx, &ListSnapshotsInput{VolumeID: vol.UUID})
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, snapshots.Items...)
 	}
-	return items, nil
+	return &ListAllSnapshotsOutput{Items: items}, nil
 }
 
-func (s *Service) volumeURL(version string, parts []string, q url.Values) string {
-	return s.client.RouteURL(routes.Route{
+func (c *Client) volumeURL(version string, parts []string, q url.Values) string {
+	return c.c.RouteURL(routes.Route{
 		Product: routes.ProductVServer,
 		Version: version,
 		Parts:   parts,

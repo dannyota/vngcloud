@@ -9,7 +9,6 @@ import (
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
 	"danny.vn/vngcloud/internal/testutil"
-	"danny.vn/vngcloud/internal/volume"
 )
 
 func TestListProjects(t *testing.T) {
@@ -34,7 +33,6 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 
 	c := &Client{Client: testutil.NewCoreClient(t, handler)}
 	c.Network = network.New(c.Client)
-	c.Volume = volume.New(c.Client)
 	c.LoadBalancer = loadbalancer.New(c.Client)
 	c.GlobalLoadBalancer = glb.New(c.Client)
 	return c

@@ -18,6 +18,7 @@ import (
 	"danny.vn/vngcloud/internal/iamuser"
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
+	"danny.vn/vngcloud/volume"
 )
 
 func TestLive(t *testing.T) {
@@ -158,11 +159,11 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("servers: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("volumes", func(t *testing.T) {
-		res, err := client.Volume.ListVolumes(ctx, &vngcloud.ListVolumesOptions{Page: 1, Size: 5})
+		res, err := volume.New(cfg).ListVolumes(ctx, &volume.ListVolumesInput{Page: 1, Size: 5})
 		if err != nil {
 			t.Fatalf("ListVolumes: %v", err)
 		}
-		t.Logf("volumes: %d of %d", len(res.Items), res.Page.TotalItem)
+		t.Logf("volumes: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("vpcs", func(t *testing.T) {
 		res, err := client.Network.ListVPCs(ctx, &vngcloud.ListVPCsOptions{Page: 1, Size: 5})
