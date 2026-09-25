@@ -20,4 +20,6 @@ Test against raw fixtures, not SDK output: decoding drops unknown fields silentl
 
 ## Sanitizing fixtures
 
+Public documentation pages, such as the GreenNode CDN IP range FAQ, are not account data: their fixtures keep the published values and may be trimmed.
+
 Replace every sensitive value before a file enters `testdata/`: `<project-id>`, `<server-id>` or `<id>` for resource IDs, `<account>` for names and emails, `<hostname>`, `<internal-url>`, `<ip>`, and `<secret>` for tokens, keys, and certificates. Keep enum, status, and type strings only when a test needs them. Short synthetic IDs such as `vpc-1` are fine.

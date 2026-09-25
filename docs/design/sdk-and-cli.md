@@ -344,6 +344,7 @@ Each release ships when CI is green on its commit.
 | `v0.4.0` | The other services move to packages with the uniform method signature, and `NewClient` goes. Breaking. Built on a branch and merged when every service has moved |
 | `v0.5.0` | `LoadConfig`, profile files, environment variables, and the token cache |
 | `v0.6.0` | CLI foundation: `configure`, `version`, output, `--query`, read-only profiles, `--debug` logging, generated docs, `billing` and `pricing` commands, and `compute`, `network`, and `dns` read commands. SDK: `APIError.Code` fallback, `*LoginError`, `WithLogger` logging, and `Config.ProfileSetting` |
+| `v0.7.0` | `cdn.ListIPRanges` and `vngcloud cdn list-ip-ranges`: the CDN IP ranges read from GreenNode's public FAQ page; see [CDN](cdn.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the
@@ -359,16 +360,18 @@ Install is `go install danny.vn/vngcloud/cmd/vngcloud@<version>`.
 After `v0.6.0`, designs follow aboutme's needs in this order, each covering
 the SDK and CLI together:
 
-1. vCDN: origin IP ranges first, then cache rules, the origin header, and the
-   certificate.
+1. vCDN origin IP ranges, in `v0.7.0` ([CDN](cdn.md)).
 2. vMonitor: pausing and resuming checks first, then alarms, log projects, and
    synthetic checks.
 3. vDNS record writes.
 4. vStorage buckets and service-account keys.
 
-A discovery pass for vCDN and vMonitor can start now, because it needs no SDK
-code. It confirms which console APIs an IAM User token can call, and it
-answers aboutme's open provider questions about vCDN where the API shows them.
+vCDN cache rules, the origin header, and the certificate stay console steps
+for aboutme: vCDN has no public API, and its console accepts only root login
+(see [CDN non-goals](cdn.md#non-goals)).
+
+A discovery pass for vMonitor can start now, because it needs no SDK code. It
+confirms which console APIs an IAM User token can call.
 
 CLI read commands for the other services, and compute, volume, and network
 writes, come after these. OpenTofu covers those writes for aboutme.
