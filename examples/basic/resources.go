@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/dns"
 )
 
 func showProjects(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
@@ -581,46 +582,48 @@ func collectGlobalLoadBalancerPool(ctx context.Context, client *vngcloud.Client,
 	return nil
 }
 
-func showDNS(ctx context.Context, client *vngcloud.Client, outputs *sdkOutputStore) {
-	zonesResult, err := client.DNS.ListHostedZones(ctx, nil)
+func showDNS(ctx context.Context, client *vngcloud.Client, cfg vngcloud.Config, outputs *sdkOutputStore) {
+	dnsClient := dns.New(cfg)
+
+	zonesOut, err := dnsClient.ListHostedZones(ctx, nil)
 	if err != nil {
 		printError("dns hosted zones", err)
 		outputs.add("dns/hosted_zone", client, nil, err)
 		return
 	}
-	zones := zonesResult.Items
+	zones := zonesOut.Items
 	record(outputs, client, "dns/hosted_zone", "dns hosted zones", zones, nil)
 
-	zoneDetails := make([]*vngcloud.HostedZone, 0, len(zones))
-	records := make([]vngcloud.DNSRecord, 0)
-	recordDetails := make([]*vngcloud.DNSRecord, 0)
+	zoneDetails := make([]dns.HostedZone, 0, len(zones))
+	records := make([]dns.Record, 0)
+	recordDetails := make([]dns.Record, 0)
 	for _, zone := range zones {
 		if zone.ID == "" {
 			continue
 		}
-		detail, detailErr := client.DNS.GetHostedZone(ctx, zone.ID)
+		detail, detailErr := dnsClient.GetHostedZone(ctx, &dns.GetHostedZoneInput{HostedZoneID: zone.ID})
 		if detailErr != nil {
 			printError("dns hosted zone detail", detailErr)
 			continue
 		}
-		zoneDetails = append(zoneDetails, detail)
+		zoneDetails = append(zoneDetails, detail.HostedZone)
 
-		zoneRecords, recordErr := client.DNS.ListRecords(ctx, zone.ID, nil)
+		zoneRecords, recordErr := dnsClient.ListRecords(ctx, &dns.ListRecordsInput{HostedZoneID: zone.ID})
 		if recordErr != nil {
 			printError("dns records", recordErr)
 			continue
 		}
 		records = append(records, zoneRecords.Items...)
-		for _, record := range zoneRecords.Items {
-			if record.ID == "" {
+		for _, rec := range zoneRecords.Items {
+			if rec.ID == "" {
 				continue
 			}
-			recordDetail, recordDetailErr := client.DNS.GetRecord(ctx, zone.ID, record.ID)
+			recordDetail, recordDetailErr := dnsClient.GetRecord(ctx, &dns.GetRecordInput{HostedZoneID: zone.ID, RecordID: rec.ID})
 			if recordDetailErr != nil {
 				printError("dns record detail", recordDetailErr)
 				continue
 			}
-			recordDetails = append(recordDetails, recordDetail)
+			recordDetails = append(recordDetails, recordDetail.Record)
 		}
 	}
 	outputs.add("dns/hosted_zone_detail", client, zoneDetails, nil)

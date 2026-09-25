@@ -4,7 +4,6 @@ import (
 	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/containerregistry"
 	"danny.vn/vngcloud/internal/core"
-	"danny.vn/vngcloud/internal/dns"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
@@ -156,16 +155,6 @@ type GlobalPoolMember = glb.GlobalPoolMember
 type GlobalPoolMemberDetail = glb.GlobalPoolMemberDetail
 type GlobalListener = glb.GlobalListener
 type GlobalLoadBalancerUsageHistory = glb.GlobalLoadBalancerUsageHistory
-
-type DNSService = dns.Service
-type ListHostedZonesOptions = dns.ListHostedZonesOptions
-type ListRecordsOptions = dns.ListRecordsOptions
-type ListHostedZonesResult = dns.ListHostedZonesResult
-type ListDNSRecordsResult = dns.ListDNSRecordsResult
-type VpcMapRegion = dns.VpcMapRegion
-type HostedZone = dns.HostedZone
-type RecordValue = dns.RecordValue
-type DNSRecord = dns.DNSRecord
 
 type PortalService = portal.Service
 type PortalUserInfo = portal.PortalUserInfo

@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/iamuser"
 	"danny.vn/vngcloud/pricing"
@@ -182,11 +183,12 @@ func testLiveRegion(ctx context.Context, t *testing.T, region, token string) {
 		t.Logf("global load balancers: %d of %d", len(res.Items), res.Total)
 	})
 	t.Run("dns-zones", func(t *testing.T) {
-		res, err := client.DNS.ListHostedZones(ctx, &vngcloud.ListHostedZonesOptions{})
+		dnsClient := dns.New(cfg)
+		res, err := dnsClient.ListHostedZones(ctx, &dns.ListHostedZonesInput{})
 		if err != nil {
 			t.Fatalf("ListHostedZones: %v", err)
 		}
-		t.Logf("hosted zones: %d of %d", len(res.Items), res.Page.TotalItem)
+		t.Logf("hosted zones: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("container-repositories", func(t *testing.T) {
 		res, err := client.ContainerRegistry.ListRepositories(ctx, &vngcloud.ListContainerRepositoriesOptions{})

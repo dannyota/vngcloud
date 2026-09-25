@@ -6,7 +6,6 @@ import (
 	"danny.vn/vngcloud/internal/compute"
 	"danny.vn/vngcloud/internal/containerregistry"
 	"danny.vn/vngcloud/internal/core"
-	"danny.vn/vngcloud/internal/dns"
 	"danny.vn/vngcloud/internal/glb"
 	"danny.vn/vngcloud/internal/loadbalancer"
 	"danny.vn/vngcloud/internal/network"
@@ -22,7 +21,6 @@ type Client struct {
 	Volume             *volume.Service
 	LoadBalancer       *loadbalancer.Service
 	GlobalLoadBalancer *glb.Service
-	DNS                *dns.Service
 	ContainerRegistry  *containerregistry.Service
 	Portal             *portal.Service
 }
@@ -35,7 +33,6 @@ func NewClient(ctx context.Context, cfg core.Config) (*Client, error) {
 	c.Volume = volume.New(base)
 	c.LoadBalancer = loadbalancer.New(base)
 	c.GlobalLoadBalancer = glb.New(base)
-	c.DNS = dns.New(base)
 	c.ContainerRegistry = containerregistry.New(base)
 	c.Portal = portal.New(base)
 	if err := c.Authenticate(ctx); err != nil {

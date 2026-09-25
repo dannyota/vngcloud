@@ -19,7 +19,6 @@ func TestPublicFacadeCompile(t *testing.T) {
 	_ = (*vngcloud.GlobalLoadBalancerService)(nil)
 	_ = vngcloud.GlobalLoadBalancerPackage{}
 	_ = vngcloud.GlobalLoadBalancerRegion{}
-	_ = vngcloud.HostedZone{}
 	_ = vngcloud.ContainerRepository{}
 	_ = (*vngcloud.ContainerRegistryService)(nil)
 	_ = vngcloud.PortalUserInfo{}
