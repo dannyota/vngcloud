@@ -98,18 +98,18 @@ Each service is a public package with `New(cfg vngcloud.Config) *Client`.
 Service packages may import each other for shared models; `network` imports
 `compute` for `compute.Server`.
 
-| Package | Current source |
+| Package | Covers |
 |-|-|
-| `compute` | `internal/compute` |
-| `volume` | `internal/volume` |
-| `network` | `internal/network` |
-| `loadbalancer` | `internal/loadbalancer` |
-| `globalloadbalancer` | `internal/glb` |
-| `dns` | `internal/dns` |
-| `containerregistry` | `internal/containerregistry` |
-| `portal` | `internal/portal` |
-| `project` | Wraps the project listing that `internal/core` keeps for discovery |
-| `billing`, `pricing` | New; see [billing](billing.md) |
+| `compute` | Servers, SSH keys, server groups, images |
+| `volume` | Volumes, volume types, snapshots |
+| `network` | VPCs, subnets, security groups, routes, endpoints |
+| `loadbalancer` | Regional load balancers and certificates |
+| `globalloadbalancer` | Global load balancers |
+| `dns` | vDNS hosted zones and records |
+| `containerregistry` | Container registry repositories and users |
+| `portal` | Account info, zones, and quotas |
+| `project` | The project listing that `internal/core` keeps for discovery |
+| `billing`, `pricing` | Budgets, cost, balances, and quotes; see [billing](billing.md) |
 
 Every operation has one signature:
 
@@ -134,15 +134,11 @@ List inputs carry `Page` and `Size`. The default size is 10000
 covers today. An API that caps page size states its default and cap in its
 design; the SDK has no pagination helper until a design adds one.
 
-Service code moves from `internal/<service>` into its public package.
+Service code lives in its public package. `internal/core`,
 `internal/transport`, `internal/endpoints`, `internal/routes`, and
-`internal/iamuser` stay internal. `vngcloud.go` stops re-exporting service
-types.
-
-The restructure itself changes no API coverage. Every current method keeps its
-behavior under the new signature, and every fixture test moves with its
-service. `examples/basic` and `live_test.go` move to the new API in the same
-release, and so does the one-package rule in `instructions/verification.md`.
+`internal/iamuser` stay internal, and `vngcloud.go` re-exports no service
+types. The move to packages changed no API coverage: every method kept its
+behavior under the new signature.
 
 ## Configuration and credentials
 

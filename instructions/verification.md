@@ -3,7 +3,7 @@
 Code rules and the checks each change needs. Implementers, the reviewer, and the manager read this file.
 
 - `go.mod` requires the Go version `.tool-versions` pins; local work and CI use that version. Tool versions follow the rule in AGENTS.md "Security first". Follow Google Go style with `gofmt` and `goimports`.
-- Each service is a public package; root `vngcloud` holds only shared config, auth, errors, and helpers, and never imports a service package. Services not yet moved stay behind `vngcloud.NewClient`, and their public types get a re-export in `vngcloud.go`.
+- Each service is a public package; root `vngcloud` holds only shared config, auth, errors, and helpers, and never imports a service package. Service types live in their package; `vngcloud.go` re-exports only shared config, auth, error, and helper names.
 - Tests are deterministic: inject clocks and randomness, and use `httptest` servers, never the real API. Never retry a flaky test into a pass.
 - `golangci-lint` stays at 0 issues. A justified `//nolint:<linter>` needs a reason on the same line.
 - Semgrep runs in CI; `make semgrep` is the offline version. Suppress a verified false positive with `// nosemgrep: <full-rule-id>` on the flagged line, using the full ID from `semgrep --json` (short IDs do not match), and put the reason in a comment beside it.
@@ -13,7 +13,7 @@ Code rules and the checks each change needs. Implementers, the reviewer, and the
 |-|-|
 | Any Go change | `make check` (tests, vet, lint, lengths) |
 | Model or decoding change | A decode test on a sanitized raw fixture in `testdata/`, per [live-data](live-data.md) |
-| Public API change | `vngcloud.go` re-export and the matching `docs/wiki/` page |
+| Public API change | The matching `docs/wiki/` page, and `RELEASE_NOTES.md` when it breaks callers |
 | Wiki page change | Links between pages use `Page-Name.md` so they work in the repo and the wiki |
 | Dependency or Go version change | `make vuln` |
 | Release | Green GitHub CI on the exact commit |
