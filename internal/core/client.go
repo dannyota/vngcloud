@@ -82,7 +82,12 @@ func buildClient(settings clientConfig) (*Client, error) {
 			dashboard: resolvedEndpoints.Dashboard,
 		}}
 		if settings.tokenCacheDir != "" {
-			source.cache = tokencache.New(settings.tokenCacheDir, time.Now)
+			// The cache shares timeNow, the same clock auth.go's Invalidate
+			// reads, rather than time.Now directly: a test that fakes the
+			// clock to control the 30-second freshness window must control
+			// both, or a disk token's ObtainedAt would be judged against real
+			// time while its 401 invalidation is judged against fake time.
+			source.cache = tokencache.New(settings.tokenCacheDir, func() time.Time { return timeNow() })
 			source.cacheKey = tokencache.Key{
 				Profile:   settings.profile,
 				RootEmail: settings.iamUser.RootEmail,
@@ -130,12 +135,14 @@ func buildClient(settings clientConfig) (*Client, error) {
 }
 
 // Authenticate performs the login flow eagerly and caches the token, so
-// configuration and credential errors surface before the first API call.
+// configuration and credential errors surface before the first API call. A
+// token source that yields an empty token fails here with ErrAuth, the same
+// sentinel a request made without Authenticate would fail with.
 func (c *Client) Authenticate(ctx context.Context) error {
 	if c.err != nil {
 		return c.err
 	}
-	return c.transport.EnsureToken(ctx)
+	return wrapTransportErr(c.transport.EnsureToken(ctx))
 }
 
 type staticTokenSource string
@@ -253,12 +260,22 @@ func (c *Client) DoJSONStatus(ctx context.Context, req transport.Request, out an
 		return 0, c.err
 	}
 	status, err := c.transport.DoJSONStatus(ctx, req, out)
+	return status, wrapTransportErr(err)
+}
+
+// wrapTransportErr converts a *transport.APIError into the SDK's own
+// APIError, mapping its status code to the matching sentinel (ErrAuth,
+// ErrNotFound, and so on), so Authenticate and every request-making method
+// surface the same sentinel for the same status. An error that is not a
+// *transport.APIError, such as a canceled context, passes through unchanged;
+// a nil error stays nil.
+func wrapTransportErr(err error) error {
 	if err == nil {
-		return status, nil
+		return nil
 	}
 	var terr *transport.APIError
 	if !errors.As(err, &terr) {
-		return status, err
+		return err
 	}
 	apiErr := &APIError{
 		Operation:  terr.Operation,
@@ -271,7 +288,7 @@ func (c *Client) DoJSONStatus(ctx context.Context, req transport.Request, out an
 	if apiErr.Err == nil {
 		apiErr.Err = terr.Err
 	}
-	return status, apiErr
+	return apiErr
 }
 
 func buildHTTPClient(cfg clientConfig) *http.Client {
@@ -338,9 +355,18 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		return tokencache.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
 	})
 	if err != nil {
+		// Cache.Get failed before it could act on rejected (a canceled
+		// context, a lock it could not acquire in time): put it back so the
+		// next call still treats the token as invalidated, instead of
+		// silently reusing it because the rejection was lost here.
+		if rejected != "" {
+			s.mu.Lock()
+			s.rejected = rejected
+			s.mu.Unlock()
+		}
 		return transport.Token{}, err
 	}
-	s.auth.remember(cached.AccessToken, cached.ExpiresAt)
+	s.auth.remember(cached.AccessToken, cached.ExpiresAt, cached.ObtainedAt)
 	return transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}, nil
 }
 

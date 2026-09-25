@@ -43,7 +43,10 @@ var (
 	ErrNoCredentials    = core.ErrNoCredentials
 	ErrCredentialsFile  = core.ErrCredentialsFile
 
-	NewConfig                 = core.NewConfig
+	NewConfig = core.NewConfig
+	// LoadConfig resolves a Config from LoadOption values, environment
+	// variables, and profile files, highest precedence first; see the
+	// Configuration wiki page for the full precedence order and file format.
 	LoadConfig                = core.LoadConfig
 	WithRegion                = core.WithRegion
 	WithProjectID             = core.WithProjectID

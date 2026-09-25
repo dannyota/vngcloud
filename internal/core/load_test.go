@@ -219,8 +219,55 @@ func TestLoadConfigCredentialSetsNeverMix(t *testing.T) {
 	t.Setenv("VNGCLOUD_ROOT_EMAIL", "env-root@example.test")
 
 	_, err := LoadConfig(context.Background())
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig (mixed credential set should fail IAMUserAuth validation)", err)
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("err = %v, want ErrNoCredentials (a partial set from one source must not be completed from another)", err)
+	}
+}
+
+// TestLoadConfigPartialCredentialSetFromEnvNamesMissingKeys covers an env
+// source that sets some IAM User keys but not all: LoadConfig must report it
+// as ErrNoCredentials naming the environment and the missing keys, and never
+// the value of a key that was set.
+func TestLoadConfigPartialCredentialSetFromEnvNamesMissingKeys(t *testing.T) {
+	home := setupHome(t)
+	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)
+	t.Setenv("VNGCLOUD_USERNAME", "env-user")
+	t.Setenv("VNGCLOUD_PASSWORD", "env-pass-secret")
+
+	_, err := LoadConfig(context.Background())
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("err = %v, want ErrNoCredentials", err)
+	}
+	if !strings.Contains(err.Error(), "environment") {
+		t.Fatalf("err = %v, want it to name the environment as the source", err)
+	}
+	if !strings.Contains(err.Error(), envRootEmail) {
+		t.Fatalf("err = %v, want it to name the missing %s", err, envRootEmail)
+	}
+	if strings.Contains(err.Error(), "env-pass-secret") {
+		t.Fatalf("err leaked a credential value: %v", err)
+	}
+}
+
+// TestLoadConfigPartialCredentialSetFromProfileNamesMissingKeys is the same
+// case from a profile's credentials section instead of the environment.
+func TestLoadConfigPartialCredentialSetFromProfileNamesMissingKeys(t *testing.T) {
+	home := setupHome(t)
+	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)
+	writeFile(t, credentialsPath(home), "[default]\nusername = file-user\npassword = file-pass-secret\n", 0o600)
+
+	_, err := LoadConfig(context.Background())
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("err = %v, want ErrNoCredentials", err)
+	}
+	if !strings.Contains(err.Error(), `"default"`) {
+		t.Fatalf("err = %v, want it to name the profile", err)
+	}
+	if !strings.Contains(err.Error(), "root_email") {
+		t.Fatalf("err = %v, want it to name the missing root_email key", err)
+	}
+	if strings.Contains(err.Error(), "file-pass-secret") {
+		t.Fatalf("err leaked a credential value: %v", err)
 	}
 }
 

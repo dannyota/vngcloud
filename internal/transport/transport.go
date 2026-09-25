@@ -294,6 +294,11 @@ func (c *Client) do(ctx context.Context, req Request) (int, []byte, string, erro
 		}
 		if !req.SkipAuth {
 			sentToken = c.currentToken().AccessToken
+			if sentToken == "" && c.tokenSource != nil {
+				// A configured token source with nothing to hand out: never
+				// send this request unauthenticated on its behalf.
+				return 0, nil, "", &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+			}
 			if sentToken != "" {
 				httpReq.Header.Set("Authorization", "Bearer "+sentToken)
 			}
@@ -372,7 +377,9 @@ func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
 }
 
 // EnsureToken fetches and caches a token if the current one is missing or
-// near expiry. Safe for concurrent use.
+// near expiry, failing with the no-token APIError (ErrAuth at the core
+// layer) if the token source cannot produce a usable one. Safe for
+// concurrent use.
 func (c *Client) EnsureToken(ctx context.Context) error {
 	if c.tokenSource == nil {
 		return nil
@@ -383,6 +390,21 @@ func (c *Client) EnsureToken(ctx context.Context) error {
 	return c.refreshToken(ctx)
 }
 
+// fetchToken calls tokenSource.Token and treats a returned empty AccessToken
+// (nil error) as a failure, the same as a real error: neither refreshToken
+// nor invalidateAndRefresh may swap the client's live token for one do could
+// not safely send.
+func (c *Client) fetchToken(ctx context.Context) (Token, error) {
+	token, err := c.tokenSource.Token(ctx)
+	if err != nil {
+		return Token{}, err
+	}
+	if token.AccessToken == "" {
+		return Token{}, &APIError{StatusCode: http.StatusUnauthorized, Err: errNoToken}
+	}
+	return token, nil
+}
+
 func (c *Client) refreshToken(ctx context.Context) error {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
@@ -390,7 +412,7 @@ func (c *Client) refreshToken(ctx context.Context) error {
 	if !c.currentToken().NeedsRefresh() {
 		return nil
 	}
-	token, err := c.tokenSource.Token(ctx)
+	token, err := c.fetchToken(ctx)
 	if err != nil {
 		return err
 	}
@@ -402,23 +424,29 @@ func (c *Client) refreshToken(ctx context.Context) error {
 
 // invalidateAndRefresh runs the 401 recovery for one request under
 // refreshMu: while the client's current token is still the one this request
-// sent, it clears that token and asks the token source to invalidate it too.
-// If another call already replaced the token, both steps are skipped, since
-// invalidating a token this request never sent could drop a still-good
-// token another goroutine is relying on. Either way, it leaves a usable
-// token in place (fetching one if needed) before the caller retries.
+// sent, it asks the token source to invalidate it, then fetches a
+// replacement. It never clears the current token up front, only on success:
+// a concurrent goroutine reading currentToken while this call is mid-fetch
+// must never observe an empty token and send its own request unauthenticated
+// (do's own check refuses that regardless, but not clearing avoids the
+// window in the first place). A failed fetch leaves the already-rejected
+// token in place; the caller's retry then fails on the same rejection rather
+// than on a request sent with no token at all. If another call already
+// replaced the token, invalidation is skipped, since invalidating a token
+// this request never sent could drop a still-good token another goroutine is
+// relying on.
 func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
 
-	if sent != "" && c.currentToken().AccessToken == sent {
-		c.clearToken()
-		c.tokenSource.Invalidate(sent)
-	}
-	if !c.currentToken().NeedsRefresh() {
+	stillCurrent := sent != "" && c.currentToken().AccessToken == sent
+	if !stillCurrent && !c.currentToken().NeedsRefresh() {
 		return nil
 	}
-	token, err := c.tokenSource.Token(ctx)
+	if stillCurrent {
+		c.tokenSource.Invalidate(sent)
+	}
+	token, err := c.fetchToken(ctx)
 	if err != nil {
 		return err
 	}
@@ -426,12 +454,6 @@ func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 	c.token = token
 	c.mu.Unlock()
 	return nil
-}
-
-func (c *Client) clearToken() {
-	c.mu.Lock()
-	c.token = Token{}
-	c.mu.Unlock()
 }
 
 func (c *Client) currentToken() Token {

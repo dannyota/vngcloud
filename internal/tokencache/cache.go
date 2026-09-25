@@ -16,10 +16,13 @@ import (
 	"time"
 )
 
-// Token is an access token and its expiry, exactly as a login returns it.
+// Token is an access token, its expiry, and the time it was obtained. Get
+// sets ObtainedAt itself, from disk on a cache hit or from its own clock on a
+// fresh login; a login callback's returned Token need not set it.
 type Token struct {
 	AccessToken string
 	ExpiresAt   time.Time
+	ObtainedAt  time.Time
 }
 
 // Key identifies one cached credential set. Any differing field is a
@@ -101,20 +104,22 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 	defer unlock()
 
 	if fc, ok := c.readFresh(tokenPath, rejected); ok {
-		return Token{AccessToken: fc.AccessToken, ExpiresAt: fc.ExpiresAt}, nil
+		return Token(fc), nil
 	}
 
 	token, err := login(ctx)
 	if err != nil {
 		return Token{}, err
 	}
-	c.write(tokenPath, fileContent{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ObtainedAt: c.now()})
+	obtainedAt := c.now()
+	c.write(tokenPath, fileContent{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ObtainedAt: obtainedAt})
+	token.ObtainedAt = obtainedAt
 	return token, nil
 }
 
 // readFresh reports whether tokenPath holds a token that Get should reuse:
 // it exists, parses, is not within 30 seconds of expiry, and is not both
-// equal to rejected and at least 30 seconds old.
+// equal to rejected and old enough (see rejectable) to trust the rejection.
 func (c *Cache) readFresh(tokenPath, rejected string) (fileContent, bool) {
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
@@ -127,16 +132,29 @@ func (c *Cache) readFresh(tokenPath, rejected string) (fileContent, bool) {
 	if fc.ExpiresAt.Sub(c.now()) <= freshWindow {
 		return fileContent{}, false
 	}
-	if rejected != "" && fc.AccessToken == rejected && c.now().Sub(fc.ObtainedAt) >= freshWindow {
+	if rejected != "" && fc.AccessToken == rejected && rejectable(c.now(), fc.ObtainedAt) {
 		return fileContent{}, false
 	}
 	return fc, true
 }
 
+// rejectable reports whether a token obtained at obtainedAt has been held
+// long enough that a rejection of it should be trusted: at least
+// freshWindow, or obtainedAt is after now. The clock moving backward (a
+// system time correction) must not be read as "just obtained", since that
+// would make an already-rejected token permanently un-invalidatable.
+func rejectable(now, obtainedAt time.Time) bool {
+	age := now.Sub(obtainedAt)
+	return age < 0 || age >= freshWindow
+}
+
 // write saves fc to tokenPath through a temp file and rename, both under
-// dir so a symlinked tokenPath stays a symlink. Any failure along the way
-// removes the temp file; the caller already has a good token from login, so
-// a cache write failure is not returned as an error.
+// dir. Rename replaces whatever is at tokenPath, symlink or not, by inode
+// rather than by opening the path, so a symlink placed there cannot redirect
+// the write to another file; the symlink itself does not survive the
+// replacement. Any failure along the way removes the temp file; the caller
+// already has a good token from login, so a cache write failure is not
+// returned as an error.
 func (c *Cache) write(tokenPath string, fc fileContent) {
 	dir := filepath.Dir(tokenPath)
 	tmp, err := os.CreateTemp(dir, ".tok-*")

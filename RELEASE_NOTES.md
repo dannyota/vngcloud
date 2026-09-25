@@ -28,7 +28,11 @@
   `LoadConfig` refuses a credentials file that group or others can read,
   naming the file and `chmod 600`, before reading it; the check is skipped
   on Windows. A path that is not a regular file, such as a directory or a
-  FIFO, is also an error. No `LoadConfig` error names a credential value.
+  FIFO, is also an error. A source (the environment or a profile) that sets
+  some IAM User credentials but not all of root_email, username, and
+  password is also `ErrNoCredentials`, naming the source and the missing
+  keys, so it is never completed by mixing in another source's values. No
+  `LoadConfig` error names a credential value.
 - New `vngcloud.CredentialsProvider` interface (`Token(ctx)`,
   `Invalidate(accessToken)`) and `vngcloud.WithCredentialsProvider` for a
   custom token source, such as a secrets manager. It wins over
@@ -52,7 +56,15 @@
   seconds is left in place instead, so a 401 that a fresh login cannot fix
   ends the call with `vngcloud.ErrAuth` rather than forcing a second login
   inside the same 30-second TOTP window. Parallel requests that all get a
-  401 for the same token cause at most one new login.
+  401 for the same token cause at most one new login. A request that needs
+  authentication, including the retry itself, is never sent without a
+  token; if the token source has none to give, the call fails with
+  `vngcloud.ErrAuth` before anything goes out.
+- Fixed the token cache stamping every token it reads from disk with the
+  read time: a process that reused another process's still-cached token
+  now keeps that token's real obtain time, so the 30-second rule can still
+  invalidate an old, revoked token instead of treating it as freshly
+  obtained forever.
 
 ## v0.4.0 - Service Packages
 

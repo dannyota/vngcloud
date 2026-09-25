@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"danny.vn/vngcloud/internal/ini"
 )
@@ -38,9 +39,13 @@ const (
 // explicit profile.
 //
 // An empty value from an option, an environment variable, or a file key
-// counts as unset. Every error matches ErrInvalidConfig via errors.Is; a
-// missing credential set also matches ErrNoCredentials, and a credentials
-// file problem also matches ErrCredentialsFile.
+// counts as unset. LoadConfig returns ctx.Err() directly, unwrapped, when
+// ctx is already canceled or past its deadline. Every other error matches
+// ErrInvalidConfig via errors.Is; a missing or incomplete credential set
+// also matches ErrNoCredentials, and a credentials file problem also
+// matches ErrCredentialsFile. A token cache directory refused for unsafe
+// permissions is a separate error surfaced later, at the first call that
+// needs a token, not from LoadConfig itself.
 func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 	if err := ctx.Err(); err != nil {
 		return Config{}, err
@@ -137,40 +142,44 @@ func loadCredentialsFile(src fileSource) (ini.File, error) {
 }
 
 // loadIniFile opens and parses src, applying the shared file-safety rules.
-// A missing default path is not an error; anything else wrong with the
-// path is wrapped in sentinelErr and names only the path, never its
-// content. When checkMode is set (the credentials file), an open file that
-// group or others can read is refused before it is parsed.
+// A missing default path is not an error; anything else wrong with the path
+// is wrapped in sentinelErr and names only the path, never its content.
+// When checkMode is set (the credentials file), an open file that group or
+// others can read is refused before it is parsed.
+//
+// It opens src.path first and only then judges its type and mode, from the
+// open file descriptor rather than a separate path-based stat: checking the
+// path first and opening it second would leave a window between the two in
+// which the path could be swapped for a FIFO or other special file, so a
+// check that saw a regular file would not be the one the open actually
+// reads. openConfigFile closes that window by opening first (on Unix,
+// without blocking, so a FIFO swapped into place cannot hang this call), and
+// f.Stat() below reports the type and mode of the exact file this call has
+// open, not whatever is currently at the path.
 func loadIniFile(src fileSource, sentinelErr error, checkMode bool) (ini.File, error) {
 	if src.path == "" {
 		return ini.File{}, nil
 	}
 
-	if _, err := os.Lstat(src.path); err != nil {
+	f, err := openConfigFile(src.path)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) && !src.explicit {
 			return ini.File{}, nil
 		}
-		return nil, fmt.Errorf("%w: %s", sentinelErr, src.path)
-	}
-	// os.Stat follows symlinks to their final target, so a symlinked path
-	// is judged by what it ultimately resolves to, not the link itself.
-	info, err := os.Stat(src.path)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: %s is not a regular file", sentinelErr, src.path)
-	}
-
-	f, err := os.Open(src.path) //nolint:gosec // path is an explicit option/env value or the resolved home directory, not attacker-controlled input
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", sentinelErr, src.path)
+		return nil, fmt.Errorf("%w: %s cannot be read", sentinelErr, src.path)
 	}
 	defer func() { _ = f.Close() }()
 
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s cannot be read", sentinelErr, src.path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is not a regular file", sentinelErr, src.path)
+	}
+
 	if checkMode && runtime.GOOS != "windows" {
-		fi, err := f.Stat()
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", sentinelErr, src.path)
-		}
-		if fi.Mode().Perm()&0o077 != 0 {
+		if info.Mode().Perm()&0o077 != 0 {
 			return nil, fmt.Errorf("%w: %s is accessible by group or others; chmod 600", sentinelErr, src.path)
 		}
 	}
@@ -243,14 +252,23 @@ func resolveProjectID(optionValue string, explicitProfile bool, configSection ma
 // leaves settings.credentials as the caller set it) from the first source
 // that sets any credential value: options, then (only when the profile is
 // not explicit) the environment, then the profile's credentials section.
-// Within one source, an access token wins over IAM User values.
+// Within one source, an access token wins over IAM User values. A source
+// that sets some IAM User keys but not root_email, username, and password
+// (an access token needs nothing else) is an error naming the source and
+// the missing keys, never a value: it is treated the same as no credentials
+// at all, rather than falling through to mix in another source's values.
 func resolveCredentials(settings *clientConfig, explicitProfile bool, profile string, credsSection map[string]string) error {
 	if settings.credentials != nil || settings.staticToken != "" || settings.iamUser != nil {
 		return nil
 	}
 
 	if !explicitProfile {
-		if iamUser, token, ok := credentialsFromEnv(); ok {
+		iamUser, token, missing, ok := credentialsFromEnv()
+		if ok {
+			if len(missing) > 0 {
+				return fmt.Errorf("%w: environment variables set some IAM User credentials but not: %s",
+					ErrNoCredentials, strings.Join(missing, ", "))
+			}
 			if token != "" {
 				settings.staticToken = token
 			} else {
@@ -260,7 +278,12 @@ func resolveCredentials(settings *clientConfig, explicitProfile bool, profile st
 		}
 	}
 
-	if iamUser, ok := credentialsFromSection(credsSection); ok {
+	iamUser, missing, ok := credentialsFromSection(credsSection)
+	if ok {
+		if len(missing) > 0 {
+			return fmt.Errorf("%w: profile %q set some IAM User credentials but not: %s",
+				ErrNoCredentials, profile, strings.Join(missing, ", "))
+		}
 		settings.iamUser = iamUser
 		return nil
 	}
@@ -271,40 +294,67 @@ func resolveCredentials(settings *clientConfig, explicitProfile bool, profile st
 	return fmt.Errorf("%w: checked options, environment variables, and profile %q", ErrNoCredentials, profile)
 }
 
+// missingIAMKeys names, from keys, each required IAM User key (root_email,
+// username, password; totp_secret is always optional) whose value is empty.
+func missingIAMKeys(keys map[string]string) []string {
+	var missing []string
+	for _, key := range []string{"root_email", "username", "password"} {
+		if keys[key] == "" {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}
+
 // credentialsFromEnv reads the VNGCLOUD_* credential variables. It reports
-// ok false when none of them are set. The credentials file has no access
-// token key, so VNGCLOUD_ACCESS_TOKEN is env-only.
-func credentialsFromEnv() (iamUser *IAMUserAuth, accessToken string, ok bool) {
+// ok false when none of them are set. missing names, by environment variable
+// rather than file key, any required key left empty when at least one IAM
+// User value was set; the credentials file has no access token key, so
+// VNGCLOUD_ACCESS_TOKEN is env-only and never partial.
+func credentialsFromEnv() (iamUser *IAMUserAuth, accessToken string, missing []string, ok bool) {
 	if v := os.Getenv(envAccessToken); v != "" {
-		return nil, v, true
+		return nil, v, nil, true
 	}
 	rootEmail := os.Getenv(envRootEmail)
 	username := os.Getenv(envUsername)
 	password := os.Getenv(envPassword)
 	totpSecret := os.Getenv(envTOTPSecret)
 	if rootEmail == "" && username == "" && password == "" && totpSecret == "" {
-		return nil, "", false
+		return nil, "", nil, false
+	}
+	if m := missingIAMKeys(map[string]string{"root_email": rootEmail, "username": username, "password": password}); len(m) > 0 {
+		envNames := map[string]string{"root_email": envRootEmail, "username": envUsername, "password": envPassword}
+		named := make([]string, len(m))
+		for i, key := range m {
+			named[i] = envNames[key]
+		}
+		return nil, "", named, true
 	}
 	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: password}
 	if totpSecret != "" {
 		auth.TOTP = &SecretTOTP{Secret: totpSecret}
 	}
-	return auth, "", true
+	return auth, "", nil, true
 }
 
 // credentialsFromSection reads the IAM User keys from a credentials file
-// section. It reports ok false when none of them are set.
-func credentialsFromSection(section map[string]string) (*IAMUserAuth, bool) {
+// section. It reports ok false when none of them are set. missing names, by
+// file key, any required key left empty when at least one IAM User value
+// was set.
+func credentialsFromSection(section map[string]string) (iamUser *IAMUserAuth, missing []string, ok bool) {
 	rootEmail := section["root_email"]
 	username := section["username"]
 	password := section["password"]
 	totpSecret := section["totp_secret"]
 	if rootEmail == "" && username == "" && password == "" && totpSecret == "" {
-		return nil, false
+		return nil, nil, false
+	}
+	if m := missingIAMKeys(map[string]string{"root_email": rootEmail, "username": username, "password": password}); len(m) > 0 {
+		return nil, m, true
 	}
 	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: password}
 	if totpSecret != "" {
 		auth.TOTP = &SecretTOTP{Secret: totpSecret}
 	}
-	return auth, true
+	return auth, nil, true
 }

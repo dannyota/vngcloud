@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,6 +233,13 @@ func TestCacheMalformedEmptyAndUnreadableFilesAreMisses(t *testing.T) {
 		if os.Geteuid() == 0 {
 			t.Skip("root ignores file permissions")
 		}
+		// The previous subtests left path behind at mode 0600; os.WriteFile
+		// only applies the given mode when it creates the file, so an
+		// existing file must be removed first or this would keep testing a
+		// readable file.
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, []byte(`{"accessToken":"x","expiresAt":"2999-01-01T00:00:00Z"}`), 0o000); err != nil {
 			t.Fatal(err)
 		}
@@ -381,6 +389,46 @@ func TestCacheRejectedTokenTooYoungIsNotAMiss(t *testing.T) {
 	}
 }
 
+// TestCacheRejectedTokenObtainedInFutureIsInvalidated covers the clock
+// moving backward: a token file whose ObtainedAt is later than the cache's
+// current time cannot be "just obtained" by definition, so a rejection of it
+// must still invalidate it instead of being treated as too young.
+func TestCacheRejectedTokenObtainedInFutureIsInvalidated(t *testing.T) {
+	dir := t.TempDir()
+	chmodDirForTest(t, dir, 0o700)
+	now := time.Now()
+	c := New(dir, func() time.Time { return now })
+	key := testKey()
+
+	fc := fileContent{AccessToken: "tok-future", ExpiresAt: now.Add(time.Hour), ObtainedAt: now.Add(time.Hour)}
+	data := marshalFixture(t, fc)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, key.Hash()+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var logins atomic.Int64
+	got, err := c.Get(context.Background(), key, "tok-future", loginCounter(&logins, func() time.Time { return now }))
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.AccessToken == "tok-future" {
+		t.Fatal("expected the rejected token to be replaced despite its future ObtainedAt")
+	}
+	if logins.Load() != 1 {
+		t.Fatalf("logins = %d, want 1", logins.Load())
+	}
+}
+
+// TestCacheConcurrentAcrossTwoInstancesLogsInOnce makes n goroutines, split
+// across two Cache instances sharing one directory, call Get at once. Only
+// one can hold the lock at a time, so the login callback (which only the
+// lock holder ever runs) blocks until every goroutine has called Get,
+// proving the other n-1 are genuinely contending for the lock rather than
+// happening to run one after another by scheduling luck. A timeout turns a
+// lock that never contends (broken) into a test failure instead of a hang.
 func TestCacheConcurrentAcrossTwoInstancesLogsInOnce(t *testing.T) {
 	dir := t.TempDir()
 	chmodDirForTest(t, dir, 0o700)
@@ -389,20 +437,38 @@ func TestCacheConcurrentAcrossTwoInstancesLogsInOnce(t *testing.T) {
 	c1 := New(dir, clock)
 	c2 := New(dir, clock)
 	var logins atomic.Int64
-	login := loginCounter(&logins, clock)
 
 	const n = 8
+	var arrived sync.WaitGroup
+	arrived.Add(n)
+	allArrived := make(chan struct{})
+	go func() {
+		arrived.Wait()
+		close(allArrived)
+	}()
+
+	login := func(context.Context) (Token, error) { //nolint:unparam // must match the login callback signature Cache.Get requires; this fixture never fails
+		select {
+		case <-allArrived:
+		case <-time.After(5 * time.Second):
+			t.Error("timed out waiting for every goroutine to call Get; the lock may not be contending")
+		}
+		count := logins.Add(1)
+		return Token{AccessToken: "tok-" + itoa(count), ExpiresAt: clock().Add(time.Hour)}, nil
+	}
+
 	errs := make([]error, n)
 	done := make(chan struct{})
 	for i := range n {
 		go func(i int) {
+			defer func() { done <- struct{}{} }()
 			c := c1
 			if i%2 == 0 {
 				c = c2
 			}
+			arrived.Done()
 			_, err := c.Get(context.Background(), testKey(), "", login)
 			errs[i] = err
-			done <- struct{}{}
 		}(i)
 	}
 	for range n {

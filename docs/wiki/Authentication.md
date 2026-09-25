@@ -33,6 +33,11 @@ with `vngcloud.ErrAuth` instead of forcing a second login inside the same
 30-second TOTP window. Concurrent requests that all get a 401 for the same
 token cause at most one new login; the rest reuse it once it is ready.
 
+A request that needs authentication, including the retry after a 401, is
+never sent without a token: if the token source (an `IAMUserAuth`, a static
+token, or a `CredentialsProvider`) has none to give, the call fails with
+`vngcloud.ErrAuth` before anything goes out.
+
 ## Two-factor codes (TOTP)
 
 Omit `TOTP` when the IAM User has no 2FA. Otherwise, set it on the

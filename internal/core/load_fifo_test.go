@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build linux || darwin || freebsd || netbsd || openbsd || dragonfly
 
 package core
 
@@ -11,8 +11,9 @@ import (
 )
 
 // TestLoadConfigFIFOPathErrors confirms a FIFO named as the config file is
-// refused, same as a directory. FIFOs are a Unix concept, so this test does
-// not run on Windows.
+// refused, same as a directory. It runs only on the platforms where
+// syscall.Mkfifo is available, the same set internal/tokencache/lock_flock.go
+// requires for its file-locking syscall.
 func TestLoadConfigFIFOPathErrors(t *testing.T) {
 	home := setupHome(t)
 	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)

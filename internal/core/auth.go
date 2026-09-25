@@ -116,27 +116,36 @@ func (a *IAMUserAuth) cachedIfFresh() (string, time.Time, bool) {
 
 // remember records token as the in-memory cache, for this process to reuse
 // without a disk read, after it came from the token cache (either reused
-// from disk or freshly logged in there).
-func (a *IAMUserAuth) remember(token string, expiresAt time.Time) {
+// from disk or freshly logged in there). obtainedAt is the token cache's own
+// record of when the token was first obtained, not necessarily now: a fresh
+// process that reuses another process's still-valid disk token must keep
+// that token's true age, or Invalidate's 30-second rule could never fire for
+// it.
+func (a *IAMUserAuth) remember(token string, expiresAt, obtainedAt time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.cachedToken = token
 	a.expiresAt = expiresAt
-	a.obtainedAt = timeNow()
+	a.obtainedAt = obtainedAt
 }
 
 // Invalidate drops the cached token when sent is still the cached one and it
-// has been held at least 30 seconds. A token younger than that is left in
-// place: the retry after a 401 then reuses it, the server rejects it again,
-// and the call ends in ErrAuth instead of a second login inside the same
-// 30-second TOTP window.
+// has been held at least 30 seconds, or its obtain time is after now (the
+// clock moved backward, which must not be read as "just obtained"). A token
+// younger than that is left in place: the retry after a 401 then reuses it,
+// the server rejects it again, and the call ends in ErrAuth instead of a
+// second login inside the same 30-second TOTP window.
 func (a *IAMUserAuth) Invalidate(sent string) {
 	if sent == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.cachedToken == sent && timeNow().Sub(a.obtainedAt) >= 30*time.Second {
+	if a.cachedToken != sent {
+		return
+	}
+	age := timeNow().Sub(a.obtainedAt)
+	if age < 0 || age >= 30*time.Second {
 		a.cachedToken = ""
 		a.expiresAt = time.Time{}
 	}

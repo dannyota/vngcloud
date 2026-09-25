@@ -91,12 +91,23 @@ credentials file has no access token key: a static token comes only from
 `LoadConfig` opens the credentials file, checks the open file's mode, and
 refuses it when group or others can read it, naming the file and the fix
 (`chmod 600`); this check is skipped on Windows. A path that is not a
-regular file, such as a directory or a FIFO, is an error. Every error from
-`LoadConfig` matches `vngcloud.ErrInvalidConfig` via `errors.Is`; a missing
-credential set also matches `vngcloud.ErrNoCredentials`, and a credentials
-file problem (missing at an explicit path, unreadable, refused for unsafe
-permissions, or malformed) also matches `vngcloud.ErrCredentialsFile`. No
-error from `LoadConfig` names a credential value.
+regular file, such as a directory or a FIFO, is an error.
+
+`LoadConfig` returns `ctx.Err()` directly, unwrapped, when the context
+passed in is already canceled or past its deadline. Every other error from
+`LoadConfig` matches `vngcloud.ErrInvalidConfig` via `errors.Is`. A missing
+credential set, or one source setting some IAM User credentials but not
+all of root_email, username, and password, also matches
+`vngcloud.ErrNoCredentials`, naming the source and the missing keys. A
+credentials file problem (missing at an explicit path, unreadable, refused
+for unsafe permissions, or malformed) also matches
+`vngcloud.ErrCredentialsFile`. No error from `LoadConfig` names a
+credential value.
+
+A token cache directory that group or others can access is refused
+separately: that check runs at the first call that needs a token
+(`Authenticate` or any request), not from `LoadConfig` itself, and its
+error does not match `vngcloud.ErrInvalidConfig`.
 
 ## Region
 
