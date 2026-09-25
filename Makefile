@@ -1,4 +1,4 @@
-.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds
+.PHONY: help check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
 
 SHELL := bash
 
@@ -46,6 +46,9 @@ live: ## Run live smoke tests against the real API (reads .env)
 
 live-write: ## Run the gated live billing write test; needs owner approval per run and VNGCLOUD_LIVE_WRITE=1
 	@go test -tags livewrite -count=1 -v -run TestLiveWrite .
+
+gen-docs: ## Regenerate the CLI reference pages in docs/wiki/ from the operation tables
+	@go run ./cmd/vngcloud gen-docs docs/wiki
 
 browser-creds: ## Serve .env IAM User values once to scripts/browser-login.js for Playwright MCP
 	@python3 scripts/browser-creds.py

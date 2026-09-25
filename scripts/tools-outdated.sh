@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fails when a pinned tool or GitHub Action is behind its latest release, or
+# Fails when a pinned tool, a GitHub Action, or a direct Go module dependency is
+# behind its latest release, or
 # when a pin disagrees with its mirror. .tool-versions is the source for tool
 # versions; go.mod and the Semgrep image tag in semgrep.yml mirror it. Actions are
 # pinned by SHA with a "# vX.Y.Z" comment that this script compares.
@@ -51,6 +52,10 @@ while read -r action version; do
   check "$action" "$version" "$(gh_latest "$action")"
 done < <(grep -hoE 'uses: [^@ ]+@[0-9a-f]{40} # v[0-9.]+' .github/workflows/*.yml |
   sed -E 's/uses: ([^@]+)@[0-9a-f]+ # v/\1 /' | sort -u)
+
+while read -r mod version latest; do
+  report "$mod $version -> $latest"
+done < <(go list -m -u -f '{{if and (not .Main) (not .Indirect) .Update}}{{.Path}} {{.Version}} {{.Update.Version}}{{end}}' all)
 
 if ((stale > 0)); then
   echo "tools-outdated: $stale pin(s) to update" >&2

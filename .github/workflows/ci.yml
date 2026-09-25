@@ -46,6 +46,17 @@ jobs:
       - if: ${{ !cancelled() }}
         run: bash scripts/check-lengths.sh
       - if: ${{ !cancelled() }}
+        name: SDK packages import no CLI dependency
+        run: bash scripts/check-sdk-deps.sh
+      - if: ${{ !cancelled() }}
+        name: Windows and macOS builds compile
+        run: GOOS=windows go vet ./... && GOOS=darwin go vet ./...
+      - if: ${{ !cancelled() }}
+        name: Generated CLI docs are current
+        run: |
+          go run ./cmd/vngcloud gen-docs docs/wiki
+          test -z "$(git status --porcelain -- docs/wiki)" || { git status --porcelain -- docs/wiki; exit 1; }
+      - if: ${{ !cancelled() }}
         run: bash scripts/wiki-sync.sh --dry-run
 
   lint:
