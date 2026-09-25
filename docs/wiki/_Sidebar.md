@@ -8,3 +8,12 @@
 - [Errors](Errors.md)
 - [Services](Services.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
+
+**CLI**
+
+- [CLI](CLI.md)
+- [CLI: Billing](CLI-Billing.md)
+- [CLI: Pricing](CLI-Pricing.md)
+- [CLI: Compute](CLI-Compute.md)
+- [CLI: Network](CLI-Network.md)
+- [CLI: DNS](CLI-DNS.md)

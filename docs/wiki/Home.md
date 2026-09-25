@@ -18,7 +18,11 @@ rename; the module keeps the `vngcloud` name.
 
 ## CLI
 
-The `vngcloud` command is planned. Its pages will appear here when it ships.
+- [CLI](CLI.md): commands, global flags, output, exit codes, and error
+  classes.
+- [CLI: Billing](CLI-Billing.md), [CLI: Pricing](CLI-Pricing.md),
+  [CLI: Compute](CLI-Compute.md), [CLI: Network](CLI-Network.md), and
+  [CLI: DNS](CLI-DNS.md): every operation, its flags, and an example.
 
 ## Source
 

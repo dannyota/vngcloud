@@ -71,6 +71,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 
 	root.AddCommand(newVersionCmd(e))
 	root.AddCommand(newConfigureCmd(e))
+	root.AddCommand(newGenDocsCmd(e))
 	root.AddCommand(newBillingCmd(e))
 	root.AddCommand(newPricingCmd(e))
 	root.AddCommand(newComputeCmd(e))
