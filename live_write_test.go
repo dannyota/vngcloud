@@ -861,21 +861,32 @@ func isLiveChannelName(name string) bool {
 	return liveChannelNamePattern.MatchString(name)
 }
 
+// listAllChannelsPageCap bounds listAllChannels' page walk, the same rule
+// monitor.GetChannel applies to its own paging: a server that never returns
+// an empty page and never reports a TotalItem the walk can reach would
+// otherwise turn a cleanup helper into an infinite loop.
+const listAllChannelsPageCap = 1000
+
 // listAllChannels pages through every notification channel the account has,
 // since a leftover cleanup or a remaining-channel check must not miss a
-// channel that landed past the first page.
+// channel that landed past the first page. It keeps paging while the items
+// seen so far are fewer than the list's TotalItem and the last page was not
+// empty, rather than stopping once page reaches TotalPage: the server has
+// reported TotalPage wrong against the size actually returned, which would
+// otherwise stop the walk before every channel is seen.
 func listAllChannels(ctx context.Context, client *monitor.Client) ([]monitor.Channel, error) {
 	var all []monitor.Channel
-	for page := 1; ; page++ {
+	for page := 1; page <= listAllChannelsPageCap; page++ {
 		out, err := client.ListChannels(ctx, &monitor.ListChannelsInput{Page: page})
 		if err != nil {
 			return all, err
 		}
 		all = append(all, out.Items...)
-		if page >= out.TotalPage {
+		if len(out.Items) == 0 || len(all) >= out.TotalItem {
 			return all, nil
 		}
 	}
+	return all, nil
 }
 
 // deleteChannelByName lists channels and deletes any whose Name matches

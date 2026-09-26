@@ -178,6 +178,12 @@ type Channel struct {
 	// MarshalJSON read and write it through the header string field.
 	Headers []ChannelHeader `json:"-"`
 
+	// rawHeader is the header wire field exactly as read, kept alongside the
+	// decoded Headers so UpdateChannel can resend it unchanged when the
+	// caller leaves Headers nil, even when it does not decode to
+	// [{key,value}] pairs and Headers is nil.
+	rawHeader string
+
 	// MetricMappingID names this channel in a metric alarm. Unseen in a
 	// channel list read so far; the field stays empty until one is.
 	MetricMappingID string `json:"metricMappingId"`
@@ -203,6 +209,7 @@ func (ch *Channel) UnmarshalJSON(data []byte) error {
 	}
 	ch.Type = aux.TypeNotification.Name
 	ch.Headers = decodeChannelHeaders(aux.Header)
+	ch.rawHeader = aux.Header
 	return nil
 }
 
@@ -219,12 +226,19 @@ func (ch Channel) MarshalJSON() ([]byte, error) {
 		TypeNotification ChannelType `json:"typeNotification"`
 		Header           string      `json:"header,omitempty"`
 	}{alias: alias(ch), TypeNotification: ChannelType{Name: ch.Type}}
-	if len(ch.Headers) > 0 {
+	switch {
+	case len(ch.Headers) > 0:
 		data, err := json.Marshal(ch.Headers)
 		if err != nil {
 			return nil, err
 		}
 		aux.Header = string(data)
+	case ch.rawHeader != "":
+		// Headers is nil, either because there were never any headers or
+		// because the wire value did not decode; either way, rawHeader
+		// still carries the original wire value, so a marshal/unmarshal
+		// round trip does not lose an undecodable header string.
+		aux.Header = ch.rawHeader
 	}
 	return json.Marshal(aux)
 }

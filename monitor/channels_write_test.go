@@ -232,6 +232,61 @@ func TestCreateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	}
 }
 
+// TestCreateChannelRedactsJSONEscapedHeaderValue checks a header value
+// containing a character JSON escapes, such as "&", is also redacted when
+// the server echoes back the escaped form (as it would if it echoed the
+// JSON request body) rather than the raw value.
+func TestCreateChannelRedactsJSONEscapedHeaderValue(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"rejected header value token-a&b-secret"}`))
+	}))
+
+	_, err := client.CreateChannel(context.Background(), &CreateChannelInput{
+		Name:    "vngcloud-live-x",
+		Type:    ChannelTypeWebhook,
+		Address: "https://example.com/hook",
+		Headers: []ChannelHeader{{Key: "X-Auth", Value: "token-a&b-secret"}},
+	})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *core.APIError, got %v", err)
+	}
+	if got := apiErr.Message; got != "rejected header value <redacted>" {
+		t.Fatalf("Message = %q", got)
+	}
+}
+
+// TestCreateChannelWithholdsMessageForShortHeaderValue checks a header value
+// shorter than the redaction's replace-in-place threshold is never cut out
+// of the message with a plain ReplaceAll, since that risks also cutting
+// unrelated text sharing the same short substring; instead the whole
+// message is withheld when that value would otherwise appear in it.
+func TestCreateChannelWithholdsMessageForShortHeaderValue(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"header value abc is already used elsewhere"}`))
+	}))
+
+	_, err := client.CreateChannel(context.Background(), &CreateChannelInput{
+		Name:    "vngcloud-live-x",
+		Type:    ChannelTypeWebhook,
+		Address: "https://example.com/hook",
+		Headers: []ChannelHeader{{Key: "X-Auth", Value: "abc"}},
+	})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *core.APIError, got %v", err)
+	}
+	if got := apiErr.Message; got != "server message withheld" {
+		t.Fatalf("Message = %q, want the whole message withheld", got)
+	}
+	full := err.Error()
+	if strings.Contains(full, "abc") {
+		t.Fatalf("Error() = %q, leaked the short secret", full)
+	}
+}
+
 // TestUpdateChannelReadsMergesAndSendsFullBody checks UpdateChannel reads
 // the current channel, resends every field left nil unchanged, and sends
 // the fields that are set, including the header JSON-string encoding.
@@ -362,6 +417,81 @@ func TestUpdateChannelReadsMergesAndSendsFullBody(t *testing.T) {
 			t.Fatalf("unexpected channel: %+v", out.Channel)
 		}
 	})
+}
+
+// TestUpdateChannelPreservesUndecodableHeaderRaw checks a name-only update
+// resends the channel's header field exactly as read when it does not
+// decode as a JSON array of {key,value} pairs, rather than sending "" and
+// silently wiping it.
+func TestUpdateChannelPreservesUndecodableHeaderRaw(t *testing.T) {
+	const rawHeader = "not a json array"
+	var putBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"lstData":[{"id":"ch-1","name":"old-name","address":"https://example.com/hook",
+				"header":"` + rawHeader + `",
+				"typeNotification":{"id":"type-webhook","name":"Webhook","description":"Webhook"},
+				"createdDate":"2026-09-26T00:00:00"}],
+				"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case http.MethodPut:
+			putBody = decodeBody(t, r)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	newName := "new-name"
+	out, err := client.UpdateChannel(context.Background(), &UpdateChannelInput{
+		ChannelID: "ch-1",
+		Name:      &newName,
+	})
+	if err != nil {
+		t.Fatalf("UpdateChannel() error = %v", err)
+	}
+	if putBody["header"] != rawHeader {
+		t.Fatalf("header = %v, want %q unchanged", putBody["header"], rawHeader)
+	}
+	if out.Channel.Headers != nil {
+		t.Fatalf("Headers = %+v, want nil", out.Channel.Headers)
+	}
+}
+
+// TestUpdateChannelRejectsNonWebhookType checks UpdateChannel returns
+// ErrInvalidInput, with no PUT, when the channel read has a Type other than
+// Webhook: M2 only knows how to resend a webhook's full body, since every
+// other type needs an OTP the SDK does not yet send.
+func TestUpdateChannelRejectsNonWebhookType(t *testing.T) {
+	var putCalls int
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"lstData":[{"id":"ch-1","name":"old-name","address":"someone@example.com",
+				"typeNotification":{"id":"type-email","name":"Email","description":"Email"},
+				"createdDate":"2026-09-26T00:00:00"}],
+				"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case http.MethodPut:
+			putCalls++
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	newName := "new-name"
+	_, err := client.UpdateChannel(context.Background(), &UpdateChannelInput{
+		ChannelID: "ch-1",
+		Name:      &newName,
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateChannel() error = %v, want ErrInvalidInput", err)
+	}
+	if putCalls != 0 {
+		t.Fatalf("putCalls = %d, want 0", putCalls)
+	}
 }
 
 func TestUpdateChannelRequiresAtLeastOneField(t *testing.T) {
@@ -497,21 +627,73 @@ func TestDeleteChannelTwiceMapsToNotFound(t *testing.T) {
 }
 
 // TestDeleteChannelOtherBadRequestNotMappedToNotFound checks a 400 whose
-// message does not say the channel is not found stays a plain APIError,
-// rather than being swept into NotFound by status alone.
+// message does not say this channel's notification is not found stays a
+// plain APIError, rather than being swept into NotFound by "not found"
+// alone: a project-not-found 400, or a not-found 400 naming a different
+// channel ID, is a real error the caller must see.
 func TestDeleteChannelOtherBadRequestNotMappedToNotFound(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"unrelated message", `{"message":"malformed request"}`},
+		{"not found but not this channel", `{"message":"Project not found"}`},
+		{"not found but a different channel id", `{"message":"Notification with id ch-2 is not found"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+
+			_, err := client.DeleteChannel(context.Background(), &DeleteChannelInput{ChannelID: "ch-1"})
+			if errors.Is(err, core.ErrNotFound) {
+				t.Fatal("error wraps ErrNotFound, want the server's plain error")
+			}
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected a plain 400 *core.APIError, got %v", err)
+			}
+		})
+	}
+}
+
+// TestDeleteChannelTwiceKeepsAPIErrorInChain checks the mapped not-found
+// error still carries the original *core.APIError in its chain, so a
+// caller can match either sentinel: errors.Is against core.ErrNotFound for
+// the ordinary case, or errors.As against *core.APIError for the status
+// code and the server's own message.
+func TestDeleteChannelTwiceKeepsAPIErrorInChain(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"message":"malformed request"}`))
+		_, _ = w.Write([]byte(`{"message":"Notification with id ch-1 is not found"}`))
 	}))
 
 	_, err := client.DeleteChannel(context.Background(), &DeleteChannelInput{ChannelID: "ch-1"})
-	if errors.Is(err, core.ErrNotFound) {
-		t.Fatal("error wraps ErrNotFound, want the server's plain error")
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("DeleteChannel() error = %v, want ErrNotFound", err)
 	}
 	var apiErr *core.APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected a plain 400 *core.APIError, got %v", err)
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("DeleteChannel() error = %v, want an *core.APIError in the chain", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+	}
+}
+
+// TestDeleteChannelMatchIsCaseInsensitive checks the not-found match still
+// works when the server's own casing of "notification with id" differs.
+func TestDeleteChannelMatchIsCaseInsensitive(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"NOTIFICATION WITH ID CH-1 IS NOT FOUND"}`))
+	}))
+
+	_, err := client.DeleteChannel(context.Background(), &DeleteChannelInput{ChannelID: "ch-1"})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("DeleteChannel() error = %v, want ErrNotFound", err)
 	}
 }
 

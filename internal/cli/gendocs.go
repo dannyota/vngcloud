@@ -353,18 +353,26 @@ const monitorChannelRedactionNote = "Redacts every header value and every Addres
 
 // monitorCreateChannelAddressNote documents create-channel's literal
 // --address guard: the flag table shows --address as a plain, required
-// string flag, which would otherwise read as safe to give literally.
-const monitorCreateChannelAddressNote = "Refuses a literal --address for a Webhook or Slack Type with exit code " +
-	"2, since either channel's address can carry a bearer token; pass Address (and Headers) only through " +
-	"--cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is."
+// string flag, which would otherwise read as safe to give literally, and an
+// inline --cli-input-json value that sets Address or Headers is refused the
+// same way even though the flag table cannot show it at all.
+const monitorCreateChannelAddressNote = "Refuses a literal --address, or an inline --cli-input-json value that " +
+	"sets Address, for every Type except Email, SMS, or Telegram, with exit code 2, since another type's " +
+	"address can carry a bearer token. Refuses an inline --cli-input-json value that sets Headers for every " +
+	"Type, since Headers has no flag of its own and a Webhook channel's header value can hold a secret. Pass " +
+	"Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
+	"redacted the same way a channel read is."
 
 // monitorUpdateChannelAddressNote documents update-channel's literal
 // --address guard, which is unconditional: UpdateChannelInput carries no
 // Type field, so the CLI cannot tell a Webhook or Slack channel apart from
-// an Email, SMS, or Telegram one without a request of its own.
-const monitorUpdateChannelAddressNote = "Refuses every literal --address with exit code 2, since this Input " +
-	"carries no Type for the guard to check; pass Address (and Headers) only through --cli-input-json " +
-	"file://channel.json. The write's own Output is redacted the same way a channel read is."
+// an Email, SMS, or Telegram one without a request of its own. An inline
+// --cli-input-json value that sets Address or Headers is refused the same
+// way, even though the flag table cannot show Headers at all.
+const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an inline --cli-input-json value " +
+	"that sets Address or Headers, with exit code 2, since this Input carries no Type for the guard to check. " +
+	"Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
+	"redacted the same way a channel read is."
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here

@@ -319,20 +319,35 @@ creating it again rather than retrying blind.
 
 `UpdateChannel` changes `Name`, `Address`, `Headers`, or any combination of
 the three; a field left `nil` keeps the channel's current value, and at
-least one must be set. GreenNode's own API takes a full replacement body
-and clears any field a request leaves out, so `UpdateChannel` reads the
-channel first with `GetChannel` and resends every field the caller did not
-set itself, rather than trusting the API to leave them alone. It keeps the
-channel's `Type`; there is no way to change a channel's type. Its
-`Output.Channel` never carries a fresh `UpdatedDate`, since the update's
-own 200 response has no body to read one from.
+least one must be set. To clear every header on purpose, set `Headers` to a
+non-nil empty slice (`&[]monitor.ChannelHeader{}`); leaving `Headers` `nil`
+resends the channel's current headers unchanged. GreenNode's own API takes a
+full replacement body and clears any field a request leaves out, so
+`UpdateChannel` reads the channel first with `GetChannel` and resends every
+field the caller did not set itself, rather than trusting the API to leave
+them alone. It keeps the channel's `Type`; there is no way to change a
+channel's type, and `UpdateChannel` accepts only a channel whose current
+`Type` is `monitor.ChannelTypeWebhook`, failing with
+`vngcloud.ErrInvalidInput` before any request for any other type, until
+support for OTP types ships. Its `Output.Channel` never carries a fresh
+`UpdatedDate`, since the update's own 200 response has no body to read one
+from.
 
-`DeleteChannel` removes a channel; a check that still names it in its
-`Notifications` keeps the now-dangling ID rather than failing. There is no
+The read and the write are two separate requests, with nothing to detect a
+change in between: if another caller updates the channel after
+`UpdateChannel`'s own `GetChannel` but before its `PUT` lands, that change is
+silently overwritten by whichever fields this call resends. Serialize
+concurrent updates to the same channel elsewhere if that matters.
+
+`DeleteChannel` removes a channel; GreenNode's own API strips the deleted
+channel's ID from every check's `Notifications`, so alerting through that
+channel silently stops on every check that used it, with no warning and no
 undo. A second delete of the same `ChannelID` returns
 `vngcloud.IsNotFound(err) == true`, the same as `DeleteCheck`, even though
 GreenNode's own API answers that specific case with a 400 rather than a
-404.
+404; a retried `DeleteChannel` whose first attempt already reached the
+server gets this same not-found error on the retry, which the caller
+treats the same as a successful delete.
 
 `Channel.Address` is the email, Slack webhook URL, Telegram chat ID, phone
 number, or webhook URL the channel notifies, and `Channel.Headers` is the
@@ -341,9 +356,13 @@ hold a secret, such as a token in a header value. The SDK returns them
 exactly as the API does, so a caller that will recreate or update a channel
 can read them back; they never appear in log output (`vngcloud.WithLogger`
 never logs a body). `CreateChannel` and `UpdateChannel` also strip both out
-of a server error message before building the `*vngcloud.APIError`: if
-GreenNode's own response happens to echo the sent address or a header value
-back, that call's error carries `<redacted>` in its place instead. The
+of a server error message before building the `*vngcloud.APIError`, in
+either its raw form or the form the request's own JSON encoding produced
+(a header value's literal `&` sent as `\u0026`, say): if GreenNode's own
+response happens to echo the sent address or a header value back, that
+call's error carries `<redacted>` in its place instead, unless the value is
+too short to cut out safely, in which case the whole message is withheld
+rather than returned with unrelated text also cut out around it. The
 [CLI](CLI-Monitor.md) shows `Address` in full only for `Email`, `SMS`, and
 `Telegram`, whose address is personal data rather than a secret; every
 other type, known or not, has its `Address` redacted, keeping only the

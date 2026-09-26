@@ -187,6 +187,21 @@ func TestClassify(t *testing.T) {
 			"NotFound", 0, "",
 		},
 		{
+			// monitor.DeleteChannel maps a 400 whose message says the
+			// channel is already gone to vngcloud.ErrNotFound while keeping
+			// the original *APIError (Code "BadRequest", Status 400) in the
+			// same chain, so errors.As(err, &apiErr) finds it. Code must
+			// still be "NotFound", not that APIError's own "BadRequest",
+			// while Status and Operation are still filled from it.
+			"not found wrapping an APIError",
+			fmt.Errorf("%w: monitor.DeleteChannel: channel channel-1: %w", vngcloud.ErrNotFound,
+				&vngcloud.APIError{
+					Operation: "monitor.DeleteChannel", StatusCode: 400, Code: "BadRequest",
+					Message: "Notification with id channel-1 is not found",
+				}),
+			"NotFound", 400, "monitor.DeleteChannel",
+		},
+		{
 			"unexpected check status",
 			fmt.Errorf("%w: chk-1 is %q", monitor.ErrUnexpectedStatus, "UNKNOWN"),
 			"UnexpectedStatus", 0, "",

@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-Refuses a literal --address for a Webhook or Slack Type with exit code 2, since either channel's address can carry a bearer token; pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
+Refuses a literal --address, or an inline --cli-input-json value that sets Address, for every Type except Email, SMS, or Telegram, with exit code 2, since another type's address can carry a bearer token. Refuses an inline --cli-input-json value that sets Headers for every Type, since Headers has no flag of its own and a Webhook channel's header value can hold a secret. Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -166,7 +166,7 @@ vngcloud monitor resume-check --check-id <check-id>
 
 Kind: Write.
 
-Refuses every literal --address with exit code 2, since this Input carries no Type for the guard to check; pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
+Refuses every literal --address, or an inline --cli-input-json value that sets Address or Headers, with exit code 2, since this Input carries no Type for the guard to check. Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
 
 | Flag | Type | Required |
 |-|-|-|

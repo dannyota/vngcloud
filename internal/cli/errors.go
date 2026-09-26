@@ -60,22 +60,26 @@ type errorEnvelope struct {
 	Operation string `json:"operation,omitempty"`
 }
 
-// classify turns err into the stderr JSON shape. For an *vngcloud.APIError,
-// code is APIError.Code (already resolved to the status-derived fallback by
-// the SDK), or "RequestFailed" when the error carries neither a code nor an
-// HTTP status. Every other error is named by one of the CLI's own classes:
-// InvalidUsage, ReadOnly, InvalidConfig, NoCredentials, LoginFailed,
-// RequestFailed, QueryFailed, PageFormat (a public page, such as the CDN IP
-// range FAQ, no longer matches the shape its parser expects), UnexpectedStatus
-// (a vMonitor check had a status PauseCheck or ResumeCheck does not
-// recognize), StatusUnconfirmed (a vMonitor pause or resume may have landed
-// but no confirm read showed it), ZoneBusy (a vDNS zone stayed busy past the
-// pre-write wait, so nothing was sent), WriteFailed (a vDNS write reached
-// status ERROR), NotSettled (a vDNS write was accepted but did not settle
-// within the post-write wait), or NotFound for a not-found result that never
-// became an *APIError, such as monitor.GetChannel's page walk finding no
-// matching ID: a real 404 already carries Code "NotFound" through the
-// *APIError branch above, so this case only catches the sentinel-only kind.
+// classify turns err into the stderr JSON shape. NotFound is checked before
+// the generic *APIError branch below, and always wins over whatever Code an
+// embedded *APIError itself carries: vngcloud.IsNotFound(err) is true both
+// for a real 404 and for a non-404 error such as monitor.DeleteChannel's
+// that a service maps to core.ErrNotFound by its message rather than its
+// status, and both must classify the same way rather than let the second
+// kind fall through with the underlying status's own Code (a 400 channel
+// delete's "BadRequest", say) instead. For an *vngcloud.APIError that is not
+// a not-found, code is APIError.Code (already resolved to the
+// status-derived fallback by the SDK), or "RequestFailed" when the error
+// carries neither a code nor an HTTP status. Every other error is named by
+// one of the CLI's own classes: InvalidUsage, ReadOnly, InvalidConfig,
+// NoCredentials, LoginFailed, RequestFailed, QueryFailed, PageFormat (a
+// public page, such as the CDN IP range FAQ, no longer matches the shape
+// its parser expects), UnexpectedStatus (a vMonitor check had a status
+// PauseCheck or ResumeCheck does not recognize), StatusUnconfirmed (a
+// vMonitor pause or resume may have landed but no confirm read showed it),
+// ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
+// sent), WriteFailed (a vDNS write reached status ERROR), or NotSettled (a
+// vDNS write was accepted but did not settle within the post-write wait).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -102,26 +106,23 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 
+	if vngcloud.IsNotFound(err) {
+		env := errorEnvelope{Code: "NotFound", Message: err.Error()}
+		var apiErr *vngcloud.APIError
+		if errors.As(err, &apiErr) {
+			fillEnvelopeFromAPIError(&env, apiErr)
+		}
+		return env
+	}
+
 	var apiErr *vngcloud.APIError
 	if errors.As(err, &apiErr) {
-		// Message is the API's own message alone: apiErr.Error() repeats the
-		// operation and status inside the string, which would duplicate the
-		// separate operation and status fields below.
-		message := apiErr.Message
-		if message == "" {
-			message = apiErr.Error()
-		}
-		env := errorEnvelope{Code: apiErr.Code, Message: message, Operation: apiErr.Operation}
-		if apiErr.StatusCode > 0 {
-			env.Status = apiErr.StatusCode
-		}
+		env := errorEnvelope{Code: apiErr.Code}
+		fillEnvelopeFromAPIError(&env, apiErr)
 		if env.Code == "" {
 			env.Code = "RequestFailed"
 		}
 		return env
-	}
-	if vngcloud.IsNotFound(err) {
-		return errorEnvelope{Code: "NotFound", Message: err.Error()}
 	}
 
 	var usageErr usageError
@@ -153,6 +154,24 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "PageFormat", Message: err.Error()}
 	}
 	return errorEnvelope{Code: "RequestFailed", Message: err.Error()}
+}
+
+// fillEnvelopeFromAPIError copies apiErr's own Message (or, if empty, its
+// full Error() text, which repeats the operation and status Message alone
+// would lack), Operation, and StatusCode into env. Both of classify's
+// *APIError-aware branches call this, so a wrapped *APIError's detail
+// reaches the envelope the same way whether or not the NotFound branch also
+// forces Code to "NotFound" ahead of it.
+func fillEnvelopeFromAPIError(env *errorEnvelope, apiErr *vngcloud.APIError) {
+	message := apiErr.Message
+	if message == "" {
+		message = apiErr.Error()
+	}
+	env.Message = message
+	env.Operation = apiErr.Operation
+	if apiErr.StatusCode > 0 {
+		env.Status = apiErr.StatusCode
+	}
 }
 
 // exitCode maps err to the CLI's process exit code, checked in this fixed

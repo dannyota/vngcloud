@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/monitor"
 )
@@ -90,6 +92,299 @@ func TestMonitorUpdateChannelRefusesLiteralAddressWithZeroRequests(t *testing.T)
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
 		t.Fatalf("expected a literal --address refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0 (guard runs before even the read)", n)
+	}
+}
+
+// newGuardTestCmd builds a bare *cobra.Command carrying only --address and
+// --cli-input-json, the two flags refuseLiteralCreateChannelAddress and
+// refuseLiteralUpdateChannelAddress read directly, so the tests below can
+// call a guard function on its own without building a whole operation
+// command. cmd.Flags().Set marks a flag Changed, exactly like cobra parsing
+// a real argv would, so addressChanged reflects the guard's own
+// cmd.Flags().Changed("address") check.
+func newGuardTestCmd(t *testing.T, address string, addressChanged bool, cliInputJSON string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.Flags().String("address", "", "")
+	cmd.Flags().String("cli-input-json", "", "")
+	if addressChanged {
+		if err := cmd.Flags().Set("address", address); err != nil {
+			t.Fatalf("Set(address): %v", err)
+		}
+	}
+	if cliInputJSON != "" {
+		if err := cmd.Flags().Set("cli-input-json", cliInputJSON); err != nil {
+			t.Fatalf("Set(cli-input-json): %v", err)
+		}
+	}
+	return cmd
+}
+
+// TestChannelAddressTypeAllowsLiteral checks the fail-closed allowlist
+// finding 2 requires: only Email, SMS, and Telegram allow a literal
+// Address, compared with strings.EqualFold, matching redactChannel's own
+// rule. Every other type, including a differently-cased Webhook or Slack
+// and an unrecognized type, is denied by default.
+func TestChannelAddressTypeAllowsLiteral(t *testing.T) {
+	tests := []struct {
+		typ  string
+		want bool
+	}{
+		{monitor.ChannelTypeEmail, true},
+		{"email", true},
+		{monitor.ChannelTypeSMS, true},
+		{"sms", true},
+		{monitor.ChannelTypeTelegram, true},
+		{"TELEGRAM", true},
+		{monitor.ChannelTypeWebhook, false},
+		{"webhook", false},
+		{monitor.ChannelTypeSlack, false},
+		{"SLACK", false},
+		{"Teams", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := channelAddressTypeAllowsLiteral(tt.typ); got != tt.want {
+			t.Errorf("channelAddressTypeAllowsLiteral(%q) = %v, want %v", tt.typ, got, tt.want)
+		}
+	}
+}
+
+// TestMonitorRefuseLiteralCreateChannelAddressCaseInsensitive checks that a
+// differently-cased Type, "webhook" rather than the SDK's own "Webhook",
+// still refuses a literal --address: the allowlist is fail-closed, so a
+// casing the guard does not recognize denies rather than allows.
+func TestMonitorRefuseLiteralCreateChannelAddressCaseInsensitive(t *testing.T) {
+	cmd := newGuardTestCmd(t, "https://example.com/hook", true, "")
+	in := &monitor.CreateChannelInput{Type: "webhook", Address: "https://example.com/hook"}
+	err := refuseLiteralCreateChannelAddress(cmd, in)
+	if err == nil {
+		t.Fatal("expected a literal --address refusal for a lowercase webhook Type")
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+}
+
+// TestMonitorRefuseLiteralCreateChannelAddressAllowsEmailSMSTelegram checks
+// that a literal --address is allowed through the guard for Email, SMS, and
+// Telegram regardless of the address's own shape: even a URL, the shape a
+// Webhook channel's Address would also take, is let through, since the
+// guard denies by Type alone and never inspects Address.
+func TestMonitorRefuseLiteralCreateChannelAddressAllowsEmailSMSTelegram(t *testing.T) {
+	for _, typ := range []string{monitor.ChannelTypeEmail, monitor.ChannelTypeSMS, monitor.ChannelTypeTelegram} {
+		t.Run(typ, func(t *testing.T) {
+			address := "https://phishing.example/callback"
+			cmd := newGuardTestCmd(t, address, true, "")
+			in := &monitor.CreateChannelInput{Type: typ, Address: address}
+			if err := refuseLiteralCreateChannelAddress(cmd, in); err != nil {
+				t.Fatalf("refuseLiteralCreateChannelAddress(%s) = %v, want nil", typ, err)
+			}
+		})
+	}
+}
+
+// TestMonitorCreateChannelRefusesInlineCLIInputJSONAddress checks the same
+// refusal as TestMonitorCreateChannelRefusesLiteralAddressForWebhookAndSlack
+// for an inline --cli-input-json value: Address typed directly on the
+// command line reaches argv exactly like a literal --address flag does, so
+// it is refused the same way, with exit code 2 and zero requests.
+func TestMonitorCreateChannelRefusesInlineCLIInputJSONAddress(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-channel",
+		"--name", "n", "--type", monitor.ChannelTypeWebhook,
+		"--cli-input-json", `{"Address":"https://example.com/hook"}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an inline --cli-input-json Address refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorCreateChannelRefusesInlineCLIInputJSONHeaders checks that an
+// inline --cli-input-json value setting Headers is refused for every Type,
+// including Email, whose Address the guard otherwise allows literally:
+// Headers has no flag of its own, so the only way it ever reaches argv is
+// through --cli-input-json, and any Webhook channel's header value can hold
+// a secret the guard cannot rule out by Type alone.
+func TestMonitorCreateChannelRefusesInlineCLIInputJSONHeaders(t *testing.T) {
+	for _, typ := range []string{monitor.ChannelTypeWebhook, monitor.ChannelTypeEmail} {
+		t.Run(typ, func(t *testing.T) {
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			root, _, stderr := newSvcRoot(t, fixture)
+			root.SetArgs([]string{
+				"--region", "hcm-3", "monitor", "create-channel",
+				"--name", "n", "--type", typ,
+				"--cli-input-json", `{"Headers":[{"Key":"X-Api-Key","Value":"super-secret"}]}`,
+			})
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatal("expected an inline --cli-input-json Headers refusal")
+			}
+			if got := exitCode(err); got != 2 {
+				t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+			}
+			if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+				t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+			}
+			if n := fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
+	}
+}
+
+// TestMonitorCreateChannelRefusesMixOfLiteralAddressFlagAndInlineHeaders
+// checks a command that mixes sources: a literal --address flag for a Type
+// the guard would otherwise allow (Email), together with an inline
+// --cli-input-json value setting Headers. Both reach argv, and the Headers
+// refusal fires regardless of whether the Address by itself would have been
+// allowed.
+func TestMonitorCreateChannelRefusesMixOfLiteralAddressFlagAndInlineHeaders(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-channel",
+		"--name", "n", "--type", monitor.ChannelTypeEmail, "--address", "e@example.com",
+		"--cli-input-json", `{"Headers":[{"Key":"X-Api-Key","Value":"super-secret"}]}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an inline --cli-input-json Headers refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorUpdateChannelRefusesInlineCLIInputJSONAddress mirrors
+// TestMonitorCreateChannelRefusesInlineCLIInputJSONAddress for
+// update-channel: an inline --cli-input-json value setting Address is
+// refused unconditionally, the same as a literal --address flag, before
+// even the read GetChannel would otherwise send.
+func TestMonitorUpdateChannelRefusesInlineCLIInputJSONAddress(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/notification-gateway/api/v1/notification/list/typeSearch": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-channel",
+		"--channel-id", "channel-1",
+		"--cli-input-json", `{"Address":"https://example.com/new"}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an inline --cli-input-json Address refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0 (guard runs before even the read)", n)
+	}
+}
+
+// TestMonitorUpdateChannelRefusesInlineCLIInputJSONHeaders mirrors
+// TestMonitorUpdateChannelRefusesInlineCLIInputJSONAddress for Headers,
+// which has no flag of its own on update-channel either.
+func TestMonitorUpdateChannelRefusesInlineCLIInputJSONHeaders(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/notification-gateway/api/v1/notification/list/typeSearch": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-channel",
+		"--channel-id", "channel-1",
+		"--cli-input-json", `{"Headers":[{"Key":"X-Api-Key","Value":"super-secret"}]}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an inline --cli-input-json Headers refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if !strings.Contains(err.Error(), "--cli-input-json file://channel.json") {
+		t.Fatalf("error = %q, want it to name --cli-input-json file://channel.json", err.Error())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0 (guard runs before even the read)", n)
+	}
+}
+
+// TestMonitorUpdateChannelRefusesMixOfLiteralAddressFlagAndInlineHeaders
+// mirrors the create-channel mix test: a literal --address flag together
+// with an inline --cli-input-json value setting Headers, both refused on
+// update-channel regardless of source or field.
+func TestMonitorUpdateChannelRefusesMixOfLiteralAddressFlagAndInlineHeaders(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/notification-gateway/api/v1/notification/list/typeSearch": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-channel",
+		"--channel-id", "channel-1", "--address", "https://example.com/new",
+		"--cli-input-json", `{"Headers":[{"Key":"X-Api-Key","Value":"super-secret"}]}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a refusal")
 	}
 	if got := exitCode(err); got != 2 {
 		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
@@ -360,9 +655,12 @@ func TestMonitorChannelWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 		op   string
 		args []string
 	}{
+		// Type Email passes the literal-address guard (see
+		// TestMonitorCreateChannelAllowsLiteralAddressForEmailSMSTelegram),
+		// so this case reaches, and is stopped by, the read-only check the
+		// guard runs before, rather than the guard itself.
 		{"create-channel", []string{
-			"create-channel", "--name", "n", "--type", monitor.ChannelTypeWebhook,
-			"--cli-input-json", `{"Address":"https://example.com/hook"}`,
+			"create-channel", "--name", "n", "--type", monitor.ChannelTypeEmail, "--address", "e@example.com",
 		}},
 		{"update-channel", []string{"update-channel", "--channel-id", "channel-1", "--name", "n"}},
 		{"delete-channel", []string{"delete-channel", "--channel-id", "channel-1", "--yes"}},
