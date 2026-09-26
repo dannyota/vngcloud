@@ -55,8 +55,8 @@ const monitorSendChannelOTPNote = "Refuses Type Webhook before any request; Webh
 	"address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets " +
 	"Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as " +
 	"--otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an " +
-	"ambiguous failure, since a retry could message the address a second time. SMS beyond the free 20 spends " +
-	"a paid package, and sending this OTP counts toward it."
+	"ambiguous failure, since a retry could message the address a second time. SMS and Email beyond the free " +
+	"20 each spend a paid package, and sending this OTP counts toward it."
 
 // monitorCheckNotificationsNote documents Notifications' own nested shape
 // for create-check and update-check: the flag table shows it only as a Go

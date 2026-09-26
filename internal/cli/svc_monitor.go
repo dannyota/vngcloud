@@ -226,10 +226,9 @@ func refuseLiteralCreateChannelAddress(cmd *cobra.Command, in any) error {
 // refuses every Type but Email, Slack, SMS, and Telegram before any
 // request (see monitor.SendChannelOTP), so Webhook never reaches this
 // guard; of the four it accepts, only Slack's address is a webhook URL
-// that can carry a secret, per owner decision 4 of the monitor design (the
-// CLI refuses a literal webhook or Slack address), which the design's own
-// CLI section states only for create-channel and update-channel, written
-// before send-channel-otp's flags existed. It also refuses an inline
+// that can carry a secret, so this guard refuses a literal one the same
+// way create-channel and update-channel do, even though the design's CLI
+// section names only those two commands. It also refuses an inline
 // --cli-input-json value that sets Headers, for every Type, the same as
 // create-channel's own Headers refusal.
 func refuseLiteralSendChannelOTPAddress(cmd *cobra.Command, in any) error {
@@ -252,22 +251,13 @@ func refuseLiteralSendChannelOTPAddress(cmd *cobra.Command, in any) error {
 
 // refuseLiteralUpdateChannelAddress refuses every literal --address flag,
 // and every inline --cli-input-json value that sets Address or Headers, on
-// update-channel, unconditionally. UpdateChannelInput carries no Type
-// field, since the API has no way to change a channel's type, so this
-// guard cannot tell a Webhook or Slack channel (whose address the monitor
-// design requires --cli-input-json for) apart from an Email, SMS, or
-// Telegram one without a request of its own, and a Guard must refuse
-// before any request. This is broader than the design's own CLI rule
-// (refuse a literal --address only for Webhook and Slack): UpdateChannelInput
-// now carries OTPRef and OTP, so a literal --address for an Email, SMS, or
-// Telegram channel could otherwise succeed with a fresh OTP, and this guard
-// still refuses it, for lack of a way to check Type before the request
-// this Guard must run ahead of. The design does not say how update-channel
-// should learn Type before that request, so the refusal stays
-// unconditional; this is an open item, not a considered choice. Headers has
-// no flag of its own, so the only way it ever reaches argv is through an
-// inline --cli-input-json value; a file:// one is exempt, the same as
-// Address.
+// update-channel, unconditionally. The guard runs before any request, and
+// UpdateChannelInput carries no Type field, so it has no way to tell a
+// personal address (Email, SMS, or Telegram) apart from a secret-bearing
+// URL (Webhook or Slack). Pass Address (and Headers) only through
+// --cli-input-json file://channel.json; a file:// value is exempt since its
+// content never reaches argv. Headers has no flag of its own, so the only
+// way it ever reaches argv is through an inline --cli-input-json value.
 func refuseLiteralUpdateChannelAddress(cmd *cobra.Command, _ any) error {
 	fields := literalCLIInputJSONFields(cmd)
 	if cmd.Flags().Changed("address") || fields["Address"] {
