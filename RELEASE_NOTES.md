@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.16.0 - Load Balancer Commands
+
+### Highlights
+
+- New `vngcloud loadbalancer` commands for load balancers, listeners,
+  pools, health monitors, pool members, policies, tags, packages, and
+  certificates. Reads only. The test account has no load balancer or
+  certificate, so their reads are marked unverified in the wiki; the live
+  tests check them the day one exists.
+- Certificates print metadata only; the model has no key or PEM field.
+
+### Behavior changes
+
+None.
+
+## v0.15.0 - vMonitor Webhook Channels
+
+### Highlights
+
+- `monitor.CreateChannel`, `UpdateChannel`, and `DeleteChannel` manage
+  webhook notification channels. Other channel types need a one-time code
+  and are not supported yet.
+- `UpdateChannel` reads the channel and sends a full body, because the API
+  replaces the channel; unset fields keep their values, and a non-nil empty
+  `Headers` clears the headers. Deleting a channel also removes it from
+  every check that named it.
+- Server error messages never repeat a channel's address or header values:
+  the SDK redacts them, including their JSON-escaped forms.
+- New `vngcloud monitor create-channel`, `update-channel`, and
+  `delete-channel` commands. A webhook address and any headers go only
+  through `--cli-input-json file://...`, so a secret never lands in shell
+  history; a literal or inline value is refused. Output is redacted as for
+  the channel reads. Delete needs `--yes`, and a read-only profile refuses
+  all three.
+
+### Behavior changes
+
+A not-found error that wraps an `*APIError` now prints the CLI code
+`NotFound` (exit 4) with the server's status and message.
+
 ## v0.14.0 - Volume Commands
 
 ### Highlights

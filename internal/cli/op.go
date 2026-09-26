@@ -30,20 +30,49 @@ type Op[C any] struct {
 	methodName  string
 	kind        opKind
 	destructive bool
+	guard       func(cmd *cobra.Command, in any) error
 	noFlag      map[string]bool
 	newInput    func() any
 	newOutput   func() any
 	call        func(client *C, ctx context.Context, in any) (any, error)
 }
 
-// writeOption configures a Write operation. Destructive is the only one
-// today; cli.WaitFor (for an asynchronous write) is undefined until the
-// first such write needs it.
-type writeOption struct{ destructive bool }
+// writeOption configures a Write operation. Destructive, Guard, and
+// WriteRedact are the three today; cli.WaitFor (for an asynchronous write)
+// is undefined until the first such write needs it.
+type writeOption struct {
+	destructive bool
+	guard       func(cmd *cobra.Command, in any) error
+	redact      func(out any)
+}
 
 // Destructive marks a Write operation as not undoable by one more command:
 // it fails with exit code 2 and names --yes unless --yes is given.
 func Destructive() writeOption { return writeOption{destructive: true} }
+
+// Guard adds a check that runs on a Write operation's merged Input, after
+// --cli-input-json and every flag are applied but before any request: fn
+// returns a usage error to refuse the command, or nil to let it proceed.
+// cmd lets fn tell a flag the user actually typed (cmd.Flags().Changed)
+// apart from a value --cli-input-json alone set, since only the former
+// reaches argv, and so process listings and shell history. monitor's
+// create-channel and update-channel use it to refuse a literal --address
+// for a channel whose address can carry a secret.
+func Guard(fn func(cmd *cobra.Command, in any) error) writeOption {
+	return writeOption{guard: fn}
+}
+
+// WriteRedact marks a Write operation's Output as holding a value the CLI
+// must never print unchanged, Write's counterpart to Read's Redact: fn runs
+// on the SDK's own result immediately after the call returns, on every path
+// that returns a non-nil Output, including the one where a caller error
+// (such as dns.ErrFailed) still carries an Output the CLI prints on stderr's
+// error path. That single point runs before the result can reach
+// renderOutput in any format or survive any --query, on both the success and
+// that error path.
+func WriteRedact[Out any](fn func(*Out)) writeOption {
+	return writeOption{redact: func(out any) { fn(out.(*Out)) }}
+}
 
 // readOption configures a Read operation: NoFlag, Redact, or both.
 type readOption struct {
@@ -122,20 +151,36 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 // call; under read-only, or without --yes for a Destructive write, the
 // command is refused before a client is built.
 func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...writeOption) Op[C] {
+	var redact func(out any)
 	op := Op[C]{
 		name:       name,
 		methodName: funcName(method),
 		kind:       kindWrite,
 		newInput:   func() any { return new(In) },
 		newOutput:  func() any { return new(Out) },
-		call: func(client *C, ctx context.Context, in any) (any, error) {
-			return method(client, ctx, in.(*In))
-		},
 	}
 	for _, o := range opts {
 		if o.destructive {
 			op.destructive = true
 		}
+		if o.guard != nil {
+			op.guard = o.guard
+		}
+		if o.redact != nil {
+			redact = o.redact
+		}
+	}
+	op.call = func(client *C, ctx context.Context, in any) (any, error) {
+		out, err := method(client, ctx, in.(*In))
+		// redact runs whenever out is non-nil, whether or not err is also
+		// set: a write whose design defines a failed or unsettled wait, such
+		// as dns.ErrFailed, still returns an Output the CLI prints on the
+		// error path, and that Output must reach the redact hook exactly the
+		// same as the success path's does.
+		if out != nil && redact != nil {
+			redact(out)
+		}
+		return out, err
 	}
 	return op
 }
@@ -247,6 +292,16 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return err
 	}
 	applyChangedFlags(cmd, input, bound)
+
+	// op.guard runs on the merged Input before the read-only check below: it
+	// is a property of the Input's own shape (a literal --address on argv),
+	// not of the profile, so it is refused the same way regardless of
+	// read-only, and always before any request.
+	if op.kind == kindWrite && op.guard != nil {
+		if err := op.guard(cmd, input); err != nil {
+			return err
+		}
+	}
 
 	// A read-only refusal from the flag or environment source is checked
 	// before checkRequiredFlags, not after: read-only rejects the whole

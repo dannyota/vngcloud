@@ -1,0 +1,35 @@
+{
+  "LoadBalancer": {
+    "UUID": "lb-1",
+    "Name": "example-lb",
+    "DisplayStatus": "ACTIVE",
+    "Address": "203.0.113.10",
+    "PrivateSubnetID": "subnet-1",
+    "PrivateSubnetCIDR": "10.0.0.0/24",
+    "Type": "Layer 4",
+    "DisplayType": "Layer 4",
+    "LoadBalancerSchema": "INTERNET",
+    "PackageID": "pkg-1",
+    "Description": "example load balancer",
+    "Location": "hcm-3",
+    "CreatedAt": "2026-01-01T00:00:00Z",
+    "UpdatedAt": "2026-01-02T00:00:00Z",
+    "ProgressStatus": "",
+    "Status": "ACTIVE",
+    "BackendSubnetID": "subnet-1",
+    "Internal": false,
+    "AutoScalable": true,
+    "ZoneID": "zone-a",
+    "MinSize": 1,
+    "MaxSize": 2,
+    "TotalNodes": 1,
+    "Nodes": [
+      {
+        "Status": "ACTIVE",
+        "ZoneID": "zone-a",
+        "ZoneName": "Zone A",
+        "SubnetID": "subnet-1"
+      }
+    ]
+  }
+}

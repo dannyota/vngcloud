@@ -80,6 +80,33 @@ func (c *fakeClient) FakeDelete(ctx context.Context, in *fakeDeleteInput) (*fake
 	return &fakeDeleteOutput{}, nil
 }
 
+// fakeSecretInput and fakeSecretOutput exercise Guard and WriteRedact: a
+// literal --secret flag is refused before any request, and the Output's
+// Secret is redacted after a successful call, exactly as monitor's
+// create-channel and update-channel commands use the same two mechanisms
+// for a channel's Address.
+type fakeSecretInput struct {
+	Secret string `vngcloud:"required"`
+}
+
+type fakeSecretOutput struct {
+	Secret string
+}
+
+func (c *fakeClient) FakeSecretWrite(ctx context.Context, in *fakeSecretInput) (*fakeSecretOutput, error) {
+	atomic.AddInt32(c.calls, 1)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/fake-secret", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return &fakeSecretOutput{Secret: in.Secret}, nil
+}
+
 // fakeHarness bundles a fake server, its request counter, and the env/root
 // a test drives commands through.
 type fakeHarness struct {
@@ -106,6 +133,9 @@ func newFakeHarness(t *testing.T) *fakeHarness {
 	mux.HandleFunc("/fake/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("/fake-secret", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	h.server = httptest.NewServer(mux)
 	t.Cleanup(h.server.Close)
 	h.e = &env{flags: &globalFlags{}, stdin: strings.NewReader(""), stdout: h.stdout, stderr: h.stderr}
@@ -116,10 +146,24 @@ func (h *fakeHarness) newClient(vngcloud.Config) *fakeClient {
 	return &fakeClient{baseURL: h.server.URL, http: h.server.Client(), calls: &h.calls}
 }
 
+// fakeSecretGuard refuses a literal --secret flag, the same shape as
+// monitor's literal --address guard: it inspects only whether the flag was
+// Changed, never the value, so a --cli-input-json value alone never
+// triggers it.
+func fakeSecretGuard(cmd *cobra.Command, _ any) error {
+	if cmd.Flags().Changed("secret") {
+		return newUsageError("--secret must be given only through --cli-input-json")
+	}
+	return nil
+}
+
 func (h *fakeHarness) fakeOps() []Op[fakeClient] {
 	return []Op[fakeClient]{
 		Read[fakeClient, fakeGetInput, fakeGetOutput]("fake-get", (*fakeClient).FakeGet),
 		Write[fakeClient, fakeDeleteInput, fakeDeleteOutput]("fake-delete", (*fakeClient).FakeDelete, Destructive()),
+		Write[fakeClient, fakeSecretInput, fakeSecretOutput]("fake-secret-write", (*fakeClient).FakeSecretWrite,
+			Guard(fakeSecretGuard),
+			WriteRedact(func(out *fakeSecretOutput) { out.Secret = "<redacted>" })),
 	}
 }
 
@@ -398,6 +442,76 @@ func TestServicePanicsOnFlagCollidingWithGlobalFlag(t *testing.T) {
 		Read[fakeClient, collidingInput, collidingOutput]("fake-colliding-method", fakeCollidingMethod),
 	}
 	_ = Service(h.e, "fake", "test short", h.newClient, ops...)
+}
+
+// TestOpGuardRefusesLiteralFlagWithZeroRequests checks that a Write
+// operation's Guard runs before any request: a literal --secret flag is
+// refused with exit code 2 and the fake service never sees a call.
+func TestOpGuardRefusesLiteralFlagWithZeroRequests(t *testing.T) {
+	h := newFakeHarness(t)
+	root := newTestRoot(h.e)
+	root.AddCommand(h.serviceCmd())
+
+	err := execCmd(t, root, []string{"fake", "fake-secret-write", "--secret", "raw-value"})
+	if err == nil {
+		t.Fatalf("expected a guard refusal")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 0 {
+		t.Fatalf("calls = %d, want 0 (refused before any request)", got)
+	}
+}
+
+// TestOpGuardAllowsCLIInputJSON checks that Guard only inspects whether the
+// flag itself was set on argv: the same value set through --cli-input-json
+// alone reaches the operation.
+func TestOpGuardAllowsCLIInputJSON(t *testing.T) {
+	h := newFakeHarness(t)
+	root := newTestRoot(h.e)
+	root.AddCommand(h.serviceCmd())
+
+	err := execCmd(t, root, []string{"fake", "fake-secret-write", "--cli-input-json", `{"Secret":"raw-value"}`})
+	if err != nil {
+		t.Fatalf("execute: %v (stderr=%s)", err, h.stderr.String())
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 1 {
+		t.Fatalf("calls = %d, want 1", got)
+	}
+}
+
+// TestOpWriteRedactRedactsOutput checks that WriteRedact's function runs on
+// the Output before it reaches stdout, in every format and under --query.
+func TestOpWriteRedactRedactsOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"json", nil},
+		{"table", []string{"--output", "table"}},
+		{"text", []string{"--output", "text"}},
+		{"query", []string{"--query", "Secret"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newFakeHarness(t)
+			root := newTestRoot(h.e)
+			root.AddCommand(h.serviceCmd())
+
+			args := append([]string{"fake", "fake-secret-write", "--cli-input-json", `{"Secret":"raw-value"}`}, tc.args...)
+			if err := execCmd(t, root, args); err != nil {
+				t.Fatalf("execute: %v (stderr=%s)", err, h.stderr.String())
+			}
+			out := h.stdout.String()
+			if strings.Contains(out, "raw-value") {
+				t.Fatalf("stdout = %q, want the raw Secret redacted", out)
+			}
+			if !strings.Contains(out, "redacted") {
+				t.Fatalf("stdout = %q, want the redacted placeholder", out)
+			}
+		})
+	}
 }
 
 // TestReadPanicsOnASecondRedactOption checks op.go's guard against a

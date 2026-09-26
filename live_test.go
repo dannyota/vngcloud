@@ -478,6 +478,165 @@ func testLivePortal(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	})
 }
 
+// testLiveLoadBalancer reads vLB packages and certificates, and, when the
+// account has a load balancer or a certificate, reads it and each child
+// resource on its first child found, per the CLI reads design's
+// live-checks table for loadbalancer. It logs counts and field presence
+// only, never values.
+func testLiveLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := loadbalancer.New(cfg)
+
+	t.Run("packages", func(t *testing.T) {
+		res, err := client.ListPackages(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListPackages: %v", err)
+		}
+		if len(res.Items) == 0 {
+			t.Fatal("ListPackages returned no packages")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("packages: %d, first fields set %d/%d", len(res.Items), set, total)
+	})
+
+	lbs, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Page: 1, Size: 5})
+	if err != nil {
+		t.Fatalf("ListLoadBalancers: %v", err)
+	}
+	t.Logf("load balancers: %d of %d", len(lbs.Items), lbs.TotalItem)
+	if len(lbs.Items) == 0 {
+		t.Log("skipped: none")
+	} else {
+		t.Run("load-balancer", func(t *testing.T) {
+			testLiveLoadBalancerDetail(ctx, t, client, lbs.Items[0].UUID)
+		})
+	}
+
+	certs, err := client.ListCertificates(ctx, &loadbalancer.ListCertificatesInput{Page: 1, Size: 5})
+	if err != nil {
+		t.Fatalf("ListCertificates: %v", err)
+	}
+	t.Logf("certificates: %d of %d", len(certs.Items), certs.TotalItem)
+	if len(certs.Items) == 0 {
+		t.Log("skipped: none")
+	} else {
+		t.Run("certificate", func(t *testing.T) {
+			certID := certs.Items[0].UUID
+			cert, err := client.GetCertificate(ctx, &loadbalancer.GetCertificateInput{CertificateID: certID})
+			if err != nil {
+				t.Fatalf("GetCertificate: %v", err)
+			}
+			if cert.Certificate.UUID != certID {
+				t.Fatalf("GetCertificate returned id %q, want %q", cert.Certificate.UUID, certID)
+			}
+		})
+	}
+}
+
+// testLiveLoadBalancerDetail reads lbID itself, then its tags, its first
+// listener, and its first pool. testLiveLoadBalancer only calls this when
+// the account has at least one load balancer.
+func testLiveLoadBalancerDetail(ctx context.Context, t *testing.T, client *loadbalancer.Client, lbID string) {
+	lb, err := client.GetLoadBalancer(ctx, &loadbalancer.GetLoadBalancerInput{LoadBalancerID: lbID})
+	if err != nil {
+		t.Fatalf("GetLoadBalancer: %v", err)
+	}
+	if lb.LoadBalancer.UUID != lbID {
+		t.Fatalf("GetLoadBalancer returned id %q, want %q", lb.LoadBalancer.UUID, lbID)
+	}
+
+	t.Run("tags", func(t *testing.T) {
+		res, err := client.ListTags(ctx, &loadbalancer.ListTagsInput{LoadBalancerID: lbID})
+		if err != nil {
+			t.Fatalf("ListTags: %v", err)
+		}
+		t.Logf("tags: %d", len(res.Items))
+	})
+
+	listeners, err := client.ListListeners(ctx, &loadbalancer.ListListenersInput{LoadBalancerID: lbID})
+	if err != nil {
+		t.Fatalf("ListListeners: %v", err)
+	}
+	t.Logf("listeners: %d", len(listeners.Items))
+	if len(listeners.Items) == 0 {
+		t.Log("skipped: none")
+	} else {
+		t.Run("listener", func(t *testing.T) {
+			testLiveLoadBalancerListener(ctx, t, client, lbID, listeners.Items[0].UUID)
+		})
+	}
+
+	pools, err := client.ListPools(ctx, &loadbalancer.ListPoolsInput{LoadBalancerID: lbID})
+	if err != nil {
+		t.Fatalf("ListPools: %v", err)
+	}
+	t.Logf("pools: %d", len(pools.Items))
+	if len(pools.Items) == 0 {
+		t.Log("skipped: none")
+	} else {
+		t.Run("pool", func(t *testing.T) {
+			testLiveLoadBalancerPool(ctx, t, client, lbID, pools.Items[0].UUID)
+		})
+	}
+}
+
+// testLiveLoadBalancerListener reads listenerID itself and, when it has at
+// least one policy, the first policy.
+func testLiveLoadBalancerListener(ctx context.Context, t *testing.T, client *loadbalancer.Client, lbID, listenerID string) {
+	listener, err := client.GetListener(ctx, &loadbalancer.GetListenerInput{LoadBalancerID: lbID, ListenerID: listenerID})
+	if err != nil {
+		t.Fatalf("GetListener: %v", err)
+	}
+	if listener.Listener.UUID != listenerID {
+		t.Fatalf("GetListener returned id %q, want %q", listener.Listener.UUID, listenerID)
+	}
+
+	policies, err := client.ListPolicies(ctx, &loadbalancer.ListPoliciesInput{LoadBalancerID: lbID, ListenerID: listenerID})
+	if err != nil {
+		t.Fatalf("ListPolicies: %v", err)
+	}
+	t.Logf("policies: %d", len(policies.Items))
+	if len(policies.Items) == 0 {
+		t.Log("skipped: none")
+		return
+	}
+	policyID := policies.Items[0].UUID
+	policy, err := client.GetPolicy(ctx, &loadbalancer.GetPolicyInput{LoadBalancerID: lbID, ListenerID: listenerID, PolicyID: policyID})
+	if err != nil {
+		t.Fatalf("GetPolicy: %v", err)
+	}
+	if policy.Policy.UUID != policyID {
+		t.Fatalf("GetPolicy returned id %q, want %q", policy.Policy.UUID, policyID)
+	}
+}
+
+// testLiveLoadBalancerPool reads poolID itself, its health monitor, and its
+// members. HealthMonitor carries no ID field to compare against a list the
+// way the other Gets here do, so this checks its HealthCheckProtocol is set
+// instead, which still fails a decode that comes back empty.
+func testLiveLoadBalancerPool(ctx context.Context, t *testing.T, client *loadbalancer.Client, lbID, poolID string) {
+	pool, err := client.GetPool(ctx, &loadbalancer.GetPoolInput{LoadBalancerID: lbID, PoolID: poolID})
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if pool.Pool.UUID != poolID {
+		t.Fatalf("GetPool returned id %q, want %q", pool.Pool.UUID, poolID)
+	}
+
+	hm, err := client.GetPoolHealthMonitor(ctx, &loadbalancer.GetPoolHealthMonitorInput{LoadBalancerID: lbID, PoolID: poolID})
+	if err != nil {
+		t.Fatalf("GetPoolHealthMonitor: %v", err)
+	}
+	if hm.HealthMonitor.HealthCheckProtocol == "" {
+		t.Fatal("GetPoolHealthMonitor decoded empty")
+	}
+
+	members, err := client.ListPoolMembers(ctx, &loadbalancer.ListPoolMembersInput{LoadBalancerID: lbID, PoolID: poolID})
+	if err != nil {
+		t.Fatalf("ListPoolMembers: %v", err)
+	}
+	t.Logf("pool members: %d", len(members.Items))
+}
+
 // nonZeroFieldCount reports how many top-level fields of the struct v hold a
 // non-zero value, out of the total field count. A live Get test uses it to
 // confirm decoding filled in real fields without logging any of their
@@ -618,13 +777,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		t.Logf("vpcs: %d of %d", len(res.Items), res.TotalItem)
 	})
-	t.Run("load-balancers", func(t *testing.T) {
-		res, err := loadbalancer.New(cfg).ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Page: 1, Size: 5})
-		if err != nil {
-			t.Fatalf("ListLoadBalancers: %v", err)
-		}
-		t.Logf("load balancers: %d of %d", len(res.Items), res.TotalItem)
-	})
+	t.Run("loadbalancer", func(t *testing.T) { testLiveLoadBalancer(ctx, t, cfg) })
 	t.Run("dns-zones", func(t *testing.T) {
 		dnsClient := dns.New(cfg)
 		res, err := dnsClient.ListHostedZones(ctx, &dns.ListHostedZonesInput{})

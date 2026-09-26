@@ -154,6 +154,7 @@ func runGenDocs(dir string) error {
 		buildDocService("monitor", monitorOps),
 		buildDocService("project", projectOps),
 		buildDocService("portal", portalOps),
+		buildDocService("loadbalancer", loadbalancerOps),
 		buildDocService("volume", volumeOps),
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 	}
@@ -405,6 +406,29 @@ const monitorChannelRedactionNote = "Redacts every header value and every Addres
 	"or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; " +
 	"only Email, SMS, and Telegram addresses print in full."
 
+// monitorCreateChannelAddressNote documents create-channel's literal
+// --address guard: the flag table shows --address as a plain, required
+// string flag, which would otherwise read as safe to give literally, and an
+// inline --cli-input-json value that sets Address or Headers is refused the
+// same way even though the flag table cannot show it at all.
+const monitorCreateChannelAddressNote = "Refuses a literal --address, or an inline --cli-input-json value that " +
+	"sets Address, for every Type except Email, SMS, or Telegram, with exit code 2, since another type's " +
+	"address can carry a bearer token. Refuses an inline --cli-input-json value that sets Headers for every " +
+	"Type, since Headers has no flag of its own and a Webhook channel's header value can hold a secret. Pass " +
+	"Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
+	"redacted the same way a channel read is."
+
+// monitorUpdateChannelAddressNote documents update-channel's literal
+// --address guard, which is unconditional: UpdateChannelInput carries no
+// Type field, so the CLI cannot tell a Webhook or Slack channel apart from
+// an Email, SMS, or Telegram one without a request of its own. An inline
+// --cli-input-json value that sets Address or Headers is refused the same
+// way, even though the flag table cannot show Headers at all.
+const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an inline --cli-input-json value " +
+	"that sets Address or Headers, with exit code 2, since this Input carries no Type for the guard to check. " +
+	"Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
+	"redacted the same way a channel read is."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation: portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any, so every key the API
@@ -421,35 +445,65 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
 	"that data too.\n\n" + portalMapRedactionNote
 
+// unverifiedLiveNote builds the shared text for an output shape the live
+// checks cannot confirm, because the test account holds no such resource.
+// volume and loadbalancer notes reuse it, differing only in the resource
+// named.
+func unverifiedLiveNote(resource string) string {
+	return "Unverified live: the test account has no " + resource +
+		", so this output shape comes from GreenNode's official SDK, not a live capture."
+}
+
 // volumeShapeUnverifiedNote flags an output shape the live checks cannot
 // confirm: the test account holds no volume, so nothing exercises this
 // command's decoding against a real response.
-const volumeShapeUnverifiedNote = "Unverified live: the test account has no volume, so this output shape " +
-	"comes from GreenNode's official SDK, not a live capture."
+var volumeShapeUnverifiedNote = unverifiedLiveNote("volume")
+
+// loadBalancerShapeUnverifiedNote flags an output shape the live checks
+// cannot confirm: the test account holds no load balancer, so nothing
+// exercises this command's decoding, or any child resource's, against a
+// real response.
+var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
+
+// certificateShapeUnverifiedNote flags get-certificate's output shape: the
+// test account holds no certificate, so nothing exercises its decoding
+// against a real response.
+var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
 // globalLoadBalancerShapeUnverifiedNote flags an output shape the live
 // checks cannot confirm: the test account holds no global load balancer, so
 // nothing exercises this command's decoding against a real response.
-const globalLoadBalancerShapeUnverifiedNote = "Unverified live: the test account has no global load " +
-	"balancer, so this output shape comes from GreenNode's official SDK, not a live capture."
+var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
-// prints.
+// prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
-	"monitor list-channels":        monitorChannelRedactionNote,
-	"monitor get-channel":          monitorChannelRedactionNote,
-	"portal get-user-info":         portalUserInfoNote,
-	"portal list-zones":            portalMapRedactionNote,
-	"portal list-quota-used":       portalMapRedactionNote,
-	"portal get-quota":             portalMapRedactionNote,
-	"portal get-tag-quota":         portalMapRedactionNote,
-	"volume get-volume":            volumeShapeUnverifiedNote,
-	"volume get-underlying-volume": volumeShapeUnverifiedNote,
-	"volume list-snapshots":        volumeShapeUnverifiedNote,
-
+	"monitor list-channels":                   monitorChannelRedactionNote,
+	"monitor get-channel":                     monitorChannelRedactionNote,
+	"monitor create-channel":                  monitorCreateChannelAddressNote,
+	"monitor update-channel":                  monitorUpdateChannelAddressNote,
+	"portal get-user-info":                    portalUserInfoNote,
+	"portal list-zones":                       portalMapRedactionNote,
+	"portal list-quota-used":                  portalMapRedactionNote,
+	"portal get-quota":                        portalMapRedactionNote,
+	"portal get-tag-quota":                    portalMapRedactionNote,
+	"volume get-volume":                       volumeShapeUnverifiedNote,
+	"volume get-underlying-volume":            volumeShapeUnverifiedNote,
+	"volume list-snapshots":                   volumeShapeUnverifiedNote,
+	"loadbalancer get-load-balancer":          loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-certificate":            certificateShapeUnverifiedNote,
+	"loadbalancer list-listeners":             loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-listener":               loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pools":                 loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool":                   loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool-health-monitor":    loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pool-members":          loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-policies":              loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-policy":                 loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,
@@ -486,16 +540,32 @@ var docExampleExtraFlag = map[string]string{
 	"dns update-record":      "ttl",
 }
 
-// buildExample builds one example command line for op: every service and
-// operation name, then --<flag> <flag> for each required, flag-settable
-// field (a placeholder that names the flag, since gen-docs has no sample
-// values), then one --cli-input-json holding every required field that has
-// no flag, then the docExampleExtraFlag entry for op if any, then
-// --query <field> when op wraps one resource (wrappedResourceField), then
-// --yes for a destructive write. The example must be runnable as printed, so
-// a required field, or a field docExampleExtraFlag names, can never be left
-// out of it.
+// docExampleOverride gives a full example command line for "service
+// op-name", replacing buildExample's generic, per-field derivation.
+// create-channel and update-channel need this: buildExample would otherwise
+// print a literal --address flag, since Address is a required, flag-settable
+// string field, but the CLI's own guard refuses exactly that flag for a real
+// Webhook or Slack channel. The override shows the runnable form instead:
+// Address (and Headers) through --cli-input-json file://channel.json.
+var docExampleOverride = map[string]string{
+	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
+	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
+}
+
+// buildExample builds one example command line for op: docExampleOverride's
+// entry for op if any, else every service and operation name, then --<flag>
+// <flag> for each required, flag-settable field (a placeholder that names
+// the flag, since gen-docs has no sample values), then one --cli-input-json
+// holding every required field that has no flag, then the
+// docExampleExtraFlag entry for op if any, then --query <field> when op
+// wraps one resource (wrappedResourceField), then --yes for a destructive
+// write. The example must be runnable as printed, so a required field, or a
+// field docExampleExtraFlag names, can never be left out of it.
 func buildExample(service string, op docOp) string {
+	if override, ok := docExampleOverride[service+" "+op.name]; ok {
+		return override
+	}
 	parts := []string{"vngcloud", service, op.name}
 	var jsonPairs []string
 	for _, f := range op.fields {
