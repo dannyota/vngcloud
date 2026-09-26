@@ -55,10 +55,17 @@ func applyCLIInputJSON(raw string, target any) error {
 	if err != nil {
 		return newUsageError("--cli-input-json: %s", err)
 	}
-	// Every key in body is now known to match a field name exactly, so this
-	// final decode cannot fall back to encoding/json's case-insensitive
-	// matching for any key that survived the check above.
-	if err := json.Unmarshal(body, target); err != nil {
+	// Every top-level key in body is now known to match a field name of
+	// target exactly, so this final decode cannot fall back to
+	// encoding/json's case-insensitive matching for any key that survived
+	// the check above. DisallowUnknownFields extends that refusal below the
+	// top level: without it, this decode is a plain json.Unmarshal, which
+	// silently drops a key inside a nested struct that names no field there
+	// (for example "InAlarm" inside Notifications, whose field is tagged
+	// "In-alarm") instead of refusing the whole command before any request.
+	finalDec := json.NewDecoder(bytes.NewReader(body))
+	finalDec.DisallowUnknownFields()
+	if err := finalDec.Decode(target); err != nil {
 		return newUsageError("--cli-input-json: %s", err)
 	}
 	return nil

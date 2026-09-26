@@ -23,6 +23,8 @@ vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json fi
 
 Kind: Write.
 
+Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -37,6 +39,7 @@ Kind: Write.
 | `--tests` | `int` |  |
 | `--failed-locations` | `int` |  |
 | `Assertions` (via `--cli-input-json` only) | `[]monitor.Assertion` |  |
+| `Notifications` (via `--cli-input-json` only) | `monitor.CheckNotifications` |  |
 
 ```sh
 vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
@@ -269,5 +272,32 @@ Refuses every literal --address, or an inline --cli-input-json value that sets A
 
 ```sh
 vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json
+```
+
+## update-check
+
+Kind: Write.
+
+Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--check-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--url` | `*string` |  |
+| `--method` | `*string` |  |
+| `Headers` (via `--cli-input-json` only) | `*map[string]string` |  |
+| `Query` (via `--cli-input-json` only) | `*map[string]string` |  |
+| `--body` | `*string` |  |
+| `--timeout` | `*int` |  |
+| `--test-frequency` | `*int` |  |
+| `--tests` | `*int` |  |
+| `--failed-locations` | `*int` |  |
+| `Locations` (via `--cli-input-json` only) | `*[]string` |  |
+| `Assertions` (via `--cli-input-json` only) | `*[]monitor.Assertion` |  |
+| `Notifications` (via `--cli-input-json` only) | `*monitor.CheckNotifications` |  |
+
+```sh
+vngcloud monitor update-check --check-id <check-id> --name <name>
 ```
 

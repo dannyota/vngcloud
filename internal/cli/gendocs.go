@@ -430,6 +430,16 @@ const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an 
 	"Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
 	"redacted the same way a channel read is."
 
+// monitorCheckNotificationsNote documents Notifications' own nested shape
+// for create-check and update-check: the flag table shows it only as a Go
+// type, monitor.CheckNotifications, with no field-level detail, since
+// --cli-input-json is the only way to set it at all.
+const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up, and Undetermined, name by " +
+	"ID which channels a check alerts on each alarm transition; setting Notifications through " +
+	"--cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the " +
+	"other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); " +
+	"an unrecognized key is refused with exit code 2 before any request."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation (portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
@@ -520,6 +530,8 @@ var docOpNotes = map[string]string{
 	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
 	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
 	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
+	"monitor create-check":                    monitorCheckNotificationsNote,
+	"monitor update-check":                    monitorCheckNotificationsNote,
 	"portal get-user-info":                    portalUserInfoNote,
 	"portal list-zones":                       portalMapRedactionNote,
 	"portal list-quota-used":                  portalMapRedactionNote,
@@ -570,10 +582,13 @@ var docJSONPlaceholders = map[string]string{
 // print a command that exits 2 with InvalidUsage when run as shown.
 // update-record is the same shape: HostedZoneID and RecordID are its only
 // required fields, but UpdateRecord also requires at least one other field
-// to change.
+// to change. monitor update-check is the same shape again: CheckID is its
+// only required field, but UpdateCheck also requires at least one other
+// field to change.
 var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
 	"dns update-record":      "ttl",
+	"monitor update-check":   "name",
 }
 
 // docExampleOverride gives a full example command line for "service

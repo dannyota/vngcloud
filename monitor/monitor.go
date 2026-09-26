@@ -1,7 +1,8 @@
-// Package monitor reads, creates, and deletes vMonitor synthetic checks
-// (GreenNode calls them uptime checks), pauses or resumes them, and lists
-// the probe locations a check can run from. Every call is per account: it
-// sends no project ID and ignores the configured region, as billing does.
+// Package monitor reads, creates, updates, and deletes vMonitor synthetic
+// checks (GreenNode calls them uptime checks), pauses or resumes them, and
+// lists the probe locations a check can run from. Every call is per
+// account: it sends no project ID and ignores the configured region, as
+// billing does.
 //
 // PauseCheck and ResumeCheck drive a check to a target status over a toggle
 // API that flips the current one; see the design's discussion of ADR 0003
@@ -22,11 +23,11 @@ import (
 type Client struct {
 	c *core.Client
 
-	// toggleMu serializes PauseCheck and ResumeCheck within one Client, so
-	// two goroutines sharing it never race the read-then-toggle sequence
-	// against each other. It does not, and cannot, prevent the same race
-	// across two processes or two Clients; the design leaves that to the
-	// caller.
+	// toggleMu serializes PauseCheck, ResumeCheck, and UpdateCheck within
+	// one Client, so two goroutines sharing it never race a read-then-write
+	// sequence, toggle or update, against each other. It does not, and
+	// cannot, prevent the same race across two processes or two Clients;
+	// the design leaves that to the caller.
 	toggleMu sync.Mutex
 
 	// sleep waits for d or ctx's end, whichever comes first, between confirm
