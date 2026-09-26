@@ -19,5 +19,5 @@ var containerRegistryOps = []Op[containerregistry.Client]{
 }
 
 func newContainerRegistryCmd(e *env) *cobra.Command {
-	return Service(e, "containerregistry", "Container registry repositories and users", containerregistry.New, containerRegistryOps...)
+	return Service(e, "containerregistry", "Container registry repositories", containerregistry.New, containerRegistryOps...)
 }

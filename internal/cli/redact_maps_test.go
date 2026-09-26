@@ -10,13 +10,13 @@ import (
 )
 
 func TestIsSensitiveMapKeyMatchesEverySubstringCaseInsensitively(t *testing.T) {
-	sensitive := []string{"password", "Password", "apiSecret", "AccessToken", "Credential", "privateKey", "PrivateKey"}
+	sensitive := []string{"password", "Password", "apiSecret", "AccessToken", "Credential", "privateKey", "PrivateKey", "accessKey", "access_key_id", ".dockerconfigjson", "auth", "Auths"}
 	for _, key := range sensitive {
 		if !isSensitiveMapKey(key) {
 			t.Errorf("isSensitiveMapKey(%q) = false, want true", key)
 		}
 	}
-	safe := []string{"name", "id", "status", "used", "limit"}
+	safe := []string{"name", "id", "status", "used", "limit", "author", "authType"}
 	for _, key := range safe {
 		if isSensitiveMapKey(key) {
 			t.Errorf("isSensitiveMapKey(%q) = true, want false", key)

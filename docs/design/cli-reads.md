@@ -210,7 +210,7 @@ Short description: "Global load balancers, pools, and listeners".
 
 ### containerregistry
 
-Short description: "Container registry repositories and users".
+Short description: "Container registry repositories".
 
 | Command | Flags | Scope | State |
 |-|-|-|-|
@@ -252,7 +252,8 @@ Key redaction for map-backed Outputs: before encoding, the CLI lowercases
 each key of a `map[string]any`, strips every character that is not a letter
 or digit, and replaces the value with `<redacted>` when the result contains
 `password`, `passwd`, `passphrase`, `secret`, `token`, `credential`,
-`privatekey`, `apikey`, or `authorization`, at any depth. Typed fields,
+`privatekey`, `apikey`, `authorization`, `accesskey`, or `dockerconfig`,
+or equals `auth` or `auths`, at any depth. Typed fields,
 such as a monitor check's `map[string]string` headers, are left as they
 are. It applies to every map-backed Output, including portal. This is a guard for
 keys nobody has seen, not a substitute for a typed model. A test feeds a
@@ -272,7 +273,7 @@ counts and field presence only, never values.
 | volume | `ListVolumeTypeZones`, `ListVolumeTypes`, `GetVolumeType` on the first type, `ListEncryptionTypes`; with a volume, `GetVolume`, `GetUnderlyingVolume`, and `ListSnapshots` on it | `volume list-volume-types` |
 | loadbalancer | `ListPackages`, `ListCertificates`; with a load balancer, `GetLoadBalancer` and each child read on the first child found; with a certificate, `GetCertificate` | `loadbalancer list-packages` |
 | globalloadbalancer | `ListPackages`, `ListRegions`; with a load balancer, `GetLoadBalancer`, each child read, and `ListUsageHistories` | `globalloadbalancer list-regions` |
-| containerregistry | `ListRepositories` and `ListUsers`; with a row, the log lists its key names | `containerregistry list-repositories` |
+| containerregistry | `ListRepositories` and `ListUsers`; with a row, the log gives its key count | `containerregistry list-repositories` |
 
 Each Get check asserts the returned ID equals the ID the list gave, as the
 vMonitor check does, so a Get that decodes empty fails. A check whose

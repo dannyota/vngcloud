@@ -15,8 +15,12 @@ import (
 // it hides a value only when the key name looks secret.
 var sensitiveKeySubstrings = []string{
 	"password", "passwd", "passphrase", "secret", "token", "credential",
-	"privatekey", "apikey", "authorization",
+	"privatekey", "apikey", "authorization", "accesskey", "dockerconfig",
 }
+
+// sensitiveKeysExact lists normalized keys that are secret only as a whole
+// word: "auth" as a substring would also hide "author" and "authType".
+var sensitiveKeysExact = []string{"auth", "auths"}
 
 // isSensitiveMapKey reports whether key, once normalized, contains one of
 // sensitiveKeySubstrings. Normalizing first, rather than matching key's
@@ -25,6 +29,11 @@ var sensitiveKeySubstrings = []string{
 // already did.
 func isSensitiveMapKey(key string) bool {
 	normalized := normalizeMapKey(key)
+	for _, s := range sensitiveKeysExact {
+		if normalized == s {
+			return true
+		}
+	}
 	for _, s := range sensitiveKeySubstrings {
 		if strings.Contains(normalized, s) {
 			return true

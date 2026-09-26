@@ -476,7 +476,7 @@ var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 // shape: the test account holds no repository, so the live call returns an
 // empty list and nothing exercises Repository's map-backed decoding against
 // a real row.
-var containerRegistryRepositoryUnverifiedNote = unverifiedLiveNote("repository")
+var containerRegistryRepositoryUnverifiedNote = "Unverified live: the test account has no repository, so the live call returns an empty list. Each row prints the API's own keys unchanged, and those keys have not been seen."
 
 // containerRegistryRepositoryNote combines the unverified-live note above
 // with the shared map redaction rule, since containerregistry.Repository is

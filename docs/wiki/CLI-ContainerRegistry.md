@@ -6,7 +6,7 @@
 
 Kind: Read.
 
-Unverified live: the test account has no repository, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: the test account has no repository, so the live call returns an empty list. Each row prints the API's own keys unchanged, and those keys have not been seen.
 
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
