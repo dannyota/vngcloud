@@ -106,11 +106,14 @@ func TestLive(t *testing.T) {
 	}
 	t.Log("login ok")
 
-	// Billing and cdn both ignore the configured region, so they run once
-	// here instead of once per region inside testLiveRegion.
+	// Billing, cdn, and globalloadbalancer all ignore the configured region
+	// (Global scope, per the CLI reads design's scope table for
+	// globalloadbalancer), so they run once here instead of once per region
+	// inside testLiveRegion.
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
+	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 
 	for i, region := range regions {
 		cfg := firstCfg
@@ -295,6 +298,137 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("GetChannel(missing): %v, want IsNotFound", err)
 		}
 	}
+}
+
+// testLiveGlobalLoadBalancer reads GLB packages, regions, and load
+// balancers, per the CLI reads design's globalloadbalancer live checks.
+// globalloadbalancer ignores the configured region (Global scope), so this
+// runs once, not per region (see its caller in TestLive). When the account
+// holds a global load balancer, it also reads GetLoadBalancer, each child
+// list and get, and ListUsageHistories on the first one; it skips a Get or
+// child list whose resource is absent, since the test account has no global
+// load balancer today. It logs counts and field presence only, never
+// values.
+func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := globalloadbalancer.New(cfg)
+
+	t.Run("packages", func(t *testing.T) {
+		res, err := client.ListPackages(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListPackages: %v", err)
+		}
+		if len(res.Items) == 0 {
+			t.Fatal("ListPackages returned no packages")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("packages: %d, first fields set %d/%d", len(res.Items), set, total)
+	})
+
+	t.Run("regions", func(t *testing.T) {
+		res, err := client.ListRegions(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListRegions: %v", err)
+		}
+		if len(res.Items) == 0 {
+			t.Fatal("ListRegions returned no regions")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("glb regions: %d, first fields set %d/%d", len(res.Items), set, total)
+	})
+
+	lbs, err := client.ListLoadBalancers(ctx, &globalloadbalancer.ListLoadBalancersInput{Limit: 5})
+	if err != nil {
+		t.Fatalf("ListLoadBalancers: %v", err)
+	}
+	t.Logf("global load balancers: %d of %d", len(lbs.Items), lbs.Total)
+	if len(lbs.Items) == 0 {
+		t.Log("skipped get-load-balancer, list-pools, list-listeners, get-listener, list-pool-members, get-pool-member, list-usage-histories: none")
+		return
+	}
+	first := lbs.Items[0]
+
+	t.Run("load-balancer", func(t *testing.T) {
+		detail, err := client.GetLoadBalancer(ctx, &globalloadbalancer.GetLoadBalancerInput{LoadBalancerID: first.ID})
+		if err != nil {
+			t.Fatalf("GetLoadBalancer: %v", err)
+		}
+		if detail.LoadBalancer.ID != first.ID {
+			t.Fatalf("GetLoadBalancer returned id %q, want %q", detail.LoadBalancer.ID, first.ID)
+		}
+	})
+
+	var poolID, listenerID string
+	t.Run("pools", func(t *testing.T) {
+		res, err := client.ListPools(ctx, &globalloadbalancer.ListPoolsInput{LoadBalancerID: first.ID})
+		if err != nil {
+			t.Fatalf("ListPools: %v", err)
+		}
+		t.Logf("pools: %d", len(res.Items))
+		if len(res.Items) > 0 {
+			poolID = res.Items[0].ID
+		}
+	})
+	t.Run("listeners", func(t *testing.T) {
+		res, err := client.ListListeners(ctx, &globalloadbalancer.ListListenersInput{LoadBalancerID: first.ID})
+		if err != nil {
+			t.Fatalf("ListListeners: %v", err)
+		}
+		t.Logf("listeners: %d", len(res.Items))
+		if len(res.Items) > 0 {
+			listenerID = res.Items[0].ID
+		}
+	})
+
+	if listenerID == "" {
+		t.Log("skipped get-listener: none")
+	} else {
+		t.Run("listener", func(t *testing.T) {
+			detail, err := client.GetListener(ctx, &globalloadbalancer.GetListenerInput{LoadBalancerID: first.ID, ListenerID: listenerID})
+			if err != nil {
+				t.Fatalf("GetListener: %v", err)
+			}
+			if detail.Listener.ID != listenerID {
+				t.Fatalf("GetListener returned id %q, want %q", detail.Listener.ID, listenerID)
+			}
+		})
+	}
+
+	if poolID == "" {
+		t.Log("skipped list-pool-members, get-pool-member: none")
+	} else {
+		var memberID string
+		t.Run("pool-members", func(t *testing.T) {
+			res, err := client.ListPoolMembers(ctx, &globalloadbalancer.ListPoolMembersInput{LoadBalancerID: first.ID, PoolID: poolID})
+			if err != nil {
+				t.Fatalf("ListPoolMembers: %v", err)
+			}
+			t.Logf("pool members: %d", len(res.Items))
+			if len(res.Items) > 0 {
+				memberID = res.Items[0].ID
+			}
+		})
+		if memberID == "" {
+			t.Log("skipped get-pool-member: none")
+		} else {
+			t.Run("pool-member", func(t *testing.T) {
+				detail, err := client.GetPoolMember(ctx, &globalloadbalancer.GetPoolMemberInput{LoadBalancerID: first.ID, PoolID: poolID, PoolMemberID: memberID})
+				if err != nil {
+					t.Fatalf("GetPoolMember: %v", err)
+				}
+				if detail.PoolMember.ID != memberID {
+					t.Fatalf("GetPoolMember returned id %q, want %q", detail.PoolMember.ID, memberID)
+				}
+			})
+		}
+	}
+
+	t.Run("usage-histories", func(t *testing.T) {
+		res, err := client.ListUsageHistories(ctx, &globalloadbalancer.ListUsageHistoriesInput{LoadBalancerID: first.ID})
+		if err != nil {
+			t.Fatalf("ListUsageHistories: %v", err)
+		}
+		t.Logf("usage histories: %d", len(res.Items))
+	})
 }
 
 // testLivePortal reads the portal's zones, quotas, and tag quota, and calls
@@ -688,13 +822,6 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		t.Logf("vpcs: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("loadbalancer", func(t *testing.T) { testLiveLoadBalancer(ctx, t, cfg) })
-	t.Run("global-load-balancers", func(t *testing.T) {
-		res, err := globalloadbalancer.New(cfg).ListLoadBalancers(ctx, &globalloadbalancer.ListLoadBalancersInput{Limit: 5})
-		if err != nil {
-			t.Fatalf("GLB ListLoadBalancers: %v", err)
-		}
-		t.Logf("global load balancers: %d of %d", len(res.Items), res.Total)
-	})
 	t.Run("dns-zones", func(t *testing.T) {
 		dnsClient := dns.New(cfg)
 		res, err := dnsClient.ListHostedZones(ctx, &dns.ListHostedZonesInput{})

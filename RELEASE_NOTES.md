@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.17.0 - Global Load Balancer Commands
+
+### Highlights
+
+- New `vngcloud globalloadbalancer` commands for global load balancers,
+  pools, listeners, pool members, usage histories, packages, and regions.
+  Reads only, with global scope: no project ID. The test account has no
+  global load balancer, so its reads are marked unverified in the wiki.
+- The live checks now fail when a read that always has rows, such as
+  package or region lists, returns none.
+
+### Behavior changes
+
+None.
+
 ## v0.16.0 - Load Balancer Commands
 
 ### Highlights

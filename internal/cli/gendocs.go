@@ -157,6 +157,7 @@ func runGenDocs(dir string) error {
 		buildDocService("loadbalancer", loadbalancerOps),
 		buildDocService("volume", volumeOps),
 		buildDocService("containerregistry", containerRegistryOps),
+		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -482,36 +483,48 @@ var containerRegistryRepositoryUnverifiedNote = unverifiedLiveNote("repository")
 // map-backed like portal's models.
 var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote + "\n\n" + portalMapRedactionNote
 
+// globalLoadBalancerShapeUnverifiedNote flags an output shape the live
+// checks cannot confirm: the test account holds no global load balancer, so
+// nothing exercises this command's decoding against a real response.
+var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
-	"monitor list-channels":                monitorChannelRedactionNote,
-	"monitor get-channel":                  monitorChannelRedactionNote,
-	"monitor create-channel":               monitorCreateChannelAddressNote,
-	"monitor update-channel":               monitorUpdateChannelAddressNote,
-	"portal get-user-info":                 portalUserInfoNote,
-	"portal list-zones":                    portalMapRedactionNote,
-	"portal list-quota-used":               portalMapRedactionNote,
-	"portal get-quota":                     portalMapRedactionNote,
-	"portal get-tag-quota":                 portalMapRedactionNote,
-	"volume get-volume":                    volumeShapeUnverifiedNote,
-	"volume get-underlying-volume":         volumeShapeUnverifiedNote,
-	"volume list-snapshots":                volumeShapeUnverifiedNote,
-	"loadbalancer get-load-balancer":       loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-certificate":         certificateShapeUnverifiedNote,
-	"loadbalancer list-listeners":          loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-listener":            loadBalancerShapeUnverifiedNote,
-	"loadbalancer list-pools":              loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-pool":                loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-pool-health-monitor": loadBalancerShapeUnverifiedNote,
-	"loadbalancer list-pool-members":       loadBalancerShapeUnverifiedNote,
-	"loadbalancer list-policies":           loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-policy":              loadBalancerShapeUnverifiedNote,
-	"loadbalancer list-tags":               loadBalancerShapeUnverifiedNote,
-	"containerregistry list-repositories":  containerRegistryRepositoryNote,
+	"monitor list-channels":                   monitorChannelRedactionNote,
+	"monitor get-channel":                     monitorChannelRedactionNote,
+	"monitor create-channel":                  monitorCreateChannelAddressNote,
+	"monitor update-channel":                  monitorUpdateChannelAddressNote,
+	"portal get-user-info":                    portalUserInfoNote,
+	"portal list-zones":                       portalMapRedactionNote,
+	"portal list-quota-used":                  portalMapRedactionNote,
+	"portal get-quota":                        portalMapRedactionNote,
+	"portal get-tag-quota":                    portalMapRedactionNote,
+	"volume get-volume":                       volumeShapeUnverifiedNote,
+	"volume get-underlying-volume":            volumeShapeUnverifiedNote,
+	"volume list-snapshots":                   volumeShapeUnverifiedNote,
+	"loadbalancer get-load-balancer":          loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-certificate":            certificateShapeUnverifiedNote,
+	"loadbalancer list-listeners":             loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-listener":               loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pools":                 loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool":                   loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool-health-monitor":    loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pool-members":          loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-policies":              loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-policy":                 loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
+	"containerregistry list-repositories":     containerRegistryRepositoryNote,
+	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer get-listener":         globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-pool-members":    globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer get-pool-member":      globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote + " The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.",
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
