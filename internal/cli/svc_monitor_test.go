@@ -159,6 +159,15 @@ func TestGoldenMonitorCreateCheck(t *testing.T) {
 	checkGolden(t, "monitor-create-check.text.golden", "text", "", v)
 }
 
+// TestGoldenMonitorUpdateCheck checks update-check's exact output shape,
+// {"Check": {...}}, the same shape create-check and get-check use.
+func TestGoldenMonitorUpdateCheck(t *testing.T) {
+	v := &monitor.UpdateCheckOutput{Check: exampleCheck(monitor.StatusEnabled)}
+	checkGolden(t, "monitor-update-check.json.golden", "json", "", v)
+	checkGolden(t, "monitor-update-check.table.golden", "table", "", v)
+	checkGolden(t, "monitor-update-check.text.golden", "text", "", v)
+}
+
 // TestGoldenMonitorDeleteCheck checks delete-check's exact output shape: an
 // empty object, since DeleteCheckOutput carries no fields.
 func TestGoldenMonitorDeleteCheck(t *testing.T) {
@@ -511,6 +520,211 @@ func TestMonitorCreateCheckEmptyLocationsExitsWithZeroRequests(t *testing.T) {
 	}
 }
 
+// monitorCheckPathHandler dispatches GET and PUT for one check's own path to
+// get and put, the shape update-check's read-then-write needs on a single
+// registered route: newSvcFixture's mux takes one handler per path, and the
+// real uptime manager answers both methods at /uptimes/{id}.
+func monitorCheckPathHandler(t *testing.T, get, put func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			get(w, r)
+		case http.MethodPut:
+			put(w, r)
+		default:
+			t.Errorf("unexpected method %s", r.Method)
+		}
+	}
+}
+
+// TestMonitorUpdateCheckFromCLIInputJSON drives update-check with a literal
+// --name flag and no other field, checking that the merged PUT body keeps
+// every other field GetCheck's own read supplied unchanged, and that the
+// body carries no status field, the same read-merge shape
+// TestMonitorUpdateChannelFromCLIInputJSON checks for a channel.
+func TestMonitorUpdateCheckFromCLIInputJSON(t *testing.T) {
+	var putBody []byte
+	var getCalls, putCalls int
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": monitorCheckPathHandler(t,
+			func(w http.ResponseWriter, _ *http.Request) {
+				getCalls++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(monitorUptimesJSON("chk-1", monitor.StatusEnabled)))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				putCalls++
+				defer func() { _ = r.Body.Close() }()
+				putBody, _ = io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(monitorUptimesJSON("chk-1", monitor.StatusEnabled)))
+			}),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-check",
+		"--check-id", "chk-1", "--name", "renamed-check",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("update-check: %v (stderr=%s)", err, stderr.String())
+	}
+	if getCalls != 1 || putCalls != 1 {
+		t.Fatalf("getCalls = %d, putCalls = %d, want 1 each", getCalls, putCalls)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(putBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, putBody)
+	}
+	if _, ok := decoded["status"]; ok {
+		t.Fatalf("body carries a status field: %+v", decoded)
+	}
+	if decoded["name"] != "renamed-check" {
+		t.Fatalf("body[name] = %v, want renamed-check", decoded["name"])
+	}
+	config, _ := decoded["config"].(map[string]any)
+	request, _ := config["request"].(map[string]any)
+	if request["url"] != "https://example.com" || request["method"] != "GET" {
+		t.Fatalf("config.request = %+v, want the unchanged url and method resent", request)
+	}
+	options, _ := decoded["options"].(map[string]any)
+	if options["test_frequency"] != float64(60) || options["tests"] != float64(1) || options["failed_locations"] != float64(1) {
+		t.Fatalf("options = %+v, want unchanged", options)
+	}
+	locations, _ := decoded["locations"].([]any)
+	if len(locations) != 1 || locations[0] != "loc-1" {
+		t.Fatalf("locations = %+v, want unchanged", decoded["locations"])
+	}
+
+	var out struct{ Check monitor.Check }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.Check.ID != "chk-1" {
+		t.Fatalf("Check.ID = %q, want chk-1", out.Check.ID)
+	}
+}
+
+// TestMonitorUpdateCheckRequiresAtLeastOneField checks that update-check with
+// only --check-id set reaches the SDK's own "at least one field" refusal
+// (monitor.UpdateCheck) with zero requests: the CLI's required-flags check
+// passes, since CheckID is the only field tagged required, but the SDK
+// itself checks for at least one other field before its own read, the same
+// as a missing CheckID or a bad ID shape.
+func TestMonitorUpdateCheckRequiresAtLeastOneField(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "update-check", "--check-id", "chk-1"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error with no field to change")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorCreateCheckNotificationsFromCLIInputJSON checks that
+// CreateCheckInput's Notifications field, which has no flag type, reaches
+// the request body through --cli-input-json. The nested CheckNotifications
+// struct keeps its own wire tag, "In-alarm" rather than the Go field name
+// InAlarm, and --cli-input-json's exact-Go-name rule (input.go) governs only
+// Input's own top-level keys, not a field's nested shape, so the JSON value
+// must use that wire tag to actually set it.
+func TestMonitorCreateCheckNotificationsFromCLIInputJSON(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes": func(w http.ResponseWriter, r *http.Request) {
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(monitorUptimesJSON("chk-9", monitor.StatusEnabled)))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-check",
+		"--name", "vngcloud-test-check",
+		"--url", "https://example.com/health",
+		"--cli-input-json", `{"Locations":["loc-1"],"Notifications":{"In-alarm":["chan-1"]}}`,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-check: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	notifications, _ := decoded["notifications"].(map[string]any)
+	inAlarm, _ := notifications["In-alarm"].([]any)
+	if len(inAlarm) != 1 || inAlarm[0] != "chan-1" {
+		t.Fatalf("notifications[In-alarm] = %v, want [chan-1]", notifications["In-alarm"])
+	}
+	for _, key := range []string{"Up", "Undetermined"} {
+		got, _ := notifications[key].([]any)
+		if len(got) != 0 {
+			t.Fatalf("notifications[%q] = %v, want empty", key, notifications[key])
+		}
+	}
+}
+
+// TestMonitorUpdateCheckNotificationsFromCLIInputJSON mirrors
+// TestMonitorCreateCheckNotificationsFromCLIInputJSON for update-check:
+// Notifications has no flag type either, so --cli-input-json is the only way
+// to change it, and the merged PUT body must carry the new value while every
+// other field stays what GetCheck's own read supplied.
+func TestMonitorUpdateCheckNotificationsFromCLIInputJSON(t *testing.T) {
+	var putBody []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": monitorCheckPathHandler(t,
+			func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(monitorUptimesJSON("chk-1", monitor.StatusEnabled)))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				defer func() { _ = r.Body.Close() }()
+				putBody, _ = io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(monitorUptimesJSON("chk-1", monitor.StatusEnabled)))
+			}),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-check",
+		"--check-id", "chk-1",
+		"--cli-input-json", `{"Notifications":{"In-alarm":["chan-9"]}}`,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("update-check: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(putBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, putBody)
+	}
+	if decoded["name"] != "example-check" {
+		t.Fatalf("body[name] = %v, want the unchanged example-check resent", decoded["name"])
+	}
+	notifications, _ := decoded["notifications"].(map[string]any)
+	inAlarm, _ := notifications["In-alarm"].([]any)
+	if len(inAlarm) != 1 || inAlarm[0] != "chan-9" {
+		t.Fatalf("notifications[In-alarm] = %v, want [chan-9]", notifications["In-alarm"])
+	}
+}
+
 // TestMonitorDeleteCheckWithoutYesExitsWithZeroRequests checks the monitor
 // design's --yes rule for delete-check: it is Write and Destructive, so it
 // fails with exit code 2 and sends no request unless --yes is given.
@@ -579,17 +793,21 @@ func TestMonitorListLocationsEndToEnd(t *testing.T) {
 	}
 }
 
-// TestMonitorCreateAndDeleteCheckReadOnlyRefusedWithZeroRequests checks the
-// monitor design's read-only rule for the two new writes: create-check and
-// delete-check are both Write operations, so a read-only profile refuses
-// either with exit 2 before any request, and delete-check needs no --yes to
-// be refused this way (read-only is checked before the --yes guard).
-func TestMonitorCreateAndDeleteCheckReadOnlyRefusedWithZeroRequests(t *testing.T) {
+// TestMonitorCreateUpdateAndDeleteCheckReadOnlyRefusedWithZeroRequests
+// checks the monitor design's read-only rule for create-check, update-check,
+// and delete-check: all three are Write operations, so a read-only profile
+// refuses each with exit 2 before any request. delete-check needs no --yes
+// to be refused this way (read-only is checked before the --yes guard), and
+// update-check needs no second field to change: its own "at least one field"
+// check (monitor.UpdateCheck) never runs, since read-only refuses the
+// command first.
+func TestMonitorCreateUpdateAndDeleteCheckReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	tests := []struct {
 		op   string
 		args []string
 	}{
 		{"create-check", []string{"create-check", "--name", "n", "--url", "https://example.com", "--cli-input-json", `{"Locations":["loc-1"]}`}},
+		{"update-check", []string{"update-check", "--check-id", "chk-1"}},
 		{"delete-check", []string{"delete-check", "--check-id", "chk-1", "--yes"}},
 	}
 	for _, tc := range tests {

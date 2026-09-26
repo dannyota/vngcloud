@@ -440,6 +440,26 @@ func TestGenDocsUpdateHostedZoneExampleSetsAField(t *testing.T) {
 	}
 }
 
+// TestGenDocsUpdateCheckExampleSetsAField checks that update-check's example
+// command line is runnable as printed. CheckID is its only required Input
+// field, but UpdateCheck itself also rejects a call that leaves every other
+// field unset, so a plain required-flags-only example would print a command
+// that exits 2 with InvalidUsage when run as shown.
+func TestGenDocsUpdateCheckExampleSetsAField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
+	}
+	want := "vngcloud monitor update-check --check-id <check-id> --name <name>"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("update-check example is missing %q:\n%s", want, data)
+	}
+}
+
 // TestGenDocsCreateChannelExampleUsesCLIInputJSONFile checks that
 // create-channel's generated example is runnable as printed: Address is a
 // required, flag-settable field, but the CLI's own guard refuses it as a

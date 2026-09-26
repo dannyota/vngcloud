@@ -11,14 +11,22 @@ import (
 
 // monitorOps is monitor's operation table. PauseCheck and ResumeCheck are
 // Write, per the monitor design, but not Destructive: resume-check undoes
-// pause-check, so neither needs --yes. CreateCheck is Write but not
-// Destructive either. DeleteCheck is Write and Destructive: a deleted check
-// and its history cannot be restored by one more command, so it needs
-// --yes. A read-only profile refuses every Write op, all four, before any
-// request. CreateCheckInput's Locations, Headers, Query, and Assertions
-// fields have no flag-settable type, so they reach the command only through
-// --cli-input-json; every other CreateCheckInput field gets a flag from
-// flags.go's reflection.
+// pause-check, so neither needs --yes. CreateCheck and UpdateCheck are Write
+// but not Destructive either. DeleteCheck is Write and Destructive: a
+// deleted check and its history cannot be restored by one more command, so
+// it needs --yes. A read-only profile refuses every Write op, all five,
+// before any request. CreateCheckInput's Locations, Headers, Query, and
+// Assertions fields have no flag-settable type, so they reach the command
+// only through --cli-input-json; every other CreateCheckInput field gets a
+// flag from flags.go's reflection. UpdateCheckInput's Name, URL, Method,
+// Body, Timeout, TestFrequency, Tests, and FailedLocations are pointers to a
+// flag-settable type, so each still gets a flag the same way; its Headers,
+// Query, Locations, Assertions, and Notifications are pointers to a map,
+// slice, or struct, so, like CreateCheckInput's own Locations, Headers,
+// Query, and Assertions, they reach the command only through
+// --cli-input-json. UpdateCheck needs no Guard: unlike a channel's Address, a
+// check's request headers carry no CLI-enforced secrecy rule (the monitor
+// design prints them in full), so the flags.go reflection alone is enough.
 //
 // ListChannels and GetChannel carry Redact: the vMonitor Alerts design's CLI
 // redaction rule applies to every reader of a Channel, and there is no flag
@@ -49,6 +57,8 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("ResumeCheck"), (*monitor.Client).ResumeCheck),
 	Write[monitor.Client, monitor.CreateCheckInput, monitor.CreateCheckOutput](
 		kebab("CreateCheck"), (*monitor.Client).CreateCheck),
+	Write[monitor.Client, monitor.UpdateCheckInput, monitor.UpdateCheckOutput](
+		kebab("UpdateCheck"), (*monitor.Client).UpdateCheck),
 	Write[monitor.Client, monitor.DeleteCheckInput, monitor.DeleteCheckOutput](
 		kebab("DeleteCheck"), (*monitor.Client).DeleteCheck, Destructive()),
 	Read[monitor.Client, monitor.ListLocationsInput, monitor.ListLocationsOutput](

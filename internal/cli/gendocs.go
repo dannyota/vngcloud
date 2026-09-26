@@ -534,10 +534,13 @@ var docJSONPlaceholders = map[string]string{
 // print a command that exits 2 with InvalidUsage when run as shown.
 // update-record is the same shape: HostedZoneID and RecordID are its only
 // required fields, but UpdateRecord also requires at least one other field
-// to change.
+// to change. monitor update-check is the same shape again: CheckID is its
+// only required field, but UpdateCheck also requires at least one other
+// field to change.
 var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
 	"dns update-record":      "ttl",
+	"monitor update-check":   "name",
 }
 
 // docExampleOverride gives a full example command line for "service
