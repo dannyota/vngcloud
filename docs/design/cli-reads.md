@@ -1,6 +1,6 @@
 # CLI Reads Design
 
-Status: Draft.
+Status: Accepted (2026-09-26).
 
 This design adds `vngcloud` read commands for the six SDK packages that have
 none: `project`, `portal`, `volume`, `loadbalancer`, `globalloadbalancer`,
@@ -336,6 +336,8 @@ No release needs an SDK change except R5's `list-users` and the optional
 cleanup in [decision 5](#owner-decisions).
 
 ## Owner decisions
+
+The owner approved each recommendation on 2026-09-26.
 
 1. **Ship Shape reads, or hold them.** Most Gets and child lists for
    volume, load balancers, and global load balancers have no live row,

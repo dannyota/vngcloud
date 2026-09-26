@@ -14,3 +14,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
+| [CLI reads](cli-reads.md) | Accepted |

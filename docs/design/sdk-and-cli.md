@@ -394,5 +394,7 @@ vMonitor Alerts releases M1 to M8 and vStorage releases S1 to S6 are built in
 parallel, outside the `v0.x.y` sequence above; each gets its version number
 when it ships, so no version rows are reserved for them here.
 
-CLI read commands for the other services, and compute, volume, and network
-writes, come after these. OpenTofu covers those writes for aboutme.
+CLI read commands for project, portal, volume, loadbalancer,
+globalloadbalancer, and containerregistry ship as releases R1 to R5 in
+[CLI reads](cli-reads.md), each numbered when it ships. Compute, volume,
+and network writes come after these; OpenTofu covers them for aboutme.
