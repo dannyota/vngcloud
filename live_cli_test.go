@@ -98,6 +98,9 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("globalloadbalancer", func(t *testing.T) {
 		testLiveCLIItemsAtLeastOne(ctx, t, "globalloadbalancer", "list-regions")
 	})
+	t.Run("containerregistry", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "containerregistry", "list-repositories")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length
