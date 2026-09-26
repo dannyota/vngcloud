@@ -27,3 +27,4 @@
 - [CLI: Portal](CLI-Portal.md)
 - [CLI: LoadBalancer](CLI-LoadBalancer.md)
 - [CLI: Volume](CLI-Volume.md)
+- [CLI: ContainerRegistry](CLI-ContainerRegistry.md)

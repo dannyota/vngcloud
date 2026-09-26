@@ -1,0 +1,12 @@
+{
+  "Items": [
+    {
+      "name": "repo-1",
+      "visibility": "PRIVATE"
+    }
+  ],
+  "Page": 1,
+  "PageSize": 25,
+  "TotalPage": 1,
+  "TotalItem": 1
+}

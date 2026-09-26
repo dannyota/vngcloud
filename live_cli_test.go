@@ -95,6 +95,9 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("volume", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "volume", "list-volume-types")
 	})
+	t.Run("containerregistry", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "containerregistry", "list-repositories")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length

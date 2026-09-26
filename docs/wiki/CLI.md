@@ -9,6 +9,7 @@
 - [Billing](CLI-Billing.md)
 - [CDN](CLI-CDN.md)
 - [Compute](CLI-Compute.md)
+- [ContainerRegistry](CLI-ContainerRegistry.md)
 - [DNS](CLI-DNS.md)
 - [LoadBalancer](CLI-LoadBalancer.md)
 - [Monitor](CLI-Monitor.md)

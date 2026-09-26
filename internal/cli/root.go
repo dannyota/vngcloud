@@ -83,6 +83,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newPortalCmd(e))
 	root.AddCommand(newLoadBalancerCmd(e))
 	root.AddCommand(newVolumeCmd(e))
+	root.AddCommand(newContainerRegistryCmd(e))
 
 	return root
 }

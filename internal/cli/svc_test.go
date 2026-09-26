@@ -43,6 +43,7 @@ func TestEveryNonGetListOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "project", projectOps)
 	assertKindMatchesMethodName(t, "portal", portalOps)
 	assertKindMatchesMethodName(t, "volume", volumeOps)
+	assertKindMatchesMethodName(t, "containerregistry", containerRegistryOps)
 }
 
 func opNames[C any](ops []Op[C]) []string {
@@ -69,6 +70,7 @@ func TestServiceHelpListsEveryOp(t *testing.T) {
 		{"project", opNames(projectOps)},
 		{"portal", opNames(portalOps)},
 		{"volume", opNames(volumeOps)},
+		{"containerregistry", opNames(containerRegistryOps)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.service, func(t *testing.T) {

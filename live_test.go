@@ -617,6 +617,42 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 	})
 }
 
+// testLiveContainerRegistry reads repositories and users, per the CLI reads
+// design's live-checks table for containerregistry. It logs counts and,
+// when a list returns at least one row, that row's key count only, never a
+// key name or value: list-users is held from the CLI until the SDK types
+// User from a live capture, and a registry user row may carry a password or
+// robot token. It skips the key-count log for an empty list.
+func testLiveContainerRegistry(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := containerregistry.New(cfg)
+
+	t.Run("repositories", func(t *testing.T) {
+		res, err := client.ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})
+		if err != nil {
+			t.Fatalf("ListRepositories: %v", err)
+		}
+		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
+		if len(res.Items) == 0 {
+			t.Log("skipped key count: none")
+			return
+		}
+		t.Logf("first repository keys: %d", len(res.Items[0]))
+	})
+
+	t.Run("users", func(t *testing.T) {
+		res, err := client.ListUsers(ctx, &containerregistry.ListUsersInput{})
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		t.Logf("users: %d of %d", len(res.Items), res.TotalItem)
+		if len(res.Items) == 0 {
+			t.Log("skipped key count: none")
+			return
+		}
+		t.Logf("first user keys: %d", len(res.Items[0]))
+	})
+}
+
 func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
@@ -675,13 +711,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		t.Logf("records in first zone: %d of %d", len(records.Items), records.TotalItem)
 	})
-	t.Run("container-repositories", func(t *testing.T) {
-		res, err := containerregistry.New(cfg).ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})
-		if err != nil {
-			t.Fatalf("ListRepositories: %v", err)
-		}
-		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
-	})
+	t.Run("containerregistry", func(t *testing.T) { testLiveContainerRegistry(ctx, t, cfg) })
 	t.Run("portal", func(t *testing.T) { testLivePortal(ctx, t, cfg) })
 	t.Run("pricing-quote", func(t *testing.T) {
 		quoteClient := pricing.New(cfg)

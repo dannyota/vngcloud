@@ -156,6 +156,7 @@ func runGenDocs(dir string) error {
 		buildDocService("portal", portalOps),
 		buildDocService("loadbalancer", loadbalancerOps),
 		buildDocService("volume", volumeOps),
+		buildDocService("containerregistry", containerRegistryOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -429,9 +430,10 @@ const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an 
 	"redacted the same way a channel read is."
 
 // portalMapRedactionNote documents the CLI's key redaction rule for
-// map-backed Outputs, shared by every portal operation: portal.UserInfo,
-// Zone, Quota, and TagQuota are all map[string]any, so every key the API
-// returns reaches this rule.
+// map-backed Outputs, shared by every portal operation (portal.UserInfo,
+// Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
+// list-repositories (Repository is map[string]any too), so every key the
+// API returns reaches this rule.
 const portalMapRedactionNote = "Values under a key that looks like a secret " +
 	"(password, token, credential, and similar, matched after lower-casing and " +
 	"stripping punctuation) print as `<redacted>`, at any depth."
@@ -469,6 +471,17 @@ var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
 // against a real response.
 var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
+// containerRegistryRepositoryUnverifiedNote flags list-repositories' output
+// shape: the test account holds no repository, so the live call returns an
+// empty list and nothing exercises Repository's map-backed decoding against
+// a real row.
+var containerRegistryRepositoryUnverifiedNote = unverifiedLiveNote("repository")
+
+// containerRegistryRepositoryNote combines the unverified-live note above
+// with the shared map redaction rule, since containerregistry.Repository is
+// map-backed like portal's models.
+var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote + "\n\n" + portalMapRedactionNote
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -498,6 +511,7 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-policies":           loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-policy":              loadBalancerShapeUnverifiedNote,
 	"loadbalancer list-tags":               loadBalancerShapeUnverifiedNote,
+	"containerregistry list-repositories":  containerRegistryRepositoryNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
