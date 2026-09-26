@@ -1,0 +1,2 @@
+alarm-1	Log	{"InAlarm":["channel-1","channel-2"],"OK":["channel-1"]}		example-log-alarm	MEDIUM	OK
+alarm-2	Metric		metric-map-1	example-metric-alarm	HIGH	In-alarm

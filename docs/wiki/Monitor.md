@@ -2,14 +2,18 @@
 
 `monitor` is a separate package, `danny.vn/vngcloud/monitor`, with its own
 `New(cfg)`. It reads vMonitor synthetic checks (GreenNode calls them uptime
-checks), pauses or resumes them, creates, updates, and deletes them, and
-lists probe locations. Every call is per account: it sends no project ID
-and ignores the region in `Config`, like billing.
+checks), pauses or resumes them, creates, updates, and deletes them, lists
+probe locations, reads and writes notification channels, and reads log
+projects and alarms. Every call is per account: it sends no project ID and
+ignores the region in `Config`, like billing.
 
 `CreateCheck` always makes an HTTP `API` check with `verified_ssl` on. A
-check's `Notifications` names, by channel ID, which [channels](#notification-channels)
-alert on each alarm transition; a check created with no `Notifications` set
-alerts nobody.
+check's `Notifications` names, by channel ID, which
+[channels](Monitor-Alerts.md#notification-channels) alert on each alarm
+transition; a check created with no `Notifications` set alerts nobody.
+
+See [Monitor Alerts](Monitor-Alerts.md) for notification
+channels, log projects, and alarms.
 
 ## Setup
 
@@ -70,9 +74,9 @@ log.Println(detail.Check.Config.Request.URL)
 every check in one response with no paging. `Check` decodes the console's
 own field names, including `Config.Request` (the HTTP request the check
 sends), `Config.Assertions` (the pass/fail rules it evaluates), and
-`Notifications` (the [channels](#notification-channels) that alert on each
-alarm transition, by ID). It leaves out alarms and a few account-internal
-fields the API also sends.
+`Notifications` (the [channels](Monitor-Alerts.md#notification-channels)
+that alert on each alarm transition, by ID). It leaves out alarms and a few
+account-internal fields the API also sends.
 
 A check's request headers and body may hold a credential for the monitored
 service, such as a bearer token in a header. The SDK returns them exactly
@@ -285,162 +289,6 @@ find their target, so each gets `ErrStatusUnconfirmed`. The API offers no
 conditional request to prevent this. Within one process, a `monitor.Client`
 runs its pause and resume calls one at a time, so this can only happen
 across two processes or two `Client` values.
-
-## Notification channels
-
-A notification channel is what GreenNode's own API calls a "notification";
-the SDK says "channel" so the name does not clash with a check's
-`Notifications` field. `ListChannels` and `GetChannel` return every channel
-type the console offers: `Email`, `Slack`, `SMS`, `Telegram`, and `Webhook`.
-`CreateChannel`, `UpdateChannel`, and `DeleteChannel` handle any of the
-five; `Webhook` needs no OTP, and the other four each need one from
-`SendChannelOTP`, covered next, before a create or an `Address` update.
-
-```go
-types, err := client.ListChannelTypes(ctx, nil)
-if err != nil {
-	log.Fatal(err)
-}
-for _, t := range types.Items {
-	log.Printf("%s: %s", t.ID, t.Name)
-}
-
-channels, err := client.ListChannels(ctx, &monitor.ListChannelsInput{Type: monitor.ChannelTypeWebhook})
-if err != nil {
-	log.Fatal(err)
-}
-for _, ch := range channels.Items {
-	log.Printf("%s: %s (%s)", ch.ID, ch.Name, ch.Type)
-}
-```
-
-`ListChannelTypesInput` has no fields; a nil Input is valid, and the API
-returns every type in one response with no paging. `ListChannelsInput` has
-`Type` (empty for every type), `Page`, and `Size`; a nil Input, or one left
-at its zero value, lists every channel from page 1 at size 10000.
-
-```go
-found, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: channelID})
-if err != nil {
-	if vngcloud.IsNotFound(err) {
-		log.Printf("no channel %s", channelID)
-	} else {
-		log.Fatal(err)
-	}
-}
-```
-
-There is no get-by-ID call: `GetChannel` lists every page and returns the
-item whose ID matches, so `vngcloud.IsNotFound(err)` is true both for an
-unknown ID and for an account with no channels at all.
-
-### Sending and validating an OTP
-
-`Email`, `Slack`, `SMS`, and `Telegram` need a one-time code before a create
-or an `Address` update. `SendChannelOTP` messages `Address` and returns a
-`Ref`; read the code and pass both to `CreateChannel` or `UpdateChannel` as
-`OTPRef` and `OTP`, which must both be set or both left empty (`OTP` alone
-fails with `vngcloud.ErrInvalidInput` before any request).
-
-```go
-sent, err := client.SendChannelOTP(ctx, &monitor.SendChannelOTPInput{
-	Type:    monitor.ChannelTypeEmail,
-	Address: "ops@example.com",
-})
-// ... read the code from the address, then: ...
-_, err = client.CreateChannel(ctx, &monitor.CreateChannelInput{
-	Name: "vngcloud-my-email", Type: monitor.ChannelTypeEmail, Address: "ops@example.com",
-	OTPRef: sent.Ref, OTP: "123456",
-})
-if errors.Is(err, monitor.ErrOTPRejected) {
-	log.Fatal("wrong or expired code")
-}
-```
-
-`SendChannelOTP` refuses `Webhook`, which needs none, with
-`vngcloud.ErrInvalidInput`, and, like every create or update here, is never
-retried after a failure that may have already reached the server: a retry
-could send a second message or spend a code the first attempt already
-validated. A wrong or expired code returns `monitor.ErrOTPRejected` with no
-create or update sent; leaving `OTPRef` and `OTP` empty sends no `otpCode`,
-which is what `Webhook` needs and every other type is refused for. The OTP,
-`OTPRef`, and the validated code are secrets, the same as `Address` and a
-header value: none ever appears in an error message, and a server message
-echoing one back comes back `<redacted>`. Sending an OTP to, and later
-notifying, an `SMS` channel spends the account's SMS package and can cost
-money past the free quota; `Email` and `Slack` cost nothing extra.
-
-### Creating, updating, and deleting channels
-
-```go
-created, err := client.CreateChannel(ctx, &monitor.CreateChannelInput{
-	Name:    "vngcloud-my-webhook",
-	Type:    monitor.ChannelTypeWebhook,
-	Address: "https://example.com/hook",
-	Headers: []monitor.ChannelHeader{{Key: "X-Token", Value: "<secret>"}},
-})
-if err != nil {
-	log.Fatal(err)
-}
-log.Println(created.Channel.ID)
-
-newName := "vngcloud-my-webhook-renamed"
-updated, err := client.UpdateChannel(ctx, &monitor.UpdateChannelInput{
-	ChannelID: created.Channel.ID,
-	Name:      &newName,
-})
-if err != nil {
-	log.Fatal(err)
-}
-log.Println(updated.Channel.Name)
-
-if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: created.Channel.ID}); err != nil {
-	log.Fatal(err)
-}
-```
-
-`CreateChannel` accepts `Type` `Email`, `Slack`, `SMS`, `Telegram`, or
-`Webhook`; any other value, including the no-longer-offered `Teams`, fails with
-`vngcloud.ErrInvalidInput` before any request. `Name`, `Type`, and `Address`
-are required; `Headers` is optional, and every type but `Webhook` needs
-`OTPRef` and `OTP` ([above](#sending-and-validating-an-otp)) to create. It is a
-`POST` never retried after an ambiguous failure, the same as `CreateCheck`:
-after any error that is not a 4xx `*vngcloud.APIError` or
-`vngcloud.ErrInvalidInput`, the channel may exist, so list by name before
-retrying rather than blind.
-
-`UpdateChannel` changes `Name`, `Address`, `Headers`, or any combination,
-leaving a `nil` field unchanged; at least one must be set. Set `Headers` to
-a non-nil empty slice (`&[]monitor.ChannelHeader{}`) to clear every header
-on purpose; `nil` resends them unchanged. GreenNode's API takes a full
-replacement body and clears any field left out, so `UpdateChannel` reads
-the channel first with `GetChannel` and resends every unset field, rather
-than trusting the API to leave it alone; the read and the `PUT` are
-separate requests, so a change another caller makes in between is silently
-overwritten. It keeps the channel's `Type` and never sends another;
-changing an OTP-typed channel's `Address` needs a fresh `OTPRef` and `OTP`
-([above](#sending-and-validating-an-otp)), which the server enforces.
-`Output.Channel` never carries a fresh `UpdatedDate`, since the update's
-200 response has no body to read one from.
-
-`DeleteChannel` removes a channel and strips its ID from every check's
-`Notifications`, silently stopping alerts through it with no undo. A second
-delete of the same `ChannelID` returns `vngcloud.IsNotFound(err) == true`,
-the same as `DeleteCheck`, even though GreenNode answers that case with a
-400, not a 404; a retried delete whose first attempt already landed gets
-this same not-found error, which the caller treats as done.
-
-`Channel.Address` (the email, webhook URL, chat ID, or phone number a
-channel notifies) and `Channel.Headers` can each hold a secret; the SDK
-returns both unchanged, so a caller can read them back to recreate or
-update a channel, and neither appears in log output. `CreateChannel` and
-`UpdateChannel` also strip an echoed `Address` or header value (raw or
-JSON-escaped) from a server error before building the `*vngcloud.APIError`,
-replacing it with `<redacted>`, or withholding the whole message when the
-value is too short to cut out safely. The [CLI](CLI-Monitor.md) shows
-`Address` in full only for `Email`, `SMS`, and `Telegram`; every other type
-keeps only an `http(s)` URL's scheme and host, redacting the rest, and
-every header value is always redacted, with no flag to reveal either.
 
 ## Endpoint
 

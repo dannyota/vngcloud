@@ -69,6 +69,22 @@ Kind: Write, destructive.
 vngcloud monitor delete-check --check-id <check-id> --yes
 ```
 
+## get-alarm
+
+Kind: Read.
+
+Unverified live: the test account has no alarm, so this output shape is inferred from the console's code, not a live capture.
+
+A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, not a 404, so this command never reports the NotFound error class.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--alarm-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-alarm --alarm-id <alarm-id> --query Alarm
+```
+
 ## get-channel
 
 Kind: Read.
@@ -93,6 +109,39 @@ Kind: Read.
 
 ```sh
 vngcloud monitor get-check --check-id <check-id> --query Check
+```
+
+## get-log-project
+
+Kind: Read.
+
+Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--log-project-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-log-project --log-project-id <log-project-id> --query LogProject
+```
+
+## list-alarms
+
+Kind: Read.
+
+Unverified live: the test account has no alarm, so this output shape is inferred from the console's code, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+| `--name` | `string` |  |
+| `--status` | `string` |  |
+| `--severity` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud monitor list-alarms --kind Log
 ```
 
 ## list-channel-types
@@ -141,6 +190,33 @@ No fields.
 vngcloud monitor list-locations
 ```
 
+## list-log-project-classes
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud monitor list-log-project-classes
+```
+
+## list-log-projects
+
+Kind: Read.
+
+Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--search` | `string` |  |
+| `--billing-status` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud monitor list-log-projects
+```
+
 ## pause-check
 
 Kind: Write.
@@ -151,6 +227,26 @@ Kind: Write.
 
 ```sh
 vngcloud monitor pause-check --check-id <check-id>
+```
+
+## quote-create-log-project
+
+Kind: Read.
+
+Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, a later release; this command neither orders anything nor waits.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--class` | `string` |  |
+| `--retention-days` | `int` |  |
+| `--gb-per-day` | `int` |  |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud monitor quote-create-log-project --name <name>
 ```
 
 ## resume-check

@@ -16,14 +16,20 @@ import (
 )
 
 // assertKindMatchesMethodName checks the CLI design's rule that Service
-// tables follow: an operation named Get* or List* is a Read, and every
-// other operation is a Write (billing's two deletes also carry Destructive,
-// checked separately by the read-only and --yes tests).
+// tables follow: an operation named Get*, List*, or Quote* is a Read, and
+// every other operation is a Write (billing's two deletes also carry
+// Destructive, checked separately by the read-only and --yes tests). Quote*
+// covers monitor.QuoteCreateLogProject: ADR 0002 rule 1 makes a quote a
+// Read regardless of its HTTP method or that its name does not start with
+// Get or List, the same rule that already lets pricing.GetQuote (a POST)
+// register as Read.
 func assertKindMatchesMethodName[C any](t *testing.T, serviceName string, ops []Op[C]) {
 	t.Helper()
 	for _, op := range ops {
-		isGetOrList := strings.HasPrefix(op.methodName, "Get") || strings.HasPrefix(op.methodName, "List")
-		wantWrite := !isGetOrList
+		isRead := strings.HasPrefix(op.methodName, "Get") ||
+			strings.HasPrefix(op.methodName, "List") ||
+			strings.HasPrefix(op.methodName, "Quote")
+		wantWrite := !isRead
 		gotWrite := op.kind == kindWrite
 		if gotWrite != wantWrite {
 			t.Errorf("%s %s (method %s): kind is Write=%v, want Write=%v",
@@ -32,7 +38,7 @@ func assertKindMatchesMethodName[C any](t *testing.T, serviceName string, ops []
 	}
 }
 
-func TestEveryNonGetListOpIsAWrite(t *testing.T) {
+func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "billing", billingOps)
 	assertKindMatchesMethodName(t, "pricing", pricingOps)
 	assertKindMatchesMethodName(t, "compute", computeOps)

@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.20.0 - vMonitor Log Projects and Alarm Reads
+
+### Highlights
+
+- New `monitor.ListLogProjects`, `GetLogProject`, and
+  `ListLogProjectClasses`, with matching `vngcloud monitor` commands.
+- New `monitor.QuoteCreateLogProject` and `vngcloud monitor
+  quote-create-log-project` price a log project order without placing it.
+- New `monitor.ListAlarms` and `GetAlarm`, with matching commands. A list
+  needs `Kind`, `Metric` or `Log`. `GetAlarm` leaves `Kind` empty, since
+  the API sends no field that names it.
+- The test account has no log project or alarm, so those response shapes
+  are inferred from the console's code and marked unverified.
+
+### Behavior changes
+
+None.
+
 ## v0.19.0 - vMonitor Check Alerting
 
 ### Highlights

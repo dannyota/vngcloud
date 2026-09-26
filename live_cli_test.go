@@ -82,6 +82,22 @@ func TestLiveCLI(t *testing.T) {
 		testLiveCLIItems(ctx, t, "monitor", "list-locations")
 		testLiveCLIItems(ctx, t, "monitor", "list-channel-types")
 		testLiveCLIItems(ctx, t, "monitor", "list-channels")
+		testLiveCLIItems(ctx, t, "monitor", "list-log-projects")
+		testLiveCLIItemsAtLeastOne(ctx, t, "monitor", "list-log-project-classes")
+		// quote-create-log-project prices a Basic project without ordering
+		// one (its Output is price fields, not an Items list, so it does not
+		// fit testLiveCLIItems); get-log-project is left unchecked here since
+		// the test account holds no log project to read (see the wiki's
+		// unverified-live note on that command).
+		stdout, _ := runLiveCLI(ctx, t, "monitor", "quote-create-log-project", "--name", "vngcloud-live-cli-quote")
+		if !json.Valid(stdout) {
+			t.Fatal("stdout is not valid JSON")
+		}
+		t.Log("ok")
+		// get-alarm is not run here: the test account has no alarm, so there
+		// is no ID to read.
+		testLiveCLIItems(ctx, t, "monitor", "list-alarms", "--kind", "Log")
+		testLiveCLIItems(ctx, t, "monitor", "list-alarms", "--kind", "Metric")
 	})
 	t.Run("project", func(t *testing.T) {
 		testLiveCLIItemsAtLeastOne(ctx, t, "project", "list-projects")

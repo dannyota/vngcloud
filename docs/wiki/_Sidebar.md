@@ -11,6 +11,7 @@
 - [CDN](CDN.md)
 - [DNS](DNS.md)
 - [Monitor](Monitor.md)
+- [Monitor Alerts](Monitor-Alerts.md)
 - [Security](Security.md)
 
 **CLI**

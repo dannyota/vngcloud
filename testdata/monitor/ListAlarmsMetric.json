@@ -1,0 +1,15 @@
+{
+  "lstData": [
+    {
+      "id": "alarm-2",
+      "name": "example-metric-alarm",
+      "status": "In-alarm",
+      "severity": "HIGH",
+      "metricMappingId": "metric-map-1"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

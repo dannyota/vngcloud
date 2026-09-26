@@ -18,6 +18,8 @@ rename; the module keeps the `vngcloud` name.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
 - [Monitor](Monitor.md): vMonitor synthetic checks, and pausing and resuming
   them.
+- [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
+  and alarms.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
 
 ## CLI

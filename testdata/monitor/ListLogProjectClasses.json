@@ -1,0 +1,99 @@
+[
+  {
+    "id": "class-basic",
+    "name": "Basic",
+    "type": "LOG",
+    "description": "A free option designed for a glimpse into core functionalities with a limited 1-day storage retention period.",
+    "status": "ACTIVE",
+    "priority": 1,
+    "config": {
+      "packages": "pkg-basic-1d",
+      "retentions": [
+        {
+          "amount": 1,
+          "minSize": 10,
+          "maxSize": 10,
+          "step": 1,
+          "status": "ACTIVE",
+          "priority": 1,
+          "packageId": "pkg-basic-1d"
+        }
+      ]
+    }
+  },
+  {
+    "id": "class-pro",
+    "name": "Pro",
+    "type": "LOG",
+    "description": "Upgrade to our Pro class for advance feature and enhanced storage retention.",
+    "status": "ACTIVE",
+    "priority": 2,
+    "config": {
+      "packages": "pkg-pro-7d,pkg-pro-14d,pkg-pro-30d,pkg-pro-45d,pkg-pro-60d,pkg-pro-90d",
+      "retentions": [
+        {
+          "amount": 7,
+          "minSize": 20,
+          "maxSize": 5000,
+          "step": 10,
+          "status": "ACTIVE",
+          "priority": 2,
+          "packageId": "pkg-pro-7d"
+        },
+        {
+          "amount": 14,
+          "minSize": 10,
+          "maxSize": 5000,
+          "step": 10,
+          "status": "ACTIVE",
+          "priority": 3,
+          "packageId": "pkg-pro-14d"
+        },
+        {
+          "amount": 30,
+          "minSize": 5,
+          "maxSize": 5000,
+          "step": 5,
+          "status": "ACTIVE",
+          "priority": 4,
+          "packageId": "pkg-pro-30d"
+        },
+        {
+          "amount": 45,
+          "minSize": 5,
+          "maxSize": 5000,
+          "step": 5,
+          "status": "ACTIVE",
+          "priority": 5,
+          "packageId": "pkg-pro-45d"
+        },
+        {
+          "amount": 60,
+          "minSize": 5,
+          "maxSize": 5000,
+          "step": 5,
+          "status": "ACTIVE",
+          "priority": 6,
+          "packageId": "pkg-pro-60d"
+        },
+        {
+          "amount": 90,
+          "minSize": 5,
+          "maxSize": 5000,
+          "step": 5,
+          "status": "ACTIVE",
+          "priority": 7,
+          "packageId": "pkg-pro-90d"
+        }
+      ]
+    }
+  },
+  {
+    "id": "class-enterprise",
+    "name": "Enterprise (Coming soon)",
+    "type": "LOG",
+    "description": "Our Enterprise plan caters to teams and organizations in need of sophisticated monitoring system.",
+    "status": "DISABLED",
+    "priority": 3
+  }
+]
