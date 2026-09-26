@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.14.0 - Volume Commands
+
+### Highlights
+
+- New `vngcloud volume` commands for block volumes, volume types, and
+  snapshots. Reads only. `get-volume`, `get-underlying-volume`, and
+  `list-snapshots` are marked unverified: the test account has no volume,
+  so their output shape comes from GreenNode's official SDK.
+- `get-default-volume-type` is left out: the API returns 404 in every
+  region tested.
+
+### Breaking changes
+
+- `volume.VolumeTypeZone` drops `UUID`, `PoolName`, `VolumeTypeZones`,
+  `Extra`, `Success`, `ErrorCode`, and `ErrorMsg`. A live
+  `ListVolumeTypeZones` item never sets them; `ID`, `Name`, `Description`,
+  and `Zone` are unchanged.
+
 ## v0.13.0 - Project and Portal Commands
 
 ### Highlights
