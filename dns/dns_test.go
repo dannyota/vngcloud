@@ -102,6 +102,39 @@ func TestDNSRequiredInput(t *testing.T) {
 	}
 }
 
+// TestDNSReadHostedZoneIDPathRejection checks core.CheckPathID's rejection
+// of the HostedZoneID segment on every read that carries one. GetRecord's
+// RecordID segment gets its own check with the record reads.
+func TestDNSReadHostedZoneIDPathRejection(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+
+	for _, badID := range []string{"..", ".", "a/b", ""} {
+		t.Run("GetHostedZone "+badID, func(t *testing.T) {
+			c := newTestClient(t, failIfCalled)
+			_, err := c.GetHostedZone(context.Background(), &GetHostedZoneInput{HostedZoneID: badID})
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+		})
+		t.Run("ListRecords "+badID, func(t *testing.T) {
+			c := newTestClient(t, failIfCalled)
+			_, err := c.ListRecords(context.Background(), &ListRecordsInput{HostedZoneID: badID})
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+		})
+		t.Run("GetRecord "+badID, func(t *testing.T) {
+			c := newTestClient(t, failIfCalled)
+			_, err := c.GetRecord(context.Background(), &GetRecordInput{HostedZoneID: badID, RecordID: "record-1"})
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
 func TestDNSOperationName(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

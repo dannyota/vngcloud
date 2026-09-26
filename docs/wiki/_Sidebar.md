@@ -9,6 +9,7 @@
 - [Services](Services.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
 - [CDN](CDN.md)
+- [DNS](DNS.md)
 - [Monitor](Monitor.md)
 - [Security](Security.md)
 

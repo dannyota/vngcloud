@@ -1,0 +1,16 @@
+{
+  "data": {
+    "hostedZoneId": "zone-1",
+    "domainName": "<hostname>",
+    "status": "CREATING",
+    "type": "PRIVATE",
+    "description": "<description>",
+    "assocVpcIds": ["vpc-1"],
+    "assocVpcMapRegion": [
+      {
+        "vpcId": "vpc-1",
+        "region": "hcm-3"
+      }
+    ]
+  }
+}

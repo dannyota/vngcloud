@@ -20,8 +20,10 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/monitor"
+	"danny.vn/vngcloud/network"
 )
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
@@ -604,6 +606,195 @@ func TestLiveWriteMonitor(t *testing.T) {
 	// a failure. t.Cleanup's own delete above then finds it already gone.
 	if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: checkID}); err != nil && !vngcloud.IsNotFound(err) {
 		t.Fatalf("step 9 DeleteCheck: %s", safeErr(err))
+	}
+}
+
+// TestLiveWriteDNS exercises CreateHostedZone, UpdateHostedZone, and
+// DeleteHostedZone against the account named in .env.
+//
+// VNGCLOUD_LIVE_DNS_VPC_ID names the VPC every created zone associates
+// with; it never enters the repository, and the test skips when it is
+// unset. It also skips, rather than failing, when that VPC's own
+// dnsStatus is not ENABLED, since a zone made against a VPC still
+// ENABLING Private DNS would only reach ERROR. Neither the VPC id nor
+// any other VPC field is logged.
+//
+// It deletes every leftover vngcloud-live-*.internal zone first (step 1;
+// this release has no records, so there is nothing to clean up inside one
+// first), creates vngcloud-live-<8 hex>.internal against the named VPC
+// (step 2), registers the fallback delete as soon as the created zone's id
+// is known (step 3), updates its description (step 4), and deletes it
+// explicitly (step 5); t.Cleanup deletes it again with its own context
+// (NotFound there is success, not failure) and asserts no
+// vngcloud-live-*.internal zone remains. Each step logs only the zone's own
+// status and how long its wait took, never the VPC id.
+func TestLiveWriteDNS(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live DNS write test")
+	}
+	vpcID := os.Getenv("VNGCLOUD_LIVE_DNS_VPC_ID")
+	if vpcID == "" {
+		t.Skip("set VNGCLOUD_LIVE_DNS_VPC_ID to a VPC with Private DNS ENABLED to run the live DNS write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	vpc, err := network.New(cfg).GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("GetVPC: %s", safeErr(err))
+	}
+	if vpc.VPC.DNSStatus != "ENABLED" {
+		t.Skip("VNGCLOUD_LIVE_DNS_VPC_ID names a VPC whose Private DNS is not ENABLED")
+	}
+
+	client := dns.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-*.internal zone from a
+	// previous run.
+	leftovers, err := client.ListHostedZones(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListHostedZones: %s", safeErr(err))
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftovers.Items {
+		if !isLiveDNSZoneName(leftover.DomainName) {
+			continue
+		}
+		if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{HostedZoneID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover zone: %s", safeErr(err))
+		}
+		deletedLeftovers++
+	}
+	t.Logf("step 1: deleted %d leftover zone(s)", deletedLeftovers)
+
+	// Step 2: create the zone.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	domainName := "vngcloud-live-" + suffix + ".internal"
+
+	start := time.Now()
+	created, err := client.CreateHostedZone(ctx, &dns.CreateHostedZoneInput{
+		DomainName:  domainName,
+		VPCIDs:      []string{vpcID},
+		Description: "vngcloud live write test",
+	})
+	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the zone may
+		// still have reached the server. Find and delete it by its exact
+		// domain name.
+		deleteZoneByName(t, client, domainName)
+		t.Fatalf("step 2 CreateHostedZone: %s", safeErr(err))
+	}
+	zoneID := created.HostedZone.ID
+	if zoneID == "" {
+		deleteZoneByName(t, client, domainName)
+		t.Fatal("step 2: CreateHostedZone returned an empty id; the design requires one")
+	}
+	t.Logf("step 2: created zone, status %s, wait %s", created.HostedZone.Status, time.Since(start))
+
+	// Step 3: register the fallback delete as soon as zoneID is known,
+	// before step 4 or step 5 can fail and skip the explicit delete below.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteHostedZone(cleanupCtx, &dns.DeleteHostedZoneInput{HostedZoneID: zoneID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete zone: %s", safeErr(err))
+		}
+		final, err := client.ListHostedZones(cleanupCtx, nil)
+		if err != nil {
+			t.Errorf("cleanup: final ListHostedZones: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, z := range final.Items {
+			if isLiveDNSZoneName(z.DomainName) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live zone(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live zones, found %d", remaining)
+		}
+	})
+
+	// Step 4: update the zone's description. CreateHostedZone above already
+	// waited for StatusActive (or it would have returned an error instead),
+	// and UpdateHostedZone waits for the same status with the sent
+	// description, so a nil error here already proves both.
+	start = time.Now()
+	updated, err := client.UpdateHostedZone(ctx, &dns.UpdateHostedZoneInput{
+		HostedZoneID: zoneID,
+		Description:  vngcloud.Ptr("vngcloud live write test, updated"),
+	})
+	if err != nil {
+		t.Fatalf("step 4 UpdateHostedZone: %s", safeErr(err))
+	}
+	t.Logf("step 4: updated zone, status %s, wait %s", updated.HostedZone.Status, time.Since(start))
+
+	// Step 5: delete the zone explicitly. DELETE is idempotent, so a retry
+	// that reaches the server after an earlier attempt already deleted the
+	// zone returns NotFound; that is success for a delete, not a failure.
+	// t.Cleanup's own delete above then finds it already gone.
+	start = time.Now()
+	if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{HostedZoneID: zoneID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 5 DeleteHostedZone: %s", safeErr(err))
+	}
+	t.Logf("step 5: deleted zone, wait %s", time.Since(start))
+}
+
+// isLiveDNSZoneName reports whether domainName matches the live DNS write
+// test's own naming scheme, vngcloud-live-<8 hex>.internal.
+func isLiveDNSZoneName(domainName string) bool {
+	return strings.HasPrefix(domainName, "vngcloud-live-") && strings.HasSuffix(domainName, ".internal")
+}
+
+// deleteZoneByName lists zones by domainName and deletes any match. It is
+// used after a CreateHostedZone failure, since a POST that returned an
+// error may still have reached the server. It runs on its own timeout, not
+// the calling test step's context, so it can still clean up after that
+// step's context is the reason the step failed.
+func deleteZoneByName(t *testing.T, client *dns.Client, domainName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := client.ListHostedZones(ctx, &dns.ListHostedZonesInput{Name: domainName})
+	if err != nil {
+		t.Errorf("cleanup: list zones by name: %s", safeErr(err))
+		return
+	}
+	for _, z := range list.Items {
+		if z.DomainName != domainName {
+			continue
+		}
+		if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{HostedZoneID: z.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete zone by name: %s", safeErr(err))
+		}
 	}
 }
 

@@ -314,6 +314,14 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("ListHostedZones: %v", err)
 		}
 		t.Logf("hosted zones: %d of %d", len(res.Items), res.TotalItem)
+		if len(res.Items) == 0 {
+			return
+		}
+		records, err := dnsClient.ListRecords(ctx, &dns.ListRecordsInput{HostedZoneID: res.Items[0].ID})
+		if err != nil {
+			t.Fatalf("ListRecords: %v", err)
+		}
+		t.Logf("records in first zone: %d of %d", len(records.Items), records.TotalItem)
 	})
 	t.Run("container-repositories", func(t *testing.T) {
 		res, err := containerregistry.New(cfg).ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})

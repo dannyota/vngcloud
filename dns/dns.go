@@ -4,6 +4,7 @@ package dns
 import (
 	"context"
 	"net/url"
+	"sync"
 	"time"
 
 	"danny.vn/vngcloud"
@@ -15,12 +16,25 @@ import (
 // Client is the DNS service client.
 type Client struct {
 	c *core.Client
+
+	// writeMu serializes every zone write within one Client, from its
+	// pre-write read (when it has one) to the end of the call, including
+	// any post-write wait: two goroutines sharing a Client must never both
+	// read the zone as ready and then write it at the same time. It does
+	// not, and cannot, prevent the same race across two processes or two
+	// Clients; the design leaves that to the caller.
+	writeMu sync.Mutex
+
+	// sleep waits for d or ctx's end, whichever comes first, between poll
+	// reads in a wait. Tests replace it with a fake so the real 2-second and
+	// 60-second waits never really elapse.
+	sleep sleepFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep}
 }
 
 // url builds a URL under the DNS endpoint.
@@ -60,14 +74,18 @@ type GetHostedZoneOutput struct {
 }
 
 func (c *Client) GetHostedZone(ctx context.Context, in *GetHostedZoneInput) (*GetHostedZoneOutput, error) {
-	if err := core.CheckRequired("dns.GetHostedZone", in); err != nil {
+	const op = "dns.GetHostedZone"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "HostedZoneID", in.HostedZoneID); err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Data HostedZone `json:"data"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "dns.GetHostedZone",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.url([]string{"dns", "hosted-zone", in.HostedZoneID}, nil),
 		OK:        []int{200},
@@ -85,7 +103,11 @@ type ListRecordsInput struct {
 type ListRecordsOutput = core.PagedList[Record]
 
 func (c *Client) ListRecords(ctx context.Context, in *ListRecordsInput) (*ListRecordsOutput, error) {
-	if err := core.CheckRequired("dns.ListRecords", in); err != nil {
+	const op = "dns.ListRecords"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "HostedZoneID", in.HostedZoneID); err != nil {
 		return nil, err
 	}
 	q := url.Values{}
@@ -94,7 +116,7 @@ func (c *Client) ListRecords(ctx context.Context, in *ListRecordsInput) (*ListRe
 	}
 	var resp listRecordsResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "dns.ListRecords",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.url([]string{"dns", "hosted-zone", in.HostedZoneID, "record"}, q),
 		OK:        []int{200},
@@ -114,14 +136,21 @@ type GetRecordOutput struct {
 }
 
 func (c *Client) GetRecord(ctx context.Context, in *GetRecordInput) (*GetRecordOutput, error) {
-	if err := core.CheckRequired("dns.GetRecord", in); err != nil {
+	const op = "dns.GetRecord"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	// RecordID's own path ID check ships with the record writes; this
+	// release checks only the HostedZoneID segment it shares with the
+	// other reads above.
+	if err := core.CheckPathID(op, "HostedZoneID", in.HostedZoneID); err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Data Record `json:"data"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "dns.GetRecord",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.url([]string{"dns", "hosted-zone", in.HostedZoneID, "record", in.RecordID}, nil),
 		OK:        []int{200},
