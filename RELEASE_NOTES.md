@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.9.0 - vMonitor Create and Delete
+
+### Highlights
+
+- `monitor.CreateCheck` creates an HTTP synthetic check. It always verifies
+  the target's TLS certificate and sends no notifications yet, so a created
+  check alerts nobody. Zero-value fields take the console's defaults. It is
+  never retried after a failure that may have reached the server; after
+  such an error, list checks and look for the name before trying again.
+- `monitor.DeleteCheck` deletes a check, and `monitor.ListLocations` lists
+  the probe locations whose IDs `CreateCheck` takes.
+- New `vngcloud monitor create-check`, `delete-check`, and
+  `list-locations` commands. `delete-check` needs `--yes`, and a read-only
+  profile refuses both writes. Locations, headers, query parameters, and
+  assertions go through `--cli-input-json`.
+
+### Behavior changes
+
+None: this release adds methods and commands only.
+
 ## v0.8.0 - vMonitor Pause and Resume
 
 ### Highlights
