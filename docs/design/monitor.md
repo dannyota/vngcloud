@@ -235,16 +235,15 @@ a time.
 | `Method` | string | Empty sends `GET` |
 | `Headers`, `Query` | map[string]string | Nil sends what the console sends for none |
 | `Body` | string | Empty sends what the console sends for none |
-| `Timeout` | int | Unit open; 0 sends the console default |
-| `TestFrequency` | int | Minutes; 0 sends the console default |
-| `Tests` | int | 0 sends the console default |
-| `FailedLocations` | int | 0 sends the console default |
+| `Timeout` | int | Seconds; 0 sends 10, the console default |
+| `TestFrequency` | int | Minutes; 0 sends 1, the console default |
+| `Tests` | int | 0 sends 1, the console default |
+| `FailedLocations` | int | 0 sends the number of `Locations`, as the console does |
 | `Assertions` | []Assertion | Empty sends the console default shown in [Source](#source) |
 
 The SDK always sends `type: "API"`, `subtype: "HTTP"`,
 `verified_ssl: true`, and `notifications` with three empty lists. The
-console defaults for the zero values come from the captured create body and
-live as constants in the package. Zero is never a valid value for those
+defaults for the zero values are the console's create form defaults. Zero is never a valid value for those
 fields, so ADR 0002 rule 3 needs no pointer.
 
 Per ADR 0002 rule 5, the SDK checks only that required fields are set. The
@@ -440,8 +439,7 @@ A `Monitor` SDK wiki page covers per-account scope, `Changed`,
 
 - Whether checks are per account, per region, or per project. The design
   assumes per account.
-- The shape of populated `headers` and `query`, the unit of `timeout`, the
-  console defaults for `timeout`, `tests`, and `failed_locations`, and
-  whether a create past the quota fails or bills.
+- The shape of populated `headers` and `query`, and whether a create past
+  the quota fails or bills.
 - What happens to existing checks, and to pause and resume, when the free
   package ends on 2026-10-26.
