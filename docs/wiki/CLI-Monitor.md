@@ -48,7 +48,7 @@ Redacts every header value and every Address except an Email, SMS, or Telegram c
 | `--channel-id` | `string` | yes |
 
 ```sh
-vngcloud monitor get-channel --channel-id <channel-id>
+vngcloud monitor get-channel --channel-id <channel-id> --query Channel
 ```
 
 ## get-check
