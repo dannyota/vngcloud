@@ -173,6 +173,25 @@ sequences against one `Client` within one process; across processes, or
 across two `Client` values, whichever of two concurrent updates lands last
 silently overwrites the other's change, since the API has no version field.
 
+The `PUT` always sends `verified_ssl: true`, the same as `CreateCheck`,
+regardless of the check's current value: updating a check made in the
+console with TLS verification off turns it on.
+
+`Notifications`, when set, replaces all three of the check's notification
+lists at once (`InAlarm`, `Up`, and `Undetermined` together), not just the
+one the caller means to change. To change one list, read the check first
+with `GetCheck` and send back its full `Notifications` with that one list
+changed.
+
+`UpdateCheck` refuses, before any `PUT`, a `Locations` that is set but
+empty, the same as `CreateCheck` refuses an empty `Locations`. It also
+refuses, after reading the check and before any `PUT`, a pre-update read
+that comes back with no usable check (an empty body, `null`, or a shape
+that does not decode to the requested check's own ID): merging into that
+would send a full-replace `PUT` that clears the check instead of updating
+it. It refuses the same way when the check's current `Type` or `Subtype`
+is not `API`/`HTTP`, since `Check`'s model only carries an HTTP request.
+
 ## Pausing and resuming
 
 `PauseCheck` and `ResumeCheck` read the check's current status first and

@@ -23,6 +23,8 @@ vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json fi
 
 Kind: Write.
 
+Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -183,6 +185,8 @@ vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file:
 ## update-check
 
 Kind: Write.
+
+Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
 
 | Flag | Type | Required |
 |-|-|-|

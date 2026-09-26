@@ -162,3 +162,43 @@ func TestApplyCLIInputJSONFileUnderCapSucceeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// nestedTestInput has a nested struct field whose own field carries a wire
+// tag that differs from its Go name, the same shape as
+// monitor.CheckNotifications.InAlarm ("In-alarm"), so a test here can check
+// applyCLIInputJSON's nested-key handling without depending on monitor.
+type nestedTestInput struct {
+	Group nestedGroup
+}
+
+type nestedGroup struct {
+	Members []string `json:"member-list"`
+}
+
+func TestApplyCLIInputJSONNestedUnknownKeyIsAUsageError(t *testing.T) {
+	in := &nestedTestInput{}
+	// "Members" is the Go field name, not its wire tag "member-list": before
+	// the fix, the final decode was a plain json.Unmarshal, which ignores an
+	// unknown key inside a nested struct instead of refusing it, so this key
+	// silently set nothing.
+	err := applyCLIInputJSON(`{"Group":{"Members":["a"]}}`, in)
+	if err == nil {
+		t.Fatalf("expected an error for an unknown key inside a nested struct")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if len(in.Group.Members) != 0 {
+		t.Fatalf("Group.Members = %v, want unchanged", in.Group.Members)
+	}
+}
+
+func TestApplyCLIInputJSONNestedWireTagKeyWorks(t *testing.T) {
+	in := &nestedTestInput{}
+	if err := applyCLIInputJSON(`{"Group":{"member-list":["a","b"]}}`, in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(in.Group.Members) != 2 || in.Group.Members[0] != "a" || in.Group.Members[1] != "b" {
+		t.Fatalf("Group.Members = %v, want [a b]", in.Group.Members)
+	}
+}

@@ -35,7 +35,14 @@ type UpdateCheckInput struct {
 	FailedLocations *int
 	Locations       *[]string
 	Assertions      *[]Assertion
-	Notifications   *CheckNotifications
+
+	// Notifications, when set, replaces all three of the check's
+	// notification lists at once: In-alarm, Up, and Undetermined together,
+	// not just the one the caller means to change. A caller that wants to
+	// add or remove a channel on one list reads the check first with
+	// GetCheck and sends back its full Notifications with that one list
+	// changed, the same way any other field here is merged.
+	Notifications *CheckNotifications
 }
 
 type UpdateCheckOutput struct {
@@ -56,6 +63,14 @@ type UpdateCheckOutput struct {
 // it reads the check once with GetCheck instead of failing the call, since
 // nothing about a full-replacement PUT makes the write itself uncertain the
 // way a create's missing id does.
+//
+// The pre-merge read is different: if it returns 200 with no usable check
+// (an empty body, "null", or a shape Check does not decode into its ID),
+// merging into that zero value would send a PUT that clears the check, so
+// UpdateCheck refuses and sends no PUT instead. It also refuses a check
+// whose current Type or Subtype is not API/HTTP, since checkWriteBody only
+// carries an HTTP request and resending it would silently rewrite the
+// check's type.
 func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*UpdateCheckOutput, error) {
 	const op = "monitor.UpdateCheck"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -70,6 +85,12 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*Update
 		in.Assertions == nil && in.Notifications == nil {
 		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
 	}
+	// A non-nil Locations means the caller wants to replace the check's
+	// locations; an empty one would clear every location the check runs
+	// from, the same as CreateCheck refuses an empty Locations outright.
+	if in.Locations != nil && len(*in.Locations) == 0 {
+		return nil, fmt.Errorf("%w: %s Locations, if set, requires at least one entry", core.ErrInvalidInput, op)
+	}
 
 	c.toggleMu.Lock()
 	defer c.toggleMu.Unlock()
@@ -77,6 +98,24 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*Update
 	current, err := c.readCheck(ctx, op, in.CheckID)
 	if err != nil {
 		return nil, err
+	}
+	// A 200 that decodes to no usable check (an empty body, "null", or a
+	// wrapped shape the SDK's Check does not match) leaves current
+	// zero-valued. Merging into that would send the full-replace PUT with
+	// every field cleared, wiping the check instead of updating it.
+	if current.ID != in.CheckID {
+		return nil, &core.APIError{
+			Operation:  op,
+			StatusCode: 200,
+			Message:    "pre-update read returned no usable check; refusing to overwrite it",
+		}
+	}
+	// checkWriteBody only carries an HTTP request, so a check whose current
+	// Type or Subtype is not API/HTTP cannot be resent through it without
+	// silently rewriting the check to a type it never was.
+	if current.Type != checkType || current.Subtype != checkSubtype {
+		return nil, fmt.Errorf("%w: %s cannot update a check with type %q and subtype %q; only %s/%s checks are supported",
+			core.ErrInvalidInput, op, current.Type, current.Subtype, checkType, checkSubtype)
 	}
 
 	name := current.Name

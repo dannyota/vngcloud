@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1519,6 +1520,18 @@ func TestLiveWriteMonitorCheckNotifications(t *testing.T) {
 	}
 	if len(afterUpdate.Check.Notifications.InAlarm) != 1 || afterUpdate.Check.Notifications.InAlarm[0] != channelID {
 		t.Fatal("step 4: a fresh read did not confirm the notifications were kept")
+	}
+	// UpdateCheck only set Name, so the read-merge shape must have resent
+	// every other field unchanged: compare structurally without logging
+	// either side, since Config.Request can carry a credential.
+	if !reflect.DeepEqual(afterUpdate.Check.Config, createdCheck.Check.Config) {
+		t.Error("step 4: a fresh read's Config did not match the created check's Config")
+	}
+	if !reflect.DeepEqual(afterUpdate.Check.Options, createdCheck.Check.Options) {
+		t.Error("step 4: a fresh read's Options did not match the created check's Options")
+	}
+	if !reflect.DeepEqual(afterUpdate.Check.Locations, createdCheck.Check.Locations) {
+		t.Error("step 4: a fresh read's Locations did not match the created check's Locations")
 	}
 	t.Log("step 4: paused and renamed the check; it stayed DISABLED and kept its notifications")
 

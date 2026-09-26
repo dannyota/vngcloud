@@ -5,7 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
@@ -407,5 +412,156 @@ func TestUpdateCheckPropagatesNotFound(t *testing.T) {
 	}
 	if putCalls != 0 {
 		t.Fatalf("putCalls = %d, want 0", putCalls)
+	}
+}
+
+// TestUpdateCheckRefusesWhenPreReadHasNoUsableCheck checks that a pre-update
+// GET returning no usable check, such as a 200 that decodes to {}, is never
+// merged into the full-replace PUT: doing so would send the check's
+// zero-valued fields and wipe it. UpdateCheck refuses before any PUT.
+func TestUpdateCheckRefusesWhenPreReadHasNoUsableCheck(t *testing.T) {
+	var putCalls int
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case http.MethodPut:
+			putCalls++
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	newName := "new-name"
+	_, err := client.UpdateCheck(context.Background(), &UpdateCheckInput{CheckID: "chk-1", Name: &newName})
+	if err == nil {
+		t.Fatal("UpdateCheck() error = nil, want an error for an unusable pre-read")
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *core.APIError", err)
+	}
+	if putCalls != 0 {
+		t.Fatalf("putCalls = %d, want 0", putCalls)
+	}
+}
+
+// TestUpdateCheckRefusesNonHTTPCheck checks that UpdateCheck refuses to
+// merge and resend a check whose current Type or Subtype is not API/HTTP:
+// checkWriteBody only carries an HTTP request, so resending it would
+// silently convert the check to a type it never was.
+func TestUpdateCheckRefusesNonHTTPCheck(t *testing.T) {
+	var putCalls int
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"id":"chk-1","name":"old","type":"PING","subtype":"ICMP","status":%q}`, StatusEnabled)
+		case http.MethodPut:
+			putCalls++
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	newName := "new-name"
+	_, err := client.UpdateCheck(context.Background(), &UpdateCheckInput{CheckID: "chk-1", Name: &newName})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateCheck() error = %v, want ErrInvalidInput", err)
+	}
+	if putCalls != 0 {
+		t.Fatalf("putCalls = %d, want 0", putCalls)
+	}
+}
+
+// TestUpdateCheckRefusesEmptyLocations checks that a Locations set to a
+// non-nil empty slice is refused before any request, the same as
+// CreateCheck refuses an empty Locations: sending it would clear every
+// location the check runs from.
+func TestUpdateCheckRefusesEmptyLocations(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	emptyLocations := []string{}
+	_, err := client.UpdateCheck(context.Background(), &UpdateCheckInput{CheckID: "chk-1", Locations: &emptyLocations})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateCheck() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestUpdateCheckAndPauseCheckSerializeUnderMutex checks that UpdateCheck and
+// PauseCheck, run concurrently on one Client, never let their own
+// read-then-write sequences overlap: toggleMu backs UpdateCheck the same way
+// it backs PauseCheck and ResumeCheck, so the server here only ever sees one
+// in-flight request at a time from this Client.
+func TestUpdateCheckAndPauseCheckSerializeUnderMutex(t *testing.T) {
+	var inFlight atomic.Int64
+	var maxInFlight atomic.Int64
+	var mu sync.Mutex
+	status := StatusEnabled
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := inFlight.Add(1)
+		for {
+			if m := maxInFlight.Load(); n > m {
+				if maxInFlight.CompareAndSwap(m, n) {
+					break
+				}
+				continue
+			}
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+		defer inFlight.Add(-1)
+
+		switch {
+		case r.Method == http.MethodGet:
+			mu.Lock()
+			current := status
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, currentCheckJSON, current)
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/status/"):
+			mu.Lock()
+			status = StatusDisabled
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPut:
+			mu.Lock()
+			current := status
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, currentCheckJSON, current)
+		default:
+			t.Errorf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	client := newToggleClient(t, server, nil, noopSleep)
+	newName := "concurrent-name"
+	const rounds = 4
+	errs := make(chan error, rounds*2)
+	for range rounds {
+		go func() {
+			_, err := client.PauseCheck(context.Background(), &PauseCheckInput{CheckID: "chk-1"})
+			errs <- err
+		}()
+		go func() {
+			_, err := client.UpdateCheck(context.Background(), &UpdateCheckInput{CheckID: "chk-1", Name: &newName})
+			errs <- err
+		}()
+	}
+	for range rounds * 2 {
+		if err := <-errs; err != nil {
+			t.Errorf("call error = %v", err)
+		}
+	}
+	if maxInFlight.Load() > 1 {
+		t.Fatalf("max in-flight requests = %d, want 1: toggleMu must serialize UpdateCheck against PauseCheck", maxInFlight.Load())
 	}
 }

@@ -637,9 +637,10 @@ func TestMonitorUpdateCheckRequiresAtLeastOneField(t *testing.T) {
 // CreateCheckInput's Notifications field, which has no flag type, reaches
 // the request body through --cli-input-json. The nested CheckNotifications
 // struct keeps its own wire tag, "In-alarm" rather than the Go field name
-// InAlarm, and --cli-input-json's exact-Go-name rule (input.go) governs only
-// Input's own top-level keys, not a field's nested shape, so the JSON value
-// must use that wire tag to actually set it.
+// InAlarm, and --cli-input-json's final decode refuses any key, at any
+// depth, that names no field (input.go), so the JSON value must use that
+// wire tag to set it; see TestMonitorCreateCheckNotificationsInAlarmKeyIsAUsageError
+// for the Go-name spelling being refused instead of silently ignored.
 func TestMonitorCreateCheckNotificationsFromCLIInputJSON(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -676,6 +677,37 @@ func TestMonitorCreateCheckNotificationsFromCLIInputJSON(t *testing.T) {
 		if len(got) != 0 {
 			t.Fatalf("notifications[%q] = %v, want empty", key, notifications[key])
 		}
+	}
+}
+
+// TestMonitorCreateCheckNotificationsInAlarmKeyIsAUsageError checks that
+// create-check's --cli-input-json refuses the Go-name spelling "InAlarm"
+// inside Notifications, with zero requests sent: the wire tag is
+// "In-alarm" (monitor.CheckNotifications), so "InAlarm" names no field of
+// that nested struct at any depth, and the final decode must refuse it
+// rather than silently drop it and send an empty notification list.
+func TestMonitorCreateCheckNotificationsInAlarmKeyIsAUsageError(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-check",
+		"--name", "vngcloud-test-check",
+		"--url", "https://example.com/health",
+		"--cli-input-json", `{"Locations":["loc-1"],"Notifications":{"InAlarm":["chan-1"]}}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error for the Go-name spelling InAlarm")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
 	}
 }
 
@@ -722,6 +754,35 @@ func TestMonitorUpdateCheckNotificationsFromCLIInputJSON(t *testing.T) {
 	inAlarm, _ := notifications["In-alarm"].([]any)
 	if len(inAlarm) != 1 || inAlarm[0] != "chan-9" {
 		t.Fatalf("notifications[In-alarm] = %v, want [chan-9]", notifications["In-alarm"])
+	}
+}
+
+// TestMonitorUpdateCheckNotificationsInAlarmKeyIsAUsageError mirrors
+// TestMonitorCreateCheckNotificationsInAlarmKeyIsAUsageError for
+// update-check: the Go-name spelling "InAlarm" inside Notifications must be
+// refused before even the read half of update-check's read-then-write, so
+// no GET and no PUT reach the fixture.
+func TestMonitorUpdateCheckNotificationsInAlarmKeyIsAUsageError(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-check",
+		"--check-id", "chk-1",
+		"--cli-input-json", `{"Notifications":{"InAlarm":["chan-9"]}}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error for the Go-name spelling InAlarm")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
 	}
 }
 
