@@ -2,13 +2,14 @@
 
 `monitor` is a separate package, `danny.vn/vngcloud/monitor`, with its own
 `New(cfg)`. It reads vMonitor synthetic checks (GreenNode calls them uptime
-checks), pauses or resumes them, creates and deletes them, and lists probe
-locations. Every call is per account: it sends no project ID and ignores
-the region in `Config`, like billing.
+checks), pauses or resumes them, creates, updates, and deletes them, and
+lists probe locations. Every call is per account: it sends no project ID
+and ignores the region in `Config`, like billing.
 
-`CreateCheck` always makes an HTTP `API` check with `verified_ssl` on; it
-ships with no way to name a notification channel, so a check it creates
-alerts nobody until channels get their own release.
+`CreateCheck` always makes an HTTP `API` check with `verified_ssl` on. A
+check's `Notifications` names, by channel ID, which [channels](#notification-channels)
+alert on each alarm transition; a check created with no `Notifications` set
+alerts nobody.
 
 ## Setup
 
@@ -118,11 +119,12 @@ if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: created.
 what the console's own create form sends when left at zero: `Method` `GET`,
 empty `Headers` and `Query` objects, an empty `Body`, a 10-second `Timeout`,
 a 1-minute `TestFrequency`, 1 `Tests`, `FailedLocations` equal to the number
-of locations passed, and the console's own assertion (fail on a 4xx or 5xx
-response) when `Assertions` is empty. The server checks the name pattern
-(5 to 30 characters, starting with a letter), the frequency range, and that
-every location is a known UUID; a bad value there comes back as a plain
-`*vngcloud.APIError`, not `vngcloud.ErrInvalidInput`.
+of locations passed, the console's own assertion (fail on a 4xx or 5xx
+response) when `Assertions` is empty, and an empty list for each of
+`Notifications`' `InAlarm`, `Up`, and `Undetermined`. The server checks the
+name pattern (5 to 30 characters, starting with a letter), the frequency
+range, and that every location is a known UUID; a bad value there comes
+back as a plain `*vngcloud.APIError`, not `vngcloud.ErrInvalidInput`.
 
 `CreateCheck` is a `POST` and is never retried after a failure that may
 already have reached the server. After any error that is not a 4xx
@@ -133,6 +135,43 @@ creating it again, so a retry never creates two checks for the same name.
 
 `DeleteCheck` removes a check and its history; there is no undo. A second
 delete of the same `CheckID` returns `vngcloud.IsNotFound(err) == true`.
+
+## Updating checks
+
+```go
+newName := "vngcloud-my-check-renamed"
+updated, err := client.UpdateCheck(ctx, &monitor.UpdateCheckInput{
+	CheckID: checkID,
+	Name:    &newName,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(updated.Check.Name)
+```
+
+`UpdateCheck` changes any combination of `Name`, `URL`, `Method`, `Headers`,
+`Query`, `Body`, `Timeout`, `TestFrequency`, `Tests`, `FailedLocations`,
+`Locations`, `Assertions`, and `Notifications`; a field left `nil` keeps the
+check's current value, and at least one must be set. GreenNode's own API
+takes a full replacement body and clears any field a request leaves out, so
+`UpdateCheck` reads the check first with `GetCheck` and resends every field
+the caller did not set itself, the same read-merge shape `UpdateChannel`
+uses for a channel. The read and the write are two separate requests, with
+nothing to detect a change in between: if another caller updates the check
+after `UpdateCheck`'s own `GetCheck` but before its `PUT` lands, that change
+is silently overwritten by whichever fields this call resends.
+
+The `PUT` never changes a check's `Status`: pausing and resuming a check
+stays `PauseCheck` and `ResumeCheck`'s job alone, and `UpdateCheck` accepts a
+check in any status, including `DISABLED`, without touching it. Its `PUT` is
+idempotent, since resending the same full replacement body is safe, so
+`UpdateCheck` keeps the transport's normal retries, unlike `CreateCheck`'s
+`POST`. `UpdateCheck` holds the same internal lock `PauseCheck` and
+`ResumeCheck` do, so the three never interleave their own read-then-write
+sequences against one `Client` within one process; across processes, or
+across two `Client` values, whichever of two concurrent updates lands last
+silently overwrites the other's change, since the API has no version field.
 
 ## Pausing and resuming
 

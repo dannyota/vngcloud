@@ -1,0 +1,46 @@
+{
+  "id": "chk-1",
+  "user_id": 1,
+  "name": "example-check-renamed",
+  "type": "API",
+  "subtype": "HTTP",
+  "status": "DISABLED",
+  "monitor_status": "UNDETERMINED",
+  "config": {
+    "assertions": [
+      {
+        "type": "status_code",
+        "operator": "does_not_match_regex",
+        "target": "[4-5][0-9][0-9]"
+      }
+    ],
+    "request": {
+      "url": "https://example.com",
+      "method": "GET",
+      "headers": {},
+      "query": {},
+      "body": "",
+      "timeout": 30.0,
+      "verified_ssl": true
+    }
+  },
+  "options": {
+    "test_frequency": 60.0,
+    "tests": 1.0,
+    "failed_locations": 1.0
+  },
+  "locations": [
+    "loc-1"
+  ],
+  "history_alarm": "alarm-1",
+  "notifications": {
+    "Undetermined": [],
+    "Up": [],
+    "In-alarm": [
+      "0123456789abcdef0123456789abcdef"
+    ]
+  },
+  "created_at": "Jan 1, 2026, 12:00:00 AM",
+  "updated_at": "Jan 3, 2026, 9:00:00 AM",
+  "deleted_at": null
+}

@@ -199,6 +199,81 @@ func TestCreateCheckSendsFieldsAndDefaults(t *testing.T) {
 	})
 }
 
+// TestCreateCheckSendsNotifications checks the request body's notifications
+// object with every list set, and with Notifications left at its zero
+// value, which must still send an empty list for all three keys rather
+// than null.
+func TestCreateCheckSendsNotifications(t *testing.T) {
+	t.Run("every list set", func(t *testing.T) {
+		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body := decodeBody(t, r)
+			notifications, ok := body["notifications"].(map[string]any)
+			if !ok {
+				t.Fatalf("notifications missing or wrong shape: %+v", body)
+			}
+			wantLists := map[string][]any{
+				"In-alarm":     {"chan-1", "chan-2"},
+				"Up":           {"chan-1"},
+				"Undetermined": {"chan-3"},
+			}
+			for key, want := range wantLists {
+				got, ok := notifications[key].([]any)
+				if !ok || len(got) != len(want) {
+					t.Fatalf("notifications[%q] = %v, want %v", key, notifications[key], want)
+				}
+				for i, v := range want {
+					if got[i] != v {
+						t.Fatalf("notifications[%q][%d] = %v, want %v", key, i, got[i], v)
+					}
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+			testutil.WriteFixture(t, w, "../testdata/monitor/CreateCheck.json")
+		}))
+
+		_, err := client.CreateCheck(context.Background(), &CreateCheckInput{
+			Name:      "vngcloud-live-abcd1234",
+			URL:       "https://example.com/health",
+			Locations: []string{"loc-1"},
+			Notifications: CheckNotifications{
+				InAlarm:      []string{"chan-1", "chan-2"},
+				Up:           []string{"chan-1"},
+				Undetermined: []string{"chan-3"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("CreateCheck() error = %v", err)
+		}
+	})
+
+	t.Run("zero value sends three empty lists", func(t *testing.T) {
+		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body := decodeBody(t, r)
+			notifications, ok := body["notifications"].(map[string]any)
+			if !ok {
+				t.Fatalf("notifications missing or wrong shape: %+v", body)
+			}
+			for _, key := range []string{"In-alarm", "Up", "Undetermined"} {
+				list, ok := notifications[key].([]any)
+				if !ok || len(list) != 0 {
+					t.Fatalf("notifications[%q] = %v, want an empty list", key, notifications[key])
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+			testutil.WriteFixture(t, w, "../testdata/monitor/CreateCheck.json")
+		}))
+
+		_, err := client.CreateCheck(context.Background(), &CreateCheckInput{
+			Name:      "vngcloud-live-abcd1234",
+			URL:       "https://example.com/health",
+			Locations: []string{"loc-1"},
+		})
+		if err != nil {
+			t.Fatalf("CreateCheck() error = %v", err)
+		}
+	})
+}
+
 func TestCreateCheckRequiredFields(t *testing.T) {
 	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")

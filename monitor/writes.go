@@ -30,33 +30,40 @@ const (
 // caller leaves Assertions empty: fail the check on a 4xx or 5xx response.
 var defaultAssertion = Assertion{Type: "status_code", Operator: "does_not_match_regex", Target: "[4-5][0-9][0-9]"}
 
-// emptyNotifications is sent on every create: the SDK ships with no way to
-// name a notification channel, so a created check alerts nobody until
-// channels are designed. The three keys are the ones the console sends;
-// every value is a non-nil empty slice, so it encodes as [] rather than
-// null.
-type emptyNotifications struct {
-	InAlarm      []string `json:"In-alarm"`
-	Up           []string `json:"Up"`
-	Undetermined []string `json:"Undetermined"`
+// normalizeNotifications returns n with every nil channel ID list replaced
+// by a non-nil empty one, so a request body always encodes each of the
+// three keys as [] rather than null: CreateCheck for a caller that leaves
+// Notifications at its zero value, and UpdateCheck for a check whose
+// current Notifications the caller does not change.
+func normalizeNotifications(n CheckNotifications) CheckNotifications {
+	if n.InAlarm == nil {
+		n.InAlarm = []string{}
+	}
+	if n.Up == nil {
+		n.Up = []string{}
+	}
+	if n.Undetermined == nil {
+		n.Undetermined = []string{}
+	}
+	return n
 }
 
-func newEmptyNotifications() emptyNotifications {
-	return emptyNotifications{InAlarm: []string{}, Up: []string{}, Undetermined: []string{}}
-}
-
-// createCheckBody is CreateCheck's request body. Config and Options reuse
-// CheckConfig and CheckOptions: both already carry the create request's own
-// JSON tags, and neither type's custom UnmarshalJSON affects how it
-// marshals.
-type createCheckBody struct {
+// checkWriteBody is the request body CreateCheck's POST and UpdateCheck's PUT
+// both send: the full config, options, locations, and notifications that
+// together describe a check. It carries no status field; the API's PUT
+// leaves a check's status exactly as it was, so UpdateCheck never sends
+// one, and pausing or resuming a check stays PauseCheck and ResumeCheck's
+// job alone. Config and Options reuse CheckConfig and CheckOptions: both
+// already carry the create request's own JSON tags, and neither type's
+// custom UnmarshalJSON affects how it marshals.
+type checkWriteBody struct {
 	Type          string             `json:"type"`
 	Subtype       string             `json:"subtype"`
 	Name          string             `json:"name"`
 	Config        CheckConfig        `json:"config"`
 	Options       CheckOptions       `json:"options"`
 	Locations     []string           `json:"locations"`
-	Notifications emptyNotifications `json:"notifications"`
+	Notifications CheckNotifications `json:"notifications"`
 }
 
 // CreateCheckInput creates a check. Method empty sends GET; Headers and
@@ -65,8 +72,11 @@ type createCheckBody struct {
 // Timeout, TestFrequency, and Tests zero send the console's own defaults.
 // FailedLocations zero sends len(Locations): the console's own default is
 // every selected location must fail. Assertions empty sends the console's
-// default assertion. Zero is never a valid value for any of these fields,
-// so none needs a pointer (ADR 0002 rule 3).
+// default assertion. Notifications left at its zero value sends an empty
+// list for In-alarm, Up, and Undetermined alike, so a created check with no
+// Notifications set alerts nobody, the same as before this field existed.
+// Zero is never a valid value for any of these fields, so none needs a
+// pointer (ADR 0002 rule 3).
 //
 // The server checks the name pattern, the frequency range, and that every
 // location is a known UUID; the SDK only checks that the required fields
@@ -85,6 +95,7 @@ type CreateCheckInput struct {
 	Tests           int
 	FailedLocations int
 	Assertions      []Assertion
+	Notifications   CheckNotifications
 }
 
 type CreateCheckOutput struct {
@@ -143,7 +154,7 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 		assertions = []Assertion{defaultAssertion}
 	}
 
-	body := createCheckBody{
+	body := checkWriteBody{
 		Type:    checkType,
 		Subtype: checkSubtype,
 		Name:    in.Name,
@@ -165,7 +176,7 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 			FailedLocations: failedLocations,
 		},
 		Locations:     in.Locations,
-		Notifications: newEmptyNotifications(),
+		Notifications: normalizeNotifications(in.Notifications),
 	}
 
 	var check Check
