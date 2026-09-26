@@ -1,5 +1,6 @@
-// Package monitor reads vMonitor synthetic checks (GreenNode calls them
-// uptime checks) and pauses or resumes them. Every call is per account: it
+// Package monitor reads, creates, and deletes vMonitor synthetic checks
+// (GreenNode calls them uptime checks), pauses or resumes them, and lists
+// the probe locations a check can run from. Every call is per account: it
 // sends no project ID and ignores the configured region, as billing does.
 //
 // PauseCheck and ResumeCheck drive a check to a target status over a toggle

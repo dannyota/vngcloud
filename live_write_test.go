@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -372,25 +373,52 @@ func appendLiveWriteCapture(captured vngcloud.ResponseCapture) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-// TestLiveWriteMonitor exercises PauseCheck and ResumeCheck against the
-// account named in .env. It needs a check named exactly
-// "vngcloud-live-toggle" that the owner creates in the console before the
-// run and deletes after; the test skips when it does not find one. It
-// records the check's start status rather than assuming one, fails before
-// any write if that status is neither StatusEnabled nor StatusDisabled, and
-// registers t.Cleanup only once the start status is known, so the cleanup
-// can restore it; the cleanup sends a request only when the check is not
-// already back at the start status.
+// longLiveTestFrequency is the TestFrequency CreateCheck sends for
+// TestLiveWriteMonitor's created check, in minutes. It is the longest value
+// the design's live discovery confirmed the server accepts; the console
+// form itself imposes no client-side maximum, so a larger untested value is
+// not used here. A long frequency keeps the check's own probes of the
+// approved URL to a minimum during the run.
+const longLiveTestFrequency = 60
+
+// TestLiveWriteMonitor exercises CreateCheck, PauseCheck, ResumeCheck, and
+// DeleteCheck against the account named in .env.
 //
-// It pauses twice and resumes twice, in whichever order ends back at the
-// start status, so both a real toggle and a same-state no-op are exercised
-// for each operation. It logs each call's confirm-read count: the GETs the
-// call made, minus the one pre-toggle read that never follows a PUT, which
-// leaves only the reads spent confirming the toggle landed. This answers
-// the design's open question of whether the API's reads lag its writes.
+// VNGCLOUD_LIVE_MONITOR_URL names the URL the created check probes; it
+// never enters the repository, and the test skips when it is unset.
+// VNGCLOUD_LIVE_MONITOR_QUOTA, when set, is the account's check quota named
+// in this run's approval; the test skips instead of creating a check when
+// the account is already at it after step 1's cleanup.
+//
+// It deletes every leftover vngcloud-live-* check first (step 1), then
+// creates vngcloud-live-<8 hex> against the approved URL with one location
+// and longLiveTestFrequency (step 4). It registers the fallback delete
+// before anything else can fail (step 5), then runs the same pause and
+// resume sequence the v0.8.0 version of this test ran against a
+// console-made check, here against the check it just created (steps 6 and
+// 7), logging each call's confirm-read count: the GETs the call made, minus
+// the one pre-toggle read that never follows a PUT, which leaves only the
+// reads spent confirming the toggle landed. It deletes the check explicitly
+// (step 9); t.Cleanup deletes it again with its own context (NotFound
+// there is success, not failure) and asserts no vngcloud-live-* check
+// remains.
+//
+// The v0.8.0 version of this test drove PauseCheck and ResumeCheck against
+// a check the owner made by hand in the console, named exactly
+// "vngcloud-live-toggle", because CreateCheck did not exist yet. That path
+// is dropped rather than kept alongside this one: keeping both would mean
+// two full toggle sequences to maintain for a test that already needs
+// CreateCheck and DeleteCheck to be correct for its own setup and teardown,
+// and every scenario the old path covered (pause and resume, each toggling
+// and each a same-state no-op) still runs here, against a check this test
+// controls end to end.
 func TestLiveWriteMonitor(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor write test")
+	}
+	targetURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_URL")
+	if targetURL == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_URL to the approved probe URL to run the live monitor write test")
 	}
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -431,70 +459,104 @@ func TestLiveWriteMonitor(t *testing.T) {
 	}
 	client := monitor.New(cfg)
 
-	// Step 1: find the check by its exact name.
-	list, err := client.ListChecks(ctx, nil)
+	// Step 1: delete every leftover vngcloud-live-* check from a previous run.
+	leftovers, err := client.ListChecks(ctx, nil)
 	if err != nil {
 		t.Fatalf("step 1 ListChecks: %s", safeErr(err))
 	}
-	var checkID string
-	for _, c := range list.Items {
-		if c.Name == "vngcloud-live-toggle" {
-			checkID = c.ID
-			break
+	deleted := 0
+	for _, leftover := range leftovers.Items {
+		if !strings.HasPrefix(leftover.Name, "vngcloud-live-") {
+			continue
+		}
+		if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover check: %s", safeErr(err))
+		}
+		deleted++
+	}
+	t.Logf("step 1: deleted %d leftover check(s)", deleted)
+
+	// Step 2: skip instead of creating a check when the account is already
+	// at the quota this run's approval named.
+	current, err := client.ListChecks(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 2 ListChecks: %s", safeErr(err))
+	}
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MONITOR_QUOTA")); raw != "" {
+		quota, err := strconv.Atoi(raw)
+		if err != nil {
+			t.Fatalf("step 2: VNGCLOUD_LIVE_MONITOR_QUOTA = %q is not an integer", raw)
+		}
+		if len(current.Items) >= quota {
+			t.Skipf("step 2: account has %d check(s), at the named quota of %d", len(current.Items), quota)
 		}
 	}
-	if checkID == "" {
-		t.Skip("no check named vngcloud-live-toggle found; create one in the console and rerun")
-	}
-	t.Log("step 1: found check")
 
-	// Step 2: read the start status before any write. A status the SDK does
-	// not toggle between is never guessed at; the test fails here instead of
-	// sending anything.
-	start, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checkID})
+	// Step 3: pick one location; CreateCheck takes a location UUID, never a
+	// name.
+	locations, err := client.ListLocations(ctx, nil)
 	if err != nil {
-		t.Fatalf("step 2 GetCheck: %s", safeErr(err))
+		t.Fatalf("step 3 ListLocations: %s", safeErr(err))
 	}
-	startStatus := start.Check.Status
+	if len(locations.Items) == 0 {
+		t.Fatal("step 3: account has no probe locations")
+	}
+	locationID := locations.Items[0].ID
+	t.Log("step 3: picked one location")
+
+	// Step 4: create the check.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	created, err := client.CreateCheck(ctx, &monitor.CreateCheckInput{
+		Name:          name,
+		URL:           targetURL,
+		Locations:     []string{locationID},
+		TestFrequency: longLiveTestFrequency,
+	})
+	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the create may
+		// still have reached the server. Find and delete it by its exact name.
+		deleteCheckByName(t, client, name)
+		t.Fatalf("step 4 CreateCheck: %s", safeErr(err))
+	}
+	checkID := created.Check.ID
+	if checkID == "" {
+		deleteCheckByName(t, client, name)
+		t.Fatal("step 4: CreateCheck returned an empty id; the design requires one")
+	}
+	startStatus := created.Check.Status
 	if startStatus != monitor.StatusEnabled && startStatus != monitor.StatusDisabled {
-		t.Fatalf("step 2: status = %q, want %s or %s; refusing to toggle a status neither PauseCheck nor ResumeCheck understands",
+		t.Fatalf("step 4: created check status = %q, want %s or %s; refusing to toggle a status neither PauseCheck nor ResumeCheck understands",
 			startStatus, monitor.StatusEnabled, monitor.StatusDisabled)
 	}
-	t.Logf("step 2: start status %s", startStatus)
+	t.Logf("step 4: created check, start status %s", startStatus)
 
-	// Step 3: register the restore now that startStatus is known. It reads
-	// the current status on its own context and toggles back to startStatus
-	// only when the test left it somewhere else, so a clean run's cleanup
-	// sends no request.
+	// Step 5: register the fallback delete immediately, before anything else
+	// can fail and skip the explicit delete in step 9.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		now, err := client.GetCheck(cleanupCtx, &monitor.GetCheckInput{CheckID: checkID})
+		if _, err := client.DeleteCheck(cleanupCtx, &monitor.DeleteCheckInput{CheckID: checkID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete check: %s", safeErr(err))
+		}
+		final, err := client.ListChecks(cleanupCtx, nil)
 		if err != nil {
-			t.Errorf("cleanup: get check: %s", safeErr(err))
+			t.Errorf("cleanup: final ListChecks: %s", safeErr(err))
 			return
 		}
-		if now.Check.Status == startStatus {
-			return
-		}
-		var status string
-		if startStatus == monitor.StatusEnabled {
-			out, err := client.ResumeCheck(cleanupCtx, &monitor.ResumeCheckInput{CheckID: checkID})
-			if err != nil {
-				t.Errorf("cleanup: resume check: %s", safeErr(err))
-				return
+		remaining := 0
+		for _, c := range final.Items {
+			if strings.HasPrefix(c.Name, "vngcloud-live-") {
+				remaining++
 			}
-			status = out.Check.Status
-		} else {
-			out, err := client.PauseCheck(cleanupCtx, &monitor.PauseCheckInput{CheckID: checkID})
-			if err != nil {
-				t.Errorf("cleanup: pause check: %s", safeErr(err))
-				return
-			}
-			status = out.Check.Status
 		}
-		if status != startStatus {
-			t.Errorf("cleanup: status = %s, want %s", status, startStatus)
+		t.Logf("cleanup: vngcloud-live check(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live checks, found %d", remaining)
 		}
 	})
 
@@ -522,28 +584,60 @@ func TestLiveWriteMonitor(t *testing.T) {
 		return out != nil && out.Changed, err
 	}
 
-	// Steps 4 and 5: pause twice and resume twice, in whichever order ends
+	// Steps 6 and 7: pause twice and resume twice, in whichever order ends
 	// back at startStatus, so a real toggle and a same-state no-op are both
 	// exercised for each operation.
 	if startStatus == monitor.StatusEnabled {
-		toggle("step 4a pause", true, pause)
-		toggle("step 4b pause", false, pause)
-		toggle("step 5a resume", true, resume)
-		toggle("step 5b resume", false, resume)
+		toggle("step 6a pause", true, pause)
+		toggle("step 6b pause", false, pause)
+		toggle("step 7a resume", true, resume)
+		toggle("step 7b resume", false, resume)
 	} else {
-		toggle("step 4a resume", true, resume)
-		toggle("step 4b resume", false, resume)
-		toggle("step 5a pause", true, pause)
-		toggle("step 5b pause", false, pause)
+		toggle("step 6a resume", true, resume)
+		toggle("step 6b resume", false, resume)
+		toggle("step 7a pause", true, pause)
+		toggle("step 7b pause", false, pause)
 	}
 
-	// Step 6: confirm the check ended back at startStatus, before t.Cleanup
-	// runs its own (redundant, but harmless) check.
+	// Step 8: confirm the check ended back at startStatus.
 	final, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checkID})
 	if err != nil {
-		t.Fatalf("step 6 GetCheck: %s", safeErr(err))
+		t.Fatalf("step 8 GetCheck: %s", safeErr(err))
 	}
 	if final.Check.Status != startStatus {
-		t.Fatalf("step 6: status = %s, want %s", final.Check.Status, startStatus)
+		t.Fatalf("step 8: status = %s, want %s", final.Check.Status, startStatus)
+	}
+
+	// Step 9: delete the check explicitly. DELETE is retried as a read is,
+	// so a retry that reaches the server after an earlier attempt already
+	// deleted the check returns NotFound; that is success for a delete, not
+	// a failure. t.Cleanup's own delete above then finds it already gone.
+	if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: checkID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 9 DeleteCheck: %s", safeErr(err))
+	}
+}
+
+// deleteCheckByName lists checks and deletes the one matching name. It is
+// used after a CreateCheck failure, since a POST that returned an error may
+// still have reached the server. It runs on its own timeout, not the
+// calling test step's context, so it can still clean up after that step's
+// context is the reason the step failed.
+func deleteCheckByName(t *testing.T, client *monitor.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := client.ListChecks(ctx, nil)
+	if err != nil {
+		t.Errorf("cleanup: list checks by name: %s", safeErr(err))
+		return
+	}
+	for _, c := range list.Items {
+		if c.Name != name {
+			continue
+		}
+		if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: c.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete check by name: %s", safeErr(err))
+		}
 	}
 }

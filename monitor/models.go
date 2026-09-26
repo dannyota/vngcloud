@@ -115,6 +115,20 @@ func (o *CheckOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Location is a probe location ListLocations can return. The API also
+// sends api_key, user_id, uptimes, and deleted_at; the SDK drops them, the
+// same way it drops any field a caller's struct omits. Both locations seen
+// so far have Type PUBLIC.
+type Location struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
 // flexibleInt decodes a JSON number the API sends as a plain integer in
 // some responses and as an integral decimal, such as 30.0, in others. A
 // fractional value is rejected rather than truncated.

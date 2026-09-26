@@ -5,8 +5,9 @@
 checks) and pauses or resumes them. Every call is per account: it sends no
 project ID and ignores the region in `Config`, like billing.
 
-Creating and deleting checks, and listing probe locations, are not covered
-yet; they need their own release.
+`CreateCheck` always makes an HTTP `API` check with `verified_ssl` on; it
+ships with no way to name a notification channel, so a check it creates
+alerts nobody until channels get their own release.
 
 ## Setup
 
@@ -76,6 +77,58 @@ as the API does, and `GetCheck` and `ListChecks` return them in full; they
 never appear in log output (`vngcloud.WithLogger` never logs a body) or in
 an error message. Avoid putting a long-lived secret in a check header if
 you can help it, since anyone who can read the check can read it back.
+
+## Listing locations
+
+```go
+locations, err := client.ListLocations(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+for _, loc := range locations.Items {
+	log.Printf("%s: %s (%s)", loc.ID, loc.Name, loc.Status)
+}
+```
+
+`ListLocationsInput` has no fields; a nil Input is valid. Each `Location.ID`
+is the UUID `CreateCheck`'s `Locations` field takes; a location name such as
+`SYNTT-VN-HCM01` is not accepted there and gets a 404 from the server.
+
+## Creating and deleting checks
+
+```go
+created, err := client.CreateCheck(ctx, &monitor.CreateCheckInput{
+	Name:      "vngcloud-my-check",
+	URL:       "https://example.com/health",
+	Locations: []string{locations.Items[0].ID},
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.Check.ID)
+
+if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: created.Check.ID}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`Name`, `URL`, and `Locations` are required; every other field defaults to
+what the console's own create form sends when left at zero: `Method` `GET`,
+empty `Headers` and `Query` objects, an empty `Body`, a 10-second `Timeout`,
+a 1-minute `TestFrequency`, 1 `Tests`, `FailedLocations` equal to the number
+of locations passed, and the console's own assertion (fail on a 4xx or 5xx
+response) when `Assertions` is empty. The server checks the name pattern
+(5 to 30 characters, starting with a letter), the frequency range, and that
+every location is a known UUID; a bad value there comes back as a plain
+`*vngcloud.APIError`, not `vngcloud.ErrInvalidInput`.
+
+`CreateCheck` is a `POST` and is never retried after a failure that may
+already have reached the server. After a 5xx or a network error, call
+`ListChecks` and look for the check's name before creating it again, so a
+retry never creates two checks for the same name.
+
+`DeleteCheck` removes a check and its history; there is no undo. A second
+delete of the same `CheckID` returns `vngcloud.IsNotFound(err) == true`.
 
 ## Pausing and resuming
 

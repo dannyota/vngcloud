@@ -23,6 +23,23 @@ func showMonitor(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 	recordAccountOne(outputs, "monitor/check_detail", "monitor check detail", detail, err)
 }
 
+// showMonitorLocations records vMonitor probe locations. It runs alongside
+// showMonitor rather than inside it, so a location fetch failure does not
+// stop the check calls above it from being recorded.
+func showMonitorLocations(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
+	client := monitor.New(cfg)
+
+	locations, err := client.ListLocations(ctx, nil)
+	recordAccount(outputs, "monitor/location", "monitor locations", locationItems(locations), err)
+}
+
+func locationItems(result *monitor.ListLocationsOutput) []monitor.Location {
+	if result == nil {
+		return nil
+	}
+	return result.Items
+}
+
 func checkItems(result *monitor.ListChecksOutput) []monitor.Check {
 	if result == nil {
 		return nil

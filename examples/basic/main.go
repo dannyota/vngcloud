@@ -105,6 +105,7 @@ func main() {
 			if regionIndex == 0 {
 				showBilling(ctx, cfg, sdkOutputs)
 				showMonitor(ctx, cfg, sdkOutputs)
+				showMonitorLocations(ctx, cfg, sdkOutputs)
 			}
 		}
 	}

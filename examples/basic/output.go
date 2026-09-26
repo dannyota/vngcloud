@@ -96,6 +96,7 @@ var operationOutputPaths = map[string]string{
 	"pricing.GetQuote":                           "pricing/quote",
 	"monitor.ListChecks":                         "monitor/check",
 	"monitor.GetCheck":                           "monitor/check_detail",
+	"monitor.ListLocations":                      "monitor/location",
 }
 
 type rawCaptureStore struct {

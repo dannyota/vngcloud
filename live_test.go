@@ -231,7 +231,8 @@ func testLiveCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 
 // testLiveMonitor lists vMonitor checks and, when the account has at least
 // one, reads the first by ID. It never pins the count: the test account's
-// checks change over time, and a count change must not fail CI.
+// checks change over time, and a count change must not fail CI. It also
+// lists probe locations, which every account can read regardless of quota.
 func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := monitor.New(cfg)
 
@@ -240,17 +241,24 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		t.Fatalf("ListChecks: %v", err)
 	}
 	t.Logf("checks: %d", len(out.Items))
-	if len(out.Items) == 0 {
-		return
+	if len(out.Items) > 0 {
+		first := out.Items[0]
+		detail, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: first.ID})
+		if err != nil {
+			t.Fatalf("GetCheck: %v", err)
+		}
+		if detail.Check.ID != first.ID {
+			t.Fatalf("GetCheck returned id %q, want %q", detail.Check.ID, first.ID)
+		}
 	}
 
-	first := out.Items[0]
-	detail, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: first.ID})
+	locations, err := client.ListLocations(ctx, nil)
 	if err != nil {
-		t.Fatalf("GetCheck: %v", err)
+		t.Fatalf("ListLocations: %v", err)
 	}
-	if detail.Check.ID != first.ID {
-		t.Fatalf("GetCheck returned id %q, want %q", detail.Check.ID, first.ID)
+	t.Logf("locations: %d", len(locations.Items))
+	if len(locations.Items) == 0 {
+		t.Fatal("expected at least one probe location")
 	}
 }
 
