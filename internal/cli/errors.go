@@ -9,6 +9,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/cdn"
+	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
 )
 
@@ -67,8 +68,11 @@ type errorEnvelope struct {
 // RequestFailed, QueryFailed, PageFormat (a public page, such as the CDN IP
 // range FAQ, no longer matches the shape its parser expects), UnexpectedStatus
 // (a vMonitor check had a status PauseCheck or ResumeCheck does not
-// recognize), or StatusUnconfirmed (a vMonitor pause or resume may have
-// landed but no confirm read showed it).
+// recognize), StatusUnconfirmed (a vMonitor pause or resume may have landed
+// but no confirm read showed it), ZoneBusy (a vDNS zone stayed busy past the
+// pre-write wait, so nothing was sent), WriteFailed (a vDNS write reached
+// status ERROR), or NotSettled (a vDNS write was accepted but did not settle
+// within the post-write wait).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -80,6 +84,19 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, monitor.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
+	}
+	// dns.ErrZoneBusy, dns.ErrFailed, and dns.ErrNotSettled are always wrapped
+	// alone (never alongside an *APIError), so, unlike the monitor checks
+	// above, checking them before errors.As(err, &apiErr) below is only for
+	// grouping every early, non-APIError class together.
+	if errors.Is(err, dns.ErrZoneBusy) {
+		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
+	}
+	if errors.Is(err, dns.ErrFailed) {
+		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
+	}
+	if errors.Is(err, dns.ErrNotSettled) {
+		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 
 	var apiErr *vngcloud.APIError
@@ -145,8 +162,13 @@ func exitCode(err error) int {
 	// Checked before the canceled-context rule below: a Ctrl-C during the
 	// toggle PUT or a confirm read still reports the same exit code (1) as
 	// every other unconfirmed toggle, per monitor's design, rather than
-	// happening to match the canceled-context rule by coincidence.
-	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) {
+	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
+	// dns.ErrFailed, and dns.ErrNotSettled join the same early return for the
+	// same reason on the vDNS side; per the vDNS design, dns.ErrNotSettled
+	// specifically must exit the same way even after a canceled context,
+	// because its write may have landed.
+	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
+		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

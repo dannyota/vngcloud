@@ -1,0 +1,23 @@
+{
+  "HostedZone": {
+    "ID": "hosted-zone-1",
+    "DomainName": "app.internal",
+    "Status": "ACTIVE",
+    "Description": "app zone",
+    "Type": "PRIVATE",
+    "CountRecords": 2,
+    "AssociatedVPCIDs": [
+      "vpc-1"
+    ],
+    "AssocVPCMapRegion": [
+      {
+        "VPCID": "vpc-1",
+        "Region": "hcm-3"
+      }
+    ],
+    "PortalUserID": 1,
+    "CreatedAt": "2026-01-01T00:00:00Z",
+    "DeletedAt": null,
+    "UpdatedAt": "2026-01-02T13:00:00Z"
+  }
+}

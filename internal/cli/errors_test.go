@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
 )
 
@@ -115,6 +116,17 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{"status unconfirmed via a real SDK toggle canceled mid-PUT", realUnconfirmed, 1},
+		{"dns zone busy", fmt.Errorf("%w: zone-1 did not leave CREATING", dns.ErrZoneBusy), 1},
+		{"dns write failed", fmt.Errorf("%w: zone-1 is ERROR", dns.ErrFailed), 1},
+		{"dns not settled", fmt.Errorf("%w: zone-1 was accepted", dns.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during a vDNS post-write wait must still exit like
+			// every other not-settled write (1), checked ahead of the
+			// context-canceled rule above, per the vDNS design.
+			"dns not settled after a canceled context",
+			fmt.Errorf("%w: %w", dns.ErrNotSettled, context.Canceled),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,6 +199,21 @@ func TestClassify(t *testing.T) {
 			"status unconfirmed via a real SDK toggle canceled mid-PUT",
 			realUnconfirmed,
 			"StatusUnconfirmed", 0, "",
+		},
+		{
+			"dns zone busy",
+			fmt.Errorf("%w: zone-1 did not leave CREATING", dns.ErrZoneBusy),
+			"ZoneBusy", 0, "",
+		},
+		{
+			"dns write failed",
+			fmt.Errorf("%w: zone-1 is ERROR", dns.ErrFailed),
+			"WriteFailed", 0, "",
+		},
+		{
+			"dns not settled",
+			fmt.Errorf("%w: zone-1 was accepted", dns.ErrNotSettled),
+			"NotSettled", 0, "",
 		},
 	}
 	for _, tt := range tests {

@@ -181,18 +181,35 @@ func TestGenDocsErrorClassesMentionMonitorCodes(t *testing.T) {
 	}
 }
 
+// TestGenDocsErrorClassesMentionDNSCodes checks that the error-classes list
+// documents the three vDNS wait codes and that the Output-on-stdout rule for
+// WriteFailed and NotSettled is stated.
+func TestGenDocsErrorClassesMentionDNSCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{"ZoneBusy", "WriteFailed", "NotSettled", "prints the Output on stdout"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("error class text is missing %q:\n%s", want, data)
+		}
+	}
+}
+
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names UnexpectedStatus and
-// StatusUnconfirmed rather than "Both exit 1", which reads as ambiguous
-// after a list of ten classes.
+// closing the error-classes list names every exit-1 code (now five, with
+// the three vDNS wait codes) rather than a vague "exit 1", which would read
+// as ambiguous after a list of thirteen classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
-	if !strings.Contains(data, "`UnexpectedStatus` and `StatusUnconfirmed` both exit 1") {
-		t.Errorf("error class text does not name the two exit-1 codes:\n%s", data)
+	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, and `NotSettled` all exit 1"
+	if !strings.Contains(data, want) {
+		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}
 	if strings.Contains(data, "Both exit 1") {
 		t.Errorf("error class text still has the ambiguous \"Both exit 1\":\n%s", data)

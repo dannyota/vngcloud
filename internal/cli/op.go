@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"runtime"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/dns"
 )
 
 type opKind int
@@ -233,6 +235,15 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
 	}
 	if callErr != nil {
+		// A vDNS write that reached the server still carries its Output: the
+		// zone's id, needed to clean up or check again later. --query is
+		// skipped here, unlike the success path below, so that id is never
+		// filtered out by a query the caller wrote for the success shape. A
+		// render failure is not reported over callErr, the call's own error,
+		// which already carries the right error class and exit code.
+		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled)) {
+			_ = renderOutput(e.stdout, format, "", out, true)
+		}
 		return callErr
 	}
 	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)

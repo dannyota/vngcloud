@@ -1,0 +1,1 @@
+{"AssocVPCMapRegion":[{"Region":"hcm-3","VPCID":"vpc-1"}],"AssociatedVPCIDs":["vpc-1"],"CountRecords":2,"CreatedAt":"2026-01-01T00:00:00Z","DeletedAt":null,"Description":"app zone","DomainName":"app.internal","ID":"hosted-zone-1","PortalUserID":1,"Status":"ACTIVE","Type":"PRIVATE","UpdatedAt":"2026-01-02T13:00:00Z"}

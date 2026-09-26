@@ -2,6 +2,34 @@
 
 # CLI: DNS
 
+## create-hosted-zone
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--domain-name` | `string` | yes |
+| `VPCIDs` (via `--cli-input-json` only) | `[]string` | yes |
+| `--description` | `string` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns create-hosted-zone --domain-name <domain-name> --cli-input-json '{"VPCIDs":["<vpc-id>"]}'
+```
+
+## delete-hosted-zone
+
+Kind: Write, destructive.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--hosted-zone-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns delete-hosted-zone --hosted-zone-id <hosted-zone-id> --yes
+```
+
 ## get-hosted-zone
 
 Kind: Read.
@@ -50,5 +78,20 @@ Kind: Read.
 
 ```sh
 vngcloud dns list-records --hosted-zone-id <hosted-zone-id>
+```
+
+## update-hosted-zone
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--hosted-zone-id` | `string` | yes |
+| `VPCIDs` (via `--cli-input-json` only) | `*[]string` |  |
+| `--description` | `*string` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id>
 ```
 

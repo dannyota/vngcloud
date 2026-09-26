@@ -132,8 +132,14 @@ func (h *fakeHarness) serviceCmd() *cobra.Command {
 // so a test can drive --yes, --read-only, and the rest through real cobra
 // flag parsing into the very env the fake service's commands read, instead
 // of setting env fields directly and only pretending they came from a flag.
+// It also silences cobra's own usage and error printing, exactly like
+// newRootCmd, so a failed command's stdout holds only what runOp itself
+// wrote (never cobra's own usage text) and a test can assert on it.
 func newTestRoot(e *env) *cobra.Command {
-	root := &cobra.Command{Use: "vngcloud-test", Args: parentArgs, RunE: unknownCommandRunE}
+	root := &cobra.Command{
+		Use: "vngcloud-test", Args: parentArgs, RunE: unknownCommandRunE,
+		SilenceErrors: true, SilenceUsage: true,
+	}
 	root.SetOut(e.stdout)
 	root.SetErr(e.stderr)
 	root.SetIn(e.stdin)

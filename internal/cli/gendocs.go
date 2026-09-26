@@ -247,9 +247,13 @@ func renderCLIPage(services []docService) string {
 		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
-		"the SDK does not know, so nothing was sent), or `StatusUnconfirmed` (a vMonitor pause or resume " +
-		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)). " +
-		"`UnexpectedStatus` and `StatusUnconfirmed` both exit 1.\n\n")
+		"the SDK does not know, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
+		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
+		"`WriteFailed` (a vDNS write went to status `ERROR`), or `NotSettled` (a vDNS write was accepted " +
+		"but did not settle within the wait; do not repeat it). For `WriteFailed` and `NotSettled` the CLI " +
+		"also prints the Output on stdout; see [DNS](DNS.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, " +
+		"`ZoneBusy`, `WriteFailed`, and `NotSettled` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
@@ -341,6 +345,7 @@ func renderServicePage(svc docService) string {
 // buildExample panics instead of silently omitting the field.
 var docJSONPlaceholders = map[string]string{
 	"Locations": `["<location-id>"]`,
+	"VPCIDs":    `["<vpc-id>"]`,
 }
 
 // buildExample builds one example command line for op: every service and
