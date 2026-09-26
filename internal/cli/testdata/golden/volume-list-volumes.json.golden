@@ -1,0 +1,52 @@
+{
+  "Items": [
+    {
+      "UUID": "volume-1",
+      "ID": "",
+      "ProjectID": "",
+      "Name": "data",
+      "Description": "",
+      "Size": 100,
+      "Status": "IN-USE",
+      "StatusMessage": "",
+      "VolumeTypeID": "type-1",
+      "VolumeType": null,
+      "VolumeTypeZoneName": "",
+      "IOPS": "3000",
+      "Throughput": null,
+      "ServerID": "server-1",
+      "ServerNameList": [],
+      "CreatedAt": "2026-01-01T00:00:00Z",
+      "UpdatedAt": null,
+      "Bootable": false,
+      "EncryptionType": null,
+      "EncryptionKeyID": "",
+      "BootIndex": 0,
+      "MultiAttach": false,
+      "ServerIDList": [],
+      "Location": null,
+      "Product": "",
+      "PersistentVolume": false,
+      "MigrateState": "",
+      "MaxSize": 0,
+      "MinSize": 0,
+      "ZoneID": "",
+      "Zone": {
+        "UUID": "zone-a",
+        "Name": "zone-a-name",
+        "ZoneType": "",
+        "IsDefault": false,
+        "Description": "",
+        "IsEnabled": false,
+        "OpenStackZone": "",
+        "IPRanges": [],
+        "ServerCount": 0,
+        "VolumeCount": 0
+      }
+    }
+  ],
+  "Page": 1,
+  "PageSize": 10000,
+  "TotalPage": 1,
+  "TotalItem": 1
+}

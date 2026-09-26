@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -75,6 +75,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Monitor.md", opNames(monitorOps))
 	check("CLI-Project.md", opNames(projectOps))
 	check("CLI-Portal.md", opNames(portalOps))
+	check("CLI-Volume.md", opNames(volumeOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -406,6 +407,93 @@ func TestGenDocsUpdateHostedZoneExampleSetsAField(t *testing.T) {
 	}
 }
 
+// TestGenDocsCreateChannelExampleUsesCLIInputJSONFile checks that
+// create-channel's generated example is runnable as printed: Address is a
+// required, flag-settable field, but the CLI's own guard refuses it as a
+// literal flag for a Webhook or Slack channel, so the example must show
+// --cli-input-json file://channel.json instead of a literal --address flag.
+func TestGenDocsCreateChannelExampleUsesCLIInputJSONFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
+	}
+	section := genDocsSection(t, string(data), "create-channel")
+	example := genDocsExampleBlock(t, section)
+	if !strings.Contains(example, "--cli-input-json file://channel.json") {
+		t.Errorf("create-channel example is missing the file:// form: %q", example)
+	}
+	if strings.Contains(example, "--address") {
+		t.Errorf("create-channel example still shows a literal --address flag: %q", example)
+	}
+}
+
+// TestGenDocsUpdateChannelExampleUsesCLIInputJSONFile mirrors
+// TestGenDocsCreateChannelExampleUsesCLIInputJSONFile for update-channel,
+// whose --address guard is unconditional.
+func TestGenDocsUpdateChannelExampleUsesCLIInputJSONFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
+	}
+	section := genDocsSection(t, string(data), "update-channel")
+	example := genDocsExampleBlock(t, section)
+	if !strings.Contains(example, "--cli-input-json file://channel.json") {
+		t.Errorf("update-channel example is missing the file:// form: %q", example)
+	}
+	if strings.Contains(example, "--address") {
+		t.Errorf("update-channel example still shows an --address flag: %q", example)
+	}
+}
+
+// genDocsExampleBlock returns the ```sh ... ``` example command line inside
+// section, the flag table's own --address row.
+func genDocsExampleBlock(t *testing.T, section string) string {
+	t.Helper()
+	const open = "```sh\n"
+	start := strings.Index(section, open)
+	if start == -1 {
+		t.Fatalf("no %q code block found:\n%s", open, section)
+	}
+	rest := section[start+len(open):]
+	end := strings.Index(rest, "```")
+	if end == -1 {
+		t.Fatalf("unterminated code block:\n%s", section)
+	}
+	return rest[:end]
+}
+
+// TestGenDocsChannelWritesDocumentTheAddressGuard checks that create-channel
+// and update-channel each state their own literal-address refusal, so a
+// reader learns the guard's exit code and the --cli-input-json escape from
+// the wiki instead of having to find internal/cli/svc_monitor.go.
+func TestGenDocsChannelWritesDocumentTheAddressGuard(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
+	}
+	for _, op := range []string{"create-channel", "update-channel"} {
+		section := genDocsSection(t, string(data), op)
+		if !strings.Contains(section, "exit code 2") {
+			t.Errorf("%s section is missing the guard's exit code:\n%s", op, section)
+		}
+		if !strings.Contains(section, "--cli-input-json file://channel.json") {
+			t.Errorf("%s section does not name the --cli-input-json escape:\n%s", op, section)
+		}
+	}
+}
+
 // TestGenDocsNoFlagFieldIsJSONOnlyNotAFlag checks the CLI reads design's
 // NoFlag rule end to end through gen-docs: project's list-projects page must
 // document Region as settable only through --cli-input-json, and must never
@@ -449,6 +537,9 @@ func TestGenDocsGetExamplesQueryTheWrappedResourceField(t *testing.T) {
 		{"CLI-Portal.md", "vngcloud portal get-quota --name <name> --query Quota"},
 		{"CLI-Portal.md", "vngcloud portal get-user-info --query UserInfo"},
 		{"CLI-Portal.md", "vngcloud portal get-tag-quota --query TagQuota"},
+		{"CLI-Volume.md", "vngcloud volume get-volume --volume-id <volume-id> --query Volume"},
+		{"CLI-Volume.md", "vngcloud volume get-underlying-volume --volume-id <volume-id> --query Volume"},
+		{"CLI-Volume.md", "vngcloud volume get-volume-type --volume-type-id <volume-type-id> --query VolumeType"},
 	}
 	for _, tt := range cases {
 		data, err := os.ReadFile(filepath.Join(dir, tt.file))

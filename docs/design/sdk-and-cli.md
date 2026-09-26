@@ -356,6 +356,8 @@ Each release ships when CI is green on its commit.
 | `v0.11.0` | vMonitor notification channel reads and check notifications, with CLI redaction; see [vMonitor Alerts](monitor-alerts.md) |
 | `v0.12.0` | vDNS records: create, update, and delete, with the zone-lock wait; see [vDNS](dns.md) |
 | `v0.13.0` | `project` and `portal` CLI commands and map key redaction; see [CLI reads](cli-reads.md) |
+| `v0.14.0` | `volume` CLI commands; `VolumeTypeZone` drops never-sent fields. Breaking |
+| `v0.15.0` | vMonitor webhook channel create, update, and delete; see [vMonitor Alerts](monitor-alerts.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

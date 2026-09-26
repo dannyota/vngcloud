@@ -1,5 +1,48 @@
 # Release Notes
 
+## v0.15.0 - vMonitor Webhook Channels
+
+### Highlights
+
+- `monitor.CreateChannel`, `UpdateChannel`, and `DeleteChannel` manage
+  webhook notification channels. Other channel types need a one-time code
+  and are not supported yet.
+- `UpdateChannel` reads the channel and sends a full body, because the API
+  replaces the channel; unset fields keep their values, and a non-nil empty
+  `Headers` clears the headers. Deleting a channel also removes it from
+  every check that named it.
+- Server error messages never repeat a channel's address or header values:
+  the SDK redacts them, including their JSON-escaped forms.
+- New `vngcloud monitor create-channel`, `update-channel`, and
+  `delete-channel` commands. A webhook address and any headers go only
+  through `--cli-input-json file://...`, so a secret never lands in shell
+  history; a literal or inline value is refused. Output is redacted as for
+  the channel reads. Delete needs `--yes`, and a read-only profile refuses
+  all three.
+
+### Behavior changes
+
+A not-found error that wraps an `*APIError` now prints the CLI code
+`NotFound` (exit 4) with the server's status and message.
+
+## v0.14.0 - Volume Commands
+
+### Highlights
+
+- New `vngcloud volume` commands for block volumes, volume types, and
+  snapshots. Reads only. `get-volume`, `get-underlying-volume`, and
+  `list-snapshots` are marked unverified: the test account has no volume,
+  so their output shape comes from GreenNode's official SDK.
+- `get-default-volume-type` is left out: the API returns 404 in every
+  region tested.
+
+### Breaking changes
+
+- `volume.VolumeTypeZone` drops `UUID`, `PoolName`, `VolumeTypeZones`,
+  `Extra`, `Success`, `ErrorCode`, and `ErrorMsg`. A live
+  `ListVolumeTypeZones` item never sets them; `ID`, `Name`, `Description`,
+  and `Zone` are unchanged.
+
 ## v0.13.0 - Project and Portal Commands
 
 ### Highlights

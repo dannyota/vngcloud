@@ -654,14 +654,15 @@ func TestMonitorListChannelTypesEndToEnd(t *testing.T) {
 	}
 }
 
-// monitorChannelListJSON renders one Webhook channel as the notification
-// gateway's own JSON shape (the same shape ListChannels and GetChannel both
-// decode through, since there is no get-by-ID call), with a raw Address
-// carrying a token in its query string and a raw header Value, so the
-// redaction tests below exercise the real command against real-looking
-// secrets rather than data that happens to already look redacted.
-func monitorChannelListJSON(id string) string {
-	return `{"lstData":[{"id":"` + id + `","name":"example-webhook",` +
+// monitorChannelListJSON renders one Webhook channel, id "channel-1", as the
+// notification gateway's own JSON shape (the same shape ListChannels and
+// GetChannel both decode through, since there is no get-by-ID call), with a
+// raw Address carrying a token in its query string and a raw header Value,
+// so the redaction tests below exercise the real command against
+// real-looking secrets rather than data that happens to already look
+// redacted.
+func monitorChannelListJSON() string {
+	return `{"lstData":[{"id":"channel-1","name":"example-webhook",` +
 		`"address":"https://example.com/hooks/incoming?token=super-secret-token",` +
 		`"header":"[{\"key\":\"X-Api-Key\",\"value\":\"super-secret-header-value\"}]",` +
 		`"typeNotification":{"id":"type-webhook","name":"Webhook","description":"Webhook"},` +
@@ -692,7 +693,7 @@ func assertNoMonitorSecretMarkers(t *testing.T, label, output string) {
 // rendered text, so a query can never reach past it.
 func TestMonitorListChannelsRedactsAcrossFormatsAndQuery(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON()),
 	})
 
 	tests := []struct {
@@ -741,7 +742,7 @@ func assertMonitorRedacted(t *testing.T, label, out string, wantHost bool) {
 // Output nests the same Channel one level deeper under "Channel".
 func TestMonitorGetChannelRedactsAcrossFormatsAndQuery(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON()),
 	})
 
 	tests := []struct {
@@ -811,7 +812,7 @@ func TestMonitorListChannelsRedactsSlackChannel(t *testing.T) {
 // stdout still redacts them as usual, for both channel Read commands.
 func TestMonitorListChannelsAndGetChannelDebugLeakNoSecrets(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON()),
 	})
 
 	tests := []struct {

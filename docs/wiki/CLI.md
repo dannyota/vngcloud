@@ -16,6 +16,7 @@
 - [Portal](CLI-Portal.md)
 - [Pricing](CLI-Pricing.md)
 - [Project](CLI-Project.md)
+- [Volume](CLI-Volume.md)
 
 ## Global flags
 
