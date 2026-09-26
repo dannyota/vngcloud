@@ -6,6 +6,8 @@
 
 Kind: Read.
 
+Unverified live: the test account has no certificate, so this output shape comes from GreenNode's official SDK, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--certificate-id` | `string` | yes |
@@ -17,6 +19,8 @@ vngcloud loadbalancer get-certificate --certificate-id <certificate-id> --query 
 ## get-listener
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -31,6 +35,8 @@ vngcloud loadbalancer get-listener --load-balancer-id <load-balancer-id> --liste
 
 Kind: Read.
 
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -42,6 +48,8 @@ vngcloud loadbalancer get-load-balancer --load-balancer-id <load-balancer-id> --
 ## get-policy
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -57,6 +65,8 @@ vngcloud loadbalancer get-policy --load-balancer-id <load-balancer-id> --listene
 
 Kind: Read.
 
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -69,6 +79,8 @@ vngcloud loadbalancer get-pool --load-balancer-id <load-balancer-id> --pool-id <
 ## get-pool-health-monitor
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -96,6 +108,8 @@ vngcloud loadbalancer list-certificates
 ## list-listeners
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -135,6 +149,8 @@ vngcloud loadbalancer list-packages
 
 Kind: Read.
 
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -147,6 +163,8 @@ vngcloud loadbalancer list-policies --load-balancer-id <load-balancer-id> --list
 ## list-pool-members
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -161,6 +179,8 @@ vngcloud loadbalancer list-pool-members --load-balancer-id <load-balancer-id> --
 
 Kind: Read.
 
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -172,6 +192,8 @@ vngcloud loadbalancer list-pools --load-balancer-id <load-balancer-id>
 ## list-tags
 
 Kind: Read.
+
+Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|

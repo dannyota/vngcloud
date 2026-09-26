@@ -444,11 +444,30 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
 	"that data too.\n\n" + portalMapRedactionNote
 
+// unverifiedLiveNote builds the shared text for an output shape the live
+// checks cannot confirm, because the test account holds no such resource.
+// volume and loadbalancer notes reuse it, differing only in the resource
+// named.
+func unverifiedLiveNote(resource string) string {
+	return "Unverified live: the test account has no " + resource +
+		", so this output shape comes from GreenNode's official SDK, not a live capture."
+}
+
 // volumeShapeUnverifiedNote flags an output shape the live checks cannot
 // confirm: the test account holds no volume, so nothing exercises this
 // command's decoding against a real response.
-const volumeShapeUnverifiedNote = "Unverified live: the test account has no volume, so this output shape " +
-	"comes from GreenNode's official SDK, not a live capture."
+var volumeShapeUnverifiedNote = unverifiedLiveNote("volume")
+
+// loadBalancerShapeUnverifiedNote flags an output shape the live checks
+// cannot confirm: the test account holds no load balancer, so nothing
+// exercises this command's decoding, or any child resource's, against a
+// real response.
+var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
+
+// certificateShapeUnverifiedNote flags get-certificate's output shape: the
+// test account holds no certificate, so nothing exercises its decoding
+// against a real response.
+var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -456,18 +475,29 @@ const volumeShapeUnverifiedNote = "Unverified live: the test account has no volu
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
-	"monitor list-channels":        monitorChannelRedactionNote,
-	"monitor get-channel":          monitorChannelRedactionNote,
-	"monitor create-channel":       monitorCreateChannelAddressNote,
-	"monitor update-channel":       monitorUpdateChannelAddressNote,
-	"portal get-user-info":         portalUserInfoNote,
-	"portal list-zones":            portalMapRedactionNote,
-	"portal list-quota-used":       portalMapRedactionNote,
-	"portal get-quota":             portalMapRedactionNote,
-	"portal get-tag-quota":         portalMapRedactionNote,
-	"volume get-volume":            volumeShapeUnverifiedNote,
-	"volume get-underlying-volume": volumeShapeUnverifiedNote,
-	"volume list-snapshots":        volumeShapeUnverifiedNote,
+	"monitor list-channels":                monitorChannelRedactionNote,
+	"monitor get-channel":                  monitorChannelRedactionNote,
+	"monitor create-channel":               monitorCreateChannelAddressNote,
+	"monitor update-channel":               monitorUpdateChannelAddressNote,
+	"portal get-user-info":                 portalUserInfoNote,
+	"portal list-zones":                    portalMapRedactionNote,
+	"portal list-quota-used":               portalMapRedactionNote,
+	"portal get-quota":                     portalMapRedactionNote,
+	"portal get-tag-quota":                 portalMapRedactionNote,
+	"volume get-volume":                    volumeShapeUnverifiedNote,
+	"volume get-underlying-volume":         volumeShapeUnverifiedNote,
+	"volume list-snapshots":                volumeShapeUnverifiedNote,
+	"loadbalancer get-load-balancer":       loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-certificate":         certificateShapeUnverifiedNote,
+	"loadbalancer list-listeners":          loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-listener":            loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pools":              loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool":                loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-pool-health-monitor": loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-pool-members":       loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-policies":           loadBalancerShapeUnverifiedNote,
+	"loadbalancer get-policy":              loadBalancerShapeUnverifiedNote,
+	"loadbalancer list-tags":               loadBalancerShapeUnverifiedNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
