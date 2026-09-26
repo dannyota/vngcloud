@@ -166,30 +166,38 @@ const logProjectDeleteResponseUnverifiedNote = "Unverified live: the delete and 
 	"or 204 as success."
 
 // monitorCreateLogProjectNote documents create-log-project's price guard
-// default, unretried order, post-order wait bound, and --no-wait's own
-// Output shape: the order response is confirmed live to carry only amount,
-// orderId, and paymentUrl, none of LogProject's own fields, so --no-wait
-// can only ever return OrderID.
+// default, its MaxPrice and no-price-quote and same-name guards, the class
+// read the quote and order now share, the Basic class's order quota,
+// unretried order, post-order wait bound, and --no-wait's own Output shape:
+// the order response is confirmed live to carry only amount, orderId, and
+// paymentUrl, none of LogProject's own fields, so --no-wait can only ever
+// return OrderID.
 const monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
-	"create-log-project --name <name> only orders a free class and retention option. The order itself " +
-	"is never retried after a failure that may have already reached the server; list log projects by " +
-	"name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 " +
+	"create-log-project --name <name> only orders a free class and retention option. --max-price NaN, " +
+	"Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from one " +
+	"class-list read and the same order body, so the order always prices what was just quoted; a quote " +
+	"with no price, or a project already named --name, also refuses the order with InvalidUsage. The " +
+	"order itself is never retried after a failure that may have already reached the server; list log " +
+	"projects by name before ordering again rather than repeating this command. The Basic class allows " +
+	"3 orders or recoveries a month; the next one gets 409 Conflict. Without --no-wait, waits up to 120 " +
 	"seconds for the new project to reach ACTIVE, then prints it; a timeout, or any other failure during " +
 	"that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only " +
 	"OrderID set, from the order response's own orderId: that response carries no project fields, so " +
 	"LogProject stays at its zero value."
 
 // monitorDeleteLogProjectNote documents --purge's second request, its
-// tolerance of an already-trashed or already-gone project, and the
-// post-write wait bound.
+// tolerance of an already-trashed project, its NotFound when both the
+// delete and the purge 404, and the post-write wait bound.
 const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its billing; its logs are " +
 	"lost. --purge also deletes it from trash, as a second request in the same call, sent even when the " +
-	"first delete 404s, since the project most likely already sits in trash from an earlier call. " +
-	"Without --no-wait, reads the project first as a baseline, then waits up to 60 seconds after the " +
-	"delete (and purge) for a read to show the change; a timeout, or any other failure during that wait, " +
-	"is NotSettled, and the write must not be repeated. With --purge, when that baseline read itself " +
-	"404s, the project is already gone: the command still sends the delete and the purge, tolerating a " +
-	"404 from either, and succeeds at once with no wait.\n\n" + logProjectDeleteResponseUnverifiedNote
+	"first delete 404s, since the project most likely already sits in trash from an earlier call; when " +
+	"the purge 404s too, the command returns NotFound, the same as a plain delete of a project that " +
+	"never existed. Without --no-wait, reads the project first as a baseline, then waits up to 60 " +
+	"seconds after the delete (and purge) for a read to show the change; a timeout, or any other failure " +
+	"during that wait, is NotSettled, and the write must not be repeated. With --purge, when that " +
+	"baseline read itself 404s, the command skips the wait and returns once the delete and the purge " +
+	"each either succeed or 404. --purge in one call has not run live; a purge sent right after a " +
+	"delete returned 409 Conflict once.\n\n" + logProjectDeleteResponseUnverifiedNote
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here

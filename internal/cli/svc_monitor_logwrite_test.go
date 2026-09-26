@@ -45,6 +45,12 @@ func logProjectListEntryJSON(id, name, status string) string {
 		id, name, status)
 }
 
+// logProjectEmptyListJSON is one empty ListLogProjects page: no project
+// matches, the shape create-log-project's own pre-order duplicate-name
+// check (a ListLogProjects read by Name) gets for a name nothing already
+// uses.
+const logProjectEmptyListJSON = `{"content":[],"currentPage":0,"pageSize":100,"totalElements":0,"totalPages":0}`
+
 // TestMonitorCreateLogProjectSendsOrderRequestBody checks create-log-project's
 // flag-to-input mapping end to end: every flag-settable CreateLogProjectInput
 // field reaches the order body the shared builder produces, the same body
@@ -56,6 +62,7 @@ func logProjectListEntryJSON(id, name, status string) string {
 func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 	var orderBody []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects":                     jsonHandler(http.StatusOK, logProjectEmptyListJSON),
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Pro", 7, 20, "pkg-pro-7d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(917000)),
 		"/billing-api/v2/log/quotas": func(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +118,7 @@ func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 func TestMonitorCreateLogProjectDefaultOrdersOnlyFree(t *testing.T) {
 	var orderCalls atomic.Int64
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects":                     jsonHandler(http.StatusOK, logProjectEmptyListJSON),
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
 		"/billing-api/v2/log/quotas": func(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +143,7 @@ func TestMonitorCreateLogProjectDefaultOrdersOnlyFree(t *testing.T) {
 // is ever sent.
 func TestMonitorCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects":                     jsonHandler(http.StatusOK, logProjectEmptyListJSON),
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Pro", 7, 20, "pkg-pro-7d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(917000)),
 		"/billing-api/v2/log/quotas": func(_ http.ResponseWriter, r *http.Request) {
@@ -156,8 +165,8 @@ func TestMonitorCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 	if got := exitCode(err); got != 1 {
 		t.Fatalf("exitCode = %d, want 1", got)
 	}
-	if n := fixture.requestCount(); n != 2 {
-		t.Fatalf("requestCount = %d, want 2 (classes and quote only, no order)", n)
+	if n := fixture.requestCount(); n != 3 {
+		t.Fatalf("requestCount = %d, want 3 (name check, classes, and quote only, no order)", n)
 	}
 }
 
@@ -166,14 +175,17 @@ func TestMonitorCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 // interrupted by canceling the command's own context, mirroring a Ctrl-C
 // during the wait, the same technique
 // TestDNSCreateHostedZoneNotSettledOnCanceledContext uses for vDNS. The list
-// fixture answers the wait's lookup twice, with the project still CREATING
-// (the order reached the server), and cancels only after the second answer:
-// canceling after the first would race the client's own read of that first
-// response against the cancellation, risking a decode failure that leaves
-// no project found at all. By the second answer the first has already been
-// decoded, so the next poll step's sleep fails on the canceled context, not
-// on the real 120-second bound, deterministically. Per the design, this
-// must surface as NotSettled with the last project the SDK found by name
+// fixture serves the pre-order duplicate-name check's first call an empty
+// page (no project named "app" yet, so the order proceeds), then answers
+// the post-order wait's lookup twice, with the project still CREATING (the
+// order reached the server), and cancels only after that second wait
+// answer, the third call overall: canceling after the first wait answer
+// would race the client's own read of that response against the
+// cancellation, risking a decode failure that leaves no project found at
+// all. By the second wait answer the first has already been decoded, so
+// the next poll step's sleep fails on the canceled context, not on the
+// real 120-second bound, deterministically. Per the design, this must
+// surface as NotSettled with the last project the SDK found by name
 // printed on stdout, not the plain canceled-context path.
 func TestMonitorCreateLogProjectNotSettledOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,9 +197,14 @@ func TestMonitorCreateLogProjectNotSettledOnCanceledContext(t *testing.T) {
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
 		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"amount":0,"orderId":"order-1","paymentUrl":""}`),
 		"/log-api/v1/projects": func(w http.ResponseWriter, r *http.Request) {
+			n := listCalls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(logProjectListEntryJSON("proj-1", "app", "CREATING")))
-			if listCalls.Add(1) == 2 {
+			if n == 1 {
+				_, _ = w.Write([]byte(logProjectEmptyListJSON))
+			} else {
+				_, _ = w.Write([]byte(logProjectListEntryJSON("proj-1", "app", "CREATING")))
+			}
+			if n == 3 {
 				cancel()
 			}
 		},
@@ -254,6 +271,7 @@ func TestMonitorCreateLogProjectReadOnlyRefusedWithZeroRequests(t *testing.T) {
 // debug transcript.
 func TestMonitorCreateLogProjectDebugLogsStartAndFinishWithOnlyOperationName(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects":                     jsonHandler(http.StatusOK, logProjectEmptyListJSON),
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
 		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"amount":0,"orderId":"order-1","paymentUrl":""}`),
@@ -316,6 +334,71 @@ func TestMonitorCreateLogProjectCLIInputJSONRejectsUnknownField(t *testing.T) {
 	}
 	if n := fixture.requestCount(); n != 0 {
 		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorCreateLogProjectMaxPriceNaNExitsWithZeroRequests checks the
+// design's MaxPrice guard: a NaN --max-price is refused with InvalidUsage
+// before any request, including the quote's own class-list read, mirroring
+// monitor's own CreateLogProject MaxPrice guard test at the SDK level.
+func TestMonitorCreateLogProjectMaxPriceNaNExitsWithZeroRequests(t *testing.T) {
+	refuse := func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/log/quota-class":          refuse,
+		"/billing-api/v2/log/prices/created-price": refuse,
+		"/billing-api/v2/log/quotas":               refuse,
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-log-project",
+		"--name", "app", "--max-price", "NaN",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for a NaN --max-price")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorCreateLogProjectRefusesExistingNameWithZeroOrderRequests checks
+// the design's duplicate-name guard: a --name matching an existing project
+// is refused with InvalidUsage before any pricing or order request,
+// mirroring monitor's own CreateLogProject duplicate-name guard test at the
+// SDK level.
+func TestMonitorCreateLogProjectRefusesExistingNameWithZeroOrderRequests(t *testing.T) {
+	refuseOrder := func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects":                     jsonHandler(http.StatusOK, logProjectListEntryJSON("proj-1", "app", "ACTIVE")),
+		"/billing-api/v2/log/quota-class":          refuseOrder,
+		"/billing-api/v2/log/prices/created-price": refuseOrder,
+		"/billing-api/v2/log/quotas":               refuseOrder,
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "create-log-project", "--name", "app", "--no-wait"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for a name that already exists")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1 (the name check only, no pricing or order)", n)
 	}
 }
 

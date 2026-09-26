@@ -98,10 +98,11 @@ func classify(err error) errorEnvelope {
 	}
 	// monitor.ErrOTPRejected, like dns.ErrZoneBusy, dns.ErrFailed,
 	// dns.ErrNotSettled, and monitor.ErrPriceAboveMax below, is always
-	// wrapped alone (never alongside an *APIError): CreateChannel and UpdateChannel return it directly, after
-	// Validate OTP's own APIError path (if any) already returned. Checking
-	// it before errors.As(err, &apiErr) below is only for grouping every
-	// early, non-APIError class together.
+	// wrapped alone (never alongside an *APIError): CreateChannel and
+	// UpdateChannel return it directly, after Validate OTP's own APIError
+	// path (if any) already returned. Checking it before errors.As(err,
+	// &apiErr) below is only for grouping every early, non-APIError class
+	// together.
 	if errors.Is(err, monitor.ErrOTPRejected) {
 		return errorEnvelope{Code: "OTPRejected", Message: err.Error()}
 	}
