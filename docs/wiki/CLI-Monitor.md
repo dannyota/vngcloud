@@ -41,6 +41,8 @@ vngcloud monitor delete-check --check-id <check-id> --yes
 
 Kind: Read.
 
+Redacts every header value and every Address except an Email, SMS, or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; only Email, SMS, and Telegram addresses print in full.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--channel-id` | `string` | yes |
@@ -74,6 +76,8 @@ vngcloud monitor list-channel-types
 ## list-channels
 
 Kind: Read.
+
+Redacts every header value and every Address except an Email, SMS, or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; only Email, SMS, and Telegram addresses print in full.
 
 | Flag | Type | Required |
 |-|-|-|

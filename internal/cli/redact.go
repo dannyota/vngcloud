@@ -13,15 +13,18 @@ import (
 const redactedPlaceholder = "<redacted>"
 
 // redactChannel returns a copy of ch with its secret-bearing fields
-// replaced, per the monitor design: a Webhook or Slack Address can carry a
-// bearer token in its path, so only its scheme and host survive; every
-// other channel type's Address (an email, phone number, or Telegram chat
-// ID) is personal data, not a secret, and is left as the SDK returned it.
+// replaced, per the monitor design: only Email, SMS, and Telegram carry an
+// Address that is personal data rather than a secret (an email, phone
+// number, or Telegram chat ID), so those three types alone are left as the
+// SDK returned them. Every other type, known or not, is denied by default:
+// its Address goes through redactAddress, since a Webhook, Slack, Teams,
+// or future channel type's Address can carry a bearer token in its path.
 // Every header value is redacted regardless of channel type, since only a
-// Webhook channel has any.
+// Webhook channel has any today.
 func redactChannel(ch monitor.Channel) monitor.Channel {
 	switch ch.Type {
-	case monitor.ChannelTypeWebhook, monitor.ChannelTypeSlack:
+	case monitor.ChannelTypeEmail, monitor.ChannelTypeSMS, monitor.ChannelTypeTelegram:
+	default:
 		ch.Address = redactAddress(ch.Address)
 	}
 	if ch.Headers != nil {
@@ -35,12 +38,15 @@ func redactChannel(ch monitor.Channel) monitor.Channel {
 }
 
 // redactAddress keeps only address's scheme and host and drops the rest,
-// per the monitor design's CLI redaction rule. An address that does not
-// parse as an absolute URL is redacted whole, rather than print a fragment
-// of a secret in a shape the SDK did not expect.
+// per the monitor design's CLI redaction rule, but only for http and
+// https: any other scheme (javascript:, data:, or one the SDK never
+// documented) is redacted whole, since there is no reviewed reason to
+// trust what such a URL puts in its host component. An address that does
+// not parse as an absolute URL is likewise redacted whole, rather than
+// print a fragment of a secret in a shape the SDK did not expect.
 func redactAddress(address string) string {
 	u, err := url.Parse(address)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return redactedPlaceholder
 	}
 	return u.Scheme + "://" + u.Host + "/" + redactedPlaceholder

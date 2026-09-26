@@ -262,7 +262,9 @@ write `--secret-file` after the create, so it deleted the new key).
 For `WriteFailed` and `NotSettled` the CLI also prints the Output on stdout;
 see [vDNS](dns.md#after-a-write). `UnexpectedStatus`, `StatusUnconfirmed`,
 `ZoneBusy`, `WriteFailed`, `NotSettled`, `OTPRejected`, `PriceAboveMax`,
-`BucketNotEmpty`, and `SecretFileFailed` exit 1. `QueryFailed` means
+`BucketNotEmpty`, and `SecretFileFailed` exit 1. A not-found result that
+is not an `*APIError`, such as a lookup by listing, also prints `NotFound`
+and exits 4. `QueryFailed` means
 `--query` failed after the operation succeeded; for a write, the message
 says the write succeeded, so an agent does not retry it.
 

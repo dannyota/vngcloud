@@ -197,6 +197,23 @@ func TestGenDocsErrorClassesMentionDNSCodes(t *testing.T) {
 	}
 }
 
+// TestGenDocsErrorClassesMentionNotFound checks that the error-classes list
+// documents NotFound as a class name in its own right, not just as the
+// "code" value inside the leading JSON example: a not-found result such as
+// monitor.GetChannel's page walk can reach the CLI without ever becoming an
+// *APIError, so it needs a class entry of its own alongside PageFormat and
+// the vDNS and vMonitor codes.
+func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	if !strings.Contains(data, "`NotFound`") {
+		t.Errorf("error class text is missing `NotFound` as a documented class:\n%s", data)
+	}
+}
+
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
 // closing the error-classes list names every exit-1 code (now five, with
 // the three vDNS wait codes) rather than a vague "exit 1", which would read
@@ -277,6 +294,47 @@ func mustReadGenDocsCLIMD(t *testing.T, dir string) []byte {
 		t.Fatalf("ReadFile CLI.md: %v", err)
 	}
 	return data
+}
+
+// TestGenDocsMonitorChannelOpsDocumentRedaction checks that list-channels
+// and get-channel's own sections of the generated page state the CLI's
+// channel redaction rule, so a reader learns it from the wiki instead of
+// having to find internal/cli/redact.go.
+func TestGenDocsMonitorChannelOpsDocumentRedaction(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
+	}
+	for _, op := range []string{"list-channels", "get-channel"} {
+		section := genDocsSection(t, string(data), op)
+		if !strings.Contains(section, "edact") {
+			t.Errorf("%s section is missing a redaction note:\n%s", op, section)
+		}
+		if !strings.Contains(section, "Email, SMS, and Telegram") {
+			t.Errorf("%s section does not name the address types that print in full:\n%s", op, section)
+		}
+	}
+}
+
+// genDocsSection returns op's own heading block from a rendered service
+// page: from "## op\n" up to (not including) the next "## " heading, or to
+// the end of data when op is the last one on the page.
+func genDocsSection(t *testing.T, data, op string) string {
+	t.Helper()
+	heading := "## " + op + "\n"
+	start := strings.Index(data, heading)
+	if start == -1 {
+		t.Fatalf("no %q heading found:\n%s", heading, data)
+	}
+	rest := data[start+len(heading):]
+	if next := strings.Index(rest, "\n## "); next != -1 {
+		return rest[:next]
+	}
+	return rest
 }
 
 // TestGenDocsCreateCheckExampleIncludesLocations checks that create-check's

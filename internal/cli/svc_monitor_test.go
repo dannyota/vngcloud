@@ -720,7 +720,7 @@ func TestMonitorListChannelsRedactsAcrossFormatsAndQuery(t *testing.T) {
 
 // assertMonitorRedacted checks out for the monitor design's CLI redaction
 // rule: no raw secret marker survives, and the word "redacted" appears
-// (json.Marshal HTML-escapes "<" and ">" to "<"/">" inside a
+// (json.Marshal HTML-escapes "<" and ">" to "\u003c" and "\u003e" inside a
 // nested object rendered as a compact JSON table or text cell, so the
 // literal string "<redacted>" is not a reliable substring to look for
 // across every render path; "redacted" alone is). wantHost also requires
@@ -764,6 +764,72 @@ func TestMonitorGetChannelRedactsAcrossFormatsAndQuery(t *testing.T) {
 				t.Fatalf("get-channel: %v (stderr=%s)", err, stderr.String())
 			}
 			assertMonitorRedacted(t, tc.name, stdout.String(), tc.wantHost)
+		})
+	}
+}
+
+// monitorSlackChannelListJSON renders one Slack channel in the same shape
+// monitorChannelListJSON uses for Webhook, with the secret token in the
+// incoming webhook URL's path rather than a query string (the real shape a
+// Slack webhook takes), so the redaction tests below also cover a channel
+// type whose secret sits in a different part of the Address.
+func monitorSlackChannelListJSON(id string) string {
+	return `{"lstData":[{"id":"` + id + `","name":"example-slack",` +
+		`"address":"https://hooks.slack.com/services/T000/B000/super-secret-slack-token",` +
+		`"typeNotification":{"id":"type-slack","name":"Slack","description":"Slack"},` +
+		`"createdDate":"2026-09-26T15:46:45"}],` +
+		`"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`
+}
+
+// TestMonitorListChannelsRedactsSlackChannel checks the redaction rule end
+// to end for a Slack channel, not just Webhook: the secret in its Address
+// path never reaches stdout, while the host redaction keeps still does.
+func TestMonitorListChannelsRedactsSlackChannel(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorSlackChannelListJSON("channel-2")),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-channels"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-channels: %v (stderr=%s)", err, stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "super-secret-slack-token") {
+		t.Fatalf("stdout contains the unredacted Slack token:\n%s", out)
+	}
+	if !strings.Contains(out, "redacted") {
+		t.Fatalf("stdout = %s, want it to contain the redacted placeholder", out)
+	}
+	if !strings.Contains(out, "hooks.slack.com") {
+		t.Fatalf("stdout = %s, want it to still show the Slack channel's host", out)
+	}
+}
+
+// TestMonitorListChannelsAndGetChannelDebugLeakNoSecrets checks that
+// --debug, which turns on the SDK transport's own request logging, never
+// puts the fixture's raw Address token or header value on stderr, and that
+// stdout still redacts them as usual, for both channel Read commands.
+func TestMonitorListChannelsAndGetChannelDebugLeakNoSecrets(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+	})
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"list-channels", []string{"monitor", "list-channels"}},
+		{"get-channel", []string{"monitor", "get-channel", "--channel-id", "channel-1"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			root.SetArgs(append([]string{"--region", "hcm-3", "--debug"}, tc.args...))
+			if err := root.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("%s: %v (stderr=%s)", tc.name, err, stderr.String())
+			}
+			assertNoMonitorSecretMarkers(t, tc.name+" stdout", stdout.String())
+			assertNoMonitorSecretMarkers(t, tc.name+" stderr", stderr.String())
 		})
 	}
 }

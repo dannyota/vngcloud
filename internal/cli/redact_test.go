@@ -33,12 +33,41 @@ func TestRedactChannelWebhookAndSlackKeepSchemeAndHost(t *testing.T) {
 // Telegram addresses, which are personal data rather than a secret the
 // monitor design asks the CLI to redact, pass through unchanged.
 func TestRedactChannelOtherTypesLeaveAddressAlone(t *testing.T) {
-	for _, typ := range []string{monitor.ChannelTypeEmail, monitor.ChannelTypeSMS, monitor.ChannelTypeTelegram, "Teams"} {
+	for _, typ := range []string{monitor.ChannelTypeEmail, monitor.ChannelTypeSMS, monitor.ChannelTypeTelegram} {
 		t.Run(typ, func(t *testing.T) {
 			const addr = "someone@example.com"
 			ch := redactChannel(monitor.Channel{Type: typ, Address: addr})
 			if ch.Address != addr {
 				t.Fatalf("Address = %q, want %q unchanged", ch.Address, addr)
+			}
+		})
+	}
+}
+
+// TestRedactChannelUnknownTypesRedactAddress checks the deny-by-default
+// rule: any Type that is not exactly Email, SMS, or Telegram has its
+// Address redacted, including Teams (a real, undeclared channel type), a
+// lowercase spelling of a known type, and an empty Type, so a type this
+// package has not seen before never prints its Address in full.
+func TestRedactChannelUnknownTypesRedactAddress(t *testing.T) {
+	tests := []struct {
+		typ  string
+		addr string
+		want string
+	}{
+		{"Teams", "https://example.webhook.office.com/webhookb2/super-secret-token", "https://example.webhook.office.com/<redacted>"},
+		{"webhook", "https://example.com/hooks/incoming?token=super-secret-token", "https://example.com/<redacted>"},
+		{"", "someone@example.com", redactedPlaceholder},
+	}
+	for _, tt := range tests {
+		name := tt.typ
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			ch := redactChannel(monitor.Channel{Type: tt.typ, Address: tt.addr})
+			if ch.Address != tt.want {
+				t.Fatalf("Address = %q, want %q", ch.Address, tt.want)
 			}
 		})
 	}
@@ -53,6 +82,17 @@ func TestRedactChannelMalformedAddressIsFullyRedacted(t *testing.T) {
 		if ch.Address != redactedPlaceholder {
 			t.Fatalf("redactChannel(%q).Address = %q, want %q", addr, ch.Address, redactedPlaceholder)
 		}
+	}
+}
+
+// TestRedactChannelNonHTTPSchemeIsFullyRedacted checks that redactAddress
+// keeps the scheme and host only for http and https: an address whose
+// scheme parses fine but is neither, such as a javascript: URL, is redacted
+// whole rather than let an arbitrary scheme and host survive unexamined.
+func TestRedactChannelNonHTTPSchemeIsFullyRedacted(t *testing.T) {
+	ch := redactChannel(monitor.Channel{Type: monitor.ChannelTypeWebhook, Address: "javascript://secret-token"})
+	if ch.Address != redactedPlaceholder {
+		t.Fatalf("Address = %q, want %q", ch.Address, redactedPlaceholder)
 	}
 }
 

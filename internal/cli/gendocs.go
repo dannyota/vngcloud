@@ -250,10 +250,12 @@ func renderCLIPage(services []docService) string {
 		"the SDK does not know, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
-		"`WriteFailed` (a vDNS write went to status `ERROR`), or `NotSettled` (a vDNS write was accepted " +
-		"but did not settle within the wait; do not repeat it). For `WriteFailed` and `NotSettled` the CLI " +
-		"also prints the Output on stdout; see [DNS](DNS.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, " +
-		"`ZoneBusy`, `WriteFailed`, and `NotSettled` all exit 1.\n\n")
+		"`WriteFailed` (a vDNS write went to status `ERROR`), `NotSettled` (a vDNS write was accepted " +
+		"but did not settle within the wait; do not repeat it), or `NotFound` (a not-found result that " +
+		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
+		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
+		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits). `UnexpectedStatus`, " +
+		"`StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, and `NotSettled` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
@@ -316,6 +318,9 @@ func renderServicePage(svc docService) string {
 	for _, op := range ops {
 		fmt.Fprintf(&b, "## %s\n\n", op.name)
 		fmt.Fprintf(&b, "Kind: %s.\n\n", op.kind)
+		if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
+			fmt.Fprintf(&b, "%s\n\n", note)
+		}
 		if len(op.fields) == 0 {
 			b.WriteString("No fields.\n\n")
 		} else {
@@ -336,6 +341,24 @@ func renderServicePage(svc docService) string {
 		fmt.Fprintf(&b, "```sh\n%s\n```\n\n", buildExample(svc.name, op))
 	}
 	return b.String()
+}
+
+// monitorChannelRedactionNote documents the CLI's channel redaction rule,
+// shared by list-channels and get-channel since both decode the same
+// Channel shape through redactChannel before the output ever reaches
+// renderOutput.
+const monitorChannelRedactionNote = "Redacts every header value and every Address except an Email, SMS, " +
+	"or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; " +
+	"only Email, SMS, and Telegram addresses print in full."
+
+// docOpNotes gives one operation a paragraph of prose beyond its kind,
+// flags, and example, keyed by "service op-name". An operation goes here
+// when its page needs to state a behavior the flag table cannot show, such
+// as a redaction rule that changes what an otherwise plain Read command
+// prints.
+var docOpNotes = map[string]string{
+	"monitor list-channels": monitorChannelRedactionNote,
+	"monitor get-channel":   monitorChannelRedactionNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into

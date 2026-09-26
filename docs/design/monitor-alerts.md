@@ -5,9 +5,8 @@ Status: Accepted (2026-09-26).
 This design adds vMonitor notification channels, check notifications, log
 projects, and log alarms to the SDK and CLI. aboutme needs its app-down
 check to alert someone, a log project for its logs, and alarms on those
-logs. It extends [vMonitor](monitor.md) and follows
-[SDK and CLI](sdk-and-cli.md) and
-[ADR 0002](../adr/0002-write-api-conventions.md).
+logs. It extends [vMonitor](monitor.md) and follows [SDK and
+CLI](sdk-and-cli.md) and [ADR 0002](../adr/0002-write-api-conventions.md).
 
 ## Source
 
@@ -344,9 +343,10 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
   it. No error holds them, an OTP, or an `otpCode`: for channel calls the
   SDK replaces the sent address and header values in a server message with
   `<redacted>` before it builds the `*APIError`.
-- The CLI prints a `Webhook` or `Slack` `Address` as scheme and host plus
-  `/<redacted>`, and every header value as `<redacted>`, in every output
-  format and before `--query` runs. No flag reveals them; the SDK does.
+- The CLI shows only `Email`, `SMS`, and `Telegram` addresses; any other
+  type's `http(s)` address keeps scheme and host plus `/<redacted>`, else
+  all `<redacted>`. Header values print `<redacted>`, in every format and
+  before `--query`. No flag reveals them; the SDK does.
 - `CreateLogProject` orders nothing above `MaxPrice`, default 0. SMS and
   email beyond the free 20 each spend a paid package; the wiki says so.
 - Each write release gets an adversarial review. It checks: no resend of
@@ -430,7 +430,7 @@ All 13 are approved as recommended.
 
 1. Approved: extend `monitor` instead of adding a package.
 2. Approved: call GreenNode's notifications "channels".
-3. Approved: the CLI redacts webhook and Slack secrets; no reveal flag.
+3. Approved: the CLI redacts all but Email, SMS, and Telegram addresses.
 4. Approved: the CLI refuses a literal webhook or Slack `--address`.
 5. Approved: OTP channels use two commands, with the OTP on argv.
 6. Approved: SMS channels are allowed, not live-tested; a cost warning.
