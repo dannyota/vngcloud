@@ -31,6 +31,16 @@ func TestResolveIAMUser(t *testing.T) {
 	if got.CDNDocs != "https://docs.greennode.ai/faq/vcdn" {
 		t.Fatalf("unexpected cdndocs endpoint: %s", got.CDNDocs)
 	}
+	if got.Monitor != "https://vmonitor.console.greennode.ai/" {
+		t.Fatalf("unexpected monitor endpoint: %s", got.Monitor)
+	}
+}
+
+func TestResolveIAMUserMonitorOverride(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{Monitor: "http://example.test/monitor"})
+	if got.Monitor != "http://example.test/monitor/" {
+		t.Fatalf("unexpected monitor override: %s", got.Monitor)
+	}
 }
 
 // TestResolveIAMUserCDNDocsOverrideNotSlashNormalized checks that CDNDocs, a

@@ -17,6 +17,7 @@ const (
 	ProductPortal  Product = "portal"
 	ProductBilling Product = "billing"
 	ProductCDNDocs Product = "cdndocs"
+	ProductMonitor Product = "monitor"
 )
 
 type Endpoints interface {

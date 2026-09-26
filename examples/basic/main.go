@@ -104,6 +104,7 @@ func main() {
 			showPricing(ctx, cfg, region, sdkOutputs)
 			if regionIndex == 0 {
 				showBilling(ctx, cfg, sdkOutputs)
+				showMonitor(ctx, cfg, sdkOutputs)
 			}
 		}
 	}

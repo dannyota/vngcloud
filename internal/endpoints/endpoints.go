@@ -19,6 +19,13 @@ const (
 	// redirects here, and the SDK's same-host redirect rule refuses to
 	// follow that redirect itself.
 	DefaultCDNDocs = "https://docs.greennode.ai/faq/vcdn"
+
+	// DefaultMonitor is the vMonitor uptime manager host root. It carries no
+	// region: checks are per account, as the design documents. Uptime paths
+	// live under "vmonitor-uptime-manager/v1/" beneath it, and notification
+	// channels, once mapped, would live under a second prefix on the same
+	// host.
+	DefaultMonitor = "https://vmonitor.console.greennode.ai/"
 )
 
 type Overrides struct {
@@ -36,6 +43,7 @@ type Overrides struct {
 	Token              string
 	Billing            string
 	CDNDocs            string
+	Monitor            string
 }
 
 type Set struct {
@@ -52,6 +60,7 @@ type Set struct {
 	Token     string
 	Billing   string
 	CDNDocs   string
+	Monitor   string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -68,6 +77,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		Dashboard: DefaultDashboard,
 		Token:     DefaultToken,
 		CDNDocs:   DefaultCDNDocs,
+		Monitor:   DefaultMonitor,
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -107,6 +117,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.CDNDocs != "" {
 		set.CDNDocs = overrides.CDNDocs
 	}
+	if overrides.Monitor != "" {
+		set.Monitor = overrides.Monitor
+	}
 	return set.Normalize()
 }
 
@@ -133,6 +146,7 @@ func (s Set) Normalize() Set {
 	s.Signin = strings.TrimRight(s.Signin, "/")
 	s.Dashboard = normalizeURL(s.Dashboard)
 	s.Billing = normalizeURL(s.Billing)
+	s.Monitor = normalizeURL(s.Monitor)
 	return s
 }
 

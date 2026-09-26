@@ -22,6 +22,7 @@ import (
 	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/loadbalancer"
+	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
@@ -108,6 +109,7 @@ func TestLive(t *testing.T) {
 	// here instead of once per region inside testLiveRegion.
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
+	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
 
 	for i, region := range regions {
 		cfg := firstCfg
@@ -224,6 +226,31 @@ func testLiveCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		if _, err := netip.ParsePrefix(item); err != nil {
 			t.Fatalf("item %q did not parse as a CIDR: %v", item, err)
 		}
+	}
+}
+
+// testLiveMonitor lists vMonitor checks and, when the account has at least
+// one, reads the first by ID. It never pins the count: the test account's
+// checks change over time, and a count change must not fail CI.
+func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := monitor.New(cfg)
+
+	out, err := client.ListChecks(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListChecks: %v", err)
+	}
+	t.Logf("checks: %d", len(out.Items))
+	if len(out.Items) == 0 {
+		return
+	}
+
+	first := out.Items[0]
+	detail, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: first.ID})
+	if err != nil {
+		t.Fatalf("GetCheck: %v", err)
+	}
+	if detail.Check.ID != first.ID {
+		t.Fatalf("GetCheck returned id %q, want %q", detail.Check.ID, first.ID)
 	}
 }
 

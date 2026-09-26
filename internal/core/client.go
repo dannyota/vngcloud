@@ -252,6 +252,8 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.Billing
 	case routes.ProductCDNDocs:
 		return c.endpoints.CDNDocs
+	case routes.ProductMonitor:
+		return c.endpoints.Monitor
 	default:
 		return ""
 	}

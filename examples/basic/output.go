@@ -94,6 +94,8 @@ var operationOutputPaths = map[string]string{
 	"billing.GetCurrentPeriodCost":               "billing/current_period_cost",
 	"billing.GetBalances":                        "billing/balance",
 	"pricing.GetQuote":                           "pricing/quote",
+	"monitor.ListChecks":                         "monitor/check",
+	"monitor.GetCheck":                           "monitor/check_detail",
 }
 
 type rawCaptureStore struct {

@@ -204,6 +204,14 @@ func TestClientEndpointReturnsCDNDocs(t *testing.T) {
 	}
 }
 
+func TestClientEndpointReturnsMonitor(t *testing.T) {
+	c := NewTestClient("hcm-3", "", endpoints.Set{Monitor: "https://vmonitor.example/"},
+		transport.New(transport.Config{}))
+	if got := c.Endpoint(routes.ProductMonitor); got != "https://vmonitor.example/" {
+		t.Fatalf("Endpoint(ProductMonitor) = %s, want https://vmonitor.example/", got)
+	}
+}
+
 func TestDoRawZeroConfig(t *testing.T) {
 	c := ClientOf(Config{})
 	status, contentType, body, err := c.DoRaw(context.Background(), transport.Request{Operation: "x.Y", Method: "GET", URL: "http://127.0.0.1/"})

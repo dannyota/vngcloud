@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -38,39 +37,6 @@ type TokenSource interface {
 	Token(ctx context.Context) (Token, error)
 	Invalidate(accessToken string)
 }
-
-type APIError struct {
-	Operation  string
-	StatusCode int
-	Code       string
-	Message    string
-	Retryable  bool
-	Err        error
-}
-
-func (e *APIError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return fmt.Sprintf("request failed with status %d", e.StatusCode)
-}
-
-func (e *APIError) Unwrap() error {
-	return e.Err
-}
-
-// ErrBodyTooLarge is returned by DoJSONStatus and DoRaw when a response body
-// exceeds Request.MaxBody. It is never wrapped in an APIError: a caller
-// that wants to tell it apart from a genuine HTTP or network failure uses
-// errors.Is directly. DoRaw returns it alongside the response's real status
-// code, rather than 0, so a caller can tell an oversized body on a 200 from
-// one on a 503: the status, not the size, decides what the failure means.
-// DoJSONStatus still returns status 0 on this error, since no JSON caller
-// reads the status on an error path today.
-var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
 
 type Client struct {
 	httpClient    *http.Client
@@ -157,6 +123,17 @@ type Request struct {
 	// many means the real body is larger, and the call fails with
 	// ErrBodyTooLarge instead of returning a partial body.
 	MaxBody int64
+
+	// Once sends req at most once, overriding every retry rule Idempotent
+	// and the method would otherwise apply: no retry after any status or
+	// network error, including 429 and a failed dial, and no resend after a
+	// 401 (the token is still invalidated, as for any other request). It is
+	// for a toggle write that must not be sent twice; see ADR 0003. The
+	// resulting APIError.Retryable is true only for a 429 or a failed dial,
+	// the two cases where the server provably never acted, never for a 5xx
+	// or a non-dial network error, which Once still sent only once but which
+	// may have reached a handler.
+	Once bool
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -167,6 +144,22 @@ func (r Request) idempotent() bool {
 	default:
 		return r.Idempotent
 	}
+}
+
+// retryable reports whether a response with status is one a caller should
+// itself consider safe to retry by rerunning the whole operation, for the
+// APIError.Retryable field. A 429 always is: the server never acted on it,
+// whatever the method or Once. Once narrows this to 429 alone, since a 5xx
+// on the single attempt it allows may have reached a handler, unlike the
+// ordinary rule that also trusts an idempotent method's 5xx.
+func (r Request) retryable(status int) bool {
+	if status == http.StatusTooManyRequests {
+		return true
+	}
+	if r.Once {
+		return false
+	}
+	return r.idempotent() && retryableStatus(status)
 }
 
 func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
@@ -242,6 +235,13 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 		return statusCode, "", nil, err
 	}
 	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
+		if req.Once {
+			// ADR 0003 rule 3: invalidate the sent token as usual, but never
+			// resend. The caller gets this 401 back; a later call, Once or
+			// not, fetches a fresh token instead of reusing the rejected one.
+			c.invalidateOnce(sent)
+			return statusCode, contentType, body, nil
+		}
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
 			return 0, "", nil, err
 		}
@@ -354,10 +354,18 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		return 0, "", nil, "", &APIError{Operation: req.Operation, Err: err}
 	}
 
+	// maxAttempts is the last attempt index the loop below may reach before
+	// it must return whatever it has. Once forces it to 0: exactly one
+	// attempt, whatever the response, per ADR 0003 rule 3.
+	maxAttempts := c.retryCount
+	if req.Once {
+		maxAttempts = 0
+	}
+
 	var lastErr error
 	var lastRetryable bool
 	var sentToken string
-	for attempt := 0; attempt <= c.retryCount; attempt++ {
+	for attempt := 0; attempt <= maxAttempts; attempt++ {
 		start := time.Now()
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
@@ -393,8 +401,16 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		if err != nil {
 			c.logRequest(ctx, httpReq, 0, false, duration)
 			lastErr = err
-			lastRetryable = req.idempotent() || isDialError(err)
-			if lastRetryable && attempt < c.retryCount {
+			if req.Once {
+				// A failed dial never reached the server, so rerunning the
+				// whole operation is safe even though this one attempt is
+				// not retried; any other network failure may have reached a
+				// handler after connecting, so Once never marks it retryable.
+				lastRetryable = isDialError(err)
+			} else {
+				lastRetryable = req.idempotent() || isDialError(err)
+			}
+			if lastRetryable && attempt < maxAttempts {
 				if serr := sleepContext(ctx, c.backoff(attempt, 0)); serr != nil {
 					return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 				}
@@ -418,9 +434,10 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 
 		// A non-idempotent request retries only on 429: the server has not
 		// acted on it, unlike a 502/503/504 that may have reached a handler.
+		// maxAttempts already forces this to never fire for Once.
 		retryStatus := resp.StatusCode == http.StatusTooManyRequests ||
 			(req.idempotent() && retryableStatus(resp.StatusCode))
-		if retryStatus && attempt < c.retryCount {
+		if retryStatus && attempt < maxAttempts {
 			if serr := sleepContext(ctx, c.backoff(attempt, retryAfterHint(resp.Header))); serr != nil {
 				return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 			}
@@ -580,6 +597,29 @@ func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 	return nil
 }
 
+// invalidateOnce drops sent from every cache the token source holds, the
+// same as invalidateAndRefresh's own invalidation step, but never fetches a
+// replacement: a Once request that hits a 401 is never resent, so there is
+// nothing to fetch a replacement token for. It also clears the token from
+// this Client's own in-memory cache, so a later call, on this Client, never
+// resends the same rejected token; that later call fetches a fresh one
+// through the ordinary EnsureToken path instead. Invalidation runs only
+// while sent is still the Client's current token, the same guard
+// invalidateAndRefresh uses, so a token another goroutine already replaced
+// is left alone.
+func (c *Client) invalidateOnce(sent string) {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	if sent == "" || c.currentToken().AccessToken != sent {
+		return
+	}
+	c.tokenSource.Invalidate(sent)
+	c.mu.Lock()
+	c.token = Token{}
+	c.mu.Unlock()
+}
+
 func (c *Client) currentToken() Token {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -600,78 +640,4 @@ func containsStatus(statuses []int, status int) bool {
 		}
 	}
 	return false
-}
-
-func retryableStatus(status int) bool {
-	return status == http.StatusTooManyRequests || status == http.StatusBadGateway ||
-		status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
-}
-
-type errorBody struct {
-	Code    json.RawMessage `json:"code"`
-	Error   string          `json:"error"`
-	Message string          `json:"message"`
-	Detail  string          `json:"detail"`
-}
-
-// codeString renders an envelope code as decimal text: null or an empty
-// value gives "", a JSON string gives its value, and a JSON number is
-// already decimal text, so it is returned as is.
-func codeString(raw json.RawMessage) string {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return ""
-	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(trimmed, &s); err == nil {
-			return s
-		}
-		return ""
-	}
-	return string(trimmed)
-}
-
-func decodeError(req Request, status int, body []byte) error {
-	var eb errorBody
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) > 0 {
-		if trimmed[0] == '[' {
-			var items []errorBody
-			if err := json.Unmarshal(trimmed, &items); err == nil && len(items) > 0 {
-				eb = items[0]
-			}
-		} else {
-			_ = json.Unmarshal(trimmed, &eb)
-		}
-	}
-	msg := eb.Message
-	if msg == "" {
-		msg = eb.Error
-	}
-	if msg == "" {
-		msg = eb.Detail
-	}
-	if msg == "" {
-		msg = http.StatusText(status)
-	}
-
-	apiErr := &APIError{
-		Operation:  req.Operation,
-		StatusCode: status,
-		Code:       codeString(eb.Code),
-		Message:    strings.TrimSpace(msg),
-		Retryable:  status == http.StatusTooManyRequests || (req.idempotent() && retryableStatus(status)),
-	}
-	switch status {
-	case http.StatusUnauthorized:
-		apiErr.Err = errors.New("authentication failed")
-	case http.StatusForbidden:
-		apiErr.Err = errors.New("permission denied")
-	case http.StatusNotFound:
-		apiErr.Err = errors.New("resource not found")
-	case http.StatusTooManyRequests:
-		apiErr.Err = errors.New("rate limited")
-	}
-	return apiErr
 }
