@@ -291,10 +291,10 @@ across two processes or two `Client` values.
 A notification channel is what GreenNode's own API calls a "notification";
 the SDK says "channel" so the name does not clash with a check's
 `Notifications` field. `ListChannels` and `GetChannel` return every channel
-type the console offers, including `Email`, `Slack`, `SMS`, `Telegram`, and
-`Webhook`. `CreateChannel`, `UpdateChannel`, and `DeleteChannel` create,
-update, and delete a `Webhook` channel; every other type needs an OTP the
-account holder must read and relay, which ships in a later release.
+type the console offers: `Email`, `Slack`, `SMS`, `Telegram`, and `Webhook`.
+`CreateChannel`, `UpdateChannel`, and `DeleteChannel` handle any of the
+five; `Webhook` needs no OTP, and the other four each need one from
+`SendChannelOTP`, covered next, before a create or an `Address` update.
 
 ```go
 types, err := client.ListChannelTypes(ctx, nil)
@@ -330,9 +330,45 @@ if err != nil {
 }
 ```
 
-There is no get-by-ID call for a channel: `GetChannel` lists every page and
-returns the item whose ID matches, so `vngcloud.IsNotFound(err)` is true both
-for an unknown ID and for an account with no channels at all.
+There is no get-by-ID call: `GetChannel` lists every page and returns the
+item whose ID matches, so `vngcloud.IsNotFound(err)` is true both for an
+unknown ID and for an account with no channels at all.
+
+### Sending and validating an OTP
+
+`Email`, `Slack`, `SMS`, and `Telegram` need a one-time code before a create
+or an `Address` update. `SendChannelOTP` messages `Address` and returns a
+`Ref`; read the code and pass both to `CreateChannel` or `UpdateChannel` as
+`OTPRef` and `OTP`, which must both be set or both left empty (`OTP` alone
+fails with `vngcloud.ErrInvalidInput` before any request).
+
+```go
+sent, err := client.SendChannelOTP(ctx, &monitor.SendChannelOTPInput{
+	Type:    monitor.ChannelTypeEmail,
+	Address: "ops@example.com",
+})
+// ... read the code from the address, then: ...
+_, err = client.CreateChannel(ctx, &monitor.CreateChannelInput{
+	Name: "vngcloud-my-email", Type: monitor.ChannelTypeEmail, Address: "ops@example.com",
+	OTPRef: sent.Ref, OTP: "123456",
+})
+if errors.Is(err, monitor.ErrOTPRejected) {
+	log.Fatal("wrong or expired code")
+}
+```
+
+`SendChannelOTP` refuses `Webhook`, which needs none, with
+`vngcloud.ErrInvalidInput`, and, like every create or update here, is never
+retried after a failure that may have already reached the server: a retry
+could send a second message or spend a code the first attempt already
+validated. A wrong or expired code returns `monitor.ErrOTPRejected` with no
+create or update sent; leaving `OTPRef` and `OTP` empty sends no `otpCode`,
+which is what `Webhook` needs and every other type is refused for. The OTP,
+`OTPRef`, and the validated code are secrets, the same as `Address` and a
+header value: none ever appears in an error message, and a server message
+echoing one back comes back `<redacted>`. Sending an OTP to, and later
+notifying, an `SMS` channel spends the account's SMS package and can cost
+money past the free quota; `Email` and `Slack` cost nothing extra.
 
 ### Creating, updating, and deleting channels
 
@@ -363,70 +399,48 @@ if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: cr
 }
 ```
 
-`CreateChannel` accepts only `Type: monitor.ChannelTypeWebhook` today;
-every other type needs an OTP the account holder must read and relay,
-which ships in a later release, and a create with any other `Type` fails
-with `vngcloud.ErrInvalidInput` before any request. `Name`, `Type`, and
-`Address` are required; `Headers` is optional and defaults to none.
+`CreateChannel` accepts `Type` `Email`, `Slack`, `SMS`, `Telegram`, or
+`Webhook`; any other value, including the no-longer-offered `Teams`, fails with
+`vngcloud.ErrInvalidInput` before any request. `Name`, `Type`, and `Address`
+are required; `Headers` is optional, and every type but `Webhook` needs
+`OTPRef` and `OTP` ([above](#sending-and-validating-an-otp)) to create. It is a
+`POST` never retried after an ambiguous failure, the same as `CreateCheck`:
+after any error that is not a 4xx `*vngcloud.APIError` or
+`vngcloud.ErrInvalidInput`, the channel may exist, so list by name before
+retrying rather than blind.
 
-`CreateChannel` is a `POST` and is never retried after a failure that may
-already have reached the server, the same as `CreateCheck`: after any
-error that is not a 4xx `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`,
-the channel may exist, and the caller lists channels by name before
-creating it again rather than retrying blind.
+`UpdateChannel` changes `Name`, `Address`, `Headers`, or any combination,
+leaving a `nil` field unchanged; at least one must be set. Set `Headers` to
+a non-nil empty slice (`&[]monitor.ChannelHeader{}`) to clear every header
+on purpose; `nil` resends them unchanged. GreenNode's API takes a full
+replacement body and clears any field left out, so `UpdateChannel` reads
+the channel first with `GetChannel` and resends every unset field, rather
+than trusting the API to leave it alone; the read and the `PUT` are
+separate requests, so a change another caller makes in between is silently
+overwritten. It keeps the channel's `Type` and never sends another;
+changing an OTP-typed channel's `Address` needs a fresh `OTPRef` and `OTP`
+([above](#sending-and-validating-an-otp)), which the server enforces.
+`Output.Channel` never carries a fresh `UpdatedDate`, since the update's
+200 response has no body to read one from.
 
-`UpdateChannel` changes `Name`, `Address`, `Headers`, or any combination of
-the three; a field left `nil` keeps the channel's current value, and at
-least one must be set. To clear every header on purpose, set `Headers` to a
-non-nil empty slice (`&[]monitor.ChannelHeader{}`); leaving `Headers` `nil`
-resends the channel's current headers unchanged. GreenNode's own API takes a
-full replacement body and clears any field a request leaves out, so
-`UpdateChannel` reads the channel first with `GetChannel` and resends every
-field the caller did not set itself, rather than trusting the API to leave
-them alone. It keeps the channel's `Type`; there is no way to change a
-channel's type, and `UpdateChannel` accepts only a channel whose current
-`Type` is `monitor.ChannelTypeWebhook`, failing with
-`vngcloud.ErrInvalidInput` before any request for any other type, until
-support for OTP types ships. Its `Output.Channel` never carries a fresh
-`UpdatedDate`, since the update's own 200 response has no body to read one
-from.
+`DeleteChannel` removes a channel and strips its ID from every check's
+`Notifications`, silently stopping alerts through it with no undo. A second
+delete of the same `ChannelID` returns `vngcloud.IsNotFound(err) == true`,
+the same as `DeleteCheck`, even though GreenNode answers that case with a
+400, not a 404; a retried delete whose first attempt already landed gets
+this same not-found error, which the caller treats as done.
 
-The read and the write are two separate requests, with nothing to detect a
-change in between: if another caller updates the channel after
-`UpdateChannel`'s own `GetChannel` but before its `PUT` lands, that change is
-silently overwritten by whichever fields this call resends. Serialize
-concurrent updates to the same channel elsewhere if that matters.
-
-`DeleteChannel` removes a channel; GreenNode's own API strips the deleted
-channel's ID from every check's `Notifications`, so alerting through that
-channel silently stops on every check that used it, with no warning and no
-undo. A second delete of the same `ChannelID` returns
-`vngcloud.IsNotFound(err) == true`, the same as `DeleteCheck`, even though
-GreenNode's own API answers that specific case with a 400 rather than a
-404; a retried `DeleteChannel` whose first attempt already reached the
-server gets this same not-found error on the retry, which the caller
-treats the same as a successful delete.
-
-`Channel.Address` is the email, Slack webhook URL, Telegram chat ID, phone
-number, or webhook URL the channel notifies, and `Channel.Headers` is the
-key/value pairs a `Webhook` channel sends with every notification; both can
-hold a secret, such as a token in a header value. The SDK returns them
-exactly as the API does, so a caller that will recreate or update a channel
-can read them back; they never appear in log output (`vngcloud.WithLogger`
-never logs a body). `CreateChannel` and `UpdateChannel` also strip both out
-of a server error message before building the `*vngcloud.APIError`, in
-either its raw form or the form the request's own JSON encoding produced
-(a header value's literal `&` sent as `\u0026`, say): if GreenNode's own
-response happens to echo the sent address or a header value back, that
-call's error carries `<redacted>` in its place instead, unless the value is
-too short to cut out safely, in which case the whole message is withheld
-rather than returned with unrelated text also cut out around it. The
-[CLI](CLI-Monitor.md) shows `Address` in full only for `Email`, `SMS`, and
-`Telegram`, whose address is personal data rather than a secret; every
-other type, known or not, has its `Address` redacted, keeping only the
-scheme and host for an `http` or `https` URL and redacting the rest whole
-otherwise. Every header value is always redacted, regardless of channel
-type. There is no flag to reveal either.
+`Channel.Address` (the email, webhook URL, chat ID, or phone number a
+channel notifies) and `Channel.Headers` can each hold a secret; the SDK
+returns both unchanged, so a caller can read them back to recreate or
+update a channel, and neither appears in log output. `CreateChannel` and
+`UpdateChannel` also strip an echoed `Address` or header value (raw or
+JSON-escaped) from a server error before building the `*vngcloud.APIError`,
+replacing it with `<redacted>`, or withholding the whole message when the
+value is too short to cut out safely. The [CLI](CLI-Monitor.md) shows
+`Address` in full only for `Email`, `SMS`, and `Telegram`; every other type
+keeps only an `http(s)` URL's scheme and host, redacting the rest, and
+every header value is always redacted, with no flag to reveal either.
 
 ## Endpoint
 

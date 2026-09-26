@@ -3,6 +3,7 @@
 package vngcloud_test
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -1558,4 +1559,206 @@ func TestLiveWriteMonitorCheckNotifications(t *testing.T) {
 		t.Fatalf("step 6 DeleteCheck: %s", safeErr(err))
 	}
 	t.Log("step 6: deleted the check")
+}
+
+// otpPromptTimeout bounds how long readLiveOTP waits for the owner to type
+// the emailed OTP on stdin, so a run that gets no input, on stdin closed or
+// left open, can never hang forever; it fails with a clear message instead.
+const otpPromptTimeout = 5 * time.Minute
+
+// readLiveOTP returns the OTP TestLiveWriteMonitorChannelOTP validates:
+// VNGCLOUD_LIVE_MONITOR_EMAIL_OTP when set, for a run where the owner
+// already knows the code, else a line read from stdin within
+// otpPromptTimeout, after printing prompt to stderr. The returned code is
+// never logged; scanning stdin runs in its own goroutine so the timeout
+// applies even if stdin is left open with nothing typed into it, since only
+// this function's own goroutine calls a *testing.T method.
+func readLiveOTP(t *testing.T, prompt string) string {
+	t.Helper()
+	if code := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MONITOR_EMAIL_OTP")); code != "" {
+		return code
+	}
+	fmt.Fprintln(os.Stderr, prompt)
+
+	lineCh := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			lineCh <- scanner.Text()
+			return
+		}
+		lineCh <- ""
+	}()
+
+	select {
+	case line := <-lineCh:
+		code := strings.TrimSpace(line)
+		if code == "" {
+			t.Fatal("readLiveOTP: no OTP entered on stdin")
+		}
+		return code
+	case <-time.After(otpPromptTimeout):
+		t.Fatal("readLiveOTP: timed out waiting for the OTP on stdin; set VNGCLOUD_LIVE_MONITOR_EMAIL_OTP instead")
+		return ""
+	}
+}
+
+// TestLiveWriteMonitorChannelOTP exercises the OTP flow SendChannelOTP,
+// CreateChannel, GetChannel, and DeleteChannel take for an Email channel.
+//
+// VNGCLOUD_LIVE_MONITOR_EMAIL names the address that receives the OTP; the
+// test skips when it is unset. The OTP itself comes from
+// VNGCLOUD_LIVE_MONITOR_EMAIL_OTP when set, else a prompt on stdin bounded
+// by otpPromptTimeout; see readLiveOTP. Neither the address, the OTP, nor
+// the ref SendChannelOTP returns is ever logged.
+//
+// It deletes every leftover vngcloud-live-* channel first (step 1), sends
+// the OTP (step 2), reads it back (step 3), creates vngcloud-live-<8 hex>
+// as an Email channel with the validated OTP (step 4), registers the
+// fallback delete as soon as the created channel's id is known (step 5),
+// reads the channel back and confirms its type (step 6), and deletes it
+// (step 7). t.Cleanup deletes it again with its own context (NotFound there
+// is success, not failure), pages every channel list, and asserts no
+// vngcloud-live-* channel remains. Every step logs only counts, statuses,
+// and the OTP's expiry time, never the address, the OTP, or the ref.
+func TestLiveWriteMonitorChannelOTP(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor channel OTP write test")
+	}
+	email := os.Getenv("VNGCLOUD_LIVE_MONITOR_EMAIL")
+	if email == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_EMAIL to the approved address to run the live monitor channel OTP write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := monitor.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* channel from a previous
+	// run.
+	leftovers, err := listAllChannels(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListChannels: %s", safeErr(err))
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftovers {
+		if !isLiveChannelName(leftover.Name) {
+			continue
+		}
+		if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover channel: %s", safeErr(err))
+		}
+		deletedLeftovers++
+	}
+	t.Logf("step 1: deleted %d leftover channel(s)", deletedLeftovers)
+
+	// Step 2: send the OTP.
+	sent, err := client.SendChannelOTP(ctx, &monitor.SendChannelOTPInput{
+		Type:    monitor.ChannelTypeEmail,
+		Address: email,
+	})
+	if err != nil {
+		t.Fatalf("step 2 SendChannelOTP: %s", safeErr(err))
+	}
+	t.Logf("step 2: sent otp, expires %s", sent.ExpiresAt.Format(time.RFC3339))
+
+	// Step 3: read the OTP back from the owner.
+	otp := readLiveOTP(t, fmt.Sprintf(
+		"enter the OTP emailed to the address named in VNGCLOUD_LIVE_MONITOR_EMAIL (expires %s):",
+		sent.ExpiresAt.Format(time.RFC3339)))
+
+	// Step 4: create the channel with the validated OTP.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	created, err := client.CreateChannel(ctx, &monitor.CreateChannelInput{
+		Name:    name,
+		Type:    monitor.ChannelTypeEmail,
+		Address: email,
+		OTPRef:  sent.Ref,
+		OTP:     otp,
+	})
+	if err != nil {
+		if errors.Is(err, monitor.ErrOTPRejected) {
+			t.Fatal("step 4 CreateChannel: otp rejected; rerun and enter the latest emailed code")
+		}
+		// A POST is not retried after an ambiguous failure, so the channel
+		// may still have reached the server. Find and delete it by its
+		// exact name.
+		deleteChannelByName(t, client, name)
+		t.Fatalf("step 4 CreateChannel: %s", safeErr(err))
+	}
+	channelID := created.Channel.ID
+	if channelID == "" {
+		deleteChannelByName(t, client, name)
+		t.Fatal("step 4: CreateChannel returned an empty id; the design requires one")
+	}
+	t.Log("step 4: created email channel")
+
+	// Step 5: register the fallback delete as soon as channelID is known,
+	// before steps 6 and 7 can fail and skip the explicit delete below.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteChannel(cleanupCtx, &monitor.DeleteChannelInput{ChannelID: channelID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete channel: %s", safeErr(err))
+		}
+		final, err := listAllChannels(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListChannels: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, ch := range final {
+			if isLiveChannelName(ch.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live channel(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live channels, found %d", remaining)
+		}
+	})
+
+	// Step 6: read the channel back and confirm its type.
+	read, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: channelID})
+	if err != nil {
+		t.Fatalf("step 6 GetChannel: %s", safeErr(err))
+	}
+	if read.Channel.Type != monitor.ChannelTypeEmail {
+		t.Fatalf("step 6: Type = %q, want %q", read.Channel.Type, monitor.ChannelTypeEmail)
+	}
+	t.Log("step 6: read channel back, type matches")
+
+	// Step 7: delete the channel explicitly. DELETE is idempotent, so
+	// t.Cleanup's own delete above then finds it already gone.
+	if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: channelID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7 DeleteChannel: %s", safeErr(err))
+	}
+	t.Log("step 7: deleted channel")
 }
