@@ -62,6 +62,8 @@ Kind: Read.
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
 
 ```sh
 vngcloud dns list-hosted-zones

@@ -1,5 +1,38 @@
 # Release Notes
 
+## v0.10.0 - vDNS Private Hosted Zones
+
+### Highlights
+
+- `dns.CreateHostedZone`, `UpdateHostedZone`, and `DeleteHostedZone`
+  manage vDNS private hosted zones. vDNS has no public zones: a zone
+  resolves only inside the VPCs linked to it, and each VPC needs Private
+  DNS turned on in the console first. See
+  [DNS](https://github.com/dannyota/vngcloud/wiki/DNS).
+- Writes wait for the zone to be ready before sending, and for the result
+  after, polling every 2 seconds for up to 60 seconds. `NoWait` skips the
+  wait after. `ErrZoneBusy`, `ErrFailed`, and `ErrNotSettled` report the
+  outcomes; the last two return the Output too, so the new ID is never
+  lost.
+- `UpdateHostedZone` reads the zone and sends a full body, because the API
+  replaces the zone. Only an explicit empty `VPCIDs` list detaches every
+  VPC.
+- New `vngcloud dns create-hosted-zone`, `update-hosted-zone`, and
+  `delete-hosted-zone` commands, with `--no-wait`. Delete needs `--yes`,
+  and a read-only profile refuses all three. New CLI error codes
+  `ZoneBusy`, `WriteFailed`, and `NotSettled`, all exit 1.
+- `ListHostedZonesInput` gains `Page` and `Size`.
+
+### Fixes
+
+- `network.GetVPC` and `network.GetSubnet` returned empty fields: their
+  responses are not wrapped in `data`. They now decode.
+
+### Behavior changes
+
+The two network fixes change those outputs from empty to real values. No
+other method, field, or command changes.
+
 ## v0.9.0 - vMonitor Create and Delete
 
 ### Highlights
