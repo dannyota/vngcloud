@@ -177,10 +177,10 @@ func (c *Client) GetRecord(ctx context.Context, in *GetRecordInput) (*GetRecordO
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	// RecordID's own path ID check ships with the record writes; this
-	// release checks only the HostedZoneID segment it shares with the
-	// other reads above.
 	if err := core.CheckPathID(op, "HostedZoneID", in.HostedZoneID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "RecordID", in.RecordID); err != nil {
 		return nil, err
 	}
 	var resp struct {
@@ -235,8 +235,8 @@ type HostedZone struct {
 
 type RecordValue struct {
 	Value    string  `json:"value"`
-	Location *string `json:"location"`
-	Weight   *int    `json:"weight"`
+	Location *string `json:"location,omitempty"`
+	Weight   *int    `json:"weight,omitempty"`
 }
 
 type Record struct {

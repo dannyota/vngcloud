@@ -610,8 +610,9 @@ func TestLiveWriteMonitor(t *testing.T) {
 	}
 }
 
-// TestLiveWriteDNS exercises CreateHostedZone, UpdateHostedZone, and
-// DeleteHostedZone against the account named in .env.
+// TestLiveWriteDNS exercises CreateHostedZone and UpdateHostedZone, and
+// CreateRecord, UpdateRecord, and DeleteRecord, against the account named
+// in .env.
 //
 // VNGCLOUD_LIVE_DNS_VPC_ID names the VPC every created zone associates
 // with; it never enters the repository, and the test skips when it is
@@ -620,15 +621,20 @@ func TestLiveWriteMonitor(t *testing.T) {
 // ENABLING Private DNS would only reach ERROR. Neither the VPC id nor
 // any other VPC field is logged.
 //
-// It deletes every leftover vngcloud-live-*.internal zone first (step 1;
-// this release has no records, so there is nothing to clean up inside one
-// first), creates vngcloud-live-<8 hex>.internal against the named VPC
-// (step 2), registers the fallback delete as soon as the created zone's id
-// is known (step 3), updates its description (step 4), and deletes it
-// explicitly (step 5); t.Cleanup deletes it again with its own context
-// (NotFound there is success, not failure) and asserts no
-// vngcloud-live-*.internal zone remains. Each step logs only the zone's own
-// status and how long its wait took, never the VPC id.
+// It deletes every leftover vngcloud-live-*.internal zone first, deleting
+// each one's own user records before the zone itself since a zone holding
+// any record but the server's own NS and SOA cannot be deleted (step 1);
+// creates vngcloud-live-<8 hex>.internal against the named VPC (step 2);
+// registers the fallback cleanup as soon as the created zone's id is known
+// (step 3); creates an A record with two values, an MX record with two
+// priorities, and a TXT record with two strings (step 4); updates the A
+// record's TTL (step 5); deletes all three records explicitly (step 6);
+// updates the zone's description (step 7); and deletes the zone explicitly
+// (step 8). t.Cleanup deletes any user record left in the zone, then the
+// zone itself, with its own context (NotFound at either is success, not
+// failure), and asserts no vngcloud-live-*.internal zone remains. Each step
+// logs only statuses, counts, and wait times, never a record's own id,
+// name, or value.
 func TestLiveWriteDNS(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live DNS write test")
@@ -679,17 +685,20 @@ func TestLiveWriteDNS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 1 ListHostedZones: %s", safeErr(err))
 	}
-	deletedLeftovers := 0
+	deletedLeftovers, deletedLeftoverRecords := 0, 0
 	for _, leftover := range leftovers {
 		if !isLiveDNSZoneName(leftover.DomainName) {
 			continue
 		}
+		// A zone holding any record but the server's own NS and SOA cannot
+		// be deleted, so clear its user records first.
+		deletedLeftoverRecords += deleteUserRecords(ctx, t, client, leftover.ID)
 		if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{HostedZoneID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Fatalf("step 1 delete leftover zone: %s", safeErr(err))
 		}
 		deletedLeftovers++
 	}
-	t.Logf("step 1: deleted %d leftover zone(s)", deletedLeftovers)
+	t.Logf("step 1: deleted %d leftover zone(s) and %d leftover record(s)", deletedLeftovers, deletedLeftoverRecords)
 
 	// Step 2: create the zone.
 	suffix, err := randomHex(4)
@@ -718,11 +727,16 @@ func TestLiveWriteDNS(t *testing.T) {
 	}
 	t.Logf("step 2: created zone, status %s, wait %s", created.HostedZone.Status, time.Since(start))
 
-	// Step 3: register the fallback delete as soon as zoneID is known,
-	// before step 4 or step 5 can fail and skip the explicit delete below.
+	// Step 3: register the fallback cleanup as soon as zoneID is known,
+	// before any later step can fail and skip the explicit deletes below.
+	// It removes the zone's own user records before the zone itself, since a
+	// zone holding any record but the server's own NS and SOA cannot be
+	// deleted.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
+		remainingRecords := deleteUserRecords(cleanupCtx, t, client, zoneID)
+		t.Logf("cleanup: deleted %d record(s) left in the zone", remainingRecords)
 		if _, err := client.DeleteHostedZone(cleanupCtx, &dns.DeleteHostedZoneInput{HostedZoneID: zoneID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete zone: %s", safeErr(err))
 		}
@@ -743,7 +757,82 @@ func TestLiveWriteDNS(t *testing.T) {
 		}
 	})
 
-	// Step 4: update the zone's description. CreateHostedZone above already
+	// Step 4: create an A record with two values, an MX record with two
+	// priorities, and a TXT record with two strings. Each create waits for
+	// the zone to leave the lock the previous one holds it under, so this
+	// loop needs no sleep of its own.
+	start = time.Now()
+	aRecord, err := client.CreateRecord(ctx, &dns.CreateRecordInput{
+		HostedZoneID: zoneID,
+		Type:         "A",
+		Values:       []dns.RecordValue{{Value: "10.0.0.1"}, {Value: "10.0.0.2"}},
+	})
+	if err != nil {
+		t.Fatalf("step 4 CreateRecord (A): %s", safeErr(err))
+	}
+	if aRecord.Record.ID == "" {
+		t.Fatal("step 4: CreateRecord (A) returned an empty id; the design requires one")
+	}
+	t.Logf("step 4: created A record, status %s, wait %s", aRecord.Record.Status, time.Since(start))
+
+	start = time.Now()
+	mxRecord, err := client.CreateRecord(ctx, &dns.CreateRecordInput{
+		HostedZoneID: zoneID,
+		Type:         "MX",
+		Values:       []dns.RecordValue{{Value: "10 mx1.vngcloud-live.internal"}, {Value: "20 mx2.vngcloud-live.internal"}},
+	})
+	if err != nil {
+		t.Fatalf("step 4 CreateRecord (MX): %s", safeErr(err))
+	}
+	if mxRecord.Record.ID == "" {
+		t.Fatal("step 4: CreateRecord (MX) returned an empty id; the design requires one")
+	}
+	t.Logf("step 4: created MX record, status %s, wait %s", mxRecord.Record.Status, time.Since(start))
+
+	start = time.Now()
+	txtRecord, err := client.CreateRecord(ctx, &dns.CreateRecordInput{
+		HostedZoneID: zoneID,
+		Type:         "TXT",
+		Values:       []dns.RecordValue{{Value: "vngcloud-live-test-1"}, {Value: "vngcloud-live-test-2"}},
+	})
+	if err != nil {
+		t.Fatalf("step 4 CreateRecord (TXT): %s", safeErr(err))
+	}
+	if txtRecord.Record.ID == "" {
+		t.Fatal("step 4: CreateRecord (TXT) returned an empty id; the design requires one")
+	}
+	t.Logf("step 4: created TXT record, status %s, wait %s", txtRecord.Record.Status, time.Since(start))
+
+	// Step 5: update the A record's TTL. UpdateRecord sends only the
+	// changed field and waits for the record to show it.
+	start = time.Now()
+	updatedA, err := client.UpdateRecord(ctx, &dns.UpdateRecordInput{
+		HostedZoneID: zoneID,
+		RecordID:     aRecord.Record.ID,
+		TTL:          vngcloud.Ptr(120),
+	})
+	if err != nil {
+		t.Fatalf("step 5 UpdateRecord (A): %s", safeErr(err))
+	}
+	t.Logf("step 5: updated A record, status %s, wait %s", updatedA.Record.Status, time.Since(start))
+	if updatedA.Record.TTL != 120 {
+		t.Error("step 5: UpdateRecord did not change the A record's TTL: fail")
+	}
+
+	// Step 6: delete all three records explicitly. DeleteRecord is
+	// idempotent, so t.Cleanup's own record delete above finds them already
+	// gone.
+	start = time.Now()
+	deletedRecords := 0
+	for _, id := range []string{aRecord.Record.ID, mxRecord.Record.ID, txtRecord.Record.ID} {
+		if _, err := client.DeleteRecord(ctx, &dns.DeleteRecordInput{HostedZoneID: zoneID, RecordID: id}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 6 DeleteRecord: %s", safeErr(err))
+		}
+		deletedRecords++
+	}
+	t.Logf("step 6: deleted %d record(s), total wait %s", deletedRecords, time.Since(start))
+
+	// Step 7: update the zone's description. CreateHostedZone above already
 	// waited for StatusActive (or it would have returned an error instead),
 	// and UpdateHostedZone waits for the same status with the sent
 	// description, so a nil error here already proves both.
@@ -753,24 +842,24 @@ func TestLiveWriteDNS(t *testing.T) {
 		Description:  vngcloud.Ptr("vngcloud live write test updated"),
 	})
 	if err != nil {
-		t.Fatalf("step 4 UpdateHostedZone: %s", safeErr(err))
+		t.Fatalf("step 7 UpdateHostedZone: %s", safeErr(err))
 	}
-	t.Logf("step 4: updated zone, status %s, wait %s", updated.HostedZone.Status, time.Since(start))
+	t.Logf("step 7: updated zone, status %s, wait %s", updated.HostedZone.Status, time.Since(start))
 	if len(updated.HostedZone.AssociatedVPCIDs) == 1 && updated.HostedZone.AssociatedVPCIDs[0] == vpcID {
-		t.Log("step 4: description-only update kept the zone's VPC: pass")
+		t.Log("step 7: description-only update kept the zone's VPC: pass")
 	} else {
-		t.Error("step 4: description-only update did not keep the zone's VPC: fail")
+		t.Error("step 7: description-only update did not keep the zone's VPC: fail")
 	}
 
-	// Step 5: delete the zone explicitly. DELETE is idempotent, so a retry
+	// Step 8: delete the zone explicitly. DELETE is idempotent, so a retry
 	// that reaches the server after an earlier attempt already deleted the
 	// zone returns NotFound; that is success for a delete, not a failure.
 	// t.Cleanup's own delete above then finds it already gone.
 	start = time.Now()
 	if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{HostedZoneID: zoneID}); err != nil && !vngcloud.IsNotFound(err) {
-		t.Fatalf("step 5 DeleteHostedZone: %s", safeErr(err))
+		t.Fatalf("step 8 DeleteHostedZone: %s", safeErr(err))
 	}
-	t.Logf("step 5: deleted zone, wait %s", time.Since(start))
+	t.Logf("step 8: deleted zone, wait %s", time.Since(start))
 }
 
 // liveDNSZoneNamePattern is the live DNS write test's own zone naming
@@ -824,6 +913,36 @@ func deleteZoneByName(t *testing.T, client *dns.Client, domainName string) {
 			t.Errorf("cleanup: delete zone by name: %s", safeErr(err))
 		}
 	}
+}
+
+// deleteUserRecords deletes every record in zoneID except the server's own
+// NS and SOA records, which it refuses to delete, and returns how many it
+// deleted. It is used both to clear a leftover zone from a previous run and
+// from t.Cleanup, since a zone holding any other record cannot itself be
+// deleted.
+func deleteUserRecords(ctx context.Context, t *testing.T, client *dns.Client, zoneID string) int {
+	t.Helper()
+	records, err := client.ListRecords(ctx, &dns.ListRecordsInput{HostedZoneID: zoneID})
+	if vngcloud.IsNotFound(err) {
+		// The zone is already gone, so it holds no records.
+		return 0
+	}
+	if err != nil {
+		t.Errorf("delete user records: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, rec := range records.Items {
+		if rec.Type == "NS" || rec.Type == "SOA" {
+			continue
+		}
+		if _, err := client.DeleteRecord(ctx, &dns.DeleteRecordInput{HostedZoneID: zoneID, RecordID: rec.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete user records: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
 }
 
 // deleteCheckByName lists checks and deletes the one matching name. It is
