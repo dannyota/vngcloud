@@ -1,0 +1,28 @@
+{
+  "Items": [
+    {
+      "ID": "class-basic",
+      "Name": "Basic",
+      "Description": "A free option with a 1-day retention.",
+      "Priority": 1,
+      "Status": "ACTIVE",
+      "Retentions": [
+        {
+          "Amount": 1,
+          "MinSize": 10,
+          "MaxSize": 10,
+          "Step": 1,
+          "PackageID": "pkg-basic-1d"
+        }
+      ]
+    },
+    {
+      "ID": "class-enterprise",
+      "Name": "Enterprise (Coming soon)",
+      "Description": "Not orderable today.",
+      "Priority": 3,
+      "Status": "DISABLED",
+      "Retentions": []
+    }
+  ]
+}

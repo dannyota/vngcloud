@@ -475,6 +475,13 @@ var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 // nothing exercises this command's decoding against a real response.
 var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
+// logProjectShapeUnverifiedNote flags get-log-project's output shape: the
+// test account holds no log project, so nothing exercises this command's
+// per-project field decoding against a real response (list-log-projects and
+// list-log-project-classes both return live-confirmed shapes; see
+// monitor.LogProject's doc comment).
+var logProjectShapeUnverifiedNote = unverifiedLiveNote("log project")
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -485,6 +492,7 @@ var docOpNotes = map[string]string{
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote,
+	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
 	"portal get-user-info":                    portalUserInfoNote,
 	"portal list-zones":                       portalMapRedactionNote,
 	"portal list-quota-used":                  portalMapRedactionNote,

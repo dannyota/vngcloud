@@ -857,3 +857,329 @@ func TestMonitorGetChannelNotFoundExitsFour(t *testing.T) {
 		t.Fatalf("exitCode = %d, want 4", got)
 	}
 }
+
+// exampleLogProject is a LogProject shaped like the design's inferred
+// fields, reused by the golden tests below. LogProject's own per-project
+// field shape is unverified live (see monitor.LogProject's doc comment), so
+// this is a plausible shape, not a captured one.
+func exampleLogProject(id, name string) monitor.LogProject {
+	return monitor.LogProject{
+		ID:                 id,
+		ProjectName:        name,
+		ProjectDescription: "app logs",
+		Status:             "ACTIVE",
+		BillingStatus:      "PAID",
+		ProjectType:        "LOG",
+		Zone:               "hcm-3",
+		CreatedAt:          "Jan 1, 2026, 12:00:00 AM",
+		UpdatedAt:          "Jan 2, 2026, 1:00:00 PM",
+	}
+}
+
+// TestGoldenMonitorListLogProjects checks list-log-projects' exact output
+// shape: a PagedList with the list's own 0-based Page, unlike ListChannels'
+// 1-based one.
+func TestGoldenMonitorListLogProjects(t *testing.T) {
+	v := core.NewPagedList([]monitor.LogProject{exampleLogProject("proj-1", "app")}, 0, 100, 1, 1)
+	checkGolden(t, "monitor-list-log-projects.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-log-projects.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-log-projects.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorGetLogProject checks get-log-project's exact output
+// shape: {"LogProject": {...}}.
+func TestGoldenMonitorGetLogProject(t *testing.T) {
+	v := &monitor.GetLogProjectOutput{LogProject: exampleLogProject("proj-1", "app")}
+	checkGolden(t, "monitor-get-log-project.json.golden", "json", "", v)
+	checkGolden(t, "monitor-get-log-project.table.golden", "table", "", v)
+	checkGolden(t, "monitor-get-log-project.text.golden", "text", "", v)
+}
+
+// exampleLogProjectClasses is a short LogProjectClass list covering an
+// active class with one retention option and a disabled class with none,
+// shaped like the billing quota-class fixture ListLogProjectClasses decodes
+// live.
+func exampleLogProjectClasses() []monitor.LogProjectClass {
+	return []monitor.LogProjectClass{
+		{
+			ID:          "class-basic",
+			Name:        monitor.LogProjectClassBasic,
+			Description: "A free option with a 1-day retention.",
+			Priority:    1,
+			Status:      monitor.LogProjectClassStatusActive,
+			Retentions: []monitor.LogProjectRetention{
+				{Amount: 1, MinSize: 10, MaxSize: 10, Step: 1, PackageID: "pkg-basic-1d"},
+			},
+		},
+		{
+			ID:          "class-enterprise",
+			Name:        "Enterprise (Coming soon)",
+			Description: "Not orderable today.",
+			Priority:    3,
+			Status:      monitor.LogProjectClassStatusDisabled,
+		},
+	}
+}
+
+// TestGoldenMonitorListLogProjectClasses checks list-log-project-classes'
+// exact output shape: JSON keeps {"Items": [...]}, one class per row for
+// table and text, with each class's Retentions rendered as a nested list.
+func TestGoldenMonitorListLogProjectClasses(t *testing.T) {
+	v := &monitor.ListLogProjectClassesOutput{Items: exampleLogProjectClasses()}
+	checkGolden(t, "monitor-list-log-project-classes.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-log-project-classes.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-log-project-classes.text.golden", "text", "", v)
+}
+
+// exampleQuoteCreateLogProjectOutput is a QuoteCreateLogProjectOutput shaped
+// like the created-price fixture QuoteCreateLogProject decodes live: a
+// DiscountPercent of nil, seen for both a free and a paid class.
+func exampleQuoteCreateLogProjectOutput() *monitor.QuoteCreateLogProjectOutput {
+	return &monitor.QuoteCreateLogProjectOutput{
+		OptimumPrice:  917000,
+		OriginalPrice: 917000,
+		DiscountPrice: 0,
+		Properties: []monitor.LogProjectPriceProperty{
+			{Name: "monitor-platform-log", OptimumPrice: 917000, OriginalPrice: 917000, DiscountPrice: 0},
+		},
+	}
+}
+
+// TestGoldenMonitorQuoteCreateLogProject checks quote-create-log-project's
+// exact output shape: the price fields directly, not wrapped in a resource
+// field, the same shape pricing get-quote uses.
+func TestGoldenMonitorQuoteCreateLogProject(t *testing.T) {
+	v := exampleQuoteCreateLogProjectOutput()
+	checkGolden(t, "monitor-quote-create-log-project.json.golden", "json", "", v)
+	checkGolden(t, "monitor-quote-create-log-project.table.golden", "table", "", v)
+	checkGolden(t, "monitor-quote-create-log-project.text.golden", "text", "", v)
+}
+
+// TestMonitorListLogProjectsEndToEnd checks list-log-projects' flags reach
+// the list's own query keys: --search (Query's renamed flag, since --query
+// is a global flag), --billing-status, --page, and --size.
+func TestMonitorListLogProjectsEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects": jsonHandler(http.StatusOK,
+			`{"content":[{"id":"proj-1","projectName":"app","status":"ACTIVE"}],`+
+				`"currentPage":0,"pageSize":50,"totalElements":1,"totalPages":1}`),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "list-log-projects",
+		"--search", "app", "--billing-status", "PAID", "--page", "0", "--size", "50",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-log-projects: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/log-api/v1/projects"); !ok || got != http.MethodGet {
+		t.Fatalf("list-log-projects method = %q, ok=%v, want GET", got, ok)
+	}
+	q, ok := fixture.queryFor("/log-api/v1/projects")
+	if !ok {
+		t.Fatal("no recorded query for /log-api/v1/projects")
+	}
+	for _, want := range []string{"query=app", "billing_status=PAID", "page=0", "size=50"} {
+		if !strings.Contains(q, want) {
+			t.Fatalf("list-log-projects query = %q, want it to contain %q", q, want)
+		}
+	}
+	var out struct{ Items []monitor.LogProject }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if len(out.Items) != 1 || out.Items[0].ProjectName != "app" {
+		t.Fatalf("list-log-projects Items = %+v", out.Items)
+	}
+}
+
+// TestMonitorGetLogProjectEndToEnd runs the real get-log-project command
+// against a fixture log API, checking the request path and that the
+// decoded LogProject survives the round trip.
+func TestMonitorGetLogProjectEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects/proj-1": jsonHandler(http.StatusOK,
+			`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-log-project", "--log-project-id", "proj-1"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("get-log-project: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/log-api/v1/projects/proj-1"); !ok || got != http.MethodGet {
+		t.Fatalf("get-log-project method = %q, ok=%v, want GET", got, ok)
+	}
+	var out struct{ LogProject monitor.LogProject }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.LogProject.ID != "proj-1" {
+		t.Fatalf("get-log-project LogProject = %+v", out.LogProject)
+	}
+}
+
+// TestMonitorGetLogProjectNotFoundExitsFour checks that a 404 from the log
+// API reaches the CLI as the NotFound error class with exit code 4, the
+// same path monitor.GetLogProject's own 404 test confirms at the SDK level.
+func TestMonitorGetLogProjectNotFoundExitsFour(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/log-api/v1/projects/missing": jsonHandler(http.StatusNotFound, `{"message":"not found"}`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-log-project", "--log-project-id", "missing"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a not-found error")
+	}
+	if got := classify(err).Code; got != "NotFound" {
+		t.Fatalf("Code = %q, want NotFound (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 4 {
+		t.Fatalf("exitCode = %d, want 4", got)
+	}
+}
+
+// TestMonitorListLogProjectClassesEndToEnd runs the real
+// list-log-project-classes command against a fixture billing surface,
+// checking the request path and that the nested Retentions list survives
+// the round trip.
+func TestMonitorListLogProjectClassesEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/log/quota-class": jsonHandler(http.StatusOK,
+			`[{"id":"class-basic","name":"Basic","status":"ACTIVE",`+
+				`"config":{"retentions":[{"amount":1,"minSize":10,"maxSize":10,"step":1,"packageId":"pkg-basic-1d"}]}}]`),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-log-project-classes"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-log-project-classes: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/billing-api/v2/log/quota-class"); !ok || got != http.MethodGet {
+		t.Fatalf("list-log-project-classes method = %q, ok=%v, want GET", got, ok)
+	}
+	// The CLI's own JSON encoder writes Retentions as a top-level key (Go
+	// field names, per the CLI design's "Output"), but LogProjectClass
+	// carries a custom UnmarshalJSON that expects the wire shape's nested
+	// config.retentions instead: decoding stdout back into that type would
+	// invoke it and read an empty Retentions. A plain local struct, with no
+	// such method, decodes the CLI's own output shape correctly, the same
+	// workaround TestProjectListProjectsRegionFiltersClientSide uses for a
+	// resource type whose JSON tags do not match its own Go field names.
+	type decodedClass struct {
+		Name       string
+		Status     string
+		Retentions []monitor.LogProjectRetention
+	}
+	var out struct{ Items []decodedClass }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != monitor.LogProjectClassBasic || len(out.Items[0].Retentions) != 1 {
+		t.Fatalf("list-log-project-classes Items = %+v", out.Items)
+	}
+}
+
+// TestMonitorQuoteCreateLogProjectSendsRequestBody drives
+// quote-create-log-project with every flag-settable CreateLogProjectInput
+// field set, checking the exact created-price request body the CLI builds
+// from that merge, the same body buildLogProjectOrderBody's own SDK test
+// (monitor.TestQuoteCreateLogProjectDecodesFixture) checks for a direct SDK
+// call: this only confirms the flags reach the SDK's Input field for field,
+// not the builder's own logic, which is already covered there.
+func TestMonitorQuoteCreateLogProjectSendsRequestBody(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/log/quota-class": jsonHandler(http.StatusOK,
+			`[{"id":"class-pro","name":"Pro","status":"ACTIVE",`+
+				`"config":{"retentions":[{"amount":7,"minSize":20,"maxSize":5000,"step":10,"packageId":"pkg-pro-7d"}]}}]`),
+		"/billing-api/v2/log/prices/created-price": func(w http.ResponseWriter, r *http.Request) {
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"optimumPrice":917000,"originalPrice":917000,"discountPrice":0,"propertiesPrice":[]}`))
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "quote-create-log-project",
+		"--name", "app",
+		"--description", "logs",
+		"--class", "Pro",
+		"--retention-days", "7",
+		"--gb-per-day", "20",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("quote-create-log-project: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/billing-api/v2/log/prices/created-price"); !ok || got != http.MethodPost {
+		t.Fatalf("quote-create-log-project method = %q, ok=%v, want POST", got, ok)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	if decoded["packageId"] != "pkg-pro-7d" {
+		t.Fatalf("body[packageId] = %v, want pkg-pro-7d (%s)", decoded["packageId"], body)
+	}
+	if decoded["quantity"] != 140.0 {
+		t.Fatalf("body[quantity] = %v, want 140 (%s)", decoded["quantity"], body)
+	}
+	if decoded["projectName"] != "app" || decoded["projectDescription"] != "logs" {
+		t.Fatalf("body[projectName/projectDescription] = %+v (%s)", decoded, body)
+	}
+	if decoded["monthPeriod"] != 1.0 || decoded["pay"] != true {
+		t.Fatalf("body[monthPeriod/pay] = %+v (%s)", decoded, body)
+	}
+
+	var out monitor.QuoteCreateLogProjectOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.OptimumPrice != 917000 {
+		t.Fatalf("OptimumPrice = %v, want 917000", out.OptimumPrice)
+	}
+}
+
+// TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag checks the
+// design's M5 scope: MaxPrice and NoWait only govern create-log-project's
+// own order and wait, a later release, so quote-create-log-project (this
+// release) registers neither as a flag; both stay settable only through
+// --cli-input-json until create-log-project ships.
+func TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag(t *testing.T) {
+	cmd := newMonitorCmd(&env{flags: &globalFlags{}})
+	sub, _, err := cmd.Find([]string{"quote-create-log-project"})
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if f := sub.Flags().Lookup("max-price"); f != nil {
+		t.Fatalf("quote-create-log-project registered its own --max-price flag: %+v", f)
+	}
+	if f := sub.Flags().Lookup("no-wait"); f != nil {
+		t.Fatalf("quote-create-log-project registered its own --no-wait flag: %+v", f)
+	}
+}
+
+// TestMonitorQuoteCreateLogProjectMissingNameExitsWithZeroRequests checks
+// that quote-create-log-project without --name fails the required-field
+// check before any request, including the class list read.
+func TestMonitorQuoteCreateLogProjectMissingNameExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/log/quota-class": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "quote-create-log-project"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected a required-field error without --name")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}

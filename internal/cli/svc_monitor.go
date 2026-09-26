@@ -81,6 +81,22 @@ var monitorOps = []Op[monitor.Client]{
 		})),
 	Write[monitor.Client, monitor.DeleteChannelInput, monitor.DeleteChannelOutput](
 		kebab("DeleteChannel"), (*monitor.Client).DeleteChannel, Destructive()),
+	Read[monitor.Client, monitor.ListLogProjectsInput, monitor.ListLogProjectsOutput](
+		kebab("ListLogProjects"), (*monitor.Client).ListLogProjects),
+	Read[monitor.Client, monitor.GetLogProjectInput, monitor.GetLogProjectOutput](
+		kebab("GetLogProject"), (*monitor.Client).GetLogProject),
+	Read[monitor.Client, monitor.ListLogProjectClassesInput, monitor.ListLogProjectClassesOutput](
+		kebab("ListLogProjectClasses"), (*monitor.Client).ListLogProjectClasses),
+	// QuoteCreateLogProject shares CreateLogProjectInput with the
+	// create-log-project command a later release adds. MaxPrice and NoWait
+	// only govern that create's own price ceiling and wait, not this read,
+	// which neither orders nor waits, so NoFlag keeps both settable only
+	// through --cli-input-json until create-log-project ships. Neither
+	// LogProject nor LogProjectClass holds a secret the monitor design's
+	// redaction rule covers, so these four ops carry no Redact.
+	Read[monitor.Client, monitor.CreateLogProjectInput, monitor.QuoteCreateLogProjectOutput](
+		kebab("QuoteCreateLogProject"), (*monitor.Client).QuoteCreateLogProject,
+		NoFlag("MaxPrice", "NoWait")),
 }
 
 // literalCLIInputJSONFields returns the top-level key set of cmd's

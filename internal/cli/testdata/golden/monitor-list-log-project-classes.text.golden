@@ -1,0 +1,2 @@
+A free option with a 1-day retention.	class-basic	Basic	1	[{"Amount":1,"MaxSize":10,"MinSize":10,"PackageID":"pkg-basic-1d","Step":1}]	ACTIVE
+Not orderable today.	class-enterprise	Enterprise (Coming soon)	3	[]	DISABLED

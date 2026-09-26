@@ -92,6 +92,20 @@ Kind: Read.
 vngcloud monitor get-check --check-id <check-id> --query Check
 ```
 
+## get-log-project
+
+Kind: Read.
+
+Unverified live: the test account has no log project, so this output shape comes from GreenNode's official SDK, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--log-project-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-log-project --log-project-id <log-project-id> --query LogProject
+```
+
 ## list-channel-types
 
 Kind: Read.
@@ -138,6 +152,31 @@ No fields.
 vngcloud monitor list-locations
 ```
 
+## list-log-project-classes
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud monitor list-log-project-classes
+```
+
+## list-log-projects
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--search` | `string` |  |
+| `--billing-status` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud monitor list-log-projects
+```
+
 ## pause-check
 
 Kind: Write.
@@ -148,6 +187,24 @@ Kind: Write.
 
 ```sh
 vngcloud monitor pause-check --check-id <check-id>
+```
+
+## quote-create-log-project
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--class` | `string` |  |
+| `--retention-days` | `int` |  |
+| `--gb-per-day` | `int` |  |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud monitor quote-create-log-project --name <name>
 ```
 
 ## resume-check
