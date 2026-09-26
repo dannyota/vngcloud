@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.11.0 - vMonitor Notification Channels
+
+### Highlights
+
+- `monitor.ListChannelTypes`, `ListChannels`, and `GetChannel` read
+  vMonitor notification channels. `GetChannel` finds a channel by listing,
+  because the API has no get-by-ID call.
+- `Check` gains `Notifications`: the channel IDs alerted when a check goes
+  into alarm, comes back up, or turns undetermined.
+- New `vngcloud monitor list-channel-types`, `list-channels`, and
+  `get-channel` commands. Channel addresses and header values can hold
+  secrets, so the CLI always redacts them: it shows only Email, SMS, and
+  Telegram addresses, keeps only scheme and host of any other `http(s)`
+  address, and prints every header value as `<redacted>`. No flag reveals
+  them; the SDK returns them in full.
+- A not-found result that is not an `*APIError`, such as `GetChannel`
+  finding no match, now prints the CLI code `NotFound` and exits 4.
+
+### Behavior changes
+
+`portal.GetQuota` and the volume type lookups report a missing item as
+`NotFound` instead of `RequestFailed`; both already exited 4.
+
 ## v0.10.0 - vDNS Private Hosted Zones
 
 ### Highlights

@@ -353,7 +353,8 @@ Each release ships when CI is green on its commit.
 | `v0.8.0` | vMonitor checks: list, get, pause, and resume, SDK and CLI; see [vMonitor](monitor.md) |
 | `v0.9.0` | vMonitor checks: create and delete, and probe locations; see [vMonitor](monitor.md) |
 | `v0.10.0` | vDNS private hosted zones: create, update, and delete, with waits; see [vDNS](dns.md) |
-| `v0.11.0` | vDNS records: create, update, and delete, with the zone-lock wait; see [vDNS](dns.md) |
+| `v0.11.0` | vMonitor notification channel reads and check notifications, with CLI redaction; see [vMonitor Alerts](monitor-alerts.md) |
+| `v0.12.0` | vDNS records: create, update, and delete, with the zone-lock wait; see [vDNS](dns.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the
@@ -375,7 +376,7 @@ the SDK and CLI together:
    Channels, check alerting, log projects, and alarms follow in
    [vMonitor Alerts](monitor-alerts.md).
 3. vDNS private zone and record writes ([vDNS](dns.md)): zones in
-   `v0.10.0`, records in `v0.11.0`. vDNS has no public zone, so these serve
+   `v0.10.0`, records in `v0.12.0`. vDNS has no public zone, so these serve
    private names inside a VPC, not aboutme's nameserver move.
 4. vStorage buckets and service-account keys ([vStorage](storage.md)):
    reads, then bucket writes, S3 keys, service accounts, bucket policy, and

@@ -276,9 +276,9 @@ once disable is verified and someone needs to script it.
 | `dns create-hosted-zone` | Write | No | `v0.10.0` |
 | `dns update-hosted-zone` | Write | No | `v0.10.0` |
 | `dns delete-hosted-zone` | Write, destructive | Yes | `v0.10.0` |
-| `dns create-record` | Write | No | `v0.11.0` |
-| `dns update-record` | Write | No | `v0.11.0` |
-| `dns delete-record` | Write, destructive | Yes | `v0.11.0` |
+| `dns create-record` | Write | No | `v0.12.0` |
+| `dns update-record` | Write | No | `v0.12.0` |
+| `dns delete-record` | Write, destructive | Yes | `v0.12.0` |
 
 - A [read-only](cli.md#read-only) profile refuses all six with exit 2
   before any request. Deletes need `--yes` (ADR 0002 rule 6).
@@ -387,7 +387,7 @@ run needs the owner's approval naming the account, region, and VPC.
 | Version | Content |
 |-|-|
 | `v0.10.0` | `CreateHostedZone`, `UpdateHostedZone`, `DeleteHostedZone`, the zone waits and sentinels, and their CLI commands; path ID checks on the zone reads |
-| `v0.11.0` | `CreateRecord`, `UpdateRecord`, `DeleteRecord`, the pre-write wait and mutex, and their CLI commands; path ID checks on the record reads |
+| `v0.12.0` | `CreateRecord`, `UpdateRecord`, `DeleteRecord`, the pre-write wait and mutex, and their CLI commands; path ID checks on the record reads |
 
 Zones come first so the record live test can create its own zone. Neither
 release changes an existing method or command, except that the reads now
@@ -399,7 +399,7 @@ waits, `NoWait`, partial updates, and listing before rerunning a create.
 
 1. Settled: `aboutme.vn` stays off vDNS, which has no public zone.
 2. Approved: build private zone and record writes.
-3. Approved: zones in `v0.10.0`, records in `v0.11.0`.
+3. Approved: zones in `v0.10.0`, records in `v0.12.0`.
 4. Approved, revised by the live checks: update Inputs use pointers. A
    record update sends only the non-nil fields, because the API applies a
    partial record body; a zone update is the read-merge in decision 11.
