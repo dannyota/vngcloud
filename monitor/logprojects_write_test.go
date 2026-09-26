@@ -313,6 +313,35 @@ func TestCreateLogProjectWaitTimesOut(t *testing.T) {
 	}
 }
 
+// TestLogProjectOrderResponseOrderIDDecodesStringOrNumber checks OrderID
+// accepts either shape an unconfirmed field might arrive in, the same as
+// Alarm.ID: a live free order returned orderId empty or null, and if the
+// API ever sends a numeric orderId instead, it must not fail the whole
+// response's decode.
+func TestLogProjectOrderResponseOrderIDDecodesStringOrNumber(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"string", `{"amount":0,"orderId":"order-1","paymentUrl":""}`, "order-1"},
+		{"number", `{"amount":0,"orderId":42,"paymentUrl":""}`, "42"},
+		{"null", `{"amount":0,"orderId":null,"paymentUrl":""}`, ""},
+		{"empty string", `{"amount":0,"orderId":"","paymentUrl":""}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp logProjectOrderResponse
+			if err := json.Unmarshal([]byte(tt.raw), &resp); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if resp.OrderID != tt.want {
+				t.Fatalf("OrderID = %q, want %q", resp.OrderID, tt.want)
+			}
+		})
+	}
+}
+
 func TestCreateLogProjectMissingName(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("unexpected request for a missing Name")

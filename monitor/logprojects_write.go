@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,7 +29,9 @@ const (
 // CreateLogProjectOutput is CreateLogProject's result. LogProject is filled
 // only once CreateLogProject's own post-order wait finds the ordered
 // project by name; NoWait skips that wait, so LogProject stays at its zero
-// value. OrderID is the order response's own orderId and is set either way.
+// value. OrderID is the order response's own orderId and is set either way,
+// but is not guaranteed non-empty: a live free order returned it empty or
+// null.
 type CreateLogProjectOutput struct {
 	LogProject LogProject
 	OrderID    string
@@ -37,9 +40,25 @@ type CreateLogProjectOutput struct {
 // logProjectOrderResponse is the order POST's own response shape: a live
 // order confirmed exactly amount, orderId, and paymentUrl, none of
 // LogProject's own fields. amount and paymentUrl are not modeled, since
-// CreateLogProject has no use for them.
+// CreateLogProject has no use for them. A live free order returned orderId
+// empty or null; OrderID routes through flexibleString so a numeric orderId,
+// if the API ever sends one, still decodes rather than failing the whole
+// response.
 type logProjectOrderResponse struct {
 	OrderID string `json:"orderId"`
+}
+
+// UnmarshalJSON decodes logProjectOrderResponse with OrderID routed through
+// flexibleString.
+func (r *logProjectOrderResponse) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		OrderID flexibleString `json:"orderId"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	r.OrderID = string(aux.OrderID)
+	return nil
 }
 
 // CreateLogProject orders a log project. It quotes first with
@@ -59,16 +78,17 @@ type logProjectOrderResponse struct {
 //
 // The order response is confirmed live to carry only amount, orderId, and
 // paymentUrl: it names no project id, name, or status (see LogProject's
-// doc comment). Without NoWait, CreateLogProject therefore waits up to 120
-// seconds for a project named Input.Name to appear, by ListLogProjects, at
-// LogProjectStatusActive, looking it up by the name the order itself just
-// sent rather than by anything the order response might carry. If the
-// bound runs out, or a read or a sleep in that wait fails, such as from a
-// canceled ctx, the returned error wraps dns.ErrNotSettled, reusing vDNS's
-// own sentinel per the design: the write must not be repeated. NoWait
-// skips that wait and returns at once, with Output.LogProject at its zero
-// value and only Output.OrderID set, from the order response's own
-// orderId.
+// doc comment). A live free order returned orderId empty or null, so
+// Output.OrderID is not guaranteed non-empty either way. Without NoWait,
+// CreateLogProject therefore waits up to 120 seconds for a project named
+// Input.Name to appear, by ListLogProjects, at LogProjectStatusActive,
+// looking it up by the name the order itself just sent rather than by
+// anything the order response might carry. If the bound runs out, or a
+// read or a sleep in that wait fails, such as from a canceled ctx, the
+// returned error wraps dns.ErrNotSettled, reusing vDNS's own sentinel per
+// the design: the write must not be repeated. NoWait skips that wait and
+// returns at once, with Output.LogProject at its zero value and only
+// Output.OrderID set, from the order response's own orderId.
 func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput) (*CreateLogProjectOutput, error) {
 	const op = "monitor.CreateLogProject"
 	if err := core.CheckRequired(op, in); err != nil {

@@ -2040,8 +2040,8 @@ func isConflictErr(err error) bool {
 }
 
 // TestLiveWriteMonitorLogProject exercises CreateLogProject, GetLogProject,
-// and DeleteLogProject (delete, then purge) against the account named in
-// .env.
+// and DeleteLogProject (delete and purge in one call) against the account
+// named in .env.
 //
 // The account has only one free Basic log project slot; this test orders
 // it, then deletes and purges it, per the owner's one-time approval for
@@ -2056,17 +2056,19 @@ func isConflictErr(err error) bool {
 // ordering anything, since a POST that fails ambiguously may still have
 // reached the server (step 3); orders the project with MaxPrice 0,
 // recording how long CreateLogProject's own wait took to see it reach
-// ACTIVE and whether the order response carried an OrderID (step 4); reads
-// it back (step 5); deletes it, moving it to trash (step 6); purges it in a
-// second call (step 7): a free project's delete was seen live to remove it
-// from the log-api list, the billing list, and trash within about a
-// second, so this purge's own pre-delete baseline read already 404s, and
-// DeleteLogProject must tolerate that and succeed with no wait; confirms a
-// read of it now returns not-found (step 8); and quotes, but does not
+// ACTIVE and whether the order response carried an OrderID, seen empty for
+// a free order (step 4); reads it back (step 5); deletes and purges it in
+// one DeleteLogProject call, the main way Purge is used (step 6); confirms
+// a read of it now returns not-found (step 7); and quotes, but does not
 // order, a second Basic project, to record whether the account's one free
-// slot becomes available again after a purge (step 9). Every step logs
-// only counts, statuses, field names, and timings, never the project's
-// name, id, or any other field value.
+// slot becomes available again after a purge (step 8). A free project was
+// seen live to leave the log-api list, the billing list, and trash on its
+// own within about a second of a delete, so a second, separate delete or
+// purge call on the same, already-removed project is not exercised here: it
+// is not a useful test, and was seen live to return a plain 409 Conflict or
+// 404 instead of settling. Every step logs only counts, statuses, field
+// names, and timings, never the project's name, id, or any other field
+// value.
 func TestLiveWriteMonitorLogProject(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor log project write test")
@@ -2184,42 +2186,30 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	}
 	t.Log("step 5: read the project back")
 
-	// Step 6: delete it, moving it to trash.
+	// Step 6: delete and purge it in one call, the main way Purge is used.
 	deleteStart := time.Now()
-	if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{LogProjectID: projectID}); err != nil {
-		t.Fatalf("step 6 DeleteLogProject: %s", safeErr(err))
-	}
-	t.Logf("step 6: delete settled after %s", time.Since(deleteStart))
-
-	// Step 7: purge it in a second call. A free project's delete was seen
-	// live to remove it from the log-api list, the billing list, and trash
-	// within about a second, so this call's own pre-delete baseline read
-	// already 404s; DeleteLogProject tolerates that, sending the delete and
-	// the purge anyway (both also 404, tolerated), and this must succeed
-	// with no wait, since there is no baseline left to wait against.
-	purgeStart := time.Now()
 	if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{LogProjectID: projectID, Purge: true}); err != nil {
-		t.Fatalf("step 7 DeleteLogProject(Purge): %s", safeErr(err))
+		t.Fatalf("step 6 DeleteLogProject(Purge): %s", safeErr(err))
 	}
-	t.Logf("step 7: purge settled after %s", time.Since(purgeStart))
+	t.Logf("step 6: delete and purge settled after %s", time.Since(deleteStart))
 
-	// Step 8: confirm the project is gone.
+	// Step 7: confirm the project is gone.
 	if _, err := client.GetLogProject(ctx, &monitor.GetLogProjectInput{LogProjectID: projectID}); !vngcloud.IsNotFound(err) {
-		t.Fatalf("step 8: GetLogProject after purge = %s, want NotFound", safeErr(err))
+		t.Fatalf("step 7: GetLogProject after purge = %s, want NotFound", safeErr(err))
 	}
-	t.Log("step 8: confirmed the project is gone")
+	t.Log("step 7: confirmed the project is gone")
 
-	// Step 9: quote, but do not order, a second Basic project, to record
+	// Step 8: quote, but do not order, a second Basic project, to record
 	// whether the account's one free slot is available again after a purge.
 	secondSuffix, err := randomHex(4)
 	if err != nil {
-		t.Fatalf("step 9 generate name suffix: %v", err)
+		t.Fatalf("step 8 generate name suffix: %v", err)
 	}
 	secondQuote, err := client.QuoteCreateLogProject(ctx, &monitor.CreateLogProjectInput{
 		Name: "vngcloud-live-" + secondSuffix, Class: monitor.LogProjectClassBasic,
 	})
 	if err != nil {
-		t.Fatalf("step 9 QuoteCreateLogProject: %s", safeErr(err))
+		t.Fatalf("step 8 QuoteCreateLogProject: %s", safeErr(err))
 	}
-	t.Logf("step 9: a second Basic quote after purge prices at %.0f VND", secondQuote.OptimumPrice)
+	t.Logf("step 8: a second Basic quote after purge prices at %.0f VND", secondQuote.OptimumPrice)
 }
