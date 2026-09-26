@@ -91,6 +91,10 @@ updated, err := client.UpdateHostedZone(ctx, &dns.UpdateHostedZoneInput{
 	HostedZoneID: created.HostedZone.ID,
 	Description:  vngcloud.Ptr("app zone"),
 })
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(updated.HostedZone.Description)
 
 if _, err := client.DeleteHostedZone(ctx, &dns.DeleteHostedZoneInput{
 	HostedZoneID: created.HostedZone.ID,
@@ -153,6 +157,10 @@ updated, err := client.UpdateRecord(ctx, &dns.UpdateRecordInput{
 	RecordID:     created.Record.ID,
 	TTL:          vngcloud.Ptr(120),
 })
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(updated.Record.TTL)
 
 if _, err := client.DeleteRecord(ctx, &dns.DeleteRecordInput{
 	HostedZoneID: zoneID,
@@ -209,6 +217,14 @@ the server's zone-lock 400 into a short wait instead. If the zone stays
 busy (`CREATING` or `UPDATING`) past the wait's bound, the call returns
 `dns.ErrZoneBusy` and sends nothing; running it again is safe.
 
+A zone already in `StatusError` counts as ready too, not busy, so
+`UpdateHostedZone`, `CreateRecord`, and `UpdateRecord` still send their
+write against it. Their post-write wait then sees that same `StatusError`
+at once and reports `dns.ErrFailed`, so a write to a zone already in
+`ERROR` always ends there. `DeleteHostedZone` and `DeleteRecord` do not
+check status in their post-write wait, only that the resource is gone, so a
+delete that succeeds against an `ERROR` zone settles normally.
+
 Unless `NoWait` is set on the Input, a write also waits for its own result
 after sending it:
 
@@ -251,8 +267,12 @@ case err != nil:
 
 With `NoWait` set, a create returns the `StatusCreating` resource from its
 own create response, an update returns after one read (not a poll loop),
-and a delete returns at once after the delete request succeeds; none of
-the six writes ever returns `ErrFailed` or `ErrNotSettled` in that case.
+and a delete returns at once after the delete request succeeds.
+`ErrFailed` never occurs with `NoWait` set. `ErrNotSettled` still can, but
+only for an update: its single confirm read runs after the write has
+already succeeded, and a failure there, such as a canceled `ctx`, still
+returns `ErrNotSettled` with the fallback Output built from the fields the
+write itself sent.
 
 Within one process, a `dns.Client` runs its writes, zone and record alike,
 one at a time, covering a call's entire pre-write wait, write, and

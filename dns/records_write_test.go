@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -334,6 +335,38 @@ func TestCreateRecordLockNotRetried(t *testing.T) {
 	}
 }
 
+// TestCreateRecordAmbiguousErrorHintsAtListing checks that a create POST
+// error that is not a 4xx *core.APIError, such as this 502, is wrapped
+// with a hint to list records before creating again, while errors.As can
+// still reach the *core.APIError cause through it.
+func TestCreateRecordAmbiguousErrorHintsAtListing(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+		case http.MethodPost:
+			w.WriteHeader(http.StatusBadGateway)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	_, err := client.CreateRecord(context.Background(), &CreateRecordInput{
+		HostedZoneID: "zone-1",
+		Type:         "A",
+		Values:       []RecordValue{{Value: "<ip>"}},
+		NoWait:       true,
+	})
+	if !strings.Contains(err.Error(), "list") {
+		t.Fatalf("err = %v, want a hint to list before creating again", err)
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadGateway {
+		t.Fatalf("errors.As did not reach the *core.APIError cause: %v", err)
+	}
+}
+
 func TestCreateRecordConflict(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -380,6 +413,27 @@ func TestCreateRecordPathIDRejection(t *testing.T) {
 }
 
 // --- UpdateRecord ---
+
+// TestRecordMatchesUpdateCaseInsensitive checks that recordMatchesUpdate
+// compares SubDomain, Type, and each value case-insensitively, since the
+// server lowercases what it stores (subDomain always, and an MX host by
+// its own rule) regardless of the case a caller sends.
+func TestRecordMatchesUpdateCaseInsensitive(t *testing.T) {
+	zone := &HostedZone{DomainName: "app.internal"}
+	r := &Record{
+		SubDomain: "mail.app.internal",
+		Type:      "MX",
+		Value:     []RecordValue{{Value: "10 mx1.example.com"}},
+	}
+	in := &UpdateRecordInput{
+		SubDomain: vngcloud.Ptr("Mail"),
+		Type:      vngcloud.Ptr("mx"),
+		Values:    vngcloud.Ptr([]RecordValue{{Value: "10 MX1.EXAMPLE.COM"}}),
+	}
+	if !recordMatchesUpdate(r, zone, in) {
+		t.Fatal("recordMatchesUpdate() = false, want true: SubDomain, Type, and Values must compare case-insensitively")
+	}
+}
 
 func TestUpdateRecordNoFieldsSet(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

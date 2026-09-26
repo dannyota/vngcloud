@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -116,7 +117,7 @@ func (c *Client) CreateRecord(ctx context.Context, in *CreateRecordInput) (*Crea
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
-		return nil, err
+		return nil, wrapAmbiguousCreateErr(op, err)
 	}
 	record := resp.Data
 	if record.ID == "" {
@@ -166,15 +167,20 @@ type UpdateRecordOutput struct {
 // Without NoWait, it then waits for the record, and the zone it belongs to,
 // to both reach StatusActive with the sent fields; a record shown as the
 // zone's SubDomain is checked against the full name, since the server
-// returns SubDomain as the full name rather than the label sent. It returns
-// an error wrapping ErrFailed if the record or the zone reaches StatusError,
-// or one wrapping ErrNotSettled if that wait's own bound runs out or a read
-// or a sleep in it fails, such as from a canceled ctx. With NoWait, it
-// returns after one read instead of waiting, and wraps that same read's
-// failure in ErrNotSettled too, since the PUT above has already succeeded
-// by then. Every one of these outcomes keeps a non-nil Output: the last
-// record a read returned, or, if none did, one built from the fields the PUT
-// itself sent.
+// returns SubDomain as the full name rather than the label sent, and
+// SubDomain, Type, and each value compare case-insensitively, since the
+// server lowercases some of what it stores. The server always takes the
+// zone lock for a record update, even one that changes nothing, so a match
+// on the wait's very first poll never settles by itself; it takes a second
+// poll, after one more pollInterval, to confirm the lock has had time to
+// appear and clear. It returns an error wrapping ErrFailed if the record or
+// the zone reaches StatusError, or one wrapping ErrNotSettled if that wait's
+// own bound runs out or a read or a sleep in it fails, such as from a
+// canceled ctx. With NoWait, it returns after one read instead of waiting,
+// and wraps that same read's failure in ErrNotSettled too, since the PUT
+// above has already succeeded by then. Every one of these outcomes keeps a
+// non-nil Output: the last record a read returned, or, if none did, one
+// built from the fields the PUT itself sent.
 func (c *Client) UpdateRecord(ctx context.Context, in *UpdateRecordInput) (*UpdateRecordOutput, error) {
 	const op = "dns.UpdateRecord"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -261,8 +267,21 @@ func (c *Client) UpdateRecord(ctx context.Context, in *UpdateRecordInput) (*Upda
 		return &UpdateRecordOutput{Record: *record}, nil
 	}
 
+	// The server always takes the zone lock on a record update, even a
+	// no-op, so a read that already shows StatusActive and the sent fields
+	// on the very first poll, before the lock could ever have appeared,
+	// does not yet prove the write landed. polled tracks whether settled
+	// has already been asked once; the first time, it holds out for
+	// another poll, which needs at least one more pollInterval, before it
+	// will trust the same match.
+	polled := false
 	settled, err := c.settleRecord(ctx, op, in.HostedZoneID, in.RecordID, func(r *Record, zone *HostedZone) bool {
-		return r.Status == StatusActive && recordMatchesUpdate(r, zone, in)
+		first := !polled
+		polled = true
+		if r.Status != StatusActive || !recordMatchesUpdate(r, zone, in) {
+			return false
+		}
+		return !first
 	})
 	if settled == nil {
 		settled = &fallback
@@ -273,12 +292,14 @@ func (c *Client) UpdateRecord(ctx context.Context, in *UpdateRecordInput) (*Upda
 // recordMatchesUpdate reports whether r shows every field that in's caller
 // set. SubDomain is checked against the zone's full name, since the
 // server returns SubDomain as the full name (the zone's DomainName for the
-// apex, or "<label>.<DomainName>" otherwise) rather than the label sent.
+// apex, or "<label>.<DomainName>" otherwise) rather than the label sent;
+// that comparison, and Type's, are case-insensitive, since the server
+// lowercases the subDomain it stores regardless of the case sent.
 func recordMatchesUpdate(r *Record, zone *HostedZone, in *UpdateRecordInput) bool {
-	if in.SubDomain != nil && r.SubDomain != fullSubDomain(*in.SubDomain, zone.DomainName) {
+	if in.SubDomain != nil && !strings.EqualFold(r.SubDomain, fullSubDomain(*in.SubDomain, zone.DomainName)) {
 		return false
 	}
-	if in.Type != nil && r.Type != *in.Type {
+	if in.Type != nil && !strings.EqualFold(r.Type, *in.Type) {
 		return false
 	}
 	if in.TTL != nil && r.TTL != *in.TTL {
@@ -307,14 +328,16 @@ func fullSubDomain(subDomain, domainName string) string {
 }
 
 // recordValuesEqual reports whether a and b hold the same values in the
-// same order, comparing Location and Weight by their pointed-to value
-// rather than by pointer identity.
+// same order, since the server keeps the order values were sent in;
+// Value compares case-insensitively, for the same reason SubDomain does in
+// recordMatchesUpdate, and Location and Weight compare by their pointed-to
+// value rather than by pointer identity.
 func recordValuesEqual(a, b []RecordValue) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if a[i].Value != b[i].Value {
+		if !strings.EqualFold(a[i].Value, b[i].Value) {
 			return false
 		}
 		if !ptrEqual(a[i].Location, b[i].Location) {
@@ -358,9 +381,10 @@ type DeleteRecordOutput struct{}
 // ctx. With NoWait, it returns at once after the delete request succeeds.
 // DELETE is idempotent and keeps the transport's own retries; a retry that
 // finds the record already gone returns NotFound, which is not an error
-// DeleteRecord itself needs to handle specially. The Output is always
-// non-nil; DeleteRecordOutput carries no field, so there is nothing else
-// for a caller to fall back to.
+// DeleteRecord itself needs to handle specially. The Output is non-nil only
+// once the delete request itself has succeeded; every earlier error, such
+// as a bad input or ErrZoneBusy, returns a nil Output. DeleteRecordOutput
+// carries no field, so there is nothing else for a caller to fall back to.
 func (c *Client) DeleteRecord(ctx context.Context, in *DeleteRecordInput) (*DeleteRecordOutput, error) {
 	const op = "dns.DeleteRecord"
 	if err := core.CheckRequired(op, in); err != nil {

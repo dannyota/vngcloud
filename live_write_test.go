@@ -820,8 +820,8 @@ func TestLiveWriteDNS(t *testing.T) {
 	}
 
 	// Step 6: delete all three records explicitly. DeleteRecord is
-	// idempotent, so t.Cleanup's own record delete above finds them already
-	// gone.
+	// idempotent, so t.Cleanup's own record delete, which runs after this
+	// test function returns, lists records and finds none left to delete.
 	start = time.Now()
 	deletedRecords := 0
 	for _, id := range []string{aRecord.Record.ID, mxRecord.Record.ID, txtRecord.Record.ID} {

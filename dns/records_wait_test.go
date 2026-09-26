@@ -195,6 +195,45 @@ func TestCreateRecordErrNotSettled(t *testing.T) {
 	}
 }
 
+// TestCreateRecordSettleReadFailureFallsBackToCreateResponse checks that a
+// read failure in the post-write settle, such as this 500, wraps
+// ErrNotSettled (the read never confirmed or denied the write) and that the
+// Output falls back to the record the create response itself carried,
+// since no read after the create ever came back to replace it.
+func TestCreateRecordSettleReadFailureFallsBackToCreateResponse(t *testing.T) {
+	posted := false
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if !posted {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+				return
+			}
+			// The settle's first read after the create fails outright,
+			// rather than returning a decodable status.
+			w.WriteHeader(http.StatusInternalServerError)
+		case http.MethodPost:
+			posted = true
+			testutil.WriteFixture(t, w, "../testdata/dns/create_record.json")
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := client.CreateRecord(context.Background(), &CreateRecordInput{
+		HostedZoneID: "zone-1",
+		Type:         "TXT",
+		Values:       []RecordValue{{Value: "<secret>"}},
+	})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if out == nil || out.Record.ID != "record-1" {
+		t.Fatalf("out = %+v, want the create response's own record as fallback", out)
+	}
+}
+
 // --- UpdateRecord's pre- and post-write waits ---
 
 func TestUpdateRecordPreWriteWaitThroughBusyToActive(t *testing.T) {
@@ -279,6 +318,149 @@ func TestUpdateRecordSettledMatchesFullSubDomainName(t *testing.T) {
 	}
 	if out.Record.SubDomain != "www.app.internal" {
 		t.Fatalf("SubDomain = %q, want %q", out.Record.SubDomain, "www.app.internal")
+	}
+}
+
+// TestUpdateRecordSettledSubDomainCaseInsensitive checks that the post-write
+// settle compares a sent SubDomain case-insensitively against the zone's
+// full name, since the server lowercases subDomain in what it stores: a
+// settle that compared the sent "Mail" against a read of
+// "mail.app.internal" byte for byte would never match and this test would
+// time out into ErrNotSettled instead of returning nil.
+func TestUpdateRecordSettledSubDomainCaseInsensitive(t *testing.T) {
+	zoneJSON := `{"data":{"hostedZoneId":"zone-1","domainName":"app.internal","status":"ACTIVE","type":"PRIVATE","assocVpcIds":["vpc-1"]}}`
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1/record/record-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordBody(Record{ID: "record-1", HostedZoneID: "zone-1", Status: StatusActive, SubDomain: "mail.app.internal"})))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := client.UpdateRecord(context.Background(), &UpdateRecordInput{
+		HostedZoneID: "zone-1",
+		RecordID:     "record-1",
+		SubDomain:    vngcloud.Ptr("Mail"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateRecord() error = %v", err)
+	}
+	if out.Record.SubDomain != "mail.app.internal" {
+		t.Fatalf("SubDomain = %q, want %q", out.Record.SubDomain, "mail.app.internal")
+	}
+}
+
+// TestUpdateRecordApexSettle checks that an update setting SubDomain to ""
+// settles against a record whose SubDomain the server returns as the
+// zone's own DomainName, the apex's full name.
+func TestUpdateRecordApexSettle(t *testing.T) {
+	zoneJSON := `{"data":{"hostedZoneId":"zone-1","domainName":"app.internal","status":"ACTIVE","type":"PRIVATE","assocVpcIds":["vpc-1"]}}`
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1/record/record-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordBody(Record{ID: "record-1", HostedZoneID: "zone-1", Status: StatusActive, SubDomain: "app.internal"})))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := client.UpdateRecord(context.Background(), &UpdateRecordInput{
+		HostedZoneID: "zone-1",
+		RecordID:     "record-1",
+		SubDomain:    vngcloud.Ptr(""),
+	})
+	if err != nil {
+		t.Fatalf("UpdateRecord() error = %v", err)
+	}
+	if out.Record.SubDomain != "app.internal" {
+		t.Fatalf("SubDomain = %q, want %q", out.Record.SubDomain, "app.internal")
+	}
+}
+
+// TestUpdateRecordSettleRequiresPollAfterZoneLock checks that the update
+// settle does not report settled on its very first poll, even when the
+// server already shows the zone ACTIVE and the record matching the sent
+// fields: the server always takes the zone lock on a record update, even a
+// no-op, so a settle that trusted the very first read could pass before the
+// lock ever appeared. The mock always returns the matching ACTIVE state, so
+// a settle without this guard would need only one poll; this one needs at
+// least two.
+func TestUpdateRecordSettleRequiresPollAfterZoneLock(t *testing.T) {
+	var recordGets atomic.Int64
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/dns/hosted-zone/zone-1/record/record-1":
+			recordGets.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordBody(Record{ID: "record-1", HostedZoneID: "zone-1", Status: StatusActive, TTL: 60})))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := client.UpdateRecord(context.Background(), &UpdateRecordInput{
+		HostedZoneID: "zone-1",
+		RecordID:     "record-1",
+		TTL:          vngcloud.Ptr(60),
+	})
+	if err != nil {
+		t.Fatalf("UpdateRecord() error = %v", err)
+	}
+	if out.Record.TTL != 60 {
+		t.Fatalf("TTL = %d, want 60", out.Record.TTL)
+	}
+	if recordGets.Load() < 2 {
+		t.Fatalf("record GET calls = %d, want at least 2: settle must not trust the very first poll", recordGets.Load())
+	}
+}
+
+// TestUpdateRecordSettlePollsThroughBusyZoneWhileRecordActive checks that
+// the settle does not report settled while the zone is UPDATING, even
+// though the record itself already reads ACTIVE with the sent fields: the
+// zone lock a record update takes matters, not just the record's own
+// status, so the settle must keep polling until the zone itself reads
+// ACTIVE too.
+func TestUpdateRecordSettlePollsThroughBusyZoneWhileRecordActive(t *testing.T) {
+	client := withInstantSleep(newTestClient(t, scriptedZoneAndRecordGets(t,
+		[]string{
+			zoneBody(StatusUpdating, "d", []string{"vpc-1"}),
+			zoneBody(StatusUpdating, "d", []string{"vpc-1"}),
+			zoneBody(StatusActive, "d", []string{"vpc-1"}),
+		},
+		[]string{recordBody(Record{ID: "record-1", HostedZoneID: "zone-1", Status: StatusActive, TTL: 60})},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	)))
+
+	out, err := client.UpdateRecord(context.Background(), &UpdateRecordInput{
+		HostedZoneID: "zone-1",
+		RecordID:     "record-1",
+		TTL:          vngcloud.Ptr(60),
+	})
+	if err != nil {
+		t.Fatalf("UpdateRecord() error = %v", err)
+	}
+	if out.Record.TTL != 60 {
+		t.Fatalf("TTL = %d, want 60", out.Record.TTL)
 	}
 }
 
