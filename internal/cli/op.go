@@ -22,16 +22,18 @@ const (
 
 // Op is one operation of a service's typed operation table, parameterized
 // only by the client type C. Its own Input and Output types are erased
-// behind newInput and call, so a []Op[C] can hold operations with differing
-// Input and Output types side by side, while the compiler still rejects an
-// Op built from another client type's method.
+// behind newInput, newOutput, and call, so a []Op[C] can hold operations with
+// differing Input and Output types side by side, while the compiler still
+// rejects an Op built from another client type's method.
 type Op[C any] struct {
 	name        string
 	methodName  string
 	kind        opKind
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
+	noFlag      map[string]bool
 	newInput    func() any
+	newOutput   func() any
 	call        func(client *C, ctx context.Context, in any) (any, error)
 }
 
@@ -72,34 +74,65 @@ func WriteRedact[Out any](fn func(*Out)) writeOption {
 	return writeOption{redact: func(out any) { fn(out.(*Out)) }}
 }
 
-// readOption configures a Read operation. Redact is the only one today.
-type readOption[Out any] struct{ redact func(*Out) }
+// readOption configures a Read operation: NoFlag, Redact, or both.
+type readOption struct {
+	noFlag map[string]bool
+	redact any // func(*Out) for the Read's own Out, checked in Read
+}
 
 // Redact marks a Read operation's Output as holding a value the CLI must
 // never print unchanged: fn runs on the SDK's own result and mutates it in
 // place, before the result reaches renderOutput, so a secret it holds can
 // never reach json, table, or text output, or survive a --query, by any
 // flag.
-func Redact[Out any](fn func(*Out)) readOption[Out] {
-	return readOption[Out]{redact: fn}
+func Redact[Out any](fn func(*Out)) readOption {
+	return readOption{redact: fn}
+}
+
+// NoFlag marks Input fields that stay settable only through
+// --cli-input-json: flags.go never derives a flag for one, validateOps skips
+// it in the global-flag collision check, and gen-docs lists it as JSON-only.
+// project's ListProjectsInput.Region needs this because its mechanical flag
+// name ("--region") would collide with the global --region flag, and the
+// field only filters a result the global flag already scopes; see the CLI
+// reads design's "project" section.
+func NoFlag(fields ...string) readOption {
+	m := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		m[f] = true
+	}
+	return readOption{noFlag: m}
 }
 
 // Read registers a read operation: name is its kebab-case command name, and
 // method is an SDK method expression such as (*compute.Client).ListServers.
-// opts is Redact for an operation whose Output needs it; every other Read
-// leaves it unset.
-func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...readOption[Out]) Op[C] {
+// opts holds NoFlag and Redact where an operation needs them. A Redact
+// whose function does not take this Read's Output panics at registration.
+func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...readOption) Op[C] {
 	var redact func(*Out)
+	noFlag := map[string]bool{}
 	for _, o := range opts {
+		for f := range o.noFlag {
+			noFlag[f] = true
+		}
 		if o.redact != nil {
-			redact = o.redact
+			if redact != nil {
+				panic("cli: " + name + " was given a second Redact option; an op takes at most one")
+			}
+			fn, ok := o.redact.(func(*Out))
+			if !ok {
+				panic("cli: Redact function does not match the Output of " + name)
+			}
+			redact = fn
 		}
 	}
 	return Op[C]{
 		name:       name,
 		methodName: funcName(method),
 		kind:       kindRead,
+		noFlag:     noFlag,
 		newInput:   func() any { return new(In) },
+		newOutput:  func() any { return new(Out) },
 		call: func(client *C, ctx context.Context, in any) (any, error) {
 			out, err := method(client, ctx, in.(*In))
 			if err != nil {
@@ -124,6 +157,7 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 		methodName: funcName(method),
 		kind:       kindWrite,
 		newInput:   func() any { return new(In) },
+		newOutput:  func() any { return new(Out) },
 	}
 	for _, o := range opts {
 		if o.destructive {
@@ -192,18 +226,29 @@ func Service[C any](e *env, name, short string, newClient func(vngcloud.Config) 
 	return cmd
 }
 
-// validateOps checks every op in ops against the two invariants Service
+// validateOps checks every op in ops against the invariants Service
 // enforces; see Service's doc comment.
 func validateOps[C any](serviceName string, ops []Op[C]) error {
 	for _, op := range ops {
 		if err := checkOpName(op.methodName, op.name); err != nil {
 			return newUsageError("service %q: %s", serviceName, err)
 		}
-		specs, err := flagSpecsFor(op.newInput())
+		input := op.newInput()
+		fieldNames, err := inputFieldNames(input)
 		if err != nil {
 			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
 		}
-		for _, spec := range specs {
+		for name := range op.noFlag {
+			if !fieldNames[name] {
+				return newUsageError("service %q op %q: NoFlag(%q) names no field of its Input",
+					serviceName, op.name, name)
+			}
+		}
+		specs, err := flagSpecsFor(input)
+		if err != nil {
+			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
+		}
+		for _, spec := range withoutNoFlag(specs, op.noFlag) {
 			if globalFlagNames[spec.flagName] {
 				return newUsageError("service %q op %q: flag --%s collides with a global flag",
 					serviceName, op.name, spec.flagName)
@@ -221,6 +266,7 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 	if err != nil {
 		panic(err)
 	}
+	specs = withoutNoFlag(specs, op.noFlag)
 
 	cmd := &cobra.Command{
 		Use:  op.name,
@@ -270,7 +316,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		}
 	}
 
-	if err := checkRequiredFlags(input); err != nil {
+	if err := checkRequiredFlags(input, op.noFlag); err != nil {
 		return err
 	}
 	// Compiled again in renderOutput once there is a result to run it

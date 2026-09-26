@@ -122,7 +122,8 @@ func (c *Client) getHostedZone(ctx context.Context, op, zoneID string) (*HostedZ
 	return &resp.Data, nil
 }
 
-// waitZoneReady is the pre-write wait every zone update and zone delete runs
+// waitZoneReady is the pre-write wait every zone update and delete, and
+// every record write (CreateRecord, UpdateRecord, DeleteRecord), runs
 // before sending anything: it reads the zone until its Status is
 // StatusActive or StatusError, the two states the server accepts a write
 // against; CREATING, UPDATING, and any status this SDK does not recognize
@@ -244,4 +245,23 @@ func equalStringSets(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// wrapAmbiguousCreateErr wraps err, from the create POST op just sent, with
+// a hint to list before creating again, unless err is already a 4xx
+// *core.APIError: a 4xx means the server rejected the request outright, so
+// nothing was created and the exact same call is safe to retry. Any other
+// error, a 5xx or a failure before any response ever came back, such as a
+// canceled ctx or a dropped connection, leaves whether the resource was
+// created unknown. Wrapping with %w keeps errors.Is and errors.As reaching
+// err's own cause; a nil err stays nil.
+func wrapAmbiguousCreateErr(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *core.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+		return err
+	}
+	return fmt.Errorf("%s: create may have already reached the server; list before creating it again: %w", op, err)
 }

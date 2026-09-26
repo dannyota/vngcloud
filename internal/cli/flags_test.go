@@ -139,7 +139,7 @@ type requiredTestInput struct {
 }
 
 func TestCheckRequiredFlagsNamesTheFlag(t *testing.T) {
-	err := checkRequiredFlags(&requiredTestInput{})
+	err := checkRequiredFlags(&requiredTestInput{}, nil)
 	if err == nil {
 		t.Fatalf("expected an error for a missing required field")
 	}
@@ -153,7 +153,7 @@ func TestCheckRequiredFlagsNamesTheFlag(t *testing.T) {
 }
 
 func TestCheckRequiredFlagsPassesWhenSet(t *testing.T) {
-	if err := checkRequiredFlags(&requiredTestInput{BudgetUUID: "b-1"}); err != nil {
+	if err := checkRequiredFlags(&requiredTestInput{BudgetUUID: "b-1"}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -163,8 +163,33 @@ func TestCheckRequiredFlagsCanBeSatisfiedAfterJSONMerge(t *testing.T) {
 	if err := applyCLIInputJSON(`{"BudgetUUID":"b-1"}`, in); err != nil {
 		t.Fatalf("applyCLIInputJSON: %v", err)
 	}
-	if err := checkRequiredFlags(in); err != nil {
+	if err := checkRequiredFlags(in, nil); err != nil {
 		t.Fatalf("unexpected error after JSON supplied the required field: %v", err)
+	}
+}
+
+// requiredNoFlagTestInput stands in for an Input whose required field is
+// NoFlag (op.go), the shape project.ListProjectsInput.Region would have if
+// it were ever marked required: no flag exists for it, so the error must
+// name the Go field name a --cli-input-json key uses instead.
+type requiredNoFlagTestInput struct {
+	Region string `vngcloud:"required"`
+}
+
+// TestCheckRequiredFlagsNamesTheJSONFieldForANoFlagField checks that a
+// required field marked NoFlag gets an error naming the JSON field ("Region"),
+// never a flag ("--region") that flags.go never registered for it.
+func TestCheckRequiredFlagsNamesTheJSONFieldForANoFlagField(t *testing.T) {
+	err := checkRequiredFlags(&requiredNoFlagTestInput{}, map[string]bool{"Region": true})
+	if err == nil {
+		t.Fatalf("expected an error for a missing required NoFlag field")
+	}
+	got := err.Error()
+	if got != "Region is required; set it with --cli-input-json" {
+		t.Fatalf("error = %q, want it to name the JSON field", got)
+	}
+	if strings.Contains(got, "--region") {
+		t.Fatalf("error = %q, names a flag that does not exist", got)
 	}
 }
 

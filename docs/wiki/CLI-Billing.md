@@ -66,7 +66,7 @@ Kind: Read.
 No fields.
 
 ```sh
-vngcloud billing get-balances
+vngcloud billing get-balances --query Balances
 ```
 
 ## get-budget
@@ -78,7 +78,7 @@ Kind: Read.
 | `--budget-uuid` | `string` | yes |
 
 ```sh
-vngcloud billing get-budget --budget-uuid <budget-uuid>
+vngcloud billing get-budget --budget-uuid <budget-uuid> --query Budget
 ```
 
 ## get-cost-overview
@@ -107,7 +107,7 @@ Kind: Read.
 No fields.
 
 ```sh
-vngcloud billing get-current-period-cost
+vngcloud billing get-current-period-cost --query PeriodCost
 ```
 
 ## list-budget-alerts

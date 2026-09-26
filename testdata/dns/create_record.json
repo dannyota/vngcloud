@@ -1,0 +1,19 @@
+{
+  "data": {
+    "recordId": "record-1",
+    "hostedZoneId": "zone-1",
+    "subDomain": "<hostname>",
+    "status": "CREATING",
+    "type": "TXT",
+    "routingPolicy": "simple-routing",
+    "value": [
+      {
+        "value": "<secret>"
+      },
+      {
+        "value": "<secret>"
+      }
+    ],
+    "ttl": 300
+  }
+}

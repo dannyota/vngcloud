@@ -79,7 +79,7 @@ func (c *Client) CreateHostedZone(ctx context.Context, in *CreateHostedZoneInput
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
-		return nil, err
+		return nil, wrapAmbiguousCreateErr(op, err)
 	}
 	zone := resp.Data
 	if zone.ID == "" {

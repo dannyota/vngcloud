@@ -54,7 +54,9 @@ A repeat delete returns 404. Lists return `listData`, `page`, `pageSize`,
 ### Rules the server enforces
 
 - The apex is `subDomain: ""`; `"@"` is a 400. Responses return
-  `subDomain` as the full name (`www.<zone>`, or the zone for the apex).
+  `subDomain` as the full name, lowercased (`Www` becomes `www.<zone>`).
+- `type` must be upper case; `a` is a 400. An MX host must be lower case
+  with no trailing dot. Values keep the order they were sent in.
 - `routingPolicy` is `simple-routing`, `weighted`, or `geolocation`;
   `simple` is a 400.
 - Types are `A`, `CNAME`, `MX`, `SRV`, `TXT`, and `PTR`. The server makes
@@ -72,8 +74,10 @@ Zone statuses seen are `CREATING`, `ACTIVE`, `UPDATING`, and `ERROR`. A
 zone update that changes the VPC list sets `UPDATING` before the 204
 returns and holds it for about 6 seconds; a description-only update,
 including a no-op, never leaves `ACTIVE`. So a read that is `ACTIVE` and
-shows the sent fields is settled. Every record
-create or update moves its zone out of `ACTIVE` for about 11 to 12 seconds.
+shows the sent fields is settled. Every record create or update, even
+one that changes nothing, moves its zone out of `ACTIVE` for about 11 to
+12 seconds, so a record update settles only after the zone has left
+`ACTIVE` or a poll interval has passed.
 Meanwhile any other record write to that zone fails with 400 `<zone> was
 invalid status. Allowed in [ACTIVE, ERROR]`, and nothing is written. A record
 delete left the zone `ACTIVE` within a second.

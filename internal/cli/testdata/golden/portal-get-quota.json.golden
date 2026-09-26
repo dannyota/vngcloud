@@ -1,0 +1,7 @@
+{
+  "Quota": {
+    "limit": 10,
+    "quotaName": "vcpu",
+    "used": 1
+  }
+}

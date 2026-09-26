@@ -514,6 +514,45 @@ func TestOpWriteRedactRedactsOutput(t *testing.T) {
 	}
 }
 
+// TestReadPanicsOnASecondRedactOption checks op.go's guard against a
+// mismatched pair of Redact options on one Read: a second Redact silently
+// overwriting the first would mean whichever option is listed last wins with
+// no warning, so Read panics instead of choosing one.
+func TestReadPanicsOnASecondRedactOption(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("expected Read to panic when given a second Redact option")
+		}
+	}()
+	Read[fakeClient, fakeGetInput, fakeGetOutput]("fake-get", (*fakeClient).FakeGet,
+		Redact(func(*fakeGetOutput) {}),
+		Redact(func(*fakeGetOutput) {}),
+	)
+}
+
+type badNoFlagInput struct {
+	Name string
+}
+type badNoFlagOutput struct{}
+
+func fakeBadNoFlagMethod(_ *fakeClient, _ context.Context, _ *badNoFlagInput) (*badNoFlagOutput, error) {
+	return &badNoFlagOutput{}, nil
+}
+
+// TestValidateOpsRejectsNoFlagNamingNoField checks validateOps' guard
+// against a NoFlag name that is not a field of the op's Input at all: a
+// typo there would otherwise mark nothing and fail silently, leaving the
+// mistyped field's mechanical flag registered exactly as if NoFlag had
+// never been given.
+func TestValidateOpsRejectsNoFlagNamingNoField(t *testing.T) {
+	ops := []Op[fakeClient]{
+		Read[fakeClient, badNoFlagInput, badNoFlagOutput]("fake-bad-no-flag-method", fakeBadNoFlagMethod, NoFlag("NoSuchField")),
+	}
+	if err := validateOps("fake", ops); err == nil {
+		t.Fatalf("expected an error for a NoFlag name that is not an Input field")
+	}
+}
+
 func TestFuncNameRecoversMethodExpressionName(t *testing.T) {
 	if got := funcName((*billing.Client).ListBudgets); got != "ListBudgets" {
 		t.Fatalf("funcName = %q, want ListBudgets", got)

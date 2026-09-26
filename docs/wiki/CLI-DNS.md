@@ -17,6 +17,25 @@ Kind: Write.
 vngcloud dns create-hosted-zone --domain-name <domain-name> --cli-input-json '{"VPCIDs":["<vpc-id>"]}'
 ```
 
+## create-record
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--hosted-zone-id` | `string` | yes |
+| `--type` | `string` | yes |
+| `Values` (via `--cli-input-json` only) | `[]dns.RecordValue` | yes |
+| `--sub-domain` | `string` |  |
+| `--ttl` | `int` |  |
+| `--routing-policy` | `string` |  |
+| `--sticky-session` | `*bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns create-record --hosted-zone-id <hosted-zone-id> --type <type> --cli-input-json '{"Values":[{"Value":"<value>"}]}'
+```
+
 ## delete-hosted-zone
 
 Kind: Write, destructive.
@@ -30,6 +49,20 @@ Kind: Write, destructive.
 vngcloud dns delete-hosted-zone --hosted-zone-id <hosted-zone-id> --yes
 ```
 
+## delete-record
+
+Kind: Write, destructive.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--hosted-zone-id` | `string` | yes |
+| `--record-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns delete-record --hosted-zone-id <hosted-zone-id> --record-id <record-id> --yes
+```
+
 ## get-hosted-zone
 
 Kind: Read.
@@ -39,7 +72,7 @@ Kind: Read.
 | `--hosted-zone-id` | `string` | yes |
 
 ```sh
-vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id>
+vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id> --query HostedZone
 ```
 
 ## get-record
@@ -52,7 +85,7 @@ Kind: Read.
 | `--record-id` | `string` | yes |
 
 ```sh
-vngcloud dns get-record --hosted-zone-id <hosted-zone-id> --record-id <record-id>
+vngcloud dns get-record --hosted-zone-id <hosted-zone-id> --record-id <record-id> --query Record
 ```
 
 ## list-hosted-zones
@@ -95,5 +128,25 @@ Kind: Write.
 
 ```sh
 vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id> --description <description>
+```
+
+## update-record
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--hosted-zone-id` | `string` | yes |
+| `--record-id` | `string` | yes |
+| `--sub-domain` | `*string` |  |
+| `--type` | `*string` |  |
+| `--ttl` | `*int` |  |
+| `--routing-policy` | `*string` |  |
+| `Values` (via `--cli-input-json` only) | `*[]dns.RecordValue` |  |
+| `--sticky-session` | `*bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud dns update-record --hosted-zone-id <hosted-zone-id> --record-id <record-id> --ttl <ttl>
 ```
 

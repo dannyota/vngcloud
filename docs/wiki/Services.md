@@ -11,8 +11,8 @@ required, returns `vngcloud.ErrInvalidInput` before any request.
 
 `billing` and `pricing` cover writes too: budgets can be created, changed,
 paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
-`dns` covers hosted zone writes too: zones can be created, changed, and
-deleted. See [DNS](DNS.md).
+`dns` covers hosted zone and record writes too: zones and records can be
+created, changed, and deleted. See [DNS](DNS.md).
 
 ## Coverage
 
@@ -25,7 +25,7 @@ deleted. See [DNS](DNS.md).
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints | Typed | Some methods discover VNetwork region metadata before reading resources. |
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates | Typed | Requires IAM User permissions for the target load balancer resources. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
-| DNS | `dns` | Hosted zones and records, plus zone writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
+| DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users | Map-backed | Map-backed until the API surface is stable enough for typed structs. |
 
 ## Project
@@ -189,8 +189,9 @@ dnsClient.GetRecord(ctx, in)        // HostedZoneID, RecordID (both required)
 DNS APIs are not project-scoped in the same way as regional compute
 resources. They may still require IAM User permissions for the DNS product.
 
-Zone writes (`CreateHostedZone`, `UpdateHostedZone`, `DeleteHostedZone`) and
-their waits are on the [DNS](DNS.md) page.
+Zone writes (`CreateHostedZone`, `UpdateHostedZone`, `DeleteHostedZone`),
+record writes (`CreateRecord`, `UpdateRecord`, `DeleteRecord`), and their
+waits are on the [DNS](DNS.md) page.
 
 ## Container Registry
 

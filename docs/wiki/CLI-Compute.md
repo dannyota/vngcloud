@@ -11,7 +11,7 @@ Kind: Read.
 | `--server-id` | `string` | yes |
 
 ```sh
-vngcloud compute get-server --server-id <server-id>
+vngcloud compute get-server --server-id <server-id> --query Server
 ```
 
 ## list-gpu-images

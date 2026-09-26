@@ -318,6 +318,29 @@ func TestCreateHostedZoneVPCInactiveDNS(t *testing.T) {
 	}
 }
 
+// TestCreateHostedZoneAmbiguousErrorHintsAtListing checks that a create
+// POST error that is not a 4xx *core.APIError, such as this 502, is
+// wrapped with a hint to list zones before creating again, while errors.As
+// can still reach the *core.APIError cause through it.
+func TestCreateHostedZoneAmbiguousErrorHintsAtListing(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+
+	_, err := client.CreateHostedZone(context.Background(), &CreateHostedZoneInput{
+		DomainName: "example.internal",
+		VPCIDs:     []string{"vpc-1"},
+		NoWait:     true,
+	})
+	if !strings.Contains(err.Error(), "list") {
+		t.Fatalf("err = %v, want a hint to list before creating again", err)
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadGateway {
+		t.Fatalf("errors.As did not reach the *core.APIError cause: %v", err)
+	}
+}
+
 func TestCreateHostedZoneConflict(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)

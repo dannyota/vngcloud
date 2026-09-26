@@ -36,9 +36,10 @@ type docService struct {
 }
 
 type docOp struct {
-	name   string
-	kind   string // "Read", "Write", or "Write, destructive"
-	fields []docField
+	name       string
+	kind       string // "Read", "Write", or "Write, destructive"
+	fields     []docField
+	queryField string // non-empty for a Get whose Output wraps one resource; see wrappedResourceField
 }
 
 // docField is one Input field as gen-docs documents it: a flag (name and
@@ -64,15 +65,21 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 				kind = "Write, destructive"
 			}
 		}
-		svc.ops[i] = docOp{name: op.name, kind: kind, fields: docFieldsFor(op.newInput())}
+		svc.ops[i] = docOp{
+			name:       op.name,
+			kind:       kind,
+			fields:     docFieldsFor(op.newInput(), op.noFlag),
+			queryField: wrappedResourceField(op.methodName, op.newOutput),
+		}
 	}
 	return svc
 }
 
 // docFieldsFor lists every exported Input field in declaration order: its
-// flag name and Go type when flags.go can bind it (a pointer type is shown
-// with its leading *), or its Go field name marked viaJSON otherwise.
-func docFieldsFor(inputPtr any) []docField {
+// flag name and Go type when flags.go can bind it and NoFlag (op.go) does
+// not mark it (a pointer type is shown with its leading *), or its Go field
+// name marked viaJSON otherwise.
+func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
 	for i := range t.NumField() {
@@ -81,6 +88,10 @@ func docFieldsFor(inputPtr any) []docField {
 			continue
 		}
 		required := f.Tag.Get("vngcloud") == "required"
+		if noFlag[f.Name] {
+			fields = append(fields, docField{name: f.Name, goType: readableGoType(f.Type), required: required, viaJSON: true})
+			continue
+		}
 		kind, isPointer, ok := supportedFieldKind(f.Type)
 		if !ok {
 			fields = append(fields, docField{name: f.Name, goType: readableGoType(f.Type), required: required, viaJSON: true})
@@ -93,6 +104,36 @@ func docFieldsFor(inputPtr any) []docField {
 		fields = append(fields, docField{name: flagNameFor(f.Name), goType: goType, required: required})
 	}
 	return fields
+}
+
+// wrappedResourceField names the Output field a Get command's wiki example
+// queries, so a table or text run of that example prints columns instead of
+// one compact-JSON cell (the CLI reads design's "Commands": every Get
+// response wraps one resource in a single field, such as
+// GetServerOutput{Server} or GetQuotaOutput{Quota}). It returns "" for
+// anything that is not a Get (a List's Output holds Items, plus page fields
+// for a PagedList) or whose Output does not wrap exactly one field, such as
+// pricing.GetQuoteOutput, which returns the quote's fields directly rather
+// than wrapping one resource.
+func wrappedResourceField(methodName string, newOutput func() any) string {
+	if !strings.HasPrefix(methodName, "Get") {
+		return ""
+	}
+	t := reflect.TypeOf(newOutput()).Elem()
+	if t.Kind() != reflect.Struct {
+		return ""
+	}
+	name, count := "", 0
+	for i := range t.NumField() {
+		if f := t.Field(i); f.IsExported() {
+			count++
+			name = f.Name
+		}
+	}
+	if count != 1 {
+		return ""
+	}
+	return name
 }
 
 // runGenDocs writes CLI.md and one CLI-<Service>.md per registered service
@@ -111,6 +152,8 @@ func runGenDocs(dir string) error {
 		buildDocService("dns", dnsOps),
 		buildDocService("cdn", cdnOps),
 		buildDocService("monitor", monitorOps),
+		buildDocService("project", projectOps),
+		buildDocService("portal", portalOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -178,13 +221,22 @@ func readableGoType(t reflect.Type) string {
 
 // serviceTitle capitalizes a service's command name for its page title and
 // file name: "billing" becomes "Billing", but the DNS and CDN initialisms
-// stay upper case.
+// stay upper case, and the three compound service names read as separate
+// words (the CLI reads design's "Service names and pages"). "project",
+// "portal", and "volume" need no case here: the default rule already gives
+// them the title they want.
 func serviceTitle(name string) string {
 	switch name {
 	case "dns":
 		return "DNS"
 	case "cdn":
 		return "CDN"
+	case "loadbalancer":
+		return "LoadBalancer"
+	case "globalloadbalancer":
+		return "GlobalLoadBalancer"
+	case "containerregistry":
+		return "ContainerRegistry"
 	}
 	return strings.ToUpper(name[:1]) + name[1:]
 }
@@ -374,6 +426,22 @@ const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an 
 	"Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is " +
 	"redacted the same way a channel read is."
 
+// portalMapRedactionNote documents the CLI's key redaction rule for
+// map-backed Outputs, shared by every portal operation: portal.UserInfo,
+// Zone, Quota, and TagQuota are all map[string]any, so every key the API
+// returns reaches this rule.
+const portalMapRedactionNote = "Values under a key that looks like a secret " +
+	"(password, token, credential, and similar, matched after lower-casing and " +
+	"stripping punctuation) print as `<redacted>`, at any depth."
+
+// portalUserInfoNote documents get-user-info's own account-data risk beyond
+// the shared map redaction rule: this command prints the caller's own
+// account data, which an agent transcript that captures its output keeps
+// too.
+const portalUserInfoNote = "Prints account data: email, names, user ID, and cash and billing status. " +
+	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
+	"that data too.\n\n" + portalMapRedactionNote
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -384,6 +452,11 @@ var docOpNotes = map[string]string{
 	"monitor get-channel":    monitorChannelRedactionNote,
 	"monitor create-channel": monitorCreateChannelAddressNote,
 	"monitor update-channel": monitorUpdateChannelAddressNote,
+	"portal get-user-info":   portalUserInfoNote,
+	"portal list-zones":      portalMapRedactionNote,
+	"portal list-quota-used": portalMapRedactionNote,
+	"portal get-quota":       portalMapRedactionNote,
+	"portal get-tag-quota":   portalMapRedactionNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
@@ -394,6 +467,7 @@ var docOpNotes = map[string]string{
 var docJSONPlaceholders = map[string]string{
 	"Locations": `["<location-id>"]`,
 	"VPCIDs":    `["<vpc-id>"]`,
+	"Values":    `[{"Value":"<value>"}]`,
 }
 
 // docExampleExtraFlag names one flag buildExample adds to an operation's
@@ -404,8 +478,12 @@ var docJSONPlaceholders = map[string]string{
 // HostedZoneID, but UpdateHostedZone also requires at least one of
 // Description or VPCIDs, so the plain required-flags-only example would
 // print a command that exits 2 with InvalidUsage when run as shown.
+// update-record is the same shape: HostedZoneID and RecordID are its only
+// required fields, but UpdateRecord also requires at least one other field
+// to change.
 var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
+	"dns update-record":      "ttl",
 }
 
 // docExampleOverride gives a full example command line for "service
@@ -425,7 +503,8 @@ var docExampleOverride = map[string]string{
 // <flag> for each required, flag-settable field (a placeholder that names
 // the flag, since gen-docs has no sample values), then one --cli-input-json
 // holding every required field that has no flag, then the
-// docExampleExtraFlag entry for op if any, then --yes for a destructive
+// docExampleExtraFlag entry for op if any, then --query <field> when op
+// wraps one resource (wrappedResourceField), then --yes for a destructive
 // write. The example must be runnable as printed, so a required field, or a
 // field docExampleExtraFlag names, can never be left out of it.
 func buildExample(service string, op docOp) string {
@@ -453,6 +532,9 @@ func buildExample(service string, op docOp) string {
 	}
 	if len(jsonPairs) > 0 {
 		parts = append(parts, "--cli-input-json", "'{"+strings.Join(jsonPairs, ",")+"}'")
+	}
+	if op.queryField != "" {
+		parts = append(parts, "--query", op.queryField)
 	}
 	if op.kind == "Write, destructive" {
 		parts = append(parts, "--yes")

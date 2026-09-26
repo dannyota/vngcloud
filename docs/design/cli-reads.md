@@ -252,10 +252,13 @@ in map-backed models, which pass every key through:
 
 No service here returns a kubeconfig; the SDK has no Kubernetes package.
 
-Key redaction for map-backed Outputs: before encoding, the CLI replaces the
-value of any map key whose lower-case form contains `password`, `secret`,
-`token`, `credential`, or `privatekey` with `[redacted]`, at any depth. It
-applies to every map-backed Output, including portal. This is a guard for
+Key redaction for map-backed Outputs: before encoding, the CLI lowercases
+each key of a `map[string]any`, strips every character that is not a letter
+or digit, and replaces the value with `<redacted>` when the result contains
+`password`, `passwd`, `passphrase`, `secret`, `token`, `credential`,
+`privatekey`, `apikey`, or `authorization`, at any depth. Typed fields,
+such as a monitor check's `map[string]string` headers, are left as they
+are. It applies to every map-backed Output, including portal. This is a guard for
 keys nobody has seen, not a substitute for a typed model. A test feeds a
 map with each such key through `json`, `table`, `text`, and `--query` and
 checks that no value appears.

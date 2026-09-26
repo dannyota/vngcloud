@@ -421,6 +421,448 @@ func TestDNSWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	}
 }
 
+// exampleRecord is the same sanitized shape dns's own fixtures decode,
+// reused here so the golden files below exercise a realistic Record rather
+// than an empty struct.
+func exampleRecord(status string) dns.Record {
+	return dns.Record{
+		ID:            "record-1",
+		SubDomain:     "www.app.internal",
+		HostedZoneID:  "hosted-zone-1",
+		Status:        status,
+		Type:          "A",
+		RoutingPolicy: "simple-routing",
+		Value:         []dns.RecordValue{{Value: "10.0.0.1"}},
+		TTL:           300,
+		CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:     time.Date(2026, 1, 2, 13, 0, 0, 0, time.UTC),
+	}
+}
+
+// TestGoldenDNSCreateRecord checks create-record's exact output shape,
+// {"Record": {...}}, the same shape get-record uses.
+func TestGoldenDNSCreateRecord(t *testing.T) {
+	v := &dns.CreateRecordOutput{Record: exampleRecord(dns.StatusActive)}
+	checkGolden(t, "dns-create-record.json.golden", "json", "", v)
+	checkGolden(t, "dns-create-record.table.golden", "table", "", v)
+	checkGolden(t, "dns-create-record.text.golden", "text", "", v)
+}
+
+// TestGoldenDNSUpdateRecord checks update-record's exact output shape, the
+// same {"Record": {...}} shape create-record uses.
+func TestGoldenDNSUpdateRecord(t *testing.T) {
+	v := &dns.UpdateRecordOutput{Record: exampleRecord(dns.StatusActive)}
+	checkGolden(t, "dns-update-record.json.golden", "json", "", v)
+	checkGolden(t, "dns-update-record.table.golden", "table", "", v)
+	checkGolden(t, "dns-update-record.text.golden", "text", "", v)
+}
+
+// TestGoldenDNSDeleteRecord checks delete-record's exact output shape: an
+// empty object, since DeleteRecordOutput carries no fields.
+func TestGoldenDNSDeleteRecord(t *testing.T) {
+	v := &dns.DeleteRecordOutput{}
+	checkGolden(t, "dns-delete-record.json.golden", "json", "", v)
+	checkGolden(t, "dns-delete-record.table.golden", "table", "", v)
+	checkGolden(t, "dns-delete-record.text.golden", "text", "", v)
+}
+
+// recordJSON builds a {"data": {...}} record envelope, the shape GetRecord
+// and CreateRecord both decode, always under hosted zone "zone-1" and
+// record "record-1", the only ids every test in this file uses.
+func recordJSON(status, subDomain string, ttl int, values []map[string]any) string {
+	body := map[string]any{
+		"recordId":      "record-1",
+		"subDomain":     subDomain,
+		"hostedZoneId":  "zone-1",
+		"status":        status,
+		"type":          "A",
+		"routingPolicy": "simple-routing",
+		"value":         values,
+		"ttl":           ttl,
+	}
+	b, err := json.Marshal(map[string]any{"data": body})
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// TestDNSCreateRecordEndToEnd drives the real create-record command against
+// a fixture vDNS server: the pre-write read already shows the zone
+// StatusActive, and the confirm read after the create already shows the
+// record StatusActive, so the SDK's pre- and post-write waits both settle
+// at once and this test never really sleeps. It checks the POST body
+// create-record built, including Values arriving only through
+// --cli-input-json, and that the settled record comes back on stdout.
+func TestDNSCreateRecordEndToEnd(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusCreating, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusActive, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "create-record",
+		"--hosted-zone-id", "zone-1", "--type", "A", "--sub-domain", "www",
+		"--cli-input-json", `{"Values":[{"Value":"10.0.0.1"}]}`,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-record: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	if decoded["subDomain"] != "www" || decoded["type"] != "A" || decoded["routingPolicy"] != "simple-routing" {
+		t.Fatalf("body = %s, want subDomain=www type=A routingPolicy=simple-routing (the console default)", body)
+	}
+	if decoded["ttl"] != float64(300) {
+		t.Fatalf("body[ttl] = %v, want 300 (the console default)", decoded["ttl"])
+	}
+	values, _ := decoded["value"].([]any)
+	if len(values) != 1 {
+		t.Fatalf("body[value] = %v, want one value", decoded["value"])
+	}
+	first, _ := values[0].(map[string]any)
+	if first["value"] != "10.0.0.1" {
+		t.Fatalf("body[value][0] = %v, want value=10.0.0.1", first)
+	}
+
+	var out struct{ Record dns.Record }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.Record.Status != dns.StatusActive {
+		t.Fatalf("Record.Status = %q, want %q (the settled record)", out.Record.Status, dns.StatusActive)
+	}
+}
+
+// TestDNSCreateRecordApexSendsEmptySubDomain checks the vDNS design's apex
+// rule: leaving --sub-domain unset sends an explicit empty subDomain, the
+// shape the server requires for the zone apex ("@" is a 400), rather than
+// omitting the key.
+func TestDNSCreateRecordApexSendsEmptySubDomain(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record": func(w http.ResponseWriter, r *http.Request) {
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusActive, "app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "create-record", "--no-wait",
+		"--hosted-zone-id", "zone-1", "--type", "A",
+		"--cli-input-json", `{"Values":[{"Value":"10.0.0.1"}]}`,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-record: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	subDomain, ok := decoded["subDomain"]
+	if !ok || subDomain != "" {
+		t.Fatalf("body[subDomain] = %v (present=%v), want the empty apex string", subDomain, ok)
+	}
+}
+
+// TestDNSCreateRecordWriteFailedPrintsOutputOnStdout drives a real
+// create-record call whose confirm read already shows the record
+// StatusError, so the SDK's settleRecord wait fails at once with no real
+// sleep: this exercises the real dns.ErrFailed path.
+// TestDNSCreateRecordNotSettledOnCanceledContext below covers the real
+// dns.ErrNotSettled path.
+func TestDNSCreateRecordWriteFailedPrintsOutputOnStdout(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusCreating, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusError, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+	})
+	root, stdout, _ := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "create-record",
+		"--hosted-zone-id", "zone-1", "--type", "A",
+		"--cli-input-json", `{"Values":[{"Value":"10.0.0.1"}]}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "WriteFailed" {
+		t.Fatalf("Code = %q, want WriteFailed", got)
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+
+	// The CLI's own JSON uses Go field names ("ID"), not dns.Record's API tags
+	// ("recordId"), so a substring check is used instead of unmarshaling into
+	// dns.Record itself, whose tags would silently fail to match those
+	// Go-named keys.
+	got := stdout.String()
+	if !strings.Contains(got, `"ID": "record-1"`) || !strings.Contains(got, `"Status": "ERROR"`) {
+		t.Fatalf("stdout = %s, want the ERROR record with its id printed alongside the error", got)
+	}
+}
+
+// TestDNSCreateRecordNotSettledOnCanceledContext drives a real create-record
+// call whose POST succeeds and whose settle GET on the record is
+// interrupted by canceling the command's own context, mirroring a Ctrl-C
+// during the post-write wait. Per the vDNS design, that failure must still
+// surface as an error wrapping dns.ErrNotSettled with the last record the
+// SDK read as a non-nil Output, not as the plain canceled-context path the
+// CLI otherwise falls back to.
+func TestDNSCreateRecordNotSettledOnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusCreating, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(recordJSON(dns.StatusCreating, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+			cancel()
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "create-record",
+		"--hosted-zone-id", "zone-1", "--type", "A",
+		"--cli-input-json", `{"Values":[{"Value":"10.0.0.1"}]}`,
+	})
+	err := root.ExecuteContext(ctx)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "NotSettled" {
+		t.Fatalf("Code = %q, want NotSettled, not the plain canceled-context path (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"ID": "record-1"`) {
+		t.Fatalf("stdout = %s, want the Output with the new record ID", got)
+	}
+}
+
+// TestDNSUpdateRecordSendsOnlyTTL checks the vDNS design's partial-update
+// rule for records: --ttl alone sends only {"ttl": ...}, not the record's
+// other fields, because the API itself applies a partial body.
+func TestDNSUpdateRecordSendsOnlyTTL(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				defer func() { _ = r.Body.Close() }()
+				body, _ = io.ReadAll(r.Body)
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(recordJSON(dns.StatusActive, "www.app.internal", 600, []map[string]any{{"value": "10.0.0.1"}})))
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "update-record",
+		"--hosted-zone-id", "zone-1", "--record-id", "record-1",
+		"--ttl", "600", "--no-wait",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("update-record: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("body has %d keys, want exactly 1: %s", len(decoded), body)
+	}
+	if decoded["ttl"] != float64(600) {
+		t.Fatalf("body = %s, want only ttl=600", body)
+	}
+}
+
+// TestDNSDeleteRecordRequiresYes checks the CLI design's --yes rule for
+// delete-record: it is Write and Destructive, so it fails with exit code 2
+// and sends no request unless --yes is given.
+func TestDNSDeleteRecordRequiresYes(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "dns", "delete-record", "--hosted-zone-id", "zone-1", "--record-id", "record-1"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestDNSDeleteRecordWithYesAndNoWait checks that --yes together with
+// --no-wait sends exactly the pre-write zone read and the DELETE, with no
+// confirm read afterward, per DeleteRecordInput.NoWait.
+func TestDNSDeleteRecordWithYesAndNoWait(t *testing.T) {
+	deleted := false
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusActive, "d", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1/record/record-1": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodDelete:
+				deleted = true
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodGet:
+				if deleted {
+					t.Fatal("unexpected GET after DELETE: --no-wait must send no confirm read")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(recordJSON(dns.StatusActive, "www.app.internal", 300, []map[string]any{{"value": "10.0.0.1"}})))
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--yes", "dns", "delete-record",
+		"--hosted-zone-id", "zone-1", "--record-id", "record-1", "--no-wait",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("delete-record: %v (stderr=%s)", err, stderr.String())
+	}
+	if !deleted {
+		t.Fatal("the DELETE was never sent")
+	}
+	// One pre-write GET on the zone (already ACTIVE) and the DELETE itself;
+	// --no-wait must add no confirm read after it.
+	if n := fixture.requestCount(); n != 2 {
+		t.Fatalf("requestCount = %d, want 2", n)
+	}
+}
+
+// TestDNSRecordWritesReadOnlyRefusedWithZeroRequests checks the vDNS
+// design's read-only rule for the three record writes: create-record,
+// update-record, and delete-record are all Write operations, so a
+// read-only profile refuses each with exit 2 before any request.
+// delete-record also passes --yes, so the read-only refusal is
+// unambiguously the reason, not a missing --yes.
+func TestDNSRecordWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
+	tests := []struct {
+		op   string
+		args []string
+	}{
+		{"create-record", []string{"create-record", "--hosted-zone-id", "zone-1", "--type", "A", "--cli-input-json", `{"Values":[{"Value":"10.0.0.1"}]}`}},
+		{"update-record", []string{"update-record", "--hosted-zone-id", "zone-1", "--record-id", "record-1", "--ttl", "600"}},
+		{"delete-record", []string{"delete-record", "--hosted-zone-id", "zone-1", "--record-id", "record-1", "--yes"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.op, func(t *testing.T) {
+			home := withCleanEnv(t)
+			writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+			writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/v1/dns/hosted-zone/zone-1": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+				"/v1/dns/hosted-zone/zone-1/record": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+				"/v1/dns/hosted-zone/zone-1/record/record-1": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			opts := newFakeServer(t, fixture.mux)
+			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			root := newRootCmd(strings.NewReader(""), stdout, stderr)
+			root.SetArgs(append([]string{"--profile", "agent", "dns"}, tc.args...))
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatalf("expected a read-only refusal")
+			}
+			if got := classify(err).Code; got != "ReadOnly" {
+				t.Fatalf("Code = %q, want ReadOnly (stderr=%s)", got, stderr.String())
+			}
+			if got := exitCode(err); got != 2 {
+				t.Fatalf("exitCode = %d, want 2", got)
+			}
+			if n := fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
+	}
+}
+
 // fakeWaitInput and fakeWaitOutput back the fake Op method below: the dns
 // package exposes no way to inject a fake clock from outside it (Client.sleep
 // is unexported), and dns's own pre-write poll loop never wraps a context
