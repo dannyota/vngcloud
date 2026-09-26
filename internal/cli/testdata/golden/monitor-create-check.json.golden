@@ -1,0 +1,37 @@
+{
+  "Check": {
+    "ID": "chk-1",
+    "Name": "example-check",
+    "Type": "API",
+    "Subtype": "HTTP",
+    "Status": "ENABLED",
+    "Config": {
+      "Request": {
+        "URL": "https://example.com",
+        "Method": "GET",
+        "Headers": null,
+        "Query": null,
+        "Body": "",
+        "Timeout": 30,
+        "VerifiedSSL": true
+      },
+      "Assertions": [
+        {
+          "Type": "status_code",
+          "Operator": "does_not_match_regex",
+          "Target": "[4-5][0-9][0-9]"
+        }
+      ]
+    },
+    "Options": {
+      "TestFrequency": 60,
+      "Tests": 1,
+      "FailedLocations": 1
+    },
+    "Locations": [
+      "loc-1"
+    ],
+    "CreatedAt": "Jan 1, 2026, 12:00:00 AM",
+    "UpdatedAt": "Jan 2, 2026, 1:00:00 PM"
+  }
+}

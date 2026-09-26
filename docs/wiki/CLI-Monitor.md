@@ -2,6 +2,41 @@
 
 # CLI: Monitor
 
+## create-check
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--url` | `string` | yes |
+| `Locations` (via `--cli-input-json` only) | `[]string` | yes |
+| `--method` | `string` |  |
+| `Headers` (via `--cli-input-json` only) | `map[string]string` |  |
+| `Query` (via `--cli-input-json` only) | `map[string]string` |  |
+| `--body` | `string` |  |
+| `--timeout` | `int` |  |
+| `--test-frequency` | `int` |  |
+| `--tests` | `int` |  |
+| `--failed-locations` | `int` |  |
+| `Assertions` (via `--cli-input-json` only) | `[]monitor.Assertion` |  |
+
+```sh
+vngcloud monitor create-check --name <name> --url <url>
+```
+
+## delete-check
+
+Kind: Write, destructive.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--check-id` | `string` | yes |
+
+```sh
+vngcloud monitor delete-check --check-id <check-id> --yes
+```
+
 ## get-check
 
 Kind: Read.
@@ -22,6 +57,16 @@ No fields.
 
 ```sh
 vngcloud monitor list-checks
+```
+
+## list-locations
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud monitor list-locations
 ```
 
 ## pause-check

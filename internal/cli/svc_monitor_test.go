@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -66,6 +67,50 @@ func TestGoldenMonitorPauseCheck(t *testing.T) {
 	checkGolden(t, "monitor-pause-check.json.golden", "json", "", v)
 	checkGolden(t, "monitor-pause-check.table.golden", "table", "", v)
 	checkGolden(t, "monitor-pause-check.text.golden", "text", "", v)
+}
+
+// exampleLocation is a probe location shaped like the uptime manager's own
+// fixtures, reused by the list-locations golden tests below.
+func exampleLocation(id, name string) monitor.Location {
+	return monitor.Location{
+		ID:          id,
+		Name:        name,
+		Type:        "PUBLIC",
+		Description: "Public Location",
+		Status:      "REPORTING",
+		CreatedAt:   "Jan 1, 2026, 12:00:00 AM",
+		UpdatedAt:   "Jan 2, 2026, 1:00:00 PM",
+	}
+}
+
+// TestGoldenMonitorCreateCheck checks create-check's exact output shape,
+// {"Check": {...}}, the same shape get-check uses.
+func TestGoldenMonitorCreateCheck(t *testing.T) {
+	v := &monitor.CreateCheckOutput{Check: exampleCheck(monitor.StatusEnabled)}
+	checkGolden(t, "monitor-create-check.json.golden", "json", "", v)
+	checkGolden(t, "monitor-create-check.table.golden", "table", "", v)
+	checkGolden(t, "monitor-create-check.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorDeleteCheck checks delete-check's exact output shape: an
+// empty object, since DeleteCheckOutput carries no fields.
+func TestGoldenMonitorDeleteCheck(t *testing.T) {
+	v := &monitor.DeleteCheckOutput{}
+	checkGolden(t, "monitor-delete-check.json.golden", "json", "", v)
+	checkGolden(t, "monitor-delete-check.table.golden", "table", "", v)
+	checkGolden(t, "monitor-delete-check.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorListLocations checks list-locations' exact output shapes:
+// JSON keeps {"Items": [...]}, one location per row for table and text.
+func TestGoldenMonitorListLocations(t *testing.T) {
+	v := &monitor.ListLocationsOutput{Items: []monitor.Location{
+		exampleLocation("loc-1", "SYNTT-VN-HCM01"),
+		exampleLocation("loc-2", "SYNTT-VN-HAN01"),
+	}}
+	checkGolden(t, "monitor-list-locations.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-locations.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-locations.text.golden", "text", "", v)
 }
 
 // monitorUptimesJSON renders one check as the uptime manager's own JSON
@@ -248,6 +293,227 @@ func TestMonitorPauseAndResumeReadOnlyRefusedWithZeroRequests(t *testing.T) {
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			root := newRootCmd(strings.NewReader(""), stdout, stderr)
 			root.SetArgs([]string{"--profile", "agent", "monitor", op, "--check-id", "chk-1"})
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatalf("expected a read-only refusal")
+			}
+			if got := classify(err).Code; got != "ReadOnly" {
+				t.Fatalf("Code = %q, want ReadOnly (stderr=%s)", got, stderr.String())
+			}
+			if got := exitCode(err); got != 2 {
+				t.Fatalf("exitCode = %d, want 2", got)
+			}
+			if n := fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
+	}
+}
+
+// TestMonitorCreateCheckWithLocationsFromCLIInputJSON drives create-check
+// with every flag-settable field on the command line and Locations, the
+// required field with no flag type, through --cli-input-json only. It
+// checks the exact request body the SDK builds from that merge and that the
+// command still succeeds: the monitor design says Locations, Headers,
+// Query, and Assertions reach CreateCheckInput only this way, so this is
+// the only path that ever sets the required field.
+func TestMonitorCreateCheckWithLocationsFromCLIInputJSON(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes": func(w http.ResponseWriter, r *http.Request) {
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(monitorUptimesJSON("chk-9", monitor.StatusEnabled)))
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-check",
+		"--name", "vngcloud-test-check",
+		"--url", "https://example.com/health",
+		"--method", "POST",
+		"--body", "ping",
+		"--timeout", "5",
+		"--test-frequency", "15",
+		"--tests", "3",
+		"--failed-locations", "2",
+		"--cli-input-json", `{"Locations":["loc-1","loc-2"]}`,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-check: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/vmonitor-uptime-manager/v1/uptimes"); !ok || got != http.MethodPost {
+		t.Fatalf("create-check method = %q, ok=%v, want POST", got, ok)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	if decoded["name"] != "vngcloud-test-check" {
+		t.Fatalf("body[name] = %v, want vngcloud-test-check (%s)", decoded["name"], body)
+	}
+	config, _ := decoded["config"].(map[string]any)
+	request, _ := config["request"].(map[string]any)
+	if request["url"] != "https://example.com/health" || request["method"] != "POST" || request["body"] != "ping" {
+		t.Fatalf("config.request = %+v", request)
+	}
+	if request["timeout"] != float64(5) {
+		t.Fatalf("config.request.timeout = %v, want 5", request["timeout"])
+	}
+	options, _ := decoded["options"].(map[string]any)
+	wantOptions := map[string]any{"test_frequency": float64(15), "tests": float64(3), "failed_locations": float64(2)}
+	for k, want := range wantOptions {
+		if options[k] != want {
+			t.Fatalf("options[%q] = %v, want %v (%+v)", k, options[k], want, options)
+		}
+	}
+	locations, _ := decoded["locations"].([]any)
+	if len(locations) != 2 || locations[0] != "loc-1" || locations[1] != "loc-2" {
+		t.Fatalf("locations = %+v, want [loc-1 loc-2]", decoded["locations"])
+	}
+
+	var out struct{ Check monitor.Check }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.Check.ID != "chk-9" {
+		t.Fatalf("Check.ID = %q, want chk-9", out.Check.ID)
+	}
+}
+
+// TestMonitorCreateCheckMissingLocationsExitsWithZeroRequests checks that
+// create-check without Locations, from either a flag (there is none) or
+// --cli-input-json, fails the required-field check before any request:
+// Locations has no flag type, so this is the only way an operator can leave
+// it unset.
+func TestMonitorCreateCheckMissingLocationsExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-check",
+		"--name", "vngcloud-test-check",
+		"--url", "https://example.com/health",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected a required-field error without Locations")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorDeleteCheckWithoutYesExitsWithZeroRequests checks the monitor
+// design's --yes rule for delete-check: it is Write and Destructive, so it
+// fails with exit code 2 and sends no request unless --yes is given.
+func TestMonitorDeleteCheckWithoutYesExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "delete-check", "--check-id", "chk-1"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorDeleteCheckWithYesSendsDelete checks that --yes lets
+// delete-check send exactly one DELETE to the check's path and succeed on
+// 204.
+func TestMonitorDeleteCheckWithYesSendsDelete(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": jsonHandler(http.StatusNoContent, ""),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "--yes", "monitor", "delete-check", "--check-id", "chk-1"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("delete-check: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/vmonitor-uptime-manager/v1/uptimes/chk-1"); !ok || got != http.MethodDelete {
+		t.Fatalf("delete-check method = %q, ok=%v, want DELETE", got, ok)
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1", n)
+	}
+}
+
+// TestMonitorListLocationsEndToEnd runs the real list-locations command
+// against a fixture uptime manager, checking the request method and path
+// and that the decoded Location list survives the round trip.
+func TestMonitorListLocationsEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/locations": jsonHandler(http.StatusOK,
+			`[{"id":"loc-1","name":"SYNTT-VN-HCM01","type":"PUBLIC","status":"REPORTING"}]`),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-locations"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-locations: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/vmonitor-uptime-manager/v1/locations"); !ok || got != http.MethodGet {
+		t.Fatalf("list-locations method = %q, ok=%v, want GET", got, ok)
+	}
+	var out struct{ Items []monitor.Location }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != "SYNTT-VN-HCM01" {
+		t.Fatalf("list-locations Items = %+v", out.Items)
+	}
+}
+
+// TestMonitorCreateAndDeleteCheckReadOnlyRefusedWithZeroRequests checks the
+// monitor design's read-only rule for the two new writes: create-check and
+// delete-check are both Write operations, so a read-only profile refuses
+// either with exit 2 before any request, and delete-check needs no --yes to
+// be refused this way (read-only is checked before the --yes guard).
+func TestMonitorCreateAndDeleteCheckReadOnlyRefusedWithZeroRequests(t *testing.T) {
+	tests := []struct {
+		op   string
+		args []string
+	}{
+		{"create-check", []string{"create-check", "--name", "n", "--url", "https://example.com", "--cli-input-json", `{"Locations":["loc-1"]}`}},
+		{"delete-check", []string{"delete-check", "--check-id", "chk-1", "--yes"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.op, func(t *testing.T) {
+			home := withCleanEnv(t)
+			writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+			writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/vmonitor-uptime-manager/v1/uptimes": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+				"/vmonitor-uptime-manager/v1/uptimes/chk-1": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			opts := newFakeServer(t, fixture.mux)
+			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			root := newRootCmd(strings.NewReader(""), stdout, stderr)
+			root.SetArgs(append([]string{"--profile", "agent", "monitor"}, tc.args...))
 			err := root.ExecuteContext(context.Background())
 			if err == nil {
 				t.Fatalf("expected a read-only refusal")
