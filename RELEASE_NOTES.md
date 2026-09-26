@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.8.0 - vMonitor Pause and Resume
+
+### Highlights
+
+- New `monitor` package for vMonitor synthetic checks: `ListChecks`,
+  `GetCheck`, `PauseCheck`, and `ResumeCheck`. The API has one toggle
+  request for both, so `PauseCheck` and `ResumeCheck` read the status
+  first, send the toggle at most once, and confirm by reading. They report
+  `Changed`, so a deploy resumes only a check it paused itself. See
+  [Monitor](https://github.com/dannyota/vngcloud/wiki/Monitor) and ADR 0003.
+- New `vngcloud monitor list-checks`, `get-check`, `pause-check`, and
+  `resume-check` commands. Pause and resume are writes, so a read-only
+  profile refuses them.
+- New CLI error codes `UnexpectedStatus` and `StatusUnconfirmed`, both
+  exit 1.
+- `EndpointOverrides` gains `Monitor`.
+
+### Behavior changes
+
+None for existing callers. A new internal transport option sends a toggle
+request once, with no retry, no resend after a 401, and no redirect.
+
 ## v0.7.0 - vCDN IP Ranges
 
 ### Highlights

@@ -174,7 +174,8 @@ Both share one implementation with a target status `T`. They follow
    [After ErrStatusUnconfirmed](#after-errstatusunconfirmed).
 
 The confirm reads bound the wait at about 7 seconds plus request time, per
-ADR 0002 rule 7, and cover a server whose reads lag its writes.
+ADR 0002 rule 7, and cover a server whose reads lag its writes. In the live
+test, the first confirm read already showed the new status.
 
 `Changed` lets a caller restore the prior state. A deploy that pauses
 before it ships resumes after only when the pause reported `Changed: true` or
@@ -440,8 +441,6 @@ A `Monitor` SDK wiki page covers per-account scope, `Changed`,
 
 - Whether checks are per account, per region, or per project. The design
   assumes per account.
-- Whether reads lag the toggle. The `v0.8.0` live test measures it; a lag
-  longer than the confirm window changes step 7.
 - The shape of populated `headers` and `query`, the unit of `timeout`, the
   console defaults for `timeout`, `tests`, and `failed_locations`, and
   whether a create past the quota fails or bills.
