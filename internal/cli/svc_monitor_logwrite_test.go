@@ -50,7 +50,9 @@ func logProjectListEntryJSON(id, name, status string) string {
 // field reaches the order body the shared builder produces, the same body
 // monitor.TestCreateLogProjectOrderUsesSharedBuilderBody checks at the SDK
 // level for a direct call. --no-wait skips the post-order list, so this only
-// exercises the quote and the order.
+// exercises the quote and the order; the order response uses its real,
+// live-confirmed shape (amount, orderId, paymentUrl, no project fields), so
+// the only thing --no-wait can print is OrderID.
 func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 	var orderBody []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -63,7 +65,7 @@ func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 			}
 			orderBody, _ = io.ReadAll(r.Body)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"amount":917000,"orderId":"order-1","paymentUrl":""}`))
 		},
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -91,8 +93,8 @@ func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, `"ID": "proj-1"`) || !strings.Contains(out, `"Status": "ACTIVE"`) {
-		t.Fatalf("stdout = %s, want the ordered project printed", out)
+	if !strings.Contains(out, `"OrderID": "order-1"`) {
+		t.Fatalf("stdout = %s, want the order's OrderID printed", out)
 	}
 	// LogProject holds no secret the monitor design's redaction rule covers
 	// (see the ops table comment in svc_monitor.go), so nothing here should
@@ -114,7 +116,7 @@ func TestMonitorCreateLogProjectDefaultOrdersOnlyFree(t *testing.T) {
 		"/billing-api/v2/log/quotas": func(w http.ResponseWriter, r *http.Request) {
 			orderCalls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-1","paymentUrl":""}`))
 		},
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -164,24 +166,30 @@ func TestMonitorCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 // interrupted by canceling the command's own context, mirroring a Ctrl-C
 // during the wait, the same technique
 // TestDNSCreateHostedZoneNotSettledOnCanceledContext uses for vDNS. The list
-// fixture answers the wait's lookup once, with the project still CREATING
-// (the order reached the server), then cancels the context; the next poll
-// step's sleep then fails on that canceled context, not on the real
-// 120-second bound. Per the design, this must surface as NotSettled with the
-// last project the SDK found by name printed on stdout, not the plain
-// canceled-context path.
+// fixture answers the wait's lookup twice, with the project still CREATING
+// (the order reached the server), and cancels only after the second answer:
+// canceling after the first would race the client's own read of that first
+// response against the cancellation, risking a decode failure that leaves
+// no project found at all. By the second answer the first has already been
+// decoded, so the next poll step's sleep fails on the canceled context, not
+// on the real 120-second bound, deterministically. Per the design, this
+// must surface as NotSettled with the last project the SDK found by name
+// printed on stdout, not the plain canceled-context path.
 func TestMonitorCreateLogProjectNotSettledOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var listCalls atomic.Int64
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
-		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","name":"app","status":"CREATING"}`),
+		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"amount":0,"orderId":"order-1","paymentUrl":""}`),
 		"/log-api/v1/projects": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(logProjectListEntryJSON("proj-1", "app", "CREATING")))
-			cancel()
+			if listCalls.Add(1) == 2 {
+				cancel()
+			}
 		},
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -248,7 +256,7 @@ func TestMonitorCreateLogProjectDebugLogsStartAndFinishWithOnlyOperationName(t *
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
-		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","name":"app","status":"ACTIVE"}`),
+		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"amount":0,"orderId":"order-1","paymentUrl":""}`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
@@ -312,9 +320,10 @@ func TestMonitorCreateLogProjectCLIInputJSONRejectsUnknownField(t *testing.T) {
 }
 
 // TestGoldenMonitorCreateLogProject checks create-log-project's exact output
-// shape, {"LogProject": {...}}, the same shape get-log-project uses.
+// shape, {"LogProject": {...}, "OrderID": "..."}, with LogProject the same
+// shape get-log-project uses.
 func TestGoldenMonitorCreateLogProject(t *testing.T) {
-	v := &monitor.CreateLogProjectOutput{LogProject: exampleLogProject("proj-1", "app")}
+	v := &monitor.CreateLogProjectOutput{LogProject: exampleLogProject("proj-1", "app"), OrderID: "order-1"}
 	checkGolden(t, "monitor-create-log-project.json.golden", "json", "", v)
 	checkGolden(t, "monitor-create-log-project.table.golden", "table", "", v)
 	checkGolden(t, "monitor-create-log-project.text.golden", "text", "", v)

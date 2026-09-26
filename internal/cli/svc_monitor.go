@@ -137,11 +137,10 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("GetLogProject"), (*monitor.Client).GetLogProject),
 	Read[monitor.Client, monitor.ListLogProjectClassesInput, monitor.ListLogProjectClassesOutput](
 		kebab("ListLogProjectClasses"), (*monitor.Client).ListLogProjectClasses),
-	// QuoteCreateLogProject shares CreateLogProjectInput with the
-	// create-log-project command a later release adds. MaxPrice and NoWait
-	// only govern that create's own price ceiling and wait, not this read,
-	// which neither orders nor waits, so NoFlag keeps both settable only
-	// through --cli-input-json until create-log-project ships.
+	// QuoteCreateLogProject shares CreateLogProjectInput with
+	// create-log-project. MaxPrice and NoWait only govern that command's
+	// price ceiling and wait, and this read neither orders nor waits, so
+	// NoFlag hides both flags here.
 	Read[monitor.Client, monitor.CreateLogProjectInput, monitor.QuoteCreateLogProjectOutput](
 		kebab("QuoteCreateLogProject"), (*monitor.Client).QuoteCreateLogProject,
 		NoFlag("MaxPrice", "NoWait")),

@@ -137,14 +137,6 @@ var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote 
 // nothing exercises this command's decoding against a real response.
 var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
-// logProjectShapeUnverifiedNote flags get-log-project's and
-// list-log-projects' output shape: the test account holds no log project,
-// so nothing exercises either command's per-project field decoding against
-// a real response; list-log-projects' own paging envelope is live-confirmed
-// (empty), and list-log-project-classes returns a live-confirmed shape too
-// (see monitor.LogProject's doc comment).
-var logProjectShapeUnverifiedNote = unverifiedConsoleNote("log project")
-
 // monitorAlarmShapeUnverifiedNote flags an output shape the live checks
 // cannot confirm: the test account holds no alarm, so nothing exercises
 // list-alarms' or get-alarm's decoding against a real response.
@@ -164,7 +156,40 @@ const monitorGetAlarmUnknownIDNote = "A missing alarm exits 1, not 4: the API an
 // --cli-input-json, and even set there this read ignores both.
 const monitorQuoteCreateLogProjectIgnoredFieldsNote = "Ignores MaxPrice and NoWait even when an inline " +
 	"--cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, " +
-	"a later release; this command neither orders anything nor waits."
+	"never this read, which neither orders anything nor waits."
+
+// logProjectDeleteResponseUnverifiedNote flags delete-log-project's delete
+// and purge responses, neither ever captured live (see
+// deleteLogProjectRequest in monitor/logprojects_write.go).
+const logProjectDeleteResponseUnverifiedNote = "Unverified live: the delete and purge responses' own shape " +
+	"and status have never been captured, so this command discards the response body and treats either 200 " +
+	"or 204 as success."
+
+// monitorCreateLogProjectNote documents create-log-project's price guard
+// default, unretried order, post-order wait bound, and --no-wait's own
+// Output shape: the order response is confirmed live to carry only amount,
+// orderId, and paymentUrl, none of LogProject's own fields, so --no-wait
+// can only ever return OrderID.
+const monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
+	"create-log-project --name <name> only orders a free class and retention option. The order itself " +
+	"is never retried after a failure that may have already reached the server; list log projects by " +
+	"name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 " +
+	"seconds for the new project to reach ACTIVE, then prints it; a timeout, or any other failure during " +
+	"that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only " +
+	"OrderID set, from the order response's own orderId: that response carries no project fields, so " +
+	"LogProject stays at its zero value."
+
+// monitorDeleteLogProjectNote documents --purge's second request, its
+// tolerance of an already-trashed or already-gone project, and the
+// post-write wait bound.
+const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its billing; its logs are " +
+	"lost. --purge also deletes it from trash, as a second request in the same call, sent even when the " +
+	"first delete 404s, since the project most likely already sits in trash from an earlier call. " +
+	"Without --no-wait, reads the project first as a baseline, then waits up to 60 seconds after the " +
+	"delete (and purge) for a read to show the change; a timeout, or any other failure during that wait, " +
+	"is NotSettled, and the write must not be repeated. With --purge, when that baseline read itself " +
+	"404s, the project is already gone: the command still sends the delete and the purge, tolerating a " +
+	"404 from either, and succeeds at once with no wait.\n\n" + logProjectDeleteResponseUnverifiedNote
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -177,9 +202,9 @@ var docOpNotes = map[string]string{
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
-	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
-	"monitor list-log-projects":               logProjectShapeUnverifiedNote,
 	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote,
+	"monitor create-log-project":              monitorCreateLogProjectNote,
+	"monitor delete-log-project":              monitorDeleteLogProjectNote,
 	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
 	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
 	"monitor create-check":                    monitorCheckNotificationsNote,
