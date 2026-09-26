@@ -10,4 +10,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [CLI](cli.md) | Approved |
 | [Billing and pricing](billing.md) | Approved |
 | [CDN IP ranges](cdn.md) | Approved |
-| [vMonitor](monitor.md) | Accepted for `v0.8.0`; create and delete proposed |
+| [vMonitor](monitor.md) | Accepted |

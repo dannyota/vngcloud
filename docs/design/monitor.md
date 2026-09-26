@@ -1,6 +1,6 @@
 # vMonitor Design
 
-Status: Accepted for `v0.8.0` (2026-09-26); create and delete proposed.
+Status: Accepted (2026-09-26).
 
 This design adds vMonitor synthetic checks, which GreenNode calls uptime
 checks, to the SDK and CLI. aboutme pauses its app-down check at deploy
@@ -387,9 +387,8 @@ on 2026-10-26 or with a new package.
 - `make live` gains `ListChecks` and, when a check exists, `GetCheck` on
   the first one, without pinning counts. From `v0.9.0` it adds
   `ListLocations`. The live CLI test adds `monitor list-checks`.
-- `v0.8.0` live write test: the SDK cannot create a check yet, so the owner
-  creates one `vngcloud-live-toggle` check in the console before the run and
-  deletes it after. The test finds it by exact name, or skips. It reads the
+- `v0.8.0` live write test: the SDK cannot create a check yet, so the test
+  uses an existing `vngcloud-live-toggle` check. The test finds it by exact name, or skips. It reads the
   start status and only then registers `t.Cleanup`, which restores that
   status only if the test changed it, with its own
   `context.WithTimeout(context.Background(), ...)`, and asserts it. It
@@ -421,19 +420,19 @@ A `Monitor` SDK wiki page covers per-account scope, `Changed`,
 
 ## Owner decisions
 
-1. Approved: [ADR 0003](../adr/0003-toggle-writes.md). Toggles read first,
-   send once with no retry at any layer, and confirm by reading.
+1. Approved: [ADR 0003](../adr/0003-toggle-writes.md). Toggles read first, send
+   once with no retry at any layer, and confirm by reading.
 2. Approved: pause and resume in `v0.8.0`, create in `v0.9.0`.
-3. Approved: the `v0.8.0` live toggle test uses a `vngcloud-live-toggle`
-   check the owner creates in the console and deletes after the run.
-4. Open: `CreateCheck` has no quote, on the ground that checks use a prepaid
+3. Approved: the `v0.8.0` live toggle test uses a `vngcloud-live-toggle` check
+   made outside the SDK.
+4. Approved: `CreateCheck` has no quote, on the ground that checks use a prepaid
    quota.
-5. Open: `CreateCheck` always sends `verified_ssl: true`, with no field to
+5. Approved: `CreateCheck` always sends `verified_ssl: true`, with no field to
    turn it off.
-6. Open: `CreateCheck` ships without notifications, so a created check alerts
-   nobody until channels are designed.
-7. Open: check headers and bodies print unredacted in CLI output.
-8. Open: `Locations`, `Headers`, `Query`, and `Assertions` go through
+6. Approved: `CreateCheck` ships without notifications, so a created check
+   alerts nobody until channels are designed.
+7. Approved: check headers and bodies print unredacted in CLI output.
+8. Approved: `Locations`, `Headers`, `Query`, and `Assertions` go through
    `--cli-input-json`, with no new CLI flag types.
 9. Approved: four confirm reads over about 7 seconds.
 
