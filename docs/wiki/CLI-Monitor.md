@@ -45,6 +45,28 @@ Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which cha
 vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
 ```
 
+## create-log-project
+
+Kind: Write.
+
+Orders nothing above --max-price, default 0: a bare create-log-project --name <name> only orders a free class and retention option. The order itself is never retried after a failure that may have already reached the server; list log projects by name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 seconds for the new project to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated.
+
+Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--class` | `string` |  |
+| `--retention-days` | `int` |  |
+| `--gb-per-day` | `int` |  |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor create-log-project --name <name>
+```
+
 ## delete-channel
 
 Kind: Write, destructive.
@@ -67,6 +89,22 @@ Kind: Write, destructive.
 
 ```sh
 vngcloud monitor delete-check --check-id <check-id> --yes
+```
+
+## delete-log-project
+
+Kind: Write, destructive.
+
+Moves the project to trash, stopping its billing; its logs are lost. --purge also deletes it from trash, as a second request in the same call, sent even when the first delete 404s, since the project most likely already sits in trash from an earlier call. Without --no-wait, waits up to 60 seconds for a read to show the change; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--log-project-id` | `string` | yes |
+| `--purge` | `bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor delete-log-project --log-project-id <log-project-id> --yes
 ```
 
 ## get-alarm
@@ -233,7 +271,7 @@ vngcloud monitor pause-check --check-id <check-id>
 
 Kind: Read.
 
-Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, a later release; this command neither orders anything nor waits.
+Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, never this read, which neither orders anything nor waits.
 
 | Flag | Type | Required |
 |-|-|-|

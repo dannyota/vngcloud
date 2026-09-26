@@ -47,10 +47,15 @@ import (
 // refuses all three, before any request, the same as every other Write op
 // here.
 //
-// ListLogProjects, GetLogProject, ListLogProjectClasses, and
-// QuoteCreateLogProject carry no Guard or Redact either: neither LogProject
-// nor LogProjectClass holds a secret the monitor design's redaction rule
-// covers.
+// ListLogProjects, GetLogProject, ListLogProjectClasses,
+// QuoteCreateLogProject, CreateLogProject, and DeleteLogProject carry no
+// Guard or Redact either: neither LogProject nor LogProjectClass holds a
+// secret the monitor design's redaction rule covers, and neither write's own
+// Input does either. CreateLogProject is Write but not Destructive: an
+// unwanted order is cleaned up by delete-log-project, one more command away.
+// DeleteLogProject is Write and Destructive, needing --yes: a trashed
+// project's logs are lost, and --purge removes it from trash outright, so
+// neither half of the call is undone by one more command.
 //
 // ListAlarms and GetAlarm carry no Guard or Redact: an Alarm holds no
 // secret. GetAlarm needs no special handling for an unknown ID either: the
@@ -117,6 +122,10 @@ var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.CreateLogProjectInput, monitor.QuoteCreateLogProjectOutput](
 		kebab("QuoteCreateLogProject"), (*monitor.Client).QuoteCreateLogProject,
 		NoFlag("MaxPrice", "NoWait")),
+	Write[monitor.Client, monitor.CreateLogProjectInput, monitor.CreateLogProjectOutput](
+		kebab("CreateLogProject"), (*monitor.Client).CreateLogProject),
+	Write[monitor.Client, monitor.DeleteLogProjectInput, monitor.DeleteLogProjectOutput](
+		kebab("DeleteLogProject"), (*monitor.Client).DeleteLogProject, Destructive()),
 	Read[monitor.Client, monitor.ListAlarmsInput, monitor.ListAlarmsOutput](
 		kebab("ListAlarms"), (*monitor.Client).ListAlarms),
 	Read[monitor.Client, monitor.GetAlarmInput, monitor.GetAlarmOutput](

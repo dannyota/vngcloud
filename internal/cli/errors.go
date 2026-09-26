@@ -78,8 +78,10 @@ type errorEnvelope struct {
 // PauseCheck or ResumeCheck does not recognize), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
-// sent), WriteFailed (a vDNS write reached status ERROR), or NotSettled (a
-// vDNS write was accepted but did not settle within the post-write wait).
+// sent), WriteFailed (a vDNS write reached status ERROR), NotSettled (a
+// vDNS write was accepted but did not settle within the post-write wait), or
+// PriceAboveMax (create-log-project's quote priced its order above
+// --max-price, so no order was sent).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -92,10 +94,11 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, monitor.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
-	// dns.ErrZoneBusy, dns.ErrFailed, and dns.ErrNotSettled are always wrapped
-	// alone (never alongside an *APIError), so, unlike the monitor checks
-	// above, checking them before errors.As(err, &apiErr) below is only for
-	// grouping every early, non-APIError class together.
+	// dns.ErrZoneBusy, dns.ErrFailed, dns.ErrNotSettled, and
+	// monitor.ErrPriceAboveMax are always wrapped alone (never alongside an
+	// *APIError), so, unlike the monitor checks above, checking them before
+	// errors.As(err, &apiErr) below is only for grouping every early,
+	// non-APIError class together.
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
@@ -104,6 +107,9 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, dns.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	if errors.Is(err, monitor.ErrPriceAboveMax) {
+		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
 	}
 
 	if vngcloud.IsNotFound(err) {
@@ -226,6 +232,10 @@ func exitCode(err error) int {
 		errors.Is(err, vngcloud.ErrProjectAmbiguous):
 		return 2
 	}
+	// monitor.ErrPriceAboveMax also exits 1 here, through this default: it is
+	// returned directly by CreateLogProject's own price check, never wrapped
+	// alongside a canceled context the way dns.ErrNotSettled can be, so it
+	// needs no earlier special-case check.
 	return 1
 }
 

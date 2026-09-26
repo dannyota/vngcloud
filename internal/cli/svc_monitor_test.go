@@ -1473,9 +1473,8 @@ func TestMonitorQuoteCreateLogProjectSendsRequestBody(t *testing.T) {
 
 // TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag checks that
 // MaxPrice and NoWait, which only govern create-log-project's own order and
-// wait, a later release, register no flag on quote-create-log-project; both
-// stay settable only through --cli-input-json until create-log-project
-// ships, and this command ignores them even then.
+// wait, register no flag on quote-create-log-project; both stay settable
+// only through --cli-input-json, and this command ignores them regardless.
 func TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag(t *testing.T) {
 	cmd := newMonitorCmd(&env{flags: &globalFlags{}})
 	sub, _, err := cmd.Find([]string{"quote-create-log-project"})

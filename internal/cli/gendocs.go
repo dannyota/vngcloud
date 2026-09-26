@@ -536,7 +536,26 @@ const monitorGetAlarmUnknownIDNote = "A missing alarm exits 1, not 4: the API an
 // --cli-input-json, and even set there this read ignores both.
 const monitorQuoteCreateLogProjectIgnoredFieldsNote = "Ignores MaxPrice and NoWait even when an inline " +
 	"--cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, " +
-	"a later release; this command neither orders anything nor waits."
+	"never this read, which neither orders anything nor waits."
+
+// monitorCreateLogProjectNote documents create-log-project's own caveats
+// beyond its flag table: the price guard's default, the unretried order,
+// and the post-order wait bound.
+var monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
+	"create-log-project --name <name> only orders a free class and retention option. The order itself " +
+	"is never retried after a failure that may have already reached the server; list log projects by " +
+	"name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 " +
+	"seconds for the new project to reach ACTIVE; a timeout, or any other failure during that wait, is " +
+	"NotSettled, and the write must not be repeated.\n\n" + logProjectShapeUnverifiedNote
+
+// monitorDeleteLogProjectNote documents delete-log-project's own caveats:
+// --purge's second request and its tolerance of an already-trashed
+// project, and the post-write wait bound.
+const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its billing; its logs are " +
+	"lost. --purge also deletes it from trash, as a second request in the same call, sent even when the " +
+	"first delete 404s, since the project most likely already sits in trash from an earlier call. " +
+	"Without --no-wait, waits up to 60 seconds for a read to show the change; a timeout, or any other " +
+	"failure during that wait, is NotSettled, and the write must not be repeated."
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -551,6 +570,8 @@ var docOpNotes = map[string]string{
 	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
 	"monitor list-log-projects":               logProjectShapeUnverifiedNote,
 	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote,
+	"monitor create-log-project":              monitorCreateLogProjectNote,
+	"monitor delete-log-project":              monitorDeleteLogProjectNote,
 	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
 	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
 	"monitor create-check":                    monitorCheckNotificationsNote,

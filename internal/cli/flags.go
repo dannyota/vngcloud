@@ -37,9 +37,10 @@ type flagSpec struct {
 }
 
 // flagSpecsFor reflects over the struct inputPtr points to and returns one
-// flagSpec per exported field of a supported type: string, int, int64, bool,
-// or a pointer to one of those. Every other field type (a map, for example)
-// is skipped; it is only ever set through --cli-input-json.
+// flagSpec per exported field of a supported type: string, int, int64,
+// float64, bool, or a pointer to one of those. Every other field type (a
+// map, for example) is skipped; it is only ever set through
+// --cli-input-json.
 func flagSpecsFor(inputPtr any) ([]flagSpec, error) {
 	v := reflect.ValueOf(inputPtr)
 	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
@@ -106,15 +107,15 @@ func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
 }
 
 // supportedFieldKind reports the primitive kind flags.go binds for t: t's own
-// kind for string, int, int64, or bool, or the pointed-to kind for a pointer
-// to one of those. ok is false for any other type.
+// kind for string, int, int64, float64, or bool, or the pointed-to kind for a
+// pointer to one of those. ok is false for any other type.
 func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok bool) {
 	switch t.Kind() {
-	case reflect.String, reflect.Int, reflect.Int64, reflect.Bool:
+	case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
 		return t.Kind(), false, true
 	case reflect.Pointer:
 		switch t.Elem().Kind() {
-		case reflect.String, reflect.Int, reflect.Int64, reflect.Bool:
+		case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
 			return t.Elem().Kind(), true, true
 		}
 	}
@@ -131,6 +132,7 @@ type boundFlag struct {
 	strv  *string
 	intv  *int
 	i64v  *int64
+	f64v  *float64
 	boolv *bool
 }
 
@@ -151,6 +153,9 @@ func registerFlags(cmd *cobra.Command, specs []flagSpec) []boundFlag {
 		case reflect.Int64:
 			b.i64v = new(int64)
 			cmd.Flags().Int64Var(b.i64v, spec.flagName, 0, "")
+		case reflect.Float64:
+			b.f64v = new(float64)
+			cmd.Flags().Float64Var(b.f64v, spec.flagName, 0, "")
 		case reflect.Bool:
 			b.boolv = new(bool)
 			cmd.Flags().BoolVar(b.boolv, spec.flagName, false, "")
@@ -178,6 +183,8 @@ func applyChangedFlags(cmd *cobra.Command, target any, bound []boundFlag) {
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.intv))
 		case reflect.Int64:
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.i64v))
+		case reflect.Float64:
+			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.f64v))
 		case reflect.Bool:
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.boolv))
 		}

@@ -135,6 +135,11 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: %w", dns.ErrNotSettled, context.Canceled),
 			1,
 		},
+		{
+			"monitor log project price above max",
+			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -246,6 +251,11 @@ func TestClassify(t *testing.T) {
 			"dns not settled",
 			fmt.Errorf("%w: zone-1 was accepted", dns.ErrNotSettled),
 			"NotSettled", 0, "",
+		},
+		{
+			"monitor log project price above max",
+			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
+			"PriceAboveMax", 0, "",
 		},
 	}
 	for _, tt := range tests {

@@ -285,8 +285,8 @@ result, same as any other delete.
 
 `ListAlarms` and `GetAlarm` read vMonitor alarms, of either `Kind`:
 `monitor.AlarmKindMetric` or `monitor.AlarmKindLog`. There is no create,
-update, or delete yet; a log alarm needs a log project, which ships in a
-later release.
+update, or delete yet: a log alarm needs a log project, which
+`CreateLogProject` can now order, but log alarm writes do not exist yet.
 
 ```go
 alarms, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: monitor.AlarmKindLog})

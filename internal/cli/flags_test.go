@@ -15,6 +15,8 @@ type flagsTestInput struct {
 	Enabled    *bool
 	Count      *int
 	Limit      int64
+	Price      float64
+	MaxPrice   *float64
 	Extra      map[string]any // unsupported type: only settable via --cli-input-json
 	unexported string         //nolint:unused // proves flagSpecsFor skips unexported fields
 }
@@ -28,13 +30,13 @@ func TestFlagSpecsForSkipsUnsupportedAndUnexported(t *testing.T) {
 	for _, s := range specs {
 		names[s.flagName] = true
 	}
-	for _, want := range []string{"name", "enabled", "count", "limit"} {
+	for _, want := range []string{"name", "enabled", "count", "limit", "price", "max-price"} {
 		if !names[want] {
 			t.Errorf("missing flag %q in %v", want, names)
 		}
 	}
-	if len(specs) != 4 {
-		t.Fatalf("got %d specs, want 4 (Extra and unexported must be skipped): %+v", len(specs), specs)
+	if len(specs) != 6 {
+		t.Fatalf("got %d specs, want 6 (Extra and unexported must be skipped): %+v", len(specs), specs)
 	}
 }
 
@@ -87,6 +89,29 @@ func TestApplyChangedFlagsSetsPointerFields(t *testing.T) {
 	applyChangedFlags(cmd, in, bound)
 	if in.Count == nil || *in.Count != 7 {
 		t.Fatalf("Count = %v, want a pointer to 7", in.Count)
+	}
+}
+
+// TestApplyChangedFlagsSetsFloat64Fields checks a plain float64 field
+// (Price, the shape monitor.CreateLogProjectInput.MaxPrice takes) and a
+// pointer-to-float64 field both parse and apply correctly: float64 has no
+// other Input field in the SDK to exercise this path against.
+func TestApplyChangedFlagsSetsFloat64Fields(t *testing.T) {
+	in := &flagsTestInput{}
+	specs, err := flagSpecsFor(in)
+	if err != nil {
+		t.Fatalf("flagSpecsFor: %v", err)
+	}
+	cmd, bound := newTestCmd(t, specs)
+	if err := cmd.ParseFlags([]string{"--price=917000", "--max-price=1500.5"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	applyChangedFlags(cmd, in, bound)
+	if in.Price != 917000 {
+		t.Fatalf("Price = %v, want 917000", in.Price)
+	}
+	if in.MaxPrice == nil || *in.MaxPrice != 1500.5 {
+		t.Fatalf("MaxPrice = %v, want a pointer to 1500.5", in.MaxPrice)
 	}
 }
 
