@@ -2,9 +2,10 @@
 
 `monitor` is a separate package, `danny.vn/vngcloud/monitor`, with its own
 `New(cfg)`. It reads vMonitor synthetic checks (GreenNode calls them uptime
-checks), pauses or resumes them, creates and deletes them, and lists probe
-locations. Every call is per account: it sends no project ID and ignores
-the region in `Config`, like billing.
+checks), pauses or resumes them, creates and deletes them, lists probe
+locations, reads and writes notification channels, and reads alarms. Every
+call is per account: it sends no project ID and ignores the region in
+`Config`, like billing.
 
 `CreateCheck` always makes an HTTP `API` check with `verified_ssl` on; it
 ships with no way to name a notification channel, so a check it creates
@@ -369,6 +370,53 @@ other type, known or not, has its `Address` redacted, keeping only the
 scheme and host for an `http` or `https` URL and redacting the rest whole
 otherwise. Every header value is always redacted, regardless of channel
 type. There is no flag to reveal either.
+
+## Alarms
+
+`ListAlarms` and `GetAlarm` read vMonitor alarms, of either `Kind`:
+`monitor.AlarmKindMetric` or `monitor.AlarmKindLog`. There is no create,
+update, or delete yet; a log alarm needs a log project, which ships in a
+later release.
+
+```go
+alarms, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: monitor.AlarmKindLog})
+if err != nil {
+	log.Fatal(err)
+}
+for _, a := range alarms.Items {
+	log.Printf("%s: %s (%s)", a.ID, a.Name, a.Status)
+}
+
+if len(alarms.Items) > 0 {
+	detail, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: alarms.Items[0].ID})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println(detail.Alarm.Status)
+}
+```
+
+`ListAlarmsInput.Kind` is required; `Name`, `Status`, and `Severity` narrow
+the list further, empty for no filter, and `Page`/`Size` page the result
+starting at page 1. Every returned `Alarm.Kind` is set to the `Kind` filter
+sent, since one call always lists one kind.
+
+`Alarm` holds `ID`, `Name`, `Kind`, `Status`, and `Severity` for both kinds.
+A Log alarm's `Log` field is non-nil and holds `InAlarm` and `OK`, the
+channel IDs that alert on entering and leaving the alarm state. A Metric
+alarm has `Log` nil and instead sets `MetricMappingID`, naming the channel
+by the same `MetricMappingID` a channel read itself returns, rather than by
+the channel's `ID`. `GetAlarm` decodes the same `Alarm` shape, inferring
+`Kind` from which of these fields the response carries, since the get call
+takes no kind filter of its own.
+
+`GetAlarm`'s response shape has not been checked against a real alarm: the
+test account has none of either kind, and the design's source for the
+alarm calls is the console's own JavaScript, not a live capture. A live
+`GetAlarm` for an ID with no matching alarm returned a 500, not a 404, so
+unlike `GetCheck` and `GetChannel`, a missing alarm does not resolve to
+`vngcloud.IsNotFound(err) == true`; it comes back as a plain
+`*vngcloud.APIError`.
 
 ## Endpoint
 

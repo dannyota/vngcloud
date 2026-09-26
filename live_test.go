@@ -113,6 +113,7 @@ func TestLive(t *testing.T) {
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
+	t.Run("monitor-alarms", func(t *testing.T) { testLiveMonitorAlarms(ctx, t, firstCfg) })
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 
 	for i, region := range regions {
@@ -297,6 +298,42 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		if _, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: "vngcloud-live-missing"}); !vngcloud.IsNotFound(err) {
 			t.Fatalf("GetChannel(missing): %v, want IsNotFound", err)
 		}
+	}
+}
+
+// testLiveMonitorAlarms lists Metric and Log alarms and, for a kind with at
+// least one, reads the first by ID. The test account has neither kind
+// today. Unlike GetCheck and GetChannel, a live GetAlarm call for an ID
+// with no matching alarm returns a 500 (message "Get alarm by id is failed"),
+// not a 404, so this only confirms an error comes back rather than asserting
+// vngcloud.IsNotFound. It logs counts only: GetAlarm's output shape is
+// unconfirmed against a live alarm (see the design), so no field beyond ID
+// is checked here.
+func testLiveMonitorAlarms(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := monitor.New(cfg)
+
+	for _, kind := range []string{monitor.AlarmKindMetric, monitor.AlarmKindLog} {
+		t.Run(kind, func(t *testing.T) {
+			out, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: kind})
+			if err != nil {
+				t.Fatalf("ListAlarms(%s): %v", kind, err)
+			}
+			t.Logf("%s alarms: %d", kind, len(out.Items))
+			if len(out.Items) > 0 {
+				first := out.Items[0]
+				detail, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: first.ID})
+				if err != nil {
+					t.Fatalf("GetAlarm: %v", err)
+				}
+				if detail.Alarm.ID != first.ID {
+					t.Fatalf("GetAlarm returned id %q, want %q", detail.Alarm.ID, first.ID)
+				}
+				return
+			}
+			if _, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: "vngcloud-live-missing"}); err == nil {
+				t.Fatal("GetAlarm(missing): got nil error, want an error")
+			}
+		})
 	}
 }
 
