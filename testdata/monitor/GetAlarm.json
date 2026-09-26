@@ -1,0 +1,10 @@
+{
+  "data": {
+    "id": "alarm-1",
+    "name": "example-log-alarm",
+    "status": "OK",
+    "severity": "MEDIUM",
+    "inAlarm": "channel-1,",
+    "ok": ""
+  }
+}

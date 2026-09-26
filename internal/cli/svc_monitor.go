@@ -38,6 +38,18 @@ import (
 // restored by one more command, so it needs --yes. A read-only profile
 // refuses all three, before any request, the same as every other Write op
 // here.
+//
+// ListLogProjects, GetLogProject, ListLogProjectClasses, and
+// QuoteCreateLogProject carry no Guard or Redact either: neither LogProject
+// nor LogProjectClass holds a secret the monitor design's redaction rule
+// covers.
+//
+// ListAlarms and GetAlarm carry no Guard or Redact: an Alarm holds no
+// secret. GetAlarm needs no special handling for an unknown ID either: the
+// API answers one with a 500, which vngcloud.IsNotFound never matches, so
+// exitCode's default case already returns 1 rather than the 4 a real 404
+// gets; docOpNotes states this for the wiki page since the flag table
+// cannot show it.
 var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
@@ -91,12 +103,14 @@ var monitorOps = []Op[monitor.Client]{
 	// create-log-project command a later release adds. MaxPrice and NoWait
 	// only govern that create's own price ceiling and wait, not this read,
 	// which neither orders nor waits, so NoFlag keeps both settable only
-	// through --cli-input-json until create-log-project ships. Neither
-	// LogProject nor LogProjectClass holds a secret the monitor design's
-	// redaction rule covers, so these four ops carry no Redact.
+	// through --cli-input-json until create-log-project ships.
 	Read[monitor.Client, monitor.CreateLogProjectInput, monitor.QuoteCreateLogProjectOutput](
 		kebab("QuoteCreateLogProject"), (*monitor.Client).QuoteCreateLogProject,
 		NoFlag("MaxPrice", "NoWait")),
+	Read[monitor.Client, monitor.ListAlarmsInput, monitor.ListAlarmsOutput](
+		kebab("ListAlarms"), (*monitor.Client).ListAlarms),
+	Read[monitor.Client, monitor.GetAlarmInput, monitor.GetAlarmOutput](
+		kebab("GetAlarm"), (*monitor.Client).GetAlarm),
 }
 
 // literalCLIInputJSONFields returns the top-level key set of cmd's

@@ -11,6 +11,7 @@
 - [CDN](CDN.md)
 - [DNS](DNS.md)
 - [Monitor](Monitor.md)
+- [Monitor Alerts](Monitor-Alerts.md)
 - [Security](Security.md)
 
 **CLI**
@@ -27,4 +28,5 @@
 - [CLI: Portal](CLI-Portal.md)
 - [CLI: LoadBalancer](CLI-LoadBalancer.md)
 - [CLI: Volume](CLI-Volume.md)
+- [CLI: ContainerRegistry](CLI-ContainerRegistry.md)
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)

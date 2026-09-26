@@ -49,6 +49,7 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "project", projectOps)
 	assertKindMatchesMethodName(t, "portal", portalOps)
 	assertKindMatchesMethodName(t, "volume", volumeOps)
+	assertKindMatchesMethodName(t, "containerregistry", containerRegistryOps)
 	assertKindMatchesMethodName(t, "globalloadbalancer", globalLoadBalancerOps)
 }
 
@@ -76,6 +77,7 @@ func TestServiceHelpListsEveryOp(t *testing.T) {
 		{"project", opNames(projectOps)},
 		{"portal", opNames(portalOps)},
 		{"volume", opNames(volumeOps)},
+		{"containerregistry", opNames(containerRegistryOps)},
 		{"globalloadbalancer", opNames(globalLoadBalancerOps)},
 	}
 	for _, tt := range tests {

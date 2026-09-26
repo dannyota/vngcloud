@@ -156,6 +156,7 @@ func runGenDocs(dir string) error {
 		buildDocService("portal", portalOps),
 		buildDocService("loadbalancer", loadbalancerOps),
 		buildDocService("volume", volumeOps),
+		buildDocService("containerregistry", containerRegistryOps),
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
@@ -430,9 +431,10 @@ const monitorUpdateChannelAddressNote = "Refuses every literal --address, or an 
 	"redacted the same way a channel read is."
 
 // portalMapRedactionNote documents the CLI's key redaction rule for
-// map-backed Outputs, shared by every portal operation: portal.UserInfo,
-// Zone, Quota, and TagQuota are all map[string]any, so every key the API
-// returns reaches this rule.
+// map-backed Outputs, shared by every portal operation (portal.UserInfo,
+// Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
+// list-repositories (Repository is map[string]any too), so every key the
+// API returns reaches this rule.
 const portalMapRedactionNote = "Values under a key that looks like a secret " +
 	"(password, token, credential, and similar, matched after lower-casing and " +
 	"stripping punctuation) print as `<redacted>`, at any depth."
@@ -470,6 +472,17 @@ var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
 // against a real response.
 var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
+// containerRegistryRepositoryUnverifiedNote flags list-repositories' output
+// shape: the test account holds no repository, so the live call returns an
+// empty list and nothing exercises Repository's map-backed decoding against
+// a real row.
+var containerRegistryRepositoryUnverifiedNote = "Unverified live: the test account has no repository, so the live call returns an empty list. Each row prints the API's own keys unchanged, and those keys have not been seen."
+
+// containerRegistryRepositoryNote combines the unverified-live note above
+// with the shared map redaction rule, since containerregistry.Repository is
+// map-backed like portal's models.
+var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote + "\n\n" + portalMapRedactionNote
+
 // globalLoadBalancerShapeUnverifiedNote flags an output shape the live
 // checks cannot confirm: the test account holds no global load balancer, so
 // nothing exercises this command's decoding against a real response.
@@ -482,6 +495,18 @@ var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load bala
 // monitor.LogProject's doc comment).
 var logProjectShapeUnverifiedNote = unverifiedLiveNote("log project")
 
+// monitorAlarmShapeUnverifiedNote flags an output shape the live checks
+// cannot confirm: the test account holds no alarm, so nothing exercises
+// list-alarms' or get-alarm's decoding against a real response.
+var monitorAlarmShapeUnverifiedNote = unverifiedLiveNote("alarm")
+
+// monitorGetAlarmUnknownIDNote documents get-alarm's own exit code for a
+// missing alarm, since it differs from every other Get command's: the API
+// answers an unknown ID with a 500, not a 404, so vngcloud.IsNotFound never
+// matches it and the command exits 1 rather than 4.
+const monitorGetAlarmUnknownIDNote = "A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, " +
+	"not a 404, so this command never reports the NotFound error class."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -493,6 +518,8 @@ var docOpNotes = map[string]string{
 	"monitor create-channel":                  monitorCreateChannelAddressNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote,
 	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
+	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
+	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
 	"portal get-user-info":                    portalUserInfoNote,
 	"portal list-zones":                       portalMapRedactionNote,
 	"portal list-quota-used":                  portalMapRedactionNote,
@@ -512,6 +539,7 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-policies":              loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-policy":                 loadBalancerShapeUnverifiedNote,
 	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
+	"containerregistry list-repositories":     containerRegistryRepositoryNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,

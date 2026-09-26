@@ -1,0 +1,16 @@
+{
+  "lstData": [
+    {
+      "id": "alarm-1",
+      "name": "example-log-alarm",
+      "status": "OK",
+      "severity": "MEDIUM",
+      "inAlarm": "channel-1,channel-2,",
+      "ok": "channel-1,"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

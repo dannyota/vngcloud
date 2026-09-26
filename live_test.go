@@ -113,6 +113,7 @@ func TestLive(t *testing.T) {
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
+	t.Run("monitor-alarms", func(t *testing.T) { testLiveMonitorAlarms(ctx, t, firstCfg) })
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 
 	for i, region := range regions {
@@ -325,6 +326,42 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		t.Fatalf("QuoteCreateLogProject: %v", err)
 	}
 	t.Logf("basic log project quote: %.0f VND/month", quote.OptimumPrice)
+}
+
+// testLiveMonitorAlarms lists Metric and Log alarms and, for a kind with at
+// least one, reads the first by ID. The test account has neither kind
+// today. Unlike GetCheck and GetChannel, a live GetAlarm call for an ID
+// with no matching alarm returns a 500 (message "Get alarm by id is failed"),
+// not a 404, so this only confirms an error comes back rather than asserting
+// vngcloud.IsNotFound. It logs counts only: GetAlarm's output shape is
+// unconfirmed against a live alarm (see the design), so no field beyond ID
+// is checked here.
+func testLiveMonitorAlarms(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := monitor.New(cfg)
+
+	for _, kind := range []string{monitor.AlarmKindMetric, monitor.AlarmKindLog} {
+		t.Run(kind, func(t *testing.T) {
+			out, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: kind})
+			if err != nil {
+				t.Fatalf("ListAlarms(%s): %v", kind, err)
+			}
+			t.Logf("%s alarms: %d", kind, len(out.Items))
+			if len(out.Items) > 0 {
+				first := out.Items[0]
+				detail, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: first.ID})
+				if err != nil {
+					t.Fatalf("GetAlarm: %v", err)
+				}
+				if detail.Alarm.ID != first.ID {
+					t.Fatalf("GetAlarm returned id %q, want %q", detail.Alarm.ID, first.ID)
+				}
+				return
+			}
+			if _, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: "vngcloud-live-missing"}); err == nil {
+				t.Fatal("GetAlarm(missing): got nil error, want an error")
+			}
+		})
+	}
 }
 
 // testLiveGlobalLoadBalancer reads GLB packages, regions, and load
@@ -778,6 +815,42 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 	})
 }
 
+// testLiveContainerRegistry reads repositories and users, per the CLI reads
+// design's live-checks table for containerregistry. It logs counts and,
+// when a list returns at least one row, that row's key count only, never a
+// key name or value: list-users is held from the CLI until the SDK types
+// User from a live capture, and a registry user row may carry a password or
+// robot token. It skips the key-count log for an empty list.
+func testLiveContainerRegistry(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := containerregistry.New(cfg)
+
+	t.Run("repositories", func(t *testing.T) {
+		res, err := client.ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})
+		if err != nil {
+			t.Fatalf("ListRepositories: %v", err)
+		}
+		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
+		if len(res.Items) == 0 {
+			t.Log("skipped key count: none")
+			return
+		}
+		t.Logf("first repository keys: %d", len(res.Items[0]))
+	})
+
+	t.Run("users", func(t *testing.T) {
+		res, err := client.ListUsers(ctx, &containerregistry.ListUsersInput{})
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		t.Logf("users: %d of %d", len(res.Items), res.TotalItem)
+		if len(res.Items) == 0 {
+			t.Log("skipped key count: none")
+			return
+		}
+		t.Logf("first user keys: %d", len(res.Items[0]))
+	})
+}
+
 func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
@@ -829,13 +902,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		t.Logf("records in first zone: %d of %d", len(records.Items), records.TotalItem)
 	})
-	t.Run("container-repositories", func(t *testing.T) {
-		res, err := containerregistry.New(cfg).ListRepositories(ctx, &containerregistry.ListRepositoriesInput{})
-		if err != nil {
-			t.Fatalf("ListRepositories: %v", err)
-		}
-		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
-	})
+	t.Run("containerregistry", func(t *testing.T) { testLiveContainerRegistry(ctx, t, cfg) })
 	t.Run("portal", func(t *testing.T) { testLivePortal(ctx, t, cfg) })
 	t.Run("pricing-quote", func(t *testing.T) {
 		quoteClient := pricing.New(cfg)

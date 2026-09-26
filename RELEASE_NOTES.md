@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.18.0 - Container Registry Command
+
+### Highlights
+
+- New `vngcloud containerregistry list-repositories`. Rows print the API's
+  own keys; the test account has no repository, so the output is marked
+  unverified. `list-users` waits until its model is typed from a live
+  capture.
+- Map-backed output now also hides values under keys that look like an
+  access key or a Docker config, and under keys named exactly `auth` or
+  `auths`.
+- Every SDK service now has CLI read commands.
+
+### Behavior changes
+
+None.
+
 ## v0.17.0 - Global Load Balancer Commands
 
 ### Highlights

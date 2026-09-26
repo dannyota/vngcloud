@@ -1,0 +1,34 @@
+{
+  "Items": [
+    {
+      "ID": "alarm-1",
+      "Name": "example-log-alarm",
+      "Kind": "Log",
+      "Status": "OK",
+      "Severity": "MEDIUM",
+      "MetricMappingID": "",
+      "Log": {
+        "InAlarm": [
+          "channel-1",
+          "channel-2"
+        ],
+        "OK": [
+          "channel-1"
+        ]
+      }
+    },
+    {
+      "ID": "alarm-2",
+      "Name": "example-metric-alarm",
+      "Kind": "Metric",
+      "Status": "In-alarm",
+      "Severity": "HIGH",
+      "MetricMappingID": "metric-map-1",
+      "Log": null
+    }
+  ],
+  "Page": 1,
+  "PageSize": 10000,
+  "TotalPage": 1,
+  "TotalItem": 2
+}

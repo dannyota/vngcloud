@@ -21,8 +21,9 @@ the rename and keeps the `vngcloud` name.
 - **Price before you buy:** get a quote for a resource; a quote never orders.
 - **Read your infrastructure:** servers, volumes, networks, load balancers,
   DNS, container registries, quotas, and the published CDN IP ranges.
-- **Use it from a terminal:** `vngcloud <service> <operation>`, with JSON
-  output, `--query`, stable exit codes, and read-only profiles for AI agents.
+- **Use it from a terminal:** `vngcloud <service> <operation>` for every
+  service above, with JSON output, `--query`, stable exit codes, and
+  read-only profiles for AI agents.
 
 Expect breaking changes until `v1.0.0`.
 

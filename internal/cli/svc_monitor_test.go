@@ -136,6 +136,55 @@ func TestGoldenMonitorGetChannel(t *testing.T) {
 	checkGolden(t, "monitor-get-channel.text.golden", "text", "", v)
 }
 
+// exampleLogAlarm and exampleMetricAlarm are shaped like the monitor SDK
+// package's own ListAlarmsLog.json and ListAlarmsMetric.json fixtures, reused
+// here so the golden tests below exercise the same identity and channel
+// reference shape both kinds decode to.
+func exampleLogAlarm() monitor.Alarm {
+	return monitor.Alarm{
+		ID:       "alarm-1",
+		Name:     "example-log-alarm",
+		Kind:     monitor.AlarmKindLog,
+		Status:   "OK",
+		Severity: "MEDIUM",
+		Log: &monitor.LogAlarmDetail{
+			InAlarm: []string{"channel-1", "channel-2"},
+			OK:      []string{"channel-1"},
+		},
+	}
+}
+
+func exampleMetricAlarm() monitor.Alarm {
+	return monitor.Alarm{
+		ID:              "alarm-2",
+		Name:            "example-metric-alarm",
+		Kind:            monitor.AlarmKindMetric,
+		Status:          "In-alarm",
+		Severity:        "HIGH",
+		MetricMappingID: "metric-map-1",
+	}
+}
+
+// TestGoldenMonitorListAlarms checks list-alarms' exact output shape,
+// including paging metadata alongside Items, with one alarm of each kind so
+// the golden file shows both a Log alarm's channel references and a Metric
+// alarm's MetricMappingID side by side.
+func TestGoldenMonitorListAlarms(t *testing.T) {
+	v := core.NewPagedList([]monitor.Alarm{exampleLogAlarm(), exampleMetricAlarm()}, 1, 10000, 1, 2)
+	checkGolden(t, "monitor-list-alarms.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-alarms.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-alarms.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorGetAlarm checks get-alarm's exact output shape,
+// {"Alarm": {...}}, for a Log alarm.
+func TestGoldenMonitorGetAlarm(t *testing.T) {
+	v := &monitor.GetAlarmOutput{Alarm: exampleLogAlarm()}
+	checkGolden(t, "monitor-get-alarm.json.golden", "json", "", v)
+	checkGolden(t, "monitor-get-alarm.table.golden", "table", "", v)
+	checkGolden(t, "monitor-get-alarm.text.golden", "text", "", v)
+}
+
 // exampleLocation is a probe location shaped like the uptime manager's own
 // fixtures, reused by the list-locations golden tests below.
 func exampleLocation(id, name string) monitor.Location {
@@ -1181,5 +1230,143 @@ func TestMonitorQuoteCreateLogProjectMissingNameExitsWithZeroRequests(t *testing
 	}
 	if n := fixture.requestCount(); n != 0 {
 		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// monitorAlarmListJSON renders one Log alarm, id "alarm-1", as the alarm
+// API's own list shape (lstData plus paging), with inAlarm and ok as the
+// comma-joined channel ID strings the design describes.
+func monitorAlarmListJSON() string {
+	return `{"lstData":[{"id":"alarm-1","name":"example-log-alarm","status":"OK","severity":"MEDIUM",` +
+		`"inAlarm":"channel-1,channel-2,","ok":"channel-1,"}],` +
+		`"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`
+}
+
+// monitorAlarmGetJSON renders the same Log alarm as GetAlarm's own shape:
+// the alarm wrapped in a top-level "data" field, with no channel alerting on
+// leaving the alarm state.
+func monitorAlarmGetJSON() string {
+	return `{"data":{"id":"alarm-1","name":"example-log-alarm","status":"OK","severity":"MEDIUM",` +
+		`"inAlarm":"channel-1,","ok":""}}`
+}
+
+// TestMonitorListAlarmsEndToEnd runs the real list-alarms command against a
+// fixture alarm API, checking the request method, path, and the type-alarm
+// query key --kind sends, and that the decoded Alarm survives the round
+// trip, Kind included.
+func TestMonitorListAlarmsEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/list": jsonHandler(http.StatusOK, monitorAlarmListJSON()),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-alarms", "--kind", monitor.AlarmKindLog})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-alarms: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/vmonitor-api/api/v1/alarms/list"); !ok || got != http.MethodGet {
+		t.Fatalf("list-alarms method = %q, ok=%v, want GET", got, ok)
+	}
+	if q, ok := fixture.queryFor("/vmonitor-api/api/v1/alarms/list"); !ok || !strings.Contains(q, "type-alarm=Log") {
+		t.Fatalf("list-alarms query = %q, ok=%v, want it to contain type-alarm=Log", q, ok)
+	}
+	// Decoded into a plain local struct, not monitor.Alarm: the CLI's own
+	// JSON keys are Go field names (per the CLI design's "Output"), but
+	// Alarm's custom UnmarshalJSON expects the wire's lowercase keys and
+	// infers Kind from which of them is present, so round-tripping this
+	// output back through it would relabel Kind rather than read it.
+	var out struct {
+		Items []struct {
+			ID   string
+			Name string
+			Kind string
+		}
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("list-alarms stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != "example-log-alarm" {
+		t.Fatalf("list-alarms Items = %+v", out.Items)
+	}
+	if out.Items[0].Kind != monitor.AlarmKindLog {
+		t.Fatalf("list-alarms Items[0].Kind = %q, want %q", out.Items[0].Kind, monitor.AlarmKindLog)
+	}
+}
+
+// TestMonitorListAlarmsMissingKindExitsWithZeroRequests checks that
+// list-alarms without --kind fails the required-field check before any
+// request: Kind is ListAlarmsInput's only required field, and the console
+// always sends one, per the monitor design.
+func TestMonitorListAlarmsMissingKindExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/list": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-alarms"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected a required-field error without --kind")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestMonitorGetAlarmEndToEnd runs the real get-alarm command against a
+// fixture alarm API, checking the request method and path and that the
+// decoded Alarm survives the round trip, including the Kind
+// UnmarshalJSON infers from the inAlarm and ok fields.
+func TestMonitorGetAlarmEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/alarm-1": jsonHandler(http.StatusOK, monitorAlarmGetJSON()),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-alarm", "--alarm-id", "alarm-1"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("get-alarm: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/vmonitor-api/api/v1/alarms/alarm-1"); !ok || got != http.MethodGet {
+		t.Fatalf("get-alarm method = %q, ok=%v, want GET", got, ok)
+	}
+	// Decoded into a plain local struct, not monitor.Alarm: see the same note
+	// on TestMonitorListAlarmsEndToEnd.
+	var out struct {
+		Alarm struct {
+			ID   string
+			Name string
+			Kind string
+		}
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("get-alarm stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.Alarm.ID != "alarm-1" || out.Alarm.Kind != monitor.AlarmKindLog {
+		t.Fatalf("get-alarm Alarm = %+v", out.Alarm)
+	}
+}
+
+// TestMonitorGetAlarmUnknownIDExitsOneNotFour checks the monitor design's
+// own note for get-alarm: the API answers an unknown ID with a 500, not a
+// 404, so vngcloud.IsNotFound never matches it and the command exits 1 with
+// the status-derived ServerError class rather than exit 4 with NotFound.
+func TestMonitorGetAlarmUnknownIDExitsOneNotFour(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/missing": jsonHandler(http.StatusInternalServerError, `{"message":"internal error"}`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-alarm", "--alarm-id", "missing"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for the unknown ID")
+	}
+	if got := classify(err).Code; got != "ServerError" {
+		t.Fatalf("Code = %q, want ServerError (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
 	}
 }

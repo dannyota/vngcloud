@@ -94,6 +94,10 @@ func TestLiveCLI(t *testing.T) {
 			t.Fatal("stdout is not valid JSON")
 		}
 		t.Log("ok")
+		// get-alarm is not run here: the test account has no alarm, so there
+		// is no ID to read.
+		testLiveCLIItems(ctx, t, "monitor", "list-alarms", "--kind", "Log")
+		testLiveCLIItems(ctx, t, "monitor", "list-alarms", "--kind", "Metric")
 	})
 	t.Run("project", func(t *testing.T) {
 		testLiveCLIItemsAtLeastOne(ctx, t, "project", "list-projects")
@@ -109,6 +113,9 @@ func TestLiveCLI(t *testing.T) {
 	})
 	t.Run("globalloadbalancer", func(t *testing.T) {
 		testLiveCLIItemsAtLeastOne(ctx, t, "globalloadbalancer", "list-regions")
+	})
+	t.Run("containerregistry", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "containerregistry", "list-repositories")
 	})
 }
 
