@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.19.0 - vMonitor Check Alerting
+
+### Highlights
+
+- `CreateCheckInput` gains `Notifications`: the channel IDs alerted when a
+  check goes into alarm, comes back up, or turns undetermined.
+- New `monitor.UpdateCheck` and `vngcloud monitor update-check`. The API
+  replaces the whole check, so the SDK reads it first and sends back every
+  field left unset. `Notifications` replaces all three lists at once. An
+  update never changes a check's paused or enabled status, always sends
+  TLS verification on, and refuses to touch a check it cannot read or a
+  check type other than API/HTTP.
+- `--cli-input-json` now refuses an unknown key at any depth, before any
+  request. A mistyped nested key, such as `InAlarm` for `In-alarm`, used
+  to be dropped silently and could clear a check's alerts.
+
+### Behavior changes
+
+`--cli-input-json` input that held an unknown nested key now exits 2
+instead of being accepted.
+
 ## v0.18.0 - Container Registry Command
 
 ### Highlights
