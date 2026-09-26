@@ -749,7 +749,7 @@ func TestLiveWriteDNS(t *testing.T) {
 	start = time.Now()
 	updated, err := client.UpdateHostedZone(ctx, &dns.UpdateHostedZoneInput{
 		HostedZoneID: zoneID,
-		Description:  vngcloud.Ptr("vngcloud live write test, updated"),
+		Description:  vngcloud.Ptr("vngcloud live write test updated"),
 	})
 	if err != nil {
 		t.Fatalf("step 4 UpdateHostedZone: %s", safeErr(err))
