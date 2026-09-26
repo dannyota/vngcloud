@@ -535,8 +535,9 @@ var docExampleExtraFlag = map[string]string{
 // Webhook or Slack channel. The override shows the runnable form instead:
 // Address (and Headers) through --cli-input-json file://channel.json.
 var docExampleOverride = map[string]string{
-	"monitor create-channel": "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
-	"monitor update-channel": "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
+	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
 }
 
 // buildExample builds one example command line for op: docExampleOverride's

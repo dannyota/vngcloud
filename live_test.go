@@ -365,7 +365,11 @@ func testLiveLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.Config
 		if err != nil {
 			t.Fatalf("ListPackages: %v", err)
 		}
-		t.Logf("packages: %d", len(res.Items))
+		if len(res.Items) == 0 {
+			t.Fatal("ListPackages returned no packages")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("packages: %d, first fields set %d/%d", len(res.Items), set, total)
 	})
 
 	lbs, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Page: 1, Size: 5})

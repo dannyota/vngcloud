@@ -130,7 +130,7 @@ Kind: Read.
 | `--size` | `int` |  |
 
 ```sh
-vngcloud loadbalancer list-load-balancers
+vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'
 ```
 
 ## list-packages

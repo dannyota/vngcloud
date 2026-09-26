@@ -6,8 +6,8 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 )
 
-// loadbalancerOps is loadbalancer's operation table. Every operation reads;
-// loadbalancer writes are not part of this release. No Input field here
+// loadbalancerOps is loadbalancer's operation table. Every operation reads.
+// No Input field here
 // needs NoFlag or Redact: the CLI reads design's "loadbalancer" section
 // notes that Certificate has no key or PEM field, and a typed model drops
 // every field it does not declare, so a private key in a response could

@@ -90,7 +90,7 @@ func TestLiveCLI(t *testing.T) {
 		testLiveCLIItems(ctx, t, "portal", "list-zones")
 	})
 	t.Run("loadbalancer", func(t *testing.T) {
-		testLiveCLIItems(ctx, t, "loadbalancer", "list-packages")
+		testLiveCLIItemsAtLeastOne(ctx, t, "loadbalancer", "list-packages")
 	})
 	t.Run("volume", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "volume", "list-volume-types")
