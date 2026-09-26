@@ -51,7 +51,7 @@ Kind: Write.
 
 Orders nothing above --max-price, default 0: a bare create-log-project --name <name> only orders a free class and retention option. The order itself is never retried after a failure that may have already reached the server; list log projects by name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 seconds for the new project to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated.
 
-Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
+Unverified live: the order response's own shape has never been captured, so --no-wait, and the fallback when the post-order wait never finds the project by name, both print it on a best-effort basis. Without --no-wait, the printed project otherwise comes from a list-log-projects read, which decodes a confirmed shape.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -96,6 +96,8 @@ vngcloud monitor delete-check --check-id <check-id> --yes
 Kind: Write, destructive.
 
 Moves the project to trash, stopping its billing; its logs are lost. --purge also deletes it from trash, as a second request in the same call, sent even when the first delete 404s, since the project most likely already sits in trash from an earlier call. Without --no-wait, waits up to 60 seconds for a read to show the change; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated.
+
+Unverified live: the delete and purge responses' own shape and status have never been captured, so this command discards the response body and treats either 200 or 204 as success.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -152,8 +154,6 @@ vngcloud monitor get-check --check-id <check-id> --query Check
 ## get-log-project
 
 Kind: Read.
-
-Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -241,8 +241,6 @@ vngcloud monitor list-log-project-classes
 ## list-log-projects
 
 Kind: Read.
-
-Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|

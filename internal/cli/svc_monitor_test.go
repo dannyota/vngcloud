@@ -1187,10 +1187,8 @@ func TestMonitorGetChannelNotFoundExitsFour(t *testing.T) {
 	}
 }
 
-// exampleLogProject is a LogProject shaped like the design's inferred
-// fields, reused by the golden tests below. LogProject's own per-project
-// field shape is unverified live (see monitor.LogProject's doc comment), so
-// this is a plausible shape, not a captured one.
+// exampleLogProject is a LogProject shaped like a live project (see
+// monitor.LogProject's doc comment), reused by the golden tests below.
 func exampleLogProject(id, name string) monitor.LogProject {
 	return monitor.LogProject{
 		ID:                 id,
@@ -1199,9 +1197,7 @@ func exampleLogProject(id, name string) monitor.LogProject {
 		Status:             "ACTIVE",
 		BillingStatus:      "PAID",
 		ProjectType:        "LOG",
-		Zone:               "hcm-3",
 		CreatedAt:          "Jan 1, 2026, 12:00:00 AM",
-		UpdatedAt:          "Jan 2, 2026, 1:00:00 PM",
 	}
 }
 
@@ -1290,7 +1286,7 @@ func TestGoldenMonitorQuoteCreateLogProject(t *testing.T) {
 func TestMonitorListLogProjectsEndToEnd(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/log-api/v1/projects": jsonHandler(http.StatusOK,
-			`{"content":[{"id":"proj-1","projectName":"app","status":"ACTIVE"}],`+
+			`{"content":[{"id":"proj-1","name":"app","status":"ACTIVE"}],`+
 				`"currentPage":0,"pageSize":50,"totalElements":1,"totalPages":1}`),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -1313,7 +1309,15 @@ func TestMonitorListLogProjectsEndToEnd(t *testing.T) {
 			t.Fatalf("list-log-projects query = %q, want it to contain %q", q, want)
 		}
 	}
-	var out struct{ Items []monitor.LogProject }
+	// The CLI's own JSON output keys fields by their Go name (see encodeJSON),
+	// not by monitor.LogProject's wire tag, so this decodes against that Go
+	// name rather than against monitor.LogProject itself.
+	var out struct {
+		Items []struct {
+			ID          string
+			ProjectName string
+		}
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
 	}
@@ -1328,7 +1332,7 @@ func TestMonitorListLogProjectsEndToEnd(t *testing.T) {
 func TestMonitorGetLogProjectEndToEnd(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/log-api/v1/projects/proj-1": jsonHandler(http.StatusOK,
-			`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`),
+			`{"id":"proj-1","name":"app","status":"ACTIVE"}`),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-log-project", "--log-project-id", "proj-1"})

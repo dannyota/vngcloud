@@ -509,13 +509,20 @@ var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote 
 // nothing exercises this command's decoding against a real response.
 var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
-// logProjectShapeUnverifiedNote flags get-log-project's and
-// list-log-projects' output shape: the test account holds no log project,
-// so nothing exercises either command's per-project field decoding against
-// a real response; list-log-projects' own paging envelope is live-confirmed
-// (empty), and list-log-project-classes returns a live-confirmed shape too
-// (see monitor.LogProject's doc comment).
-var logProjectShapeUnverifiedNote = unverifiedConsoleNote("log project")
+// logProjectOrderShapeUnverifiedNote flags the one log project shape still
+// uncaptured live: create-log-project's own order response (get-log-project
+// and list-log-projects decode a confirmed LogProject shape).
+const logProjectOrderShapeUnverifiedNote = "Unverified live: the order response's own shape has never been " +
+	"captured, so --no-wait, and the fallback when the post-order wait never finds the project by name, both " +
+	"print it on a best-effort basis. Without --no-wait, the printed project otherwise comes from a " +
+	"list-log-projects read, which decodes a confirmed shape."
+
+// logProjectDeleteResponseUnverifiedNote flags delete-log-project's delete
+// and purge responses, neither ever captured live (see
+// deleteLogProjectRequest in monitor/logprojects_write.go).
+const logProjectDeleteResponseUnverifiedNote = "Unverified live: the delete and purge responses' own shape " +
+	"and status have never been captured, so this command discards the response body and treats either 200 " +
+	"or 204 as success."
 
 // monitorAlarmShapeUnverifiedNote flags an output shape the live checks
 // cannot confirm: the test account holds no alarm, so nothing exercises
@@ -538,24 +545,22 @@ const monitorQuoteCreateLogProjectIgnoredFieldsNote = "Ignores MaxPrice and NoWa
 	"--cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, " +
 	"never this read, which neither orders anything nor waits."
 
-// monitorCreateLogProjectNote documents create-log-project's own caveats
-// beyond its flag table: the price guard's default, the unretried order,
-// and the post-order wait bound.
-var monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
+// monitorCreateLogProjectNote documents create-log-project's price guard
+// default, unretried order, and post-order wait bound.
+const monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
 	"create-log-project --name <name> only orders a free class and retention option. The order itself " +
 	"is never retried after a failure that may have already reached the server; list log projects by " +
 	"name before ordering again rather than repeating this command. Without --no-wait, waits up to 120 " +
 	"seconds for the new project to reach ACTIVE; a timeout, or any other failure during that wait, is " +
-	"NotSettled, and the write must not be repeated.\n\n" + logProjectShapeUnverifiedNote
+	"NotSettled, and the write must not be repeated.\n\n" + logProjectOrderShapeUnverifiedNote
 
-// monitorDeleteLogProjectNote documents delete-log-project's own caveats:
-// --purge's second request and its tolerance of an already-trashed
-// project, and the post-write wait bound.
+// monitorDeleteLogProjectNote documents --purge's second request, its
+// tolerance of an already-trashed project, and the post-write wait bound.
 const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its billing; its logs are " +
 	"lost. --purge also deletes it from trash, as a second request in the same call, sent even when the " +
 	"first delete 404s, since the project most likely already sits in trash from an earlier call. " +
 	"Without --no-wait, waits up to 60 seconds for a read to show the change; a timeout, or any other " +
-	"failure during that wait, is NotSettled, and the write must not be repeated."
+	"failure during that wait, is NotSettled, and the write must not be repeated.\n\n" + logProjectDeleteResponseUnverifiedNote
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -567,8 +572,6 @@ var docOpNotes = map[string]string{
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote,
-	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
-	"monitor list-log-projects":               logProjectShapeUnverifiedNote,
 	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote,
 	"monitor create-log-project":              monitorCreateLogProjectNote,
 	"monitor delete-log-project":              monitorDeleteLogProjectNote,

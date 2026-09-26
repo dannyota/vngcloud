@@ -40,7 +40,7 @@ func logProjectQuoteJSON(optimumPrice float64) string {
 // post-order wait lists by name.
 func logProjectListEntryJSON(id, name, status string) string {
 	return fmt.Sprintf(
-		`{"content":[{"id":%q,"projectName":%q,"status":%q}],`+
+		`{"content":[{"id":%q,"name":%q,"status":%q}],`+
 			`"currentPage":0,"pageSize":100,"totalElements":1,"totalPages":1}`,
 		id, name, status)
 }
@@ -63,7 +63,7 @@ func TestMonitorCreateLogProjectSendsOrderRequestBody(t *testing.T) {
 			}
 			orderBody, _ = io.ReadAll(r.Body)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
 		},
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -114,7 +114,7 @@ func TestMonitorCreateLogProjectDefaultOrdersOnlyFree(t *testing.T) {
 		"/billing-api/v2/log/quotas": func(w http.ResponseWriter, r *http.Request) {
 			orderCalls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
 		},
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -177,7 +177,7 @@ func TestMonitorCreateLogProjectNotSettledOnCanceledContext(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
-		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","projectName":"app","status":"CREATING"}`),
+		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","name":"app","status":"CREATING"}`),
 		"/log-api/v1/projects": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(logProjectListEntryJSON("proj-1", "app", "CREATING")))
@@ -248,7 +248,7 @@ func TestMonitorCreateLogProjectDebugLogsStartAndFinishWithOnlyOperationName(t *
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/billing-api/v2/log/quota-class":          jsonHandler(http.StatusOK, logProjectClassesJSON("Basic", 1, 10, "pkg-basic-1d")),
 		"/billing-api/v2/log/prices/created-price": jsonHandler(http.StatusOK, logProjectQuoteJSON(0)),
-		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","projectName":"app","status":"ACTIVE"}`),
+		"/billing-api/v2/log/quotas":               jsonHandler(http.StatusOK, `{"id":"proj-1","name":"app","status":"ACTIVE"}`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
