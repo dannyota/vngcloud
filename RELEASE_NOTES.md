@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.21.0 - vMonitor OTP Channels
+
+### Highlights
+
+- New `monitor.SendChannelOTP` and `vngcloud monitor send-channel-otp`
+  send a one-time code to an Email, Slack, SMS, or Telegram address.
+- `CreateChannel` and `UpdateChannel` now take `OTPRef` and `OTP`
+  (`--otp-ref` and `--otp`), so every channel type can be written, not
+  just `Webhook`. A wrong or expired code returns `monitor.ErrOTPRejected`,
+  CLI code `OTPRejected`, and nothing is written.
+- The code, its ref, and the address never appear in errors or
+  `--debug` output. No request that carries a code is ever resent.
+- SMS and Email past the free 20 each spend a paid package.
+
+### Behavior changes
+
+`CreateChannel` and `UpdateChannel` accept Email, Slack, SMS, and
+Telegram channels, which they refused before. Setting `OTPRef` without
+`OTP`, or either on a `Webhook`, now fails with `ErrInvalidInput`.
+
 ## v0.20.0 - vMonitor Log Projects and Alarm Reads
 
 ### Highlights
