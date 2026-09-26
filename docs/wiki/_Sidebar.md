@@ -25,3 +25,4 @@
 - [CLI: Monitor](CLI-Monitor.md)
 - [CLI: Project](CLI-Project.md)
 - [CLI: Portal](CLI-Portal.md)
+- [CLI: LoadBalancer](CLI-LoadBalancer.md)

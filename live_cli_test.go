@@ -89,6 +89,9 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("portal", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "portal", "list-zones")
 	})
+	t.Run("loadbalancer", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "loadbalancer", "list-packages")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length

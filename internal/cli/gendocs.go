@@ -154,6 +154,7 @@ func runGenDocs(dir string) error {
 		buildDocService("monitor", monitorOps),
 		buildDocService("project", projectOps),
 		buildDocService("portal", portalOps),
+		buildDocService("loadbalancer", loadbalancerOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
