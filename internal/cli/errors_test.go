@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/monitor"
 )
 
 func TestExitCode(t *testing.T) {
@@ -59,6 +60,17 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{"plain error", errors.New("boom"), 1},
+		{"unexpected check status", fmt.Errorf("%w: chk-1 is %q", monitor.ErrUnexpectedStatus, "UNKNOWN"), 1},
+		{"status unconfirmed", fmt.Errorf("%w: toggle sent, check still ENABLED", monitor.ErrStatusUnconfirmed), 1},
+		{
+			// A Ctrl-C during the toggle PUT or a confirm read leaves the
+			// real error wrapping both ErrStatusUnconfirmed and a canceled
+			// context; it must still exit like every other unconfirmed
+			// toggle (1), checked ahead of the context-canceled rule above.
+			"status unconfirmed after a canceled context",
+			fmt.Errorf("%w: %w", monitor.ErrStatusUnconfirmed, context.Canceled),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,6 +111,32 @@ func TestClassify(t *testing.T) {
 			"api error with no code and no status falls back to RequestFailed",
 			&vngcloud.APIError{Operation: "compute.GetServer", Err: errors.New("decode failed")},
 			"RequestFailed", 0, "compute.GetServer",
+		},
+		{
+			"unexpected check status",
+			fmt.Errorf("%w: chk-1 is %q", monitor.ErrUnexpectedStatus, "UNKNOWN"),
+			"UnexpectedStatus", 0, "",
+		},
+		{
+			"status unconfirmed",
+			fmt.Errorf("%w: toggle sent, check still ENABLED", monitor.ErrStatusUnconfirmed),
+			"StatusUnconfirmed", 0, "",
+		},
+		{
+			"status unconfirmed after a canceled context",
+			fmt.Errorf("%w: %w", monitor.ErrStatusUnconfirmed, context.Canceled),
+			"StatusUnconfirmed", 0, "",
+		},
+		{
+			// The real error PauseCheck/ResumeCheck return also wraps the
+			// toggle PUT's own *APIError (here a 502) alongside
+			// ErrStatusUnconfirmed. classify must still report
+			// StatusUnconfirmed, not follow errors.As into that inner
+			// APIError and report ServerError/502 instead.
+			"status unconfirmed wrapping an inner APIError",
+			fmt.Errorf("%w: %w", monitor.ErrStatusUnconfirmed,
+				&vngcloud.APIError{Operation: "monitor.PauseCheck", StatusCode: 502, Code: "ServerError"}),
+			"StatusUnconfirmed", 0, "",
 		},
 	}
 	for _, tt := range tests {

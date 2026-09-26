@@ -16,6 +16,8 @@ rename; the module keeps the `vngcloud` name.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
+- [Monitor](Monitor.md): vMonitor synthetic checks, and pausing and resuming
+  them.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
 
 ## CLI
@@ -24,8 +26,8 @@ rename; the module keeps the `vngcloud` name.
   classes.
 - [CLI: Billing](CLI-Billing.md), [CLI: Pricing](CLI-Pricing.md),
   [CLI: Compute](CLI-Compute.md), [CLI: Network](CLI-Network.md),
-  [CLI: DNS](CLI-DNS.md), and [CLI: CDN](CLI-CDN.md): every operation, its
-  flags, and an example.
+  [CLI: DNS](CLI-DNS.md), [CLI: CDN](CLI-CDN.md), and
+  [CLI: Monitor](CLI-Monitor.md): every operation, its flags, and an example.
 
 ## Source
 

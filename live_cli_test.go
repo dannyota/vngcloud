@@ -77,6 +77,9 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("cdn", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "cdn", "list-ip-ranges")
 	})
+	t.Run("monitor", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "monitor", "list-checks")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length

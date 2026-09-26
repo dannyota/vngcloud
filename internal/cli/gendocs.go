@@ -110,6 +110,7 @@ func runGenDocs(dir string) error {
 		buildDocService("network", networkOps),
 		buildDocService("dns", dnsOps),
 		buildDocService("cdn", cdnOps),
+		buildDocService("monitor", monitorOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -244,8 +245,11 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("`status` and `operation` appear only for an API error, whose `code` is the API's own " +
 		"code, or a status-derived fallback code when the API gives none. Every other error names one class: " +
 		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
-		"`QueryFailed`, or `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
-		"shape its parser expects; see [CDN](CDN.md)).\n\n")
+		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
+		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
+		"the SDK does not know, so nothing was sent), or `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)). " +
+		"Both exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

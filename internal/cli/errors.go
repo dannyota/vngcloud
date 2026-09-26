@@ -9,6 +9,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/cdn"
+	"danny.vn/vngcloud/monitor"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -63,9 +64,24 @@ type errorEnvelope struct {
 // the SDK), or "RequestFailed" when the error carries neither a code nor an
 // HTTP status. Every other error is named by one of the CLI's own classes:
 // InvalidUsage, ReadOnly, InvalidConfig, NoCredentials, LoginFailed,
-// RequestFailed, QueryFailed, or PageFormat (a public page, such as the CDN
-// IP range FAQ, no longer matches the shape its parser expects).
+// RequestFailed, QueryFailed, PageFormat (a public page, such as the CDN IP
+// range FAQ, no longer matches the shape its parser expects), UnexpectedStatus
+// (a vMonitor check had a status PauseCheck or ResumeCheck does not
+// recognize), or StatusUnconfirmed (a vMonitor pause or resume may have
+// landed but no confirm read showed it).
 func classify(err error) errorEnvelope {
+	// Checked before errors.As(err, &apiErr) below: the real
+	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
+	// (see monitor's design), and errors.As would otherwise find that inner
+	// APIError first and report its status and code instead of
+	// StatusUnconfirmed.
+	if errors.Is(err, monitor.ErrStatusUnconfirmed) {
+		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
+	}
+	if errors.Is(err, monitor.ErrUnexpectedStatus) {
+		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
+	}
+
 	var apiErr *vngcloud.APIError
 	if errors.As(err, &apiErr) {
 		// Message is the API's own message alone: apiErr.Error() repeats the
@@ -125,6 +141,13 @@ func classify(err error) errorEnvelope {
 func exitCode(err error) int {
 	if err == nil {
 		return 0
+	}
+	// Checked before the canceled-context rule below: a Ctrl-C during the
+	// toggle PUT or a confirm read still reports the same exit code (1) as
+	// every other unconfirmed toggle, per monitor's design, rather than
+	// happening to match the canceled-context rule by coincidence.
+	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) {
+		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return 1

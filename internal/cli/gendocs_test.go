@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -72,6 +72,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Network.md", opNames(networkOps))
 	check("CLI-DNS.md", opNames(dnsOps))
 	check("CLI-CDN.md", opNames(cdnOps))
+	check("CLI-Monitor.md", opNames(monitorOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -162,6 +163,19 @@ func TestGenDocsErrorClassesMentionPageFormat(t *testing.T) {
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	if !strings.Contains(data, "PageFormat") {
 		t.Errorf("error class text is missing PageFormat:\n%s", data)
+	}
+}
+
+func TestGenDocsErrorClassesMentionMonitorCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{"UnexpectedStatus", "StatusUnconfirmed"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("error class text is missing %s:\n%s", want, data)
+		}
 	}
 }
 
