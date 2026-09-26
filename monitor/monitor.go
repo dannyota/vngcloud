@@ -13,6 +13,7 @@ package monitor
 import (
 	"net/url"
 	"sync"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -31,15 +32,20 @@ type Client struct {
 	toggleMu sync.Mutex
 
 	// sleep waits for d or ctx's end, whichever comes first, between confirm
-	// reads. Tests replace it with an injected clock so the 1, 2, and 4
-	// second waits never really elapse.
+	// reads and poll reads. Tests replace it with a fake so the confirm
+	// waits and the real poll waits below never really elapse.
 	sleep sleepFunc
+
+	// now reads the current time. poll uses it, alongside sleep, to bound a
+	// log project wait by elapsed wall time; tests replace it with a fake
+	// clock.
+	now clockFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg), sleep: contextSleep}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
 // route builds a URL under the Monitor endpoint's uptime manager prefix. No

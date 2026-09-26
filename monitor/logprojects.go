@@ -29,6 +29,15 @@ func (c *Client) logBillingRoute(parts []string) string {
 	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full})
 }
 
+// logBillingRouteV1 builds a URL under the Monitor endpoint's billing-api v1
+// prefix, which deletes and purges a log project's order. Creating and
+// pricing one uses the v2 prefix logBillingRoute builds under; the two
+// versions coexist on this API.
+func (c *Client) logBillingRouteV1(parts []string) string {
+	full := append([]string{"billing-api", "v1"}, parts...)
+	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full})
+}
+
 // LogProject is one vMonitor log project: the design's source section notes
 // it is a log quota order and the log project it provisions, sharing one
 // ID. The test account has never held one, so this shape is unconfirmed
@@ -85,7 +94,15 @@ func (c *Client) ListLogProjects(ctx context.Context, in *ListLogProjectsInput) 
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
+	return c.listLogProjects(ctx, op, in)
+}
 
+// listLogProjects is ListLogProjects's request, reused by CreateLogProject's
+// post-order wait under the calling write's own operation name, so a
+// failure names the write it happened inside rather than
+// "monitor.ListLogProjects". in is assumed already checked with
+// core.CheckRequired.
+func (c *Client) listLogProjects(ctx context.Context, op string, in *ListLogProjectsInput) (*ListLogProjectsOutput, error) {
 	var query, billingStatus string
 	page, size := 0, 0
 	if in != nil {
@@ -160,19 +177,37 @@ func (c *Client) GetLogProject(ctx context.Context, in *GetLogProjectInput) (*Ge
 	if err := core.CheckPathID(op, "LogProjectID", in.LogProjectID); err != nil {
 		return nil, err
 	}
+	project, err := c.getLogProject(ctx, op, in.LogProjectID)
+	if err != nil {
+		return nil, err
+	}
+	return &GetLogProjectOutput{LogProject: *project}, nil
+}
 
+// getLogProject is GetLogProject's request, reused by DeleteLogProject's
+// pre-delete baseline read and its post-write wait under the calling
+// write's own operation name, so a failure names the write it happened
+// inside rather than "monitor.GetLogProject". id is assumed already
+// checked with core.CheckPathID.
+func (c *Client) getLogProject(ctx context.Context, op, id string) (*LogProject, error) {
 	var project LogProject
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
-		URL:       c.logRoute([]string{"projects", in.LogProjectID}, nil),
+		URL:       c.logRoute([]string{"projects", id}, nil),
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, &project); err != nil {
 		return nil, err
 	}
-	return &GetLogProjectOutput{LogProject: project}, nil
+	return &project, nil
 }
+
+// LogProjectStatusActive is the status the design's own text names for a
+// log project ready to serve logs: CreateLogProject's post-order wait
+// settles once the project it finds by name reaches it. No other status
+// value is confirmed (see LogProject's doc comment).
+const LogProjectStatusActive = "ACTIVE"
 
 // LogProjectClassBasic and LogProjectClassPro name the classes
 // ListLogProjectClasses returns live; Enterprise is disabled and not

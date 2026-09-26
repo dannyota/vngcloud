@@ -154,9 +154,9 @@ type. There is no flag to reveal either.
 A log project is a vMonitor log quota: ordering one both provisions the log
 project and creates its billing quota, sharing one ID. `ListLogProjects` and
 `GetLogProject` read them; `ListLogProjectClasses` lists the classes and
-retention options a project can be ordered from, and
-`QuoteCreateLogProject` prices an order without placing it. Ordering one
-ships in a later release.
+retention options a project can be ordered from; `QuoteCreateLogProject`
+prices an order without placing it; and `CreateLogProject` and
+`DeleteLogProject` order and remove one.
 
 ```go
 projects, err := client.ListLogProjects(ctx, nil)
@@ -218,8 +218,64 @@ have returns `vngcloud.ErrInvalidInput` before any pricing request.
 placing one, so it is a read: it is retried after a failure that may have
 already reached the server, unlike a create. It always re-reads the class
 list first, since the class list and its prices can change between one
-request and the next; `CreateLogProject`, a later release, re-reads the
-same class list again immediately before ordering, for the same reason.
+request and the next; `CreateLogProject` re-reads the same class list
+again immediately before ordering, for the same reason.
+
+### Ordering, deleting, and purging a log project
+
+```go
+created, err := client.CreateLogProject(ctx, &monitor.CreateLogProjectInput{
+	Name: "vngcloud-my-logs",
+})
+switch {
+case errors.Is(err, monitor.ErrPriceAboveMax):
+	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
+case errors.Is(err, dns.ErrNotSettled): // "danny.vn/vngcloud/dns"
+	log.Printf("log project %s was ordered; check it later, do not order again", created.LogProject.ID)
+case err != nil:
+	log.Fatal(err)
+}
+
+if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{
+	LogProjectID: created.LogProject.ID,
+	Purge:        true,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`CreateLogProject` quotes the order first with `QuoteCreateLogProject` and
+refuses with `monitor.ErrPriceAboveMax`, ordering nothing, when the quote's
+`OptimumPrice` exceeds `Input.MaxPrice`, which defaults to 0:
+`CreateLogProjectInput{Name: "app"}` therefore only ever orders a project
+whose class and retention price at 0 VND. Raise `MaxPrice` to allow a paid
+order. The order is a `POST` and is never retried after a failure that may
+have already reached the server, the same as `CreateHostedZone`: after any
+error that is not a 4xx `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`,
+the project may have been ordered, and the caller lists projects by `Name`
+before ordering again.
+
+Unless `NoWait` is set, `CreateLogProject` then waits up to 120 seconds for
+a project named `Input.Name` to appear, by listing projects, at
+`monitor.LogProjectStatusActive`; `DeleteLogProject` waits up to 60 seconds
+for a read of the deleted project to either come back not-found or no
+longer match its pre-delete state. Either wait running out, or a read or a
+sleep inside it failing, such as from a canceled `ctx`, returns an error
+wrapping `dns.ErrNotSettled`: the design reuses vDNS's own sentinel here
+rather than adding a new one, so the same [DNS](DNS.md#errors) handling
+applies, and the write must not be repeated. `NoWait` returns at once
+instead: `CreateLogProject` returns the order response on a best-effort
+basis, since the test account's own order response shape is unverified,
+and `DeleteLogProject` skips its pre-delete baseline read too.
+
+`DeleteLogProject` moves a project to trash, stopping its billing; its logs
+are lost. `Purge` also deletes it from trash, as a second request in the
+same call, so a purge is never sent without the delete that precedes it. If
+that first delete 404s while `Purge` is set, `DeleteLogProject` still sends
+the purge, since the project most likely already sits in trash from an
+earlier call and `Purge`'s job is to make sure it ends up gone either way;
+without `Purge`, that same 404 comes back as the SDK's ordinary not-found
+result, same as any other delete.
 
 ## Alarms
 
