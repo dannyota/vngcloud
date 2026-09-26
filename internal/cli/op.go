@@ -43,16 +43,43 @@ type writeOption struct{ destructive bool }
 // it fails with exit code 2 and names --yes unless --yes is given.
 func Destructive() writeOption { return writeOption{destructive: true} }
 
+// readOption configures a Read operation. Redact is the only one today.
+type readOption[Out any] struct{ redact func(*Out) }
+
+// Redact marks a Read operation's Output as holding a value the CLI must
+// never print unchanged: fn runs on the SDK's own result and mutates it in
+// place, before the result reaches renderOutput, so a secret it holds can
+// never reach json, table, or text output, or survive a --query, by any
+// flag.
+func Redact[Out any](fn func(*Out)) readOption[Out] {
+	return readOption[Out]{redact: fn}
+}
+
 // Read registers a read operation: name is its kebab-case command name, and
 // method is an SDK method expression such as (*compute.Client).ListServers.
-func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error)) Op[C] {
+// opts is Redact for an operation whose Output needs it; every other Read
+// leaves it unset.
+func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...readOption[Out]) Op[C] {
+	var redact func(*Out)
+	for _, o := range opts {
+		if o.redact != nil {
+			redact = o.redact
+		}
+	}
 	return Op[C]{
 		name:       name,
 		methodName: funcName(method),
 		kind:       kindRead,
 		newInput:   func() any { return new(In) },
 		call: func(client *C, ctx context.Context, in any) (any, error) {
-			return method(client, ctx, in.(*In))
+			out, err := method(client, ctx, in.(*In))
+			if err != nil {
+				return nil, err
+			}
+			if redact != nil {
+				redact(out)
+			}
+			return out, nil
 		},
 	}
 }

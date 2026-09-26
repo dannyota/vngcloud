@@ -16,6 +16,10 @@ import (
 // fields have no flag-settable type, so they reach the command only through
 // --cli-input-json; every other CreateCheckInput field gets a flag from
 // flags.go's reflection.
+//
+// ListChannels and GetChannel carry Redact: the vMonitor Alerts design's CLI
+// redaction rule applies to every reader of a Channel, and there is no flag
+// to turn it off. ListChannelTypes returns no Channel, so it needs none.
 var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
@@ -31,6 +35,20 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("DeleteCheck"), (*monitor.Client).DeleteCheck, Destructive()),
 	Read[monitor.Client, monitor.ListLocationsInput, monitor.ListLocationsOutput](
 		kebab("ListLocations"), (*monitor.Client).ListLocations),
+	Read[monitor.Client, monitor.ListChannelTypesInput, monitor.ListChannelTypesOutput](
+		kebab("ListChannelTypes"), (*monitor.Client).ListChannelTypes),
+	Read[monitor.Client, monitor.ListChannelsInput, monitor.ListChannelsOutput](
+		kebab("ListChannels"), (*monitor.Client).ListChannels,
+		Redact(func(out *monitor.ListChannelsOutput) {
+			for i := range out.Items {
+				out.Items[i] = redactChannel(out.Items[i])
+			}
+		})),
+	Read[monitor.Client, monitor.GetChannelInput, monitor.GetChannelOutput](
+		kebab("GetChannel"), (*monitor.Client).GetChannel,
+		Redact(func(out *monitor.GetChannelOutput) {
+			out.Channel = redactChannel(out.Channel)
+		})),
 }
 
 func newMonitorCmd(e *env) *cobra.Command {

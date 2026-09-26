@@ -80,6 +80,8 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("monitor", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "monitor", "list-checks")
 		testLiveCLIItems(ctx, t, "monitor", "list-locations")
+		testLiveCLIItems(ctx, t, "monitor", "list-channel-types")
+		testLiveCLIItems(ctx, t, "monitor", "list-channels")
 	})
 }
 

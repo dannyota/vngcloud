@@ -88,6 +88,14 @@ func TestExitCode(t *testing.T) {
 			&vngcloud.APIError{Operation: "compute.GetServer", StatusCode: 404, Code: "NotFound", Err: vngcloud.ErrNotFound},
 			4,
 		},
+		{
+			// monitor.GetChannel has no get-by-ID call: a missing ID is
+			// discovered by paging through the list and never reaches an
+			// *APIError at all, unlike every other service's not-found result.
+			"not found via a bare sentinel, not an APIError",
+			fmt.Errorf("%w: channel %s", vngcloud.ErrNotFound, "missing"),
+			4,
+		},
 		{"usage error", usageError{msg: "bad flag"}, 2},
 		{"read only error", readOnlyError{source: "--read-only"}, 2},
 		{"invalid input", fmt.Errorf("%w: Name is required", vngcloud.ErrInvalidInput), 2},
@@ -168,6 +176,15 @@ func TestClassify(t *testing.T) {
 			"api error with no code and no status falls back to RequestFailed",
 			&vngcloud.APIError{Operation: "compute.GetServer", Err: errors.New("decode failed")},
 			"RequestFailed", 0, "compute.GetServer",
+		},
+		{
+			// See the matching case in TestExitCode: monitor.GetChannel's
+			// not-found result is a bare sentinel, never an *APIError, so it
+			// must reach "NotFound" through the check after the *APIError
+			// branch rather than falling through to RequestFailed.
+			"not found via a bare sentinel, not an APIError",
+			fmt.Errorf("%w: channel %s", vngcloud.ErrNotFound, "missing"),
+			"NotFound", 0, "",
 		},
 		{
 			"unexpected check status",

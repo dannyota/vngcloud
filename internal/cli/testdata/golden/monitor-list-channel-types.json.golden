@@ -1,0 +1,14 @@
+{
+  "Items": [
+    {
+      "ID": "type-webhook",
+      "Name": "Webhook",
+      "Description": "Webhook"
+    },
+    {
+      "ID": "type-email",
+      "Name": "Email",
+      "Description": "Email"
+    }
+  ]
+}

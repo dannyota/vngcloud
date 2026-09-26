@@ -71,8 +71,11 @@ type errorEnvelope struct {
 // recognize), StatusUnconfirmed (a vMonitor pause or resume may have landed
 // but no confirm read showed it), ZoneBusy (a vDNS zone stayed busy past the
 // pre-write wait, so nothing was sent), WriteFailed (a vDNS write reached
-// status ERROR), or NotSettled (a vDNS write was accepted but did not settle
-// within the post-write wait).
+// status ERROR), NotSettled (a vDNS write was accepted but did not settle
+// within the post-write wait), or NotFound for a not-found result that never
+// became an *APIError, such as monitor.GetChannel's page walk finding no
+// matching ID: a real 404 already carries Code "NotFound" through the
+// *APIError branch above, so this case only catches the sentinel-only kind.
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -116,6 +119,9 @@ func classify(err error) errorEnvelope {
 			env.Code = "RequestFailed"
 		}
 		return env
+	}
+	if vngcloud.IsNotFound(err) {
+		return errorEnvelope{Code: "NotFound", Message: err.Error()}
 	}
 
 	var usageErr usageError

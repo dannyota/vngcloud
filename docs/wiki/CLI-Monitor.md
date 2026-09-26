@@ -37,6 +37,18 @@ Kind: Write, destructive.
 vngcloud monitor delete-check --check-id <check-id> --yes
 ```
 
+## get-channel
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--channel-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-channel --channel-id <channel-id>
+```
+
 ## get-check
 
 Kind: Read.
@@ -47,6 +59,30 @@ Kind: Read.
 
 ```sh
 vngcloud monitor get-check --check-id <check-id>
+```
+
+## list-channel-types
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud monitor list-channel-types
+```
+
+## list-channels
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--type` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud monitor list-channels
 ```
 
 ## list-checks

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/monitor"
 )
 
@@ -67,6 +68,72 @@ func TestGoldenMonitorPauseCheck(t *testing.T) {
 	checkGolden(t, "monitor-pause-check.json.golden", "json", "", v)
 	checkGolden(t, "monitor-pause-check.table.golden", "table", "", v)
 	checkGolden(t, "monitor-pause-check.text.golden", "text", "", v)
+}
+
+// exampleWebhookChannel is a Webhook channel shaped like the notification
+// gateway's own fixtures, with a raw Address and header Value: the golden
+// tests below redact it themselves with redactChannel, the same
+// transformation ListChannels and GetChannel apply before rendering, so the
+// golden file shows exactly what a real command prints.
+func exampleWebhookChannel() monitor.Channel {
+	return monitor.Channel{
+		ID:      "channel-1",
+		Name:    "example-webhook",
+		Address: "https://example.com/hooks/incoming?token=super-secret-token",
+		Type:    monitor.ChannelTypeWebhook,
+		Headers: []monitor.ChannelHeader{
+			{Key: "X-Api-Key", Value: "super-secret-header-value"},
+		},
+		CreatedDate: "2026-09-26T15:46:45",
+	}
+}
+
+// exampleEmailChannel is an Email channel: its Address is personal data, not
+// a secret the monitor design's CLI redaction rule covers, so it prints
+// unchanged.
+func exampleEmailChannel() monitor.Channel {
+	return monitor.Channel{
+		ID:          "channel-2",
+		Name:        "example-email",
+		Address:     "someone@example.com",
+		Type:        monitor.ChannelTypeEmail,
+		CreatedDate: "2026-09-26T15:40:00",
+		UpdatedDate: "2026-09-26T16:00:00",
+	}
+}
+
+// TestGoldenMonitorListChannelTypes checks list-channel-types' exact output
+// shape: JSON keeps {"Items": [...]}, one type per row for table and text.
+func TestGoldenMonitorListChannelTypes(t *testing.T) {
+	v := &monitor.ListChannelTypesOutput{Items: []monitor.ChannelType{
+		{ID: "type-webhook", Name: monitor.ChannelTypeWebhook, Description: "Webhook"},
+		{ID: "type-email", Name: monitor.ChannelTypeEmail, Description: "Email"},
+	}}
+	checkGolden(t, "monitor-list-channel-types.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-channel-types.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-channel-types.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorListChannels checks list-channels' exact output shape,
+// including paging metadata alongside Items, with every channel already
+// redacted the way the real command redacts it before rendering.
+func TestGoldenMonitorListChannels(t *testing.T) {
+	v := core.NewPagedList([]monitor.Channel{
+		redactChannel(exampleWebhookChannel()),
+		redactChannel(exampleEmailChannel()),
+	}, 1, 10000, 1, 2)
+	checkGolden(t, "monitor-list-channels.json.golden", "json", "", v)
+	checkGolden(t, "monitor-list-channels.table.golden", "table", "", v)
+	checkGolden(t, "monitor-list-channels.text.golden", "text", "", v)
+}
+
+// TestGoldenMonitorGetChannel checks get-channel's exact output shape,
+// {"Channel": {...}}, with the channel already redacted.
+func TestGoldenMonitorGetChannel(t *testing.T) {
+	v := &monitor.GetChannelOutput{Channel: redactChannel(exampleWebhookChannel())}
+	checkGolden(t, "monitor-get-channel.json.golden", "json", "", v)
+	checkGolden(t, "monitor-get-channel.table.golden", "table", "", v)
+	checkGolden(t, "monitor-get-channel.text.golden", "text", "", v)
 }
 
 // exampleLocation is a probe location shaped like the uptime manager's own
@@ -559,5 +626,167 @@ func TestMonitorCreateAndDeleteCheckReadOnlyRefusedWithZeroRequests(t *testing.T
 				t.Fatalf("requestCount = %d, want 0", n)
 			}
 		})
+	}
+}
+
+// TestMonitorListChannelTypesEndToEnd runs the real list-channel-types
+// command against a fixture notification gateway, checking the request
+// method and path and that the decoded types survive the round trip.
+func TestMonitorListChannelTypesEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/type/list": jsonHandler(http.StatusOK,
+			`{"lstData":[{"id":"type-webhook","name":"Webhook","description":"Webhook"}]}`),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "list-channel-types"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("list-channel-types: %v (stderr=%s)", err, stderr.String())
+	}
+	if got, ok := fixture.methodFor("/notification-gateway/api/v1/type/list"); !ok || got != http.MethodGet {
+		t.Fatalf("list-channel-types method = %q, ok=%v, want GET", got, ok)
+	}
+	var out struct{ Items []monitor.ChannelType }
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != monitor.ChannelTypeWebhook {
+		t.Fatalf("list-channel-types Items = %+v", out.Items)
+	}
+}
+
+// monitorChannelListJSON renders one Webhook channel as the notification
+// gateway's own JSON shape (the same shape ListChannels and GetChannel both
+// decode through, since there is no get-by-ID call), with a raw Address
+// carrying a token in its query string and a raw header Value, so the
+// redaction tests below exercise the real command against real-looking
+// secrets rather than data that happens to already look redacted.
+func monitorChannelListJSON(id string) string {
+	return `{"lstData":[{"id":"` + id + `","name":"example-webhook",` +
+		`"address":"https://example.com/hooks/incoming?token=super-secret-token",` +
+		`"header":"[{\"key\":\"X-Api-Key\",\"value\":\"super-secret-header-value\"}]",` +
+		`"typeNotification":{"id":"type-webhook","name":"Webhook","description":"Webhook"},` +
+		`"createdDate":"2026-09-26T15:46:45"}],` +
+		`"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`
+}
+
+// monitorSecretMarkers are the raw secret substrings monitorChannelListJSON
+// carries. Every redaction test below checks stdout for their absence
+// rather than only for the redacted placeholder's presence, so a bug that
+// redacts the wrong field still fails the test.
+var monitorSecretMarkers = []string{"super-secret-token", "super-secret-header-value"}
+
+func assertNoMonitorSecretMarkers(t *testing.T, label, output string) {
+	t.Helper()
+	for _, marker := range monitorSecretMarkers {
+		if strings.Contains(output, marker) {
+			t.Fatalf("%s: output contains an unredacted secret %q:\n%s", label, marker, output)
+		}
+	}
+}
+
+// TestMonitorListChannelsRedactsAcrossFormatsAndQuery checks the monitor
+// design's CLI redaction rule end to end: a fixture Webhook channel with a
+// real-looking Address and header Value never reaches stdout unredacted, in
+// json, table, or text, or through a --query naming the field directly.
+// Redaction runs on the SDK's own Output before any of those, not on the
+// rendered text, so a query can never reach past it.
+func TestMonitorListChannelsRedactsAcrossFormatsAndQuery(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+	})
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantHost bool // whether this output still names the webhook's host
+	}{
+		{"json", []string{"--output", "json"}, true},
+		{"table", []string{"--output", "table"}, true},
+		{"text", []string{"--output", "text"}, true},
+		{"query-address", []string{"--query", "Items[0].Address"}, true},
+		{"query-header", []string{"--query", "Items[0].Headers[0].Value"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			root.SetArgs(append([]string{"--region", "hcm-3", "monitor", "list-channels"}, tc.args...))
+			if err := root.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("list-channels: %v (stderr=%s)", err, stderr.String())
+			}
+			assertMonitorRedacted(t, tc.name, stdout.String(), tc.wantHost)
+		})
+	}
+}
+
+// assertMonitorRedacted checks out for the monitor design's CLI redaction
+// rule: no raw secret marker survives, and the word "redacted" appears
+// (json.Marshal HTML-escapes "<" and ">" to "<"/">" inside a
+// nested object rendered as a compact JSON table or text cell, so the
+// literal string "<redacted>" is not a reliable substring to look for
+// across every render path; "redacted" alone is). wantHost also requires
+// the webhook channel's host, which redaction keeps, still to appear.
+func assertMonitorRedacted(t *testing.T, label, out string, wantHost bool) {
+	t.Helper()
+	assertNoMonitorSecretMarkers(t, label, out)
+	if !strings.Contains(out, "redacted") {
+		t.Fatalf("%s: stdout = %s, want it to contain the redacted placeholder", label, out)
+	}
+	if wantHost && !strings.Contains(out, "example.com") {
+		t.Fatalf("%s: stdout = %s, want it to still show the webhook's host", label, out)
+	}
+}
+
+// TestMonitorGetChannelRedactsAcrossFormatsAndQuery mirrors
+// TestMonitorListChannelsRedactsAcrossFormatsAndQuery for get-channel, whose
+// Output nests the same Channel one level deeper under "Channel".
+func TestMonitorGetChannelRedactsAcrossFormatsAndQuery(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK, monitorChannelListJSON("channel-1")),
+	})
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantHost bool
+	}{
+		{"json", []string{"--output", "json"}, true},
+		{"table", []string{"--output", "table"}, true},
+		{"text", []string{"--output", "text"}, true},
+		{"query-address", []string{"--query", "Channel.Address"}, true},
+		{"query-header", []string{"--query", "Channel.Headers[0].Value"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			args := append([]string{"--region", "hcm-3", "monitor", "get-channel", "--channel-id", "channel-1"}, tc.args...)
+			root.SetArgs(args)
+			if err := root.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("get-channel: %v (stderr=%s)", err, stderr.String())
+			}
+			assertMonitorRedacted(t, tc.name, stdout.String(), tc.wantHost)
+		})
+	}
+}
+
+// TestMonitorGetChannelNotFoundExitsFour checks that GetChannel's not-found
+// sentinel, from a full page walk with no matching ID, reaches the CLI as
+// the NotFound error class with exit code 4, the design's result for a
+// missing channel.
+func TestMonitorGetChannelNotFoundExitsFour(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/notification-gateway/api/v1/notification/list/typeSearch": jsonHandler(http.StatusOK,
+			`{"lstData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "monitor", "get-channel", "--channel-id", "missing"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a not-found error")
+	}
+	if got := classify(err).Code; got != "NotFound" {
+		t.Fatalf("Code = %q, want NotFound (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 4 {
+		t.Fatalf("exitCode = %d, want 4", got)
 	}
 }
