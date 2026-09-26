@@ -31,7 +31,7 @@ func encodeChannelHeaders(headers []ChannelHeader) string {
 }
 
 // redactChannelSecretMinLength is the shortest secret value
-// redactChannelError will cut out of a message with a plain ReplaceAll. A
+// redactOTPError will cut out of a message with a plain ReplaceAll. A
 // shorter value is likely to also match unrelated text (a short header
 // value such as "abc" appearing inside an unrelated word), so cutting it in
 // place risks returning a garbled message instead of a safe one.
@@ -43,19 +43,39 @@ const redactChannelSecretMinLength = 4
 // message is withheld entirely instead of returned garbled.
 const channelErrorWithheldMessage = "server message withheld"
 
-// redactChannelError removes address, every header value, and the whole
-// header wire value actually sent, from err's message, when err is a
-// *core.APIError. GreenNode's own error messages sometimes echo the request
-// back, sometimes with the JSON escaping json.Marshal applies to a
-// character such as "&" (encoded "\u0026"), so both the raw and the
-// JSON-escaped form of each value are checked. The design requires the SDK,
-// not just the CLI, to keep an address, a header value, or the header field
-// (any of which can hold a token or other secret) out of an error a caller
-// may log or print. An err that is not a *core.APIError, or whose message
-// holds none of these values, is returned unchanged; on a match, a new
+// redactOTPError removes address, every header value, the whole header wire
+// value actually sent, the OTP, the ref Send OTP returned, and the code
+// Validate OTP returned, from err's message, when err is a *core.APIError.
+// GreenNode's own error messages sometimes echo the request back, sometimes
+// with the JSON escaping json.Marshal applies to a character such as "&"
+// (encoded as a backslash-u escape), so both the raw and the JSON-escaped
+// form of each value are checked. The design treats every one of these as a
+// secret that must never appear in an error a caller may log or print. otp,
+// ref, and code are each passed empty when the call that failed never had
+// one to send (SendChannelOTP has no ref or code yet; a create or update
+// with no OTP set has none of the three); redactChannelSecret already skips
+// an empty secret, so passing one through is safe. An err that is not a
+// *core.APIError, or whose message holds none of these values, is returned
+// unchanged; on a match, a new *core.APIError is returned with only Message
+// changed, so the original's Unwrap chain (and so errors.Is against it)
+// still works.
+func redactOTPError(err error, address string, headers []ChannelHeader, headerField, otp, ref, code string) error {
+	secrets := make([]string, 0, len(headers)+5)
+	secrets = append(secrets, address)
+	for _, h := range headers {
+		secrets = append(secrets, h.Value)
+	}
+	secrets = append(secrets, headerField, otp, ref, code)
+	return redactChannelSecrets(err, secrets)
+}
+
+// redactChannelSecrets removes each of secrets, in order, from err's
+// message, when err is a *core.APIError; see redactChannelSecret for the
+// per-secret rule. An err that is not a *core.APIError, or whose message
+// holds none of secrets, is returned unchanged; on a match, a new
 // *core.APIError is returned with only Message changed, so the original's
 // Unwrap chain (and so errors.Is against it) still works.
-func redactChannelError(err error, address string, headers []ChannelHeader, headerField string) error {
+func redactChannelSecrets(err error, secrets []string) error {
 	if err == nil {
 		return nil
 	}
@@ -63,13 +83,6 @@ func redactChannelError(err error, address string, headers []ChannelHeader, head
 	if !errors.As(err, &apiErr) {
 		return err
 	}
-
-	secrets := make([]string, 0, len(headers)+2)
-	secrets = append(secrets, address)
-	for _, h := range headers {
-		secrets = append(secrets, h.Value)
-	}
-	secrets = append(secrets, headerField)
 
 	msg := apiErr.Message
 	for _, secret := range secrets {
@@ -151,9 +164,21 @@ func mapChannelDeleteNotFound(op, channelID string, err error) error {
 	return err
 }
 
-// createChannelBody is CreateChannel's request body. OTPCode is always sent
-// empty: CreateChannel accepts only ChannelTypeWebhook until OTP channels
-// ship, and a webhook needs no OTP.
+// channelValidTypes are the notification types CreateChannel and
+// UpdateChannel accept, matching ListChannelTypes' console-offered set; the
+// console no longer offers Teams for a new channel, even though a channel
+// made before that change can still read back with it.
+var channelValidTypes = map[string]bool{
+	ChannelTypeEmail:    true,
+	ChannelTypeSlack:    true,
+	ChannelTypeSMS:      true,
+	ChannelTypeTelegram: true,
+	ChannelTypeWebhook:  true,
+}
+
+// createChannelBody is CreateChannel's request body. OTPCode is empty for a
+// Webhook create, which needs no OTP, and otherwise carries the code
+// Validate OTP returned for the caller's OTPRef and OTP.
 type createChannelBody struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
@@ -173,46 +198,81 @@ type createChannelResponse struct {
 	CreatedDate string `json:"createdDate"`
 }
 
-// CreateChannelInput creates a notification channel. Type must be
-// ChannelTypeWebhook: every other type needs an OTP, which ships in a later
-// release, and the server refuses a create with no otpCode for one. Headers
-// left nil or empty sends no header field value, the same as a webhook
-// channel with none.
+// CreateChannelInput creates a notification channel. Type must be Email,
+// Slack, SMS, Telegram, or Webhook. Headers left nil or empty sends no
+// header field value, the same as a webhook channel with none.
+//
+// Email, Slack, SMS, and Telegram need an OTP: call SendChannelOTP first,
+// then set OTPRef to its Ref and OTP to the code read from the address, and
+// CreateChannel validates it before creating the channel. Webhook needs no
+// OTP; OTPRef and OTP are left empty for it, and both CreateChannel and the
+// server refuse a create with either one set. Every other type is refused
+// with no otpCode. OTPRef and OTP must both be set, or both left empty;
+// either one set with the other empty fails with core.ErrInvalidInput
+// before any request, since Validate OTP needs both.
 type CreateChannelInput struct {
 	Name    string `vngcloud:"required"`
 	Type    string `vngcloud:"required"`
 	Address string `vngcloud:"required"`
 
 	Headers []ChannelHeader
+	OTPRef  string
+	OTP     string
 }
 
 type CreateChannelOutput struct {
 	Channel Channel
 }
 
-// CreateChannel creates a webhook notification channel. It is a POST and is
-// never retried after a failure that may have already reached the server:
-// after any error that is not a 4xx *core.APIError or core.ErrInvalidInput,
-// the channel may exist, and the caller lists channels by Name before
-// creating it again, rather than retrying blind. A server error message
-// that echoes Address or a header value comes back with that value replaced
-// by "<redacted>".
+// CreateChannel creates a notification channel. When OTP is set, it first
+// calls Validate OTP with OTPRef, OTP, Address, and the encoded Headers; a
+// null validated code (a wrong or expired OTP) returns ErrOTPRejected and
+// sends no create. It is a POST and is never retried after a failure that
+// may have already reached the server: after any error that is not a 4xx
+// *core.APIError or core.ErrInvalidInput, the channel may exist, and the
+// caller lists channels by Name before creating it again, rather than
+// retrying blind. The same no-retry rule applies to the validate step
+// itself, since a retry could spend an OTP the first attempt already
+// validated. A server error message that echoes Address, a header value,
+// the OTP, OTPRef, or the validated code comes back with that value
+// replaced by "<redacted>".
 func (c *Client) CreateChannel(ctx context.Context, in *CreateChannelInput) (*CreateChannelOutput, error) {
 	const op = "monitor.CreateChannel"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	if in.Type != ChannelTypeWebhook {
-		return nil, fmt.Errorf("%w: %s accepts only Type %s until OTP channels ship", core.ErrInvalidInput, op, ChannelTypeWebhook)
+	if !channelValidTypes[in.Type] {
+		return nil, fmt.Errorf("%w: %s: Type must be Email, Slack, SMS, Telegram, or Webhook, got %q", core.ErrInvalidInput, op, in.Type)
+	}
+	if in.OTP != "" && in.OTPRef == "" {
+		return nil, fmt.Errorf("%w: %s: OTPRef is required when OTP is set", core.ErrInvalidInput, op)
+	}
+	if in.OTPRef != "" && in.OTP == "" {
+		return nil, fmt.Errorf("%w: %s: OTP is required when OTPRef is set", core.ErrInvalidInput, op)
+	}
+	if in.Type == ChannelTypeWebhook && (in.OTP != "" || in.OTPRef != "") {
+		return nil, fmt.Errorf("%w: %s: Type Webhook takes no OTPRef or OTP", core.ErrInvalidInput, op)
 	}
 
 	headerField := encodeChannelHeaders(in.Headers)
+	otpCode := ""
+	if in.OTP != "" {
+		code, err := c.validateChannelOTP(ctx, op, in.Address, in.Headers, headerField, in.OTPRef, in.OTP)
+		if err != nil {
+			return nil, err
+		}
+		if code == "" {
+			return nil, fmt.Errorf("%w: %s: the otp for %s was wrong or expired", ErrOTPRejected, op, in.Type)
+		}
+		otpCode = code
+	}
+
 	body := createChannelBody{
 		Name:    in.Name,
 		Type:    in.Type,
 		Address: in.Address,
 		Header:  headerField,
-		OTPCode: "",
+		OTPCode: otpCode,
 	}
 	var resp createChannelResponse
 	req := transport.Request{
@@ -224,7 +284,7 @@ func (c *Client) CreateChannel(ctx context.Context, in *CreateChannelInput) (*Cr
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
-		return nil, redactChannelError(err, in.Address, in.Headers, headerField)
+		return nil, redactOTPError(err, in.Address, in.Headers, headerField, in.OTP, in.OTPRef, otpCode)
 	}
 	if resp.ID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "create response had no id"}
@@ -242,8 +302,10 @@ func (c *Client) CreateChannel(ctx context.Context, in *CreateChannelInput) (*Cr
 
 // updateChannelBody is UpdateChannel's request body: the same shape as
 // createChannelBody plus the channel's id, since the API takes id in the
-// body rather than the URL. OTPCode is always sent empty; an update that
-// changes an OTP channel's Address without one is refused by the server.
+// body rather than the URL. OTPCode is empty unless the caller set OTP, in
+// which case it carries the code Validate OTP returned; an update that
+// changes an OTP channel's Address with no otpCode is refused by the
+// server.
 type updateChannelBody struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -259,12 +321,23 @@ type updateChannelBody struct {
 // sends an explicit empty header list, clearing every header; Headers left
 // nil resends the channel's current header wire value exactly as read, even
 // when it does not decode to [{key,value}] pairs.
+//
+// A channel whose type needs an OTP (Email, Slack, SMS, or Telegram) needs
+// a fresh one to change its Address; the server enforces that, not the SDK.
+// Call SendChannelOTP first, then set OTPRef to its Ref and OTP to the code
+// read from the address, the same way CreateChannel takes them. OTPRef and
+// OTP must both be set, or both left empty; either one set with the other
+// empty fails with core.ErrInvalidInput before any request. A Webhook
+// channel takes neither; UpdateChannel refuses one set for it once
+// GetChannel's read shows the channel's type, before validating anything.
 type UpdateChannelInput struct {
 	ChannelID string `vngcloud:"required"`
 
 	Name    *string
 	Address *string
 	Headers *[]ChannelHeader
+	OTPRef  string
+	OTP     string
 }
 
 type UpdateChannelOutput struct {
@@ -279,9 +352,10 @@ type UpdateChannelOutput struct {
 // rather than the decoded Headers re-encoded, so a header string that does
 // not decode to [{key,value}] pairs is resent unchanged instead of being
 // replaced with "". It keeps the channel's Type; there is no way to change
-// a channel's type. UpdateChannel accepts only a channel whose current Type
-// is ChannelTypeWebhook, and returns core.ErrInvalidInput before any
-// request for any other type, until OTP types ship.
+// a channel's type, and UpdateChannel never sends one other than the
+// channel's own current Type. When OTP is set, it validates it (see
+// validateChannelOTP) before the PUT; a null validated code (a wrong or
+// expired OTP) returns ErrOTPRejected and sends no PUT.
 //
 // The read and the PUT are two separate requests, with no version to check
 // in between: a change another caller makes to the channel between them is
@@ -289,14 +363,19 @@ type UpdateChannelOutput struct {
 // same last-write-wins behavior as any other read-then-write pair against
 // this API.
 //
-// The PUT itself is idempotent and keeps the transport's normal retries,
-// since resending the same full replacement body is safe. Its 200 response
-// has no body, so the returned Output holds the fields UpdateChannel itself
-// just sent, plus the CreatedDate and MetricMappingID the read before it
-// returned; it never carries a fresh UpdatedDate, since nothing in this
-// call's own responses gives one. A server error message that echoes the
-// sent Address or a header value comes back with that value replaced by
-// "<redacted>".
+// The PUT itself is idempotent and keeps the transport's normal retries
+// when it carries no otpCode, since resending the same full replacement
+// body is then safe; the validate step, when it runs, does not, since a
+// retry could spend an OTP the first attempt already validated. A PUT that
+// does carry an otpCode is sent at most once for the same reason: a retry
+// after an ambiguous failure could resend a code already spent and get
+// back a misleading error instead of the original one. The PUT's 200
+// response has no body, so the returned Output holds the fields
+// UpdateChannel itself just sent, plus the CreatedDate and MetricMappingID
+// the read before it returned; it never carries a fresh UpdatedDate, since
+// nothing in this call's own responses gives one. A server error message
+// that echoes the sent Address, a header value, the OTP, OTPRef, or the
+// validated code comes back with that value replaced by "<redacted>".
 func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*UpdateChannelOutput, error) {
 	const op = "monitor.UpdateChannel"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -308,15 +387,23 @@ func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*Up
 	if in.Name == nil && in.Address == nil && in.Headers == nil {
 		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
 	}
+	if in.OTP != "" && in.OTPRef == "" {
+		return nil, fmt.Errorf("%w: %s: OTPRef is required when OTP is set", core.ErrInvalidInput, op)
+	}
+	if in.OTPRef != "" && in.OTP == "" {
+		return nil, fmt.Errorf("%w: %s: OTP is required when OTPRef is set", core.ErrInvalidInput, op)
+	}
 
 	current, err := c.GetChannel(ctx, &GetChannelInput{ChannelID: in.ChannelID})
 	if err != nil {
 		return nil, err
 	}
 	ch := current.Channel
-	if ch.Type != ChannelTypeWebhook {
-		return nil, fmt.Errorf("%w: %s: channel %s has type %s, not %s, until OTP types ship",
-			core.ErrInvalidInput, op, in.ChannelID, ch.Type, ChannelTypeWebhook)
+	// The type is only known once the read above returns, so the Webhook
+	// check waits until here; it still runs before validateChannelOTP
+	// below, since Webhook needs no OTP and must never spend one.
+	if ch.Type == ChannelTypeWebhook && (in.OTP != "" || in.OTPRef != "") {
+		return nil, fmt.Errorf("%w: %s: channel %s is Webhook, which takes no OTPRef or OTP", core.ErrInvalidInput, op, in.ChannelID)
 	}
 
 	name := ch.Name
@@ -348,6 +435,18 @@ func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*Up
 		headerField = encodeChannelHeaders(headers)
 	}
 
+	otpCode := ""
+	if in.OTP != "" {
+		code, err := c.validateChannelOTP(ctx, op, address, headers, headerField, in.OTPRef, in.OTP)
+		if err != nil {
+			return nil, err
+		}
+		if code == "" {
+			return nil, fmt.Errorf("%w: %s: the otp for channel %s was wrong or expired", ErrOTPRejected, op, in.ChannelID)
+		}
+		otpCode = code
+	}
+
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPut,
@@ -358,12 +457,13 @@ func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*Up
 			Type:    ch.Type,
 			Address: address,
 			Header:  headerField,
-			OTPCode: "",
+			OTPCode: otpCode,
 		},
-		OK: []int{200},
+		OK:   []int{200},
+		Once: otpCode != "",
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, redactChannelError(err, address, headers, headerField)
+		return nil, redactOTPError(err, address, headers, headerField, in.OTP, in.OTPRef, otpCode)
 	}
 
 	return &UpdateChannelOutput{Channel: Channel{

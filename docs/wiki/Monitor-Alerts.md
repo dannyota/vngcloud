@@ -13,9 +13,10 @@ A notification channel is what GreenNode's own API calls a "notification";
 the SDK says "channel" so the name does not clash with a check's
 `Notifications` field. `ListChannels` and `GetChannel` return every channel
 type the console offers, including `Email`, `Slack`, `SMS`, `Telegram`, and
-`Webhook`. `CreateChannel`, `UpdateChannel`, and `DeleteChannel` create,
-update, and delete a `Webhook` channel; every other type needs an OTP the
-account holder must read and relay, which ships in a later release.
+`Webhook`. `CreateChannel`, `UpdateChannel`, and `DeleteChannel` work with
+any of the five; `Webhook` needs no OTP, and every other type needs one
+from `SendChannelOTP`, covered next, before a create or an `Address`
+update.
 
 ```go
 types, err := client.ListChannelTypes(ctx, nil)
@@ -55,6 +56,59 @@ There is no get-by-ID call for a channel: `GetChannel` lists every page and
 returns the item whose ID matches, so `vngcloud.IsNotFound(err)` is true both
 for an unknown ID and for an account with no channels at all.
 
+### Sending and validating an OTP
+
+`Email`, `Slack`, `SMS`, and `Telegram` each need a one-time code before a
+create or an `Address` update; `Webhook` needs none. `SendChannelOTP`
+messages `Address` with the code and returns a `Ref`. Read the code from
+the address, then pass both to `CreateChannel` or `UpdateChannel` as
+`OTPRef` and `OTP`.
+
+```go
+sent, err := client.SendChannelOTP(ctx, &monitor.SendChannelOTPInput{
+	Type:    monitor.ChannelTypeEmail,
+	Address: "ops@example.com",
+})
+if err != nil {
+	log.Fatal(err)
+}
+// ... read the code from the address, then: ...
+created, err := client.CreateChannel(ctx, &monitor.CreateChannelInput{
+	Name:    "vngcloud-my-email",
+	Type:    monitor.ChannelTypeEmail,
+	Address: "ops@example.com",
+	OTPRef:  sent.Ref,
+	OTP:     "123456",
+})
+if errors.Is(err, monitor.ErrOTPRejected) {
+	log.Fatal("wrong or expired code")
+}
+```
+
+`SendChannelOTP` refuses `Webhook`, and any type outside the five the
+console offers, with `vngcloud.ErrInvalidInput` before any request. It is
+a `POST` that messages the address, so it is never retried after a
+failure that may have already reached the server: a retry could send a
+second message, and a caller that wants one anyway calls
+`SendChannelOTP` again itself. `CreateChannel` and `UpdateChannel` apply
+the same no-retry rule to the validate step they run internally when
+`OTP` is set, since a retry there could spend a code the first attempt
+already validated.
+
+`OTPRef` and `OTP` are meant to be set together, or both left empty; `OTP`
+set with no `OTPRef` fails with `vngcloud.ErrInvalidInput` before any
+request. A wrong or expired code makes `CreateChannel` or `UpdateChannel`
+return `monitor.ErrOTPRejected` and send no create or update. Leaving
+`OTPRef` and `OTP` both empty sends no `otpCode`, which is what `Webhook`
+needs and every other type is refused for.
+
+`Address`, `OTPRef`, and the OTP itself are secrets, the same as a header
+value: none ever appears in an error message, and a server message that
+echoes one back comes back with `<redacted>` in its place instead.
+Sending an OTP to, and later notifying, an `SMS` or `Email` channel counts
+toward that channel's free 20 messages; either one past its free 20 spends
+a paid package. `Slack` and `Telegram` cost nothing extra.
+
 ### Creating, updating, and deleting channels
 
 ```go
@@ -84,11 +138,12 @@ if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: cr
 }
 ```
 
-`CreateChannel` accepts only `Type: monitor.ChannelTypeWebhook` today;
-every other type needs an OTP the account holder must read and relay,
-which ships in a later release, and a create with any other `Type` fails
-with `vngcloud.ErrInvalidInput` before any request. `Name`, `Type`, and
-`Address` are required; `Headers` is optional and defaults to none.
+`CreateChannel` accepts `Type` `Email`, `Slack`, `SMS`, `Telegram`, or
+`Webhook`; any other value fails with `vngcloud.ErrInvalidInput` before
+any request. `Name`, `Type`, and `Address` are required; `Headers` is
+optional and defaults to none, and every type but `Webhook` also needs
+`OTPRef` and `OTP` (see [Sending and validating an
+OTP](#sending-and-validating-an-otp) above) to create.
 
 `CreateChannel` is a `POST` and is never retried after a failure that may
 already have reached the server, the same as `CreateCheck`: after any
@@ -105,12 +160,13 @@ full replacement body and clears any field a request leaves out, so
 `UpdateChannel` reads the channel first with `GetChannel` and resends every
 field the caller did not set itself, rather than trusting the API to leave
 them alone. It keeps the channel's `Type`; there is no way to change a
-channel's type, and `UpdateChannel` accepts only a channel whose current
-`Type` is `monitor.ChannelTypeWebhook`, failing with
-`vngcloud.ErrInvalidInput` before any request for any other type, until
-support for OTP types ships. Its `Output.Channel` never carries a fresh
-`UpdatedDate`, since the update's own 200 response has no body to read one
-from.
+channel's type, and `UpdateChannel` never sends one other than the
+channel's own current `Type`. Changing an `Email`, `Slack`, `SMS`, or
+`Telegram` channel's `Address` needs a fresh `OTPRef` and `OTP` (see
+[Sending and validating an OTP](#sending-and-validating-an-otp) above);
+the server enforces that, not the SDK. Its `Output.Channel` never carries
+a fresh `UpdatedDate`, since the update's own 200 response has no body to
+read one from.
 
 The read and the write are two separate requests, with nothing to detect a
 change in between: if another caller updates the channel after

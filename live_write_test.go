@@ -1560,6 +1560,391 @@ func TestLiveWriteMonitorCheckNotifications(t *testing.T) {
 	t.Log("step 6: deleted the check")
 }
 
+// otpFilePollInterval is how often readLiveOTPFile checks for the OTP file
+// while waiting for the owner to save it.
+const otpFilePollInterval = 2 * time.Second
+
+// otpFileTimeout bounds how long readLiveOTPFile waits for the OTP file to
+// appear and hold a code, so a run where the owner never saves it can never
+// hang forever; it fails with a clear message instead.
+const otpFileTimeout = 5 * time.Minute
+
+// otpFileMaxPerm is the loosest permission bits readOTPFileOnce accepts on
+// the OTP file: no group or other access. A looser mode risks another
+// local user reading the OTP before this test does.
+const otpFileMaxPerm = 0o077
+
+// errOTPFileNotReady is what readOTPFileOnce returns when the OTP file does
+// not exist yet, or exists but is empty once trimmed: the caller should
+// keep polling rather than fail.
+var errOTPFileNotReady = errors.New("otp file not ready")
+
+// readOTPFileOnce reads path once, without waiting. It returns the trimmed
+// code when the file exists, has no group or other permission bits, and
+// holds a non-empty trimmed line; errOTPFileNotReady when the file does not
+// exist yet or is present but still empty; and any other error, including a
+// mode looser than otpFileMaxPerm allows, unwrapped. It never logs path's
+// content.
+func readOTPFileOnce(path string) (string, error) {
+	info, err := os.Stat(path) //nolint:gosec // path is VNGCLOUD_LIVE_MONITOR_OTP_FILE, an operator-chosen local path, not untrusted input
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", errOTPFileNotReady
+		}
+		return "", err
+	}
+	if perm := info.Mode().Perm(); perm&otpFileMaxPerm != 0 {
+		return "", fmt.Errorf("mode %v is looser than 0600", perm)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is VNGCLOUD_LIVE_MONITOR_OTP_FILE, an operator-chosen local path, not untrusted input
+	if err != nil {
+		return "", err
+	}
+	code := strings.TrimSpace(string(data))
+	if code == "" {
+		return "", errOTPFileNotReady
+	}
+	return code, nil
+}
+
+// pollOTPFile polls path every pollInterval until readOTPFileOnce returns a
+// code, bounded by timeout, then deletes path so a later run never reads a
+// code this one already spent. The poll interval and timeout are
+// parameters, rather than the otpFilePollInterval and otpFileTimeout
+// constants directly, so a test can shorten both instead of waiting out the
+// real bounds. It calls no *testing.T method, so a test can check its
+// returned error directly instead of needing to catch a t.Fatal call; the
+// file's content, and the code itself, are never logged, or included in
+// the returned error.
+func pollOTPFile(path string, pollInterval, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		code, err := readOTPFileOnce(path)
+		if err == nil {
+			if rmErr := os.Remove(path); rmErr != nil { //nolint:gosec // path is VNGCLOUD_LIVE_MONITOR_OTP_FILE, an operator-chosen local path, not untrusted input
+				return "", fmt.Errorf("remove the OTP file: %w", rmErr)
+			}
+			return code, nil
+		}
+		if !errors.Is(err, errOTPFileNotReady) {
+			return "", fmt.Errorf("refusing the OTP file: %w", err)
+		}
+		if time.Now().After(deadline) {
+			return "", errors.New("timed out waiting for the OTP file")
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// readLiveOTPFile returns the OTP TestLiveWriteMonitorChannelOTP validates,
+// read from the file named by VNGCLOUD_LIVE_MONITOR_OTP_FILE (path), via
+// pollOTPFile with the real otpFilePollInterval and otpFileTimeout.
+func readLiveOTPFile(t *testing.T, path string) string {
+	t.Helper()
+	t.Log("waiting for the OTP in the file named by VNGCLOUD_LIVE_MONITOR_OTP_FILE")
+	code, err := pollOTPFile(path, otpFilePollInterval, otpFileTimeout)
+	if err != nil {
+		t.Fatalf("readLiveOTPFile: %v", err)
+	}
+	return code
+}
+
+// TestLiveWriteMonitorChannelOTP exercises the OTP flow SendChannelOTP,
+// CreateChannel, GetChannel, and DeleteChannel take for an Email channel.
+//
+// VNGCLOUD_LIVE_MONITOR_EMAIL names the address that receives the OTP, and
+// VNGCLOUD_LIVE_MONITOR_OTP_FILE names a file the owner saves the emailed
+// code into; the test skips before sending anything when either is unset,
+// so it never messages the address with no way to read the code back.
+// readLiveOTPFile polls for that file, refuses to read it unless its mode
+// is 0600 or stricter, and deletes it once read; see readLiveOTPFile.
+// Neither the address, the OTP, the ref SendChannelOTP returns, nor the
+// file's content is ever logged.
+//
+// It deletes every leftover vngcloud-live-* channel first (step 1), sends
+// the OTP (step 2), reads it back from the file (step 3), creates
+// vngcloud-live-<8 hex> as an Email channel with the validated OTP (step
+// 4), registers the fallback delete as soon as the created channel's id is
+// known (step 5), reads the channel back and confirms its type (step 6),
+// and deletes it (step 7). t.Cleanup deletes it again with its own context
+// (NotFound there is success, not failure), pages every channel list, and
+// asserts no vngcloud-live-* channel remains. Every step logs only counts,
+// statuses, and the OTP's expiry time, never the address, the OTP, or the
+// ref.
+func TestLiveWriteMonitorChannelOTP(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor channel OTP write test")
+	}
+	email := os.Getenv("VNGCLOUD_LIVE_MONITOR_EMAIL")
+	if email == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_EMAIL to the approved address to run the live monitor channel OTP write test")
+	}
+	otpFile := os.Getenv("VNGCLOUD_LIVE_MONITOR_OTP_FILE")
+	if otpFile == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_OTP_FILE to a path to poll for the emailed OTP to run the live monitor channel OTP write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := monitor.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* channel from a previous
+	// run.
+	leftovers, err := listAllChannels(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListChannels: %s", safeErr(err))
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftovers {
+		if !isLiveChannelName(leftover.Name) {
+			continue
+		}
+		if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover channel: %s", safeErr(err))
+		}
+		deletedLeftovers++
+	}
+	t.Logf("step 1: deleted %d leftover channel(s)", deletedLeftovers)
+
+	// Step 2: send the OTP.
+	sent, err := client.SendChannelOTP(ctx, &monitor.SendChannelOTPInput{
+		Type:    monitor.ChannelTypeEmail,
+		Address: email,
+	})
+	if err != nil {
+		t.Fatalf("step 2 SendChannelOTP: %s", safeErr(err))
+	}
+	t.Logf("step 2: sent otp, expires %s", sent.ExpiresAt.Format(time.RFC3339))
+
+	// Step 3: read the OTP back from the file the owner saves it into.
+	otp := readLiveOTPFile(t, otpFile)
+	t.Log("step 3: read otp from file")
+
+	// Step 4: create the channel with the validated OTP.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	created, err := client.CreateChannel(ctx, &monitor.CreateChannelInput{
+		Name:    name,
+		Type:    monitor.ChannelTypeEmail,
+		Address: email,
+		OTPRef:  sent.Ref,
+		OTP:     otp,
+	})
+	if err != nil {
+		if errors.Is(err, monitor.ErrOTPRejected) {
+			t.Fatal("step 4 CreateChannel: otp rejected; rerun and enter the latest emailed code")
+		}
+		// A POST is not retried after an ambiguous failure, so the channel
+		// may still have reached the server. Find and delete it by its
+		// exact name.
+		deleteChannelByName(t, client, name)
+		t.Fatalf("step 4 CreateChannel: %s", safeErr(err))
+	}
+	channelID := created.Channel.ID
+	if channelID == "" {
+		deleteChannelByName(t, client, name)
+		t.Fatal("step 4: CreateChannel returned an empty id; the design requires one")
+	}
+	t.Log("step 4: created email channel")
+
+	// Step 5: register the fallback delete as soon as channelID is known,
+	// before steps 6 and 7 can fail and skip the explicit delete below.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteChannel(cleanupCtx, &monitor.DeleteChannelInput{ChannelID: channelID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete channel: %s", safeErr(err))
+		}
+		final, err := listAllChannels(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListChannels: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, ch := range final {
+			if isLiveChannelName(ch.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live channel(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live channels, found %d", remaining)
+		}
+	})
+
+	// Step 6: read the channel back and confirm its type.
+	read, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: channelID})
+	if err != nil {
+		t.Fatalf("step 6 GetChannel: %s", safeErr(err))
+	}
+	if read.Channel.Type != monitor.ChannelTypeEmail {
+		t.Fatalf("step 6: Type = %q, want %q", read.Channel.Type, monitor.ChannelTypeEmail)
+	}
+	t.Log("step 6: read channel back, type matches")
+
+	// Step 7: delete the channel explicitly. DELETE is idempotent, so
+	// t.Cleanup's own delete above then finds it already gone.
+	if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: channelID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7 DeleteChannel: %s", safeErr(err))
+	}
+	t.Log("step 7: deleted channel")
+}
+
+// TestReadOTPFileOnce checks readOTPFileOnce's per-call rules against a real
+// filesystem: a missing or still-empty file reports errOTPFileNotReady so
+// the caller keeps polling, a mode with any group or other bit is refused
+// outright, and an owner-only mode returns the trimmed code. This never
+// runs against the live API; it needs no VNGCLOUD_LIVE_WRITE.
+func TestReadOTPFileOnce(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string, mode os.FileMode) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return path
+	}
+
+	t.Run("missing file is not ready", func(t *testing.T) {
+		_, err := readOTPFileOnce(filepath.Join(dir, "missing.txt"))
+		if !errors.Is(err, errOTPFileNotReady) {
+			t.Fatalf("err = %v, want errOTPFileNotReady", err)
+		}
+	})
+
+	t.Run("empty file is not ready", func(t *testing.T) {
+		path := write("empty.txt", "", 0o600)
+		_, err := readOTPFileOnce(path)
+		if !errors.Is(err, errOTPFileNotReady) {
+			t.Fatalf("err = %v, want errOTPFileNotReady", err)
+		}
+	})
+
+	t.Run("whitespace-only file is not ready", func(t *testing.T) {
+		path := write("blank.txt", "  \n\t", 0o600)
+		_, err := readOTPFileOnce(path)
+		if !errors.Is(err, errOTPFileNotReady) {
+			t.Fatalf("err = %v, want errOTPFileNotReady", err)
+		}
+	})
+
+	t.Run("group-readable mode is refused", func(t *testing.T) {
+		path := write("group.txt", "123456", 0o640)
+		_, err := readOTPFileOnce(path)
+		if err == nil || errors.Is(err, errOTPFileNotReady) {
+			t.Fatalf("err = %v, want a mode refusal", err)
+		}
+	})
+
+	t.Run("other-readable mode is refused", func(t *testing.T) {
+		path := write("other.txt", "123456", 0o604)
+		_, err := readOTPFileOnce(path)
+		if err == nil || errors.Is(err, errOTPFileNotReady) {
+			t.Fatalf("err = %v, want a mode refusal", err)
+		}
+	})
+
+	t.Run("0600 is accepted and trimmed", func(t *testing.T) {
+		path := write("ok.txt", " 123456 \n", 0o600)
+		code, err := readOTPFileOnce(path)
+		if err != nil {
+			t.Fatalf("readOTPFileOnce() error = %v", err)
+		}
+		if code != "123456" {
+			t.Fatalf("code = %q, want %q", code, "123456")
+		}
+	})
+
+	t.Run("0400 is stricter and accepted", func(t *testing.T) {
+		path := write("strict.txt", "654321", 0o400)
+		code, err := readOTPFileOnce(path)
+		if err != nil {
+			t.Fatalf("readOTPFileOnce() error = %v", err)
+		}
+		if code != "654321" {
+			t.Fatalf("code = %q, want %q", code, "654321")
+		}
+	})
+}
+
+// TestPollOTPFileReadsAndDeletes checks pollOTPFile returns the code already
+// waiting in the file and deletes the file, without needing to poll.
+func TestPollOTPFileReadsAndDeletes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "otp.txt")
+	if err := os.WriteFile(path, []byte("123456\n"), 0o600); err != nil {
+		t.Fatalf("write OTP file: %v", err)
+	}
+
+	code, err := pollOTPFile(path, time.Millisecond, time.Second)
+	if err != nil {
+		t.Fatalf("pollOTPFile() error = %v", err)
+	}
+	if code != "123456" {
+		t.Fatalf("code = %q, want %q", code, "123456")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("expected the OTP file to be deleted")
+	}
+}
+
+// TestPollOTPFileWaitsForFile checks pollOTPFile keeps polling until the
+// file appears, rather than failing on its first, empty-handed check.
+func TestPollOTPFileWaitsForFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "otp.txt")
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_ = os.WriteFile(path, []byte("654321"), 0o600)
+	}()
+
+	code, err := pollOTPFile(path, time.Millisecond, time.Second)
+	if err != nil {
+		t.Fatalf("pollOTPFile() error = %v", err)
+	}
+	if code != "654321" {
+		t.Fatalf("code = %q, want %q", code, "654321")
+	}
+}
+
+// TestPollOTPFileTimesOut checks pollOTPFile returns an error, rather than
+// hanging, when the file never appears within timeout.
+func TestPollOTPFileTimesOut(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "otp.txt") // never created
+
+	if _, err := pollOTPFile(path, time.Millisecond, 20*time.Millisecond); err == nil {
+		t.Fatal("expected an error when the OTP file never appears")
+	}
+}
+
 // liveLogProjectNamePattern is the live log project write test's own naming
 // scheme: vngcloud-live-<8 lowercase hex>, exactly, so a name that merely
 // starts with vngcloud-live- but was not generated by this test is never

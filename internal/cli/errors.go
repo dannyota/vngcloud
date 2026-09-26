@@ -79,9 +79,11 @@ type errorEnvelope struct {
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
 // sent), WriteFailed (a vDNS write reached status ERROR), NotSettled (a
-// vDNS write was accepted but did not settle within the post-write wait), or
-// PriceAboveMax (create-log-project's quote priced its order above
-// --max-price, so no order was sent).
+// vDNS write was accepted but did not settle within the post-write wait),
+// OTPRejected (a channel OTP create-channel or update-channel sent to
+// SendChannelOTP's Validate OTP step was wrong or expired, so no create or
+// update was sent), or PriceAboveMax (create-log-project's quote priced its
+// order above --max-price, so no order was sent).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -94,11 +96,15 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, monitor.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
-	// dns.ErrZoneBusy, dns.ErrFailed, dns.ErrNotSettled, and
-	// monitor.ErrPriceAboveMax are always wrapped alone (never alongside an
-	// *APIError), so, unlike the monitor checks above, checking them before
-	// errors.As(err, &apiErr) below is only for grouping every early,
-	// non-APIError class together.
+	// monitor.ErrOTPRejected, like dns.ErrZoneBusy, dns.ErrFailed,
+	// dns.ErrNotSettled, and monitor.ErrPriceAboveMax below, is always
+	// wrapped alone (never alongside an *APIError): CreateChannel and UpdateChannel return it directly, after
+	// Validate OTP's own APIError path (if any) already returned. Checking
+	// it before errors.As(err, &apiErr) below is only for grouping every
+	// early, non-APIError class together.
+	if errors.Is(err, monitor.ErrOTPRejected) {
+		return errorEnvelope{Code: "OTPRejected", Message: err.Error()}
+	}
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
@@ -194,12 +200,14 @@ func exitCode(err error) int {
 	// toggle PUT or a confirm read still reports the same exit code (1) as
 	// every other unconfirmed toggle, per monitor's design, rather than
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
-	// dns.ErrFailed, and dns.ErrNotSettled join the same early return for the
-	// same reason on the vDNS side; per the vDNS design, dns.ErrNotSettled
-	// specifically must exit the same way even after a canceled context,
-	// because its write may have landed.
+	// dns.ErrFailed, dns.ErrNotSettled, and monitor.ErrOTPRejected join the
+	// same early return for the same reason: per the vDNS design,
+	// dns.ErrNotSettled specifically must exit the same way even after a
+	// canceled context, because its write may have landed, and the others
+	// join it for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
-		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) {
+		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
+		errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

@@ -362,6 +362,8 @@ Each release ships when CI is green on its commit.
 | `v0.17.0` | `globalloadbalancer` CLI commands; see [CLI reads](cli-reads.md) |
 | `v0.18.0` | `containerregistry list-repositories` and wider map key redaction; see [CLI reads](cli-reads.md) |
 | `v0.19.0` | vMonitor check notifications and `UpdateCheck`; strict `--cli-input-json`; see [vMonitor Alerts](monitor-alerts.md) |
+| `v0.20.0` | vMonitor log project reads and quote, and alarm reads; see [vMonitor Alerts](monitor-alerts.md) |
+| `v0.21.0` | vMonitor OTP notification channels; see [vMonitor Alerts](monitor-alerts.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

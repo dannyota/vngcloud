@@ -140,6 +140,11 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
 			1,
 		},
+		{
+			"monitor otp rejected",
+			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -256,6 +261,11 @@ func TestClassify(t *testing.T) {
 			"monitor log project price above max",
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
 			"PriceAboveMax", 0, "",
+		},
+		{
+			"monitor otp rejected",
+			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
+			"OTPRejected", 0, "",
 		},
 	}
 	for _, tt := range tests {

@@ -647,9 +647,9 @@ func TestMonitorDeleteChannelMissingExitsFour(t *testing.T) {
 }
 
 // TestMonitorChannelWritesReadOnlyRefusedWithZeroRequests checks the
-// monitor design's read-only rule for create-channel, update-channel, and
-// delete-channel: all three are Write operations, so a read-only profile
-// refuses each with exit 2 before any request.
+// monitor design's read-only rule for send-channel-otp, create-channel,
+// update-channel, and delete-channel: all four are Write operations, so a
+// read-only profile refuses each with exit 2 before any request.
 func TestMonitorChannelWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	tests := []struct {
 		op   string
@@ -659,6 +659,9 @@ func TestMonitorChannelWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 		// TestMonitorCreateChannelAllowsLiteralAddressForEmailSMSTelegram),
 		// so this case reaches, and is stopped by, the read-only check the
 		// guard runs before, rather than the guard itself.
+		{"send-channel-otp", []string{
+			"send-channel-otp", "--type", monitor.ChannelTypeEmail, "--address", "e@example.com",
+		}},
 		{"create-channel", []string{
 			"create-channel", "--name", "n", "--type", monitor.ChannelTypeEmail, "--address", "e@example.com",
 		}},
@@ -678,6 +681,7 @@ func TestMonitorChannelWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 				"/notification-gateway/api/v1/notification":                 refuse,
 				"/notification-gateway/api/v1/notification/channel-1":       refuse,
 				"/notification-gateway/api/v1/notification/list/typeSearch": refuse,
+				"/notification-gateway/api/v1/notification/otps":            refuse,
 			})
 			opts := newFakeServer(t, fixture.mux)
 			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)

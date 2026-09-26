@@ -32,19 +32,39 @@ import (
 // redaction rule applies to every reader of a Channel, and there is no flag
 // to turn it off. ListChannelTypes returns no Channel, so it needs none.
 //
-// CreateChannel and UpdateChannel carry WriteRedact for the same reason, and
-// each carries a Guard that refuses a literal --address, or an inline
-// --cli-input-json value that sets Address or Headers: create refuses
-// Address for every Type but Email, SMS, and Telegram, since any other
-// type's address can carry a secret, and refuses Headers for every Type,
-// since a Webhook channel's header values can hold one and Headers has no
-// flag of its own; update refuses both fields unconditionally, since
-// UpdateChannelInput carries no Type for the guard to check. Both argv and
-// an inline --cli-input-json value reach ps and shell history, exactly what
-// configure refuses a literal password for; a file:// value does not.
+// SendChannelOTP is Write but not Destructive: it only messages Address
+// with a one-time code, and its Ref and ExpiresAt are printed in full, per
+// the monitor design's own example of the command; neither is a value the
+// CLI redaction rule covers. It carries a Guard for the same reason
+// create-channel's own does: a literal --address, or an inline
+// --cli-input-json value that sets Address, is refused for Type Slack,
+// since a Slack address is a webhook URL that can carry a secret;
+// channelAddressTypeAllowsLiteral already denies every type but Email,
+// SMS, and Telegram, and SendChannelOTP itself refuses every Type but
+// those three plus Slack before any request, so Webhook never reaches this
+// guard. An inline --cli-input-json value that sets Headers is refused for
+// every Type, the same as create-channel's own Headers refusal.
+//
+// CreateChannel and UpdateChannel carry WriteRedact for the same reason as
+// ListChannels and GetChannel, and each carries a Guard that refuses a
+// literal --address, or an inline --cli-input-json value that sets Address
+// or Headers: create refuses Address for every Type but Email, SMS, and
+// Telegram, since any other type's address can carry a secret, and refuses
+// Headers for every Type, since a Webhook channel's header values can hold
+// one and Headers has no flag of its own; update refuses both fields
+// unconditionally, since UpdateChannelInput carries no Type for the guard
+// to check. Both argv and an inline --cli-input-json value reach ps and
+// shell history, exactly what configure refuses a literal password for; a
+// file:// value does not. Both Inputs also carry OTPRef and OTP, plain
+// string fields that flags.go's reflection turns into --otp-ref and --otp
+// like any other string field, with no Guard of their own: an operator
+// gets both from send-channel-otp and a person reading the address, and the
+// SDK itself keeps them, and the address, header values, and validated
+// code, out of any error message it returns (see monitor.CreateChannel and
+// monitor.UpdateChannel), so no CLI-level redaction is needed for them.
 // DeleteChannel is Write and Destructive: a deleted channel cannot be
 // restored by one more command, so it needs --yes. A read-only profile
-// refuses all three, before any request, the same as every other Write op
+// refuses all four, before any request, the same as every other Write op
 // here.
 //
 // ListLogProjects, GetLogProject, ListLogProjectClasses,
@@ -94,6 +114,9 @@ var monitorOps = []Op[monitor.Client]{
 		Redact(func(out *monitor.GetChannelOutput) {
 			out.Channel = redactChannel(out.Channel)
 		})),
+	Write[monitor.Client, monitor.SendChannelOTPInput, monitor.SendChannelOTPOutput](
+		kebab("SendChannelOTP"), (*monitor.Client).SendChannelOTP,
+		Guard(refuseLiteralSendChannelOTPAddress)),
 	Write[monitor.Client, monitor.CreateChannelInput, monitor.CreateChannelOutput](
 		kebab("CreateChannel"), (*monitor.Client).CreateChannel,
 		Guard(refuseLiteralCreateChannelAddress),
@@ -176,18 +199,17 @@ func channelAddressTypeAllowsLiteral(typ string) bool {
 // inline --cli-input-json value that sets Address, on create-channel when
 // the merged Input's Type does not pass channelAddressTypeAllowsLiteral:
 // every type but Email, SMS, and Telegram can carry a secret in its
-// address. M2's own CreateChannel already refuses every type but Webhook
-// before any request (see monitor.CreateChannel), so only Webhook can be
-// created today; every other type is denied here too, per the monitor
-// design, so this guard needs no change once OTP channels can be created.
-// It also refuses an inline --cli-input-json value that sets Headers, for
-// every Type: Headers has no flag of its own (see flagSpecsFor), so the
-// only way it ever reaches argv is through --cli-input-json, and any
-// Webhook channel's header value can hold a secret. cmd.Flags().Changed
-// reports only an --address flag the operator actually set;
-// literalCLIInputJSONFields reports Address or Headers from an inline
-// --cli-input-json value, but never from a file:// one, since a file's
-// content never reaches argv.
+// address. CreateChannel itself accepts Email, Slack, SMS, Telegram, and
+// Webhook (see monitor.CreateChannel); this guard denies a literal
+// --address for Webhook and Slack regardless of whether OTPRef and OTP are
+// also set, per the monitor design. It also refuses an inline
+// --cli-input-json value that sets Headers, for every Type: Headers has no
+// flag of its own (see flagSpecsFor), so the only way it ever reaches argv
+// is through --cli-input-json, and any Webhook channel's header value can
+// hold a secret. cmd.Flags().Changed reports only an --address flag the
+// operator actually set; literalCLIInputJSONFields reports Address or
+// Headers from an inline --cli-input-json value, but never from a file://
+// one, since a file's content never reaches argv.
 func refuseLiteralCreateChannelAddress(cmd *cobra.Command, in any) error {
 	create, ok := in.(*monitor.CreateChannelInput)
 	if !ok {
@@ -206,21 +228,45 @@ func refuseLiteralCreateChannelAddress(cmd *cobra.Command, in any) error {
 	return nil
 }
 
+// refuseLiteralSendChannelOTPAddress mirrors refuseLiteralCreateChannelAddress
+// for send-channel-otp: it refuses a literal --address flag, or an inline
+// --cli-input-json value that sets Address, when the merged Input's Type
+// does not pass channelAddressTypeAllowsLiteral. SendChannelOTP itself
+// refuses every Type but Email, Slack, SMS, and Telegram before any
+// request (see monitor.SendChannelOTP), so Webhook never reaches this
+// guard; of the four it accepts, only Slack's address is a webhook URL
+// that can carry a secret, so this guard refuses a literal one the same
+// way create-channel and update-channel do, even though the design's CLI
+// section names only those two commands. It also refuses an inline
+// --cli-input-json value that sets Headers, for every Type, the same as
+// create-channel's own Headers refusal.
+func refuseLiteralSendChannelOTPAddress(cmd *cobra.Command, in any) error {
+	otp, ok := in.(*monitor.SendChannelOTPInput)
+	if !ok {
+		return nil
+	}
+	fields := literalCLIInputJSONFields(cmd)
+	if (cmd.Flags().Changed("address") || fields["Address"]) && !channelAddressTypeAllowsLiteral(otp.Type) {
+		return newUsageError(
+			"--address for a %s channel can hold a secret; pass it only through --cli-input-json file://channel.json",
+			otp.Type)
+	}
+	if fields["Headers"] {
+		return newUsageError(
+			"inline --cli-input-json Headers can hold a secret; pass it only through --cli-input-json file://channel.json")
+	}
+	return nil
+}
+
 // refuseLiteralUpdateChannelAddress refuses every literal --address flag,
 // and every inline --cli-input-json value that sets Address or Headers, on
-// update-channel, unconditionally. UpdateChannelInput carries no Type
-// field, since the API has no way to change a channel's type, so this
-// guard cannot tell a Webhook or Slack channel (whose address the monitor
-// design requires --cli-input-json for) apart from an Email, SMS, or
-// Telegram one without a request of its own, and a Guard must refuse
-// before any request. Refusing every type costs nothing today:
-// UpdateChannelInput carries no OTP fields yet, so updating an Email, SMS,
-// Telegram, or Slack channel's Address always fails on the server for
-// lacking one, and only a Webhook channel's Address update can succeed,
-// which is exactly the case the design already requires --cli-input-json
-// for. Headers has no flag of its own, so the only way it ever reaches
-// argv is through an inline --cli-input-json value; a file:// one is exempt,
-// the same as Address.
+// update-channel, unconditionally. The guard runs before any request, and
+// UpdateChannelInput carries no Type field, so it has no way to tell a
+// personal address (Email, SMS, or Telegram) apart from a secret-bearing
+// URL (Webhook or Slack). Pass Address (and Headers) only through
+// --cli-input-json file://channel.json; a file:// value is exempt since its
+// content never reaches argv. Headers has no flag of its own, so the only
+// way it ever reaches argv is through an inline --cli-input-json value.
 func refuseLiteralUpdateChannelAddress(cmd *cobra.Command, _ any) error {
 	fields := literalCLIInputJSONFields(cmd)
 	if cmd.Flags().Changed("address") || fields["Address"] {
