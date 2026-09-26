@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.16.0 - Load Balancer Commands
+
+### Highlights
+
+- New `vngcloud loadbalancer` commands for load balancers, listeners,
+  pools, health monitors, pool members, policies, tags, packages, and
+  certificates. Reads only. The test account has no load balancer or
+  certificate, so their reads are marked unverified in the wiki; the live
+  tests check them the day one exists.
+- Certificates print metadata only; the model has no key or PEM field.
+
+### Behavior changes
+
+None.
+
 ## v0.15.0 - vMonitor Webhook Channels
 
 ### Highlights
