@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -75,6 +75,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Monitor.md", opNames(monitorOps))
 	check("CLI-Project.md", opNames(projectOps))
 	check("CLI-Portal.md", opNames(portalOps))
+	check("CLI-Volume.md", opNames(volumeOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -536,6 +537,9 @@ func TestGenDocsGetExamplesQueryTheWrappedResourceField(t *testing.T) {
 		{"CLI-Portal.md", "vngcloud portal get-quota --name <name> --query Quota"},
 		{"CLI-Portal.md", "vngcloud portal get-user-info --query UserInfo"},
 		{"CLI-Portal.md", "vngcloud portal get-tag-quota --query TagQuota"},
+		{"CLI-Volume.md", "vngcloud volume get-volume --volume-id <volume-id> --query Volume"},
+		{"CLI-Volume.md", "vngcloud volume get-underlying-volume --volume-id <volume-id> --query Volume"},
+		{"CLI-Volume.md", "vngcloud volume get-volume-type --volume-type-id <volume-type-id> --query VolumeType"},
 	}
 	for _, tt := range cases {
 		data, err := os.ReadFile(filepath.Join(dir, tt.file))

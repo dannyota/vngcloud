@@ -154,6 +154,7 @@ func runGenDocs(dir string) error {
 		buildDocService("monitor", monitorOps),
 		buildDocService("project", projectOps),
 		buildDocService("portal", portalOps),
+		buildDocService("volume", volumeOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -442,21 +443,30 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
 	"that data too.\n\n" + portalMapRedactionNote
 
+// volumeShapeUnverifiedNote flags an output shape the live checks cannot
+// confirm: the test account holds no volume, so nothing exercises this
+// command's decoding against a real response.
+const volumeShapeUnverifiedNote = "Unverified live: the test account has no volume, so this output shape " +
+	"comes from GreenNode's official SDK, not a live capture."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
-	"monitor list-channels":  monitorChannelRedactionNote,
-	"monitor get-channel":    monitorChannelRedactionNote,
-	"monitor create-channel": monitorCreateChannelAddressNote,
-	"monitor update-channel": monitorUpdateChannelAddressNote,
-	"portal get-user-info":   portalUserInfoNote,
-	"portal list-zones":      portalMapRedactionNote,
-	"portal list-quota-used": portalMapRedactionNote,
-	"portal get-quota":       portalMapRedactionNote,
-	"portal get-tag-quota":   portalMapRedactionNote,
+	"monitor list-channels":        monitorChannelRedactionNote,
+	"monitor get-channel":          monitorChannelRedactionNote,
+	"monitor create-channel":       monitorCreateChannelAddressNote,
+	"monitor update-channel":       monitorUpdateChannelAddressNote,
+	"portal get-user-info":         portalUserInfoNote,
+	"portal list-zones":            portalMapRedactionNote,
+	"portal list-quota-used":       portalMapRedactionNote,
+	"portal get-quota":             portalMapRedactionNote,
+	"portal get-tag-quota":         portalMapRedactionNote,
+	"volume get-volume":            volumeShapeUnverifiedNote,
+	"volume get-underlying-volume": volumeShapeUnverifiedNote,
+	"volume list-snapshots":        volumeShapeUnverifiedNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
