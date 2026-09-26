@@ -117,6 +117,41 @@ func TestGetLogProjectRequest(t *testing.T) {
 	}
 }
 
+// TestLogProjectDecodesStringOrNumberFields checks ID, CreatedAt, and
+// UpdatedAt each accept either shape a guessed-type field might arrive in:
+// the design has not confirmed whether the API sends them as strings or
+// numbers, and a numeric id or an epoch createdAt must not fail the whole
+// item's decode.
+func TestLogProjectDecodesStringOrNumberFields(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want LogProject
+	}{
+		{
+			"strings",
+			`{"id":"proj-1","createdAt":"2026-09-26T00:00:00","updatedAt":"2026-09-27T00:00:00"}`,
+			LogProject{ID: "proj-1", CreatedAt: "2026-09-26T00:00:00", UpdatedAt: "2026-09-27T00:00:00"},
+		},
+		{
+			"numbers",
+			`{"id":42,"createdAt":1758844800,"updatedAt":1758931200}`,
+			LogProject{ID: "42", CreatedAt: "1758844800", UpdatedAt: "1758931200"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lp LogProject
+			if err := json.Unmarshal([]byte(tt.raw), &lp); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if lp != tt.want {
+				t.Fatalf("LogProject = %+v, want %+v", lp, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetLogProjectNotFound(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -255,6 +290,67 @@ func TestQuoteCreateLogProjectDecodesFixture(t *testing.T) {
 	}
 	if out.Properties[0].Description != nil {
 		t.Fatalf("Properties[0].Description = %v, want nil", *out.Properties[0].Description)
+	}
+}
+
+// TestQuoteCreateLogProjectClassListFailureReportsQuoteOperation checks that
+// a class-list read failing inside QuoteCreateLogProject reports the quote's
+// own operation, not "monitor.ListLogProjectClasses", the operation the
+// nested read would report on its own.
+func TestQuoteCreateLogProjectClassListFailureReportsQuoteOperation(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"boom"}`))
+	}))
+
+	_, err := client.QuoteCreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("QuoteCreateLogProject() error = %v, want *core.APIError", err)
+	}
+	if apiErr.Operation != "monitor.QuoteCreateLogProject" {
+		t.Fatalf("Operation = %q, want %q", apiErr.Operation, "monitor.QuoteCreateLogProject")
+	}
+}
+
+// TestQuoteCreateLogProjectIgnoresMaxPriceAndNoWait checks the quote body
+// carries exactly the keys buildLogProjectOrderBody sends, with no trace of
+// MaxPrice or NoWait, even when the caller sets both: neither field governs
+// a quote, only CreateLogProject's own order and wait, a later release.
+func TestQuoteCreateLogProjectIgnoresMaxPriceAndNoWait(t *testing.T) {
+	wantKeys := []string{
+		"redirectUrl", "packageId", "quantity", "buyWith",
+		"monthPeriod", "projectName", "projectDescription", "pay",
+	}
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/billing-api/v2/log/quota-class":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
+		case "/billing-api/v2/log/prices/created-price":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if len(body) != len(wantKeys) {
+				t.Fatalf("body has %d keys, want %d: %+v", len(body), len(wantKeys), body)
+			}
+			for _, k := range wantKeys {
+				if _, ok := body[k]; !ok {
+					t.Fatalf("body missing key %q: %+v", k, body)
+				}
+			}
+			testutil.WriteFixture(t, w, "../testdata/monitor/QuoteCreateLogProject.json")
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+
+	if _, err := client.QuoteCreateLogProject(context.Background(), &CreateLogProjectInput{
+		Name:     "app",
+		MaxPrice: 1000000,
+		NoWait:   true,
+	}); err != nil {
+		t.Fatalf("QuoteCreateLogProject() error = %v", err)
 	}
 }
 

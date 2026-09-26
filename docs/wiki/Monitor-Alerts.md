@@ -181,7 +181,9 @@ nil Input, or one left at its zero value, lists from page 0 at size 100.
 Unlike `ListChannels`, the underlying API's page is 0-based, so `Page: 0`
 asks for the real first page rather than being promoted to page 1, and its
 `Size` tops out at 100: a larger value, including what `ListChannels`
-itself defaults to, gets a 400 from the server.
+itself defaults to, gets a 400 from the server. The output's `TotalPage`
+counts from that same 0-based `Page`, so the last page is `Page ==
+TotalPage-1`, not `TotalPage`.
 
 `GetLogProject` reads one project by ID. The test account has never held
 one, so `LogProject`'s field shape past `ID` is unverified: see its doc
@@ -219,7 +221,9 @@ placing one, so it is a read: it is retried after a failure that may have
 already reached the server, unlike a create. It always re-reads the class
 list first, since the class list and its prices can change between one
 request and the next; `CreateLogProject` re-reads the same class list
-again immediately before ordering, for the same reason.
+again immediately before ordering, for the same reason. The quote ignores
+`MaxPrice` and `NoWait`: those fields govern only `CreateLogProject`'s
+price ceiling and wait.
 
 ### Ordering, deleting, and purging a log project
 
@@ -304,22 +308,29 @@ if len(alarms.Items) > 0 {
 
 `ListAlarmsInput.Kind` is required; `Name`, `Status`, and `Severity` narrow
 the list further, empty for no filter, and `Page`/`Size` page the result
-starting at page 1. Every returned `Alarm.Kind` is set to the `Kind` filter
-sent, since one call always lists one kind.
+starting at page 1. The output's `TotalPage` counts from that same 1-based
+`Page`, so the last page is `Page == TotalPage`. Every returned
+`Alarm.Kind` is set to the `Kind` filter sent, since one call always lists
+one kind; `ListAlarms` also sets each item's `Log` and `MetricMappingID`
+from that same `Kind`, clearing whichever field does not belong to it,
+rather than trusting which one the response happens to carry.
 
 `Alarm` holds `ID`, `Name`, `Kind`, `Status`, and `Severity` for both kinds.
 A Log alarm's `Log` field is non-nil and holds `InAlarm` and `OK`, the
 channel IDs that alert on entering and leaving the alarm state. A Metric
 alarm has `Log` nil and instead sets `MetricMappingID`, naming the channel
 by the same `MetricMappingID` a channel read itself returns, rather than by
-the channel's `ID`. `GetAlarm` decodes the same `Alarm` shape, inferring
-`Kind` from which of these fields the response carries, since the get call
-takes no kind filter of its own.
+the channel's `ID`.
 
-`GetAlarm`'s response shape has not been checked against a real alarm: the
-test account has none of either kind, and the design's source for the
-alarm calls is the console's own JavaScript, not a live capture. A live
-`GetAlarm` for an ID with no matching alarm returned a 500, not a 404, so
-unlike `GetCheck` and `GetChannel`, a missing alarm does not resolve to
+`GetAlarm` takes no `Kind` filter, and the API sends no field confirmed to
+name the kind itself, so a `GetAlarm` read's `Alarm.Kind` comes back empty
+rather than inferred; unverified until a live read confirms what, if
+anything, would name it. `Log` and `MetricMappingID` still decode from
+whichever wire fields the response carries. This call's response shape has
+not been checked against a real alarm at all: the test account has none of
+either kind, and the design's source for the alarm calls is the console's
+own JavaScript, not a live capture. A live `GetAlarm` for an ID with no
+matching alarm returned a 500, not a 404, so unlike `GetCheck` and
+`GetChannel`, a missing alarm does not resolve to
 `vngcloud.IsNotFound(err) == true`; it comes back as a plain
 `*vngcloud.APIError`.

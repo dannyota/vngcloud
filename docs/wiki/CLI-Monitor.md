@@ -73,7 +73,7 @@ vngcloud monitor delete-check --check-id <check-id> --yes
 
 Kind: Read.
 
-Unverified live: the test account has no alarm, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: the test account has no alarm, so this output shape is inferred from the console's code, not a live capture.
 
 A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, not a 404, so this command never reports the NotFound error class.
 
@@ -115,7 +115,7 @@ vngcloud monitor get-check --check-id <check-id> --query Check
 
 Kind: Read.
 
-Unverified live: the test account has no log project, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -129,7 +129,7 @@ vngcloud monitor get-log-project --log-project-id <log-project-id> --query LogPr
 
 Kind: Read.
 
-Unverified live: the test account has no alarm, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: the test account has no alarm, so this output shape is inferred from the console's code, not a live capture.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -141,7 +141,7 @@ Unverified live: the test account has no alarm, so this output shape comes from 
 | `--size` | `int` |  |
 
 ```sh
-vngcloud monitor list-alarms --kind <kind>
+vngcloud monitor list-alarms --kind Log
 ```
 
 ## list-channel-types
@@ -204,6 +204,8 @@ vngcloud monitor list-log-project-classes
 
 Kind: Read.
 
+Unverified live: the test account has no log project, so this output shape is inferred from the console's code, not a live capture.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--search` | `string` |  |
@@ -230,6 +232,8 @@ vngcloud monitor pause-check --check-id <check-id>
 ## quote-create-log-project
 
 Kind: Read.
+
+Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, a later release; this command neither orders anything nor waits.
 
 | Flag | Type | Required |
 |-|-|-|

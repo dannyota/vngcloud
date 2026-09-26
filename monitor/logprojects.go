@@ -58,6 +58,27 @@ type LogProject struct {
 	UpdatedAt          string `json:"updatedAt"`
 }
 
+// UnmarshalJSON decodes LogProject with ID, CreatedAt, and UpdatedAt routed
+// through flexibleString: three fields this shape has not confirmed the
+// wire type of, and a numeric id or an epoch createdAt would otherwise fail
+// the whole item's decode, taking the rest of a list page down with it.
+func (lp *LogProject) UnmarshalJSON(data []byte) error {
+	type alias LogProject
+	aux := struct {
+		ID        flexibleString `json:"id"`
+		CreatedAt flexibleString `json:"createdAt"`
+		UpdatedAt flexibleString `json:"updatedAt"`
+		*alias
+	}{alias: (*alias)(lp)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	lp.ID = string(aux.ID)
+	lp.CreatedAt = string(aux.CreatedAt)
+	lp.UpdatedAt = string(aux.UpdatedAt)
+	return nil
+}
+
 // ListLogProjectsInput filters the log project list. Query and
 // BillingStatus filter by name and billing status; the API also takes
 // project_type and status query keys the SDK does not expose yet, always
@@ -294,6 +315,18 @@ func (c *Client) ListLogProjectClasses(ctx context.Context, in *ListLogProjectCl
 		return nil, err
 	}
 
+	classes, err := c.readLogProjectClasses(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+	return &ListLogProjectClassesOutput{Items: classes}, nil
+}
+
+// readLogProjectClasses is ListLogProjectClasses' request, reused by
+// QuoteCreateLogProject under its own op name rather than
+// "monitor.ListLogProjectClasses", so a class-list failure inside the quote
+// reports the operation the caller actually made.
+func (c *Client) readLogProjectClasses(ctx context.Context, op string) ([]LogProjectClass, error) {
 	var classes []LogProjectClass
 	req := transport.Request{
 		Operation: op,
@@ -304,7 +337,7 @@ func (c *Client) ListLogProjectClasses(ctx context.Context, in *ListLogProjectCl
 	if err := c.c.DoJSON(ctx, req, &classes); err != nil {
 		return nil, err
 	}
-	return &ListLogProjectClassesOutput{Items: classes}, nil
+	return classes, nil
 }
 
 // logProjectRedirectURL is sent as the order's redirectUrl. The console
@@ -469,11 +502,11 @@ func (c *Client) QuoteCreateLogProject(ctx context.Context, in *CreateLogProject
 		return nil, err
 	}
 
-	classes, err := c.ListLogProjectClasses(ctx, nil)
+	classes, err := c.readLogProjectClasses(ctx, op)
 	if err != nil {
 		return nil, err
 	}
-	body, err := buildLogProjectOrderBody(op, in, classes.Items)
+	body, err := buildLogProjectOrderBody(op, in, classes)
 	if err != nil {
 		return nil, err
 	}

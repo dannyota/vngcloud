@@ -8,9 +8,9 @@ projects and alarms. Every call is per account: it sends no project ID and
 ignores the region in `Config`, like billing.
 
 `CreateCheck` always makes an HTTP `API` check with `verified_ssl` on. A
-check's `Notifications` names, by channel ID, which [channels](#notification-channels)
-alert on each alarm transition; a check created with no `Notifications` set
-alerts nobody.
+check's `Notifications` names, by channel ID, which
+[channels](Monitor-Alerts.md#notification-channels) alert on each alarm
+transition; a check created with no `Notifications` set alerts nobody.
 
 See [Monitor Alerts](Monitor-Alerts.md) for notification
 channels, log projects, and alarms.

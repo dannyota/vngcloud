@@ -72,7 +72,18 @@ func (c *Client) ListAlarms(ctx context.Context, in *ListAlarmsInput) (*ListAlar
 	}
 	items := resp.LstData
 	for i := range items {
+		// in.Kind, not which of Log or MetricMappingID the wire happened to
+		// carry, decides which one this item keeps: a list is always
+		// filtered to one kind, so that is known here regardless of what the
+		// response sent, and trusting it instead of the wire keeps the two
+		// fields mutually exclusive even if a response ever carried both.
 		items[i].Kind = in.Kind
+		switch in.Kind {
+		case AlarmKindLog:
+			items[i].MetricMappingID = ""
+		case AlarmKindMetric:
+			items[i].Log = nil
+		}
 	}
 	return core.NewPagedList(items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
@@ -95,11 +106,11 @@ type GetAlarmOutput struct {
 }
 
 // GetAlarm reads one alarm by ID, of either kind, from the response's data
-// field. Unlike ListAlarms, no kind filter names it up front, so
-// Output.Alarm.Kind comes only from whichever channel-reference field the
-// response carries; see Alarm.UnmarshalJSON. This call has not been made
-// against a real alarm, so that inference, and the rest of the shape, is
-// unconfirmed.
+// field. Unlike ListAlarms, no kind filter names it up front, and the API
+// sends no field confirmed to name the kind itself, so Output.Alarm.Kind
+// comes back empty; Log and MetricMappingID still decode from whichever
+// wire fields the response carries. This call has not been made against a
+// real alarm, so that, and the rest of the shape, is unconfirmed.
 func (c *Client) GetAlarm(ctx context.Context, in *GetAlarmInput) (*GetAlarmOutput, error) {
 	const op = "monitor.GetAlarm"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -129,8 +140,11 @@ func (c *Client) GetAlarm(ctx context.Context, in *GetAlarmInput) (*GetAlarmOutp
 // design's only source for it is the console's own JavaScript. ID, Name,
 // Status, and Severity are the fields the design names as both list
 // filters and console-shown fields for both kinds; MetricMappingID and Log
-// cover the channel reference the design describes for each kind. Nothing
-// else is modeled until a live read confirms more.
+// cover the channel reference the design describes for each kind. Kind
+// itself is set by ListAlarms from its own Kind filter, never guessed from
+// the response; GetAlarm has no such filter and the API sends no field
+// confirmed to name it, so a GetAlarm read leaves Kind empty. Nothing else
+// is modeled until a live read confirms more.
 type Alarm struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -156,28 +170,31 @@ type LogAlarmDetail struct {
 	OK      []string `json:"ok,omitempty"`
 }
 
-// UnmarshalJSON decodes Alarm from either kind's wire shape. A response
-// carrying an inAlarm or ok key, even present but empty, is read as a Log
-// alarm: those two fields are the comma-joined channel ID strings the
-// design describes for a log alarm body, and a read is assumed to mirror
-// that shape the same way Channel's create and read shapes match. A
-// response carrying a metricMappingId key instead is read as a Metric
-// alarm. A response with none of the three keys decodes the common fields
-// with Kind left empty, rather than guessing which kind it is.
+// UnmarshalJSON decodes Alarm's common fields, plus Log from an inAlarm or
+// ok key and MetricMappingID from a metricMappingId key, whichever the
+// response carries; either, both, or neither may be present, and this
+// decodes each independently rather than picking one to trust based on
+// which key showed up. It never sets Kind: ListAlarms sets it, and clears
+// whichever of Log or MetricMappingID does not belong to its own Kind
+// filter, from that filter rather than from this decode; GetAlarm has no
+// such filter and the API sends no field confirmed to name the kind
+// itself, so Kind stays empty there. ID routes through flexibleString: an
+// unconfirmed field that could arrive as a number instead of the string
+// every capture so far has shown.
 func (a *Alarm) UnmarshalJSON(data []byte) error {
 	var aux struct {
-		ID              string  `json:"id"`
-		Name            string  `json:"name"`
-		Status          string  `json:"status"`
-		Severity        string  `json:"severity"`
-		MetricMappingID *string `json:"metricMappingId"`
-		InAlarm         *string `json:"inAlarm"`
-		OK              *string `json:"ok"`
+		ID              flexibleString `json:"id"`
+		Name            string         `json:"name"`
+		Status          string         `json:"status"`
+		Severity        string         `json:"severity"`
+		MetricMappingID *string        `json:"metricMappingId"`
+		InAlarm         *string        `json:"inAlarm"`
+		OK              *string        `json:"ok"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	a.ID = aux.ID
+	a.ID = string(aux.ID)
 	a.Name = aux.Name
 	a.Status = aux.Status
 	a.Severity = aux.Severity
@@ -185,34 +202,33 @@ func (a *Alarm) UnmarshalJSON(data []byte) error {
 	a.MetricMappingID = ""
 	a.Log = nil
 
-	switch {
-	case aux.InAlarm != nil || aux.OK != nil:
-		a.Kind = AlarmKindLog
+	if aux.MetricMappingID != nil {
+		a.MetricMappingID = *aux.MetricMappingID
+	}
+	if aux.InAlarm != nil || aux.OK != nil {
 		a.Log = &LogAlarmDetail{
 			InAlarm: splitChannelIDs(aux.InAlarm),
 			OK:      splitChannelIDs(aux.OK),
 		}
-	case aux.MetricMappingID != nil:
-		a.Kind = AlarmKindMetric
-		a.MetricMappingID = *aux.MetricMappingID
 	}
 	return nil
 }
 
 // splitChannelIDs splits a Log alarm's comma-joined channel ID string, as
-// the design formats inAlarm and ok: each ID followed by a comma,
-// including the last one, so a naive split leaves a trailing empty element
-// that this drops. A nil or empty string returns nil.
+// the design formats inAlarm and ok: each ID followed by a comma, including
+// the last one. It drops every empty element the split produces, not just a
+// trailing one, so a leading or doubled comma in a malformed value cannot
+// leave an empty channel ID in the result. A nil or empty string, and a
+// string with no non-empty element, all return nil.
 func splitChannelIDs(raw *string) []string {
 	if raw == nil || *raw == "" {
 		return nil
 	}
-	parts := strings.Split(*raw, ",")
-	if len(parts) > 0 && parts[len(parts)-1] == "" {
-		parts = parts[:len(parts)-1]
+	var ids []string
+	for _, part := range strings.Split(*raw, ",") {
+		if part != "" {
+			ids = append(ids, part)
+		}
 	}
-	if len(parts) == 0 {
-		return nil
-	}
-	return parts
+	return ids
 }
