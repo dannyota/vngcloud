@@ -1,0 +1,22 @@
+{
+  "Record": {
+    "ID": "record-1",
+    "SubDomain": "www.app.internal",
+    "HostedZoneID": "hosted-zone-1",
+    "Status": "ACTIVE",
+    "Type": "A",
+    "RoutingPolicy": "simple-routing",
+    "Value": [
+      {
+        "Value": "10.0.0.1",
+        "Location": null,
+        "Weight": null
+      }
+    ],
+    "TTL": 300,
+    "EnableStickySession": null,
+    "CreatedAt": "2026-01-01T00:00:00Z",
+    "DeletedAt": null,
+    "UpdatedAt": "2026-01-02T13:00:00Z"
+  }
+}

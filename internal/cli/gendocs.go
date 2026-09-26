@@ -369,6 +369,7 @@ var docOpNotes = map[string]string{
 var docJSONPlaceholders = map[string]string{
 	"Locations": `["<location-id>"]`,
 	"VPCIDs":    `["<vpc-id>"]`,
+	"Values":    `[{"Value":"<value>"}]`,
 }
 
 // docExampleExtraFlag names one flag buildExample adds to an operation's
@@ -379,8 +380,12 @@ var docJSONPlaceholders = map[string]string{
 // HostedZoneID, but UpdateHostedZone also requires at least one of
 // Description or VPCIDs, so the plain required-flags-only example would
 // print a command that exits 2 with InvalidUsage when run as shown.
+// update-record is the same shape: HostedZoneID and RecordID are its only
+// required fields, but UpdateRecord also requires at least one other field
+// to change.
 var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
+	"dns update-record":      "ttl",
 }
 
 // buildExample builds one example command line for op: every service and

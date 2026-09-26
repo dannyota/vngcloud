@@ -6,15 +6,15 @@ import (
 	"danny.vn/vngcloud/dns"
 )
 
-// dnsOps is dns's operation table. CreateHostedZone and UpdateHostedZone are
-// Write; DeleteHostedZone is Write and Destructive: a deleted zone and its
-// history cannot be restored by one more command, so it needs --yes. A
-// read-only profile refuses all three, before any request. VPCIDs (on both
-// CreateHostedZoneInput and UpdateHostedZoneInput) has no flag-settable
-// type, so it reaches a command only through --cli-input-json; every other
-// field of the three Inputs gets a flag from flags.go's reflection. Record
-// writes (CreateRecord, UpdateRecord, DeleteRecord) are not part of this
-// release.
+// dnsOps is dns's operation table. CreateHostedZone, UpdateHostedZone,
+// CreateRecord, and UpdateRecord are Write; DeleteHostedZone and
+// DeleteRecord are Write and Destructive: a deleted zone or record and its
+// history cannot be restored by one more command, so each needs --yes. A
+// read-only profile refuses all six, before any request. VPCIDs (on both
+// CreateHostedZoneInput and UpdateHostedZoneInput) and Values (on both
+// CreateRecordInput and UpdateRecordInput) have no flag-settable type, so
+// each reaches a command only through --cli-input-json; every other field
+// of the six Inputs gets a flag from flags.go's reflection.
 var dnsOps = []Op[dns.Client]{
 	Read[dns.Client, dns.ListHostedZonesInput, dns.ListHostedZonesOutput](
 		kebab("ListHostedZones"), (*dns.Client).ListHostedZones),
@@ -30,6 +30,12 @@ var dnsOps = []Op[dns.Client]{
 		kebab("ListRecords"), (*dns.Client).ListRecords),
 	Read[dns.Client, dns.GetRecordInput, dns.GetRecordOutput](
 		kebab("GetRecord"), (*dns.Client).GetRecord),
+	Write[dns.Client, dns.CreateRecordInput, dns.CreateRecordOutput](
+		kebab("CreateRecord"), (*dns.Client).CreateRecord),
+	Write[dns.Client, dns.UpdateRecordInput, dns.UpdateRecordOutput](
+		kebab("UpdateRecord"), (*dns.Client).UpdateRecord),
+	Write[dns.Client, dns.DeleteRecordInput, dns.DeleteRecordOutput](
+		kebab("DeleteRecord"), (*dns.Client).DeleteRecord, Destructive()),
 }
 
 func newDNSCmd(e *env) *cobra.Command {
