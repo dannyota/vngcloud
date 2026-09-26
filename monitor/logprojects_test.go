@@ -316,7 +316,7 @@ func TestQuoteCreateLogProjectClassListFailureReportsQuoteOperation(t *testing.T
 // TestQuoteCreateLogProjectIgnoresMaxPriceAndNoWait checks the quote body
 // carries exactly the keys buildLogProjectOrderBody sends, with no trace of
 // MaxPrice or NoWait, even when the caller sets both: neither field governs
-// a quote, only CreateLogProject's own order and wait, a later release.
+// a quote, only CreateLogProject's own order and wait.
 func TestQuoteCreateLogProjectIgnoresMaxPriceAndNoWait(t *testing.T) {
 	wantKeys := []string{
 		"redirectUrl", "packageId", "quantity", "buyWith",

@@ -75,6 +75,10 @@ func TestCreateLogProjectOrderUsesSharedBuilderBody(t *testing.T) {
 			if body["projectName"] != "app" || body["pay"] != true || body["monthPeriod"] != 1.0 {
 				t.Fatalf("unexpected order body: %+v", body)
 			}
+			// The order endpoint refuses any other redirectUrl with a 400.
+			if body["redirectUrl"] != "https://vmonitor.console.vngcloud.vn/quota-usages/log" {
+				t.Fatalf("redirectUrl = %v", body["redirectUrl"])
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`))
 		default:

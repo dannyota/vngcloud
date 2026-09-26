@@ -340,11 +340,11 @@ func (c *Client) readLogProjectClasses(ctx context.Context, op string) ([]LogPro
 	return classes, nil
 }
 
-// logProjectRedirectURL is sent as the order's redirectUrl. The console
-// only follows it after a browser payment, which pay true (sent below)
-// skips, so its exact value has no effect the live checks confirmed; this
-// sends the Monitor console's own host.
-const logProjectRedirectURL = "https://vmonitor.console.greennode.ai/"
+// logProjectRedirectURL is sent as the order's redirectUrl: the console's
+// own PAYMENT_REDIRECT_URL with its log path. The order endpoint refuses
+// any other value with 400 "redirect URL is incorrect", even though pay
+// true skips the browser payment that would follow it.
+const logProjectRedirectURL = "https://vmonitor.console.vngcloud.vn/quota-usages/log"
 
 // CreateLogProjectInput orders a log project. QuoteCreateLogProject prices
 // it; CreateLogProject, a later release, orders it. Both build their
