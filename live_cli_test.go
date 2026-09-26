@@ -89,8 +89,14 @@ func TestLiveCLI(t *testing.T) {
 	t.Run("portal", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "portal", "list-zones")
 	})
+	t.Run("loadbalancer", func(t *testing.T) {
+		testLiveCLIItemsAtLeastOne(ctx, t, "loadbalancer", "list-packages")
+	})
 	t.Run("volume", func(t *testing.T) {
-		testLiveCLIItems(ctx, t, "volume", "list-volume-types")
+		testLiveCLIItemsAtLeastOne(ctx, t, "volume", "list-volume-types")
+	})
+	t.Run("globalloadbalancer", func(t *testing.T) {
+		testLiveCLIItemsAtLeastOne(ctx, t, "globalloadbalancer", "list-regions")
 	})
 }
 
@@ -111,11 +117,10 @@ func testLiveCLIItems(ctx context.Context, t *testing.T, args ...string) {
 
 // testLiveCLIItemsAtLeastOne runs a list command through the CLI like
 // testLiveCLIItems, and additionally fails when the decoded Items field is
-// empty. list-projects is the only caller today: LoadConfig's project
-// discovery (the CLI reads design's "Scope rules") needs exactly one project
-// in the configured region, so an empty result here means the read itself
-// is broken, not that the account happens to have none. It never logs an
-// item's value, only the count.
+// empty. Callers are reads that always return rows on any account, such
+// as projects (LoadConfig's project discovery needs one), package lists,
+// volume types, and regions, so an empty result means the read itself is
+// broken. It never logs an item's value, only the count.
 func testLiveCLIItemsAtLeastOne(ctx context.Context, t *testing.T, args ...string) {
 	t.Helper()
 	stdout, _ := runLiveCLI(ctx, t, args...)

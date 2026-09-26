@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md", "CLI-GlobalLoadBalancer.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -76,6 +76,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Project.md", opNames(projectOps))
 	check("CLI-Portal.md", opNames(portalOps))
 	check("CLI-Volume.md", opNames(volumeOps))
+	check("CLI-GlobalLoadBalancer.md", opNames(globalLoadBalancerOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -346,6 +347,38 @@ func TestGenDocsPortalOpsDocumentAccountDataAndRedaction(t *testing.T) {
 		section := genDocsSection(t, string(data), op)
 		if !strings.Contains(section, "<redacted>") {
 			t.Errorf("%s section is missing the redaction note:\n%s", op, section)
+		}
+	}
+}
+
+// TestGenDocsGlobalLoadBalancerShapeOpsDocumentUnverified checks that every
+// globalloadbalancer op with no live row (per the CLI reads design's
+// globalloadbalancer section) states the unverified-live note, while
+// list-packages, list-regions, and list-load-balancers, which do not need
+// it, do not.
+func TestGenDocsGlobalLoadBalancerShapeOpsDocumentUnverified(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-GlobalLoadBalancer.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-GlobalLoadBalancer.md: %v", err)
+	}
+
+	for _, op := range []string{"get-load-balancer", "list-pools", "list-listeners", "get-listener", "list-pool-members", "get-pool-member", "list-usage-histories"} {
+		section := genDocsSection(t, string(data), op)
+		if !strings.Contains(section, "Unverified live") {
+			t.Errorf("%s section is missing the unverified-live note:\n%s", op, section)
+		}
+	}
+	if section := genDocsSection(t, string(data), "list-usage-histories"); !strings.Contains(section, "--from, --to, and --type are unknown") {
+		t.Errorf("list-usage-histories section is missing the unknown-format note:\n%s", section)
+	}
+	for _, op := range []string{"list-packages", "list-regions", "list-load-balancers"} {
+		section := genDocsSection(t, string(data), op)
+		if strings.Contains(section, "Unverified live") {
+			t.Errorf("%s section should not carry the unverified-live note:\n%s", op, section)
 		}
 	}
 }
