@@ -2,6 +2,23 @@
 
 # CLI: Monitor
 
+## create-channel
+
+Kind: Write.
+
+Refuses a literal --address for a Webhook or Slack Type with exit code 2, since either channel's address can carry a bearer token; pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--type` | `string` | yes |
+| `--address` | `string` | yes |
+| `Headers` (via `--cli-input-json` only) | `[]monitor.ChannelHeader` |  |
+
+```sh
+vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json
+```
+
 ## create-check
 
 Kind: Write.
@@ -23,6 +40,18 @@ Kind: Write.
 
 ```sh
 vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
+```
+
+## delete-channel
+
+Kind: Write, destructive.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--channel-id` | `string` | yes |
+
+```sh
+vngcloud monitor delete-channel --channel-id <channel-id> --yes
 ```
 
 ## delete-check
@@ -131,5 +160,22 @@ Kind: Write.
 
 ```sh
 vngcloud monitor resume-check --check-id <check-id>
+```
+
+## update-channel
+
+Kind: Write.
+
+Refuses every literal --address with exit code 2, since this Input carries no Type for the guard to check; pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--channel-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--address` | `*string` |  |
+| `Headers` (via `--cli-input-json` only) | `*[]monitor.ChannelHeader` |  |
+
+```sh
+vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json
 ```
 

@@ -351,14 +351,31 @@ const monitorChannelRedactionNote = "Redacts every header value and every Addres
 	"or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; " +
 	"only Email, SMS, and Telegram addresses print in full."
 
+// monitorCreateChannelAddressNote documents create-channel's literal
+// --address guard: the flag table shows --address as a plain, required
+// string flag, which would otherwise read as safe to give literally.
+const monitorCreateChannelAddressNote = "Refuses a literal --address for a Webhook or Slack Type with exit code " +
+	"2, since either channel's address can carry a bearer token; pass Address (and Headers) only through " +
+	"--cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is."
+
+// monitorUpdateChannelAddressNote documents update-channel's literal
+// --address guard, which is unconditional: UpdateChannelInput carries no
+// Type field, so the CLI cannot tell a Webhook or Slack channel apart from
+// an Email, SMS, or Telegram one without a request of its own.
+const monitorUpdateChannelAddressNote = "Refuses every literal --address with exit code 2, since this Input " +
+	"carries no Type for the guard to check; pass Address (and Headers) only through --cli-input-json " +
+	"file://channel.json. The write's own Output is redacted the same way a channel read is."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
-// prints.
+// prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
-	"monitor list-channels": monitorChannelRedactionNote,
-	"monitor get-channel":   monitorChannelRedactionNote,
+	"monitor list-channels":  monitorChannelRedactionNote,
+	"monitor get-channel":    monitorChannelRedactionNote,
+	"monitor create-channel": monitorCreateChannelAddressNote,
+	"monitor update-channel": monitorUpdateChannelAddressNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
@@ -383,15 +400,30 @@ var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
 }
 
-// buildExample builds one example command line for op: every service and
-// operation name, then --<flag> <flag> for each required, flag-settable
-// field (a placeholder that names the flag, since gen-docs has no sample
-// values), then one --cli-input-json holding every required field that has
-// no flag, then the docExampleExtraFlag entry for op if any, then --yes for
-// a destructive write. The example must be runnable as printed, so a
-// required field, or a field docExampleExtraFlag names, can never be left
-// out of it.
+// docExampleOverride gives a full example command line for "service
+// op-name", replacing buildExample's generic, per-field derivation.
+// create-channel and update-channel need this: buildExample would otherwise
+// print a literal --address flag, since Address is a required, flag-settable
+// string field, but the CLI's own guard refuses exactly that flag for a real
+// Webhook or Slack channel. The override shows the runnable form instead:
+// Address (and Headers) through --cli-input-json file://channel.json.
+var docExampleOverride = map[string]string{
+	"monitor create-channel": "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
+	"monitor update-channel": "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+}
+
+// buildExample builds one example command line for op: docExampleOverride's
+// entry for op if any, else every service and operation name, then --<flag>
+// <flag> for each required, flag-settable field (a placeholder that names
+// the flag, since gen-docs has no sample values), then one --cli-input-json
+// holding every required field that has no flag, then the
+// docExampleExtraFlag entry for op if any, then --yes for a destructive
+// write. The example must be runnable as printed, so a required field, or a
+// field docExampleExtraFlag names, can never be left out of it.
 func buildExample(service string, op docOp) string {
+	if override, ok := docExampleOverride[service+" "+op.name]; ok {
+		return override
+	}
 	parts := []string{"vngcloud", service, op.name}
 	var jsonPairs []string
 	for _, f := range op.fields {

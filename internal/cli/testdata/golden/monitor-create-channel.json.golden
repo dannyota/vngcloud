@@ -1,0 +1,17 @@
+{
+  "Channel": {
+    "ID": "channel-1",
+    "Name": "example-webhook",
+    "Address": "https://example.com/\u003credacted\u003e",
+    "Type": "Webhook",
+    "Headers": [
+      {
+        "Key": "X-Api-Key",
+        "Value": "\u003credacted\u003e"
+      }
+    ],
+    "MetricMappingID": "",
+    "CreatedDate": "2026-09-26T15:46:45",
+    "UpdatedDate": ""
+  }
+}
