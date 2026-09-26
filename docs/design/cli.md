@@ -236,13 +236,18 @@ status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`,
 `RequestFailed`, `QueryFailed`, `PageFormat` (a public page such as the
 CDN IP range FAQ changed format; see [CDN](cdn.md)), `UnexpectedStatus` (a
-vMonitor check has a status the SDK does not know, so nothing was sent), or
+vMonitor check has a status the SDK does not know, so nothing was sent),
 `StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read
 did not confirm it; see
-[vMonitor](monitor.md#after-errstatusunconfirmed)). `UnexpectedStatus` and
-`StatusUnconfirmed` exit 1. `QueryFailed` means `--query` failed after the
-operation succeeded; for a write, the message says the write succeeded, so
-an agent does not retry it.
+[vMonitor](monitor.md#after-errstatusunconfirmed)), `ZoneBusy` (a vDNS
+zone stayed busy past the wait before a write, so nothing was sent),
+`WriteFailed` (a vDNS write went to status `ERROR`), or `NotSettled` (a vDNS
+write was accepted but did not settle within the wait; do not repeat it).
+For `WriteFailed` and `NotSettled` the CLI also prints the Output on stdout;
+see [vDNS](dns.md#after-a-write). `UnexpectedStatus`, `StatusUnconfirmed`,
+`ZoneBusy`, `WriteFailed`, and `NotSettled` exit 1. `QueryFailed` means
+`--query` failed after the operation succeeded; for a write, the message
+says the write succeeded, so an agent does not retry it.
 
 | Exit code | Meaning |
 |-|-|
@@ -254,7 +259,9 @@ an agent does not retry it.
 
 `ErrNoCredentials` and `ErrCredentialsFile` also match `ErrInvalidConfig`, so
 the CLI checks them first. A cancelled context anywhere in the error chain,
-including during login, is checked before all of them and exits 1.
+including during login, is checked before all of them and exits 1. The
+exceptions are `StatusUnconfirmed` and `NotSettled`, checked before the
+cancelled context, because a write may have landed.
 
 ## Security
 

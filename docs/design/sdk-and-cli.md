@@ -34,7 +34,8 @@ aboutme needs, from the CLI, most frequent first:
 - Setup and changes: vCDN cache rules, origin request header, and
   certificate; vMonitor log projects, alarms, and synthetic HTTPS checks.
 - Once, at the nameserver move: vDNS records for `aboutme.vn`, created to match
-  the Cloudflare zone.
+  the Cloudflare zone. vDNS hosts private zones only, so it cannot serve this
+  need, and aboutme keeps its public DNS elsewhere (see [vDNS](dns.md)).
 - Setup: vStorage buckets and per-bucket service-account keys.
 - Checks: reads of servers and security groups on the OpenTofu-managed host.
 
@@ -349,6 +350,8 @@ Each release ships when CI is green on its commit.
 | `v0.7.0` | `cdn.ListIPRanges` and `vngcloud cdn list-ip-ranges`: the CDN IP ranges read from GreenNode's public FAQ page; see [CDN](cdn.md) |
 | `v0.8.0` | vMonitor checks: list, get, pause, and resume, SDK and CLI; see [vMonitor](monitor.md) |
 | `v0.9.0` | vMonitor checks: create and delete, and probe locations; see [vMonitor](monitor.md) |
+| `v0.10.0` | vDNS private hosted zones: create, update, and delete, with waits; see [vDNS](dns.md) |
+| `v0.11.0` | vDNS records: create, update, and delete, with the zone-lock wait; see [vDNS](dns.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the
@@ -368,7 +371,9 @@ the SDK and CLI together:
 2. vMonitor synthetic checks ([vMonitor](monitor.md)): read, pause, and
    resume in `v0.8.0`, then create, delete, and probe locations in `v0.9.0`.
    Alarms, log projects, and notification channels follow once discovered.
-3. vDNS record writes.
+3. vDNS private zone and record writes ([vDNS](dns.md)): zones in
+   `v0.10.0`, records in `v0.11.0`. vDNS has no public zone, so these serve
+   private names inside a VPC, not aboutme's nameserver move.
 4. vStorage buckets and service-account keys.
 
 vCDN cache rules, the origin header, and the certificate stay console steps
