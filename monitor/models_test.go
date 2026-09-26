@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -133,6 +134,69 @@ func TestChannelDecode(t *testing.T) {
 		}
 		if ch.Headers != nil {
 			t.Fatalf("Headers = %+v, want nil", ch.Headers)
+		}
+	})
+}
+
+// TestChannelMarshalJSONRoundTrips checks that Channel.MarshalJSON writes
+// Type and Headers back into the typeNotification and header wire fields
+// UnmarshalJSON reads, even though both fields carry a json:"-" tag against
+// encoding/json's own default marshaling. Without a custom MarshalJSON, a
+// caller that marshals a Channel to cache it and unmarshals it back would
+// silently lose both fields.
+func TestChannelMarshalJSONRoundTrips(t *testing.T) {
+	t.Run("webhook with headers", func(t *testing.T) {
+		want := Channel{
+			ID:              "ch-1",
+			Name:            "example-webhook",
+			Address:         "https://example.com/hooks/incoming",
+			Type:            ChannelTypeWebhook,
+			Headers:         []ChannelHeader{{Key: "X-Example", Value: "secret"}},
+			MetricMappingID: "metric-1",
+			CreatedDate:     "2026-09-26T15:46:45",
+			UpdatedDate:     "2026-09-26T16:00:00",
+		}
+
+		data, err := json.Marshal(want)
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+
+		var got Channel
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal() error = %v (data=%s)", err, data)
+		}
+		if got.ID != want.ID || got.Name != want.Name || got.Address != want.Address {
+			t.Fatalf("unexpected identity: got %+v, want %+v", got, want)
+		}
+		if got.Type != want.Type {
+			t.Fatalf("Type = %q, want %q", got.Type, want.Type)
+		}
+		if !reflect.DeepEqual(got.Headers, want.Headers) {
+			t.Fatalf("Headers = %+v, want %+v", got.Headers, want.Headers)
+		}
+		if got.MetricMappingID != want.MetricMappingID || got.CreatedDate != want.CreatedDate || got.UpdatedDate != want.UpdatedDate {
+			t.Fatalf("unexpected metadata: got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("email with no headers", func(t *testing.T) {
+		want := Channel{ID: "ch-2", Type: ChannelTypeEmail, Address: "someone@example.com"}
+
+		data, err := json.Marshal(want)
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+
+		var got Channel
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal() error = %v (data=%s)", err, data)
+		}
+		if got.Type != want.Type {
+			t.Fatalf("Type = %q, want %q", got.Type, want.Type)
+		}
+		if got.Headers != nil {
+			t.Fatalf("Headers = %+v, want nil", got.Headers)
 		}
 	})
 }

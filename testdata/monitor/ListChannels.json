@@ -3,7 +3,7 @@
     {
       "id": "channel-1",
       "name": "example-webhook",
-      "address": "https://example.com/hooks/incoming",
+      "address": "https://example.com/<secret>",
       "header": "[{\"key\":\"X-Example\",\"value\":\"<secret>\"}]",
       "typeNotification": {
         "id": "type-webhook",

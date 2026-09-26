@@ -257,8 +257,7 @@ for _, ch := range channels.Items {
 `ListChannelTypesInput` has no fields; a nil Input is valid, and the API
 returns every type in one response with no paging. `ListChannelsInput` has
 `Type` (empty for every type), `Page`, and `Size`; a nil Input, or one left
-at its zero value, lists every channel from `core.DefaultPage` at
-`core.DefaultPageSize`.
+at its zero value, lists every channel from page 1 at size 10000.
 
 ```go
 found, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: channelID})
@@ -281,9 +280,13 @@ key/value pairs a `Webhook` channel sends with every notification; both can
 hold a secret, such as a token in a header value. The SDK returns them
 exactly as the API does, so a caller that will recreate or update a channel
 can read them back; they never appear in log output (`vngcloud.WithLogger`
-never logs a body) or in an error message. The
-[CLI](CLI-Monitor.md) redacts both on print instead, with no flag to reveal
-them.
+never logs a body) or in an error message. The [CLI](CLI-Monitor.md) shows
+`Address` in full only for `Email`, `SMS`, and `Telegram`, whose address is
+personal data rather than a secret; every other type, known or not, has its
+`Address` redacted, keeping only the scheme and host for an `http` or
+`https` URL and redacting the rest whole otherwise. Every header value is
+always redacted, regardless of channel type. There is no flag to reveal
+either.
 
 ## Endpoint
 

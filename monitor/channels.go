@@ -101,19 +101,31 @@ type GetChannelOutput struct {
 	Channel Channel
 }
 
+// maxGetChannelPages bounds GetChannel's page walk. A server that never
+// returns an empty page and never reports a TotalItem the walk can reach
+// would otherwise turn a single call into an infinite loop.
+const maxGetChannelPages = 1000
+
 // GetChannel finds a channel by ID. There is no get-by-ID call, so
 // GetChannel lists every page at core.DefaultPageSize and returns the item
-// whose ID matches. ChannelID never reaches a URL path, so it needs no
-// core.CheckPathID check: nothing here can send it to a different path than
-// the caller named. No channel with that ID, including on an account with
-// none at all, returns an error wrapping core.ErrNotFound.
+// whose ID matches. It keeps paging while the items seen so far are fewer
+// than the list's TotalItem and the last page was not empty, rather than
+// stopping once page reaches TotalPage: a server that silently caps the
+// page size below what was requested can report a TotalPage computed from
+// the requested size, which undercounts the pages the capped size actually
+// needs and would strand a channel on a later page as a false NotFound.
+// ChannelID never reaches a URL path, so it needs no core.CheckPathID
+// check: nothing here can send it to a different path than the caller
+// named. No channel with that ID, including on an account with none at
+// all, returns an error wrapping core.ErrNotFound.
 func (c *Client) GetChannel(ctx context.Context, in *GetChannelInput) (*GetChannelOutput, error) {
 	const op = "monitor.GetChannel"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
 
-	for page := 1; ; page++ {
+	seen := 0
+	for page := 1; page <= maxGetChannelPages; page++ {
 		list, err := c.ListChannels(ctx, &ListChannelsInput{Page: page, Size: core.DefaultPageSize})
 		if err != nil {
 			return nil, err
@@ -123,7 +135,8 @@ func (c *Client) GetChannel(ctx context.Context, in *GetChannelInput) (*GetChann
 				return &GetChannelOutput{Channel: ch}, nil
 			}
 		}
-		if page >= list.TotalPage {
+		seen += len(list.Items)
+		if len(list.Items) == 0 || seen >= list.TotalItem {
 			break
 		}
 	}

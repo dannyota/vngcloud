@@ -76,7 +76,7 @@ func TestListChannelsDecodesFixture(t *testing.T) {
 	if webhook.Type != ChannelTypeWebhook {
 		t.Fatalf("Type = %q, want %q", webhook.Type, ChannelTypeWebhook)
 	}
-	if webhook.Address != "https://example.com/hooks/incoming" {
+	if webhook.Address != "https://example.com/<secret>" {
 		t.Fatalf("Address = %q", webhook.Address)
 	}
 	if len(webhook.Headers) != 1 || webhook.Headers[0].Key != "X-Example" {
@@ -152,6 +152,93 @@ func TestGetChannelFoundAcrossPages(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+// TestGetChannelFoundPastReportedTotalPage checks GetChannel keeps paging
+// past a TotalPage that undercounts the pages actually needed, the way a
+// server that silently caps the requested size would report it: pageSize
+// stays echoed at the requested 10000 and totalPage stays 1, but the server
+// only ever returns 2 items per page, so six items truly span three pages.
+// The old stop condition (page >= TotalPage) would give up after page 1 and
+// miss the target; the fix keeps paging while items seen stay below
+// TotalItem and the last page was not empty.
+func TestGetChannelFoundPastReportedTotalPage(t *testing.T) {
+	calls := 0
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		switch page {
+		case "1":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-1","name":"one","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-2","name":"two","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":1,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-3","name":"three","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-4","name":"four","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":2,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		case "3":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-target","name":"target","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-6","name":"six","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":3,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		default:
+			t.Fatalf("unexpected page %q", page)
+		}
+	}))
+
+	out, err := client.GetChannel(context.Background(), &GetChannelInput{ChannelID: "ch-target"})
+	if err != nil {
+		t.Fatalf("GetChannel() error = %v", err)
+	}
+	if out.Channel.ID != "ch-target" || out.Channel.Name != "target" {
+		t.Fatalf("unexpected channel: %+v", out.Channel)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+}
+
+// TestGetChannelNotFoundAcrossSeveralPages checks GetChannel keeps paging,
+// under the same server-side cap as above, across every page until items
+// seen reaches TotalItem, and returns the SDK's not-found sentinel rather
+// than looping forever or stopping early, when no page holds the target.
+func TestGetChannelNotFoundAcrossSeveralPages(t *testing.T) {
+	calls := 0
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		switch page {
+		case "1":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-1","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-2","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":1,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-3","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-4","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":2,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		case "3":
+			_, _ = w.Write([]byte(`{"lstData":[
+				{"id":"ch-5","typeNotification":{"id":"t","name":"Webhook","description":"d"}},
+				{"id":"ch-6","typeNotification":{"id":"t","name":"Webhook","description":"d"}}],
+				"page":3,"pageSize":10000,"totalPage":1,"totalItem":6}`))
+		default:
+			t.Fatalf("unexpected page %q", page)
+		}
+	}))
+
+	_, err := client.GetChannel(context.Background(), &GetChannelInput{ChannelID: "ch-missing"})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("GetChannel() error = %v, want ErrNotFound", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
 	}
 }
 

@@ -36,8 +36,7 @@ type Check struct {
 }
 
 // CheckNotifications names, by ID, which Channels a check alerts on each
-// alarm transition. CreateCheck sends [] for every list left nil, so adding
-// this field broke no caller when it was introduced.
+// alarm transition. CreateCheck sends [] for every list left nil.
 type CheckNotifications struct {
 	InAlarm      []string `json:"In-alarm"`
 	Up           []string `json:"Up"`
@@ -165,13 +164,18 @@ type Channel struct {
 	Address string `json:"address"`
 
 	// Type is the API's typeNotification.name: one of the ChannelType*
-	// constants, or a type the console adds later.
+	// constants, or a type the console adds later. The json:"-" tag only
+	// keeps Type out of encoding/json's default field-by-field handling;
+	// UnmarshalJSON and MarshalJSON read and write it through the
+	// typeNotification object, so it still round-trips through JSON.
 	Type string `json:"-"`
 
 	// Headers decodes the header field: a JSON string of [{"key","value"}]
 	// pairs for a Webhook channel. The field is absent for a channel with no
 	// headers, and a header string that does not decode to that shape also
-	// leaves Headers nil rather than failing the read.
+	// leaves Headers nil rather than failing the read. As with Type, the
+	// json:"-" tag only bypasses default handling: UnmarshalJSON and
+	// MarshalJSON read and write it through the header string field.
 	Headers []ChannelHeader `json:"-"`
 
 	// MetricMappingID names this channel in a metric alarm. Unseen in a
@@ -200,6 +204,29 @@ func (ch *Channel) UnmarshalJSON(data []byte) error {
 	ch.Type = aux.TypeNotification.Name
 	ch.Headers = decodeChannelHeaders(aux.Header)
 	return nil
+}
+
+// MarshalJSON encodes Channel with Type and Headers written back into the
+// typeNotification and header wire fields UnmarshalJSON reads, so the two
+// stay a round trip through JSON despite carrying a json:"-" tag against
+// encoding/json's own default marshaling: a caller that marshals a Channel
+// to cache it, then unmarshals the result, gets the same Type and Headers
+// back rather than losing them.
+func (ch Channel) MarshalJSON() ([]byte, error) {
+	type alias Channel
+	aux := struct {
+		alias
+		TypeNotification ChannelType `json:"typeNotification"`
+		Header           string      `json:"header,omitempty"`
+	}{alias: alias(ch), TypeNotification: ChannelType{Name: ch.Type}}
+	if len(ch.Headers) > 0 {
+		data, err := json.Marshal(ch.Headers)
+		if err != nil {
+			return nil, err
+		}
+		aux.Header = string(data)
+	}
+	return json.Marshal(aux)
 }
 
 // decodeChannelHeaders parses raw as a JSON array of ChannelHeader. An empty
