@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
@@ -61,15 +62,31 @@ func (r *logProjectOrderResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CreateLogProject orders a log project. It quotes first with
-// QuoteCreateLogProject and refuses with ErrPriceAboveMax, ordering
+// CreateLogProject orders a log project. Before any request, it rejects a
+// NaN, +Inf, -Inf, or negative Input.MaxPrice with core.ErrInvalidInput:
+// the price guard below (quote.OptimumPrice > in.MaxPrice) cannot compare
+// any of those safely (a NaN MaxPrice compares false to every quote, which
+// would disable the guard entirely), and a bad guard on a paid create must
+// fail closed rather than order anyway. It then lists projects by
+// Input.Name and refuses, also with core.ErrInvalidInput and before any
+// pricing or order request, when one already exists with that exact name:
+// the post-order wait below settles on the first project it finds by name,
+// so ordering a duplicate risks settling on the existing project instead of
+// the one this call is about to order.
+//
+// CreateLogProject reads the class list once and builds one order body
+// from Input with buildLogProjectOrderBody (ADR 0002 rule 8). That same
+// body is sent first to the quote endpoint, then, unless it prices above
+// Input.MaxPrice, to the order endpoint, so the quote and the order always
+// price and create the identical resource; QuoteCreateLogProject, called
+// separately, keeps its own independent behavior and rereads the class
+// list itself. CreateLogProject refuses with ErrPriceAboveMax, ordering
 // nothing, when the quote's OptimumPrice exceeds Input.MaxPrice (default
 // 0): CreateLogProjectInput{Name: "app"} therefore only ever orders a
-// project whose class and retention price at 0 VND. The order itself is
-// built fresh from a second, independent ListLogProjectClasses read and
-// buildLogProjectOrderBody call (ADR 0002 rule 8), the same as the quote
-// above, since the price can change between the two requests; neither step
-// caches the class list.
+// project whose class and retention price at 0 VND. A quote response
+// missing optimumPrice, or sending it null, refuses with a *core.APIError
+// instead of pricing the order at a silent 0 (see QuoteCreateLogProject's
+// own doc comment).
 //
 // The order is a POST and is never retried after a failure that may have
 // already reached the server: after any error that is not a 4xx
@@ -88,28 +105,35 @@ func (r *logProjectOrderResponse) UnmarshalJSON(data []byte) error {
 // returned error wraps dns.ErrNotSettled, reusing vDNS's own sentinel per
 // the design: the write must not be repeated. NoWait skips that wait and
 // returns at once, with Output.LogProject at its zero value and only
-// Output.OrderID set, from the order response's own orderId.
+// Output.OrderID set, from the order response's own orderId; it does not
+// skip the pre-order duplicate-name check above, which runs either way.
 func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput) (*CreateLogProjectOutput, error) {
 	const op = "monitor.CreateLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
+	if err := checkLogProjectMaxPrice(op, in.MaxPrice); err != nil {
+		return nil, err
+	}
+	if err := c.refuseIfLogProjectNameExists(ctx, op, in.Name); err != nil {
+		return nil, err
+	}
 
-	quote, err := c.QuoteCreateLogProject(ctx, in)
+	classes, err := c.readLogProjectClasses(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+	body, err := buildLogProjectOrderBody(op, in, classes)
+	if err != nil {
+		return nil, err
+	}
+
+	quote, err := c.sendLogProjectQuote(ctx, op, body)
 	if err != nil {
 		return nil, err
 	}
 	if quote.OptimumPrice > in.MaxPrice {
 		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, quote.OptimumPrice, in.MaxPrice)
-	}
-
-	classes, err := c.ListLogProjectClasses(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	body, err := buildLogProjectOrderBody(op, in, classes.Items)
-	if err != nil {
-		return nil, err
 	}
 
 	var resp logProjectOrderResponse
@@ -153,6 +177,35 @@ func wrapAmbiguousLogProjectOrderErr(op string, err error) error {
 		return err
 	}
 	return fmt.Errorf("%s: order may have already reached the server; list log projects by name before ordering again: %w", op, err)
+}
+
+// checkLogProjectMaxPrice refuses a maxPrice CreateLogProject's own price
+// guard (quote.OptimumPrice > in.MaxPrice) cannot compare safely: NaN
+// compares false against every quote, which would silently disable the
+// guard rather than block an overpriced order; +Inf and -Inf are never a
+// real budget; and a negative value can never be exceeded by a live quote,
+// the same effective hole as NaN. This runs before any request.
+func checkLogProjectMaxPrice(op string, maxPrice float64) error {
+	if math.IsNaN(maxPrice) || math.IsInf(maxPrice, 0) || maxPrice < 0 {
+		return fmt.Errorf("%w: %s: MaxPrice must be a non-negative, finite number, got %v", core.ErrInvalidInput, op, maxPrice)
+	}
+	return nil
+}
+
+// refuseIfLogProjectNameExists refuses to order a project named name when
+// one already exists on the account, before any pricing or order request:
+// CreateLogProject's post-order wait settles on the first project it finds
+// with this exact name, so a duplicate name risks the wait settling on the
+// existing project rather than the one this call is about to order.
+func (c *Client) refuseIfLogProjectNameExists(ctx context.Context, op, name string) error {
+	existing, err := c.findLogProjectByName(ctx, op, name)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return fmt.Errorf("%w: %s: a log project named %q already exists", core.ErrInvalidInput, op, name)
+	}
+	return nil
 }
 
 // findLogProjectByName returns the log project named exactly name from one
@@ -224,7 +277,12 @@ type DeleteLogProjectOutput struct{}
 // delete in this SDK returns for an already-gone resource.
 //
 // Both the delete and the purge are DELETE requests and keep the
-// transport's normal retries.
+// transport's normal retries. Sending them together as one Purge call has
+// not itself been run live yet. A separate purge sent right after an
+// earlier, already-settled delete was seen live to return a 409 Conflict
+// once, for a reason still unconfirmed; DeleteLogProject adds no retry or
+// other tolerance for that status, so a caller that hits it decides for
+// itself whether to call DeleteLogProject again.
 //
 // Without NoWait, DeleteLogProject first reads the project to record its
 // Status and BillingStatus as a baseline, then, after the delete (and the
@@ -233,17 +291,21 @@ type DeleteLogProjectOutput struct{}
 // settle condition, "Get is 404, or the project is in trash," covers both
 // ways an unconfirmed response might show the change. When Purge is set
 // and that baseline read itself 404s, the project is already gone from the
-// live list (seen live for a free project, gone from trash within about a
-// second of an earlier delete): DeleteLogProject still sends the delete
+// live list (seen live for a free project, gone from trash within a few
+// seconds of an earlier delete): DeleteLogProject still sends the delete
 // and the purge, tolerating a 404 from either, and returns success at
-// once, with no wait, since there is no baseline left to wait against.
-// Without Purge, that same baseline 404 is returned unchanged, the
-// ordinary not-found result any other delete in this SDK returns for an
-// already-gone resource. If the bound runs out, or a read or a sleep in
-// the wait fails, such as from a canceled ctx, the returned error wraps
-// dns.ErrNotSettled: the write must not be repeated. NoWait skips the
-// baseline read and the wait, and returns as soon as the delete (and the
-// purge, when requested) succeeds.
+// once, with no wait, since there is no baseline left to wait against. But
+// when the baseline read, the delete, and the purge all 404, nothing here
+// ever confirmed LogProjectID ever named a real project, so
+// DeleteLogProject returns that not-found error instead of the tolerant
+// success above; a delete or a purge that succeeds still keeps that
+// success, baseline 404 included. Without Purge, the baseline 404 alone is
+// returned unchanged, the ordinary not-found result any other delete in
+// this SDK returns for an already-gone resource. If the bound runs out, or
+// a read or a sleep in the wait fails, such as from a canceled ctx, the
+// returned error wraps dns.ErrNotSettled: the write must not be repeated.
+// NoWait skips the baseline read and the wait, and returns as soon as the
+// delete (and the purge, when requested) succeeds.
 func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput) (*DeleteLogProjectOutput, error) {
 	const op = "monitor.DeleteLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -272,10 +334,21 @@ func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput
 		return nil, deleteErr
 	}
 
+	var purgeErr error
 	if in.Purge {
-		if err := c.deleteLogProjectRequest(ctx, op, []string{"trash", "log", "quotas", in.LogProjectID}); err != nil && !core.IsNotFound(err) {
-			return nil, err
+		purgeErr = c.deleteLogProjectRequest(ctx, op, []string{"trash", "log", "quotas", in.LogProjectID})
+		if purgeErr != nil && !core.IsNotFound(purgeErr) {
+			return nil, purgeErr
 		}
+	}
+
+	// deleteErr and purgeErr are non-nil here only as the tolerated 404
+	// case above (any other error already returned). When the baseline
+	// read also 404'd, all three requests 404'd and nothing ever confirmed
+	// LogProjectID named a real project, unlike the ordinary gone-baseline
+	// case this otherwise tolerates: report NotFound instead of success.
+	if baselineGone && deleteErr != nil && purgeErr != nil {
+		return nil, purgeErr
 	}
 
 	if in.NoWait || baselineGone {

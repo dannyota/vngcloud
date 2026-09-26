@@ -435,6 +435,45 @@ func TestQuoteCreateLogProjectIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestQuoteCreateLogProjectRefusesMissingOptimumPrice checks a quote
+// response that omits optimumPrice, or sends it null, fails with a
+// *core.APIError rather than decoding a silent 0 that would let
+// CreateLogProject's price guard (quote.OptimumPrice > in.MaxPrice)
+// through unchecked.
+func TestQuoteCreateLogProjectRefusesMissingOptimumPrice(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{"missing key", `{"originalPrice":0,"discountPrice":0,"discountPercent":null,"propertiesPrice":[]}`},
+		{"null value", `{"optimumPrice":null,"originalPrice":0,"discountPrice":0,"discountPercent":null,"propertiesPrice":[]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/billing-api/v2/log/quota-class":
+					testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
+				case "/billing-api/v2/log/prices/created-price":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(tt.raw))
+				default:
+					t.Fatalf("unexpected request to %s", r.URL.Path)
+				}
+			}))
+
+			_, err := client.QuoteCreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app"})
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("QuoteCreateLogProject() error = %v, want *core.APIError", err)
+			}
+			if apiErr.Message != "quote response had no price" {
+				t.Fatalf("Message = %q, want %q", apiErr.Message, "quote response had no price")
+			}
+		})
+	}
+}
+
 func TestQuoteCreateLogProjectMissingName(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("unexpected request for a missing Name")

@@ -454,9 +454,13 @@ type LogProjectPriceProperty struct {
 // logProjectQuoteResponse is QuoteCreateLogProject's wire response. It is
 // not enveloped: the price fields sit at the top level, the same shape
 // pricing.GetQuote decodes but with its own field set (no monthlyPrice or
-// currentPrice).
+// currentPrice). OptimumPrice is a pointer: a response that omits it, or
+// sends it null, must not silently decode as a free order. Left as a plain
+// float64, either shape would decode as 0 and let CreateLogProject's price
+// guard (quote.OptimumPrice > in.MaxPrice) pass an unpriced order straight
+// through.
 type logProjectQuoteResponse struct {
-	OptimumPrice    float64                       `json:"optimumPrice"`
+	OptimumPrice    *float64                      `json:"optimumPrice"`
 	OriginalPrice   float64                       `json:"originalPrice"`
 	DiscountPrice   float64                       `json:"discountPrice"`
 	DiscountPercent *float64                      `json:"discountPercent"`
@@ -477,7 +481,11 @@ type logProjectPricePropertyWire struct {
 // CreateLogProject would send (ADR 0002 rule 8), and sends it as a read.
 // The created-price call is a POST, but it changes nothing, so it is a read
 // under ADR 0002 rule 1, and sets Idempotent so a failure that may have
-// reached the server is still retried.
+// reached the server is still retried. It always reads the class list
+// fresh and keeps this behavior on its own; CreateLogProject reads the
+// class list once and reuses that same body for both its quote and its
+// order, so the two never price different resources, but that sharing does
+// not reach QuoteCreateLogProject.
 func (c *Client) QuoteCreateLogProject(ctx context.Context, in *CreateLogProjectInput) (*QuoteCreateLogProjectOutput, error) {
 	const op = "monitor.QuoteCreateLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -492,7 +500,17 @@ func (c *Client) QuoteCreateLogProject(ctx context.Context, in *CreateLogProject
 	if err != nil {
 		return nil, err
 	}
+	return c.sendLogProjectQuote(ctx, op, body)
+}
 
+// sendLogProjectQuote prices body at the created-price endpoint. It is
+// QuoteCreateLogProject and CreateLogProject's shared request, sent under
+// the caller's own op name, so both refuse the same way when the response
+// omits optimumPrice or sends it null: a *core.APIError, the same pattern
+// pricing.GetQuote uses for its own missing-price response, rather than a
+// silently free price that would let CreateLogProject's guard
+// (quote.OptimumPrice > in.MaxPrice) through unchecked.
+func (c *Client) sendLogProjectQuote(ctx context.Context, op string, body logProjectOrderBody) (*QuoteCreateLogProjectOutput, error) {
 	var resp logProjectQuoteResponse
 	req := transport.Request{
 		Operation:  op,
@@ -502,8 +520,12 @@ func (c *Client) QuoteCreateLogProject(ctx context.Context, in *CreateLogProject
 		OK:         []int{200},
 		Idempotent: true,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	if err != nil {
 		return nil, err
+	}
+	if resp.OptimumPrice == nil {
+		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "quote response had no price"}
 	}
 
 	properties := make([]LogProjectPriceProperty, len(resp.PropertiesPrice))
@@ -511,7 +533,7 @@ func (c *Client) QuoteCreateLogProject(ctx context.Context, in *CreateLogProject
 		properties[i] = LogProjectPriceProperty(p)
 	}
 	return &QuoteCreateLogProjectOutput{
-		OptimumPrice:    resp.OptimumPrice,
+		OptimumPrice:    *resp.OptimumPrice,
 		OriginalPrice:   resp.OriginalPrice,
 		DiscountPrice:   resp.DiscountPrice,
 		DiscountPercent: resp.DiscountPercent,

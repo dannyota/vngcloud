@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +17,12 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
+
+// noExistingLogProjectsPage is an empty ListLogProjects page, standing in
+// for the pre-order duplicate-name check CreateLogProject runs before
+// pricing or ordering anything: most tests below order a name the account
+// has nothing else registered under.
+const noExistingLogProjectsPage = `{"content":[],"currentPage":0,"pageSize":100,"totalElements":0,"totalPages":0}`
 
 // withInstantSleep replaces client's sleep and now with fakes that never
 // really wait, so a test exercising a wait's full bound runs in
@@ -60,6 +68,9 @@ const freeQuoteBody = `{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"di
 func TestCreateLogProjectOrderUsesSharedBuilderBody(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
 		case "/billing-api/v2/log/quota-class":
 			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
 		case "/billing-api/v2/log/prices/created-price":
@@ -105,6 +116,9 @@ func TestCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 	var orderCalls atomic.Int64
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
 		case "/billing-api/v2/log/quota-class":
 			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
 		case "/billing-api/v2/log/prices/created-price":
@@ -134,6 +148,9 @@ func TestCreateLogProjectRefusesAboveMaxPrice(t *testing.T) {
 func TestCreateLogProjectDefaultMaxPriceOrdersOnlyFree(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
 		case "/billing-api/v2/log/quota-class":
 			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
 		case "/billing-api/v2/log/prices/created-price":
@@ -167,6 +184,9 @@ func TestCreateLogProjectOrderNotRetriedAfter502(t *testing.T) {
 	var orderCalls atomic.Int64
 	client := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
 		case "/billing-api/v2/log/quota-class":
 			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
 		case "/billing-api/v2/log/prices/created-price":
@@ -190,10 +210,11 @@ func TestCreateLogProjectOrderNotRetriedAfter502(t *testing.T) {
 }
 
 // TestCreateLogProjectNoWaitSkipsWait checks NoWait returns the order
-// response's OrderID at once, with no ListLogProjects call to find a
-// project by name: the order response itself carries no project id, name,
-// or status (see CreateLogProject's doc comment), so LogProject stays at
-// its zero value.
+// response's OrderID at once, with no post-order ListLogProjects call to
+// find the project by name: the order response itself carries no project
+// id, name, or status (see CreateLogProject's doc comment), so LogProject
+// stays at its zero value. NoWait governs only that post-order wait: the
+// pre-order duplicate-name check still lists projects once either way.
 func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 	var listCalls atomic.Int64
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -207,8 +228,11 @@ func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-1","paymentUrl":""}`))
 		case "/log-api/v1/projects":
-			listCalls.Add(1)
-			t.Fatal("NoWait must not list projects")
+			if listCalls.Add(1) > 1 {
+				t.Fatal("NoWait must not poll for the project after the order")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
 		}
@@ -224,8 +248,8 @@ func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 	if out.LogProject != (LogProject{}) {
 		t.Fatalf("LogProject = %+v, want zero value: NoWait never fills it", out.LogProject)
 	}
-	if listCalls.Load() != 0 {
-		t.Fatalf("list calls = %d, want 0", listCalls.Load())
+	if listCalls.Load() != 1 {
+		t.Fatalf("list calls = %d, want 1 (the pre-order duplicate-name check only)", listCalls.Load())
 	}
 }
 
@@ -287,8 +311,12 @@ func TestCreateLogProjectWaitFindsActiveByName(t *testing.T) {
 
 // TestCreateLogProjectWaitTimesOut checks the wait gives up after its bound
 // and wraps dns.ErrNotSettled, per the design's reuse of the vDNS
-// sentinels, when the project never reaches ACTIVE.
+// sentinels, when the project never reaches ACTIVE. The pre-order
+// duplicate-name check's own list call comes back empty, so it never
+// mistakes the CREATING project the wait later polls for a pre-existing
+// one and refuses the order before it starts.
 func TestCreateLogProjectWaitTimesOut(t *testing.T) {
+	var listCalls atomic.Int64
 	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/billing-api/v2/log/quota-class":
@@ -301,6 +329,10 @@ func TestCreateLogProjectWaitTimesOut(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		case "/log-api/v1/projects":
 			w.Header().Set("Content-Type", "application/json")
+			if listCalls.Add(1) == 1 {
+				_, _ = w.Write([]byte(noExistingLogProjectsPage))
+				return
+			}
 			_, _ = w.Write([]byte(logProjectListPage("app", "CREATING")))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
@@ -351,6 +383,162 @@ func TestCreateLogProjectMissingName(t *testing.T) {
 	}
 	if _, err := client.CreateLogProject(context.Background(), nil); !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("CreateLogProject(nil) error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestCreateLogProjectRejectsInvalidMaxPrice checks a NaN, +Inf, -Inf, or
+// negative MaxPrice fails closed with core.ErrInvalidInput before any
+// request: the price guard (quote.OptimumPrice > in.MaxPrice) cannot
+// compare any of those safely, and a NaN MaxPrice in particular compares
+// false against every quote, which would otherwise disable the guard on a
+// paid create.
+func TestCreateLogProjectRejectsInvalidMaxPrice(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxPrice float64
+	}{
+		{"NaN", math.NaN()},
+		{"positive infinity", math.Inf(1)},
+		{"negative infinity", math.Inf(-1)},
+		{"negative", -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("unexpected request for an invalid MaxPrice")
+			}))
+			_, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app", MaxPrice: tt.maxPrice})
+			if !errors.Is(err, core.ErrInvalidInput) {
+				t.Fatalf("CreateLogProject() error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+// TestCreateLogProjectRefusesExistingName checks CreateLogProject lists
+// projects by Name before pricing or ordering anything, and refuses with
+// core.ErrInvalidInput, sending neither request, when one already exists
+// with that exact name: the post-order wait would otherwise risk settling
+// on that existing project instead of the one this call orders.
+func TestCreateLogProjectRefusesExistingName(t *testing.T) {
+	var pricingCalls atomic.Int64
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(logProjectListPage("app", LogProjectStatusActive)))
+		case "/billing-api/v2/log/quota-class", "/billing-api/v2/log/prices/created-price", "/billing-api/v2/log/quotas":
+			pricingCalls.Add(1)
+			t.Fatal("no pricing or order request when the name already exists")
+		default:
+			t.Fatalf("unexpected request to %s", r.URL.Path)
+		}
+	}))
+
+	_, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app", NoWait: true})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("CreateLogProject() error = %v, want ErrInvalidInput", err)
+	}
+	if pricingCalls.Load() != 0 {
+		t.Fatalf("pricing/order calls = %d, want 0", pricingCalls.Load())
+	}
+}
+
+// logProjectClassesBasicOnly is a minimal class-list response holding only
+// an active Basic class with a single retention option, whose packageId
+// and minSize name pkgID and gbPerDay: TestCreateLogProjectReadsClasses...
+// serves two different values of this to prove CreateLogProject reads the
+// class list only once.
+func logProjectClassesBasicOnly(pkgID string, gbPerDay int) string {
+	return fmt.Sprintf(`[{"id":"c1","name":"Basic","status":"ACTIVE","config":{"retentions":[
+		{"amount":1,"minSize":%d,"maxSize":%d,"step":1,"packageId":%q}
+	]}}]`, gbPerDay, gbPerDay, pkgID)
+}
+
+// TestCreateLogProjectReadsClassesOnceAndSendsIdenticalBodies checks
+// CreateLogProject reads the class list exactly once and sends that exact
+// same order body to both the quote and the order endpoint, per ADR 0002
+// rule 8. The class-list endpoint serves a different fixture (a different
+// packageId) on a second call than on the first; if CreateLogProject read
+// classes twice, as it once did, the quote and the order bodies would
+// price different resources, and the order body below would carry the
+// second fixture's packageId rather than the first's.
+func TestCreateLogProjectReadsClassesOnceAndSendsIdenticalBodies(t *testing.T) {
+	var classCalls atomic.Int64
+	var quoteBody, orderBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
+		case "/billing-api/v2/log/quota-class":
+			n := classCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				_, _ = w.Write([]byte(logProjectClassesBasicOnly("pkg-v1", 10)))
+			} else {
+				_, _ = w.Write([]byte(logProjectClassesBasicOnly("pkg-v2", 99)))
+			}
+		case "/billing-api/v2/log/prices/created-price":
+			quoteBody = decodeLogProjectBody(t, r)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(freeQuoteBody))
+		case "/billing-api/v2/log/quotas":
+			orderBody = decodeLogProjectBody(t, r)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-1","paymentUrl":""}`))
+		default:
+			t.Fatalf("unexpected request to %s", r.URL.Path)
+		}
+	}))
+
+	_, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app", NoWait: true})
+	if err != nil {
+		t.Fatalf("CreateLogProject() error = %v", err)
+	}
+	if classCalls.Load() != 1 {
+		t.Fatalf("class list reads = %d, want 1", classCalls.Load())
+	}
+	if !reflect.DeepEqual(quoteBody, orderBody) {
+		t.Fatalf("quote body %+v != order body %+v", quoteBody, orderBody)
+	}
+	if quoteBody["packageId"] != "pkg-v1" || quoteBody["quantity"] != 10.0 {
+		t.Fatalf("unexpected quote/order body: %+v", quoteBody)
+	}
+}
+
+// TestCreateLogProjectRefusesMissingOptimumPriceSendsNoOrder checks
+// CreateLogProject refuses with a *core.APIError, sending no order, when
+// the quote response omits optimumPrice: decoding that as a silent 0
+// would let the price guard (quote.OptimumPrice > in.MaxPrice) through
+// unchecked.
+func TestCreateLogProjectRefusesMissingOptimumPriceSendsNoOrder(t *testing.T) {
+	var orderCalls atomic.Int64
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/log-api/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogProjectsPage))
+		case "/billing-api/v2/log/quota-class":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjectClasses.json")
+		case "/billing-api/v2/log/prices/created-price":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"originalPrice":0,"discountPrice":0,"discountPercent":null,"propertiesPrice":[]}`))
+		case "/billing-api/v2/log/quotas":
+			orderCalls.Add(1)
+			t.Fatal("order must not be sent when the quote has no price")
+		default:
+			t.Fatalf("unexpected request to %s", r.URL.Path)
+		}
+	}))
+
+	_, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app", NoWait: true})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("CreateLogProject() error = %v, want *core.APIError", err)
+	}
+	if orderCalls.Load() != 0 {
+		t.Fatalf("order calls = %d, want 0", orderCalls.Load())
 	}
 }
 
@@ -595,14 +783,13 @@ func TestDeleteLogProjectBaselineNotFoundWithoutPurgeStaysError(t *testing.T) {
 	}
 }
 
-// TestDeleteLogProjectPurgeToleratesGoneBaseline checks that when Purge is
-// set and the pre-delete baseline read itself 404s, the project is already
-// gone from the live list (seen live for a free project, gone from trash
-// within about a second of an earlier delete): DeleteLogProject still
-// sends the delete and the purge, tolerating a 404 from either, and
-// returns success at once, with no settle wait, since there is no baseline
-// left to wait against.
-func TestDeleteLogProjectPurgeToleratesGoneBaseline(t *testing.T) {
+// TestDeleteLogProjectPurgeAllThreeNotFoundReturnsNotFound checks that
+// when Purge is set and the pre-delete baseline read, the delete, and the
+// purge all 404, DeleteLogProject returns the not-found error rather than
+// the tolerant success below: nothing here ever confirmed LogProjectID
+// named a project that existed at all, unlike the case where the baseline
+// read 404s but the delete or the purge still succeeds.
+func TestDeleteLogProjectPurgeAllThreeNotFoundReturnsNotFound(t *testing.T) {
 	var getCalls, deleteCalls, purgeCalls atomic.Int64
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -624,13 +811,65 @@ func TestDeleteLogProjectPurgeToleratesGoneBaseline(t *testing.T) {
 	}))
 
 	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1", Purge: true})
-	if err != nil {
-		t.Fatalf("DeleteLogProject() error = %v", err)
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("DeleteLogProject() error = %v, want ErrNotFound", err)
 	}
 	if getCalls.Load() != 1 {
 		t.Fatalf("get calls = %d, want 1 (baseline only, no settle wait)", getCalls.Load())
 	}
 	if deleteCalls.Load() != 1 || purgeCalls.Load() != 1 {
 		t.Fatalf("delete calls = %d, purge calls = %d, want 1 each", deleteCalls.Load(), purgeCalls.Load())
+	}
+}
+
+// TestDeleteLogProjectPurgeToleratesGoneBaselineWhenDeleteSucceeds checks
+// that when the baseline read 404s but the delete itself succeeds,
+// DeleteLogProject still returns success at once, with no settle wait: the
+// delete's own success confirms something existed to delete, unlike the
+// all-404 case above.
+func TestDeleteLogProjectPurgeToleratesGoneBaselineWhenDeleteSucceeds(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/log/quotas/proj-1":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/trash/log/quotas/proj-1":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		default:
+			t.Fatalf("unexpected %s request to %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1", Purge: true})
+	if err != nil {
+		t.Fatalf("DeleteLogProject() error = %v", err)
+	}
+}
+
+// TestDeleteLogProjectPurgeToleratesGoneBaselineWhenPurgeSucceeds is the
+// mirror of the delete-succeeds case above: the purge, not the delete,
+// is what confirms something existed.
+func TestDeleteLogProjectPurgeToleratesGoneBaselineWhenPurgeSucceeds(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/log/quotas/proj-1":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/trash/log/quotas/proj-1":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s request to %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1", Purge: true})
+	if err != nil {
+		t.Fatalf("DeleteLogProject() error = %v", err)
 	}
 }

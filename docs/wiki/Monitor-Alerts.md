@@ -272,12 +272,15 @@ have returns `vngcloud.ErrInvalidInput` before any pricing request.
 
 `QuoteCreateLogProject` sends a `POST`, but it prices an order without
 placing one, so it is a read: it is retried after a failure that may have
-already reached the server, unlike a create. It always re-reads the class
-list first, since the class list and its prices can change between one
-request and the next; `CreateLogProject` re-reads the same class list
-again immediately before ordering, for the same reason. The quote ignores
-`MaxPrice` and `NoWait`: those fields govern only `CreateLogProject`'s
-price ceiling and wait.
+already reached the server, unlike a create. It always reads the class
+list fresh on every call, since the class list and its prices can change
+between one request and the next; it does not share that read with
+`CreateLogProject`, which instead reads the class list once and sends that
+exact order body to both its own quote and its order (see below). A quote
+response missing `optimumPrice`, or sending it `null`, fails with a
+`*vngcloud.APIError` rather than pricing the order at a silent 0. The
+quote ignores `MaxPrice` and `NoWait`: those fields govern only
+`CreateLogProject`'s price ceiling and wait.
 
 ### Ordering, deleting, and purging a log project
 
@@ -302,16 +305,31 @@ if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{
 }
 ```
 
-`CreateLogProject` quotes the order first with `QuoteCreateLogProject` and
-refuses with `monitor.ErrPriceAboveMax`, ordering nothing, when the quote's
+Before any request, `CreateLogProject` rejects a `NaN`, `+Inf`, `-Inf`, or
+negative `MaxPrice` with `vngcloud.ErrInvalidInput`: its price guard cannot
+compare any of those safely, and a `NaN` `MaxPrice` in particular compares
+false against every quote, which would silently disable the guard on a
+paid create. It also lists projects by `Name` first and refuses, also with
+`vngcloud.ErrInvalidInput`, when one already exists with that exact name,
+since the post-order wait below would otherwise risk settling on that
+existing project instead of the one this call orders.
+
+`CreateLogProject` then reads the class list once, builds one order body
+from `Input`, and sends that exact body first to price the order and then,
+unless it prices above `Input.MaxPrice`, to place it, so the quote and the
+order always price and create the identical resource. It refuses with
+`monitor.ErrPriceAboveMax`, ordering nothing, when that quote's
 `OptimumPrice` exceeds `Input.MaxPrice`, which defaults to 0:
 `CreateLogProjectInput{Name: "app"}` therefore only ever orders a project
 whose class and retention price at 0 VND. Raise `MaxPrice` to allow a paid
-order. The order is a `POST` and is never retried after a failure that may
-have already reached the server, the same as `CreateHostedZone`: after any
-error that is not a 4xx `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`,
-the project may have been ordered, and the caller lists projects by `Name`
-before ordering again.
+order; the Basic class itself allows only 3 orders or recoveries a month,
+and an order past that quota returns the server's own 409 "Exceeded quota"
+rather than a distinct SDK error. The order is a `POST` and is never
+retried after a failure that may have already reached the server, the
+same as `CreateHostedZone`: after any error that is not a 4xx
+`*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the project may have
+been ordered, and the caller lists projects by `Name` before ordering
+again.
 
 The order response is confirmed live to carry only `amount`, `orderId`, and
 `paymentUrl`, none of `LogProject`'s own fields: it names no project id,
@@ -337,21 +355,29 @@ pre-delete baseline read too.
 are lost. `Purge` also deletes it from trash, as a second request in the
 same call, so a purge is never sent without the delete that precedes it,
 and one `DeleteLogProject` call with `Purge: true` is the main way to use
-it. A free project was seen live to leave trash on its own within about a
-second of that delete, removed from the log-api list, the billing list, and
+it, though that combined call has not itself been run live yet. A separate
+purge sent right after an earlier, already-settled delete was seen live to
+return a plain 409 Conflict once, for a reason still unconfirmed; the SDK
+adds no retry or other tolerance for that status, so a caller that hits it
+decides for itself whether to call `DeleteLogProject` again.
+
+A free project was seen live to leave trash on its own within a few
+seconds of a delete, removed from the log-api list, the billing list, and
 the trash list together, so `DeleteLogProject`'s own pre-delete baseline
 read can already 404 by the time a later `Purge` call runs. When that
-happens with `Purge` set, `DeleteLogProject` treats the project as already
-gone: it still sends the delete and the purge, tolerating a 404 from
-either, and returns success at once, with no wait, since there is no
-baseline left to wait against. Without `Purge`, that same baseline 404
-comes back as the SDK's ordinary not-found result, same as any other
-delete. A second `DeleteLogProject` call on a project another call is
-still in the middle of removing, rather than one the SDK's own baseline
-read already saw as gone, can instead surface a plain 409 Conflict, or a
-404 the delete or purge step does not tolerate; the SDK adds no retry or
-other special handling for either, since the project is already headed to
-the state the call asked for.
+happens with `Purge` set, `DeleteLogProject` still sends the delete and the
+purge, tolerating a 404 from either, and returns success at once, with no
+wait, since there is no baseline left to wait against, unless the delete
+and the purge both 404 too, in which case nothing here ever confirmed
+`LogProjectID` named a real project, and `DeleteLogProject` returns the
+not-found error instead of that tolerant success. Without `Purge`, the
+baseline 404 alone comes back as the SDK's ordinary not-found result, same
+as any other delete. A second `DeleteLogProject` call on a project another
+call is still in the middle of removing, rather than one the SDK's own
+baseline read already saw as gone, can instead surface a plain 409
+Conflict, or a 404 the delete or purge step does not tolerate; the SDK
+adds no retry or other special handling for either, since the project is
+already headed to the state the call asked for.
 
 ## Alarms
 

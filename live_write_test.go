@@ -2043,11 +2043,12 @@ func isConflictErr(err error) bool {
 // and DeleteLogProject (delete and purge in one call) against the account
 // named in .env.
 //
-// The account has only one free Basic log project slot; this test orders
-// it, then deletes and purges it, per the owner's one-time approval for
-// this specific run. VNGCLOUD_LIVE_MONITOR_LOG_PROJECT must be set to "1"
-// in addition to VNGCLOUD_LIVE_WRITE, so this test never runs alongside
-// the account's other live write tests by accident.
+// The Basic class allows only 3 orders or recoveries a month before an
+// order returns the server's own 409 "Exceeded quota"; this test orders
+// one project, then deletes and purges it, per the owner's one-time
+// approval for this specific run. VNGCLOUD_LIVE_MONITOR_LOG_PROJECT must
+// be set to "1" in addition to VNGCLOUD_LIVE_WRITE, so this test never
+// runs alongside the account's other live write tests by accident.
 //
 // It deletes and purges every leftover vngcloud-live-* log project first,
 // in case an earlier aborted run left one in trash or still active (step
@@ -2058,24 +2059,26 @@ func isConflictErr(err error) bool {
 // recording how long CreateLogProject's own wait took to see it reach
 // ACTIVE and whether the order response carried an OrderID, seen empty for
 // a free order (step 4); reads it back (step 5); deletes and purges it in
-// one DeleteLogProject call, the main way Purge is used (step 6); confirms
-// a read of it now returns not-found (step 7); and quotes, but does not
-// order, a second Basic project, to record whether the account's one free
-// slot becomes available again after a purge (step 8). A free project was
-// seen live to leave the log-api list, the billing list, and trash on its
-// own within about a second of a delete, so a second, separate delete or
-// purge call on the same, already-removed project is not exercised here: it
-// is not a useful test, and was seen live to return a plain 409 Conflict or
-// 404 instead of settling. Every step logs only counts, statuses, field
-// names, and timings, never the project's name, id, or any other field
-// value.
+// one DeleteLogProject call (step 6) -- a combined delete-then-purge this
+// test itself has not yet run live, though a separate purge sent right
+// after an earlier, already-settled delete was seen live to return a
+// plain 409 Conflict once; confirms a read of it now returns not-found
+// (step 7); and quotes, but does not order, a second Basic project, to
+// record whether a fresh quote still prices free right after a purge
+// (step 8). A free project was seen live to leave the log-api list, the
+// billing list, and trash on its own within a few seconds of a delete, so
+// a second, separate delete or purge call on the same, already-removed
+// project is not exercised here: it is not a useful test, and was seen
+// live to return a plain 409 Conflict or 404 instead of settling. Every
+// step logs only counts, statuses, field names, and timings, never the
+// project's name, id, or any other field value.
 func TestLiveWriteMonitorLogProject(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor log project write test")
 	}
 	if os.Getenv("VNGCLOUD_LIVE_MONITOR_LOG_PROJECT") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_LOG_PROJECT=1 to run the live log project write test; " +
-			"the account has only one free Basic project slot, and this test orders, deletes, and purges it")
+			"the Basic class allows only 3 orders or recoveries a month, and this test orders, deletes, and purges one")
 	}
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -2104,8 +2107,8 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	}
 	client := monitor.New(cfg)
 
-	// Step 1: sweep up leftovers from an earlier aborted run first, so this
-	// run does not find the account's one free slot already occupied.
+	// Step 1: sweep up leftovers from an earlier aborted run first, so an
+	// earlier run's project does not linger as an extra live resource.
 	leftovers := deleteLiveLogProjects(ctx, t, client)
 	t.Logf("step 1: deleted and purged %d leftover log project(s)", leftovers)
 
@@ -2200,7 +2203,7 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	t.Log("step 7: confirmed the project is gone")
 
 	// Step 8: quote, but do not order, a second Basic project, to record
-	// whether the account's one free slot is available again after a purge.
+	// whether a fresh quote still prices free right after the purge above.
 	secondSuffix, err := randomHex(4)
 	if err != nil {
 		t.Fatalf("step 8 generate name suffix: %v", err)
