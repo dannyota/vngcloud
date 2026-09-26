@@ -80,7 +80,7 @@ func TestCreateLogProjectOrderUsesSharedBuilderBody(t *testing.T) {
 				t.Fatalf("redirectUrl = %v", body["redirectUrl"])
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"amount":917000,"orderId":"order-1","paymentUrl":""}`))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
 		}
@@ -93,8 +93,8 @@ func TestCreateLogProjectOrderUsesSharedBuilderBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLogProject() error = %v", err)
 	}
-	if out.LogProject.ID != "proj-1" || out.LogProject.Status != LogProjectStatusActive {
-		t.Fatalf("unexpected project: %+v", out.LogProject)
+	if out.OrderID != "order-1" {
+		t.Fatalf("OrderID = %q, want order-1", out.OrderID)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestCreateLogProjectDefaultMaxPriceOrdersOnlyFree(t *testing.T) {
 				t.Fatalf("unexpected order body: %+v", body)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-1","paymentUrl":""}`))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
 		}
@@ -155,8 +155,8 @@ func TestCreateLogProjectDefaultMaxPriceOrdersOnlyFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLogProject() error = %v", err)
 	}
-	if out.LogProject.ID != "proj-1" {
-		t.Fatalf("unexpected project: %+v", out.LogProject)
+	if out.OrderID != "order-1" {
+		t.Fatalf("OrderID = %q, want order-1", out.OrderID)
 	}
 }
 
@@ -190,7 +190,10 @@ func TestCreateLogProjectOrderNotRetriedAfter502(t *testing.T) {
 }
 
 // TestCreateLogProjectNoWaitSkipsWait checks NoWait returns the order
-// response at once, with no ListLogProjects call to find it by name.
+// response's OrderID at once, with no ListLogProjects call to find a
+// project by name: the order response itself carries no project id, name,
+// or status (see CreateLogProject's doc comment), so LogProject stays at
+// its zero value.
 func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 	var listCalls atomic.Int64
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +205,7 @@ func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 			_, _ = w.Write([]byte(freeQuoteBody))
 		case "/billing-api/v2/log/quotas":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"CREATING"}`))
+			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-1","paymentUrl":""}`))
 		case "/log-api/v1/projects":
 			listCalls.Add(1)
 			t.Fatal("NoWait must not list projects")
@@ -215,8 +218,11 @@ func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLogProject() error = %v", err)
 	}
-	if out.LogProject.Status != "CREATING" {
-		t.Fatalf("Status = %q, want CREATING", out.LogProject.Status)
+	if out.OrderID != "order-1" {
+		t.Fatalf("OrderID = %q, want order-1", out.OrderID)
+	}
+	if out.LogProject != (LogProject{}) {
+		t.Fatalf("LogProject = %+v, want zero value: NoWait never fills it", out.LogProject)
 	}
 	if listCalls.Load() != 0 {
 		t.Fatalf("list calls = %d, want 0", listCalls.Load())
@@ -247,7 +253,7 @@ func TestCreateLogProjectWaitFindsActiveByName(t *testing.T) {
 			_, _ = w.Write([]byte(freeQuoteBody))
 		case "/billing-api/v2/log/quotas":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{"amount":0,"orderId":"order-9","paymentUrl":""}`))
 		case "/log-api/v1/projects":
 			n := listCalls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
@@ -270,6 +276,9 @@ func TestCreateLogProjectWaitFindsActiveByName(t *testing.T) {
 	}
 	if out.LogProject.ID != "proj-1" || out.LogProject.Status != LogProjectStatusActive {
 		t.Fatalf("unexpected project: %+v", out.LogProject)
+	}
+	if out.OrderID != "order-9" {
+		t.Fatalf("OrderID = %q, want order-9", out.OrderID)
 	}
 	if listCalls.Load() != 3 {
 		t.Fatalf("list calls = %d, want 3", listCalls.Load())
@@ -526,5 +535,73 @@ func TestDeleteLogProjectWaitTimesOut(t *testing.T) {
 	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1"})
 	if !errors.Is(err, dns.ErrNotSettled) {
 		t.Fatalf("DeleteLogProject() error = %v, want dns.ErrNotSettled", err)
+	}
+}
+
+// TestDeleteLogProjectBaselineNotFoundWithoutPurgeStaysError checks a
+// baseline read that 404s without Purge still returns the ordinary
+// not-found error, and sends no delete request: unlike the Purge case
+// below, there is no later request to tolerate the 404 for.
+func TestDeleteLogProjectBaselineNotFoundWithoutPurgeStaysError(t *testing.T) {
+	var deleteCalls atomic.Int64
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case http.MethodDelete:
+			deleteCalls.Add(1)
+			t.Fatal("delete must not be sent when the baseline read 404s without Purge")
+		default:
+			t.Fatalf("unexpected %s request", r.Method)
+		}
+	}))
+
+	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1"})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("DeleteLogProject() error = %v, want ErrNotFound", err)
+	}
+	if deleteCalls.Load() != 0 {
+		t.Fatalf("delete calls = %d, want 0", deleteCalls.Load())
+	}
+}
+
+// TestDeleteLogProjectPurgeToleratesGoneBaseline checks that when Purge is
+// set and the pre-delete baseline read itself 404s, the project is already
+// gone from the live list (seen live for a free project, gone from trash
+// within about a second of an earlier delete): DeleteLogProject still
+// sends the delete and the purge, tolerating a 404 from either, and
+// returns success at once, with no settle wait, since there is no baseline
+// left to wait against.
+func TestDeleteLogProjectPurgeToleratesGoneBaseline(t *testing.T) {
+	var getCalls, deleteCalls, purgeCalls atomic.Int64
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			getCalls.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/log/quotas/proj-1":
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/trash/log/quotas/proj-1":
+			purgeCalls.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		default:
+			t.Fatalf("unexpected %s request to %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1", Purge: true})
+	if err != nil {
+		t.Fatalf("DeleteLogProject() error = %v", err)
+	}
+	if getCalls.Load() != 1 {
+		t.Fatalf("get calls = %d, want 1 (baseline only, no settle wait)", getCalls.Load())
+	}
+	if deleteCalls.Load() != 1 || purgeCalls.Load() != 1 {
+		t.Fatalf("delete calls = %d, purge calls = %d, want 1 each", deleteCalls.Load(), purgeCalls.Load())
 	}
 }

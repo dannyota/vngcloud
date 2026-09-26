@@ -45,8 +45,10 @@ func (c *Client) logBillingRouteV1(parts []string) string {
 // plain strings. The wire also sends "extra" (search field mappings) and,
 // on the list only, "certInfos" (cert IDs and expiry dates); neither is
 // modeled, the same way any field a caller's struct omits is dropped. There
-// is no "zone" or "updatedAt" key on this shape. The order response's own
-// shape is still unconfirmed (see CreateLogProject).
+// is no "zone" or "updatedAt" key on this shape. CreateLogProject's own
+// order response carries none of these fields; it is confirmed live to
+// hold only amount, orderId, and paymentUrl (see CreateLogProject's doc
+// comment).
 type LogProject struct {
 	ID                 string `json:"id"`
 	ProjectName        string `json:"name"`

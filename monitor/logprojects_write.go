@@ -25,8 +25,21 @@ const (
 	logProjectDeleteWaitBound = 60 * time.Second
 )
 
+// CreateLogProjectOutput is CreateLogProject's result. LogProject is filled
+// only once CreateLogProject's own post-order wait finds the ordered
+// project by name; NoWait skips that wait, so LogProject stays at its zero
+// value. OrderID is the order response's own orderId and is set either way.
 type CreateLogProjectOutput struct {
 	LogProject LogProject
+	OrderID    string
+}
+
+// logProjectOrderResponse is the order POST's own response shape: a live
+// order confirmed exactly amount, orderId, and paymentUrl, none of
+// LogProject's own fields. amount and paymentUrl are not modeled, since
+// CreateLogProject has no use for them.
+type logProjectOrderResponse struct {
+	OrderID string `json:"orderId"`
 }
 
 // CreateLogProject orders a log project. It quotes first with
@@ -44,17 +57,18 @@ type CreateLogProjectOutput struct {
 // *core.APIError or core.ErrInvalidInput, the project may have been
 // ordered, and the caller lists projects by Name before ordering again.
 //
-// Without NoWait, CreateLogProject then waits up to 120 seconds for a
-// project named Input.Name to appear, by ListLogProjects, at
-// LogProjectStatusActive: the order response's own shape is unconfirmed
-// (see LogProject's doc comment), so the wait looks the project up by the
-// name the order itself just sent rather than trusting whatever id the
-// response may or may not carry. If the bound runs out, or a read or a
-// sleep in that wait fails, such as from a canceled ctx, the returned error
-// wraps dns.ErrNotSettled, reusing vDNS's own sentinel per the design: the
-// write must not be repeated. NoWait returns the order response itself,
-// decoded on a best-effort basis into the same shape GetLogProject reads,
-// without waiting or listing anything.
+// The order response is confirmed live to carry only amount, orderId, and
+// paymentUrl: it names no project id, name, or status (see LogProject's
+// doc comment). Without NoWait, CreateLogProject therefore waits up to 120
+// seconds for a project named Input.Name to appear, by ListLogProjects, at
+// LogProjectStatusActive, looking it up by the name the order itself just
+// sent rather than by anything the order response might carry. If the
+// bound runs out, or a read or a sleep in that wait fails, such as from a
+// canceled ctx, the returned error wraps dns.ErrNotSettled, reusing vDNS's
+// own sentinel per the design: the write must not be repeated. NoWait
+// skips that wait and returns at once, with Output.LogProject at its zero
+// value and only Output.OrderID set, from the order response's own
+// orderId.
 func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput) (*CreateLogProjectOutput, error) {
 	const op = "monitor.CreateLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -78,7 +92,7 @@ func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput
 		return nil, err
 	}
 
-	var project LogProject
+	var resp logProjectOrderResponse
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPost,
@@ -86,23 +100,22 @@ func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput
 		Body:      body,
 		OK:        []int{200, 201},
 	}
-	if err := c.c.DoJSON(ctx, req, &project); err != nil {
+	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousLogProjectOrderErr(op, err)
 	}
 
 	if in.NoWait {
-		return &CreateLogProjectOutput{LogProject: project}, nil
+		return &CreateLogProjectOutput{OrderID: resp.OrderID}, nil
 	}
 
 	found, waitErr := c.waitLogProjectActive(ctx, op, in.Name)
 	if found == nil {
-		// The order already succeeded; no read after it ever found the
-		// project by name, so fall back to the order response itself,
-		// which at least carries whatever fields its own unconfirmed shape
-		// happened to include, rather than losing them to a nil Output.
-		found = &project
+		// The wait never found the project by name, from a timeout or a
+		// read failure; the order response carries no project fields to
+		// fall back to, so LogProject stays at its zero value.
+		return &CreateLogProjectOutput{OrderID: resp.OrderID}, waitErr
 	}
-	return &CreateLogProjectOutput{LogProject: *found}, waitErr
+	return &CreateLogProjectOutput{LogProject: *found, OrderID: resp.OrderID}, waitErr
 }
 
 // wrapAmbiguousLogProjectOrderErr wraps err, from the order POST just sent,
@@ -198,11 +211,19 @@ type DeleteLogProjectOutput struct{}
 // purge, when requested) succeeds, waits up to 60 seconds for a read of the
 // project to either 404 or no longer match that baseline: the design's own
 // settle condition, "Get is 404, or the project is in trash," covers both
-// ways an unconfirmed response might show the change. If the bound runs
-// out, or a read or a sleep in that wait fails, such as from a canceled
-// ctx, the returned error wraps dns.ErrNotSettled: the write must not be
-// repeated. NoWait skips the baseline read and the wait, and returns as
-// soon as the delete (and the purge, when requested) succeeds.
+// ways an unconfirmed response might show the change. When Purge is set
+// and that baseline read itself 404s, the project is already gone from the
+// live list (seen live for a free project, gone from trash within about a
+// second of an earlier delete): DeleteLogProject still sends the delete
+// and the purge, tolerating a 404 from either, and returns success at
+// once, with no wait, since there is no baseline left to wait against.
+// Without Purge, that same baseline 404 is returned unchanged, the
+// ordinary not-found result any other delete in this SDK returns for an
+// already-gone resource. If the bound runs out, or a read or a sleep in
+// the wait fails, such as from a canceled ctx, the returned error wraps
+// dns.ErrNotSettled: the write must not be repeated. NoWait skips the
+// baseline read and the wait, and returns as soon as the delete (and the
+// purge, when requested) succeeds.
 func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput) (*DeleteLogProjectOutput, error) {
 	const op = "monitor.DeleteLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -213,12 +234,17 @@ func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput
 	}
 
 	var before *LogProject
+	baselineGone := false
 	if !in.NoWait {
 		b, err := c.getLogProject(ctx, op, in.LogProjectID)
-		if err != nil {
+		switch {
+		case err == nil:
+			before = b
+		case in.Purge && core.IsNotFound(err):
+			baselineGone = true
+		default:
 			return nil, err
 		}
-		before = b
 	}
 
 	deleteErr := c.deleteLogProjectRequest(ctx, op, []string{"log", "quotas", in.LogProjectID})
@@ -232,7 +258,7 @@ func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput
 		}
 	}
 
-	if in.NoWait {
+	if in.NoWait || baselineGone {
 		return &DeleteLogProjectOutput{}, nil
 	}
 	if err := c.waitLogProjectTrashed(ctx, op, in.LogProjectID, before); err != nil {

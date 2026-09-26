@@ -233,7 +233,7 @@ switch {
 case errors.Is(err, monitor.ErrPriceAboveMax):
 	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
 case errors.Is(err, dns.ErrNotSettled): // "danny.vn/vngcloud/dns"
-	log.Printf("log project %s was ordered; check it later, do not order again", created.LogProject.ID)
+	log.Printf("log project order %s was accepted; check it later, do not order again", created.OrderID)
 case err != nil:
 	log.Fatal(err)
 }
@@ -257,27 +257,35 @@ error that is not a 4xx `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`,
 the project may have been ordered, and the caller lists projects by `Name`
 before ordering again.
 
-Unless `NoWait` is set, `CreateLogProject` then waits up to 120 seconds for
-a project named `Input.Name` to appear, by listing projects, at
-`monitor.LogProjectStatusActive`; `DeleteLogProject` waits up to 60 seconds
-for a read of the deleted project to either come back not-found or no
-longer match its pre-delete state. Either wait running out, or a read or a
-sleep inside it failing, such as from a canceled `ctx`, returns an error
-wrapping `dns.ErrNotSettled`: the design reuses vDNS's own sentinel here
-rather than adding a new one, so the same [DNS](DNS.md#errors) handling
-applies, and the write must not be repeated. `NoWait` returns at once
-instead: `CreateLogProject` returns the order response on a best-effort
-basis, since the test account's own order response shape is unverified,
-and `DeleteLogProject` skips its pre-delete baseline read too.
+The order response is confirmed live to carry only `amount`, `orderId`, and
+`paymentUrl`, none of `LogProject`'s own fields: it names no project id,
+name, or status. Unless `NoWait` is set, `CreateLogProject` therefore waits
+up to 120 seconds for a project named `Input.Name` to appear, by listing
+projects, at `monitor.LogProjectStatusActive`, looking it up by the name
+the order itself just sent rather than by anything the order response
+might carry; `DeleteLogProject` waits up to 60 seconds for a read of the
+deleted project to either come back not-found or no longer match its
+pre-delete state. Either wait running out, or a read or a sleep inside it
+failing, such as from a canceled `ctx`, returns an error wrapping
+`dns.ErrNotSettled`: the design reuses vDNS's own sentinel here rather than
+adding a new one, so the same [DNS](DNS.md#errors) handling applies, and
+the write must not be repeated. `NoWait` returns at once instead:
+`Output.LogProject` stays at its zero value and only `Output.OrderID` is
+set, from the order response's own `orderId`; `DeleteLogProject` skips its
+pre-delete baseline read too.
 
 `DeleteLogProject` moves a project to trash, stopping its billing; its logs
 are lost. `Purge` also deletes it from trash, as a second request in the
-same call, so a purge is never sent without the delete that precedes it. If
-that first delete 404s while `Purge` is set, `DeleteLogProject` still sends
-the purge, since the project most likely already sits in trash from an
-earlier call and `Purge`'s job is to make sure it ends up gone either way;
-without `Purge`, that same 404 comes back as the SDK's ordinary not-found
-result, same as any other delete.
+same call, so a purge is never sent without the delete that precedes it. A
+free project was seen live to leave trash on its own within about a second
+of that delete, removed from the log-api list, the billing list, and the
+trash list together, so `DeleteLogProject`'s own pre-delete baseline read
+can already 404 by the time a later `Purge` call runs. When that happens
+with `Purge` set, `DeleteLogProject` treats the project as already gone: it
+still sends the delete and the purge, tolerating a 404 from either, and
+returns success at once, with no wait, since there is no baseline left to
+wait against. Without `Purge`, that same baseline 404 comes back as the
+SDK's ordinary not-found result, same as any other delete.
 
 ## Alarms
 

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1571,6 +1570,18 @@ func isLiveLogProjectName(name string) bool {
 	return liveLogProjectNamePattern.MatchString(name)
 }
 
+// countLiveLogProjects counts how many of projects are named
+// vngcloud-live-*.
+func countLiveLogProjects(projects []monitor.LogProject) int {
+	n := 0
+	for _, p := range projects {
+		if isLiveLogProjectName(p.ProjectName) {
+			n++
+		}
+	}
+	return n
+}
+
 // listAllLogProjectsPageCap bounds listAllLogProjects' page walk, the same
 // rule listAllChannels applies to its own paging: a server that never
 // returns an empty page and never reports a TotalItem the walk can reach
@@ -1601,6 +1612,13 @@ func listAllLogProjects(ctx context.Context, client *monitor.Client) ([]monitor.
 // the account may hold other, non-test projects. NoWait skips each
 // project's own settle wait, since this helper's caller does its own
 // final check that none remain.
+//
+// A 409 Conflict from the delete, seen live once for a project about an
+// hour old with no known cause, is logged rather than treated as a test
+// failure, and the sweep moves on to the next project: the SDK adds no
+// retry of its own for a 409, and the project that hit it was gone on its
+// own shortly after, so the caller's own final check is what confirms
+// whether it is still there.
 func deleteLiveLogProjects(ctx context.Context, t *testing.T, client *monitor.Client) int {
 	t.Helper()
 	all, err := listAllLogProjects(ctx, client)
@@ -1613,15 +1631,27 @@ func deleteLiveLogProjects(ctx context.Context, t *testing.T, client *monitor.Cl
 		if !isLiveLogProjectName(p.ProjectName) {
 			continue
 		}
-		if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{
+		_, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{
 			LogProjectID: p.ID, Purge: true, NoWait: true,
-		}); err != nil && !vngcloud.IsNotFound(err) {
+		})
+		switch {
+		case err == nil, vngcloud.IsNotFound(err):
+			swept++
+		case isConflictErr(err):
+			t.Logf("cleanup: delete/purge log project returned Conflict, code %s", vngcloud.ErrorCode(err))
+		default:
 			t.Errorf("cleanup: delete/purge log project: %s", safeErr(err))
-			continue
 		}
-		swept++
 	}
 	return swept
+}
+
+// isConflictErr reports whether err is a *vngcloud.APIError with status
+// 409, the status a live sweep saw once for a log project delete with no
+// known cause.
+func isConflictErr(err error) bool {
+	var apiErr *vngcloud.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }
 
 // TestLiveWriteMonitorLogProject exercises CreateLogProject, GetLogProject,
@@ -1641,15 +1671,17 @@ func deleteLiveLogProjects(ctx context.Context, t *testing.T, client *monitor.Cl
 // ordering anything, since a POST that fails ambiguously may still have
 // reached the server (step 3); orders the project with MaxPrice 0,
 // recording how long CreateLogProject's own wait took to see it reach
-// ACTIVE, whether its Output carried an id, and the order response's own
-// top-level field names, still unconfirmed otherwise (step 4); reads it
-// back (step 5); deletes it, moving it to trash (step 6); purges it from
-// trash, exercising DeleteLogProject's tolerance of an already-trashed
-// project (step 7); confirms a read of it now returns not-found (step 8);
-// and quotes, but does not order, a second Basic project, to record whether
-// the account's one free slot becomes available again after a purge (step
-// 9). Every step logs only counts, statuses, field names, and timings,
-// never the project's name, id, or any other field value.
+// ACTIVE and whether the order response carried an OrderID (step 4); reads
+// it back (step 5); deletes it, moving it to trash (step 6); purges it in a
+// second call (step 7): a free project's delete was seen live to remove it
+// from the log-api list, the billing list, and trash within about a
+// second, so this purge's own pre-delete baseline read already 404s, and
+// DeleteLogProject must tolerate that and succeed with no wait; confirms a
+// read of it now returns not-found (step 8); and quotes, but does not
+// order, a second Basic project, to record whether the account's one free
+// slot becomes available again after a purge (step 9). Every step logs
+// only counts, statuses, field names, and timings, never the project's
+// name, id, or any other field value.
 func TestLiveWriteMonitorLogProject(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor log project write test")
@@ -1672,35 +1704,10 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// orderResponseFields records the order POST's own top-level JSON key
-	// names, the first time one is captured: CreateLogProject's order
-	// response shape is still unconfirmed (see its doc comment), and this is
-	// the one call in this test that reaches it. The capture fires for
-	// every request the client makes under the monitor.CreateLogProject
-	// operation name, including the post-order wait's own GETs (waits reuse
-	// the calling write's operation name), so the method filter is what
-	// isolates the order POST itself. Only key names are recorded, never a
-	// value, so nothing sensitive from the response body is logged.
-	var orderResponseFields []string
 	cfg, err := vngcloud.LoadConfig(ctx,
 		vngcloud.WithRegion(region),
 		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
 		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
-		vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
-			if orderResponseFields != nil || captured.Method != http.MethodPost || captured.Operation != "monitor.CreateLogProject" {
-				return
-			}
-			var body map[string]json.RawMessage
-			if json.Unmarshal(captured.Body, &body) != nil {
-				return
-			}
-			fields := make([]string, 0, len(body))
-			for k := range body {
-				fields = append(fields, k)
-			}
-			sort.Strings(fields)
-			orderResponseFields = fields
-		}),
 	)
 	if errors.Is(err, vngcloud.ErrNoCredentials) {
 		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
@@ -1740,16 +1747,25 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 		defer cancel()
 		swept := deleteLiveLogProjects(cleanupCtx, t, client)
 		t.Logf("cleanup: deleted and purged %d vngcloud-live log project(s)", swept)
+
 		all, err := listAllLogProjects(cleanupCtx, client)
 		if err != nil {
 			t.Errorf("cleanup: final list log projects: %s", safeErr(err))
 			return
 		}
-		remaining := 0
-		for _, p := range all {
-			if isLiveLogProjectName(p.ProjectName) {
-				remaining++
+		remaining := countLiveLogProjects(all)
+		if remaining != 0 {
+			// A project the sweep above hit a Conflict on can still
+			// disappear on its own shortly after (seen live within about
+			// an hour, cause unknown); wait once for that rather than
+			// treating it as leaked on the first list.
+			time.Sleep(30 * time.Second)
+			all, err = listAllLogProjects(cleanupCtx, client)
+			if err != nil {
+				t.Errorf("cleanup: final list log projects (recheck): %s", safeErr(err))
+				return
 			}
+			remaining = countLiveLogProjects(all)
 		}
 		if remaining != 0 {
 			t.Errorf("cleanup: expected 0 vngcloud-live log projects, found %d", remaining)
@@ -1766,9 +1782,8 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 4 CreateLogProject: %s", safeErr(err))
 	}
-	t.Logf("step 4: settled after %s, response carried an id: %v, status %s",
-		createElapsed, created.LogProject.ID != "", created.LogProject.Status)
-	t.Logf("step 4: order response field names: %v", orderResponseFields)
+	t.Logf("step 4: settled after %s, order id present: %v, status %s",
+		createElapsed, created.OrderID != "", created.LogProject.Status)
 	if created.LogProject.Status != monitor.LogProjectStatusActive {
 		t.Fatalf("step 4: status = %s, want %s", created.LogProject.Status, monitor.LogProjectStatusActive)
 	}
@@ -1791,9 +1806,12 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	}
 	t.Logf("step 6: delete settled after %s", time.Since(deleteStart))
 
-	// Step 7: purge it from trash, in a second call: DeleteLogProject
-	// tolerates a NotFound from its own internal trash-delete when Purge is
-	// set, since the project already sits in trash from step 6.
+	// Step 7: purge it in a second call. A free project's delete was seen
+	// live to remove it from the log-api list, the billing list, and trash
+	// within about a second, so this call's own pre-delete baseline read
+	// already 404s; DeleteLogProject tolerates that, sending the delete and
+	// the purge anyway (both also 404, tolerated), and this must succeed
+	// with no wait, since there is no baseline left to wait against.
 	purgeStart := time.Now()
 	if _, err := client.DeleteLogProject(ctx, &monitor.DeleteLogProjectInput{LogProjectID: projectID, Purge: true}); err != nil {
 		t.Fatalf("step 7 DeleteLogProject(Purge): %s", safeErr(err))
