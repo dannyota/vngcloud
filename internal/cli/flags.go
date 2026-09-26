@@ -67,6 +67,24 @@ func flagSpecsFor(inputPtr any) ([]flagSpec, error) {
 	return specs, nil
 }
 
+// withoutNoFlag returns specs with every entry named in noFlag removed, so
+// the caller never registers a flag, or checks it for a global-flag
+// collision, for an Input field NoFlag (op.go) marks: it stays settable only
+// through --cli-input-json. It returns specs unchanged, not a copy, when
+// noFlag is empty, since every real Read op takes this path.
+func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
+	if len(noFlag) == 0 {
+		return specs
+	}
+	kept := make([]flagSpec, 0, len(specs))
+	for _, s := range specs {
+		if !noFlag[s.fieldName] {
+			kept = append(kept, s)
+		}
+	}
+	return kept
+}
+
 // supportedFieldKind reports the primitive kind flags.go binds for t: t's own
 // kind for string, int, int64, or bool, or the pointed-to kind for a pointer
 // to one of those. ok is false for any other type.

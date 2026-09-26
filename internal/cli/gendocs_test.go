@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -73,6 +73,8 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-DNS.md", opNames(dnsOps))
 	check("CLI-CDN.md", opNames(cdnOps))
 	check("CLI-Monitor.md", opNames(monitorOps))
+	check("CLI-Project.md", opNames(projectOps))
+	check("CLI-Portal.md", opNames(portalOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -374,6 +376,79 @@ func TestGenDocsUpdateHostedZoneExampleSetsAField(t *testing.T) {
 	want := "vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id> --description <description>"
 	if !strings.Contains(string(data), want) {
 		t.Errorf("update-hosted-zone example is missing %q:\n%s", want, data)
+	}
+}
+
+// TestGenDocsNoFlagFieldIsJSONOnlyNotAFlag checks the CLI reads design's
+// NoFlag rule end to end through gen-docs: project's list-projects page must
+// document Region as settable only through --cli-input-json, and must never
+// show it as a --region flag, which would collide with the global flag of
+// the same name.
+func TestGenDocsNoFlagFieldIsJSONOnlyNotAFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Project.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Project.md: %v", err)
+	}
+	want := "`Region` (via `--cli-input-json` only)"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("list-projects doc is missing %q:\n%s", want, data)
+	}
+	if strings.Contains(string(data), "`--region`") {
+		t.Errorf("list-projects doc must not list --region as a flag:\n%s", data)
+	}
+}
+
+// TestGenDocsGetExamplesQueryTheWrappedResourceField checks the CLI reads
+// design's "Commands" rendering note: a Get whose Output wraps one resource
+// gets a --query <Field> in its wiki example, so running the example as
+// printed under table or text prints columns instead of one compact-JSON
+// cell. This is a shared gendocs.go change, so it reaches every existing
+// service with that Output shape, not only project and portal.
+func TestGenDocsGetExamplesQueryTheWrappedResourceField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	cases := []struct{ file, want string }{
+		{"CLI-Billing.md", "vngcloud billing get-budget --budget-uuid <budget-uuid> --query Budget"},
+		{"CLI-Compute.md", "vngcloud compute get-server --server-id <server-id> --query Server"},
+		{"CLI-Network.md", "vngcloud network get-vpc --vpc-id <vpc-id> --query VPC"},
+		{"CLI-DNS.md", "vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id> --query HostedZone"},
+		{"CLI-Monitor.md", "vngcloud monitor get-check --check-id <check-id> --query Check"},
+		{"CLI-Portal.md", "vngcloud portal get-quota --name <name> --query Quota"},
+		{"CLI-Portal.md", "vngcloud portal get-user-info --query UserInfo"},
+		{"CLI-Portal.md", "vngcloud portal get-tag-quota --query TagQuota"},
+	}
+	for _, tt := range cases {
+		data, err := os.ReadFile(filepath.Join(dir, tt.file))
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", tt.file, err)
+		}
+		if !strings.Contains(string(data), tt.want) {
+			t.Errorf("%s is missing %q:\n%s", tt.file, tt.want, data)
+		}
+	}
+}
+
+// TestGenDocsListExampleHasNoQueryField checks that a List op, whose Output
+// holds Items rather than one wrapped resource, never gets the Get-only
+// --query <Field> addition, even though core.List and core.PagedList have
+// as few as one exported field (Items) themselves.
+func TestGenDocsListExampleHasNoQueryField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Project.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Project.md: %v", err)
+	}
+	if strings.Contains(string(data), "list-projects --query") {
+		t.Errorf("list-projects example must not query a wrapped field:\n%s", data)
 	}
 }
 

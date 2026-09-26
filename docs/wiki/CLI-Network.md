@@ -11,7 +11,7 @@ Kind: Read.
 | `--endpoint-id` | `string` | yes |
 
 ```sh
-vngcloud network get-endpoint --endpoint-id <endpoint-id>
+vngcloud network get-endpoint --endpoint-id <endpoint-id> --query Endpoint
 ```
 
 ## get-security-group
@@ -23,7 +23,7 @@ Kind: Read.
 | `--security-group-id` | `string` | yes |
 
 ```sh
-vngcloud network get-security-group --security-group-id <security-group-id>
+vngcloud network get-security-group --security-group-id <security-group-id> --query SecurityGroup
 ```
 
 ## get-subnet
@@ -36,7 +36,7 @@ Kind: Read.
 | `--subnet-id` | `string` | yes |
 
 ```sh
-vngcloud network get-subnet --vpc-id <vpc-id> --subnet-id <subnet-id>
+vngcloud network get-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --query Subnet
 ```
 
 ## get-virtual-ip-address
@@ -48,7 +48,7 @@ Kind: Read.
 | `--virtual-ip-address-id` | `string` | yes |
 
 ```sh
-vngcloud network get-virtual-ip-address --virtual-ip-address-id <virtual-ip-address-id>
+vngcloud network get-virtual-ip-address --virtual-ip-address-id <virtual-ip-address-id> --query VirtualIPAddress
 ```
 
 ## get-vpc
@@ -60,7 +60,7 @@ Kind: Read.
 | `--vpc-id` | `string` | yes |
 
 ```sh
-vngcloud network get-vpc --vpc-id <vpc-id>
+vngcloud network get-vpc --vpc-id <vpc-id> --query VPC
 ```
 
 ## list-address-pairs-by-virtual-ip-address

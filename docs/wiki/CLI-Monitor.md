@@ -60,7 +60,7 @@ Kind: Read.
 | `--check-id` | `string` | yes |
 
 ```sh
-vngcloud monitor get-check --check-id <check-id>
+vngcloud monitor get-check --check-id <check-id> --query Check
 ```
 
 ## list-channel-types

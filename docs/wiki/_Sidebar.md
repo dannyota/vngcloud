@@ -23,3 +23,5 @@
 - [CLI: DNS](CLI-DNS.md)
 - [CLI: CDN](CLI-CDN.md)
 - [CLI: Monitor](CLI-Monitor.md)
+- [CLI: Project](CLI-Project.md)
+- [CLI: Portal](CLI-Portal.md)

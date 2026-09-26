@@ -369,7 +369,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		if err != nil {
 			t.Fatalf("GetUserInfo: %v", err)
 		}
-		t.Logf("portal user info retrieved: %+v", info.UserInfo)
+		t.Logf("portal user info keys: %d", len(info.UserInfo))
 	})
 	t.Run("pricing-quote", func(t *testing.T) {
 		quoteClient := pricing.New(cfg)

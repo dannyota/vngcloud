@@ -83,6 +83,12 @@ func TestLiveCLI(t *testing.T) {
 		testLiveCLIItems(ctx, t, "monitor", "list-channel-types")
 		testLiveCLIItems(ctx, t, "monitor", "list-channels")
 	})
+	t.Run("project", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "project", "list-projects")
+	})
+	t.Run("portal", func(t *testing.T) {
+		testLiveCLIItems(ctx, t, "portal", "list-zones")
+	})
 }
 
 // testLiveCLIItems runs a list command through the CLI and logs the length

@@ -72,7 +72,7 @@ Kind: Read.
 | `--hosted-zone-id` | `string` | yes |
 
 ```sh
-vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id>
+vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id> --query HostedZone
 ```
 
 ## get-record
@@ -85,7 +85,7 @@ Kind: Read.
 | `--record-id` | `string` | yes |
 
 ```sh
-vngcloud dns get-record --hosted-zone-id <hosted-zone-id> --record-id <record-id>
+vngcloud dns get-record --hosted-zone-id <hosted-zone-id> --record-id <record-id> --query Record
 ```
 
 ## list-hosted-zones

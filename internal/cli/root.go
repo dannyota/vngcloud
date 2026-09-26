@@ -79,6 +79,8 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newDNSCmd(e))
 	root.AddCommand(newCDNCmd(e))
 	root.AddCommand(newMonitorCmd(e))
+	root.AddCommand(newProjectCmd(e))
+	root.AddCommand(newPortalCmd(e))
 
 	return root
 }

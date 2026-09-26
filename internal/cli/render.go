@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,10 +26,17 @@ var validOutputFormats = map[string]bool{outputJSON: true, outputTable: true, ou
 // first, so those results print with sorted keys. writeSucceeded is carried
 // into a runtime query failure, so its message tells the caller a write
 // already went through and must not be retried.
+//
+// redactMaps runs on out before anything is encoded, per the CLI reads
+// design's "Key redaction for map-backed Outputs": every output format, and
+// a --query result, are all built from the same encodeJSON(out) below, so
+// one redaction pass ahead of it covers every combination.
 func renderOutput(w io.Writer, format, query string, out any, writeSucceeded bool) error {
 	if !validOutputFormats[format] {
 		return newUsageError("--output must be json, table, or text, got %q", format)
 	}
+
+	redactMaps(reflect.ValueOf(out))
 
 	data, err := encodeJSON(out)
 	if err != nil {

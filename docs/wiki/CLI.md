@@ -12,7 +12,9 @@
 - [DNS](CLI-DNS.md)
 - [Monitor](CLI-Monitor.md)
 - [Network](CLI-Network.md)
+- [Portal](CLI-Portal.md)
 - [Pricing](CLI-Pricing.md)
+- [Project](CLI-Project.md)
 
 ## Global flags
 
