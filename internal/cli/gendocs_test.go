@@ -219,16 +219,16 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now five, with
-// the three vDNS wait codes) rather than a vague "exit 1", which would read
-// as ambiguous after a list of thirteen classes.
+// closing the error-classes list names every exit-1 code (now six, with
+// the three vDNS wait codes and monitor's own OTPRejected) rather than a
+// vague "exit 1", which would read as ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
-	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, and `NotSettled` all exit 1"
+	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, `NotSettled`, and `OTPRejected` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}

@@ -8,12 +8,16 @@ Kind: Write.
 
 Refuses a literal --address, or an inline --cli-input-json value that sets Address, for every Type except Email, SMS, or Telegram, with exit code 2, since another type's address can carry a bearer token. Refuses an inline --cli-input-json value that sets Headers for every Type, since Headers has no flag of its own and a Webhook channel's header value can hold a secret. Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
 
+Email, Slack, SMS, and Telegram need an OTP to create or to change Address: run send-channel-otp first, then pass its Ref as --otp-ref and the code read from the address as --otp. A wrong or expired OTP exits with error code OTPRejected and sends no create or update; the validate step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs neither flag.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
 | `--type` | `string` | yes |
 | `--address` | `string` | yes |
 | `Headers` (via `--cli-input-json` only) | `[]monitor.ChannelHeader` |  |
+| `--otp-ref` | `string` |  |
+| `--otp` | `string` |  |
 
 ```sh
 vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json
@@ -261,11 +265,29 @@ Kind: Write.
 vngcloud monitor resume-check --check-id <check-id>
 ```
 
+## send-channel-otp
+
+Kind: Write.
+
+Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as --otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an ambiguous failure, since a retry could message the address a second time. SMS beyond the free 20 spends a paid package, and sending this OTP counts toward it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--type` | `string` | yes |
+| `--address` | `string` | yes |
+| `Headers` (via `--cli-input-json` only) | `[]monitor.ChannelHeader` |  |
+
+```sh
+vngcloud monitor send-channel-otp --type Email --address <address>
+```
+
 ## update-channel
 
 Kind: Write.
 
 Refuses every literal --address, or an inline --cli-input-json value that sets Address or Headers, with exit code 2, since this Input carries no Type for the guard to check. Pass Address (and Headers) only through --cli-input-json file://channel.json. The write's own Output is redacted the same way a channel read is.
+
+Email, Slack, SMS, and Telegram need an OTP to create or to change Address: run send-channel-otp first, then pass its Ref as --otp-ref and the code read from the address as --otp. A wrong or expired OTP exits with error code OTPRejected and sends no create or update; the validate step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs neither flag.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -273,6 +295,8 @@ Refuses every literal --address, or an inline --cli-input-json value that sets A
 | `--name` | `*string` |  |
 | `--address` | `*string` |  |
 | `Headers` (via `--cli-input-json` only) | `*[]monitor.ChannelHeader` |  |
+| `--otp-ref` | `string` |  |
+| `--otp` | `string` |  |
 
 ```sh
 vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json
