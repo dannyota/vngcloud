@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1640,14 +1641,15 @@ func deleteLiveLogProjects(ctx context.Context, t *testing.T, client *monitor.Cl
 // ordering anything, since a POST that fails ambiguously may still have
 // reached the server (step 3); orders the project with MaxPrice 0,
 // recording how long CreateLogProject's own wait took to see it reach
-// ACTIVE and whether its Output carried an id (step 4); reads it back
-// (step 5); deletes it, moving it to trash (step 6); purges it from trash,
-// exercising DeleteLogProject's tolerance of an already-trashed project
-// (step 7); confirms a read of it now returns not-found (step 8); and
-// quotes, but does not order, a second Basic project, to record whether
+// ACTIVE, whether its Output carried an id, and the order response's own
+// top-level field names, still unconfirmed otherwise (step 4); reads it
+// back (step 5); deletes it, moving it to trash (step 6); purges it from
+// trash, exercising DeleteLogProject's tolerance of an already-trashed
+// project (step 7); confirms a read of it now returns not-found (step 8);
+// and quotes, but does not order, a second Basic project, to record whether
 // the account's one free slot becomes available again after a purge (step
-// 9). Every step logs only counts, statuses, and timings, never the
-// project's name or id.
+// 9). Every step logs only counts, statuses, field names, and timings,
+// never the project's name, id, or any other field value.
 func TestLiveWriteMonitorLogProject(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor log project write test")
@@ -1670,10 +1672,35 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	// orderResponseFields records the order POST's own top-level JSON key
+	// names, the first time one is captured: CreateLogProject's order
+	// response shape is still unconfirmed (see its doc comment), and this is
+	// the one call in this test that reaches it. The capture fires for
+	// every request the client makes under the monitor.CreateLogProject
+	// operation name, including the post-order wait's own GETs (waits reuse
+	// the calling write's operation name), so the method filter is what
+	// isolates the order POST itself. Only key names are recorded, never a
+	// value, so nothing sensitive from the response body is logged.
+	var orderResponseFields []string
 	cfg, err := vngcloud.LoadConfig(ctx,
 		vngcloud.WithRegion(region),
 		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
 		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+		vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
+			if orderResponseFields != nil || captured.Method != http.MethodPost || captured.Operation != "monitor.CreateLogProject" {
+				return
+			}
+			var body map[string]json.RawMessage
+			if json.Unmarshal(captured.Body, &body) != nil {
+				return
+			}
+			fields := make([]string, 0, len(body))
+			for k := range body {
+				fields = append(fields, k)
+			}
+			sort.Strings(fields)
+			orderResponseFields = fields
+		}),
 	)
 	if errors.Is(err, vngcloud.ErrNoCredentials) {
 		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
@@ -1741,6 +1768,7 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	}
 	t.Logf("step 4: settled after %s, response carried an id: %v, status %s",
 		createElapsed, created.LogProject.ID != "", created.LogProject.Status)
+	t.Logf("step 4: order response field names: %v", orderResponseFields)
 	if created.LogProject.Status != monitor.LogProjectStatusActive {
 		t.Fatalf("step 4: status = %s, want %s", created.LogProject.Status, monitor.LogProjectStatusActive)
 	}
@@ -1749,8 +1777,8 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	}
 	projectID := created.LogProject.ID
 
-	// Step 5: read the project back; GetLogProject's field shape for a real
-	// project is otherwise unconfirmed.
+	// Step 5: read the project back to confirm GetLogProject decodes this
+	// order's own project the same way ListLogProjects did.
 	if _, err := client.GetLogProject(ctx, &monitor.GetLogProjectInput{LogProjectID: projectID}); err != nil {
 		t.Fatalf("step 5 GetLogProject: %s", safeErr(err))
 	}

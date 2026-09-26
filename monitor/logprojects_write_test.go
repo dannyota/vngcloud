@@ -80,7 +80,7 @@ func TestCreateLogProjectOrderUsesSharedBuilderBody(t *testing.T) {
 				t.Fatalf("redirectUrl = %v", body["redirectUrl"])
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
 		}
@@ -145,7 +145,7 @@ func TestCreateLogProjectDefaultMaxPriceOrdersOnlyFree(t *testing.T) {
 				t.Fatalf("unexpected order body: %+v", body)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"ACTIVE"}`))
+			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"ACTIVE"}`))
 		default:
 			t.Fatalf("unexpected request to %s", r.URL.Path)
 		}
@@ -202,7 +202,7 @@ func TestCreateLogProjectNoWaitSkipsWait(t *testing.T) {
 			_, _ = w.Write([]byte(freeQuoteBody))
 		case "/billing-api/v2/log/quotas":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","status":"CREATING"}`))
+			_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","status":"CREATING"}`))
 		case "/log-api/v1/projects":
 			listCalls.Add(1)
 			t.Fatal("NoWait must not list projects")
@@ -230,7 +230,7 @@ func logProjectListPage(name, status string) string {
 		return `{"content":[],"currentPage":0,"pageSize":100,"totalElements":0,"totalPages":0}`
 	}
 	return fmt.Sprintf(
-		`{"content":[{"id":"proj-1","projectName":%q,"status":%q}],"currentPage":0,"pageSize":100,"totalElements":1,"totalPages":1}`,
+		`{"content":[{"id":"proj-1","name":%q,"status":%q}],"currentPage":0,"pageSize":100,"totalElements":1,"totalPages":1}`,
 		name, status)
 }
 

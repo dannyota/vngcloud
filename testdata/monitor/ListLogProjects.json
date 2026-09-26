@@ -1,7 +1,34 @@
 {
-  "content": [],
+  "content": [
+    {
+      "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "name": "vngcloud-example",
+      "projectType": "project",
+      "description": "",
+      "status": "ACTIVE",
+      "billingStatus": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00.000+00:00",
+      "extra": {
+        "preRenderSystemFields": ["@timestamp", "beat.hostname", "fields.service", "request.body"],
+        "customMappings": [
+          {"systemField": "date", "portalFields": ["Date"]},
+          {"systemField": "message", "portalFields": ["Content"]}
+        ],
+        "enabledAcl": true,
+        "certUpdatedAt": "2026-01-01T00:00:00.788+00:00"
+      },
+      "certInfos": [
+        {
+          "certId": "11111111-2222-4333-8444-555555555555",
+          "status": "active",
+          "createdAt": "2026-01-01T00:00:06.000+00:00",
+          "expireAt": "2029-01-01T00:00:06.000+00:00"
+        }
+      ]
+    }
+  ],
+  "totalPages": 1,
+  "totalElements": 1,
   "currentPage": 0,
-  "pageSize": 10,
-  "totalElements": 0,
-  "totalPages": 0
+  "pageSize": 10
 }

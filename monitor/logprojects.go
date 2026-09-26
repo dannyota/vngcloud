@@ -38,56 +38,37 @@ func (c *Client) logBillingRouteV1(parts []string) string {
 	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full})
 }
 
-// LogProject is one vMonitor log project: the design's source section notes
-// it is a log quota order and the log project it provisions, sharing one
-// ID. The test account has never held one, so this shape is unconfirmed
-// beyond ID: ProjectName and Zone come from the design's note that a log
-// alarm's create body reads them off the project (see the alarms section);
-// the rest are inferred from the log project's own create body and the
-// list's query filters. Confirm and correct this shape against a live
-// project once one exists.
+// LogProject is one vMonitor log project: ordering one both provisions the
+// log project and creates its billing quota, sharing one ID. A live project
+// confirms ID, ProjectName (wire key "name"), ProjectDescription (wire key
+// "description"), Status, BillingStatus, ProjectType, and CreatedAt, all
+// plain strings. The wire also sends "extra" (search field mappings) and,
+// on the list only, "certInfos" (cert IDs and expiry dates); neither is
+// modeled, the same way any field a caller's struct omits is dropped. There
+// is no "zone" or "updatedAt" key on this shape. The order response's own
+// shape is still unconfirmed (see CreateLogProject).
 type LogProject struct {
 	ID                 string `json:"id"`
-	ProjectName        string `json:"projectName"`
-	ProjectDescription string `json:"projectDescription"`
+	ProjectName        string `json:"name"`
+	ProjectDescription string `json:"description"`
 	Status             string `json:"status"`
 	BillingStatus      string `json:"billingStatus"`
 	ProjectType        string `json:"projectType"`
-	Zone               string `json:"zone"`
 	CreatedAt          string `json:"createdAt"`
-	UpdatedAt          string `json:"updatedAt"`
-}
-
-// UnmarshalJSON decodes LogProject with ID, CreatedAt, and UpdatedAt routed
-// through flexibleString: three fields this shape has not confirmed the
-// wire type of, and a numeric id or an epoch createdAt would otherwise fail
-// the whole item's decode, taking the rest of a list page down with it.
-func (lp *LogProject) UnmarshalJSON(data []byte) error {
-	type alias LogProject
-	aux := struct {
-		ID        flexibleString `json:"id"`
-		CreatedAt flexibleString `json:"createdAt"`
-		UpdatedAt flexibleString `json:"updatedAt"`
-		*alias
-	}{alias: (*alias)(lp)}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	lp.ID = string(aux.ID)
-	lp.CreatedAt = string(aux.CreatedAt)
-	lp.UpdatedAt = string(aux.UpdatedAt)
-	return nil
 }
 
 // ListLogProjectsInput filters the log project list. Query and
-// BillingStatus filter by name and billing status; the API also takes
-// project_type and status query keys the SDK does not expose yet, always
-// sent empty, as ListChannels does for searchtext and field. Page and Size
-// page the result; unlike ListChannels' page, the API's page here is
-// 0-based, so Page's zero value already names the first page rather than
-// meaning "unset" (see logProjectPageQuery). A non-positive Size sends
-// logProjectDefaultPageSize; a Size over the API's own maximum of 100 is
-// sent unchanged and rejected by the server (ADR 0002 rule 5).
+// BillingStatus filter by name and billing status; the SDK sends each only
+// when non-empty. The API also takes project_type and status query keys
+// the SDK does not expose yet: unlike ListChannels' searchtext and field,
+// sending either of these empty makes the live list treat it as its own
+// filter and return zero items, so the SDK never sends them at all until it
+// exposes a way to set them non-empty. Page and Size page the result;
+// unlike ListChannels' page, the API's page here is 0-based, so Page's zero
+// value already names the first page rather than meaning "unset" (see
+// logProjectPageQuery). A non-positive Size sends logProjectDefaultPageSize;
+// a Size over the API's own maximum of 100 is sent unchanged and rejected by
+// the server (ADR 0002 rule 5).
 type ListLogProjectsInput struct {
 	Query         string
 	BillingStatus string
@@ -107,9 +88,7 @@ type listLogProjectsResponse struct {
 
 // ListLogProjects lists log projects on the account. A nil Input is valid
 // and lists every project from page 0 at logProjectDefaultPageSize, the
-// same as &ListLogProjectsInput{}. The test account has none, so only the
-// empty envelope shape is confirmed live; LogProject's own field shape is
-// not (see its doc comment).
+// same as &ListLogProjectsInput{}.
 func (c *Client) ListLogProjects(ctx context.Context, in *ListLogProjectsInput) (*ListLogProjectsOutput, error) {
 	const op = "monitor.ListLogProjects"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -130,10 +109,12 @@ func (c *Client) listLogProjects(ctx context.Context, op string, in *ListLogProj
 		query, billingStatus, page, size = in.Query, in.BillingStatus, in.Page, in.Size
 	}
 	q := logProjectPageQuery(page, size)
-	q.Set("query", query)
-	q.Set("billing_status", billingStatus)
-	q.Set("project_type", "")
-	q.Set("status", "")
+	if query != "" {
+		q.Set("query", query)
+	}
+	if billingStatus != "" {
+		q.Set("billing_status", billingStatus)
+	}
 
 	var resp listLogProjectsResponse
 	req := transport.Request{
@@ -185,11 +166,10 @@ type GetLogProjectOutput struct {
 	LogProject LogProject
 }
 
-// GetLogProject reads one log project by ID. The design's source section
-// marks this call "Console code only": no live project has confirmed it or
-// LogProject's per-project fields (see LogProject's doc comment). A
-// fabricated ID against the live account did confirm the path shape and
-// that a missing project 404s into core.ErrNotFound, the same as GetCheck.
+// GetLogProject reads one log project by ID; a live project confirms
+// LogProject's field shape (see its doc comment). A fabricated ID against
+// the live account confirmed a missing project 404s into core.ErrNotFound,
+// the same as GetCheck.
 func (c *Client) GetLogProject(ctx context.Context, in *GetLogProjectInput) (*GetLogProjectOutput, error) {
 	const op = "monitor.GetLogProject"
 	if err := core.CheckRequired(op, in); err != nil {

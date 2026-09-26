@@ -1,0 +1,18 @@
+{
+  "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "name": "vngcloud-example",
+  "projectType": "project",
+  "description": "",
+  "status": "ACTIVE",
+  "billingStatus": "ACTIVE",
+  "createdAt": "2026-01-01T00:00:00.000+00:00",
+  "extra": {
+    "preRenderSystemFields": ["@timestamp", "beat.hostname", "fields.service", "request.body"],
+    "customMappings": [
+      {"systemField": "date", "portalFields": ["Date"]},
+      {"systemField": "message", "portalFields": ["Content"]}
+    ],
+    "enabledAcl": true,
+    "certUpdatedAt": "2026-01-01T00:00:00.788+00:00"
+  }
+}

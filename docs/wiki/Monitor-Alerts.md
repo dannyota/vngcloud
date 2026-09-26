@@ -185,10 +185,8 @@ itself defaults to, gets a 400 from the server. The output's `TotalPage`
 counts from that same 0-based `Page`, so the last page is `Page ==
 TotalPage-1`, not `TotalPage`.
 
-`GetLogProject` reads one project by ID. The test account has never held
-one, so `LogProject`'s field shape past `ID` is unverified: see its doc
-comment for what it is based on, and confirm it against a live project
-before depending on a field other than `ID`.
+`GetLogProject` reads one project by ID; a live project confirms
+`LogProject`'s field shape (see its doc comment).
 
 `ListLogProjectClassesInput` has no fields; a nil Input is valid, and the
 API returns every class in one response with no paging.

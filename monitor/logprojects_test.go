@@ -14,6 +14,9 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 )
 
+// TestListLogProjectsDecodesFixture decodes a sanitized live capture: one
+// project with the confirmed field shape (see LogProject's doc comment),
+// including the extra and certInfos keys the SDK does not model.
 func TestListLogProjectsDecodesFixture(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -29,11 +32,41 @@ func TestListLogProjectsDecodesFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListLogProjects() error = %v", err)
 	}
-	if len(out.Items) != 0 {
+	if len(out.Items) != 1 {
 		t.Fatalf("unexpected items: %+v", out.Items)
 	}
-	if out.Page != 0 || out.PageSize != 10 || out.TotalPage != 0 || out.TotalItem != 0 {
+	if out.Page != 0 || out.PageSize != 10 || out.TotalPage != 1 || out.TotalItem != 1 {
 		t.Fatalf("unexpected paging: %+v", out)
+	}
+	p := out.Items[0]
+	if p.ID == "" || p.ProjectName != "vngcloud-example" || p.ProjectDescription != "" {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+	if p.Status != LogProjectStatusActive || p.BillingStatus != "ACTIVE" || p.ProjectType != "project" {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+	if p.CreatedAt == "" {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+}
+
+// TestListLogProjectsOmitsEmptyFilterParams checks Query and BillingStatus
+// left empty are never sent as empty query parameters, and project_type and
+// status are never sent at all: the live list treats an empty value for any
+// of these four keys as its own filter and returns zero items, rather than
+// ignoring it as ListChannels' searchtext and field do.
+func TestListLogProjectsOmitsEmptyFilterParams(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		for _, key := range []string{"query", "billing_status", "project_type", "status"} {
+			if _, ok := q[key]; ok {
+				t.Fatalf("unexpected %q in query: %v", key, q)
+			}
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/ListLogProjects.json")
+	}))
+	if _, err := client.ListLogProjects(context.Background(), nil); err != nil {
+		t.Fatalf("ListLogProjects() error = %v", err)
 	}
 }
 
@@ -92,10 +125,10 @@ func TestListLogProjectsSendsFilters(t *testing.T) {
 	}
 }
 
-// TestGetLogProjectRequest checks the path and decode. LogProject's shape
-// is unverified (see its doc comment): the test account has never held a
-// project, so this response is hand-built, not a sanitized live capture,
-// and only exercises the decode path.
+// TestGetLogProjectRequest checks the path and that name and description
+// decode into ProjectName and ProjectDescription: the live wire sends them
+// under those keys, not projectName and projectDescription, and there is no
+// zone key at all.
 func TestGetLogProjectRequest(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -105,50 +138,42 @@ func TestGetLogProjectRequest(t *testing.T) {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"proj-1","projectName":"app","zone":"hcm-3","status":"ACTIVE"}`))
+		_, _ = w.Write([]byte(`{"id":"proj-1","name":"app","description":"logs","status":"ACTIVE"}`))
 	}))
 
 	out, err := client.GetLogProject(context.Background(), &GetLogProjectInput{LogProjectID: "proj-1"})
 	if err != nil {
 		t.Fatalf("GetLogProject() error = %v", err)
 	}
-	if out.LogProject.ID != "proj-1" || out.LogProject.ProjectName != "app" || out.LogProject.Zone != "hcm-3" {
+	if out.LogProject.ID != "proj-1" || out.LogProject.ProjectName != "app" || out.LogProject.ProjectDescription != "logs" {
 		t.Fatalf("unexpected project: %+v", out.LogProject)
 	}
 }
 
-// TestLogProjectDecodesStringOrNumberFields checks ID, CreatedAt, and
-// UpdatedAt each accept either shape a guessed-type field might arrive in:
-// the design has not confirmed whether the API sends them as strings or
-// numbers, and a numeric id or an epoch createdAt must not fail the whole
-// item's decode.
-func TestLogProjectDecodesStringOrNumberFields(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want LogProject
-	}{
-		{
-			"strings",
-			`{"id":"proj-1","createdAt":"2026-09-26T00:00:00","updatedAt":"2026-09-27T00:00:00"}`,
-			LogProject{ID: "proj-1", CreatedAt: "2026-09-26T00:00:00", UpdatedAt: "2026-09-27T00:00:00"},
-		},
-		{
-			"numbers",
-			`{"id":42,"createdAt":1758844800,"updatedAt":1758931200}`,
-			LogProject{ID: "42", CreatedAt: "1758844800", UpdatedAt: "1758931200"},
-		},
+// TestGetLogProjectDecodesFixture decodes a sanitized live capture: the
+// same confirmed field shape ListLogProjects.json holds, without the
+// certInfos key, which the live capture showed only on the list.
+func TestGetLogProjectDecodesFixture(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/log-api/v1/projects/proj-1" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetLogProject.json")
+	}))
+
+	out, err := client.GetLogProject(context.Background(), &GetLogProjectInput{LogProjectID: "proj-1"})
+	if err != nil {
+		t.Fatalf("GetLogProject() error = %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var lp LogProject
-			if err := json.Unmarshal([]byte(tt.raw), &lp); err != nil {
-				t.Fatalf("Unmarshal() error = %v", err)
-			}
-			if lp != tt.want {
-				t.Fatalf("LogProject = %+v, want %+v", lp, tt.want)
-			}
-		})
+	p := out.LogProject
+	if p.ID == "" || p.ProjectName != "vngcloud-example" || p.ProjectDescription != "" {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+	if p.Status != LogProjectStatusActive || p.BillingStatus != "ACTIVE" || p.ProjectType != "project" {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+	if p.CreatedAt == "" {
+		t.Fatalf("unexpected project: %+v", p)
 	}
 }
 

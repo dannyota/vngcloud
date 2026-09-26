@@ -300,10 +300,10 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 	}
 
-	// The test account holds no log project, so this only exercises the
-	// list envelope; GetLogProject itself stays unread here. See the
-	// design's log projects section for what LogProject's own field shape
-	// still lacks a live confirmation for.
+	// ListLogProjects' envelope and LogProject's own per-project field shape
+	// are both live-confirmed (see LogProject's doc comment); GetLogProject
+	// itself stays unread here, since whether the test account holds a log
+	// project varies with the live write test's own runs.
 	projects, err := client.ListLogProjects(ctx, nil)
 	if err != nil {
 		t.Fatalf("ListLogProjects: %v", err)
