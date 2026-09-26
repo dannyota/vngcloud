@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.13.0 - Project and Portal Commands
+
+### Highlights
+
+- New `vngcloud project list-projects` and `vngcloud portal` commands:
+  `get-user-info`, `list-zones`, `list-quota-used`, `get-quota`, and
+  `get-tag-quota`. Reads only, so read-only profiles allow them.
+- Output built from raw maps hides the value of any key that looks secret
+  (password, passphrase, secret, token, credential, private key, API key,
+  or authorization, in any spelling) as `<redacted>`, in every format and
+  before `--query`. Typed fields are not touched.
+- Generated examples for single-resource reads now show `--query <Field>`.
+
+### Behavior changes
+
+None for SDK callers.
+
 ## v0.12.0 - vDNS Records
 
 ### Highlights
