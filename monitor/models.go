@@ -288,3 +288,29 @@ func (n *flexibleInt) UnmarshalJSON(data []byte) error {
 	*n = flexibleInt(f)
 	return nil
 }
+
+// flexibleString decodes a field whose wire type the design has not
+// confirmed, such as an ID or a timestamp that could turn out to be numeric
+// or an epoch instead of the string every live capture has shown so far. A
+// JSON number decodes through json.Number, so a large ID keeps its exact
+// digits rather than a float64's rounding, and formats as a string. Any
+// other JSON type an unconfirmed field might arrive as (an object, an
+// array, a bool, or null) leaves the value empty rather than failing the
+// whole item it belongs to: one field of an unexpected shape is not worth
+// losing the rest of a list page over.
+type flexibleString string
+
+func (s *flexibleString) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*s = flexibleString(str)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(data, &num); err == nil {
+		*s = flexibleString(num.String())
+		return nil
+	}
+	*s = ""
+	return nil
+}

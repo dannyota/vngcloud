@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1470,11 +1471,11 @@ func TestMonitorQuoteCreateLogProjectSendsRequestBody(t *testing.T) {
 	}
 }
 
-// TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag checks the
-// design's M5 scope: MaxPrice and NoWait only govern create-log-project's
-// own order and wait, a later release, so quote-create-log-project (this
-// release) registers neither as a flag; both stay settable only through
-// --cli-input-json until create-log-project ships.
+// TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag checks that
+// MaxPrice and NoWait, which only govern create-log-project's own order and
+// wait, a later release, register no flag on quote-create-log-project; both
+// stay settable only through --cli-input-json until create-log-project
+// ships, and this command ignores them even then.
 func TestMonitorQuoteCreateLogProjectHasNoMaxPriceOrNoWaitFlag(t *testing.T) {
 	cmd := newMonitorCmd(&env{flags: &globalFlags{}})
 	sub, _, err := cmd.Find([]string{"quote-create-log-project"})
@@ -1551,8 +1552,9 @@ func TestMonitorListAlarmsEndToEnd(t *testing.T) {
 	// Decoded into a plain local struct, not monitor.Alarm: the CLI's own
 	// JSON keys are Go field names (per the CLI design's "Output"), but
 	// Alarm's custom UnmarshalJSON expects the wire's lowercase keys and
-	// infers Kind from which of them is present, so round-tripping this
-	// output back through it would relabel Kind rather than read it.
+	// never sets Kind itself (ListAlarms sets it from its own Kind filter
+	// after decode), so round-tripping this output back through it would
+	// lose Kind rather than read it.
 	var out struct {
 		Items []struct {
 			ID   string
@@ -1597,8 +1599,10 @@ func TestMonitorListAlarmsMissingKindExitsWithZeroRequests(t *testing.T) {
 
 // TestMonitorGetAlarmEndToEnd runs the real get-alarm command against a
 // fixture alarm API, checking the request method and path and that the
-// decoded Alarm survives the round trip, including the Kind
-// UnmarshalJSON infers from the inAlarm and ok fields.
+// decoded Alarm survives the round trip: Kind comes back empty, since
+// get-alarm takes no kind filter and the API sends no field confirmed to
+// name it, while Log still decodes from the inAlarm and ok fields the
+// response carries.
 func TestMonitorGetAlarmEndToEnd(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/vmonitor-api/api/v1/alarms/alarm-1": jsonHandler(http.StatusOK, monitorAlarmGetJSON()),
@@ -1618,13 +1622,19 @@ func TestMonitorGetAlarmEndToEnd(t *testing.T) {
 			ID   string
 			Name string
 			Kind string
+			Log  struct {
+				InAlarm []string
+			}
 		}
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		t.Fatalf("get-alarm stdout is not valid JSON: %v (%s)", err, stdout.String())
 	}
-	if out.Alarm.ID != "alarm-1" || out.Alarm.Kind != monitor.AlarmKindLog {
+	if out.Alarm.ID != "alarm-1" || out.Alarm.Kind != "" {
 		t.Fatalf("get-alarm Alarm = %+v", out.Alarm)
+	}
+	if want := []string{"channel-1"}; !slices.Equal(out.Alarm.Log.InAlarm, want) {
+		t.Fatalf("get-alarm Alarm.Log.InAlarm = %v, want %v", out.Alarm.Log.InAlarm, want)
 	}
 }
 

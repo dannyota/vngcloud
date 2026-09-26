@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 )
 
+// TestListAlarmsQueryParametersDefaults loads ListAlarmsLog.json only for
+// its paging envelope; that fixture's item is synthetic (see
+// TestListAlarmsDecodesLogFixture), but this test does not inspect it.
 func TestListAlarmsQueryParametersDefaults(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -39,6 +43,9 @@ func TestListAlarmsQueryParametersDefaults(t *testing.T) {
 	}
 }
 
+// TestListAlarmsQueryParametersFiltersAndPaging loads ListAlarmsMetric.json
+// only for its paging envelope; that fixture's item is synthetic (see
+// TestListAlarmsDecodesMetricFixture), but this test does not inspect it.
 func TestListAlarmsQueryParametersFiltersAndPaging(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -81,7 +88,9 @@ func TestListAlarmsMissingKind(t *testing.T) {
 
 // TestListAlarmsDecodesLogFixture also covers the design's log alarm
 // channel reference: inAlarm and ok, each a comma-joined channel ID string
-// with a trailing comma, decode into Log.InAlarm and Log.OK.
+// with a trailing comma, decode into Log.InAlarm and Log.OK. The fixture is
+// synthetic: the design's alarm list call was only seen live with an empty
+// result, so this item's fields are hand-built, not a live capture.
 func TestListAlarmsDecodesLogFixture(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testutil.WriteFixture(t, w, "../testdata/monitor/ListAlarmsLog.json")
@@ -124,7 +133,8 @@ func TestListAlarmsDecodesLogFixture(t *testing.T) {
 
 // TestListAlarmsDecodesMetricFixture also covers the design's metric alarm
 // channel reference: a Metric alarm names a channel by metricMappingId
-// rather than by a comma-joined list of channel IDs.
+// rather than by a comma-joined list of channel IDs. The fixture is
+// synthetic, for the same reason TestListAlarmsDecodesLogFixture's is.
 func TestListAlarmsDecodesMetricFixture(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testutil.WriteFixture(t, w, "../testdata/monitor/ListAlarmsMetric.json")
@@ -156,6 +166,49 @@ func TestListAlarmsDecodesMetricFixture(t *testing.T) {
 	}
 }
 
+// TestListAlarmsSetsLogAndMetricMappingIDFromKind checks that Log and
+// MetricMappingID come from in.Kind, not from which of the two the response
+// happens to carry: a response naming both, which the design says should
+// never happen but the SDK's decode does not assume, still ends up with
+// only the field its own Kind filter names set.
+func TestListAlarmsSetsLogAndMetricMappingIDFromKind(t *testing.T) {
+	const raw = `{
+		"lstData": [{"id":"alarm-3","name":"both-fields","status":"OK","severity":"LOW",
+			"inAlarm":"channel-1,","ok":"","metricMappingId":"metric-map-2"}],
+		"page": 1, "pageSize": 10, "totalPage": 1, "totalItem": 1
+	}`
+
+	for _, tt := range []struct {
+		kind        string
+		wantLog     bool
+		wantMapping string
+	}{
+		{AlarmKindLog, true, ""},
+		{AlarmKindMetric, false, "metric-map-2"},
+	} {
+		t.Run(tt.kind, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(raw))
+			}))
+			out, err := client.ListAlarms(context.Background(), &ListAlarmsInput{Kind: tt.kind})
+			if err != nil {
+				t.Fatalf("ListAlarms() error = %v", err)
+			}
+			got := out.Items[0]
+			if (got.Log != nil) != tt.wantLog {
+				t.Fatalf("Log = %+v, want non-nil: %v", got.Log, tt.wantLog)
+			}
+			if got.MetricMappingID != tt.wantMapping {
+				t.Fatalf("MetricMappingID = %q, want %q", got.MetricMappingID, tt.wantMapping)
+			}
+		})
+	}
+}
+
+// TestGetAlarmDecodesFixture uses a synthetic fixture: the design's Get
+// alarm call is console code only, never seen live, so GetAlarm.json is
+// hand-built to exercise the decode, not a sanitized live capture.
 func TestGetAlarmDecodesFixture(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -175,8 +228,11 @@ func TestGetAlarmDecodesFixture(t *testing.T) {
 	if got.ID != "alarm-1" || got.Name != "example-log-alarm" {
 		t.Fatalf("unexpected identity: %+v", got)
 	}
-	if got.Kind != AlarmKindLog {
-		t.Fatalf("Kind = %q, want %q", got.Kind, AlarmKindLog)
+	// GetAlarm takes no Kind filter, and the API sends no field confirmed to
+	// name the kind itself, so Kind stays empty rather than being guessed
+	// from which of Log or MetricMappingID the response happens to carry.
+	if got.Kind != "" {
+		t.Fatalf("Kind = %q, want empty", got.Kind)
 	}
 	if got.Log == nil {
 		t.Fatal("Log = nil, want non-nil")
@@ -189,6 +245,32 @@ func TestGetAlarmDecodesFixture(t *testing.T) {
 	// empty element.
 	if got.Log.OK != nil {
 		t.Fatalf("Log.OK = %v, want nil", got.Log.OK)
+	}
+}
+
+// TestAlarmIDDecodesStringOrNumber checks Alarm.ID accepts either shape a
+// guessed-type field might arrive in: the design has not confirmed whether
+// the API sends it as a string or a number, and a numeric ID must not fail
+// the whole item's decode.
+func TestAlarmIDDecodesStringOrNumber(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"string", `{"id":"alarm-9","name":"n"}`, "alarm-9"},
+		{"number", `{"id":42,"name":"n"}`, "42"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var a Alarm
+			if err := json.Unmarshal([]byte(tt.raw), &a); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if a.ID != tt.want {
+				t.Fatalf("ID = %q, want %q", a.ID, tt.want)
+			}
+		})
 	}
 }
 
@@ -231,12 +313,16 @@ func TestGetAlarmPathIDRejection(t *testing.T) {
 }
 
 // TestSplitChannelIDs covers the design's exact comma-joined format: each
-// channel ID followed by a comma, including the last one.
+// channel ID followed by a comma, including the last one, and checks that
+// every empty element a malformed value produces is dropped, not just a
+// trailing one.
 func TestSplitChannelIDs(t *testing.T) {
 	one := "channel-1,"
 	two := "channel-1,channel-2,"
 	empty := ""
 	noTrailingComma := "channel-1"
+	doubleComma := "channel-1,,channel-2,"
+	leadingComma := ",channel-1,"
 
 	cases := []struct {
 		name string
@@ -248,6 +334,8 @@ func TestSplitChannelIDs(t *testing.T) {
 		{"one", &one, []string{"channel-1"}},
 		{"two", &two, []string{"channel-1", "channel-2"}},
 		{"no trailing comma", &noTrailingComma, []string{"channel-1"}},
+		{"interior empty from a doubled comma", &doubleComma, []string{"channel-1", "channel-2"}},
+		{"leading comma", &leadingComma, []string{"channel-1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

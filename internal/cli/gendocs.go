@@ -458,12 +458,23 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 	"that data too.\n\n" + portalMapRedactionNote
 
 // unverifiedLiveNote builds the shared text for an output shape the live
-// checks cannot confirm, because the test account holds no such resource.
+// checks cannot confirm, because the test account holds no such resource and
+// the shape comes from GreenNode's official SDK rather than a live capture.
 // volume and loadbalancer notes reuse it, differing only in the resource
 // named.
 func unverifiedLiveNote(resource string) string {
 	return "Unverified live: the test account has no " + resource +
 		", so this output shape comes from GreenNode's official SDK, not a live capture."
+}
+
+// unverifiedConsoleNote is unverifiedLiveNote's variant for a shape that has
+// no source in GreenNode's official SDK at all: monitor's log project and
+// alarm shapes are inferred from the vMonitor console's own code and a
+// third-party source (the design's Source section), never from an SDK
+// GreenNode publishes.
+func unverifiedConsoleNote(resource string) string {
+	return "Unverified live: the test account has no " + resource +
+		", so this output shape is inferred from the console's code, not a live capture."
 }
 
 // volumeShapeUnverifiedNote flags an output shape the live checks cannot
@@ -498,17 +509,18 @@ var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote 
 // nothing exercises this command's decoding against a real response.
 var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
-// logProjectShapeUnverifiedNote flags get-log-project's output shape: the
-// test account holds no log project, so nothing exercises this command's
-// per-project field decoding against a real response (list-log-projects and
-// list-log-project-classes both return live-confirmed shapes; see
-// monitor.LogProject's doc comment).
-var logProjectShapeUnverifiedNote = unverifiedLiveNote("log project")
+// logProjectShapeUnverifiedNote flags get-log-project's and
+// list-log-projects' output shape: the test account holds no log project,
+// so nothing exercises either command's per-project field decoding against
+// a real response; list-log-projects' own paging envelope is live-confirmed
+// (empty), and list-log-project-classes returns a live-confirmed shape too
+// (see monitor.LogProject's doc comment).
+var logProjectShapeUnverifiedNote = unverifiedConsoleNote("log project")
 
 // monitorAlarmShapeUnverifiedNote flags an output shape the live checks
 // cannot confirm: the test account holds no alarm, so nothing exercises
 // list-alarms' or get-alarm's decoding against a real response.
-var monitorAlarmShapeUnverifiedNote = unverifiedLiveNote("alarm")
+var monitorAlarmShapeUnverifiedNote = unverifiedConsoleNote("alarm")
 
 // monitorGetAlarmUnknownIDNote documents get-alarm's own exit code for a
 // missing alarm, since it differs from every other Get command's: the API
@@ -516,6 +528,15 @@ var monitorAlarmShapeUnverifiedNote = unverifiedLiveNote("alarm")
 // matches it and the command exits 1 rather than 4.
 const monitorGetAlarmUnknownIDNote = "A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, " +
 	"not a 404, so this command never reports the NotFound error class."
+
+// monitorQuoteCreateLogProjectIgnoredFieldsNote documents
+// quote-create-log-project's own nuance the flag table cannot show:
+// CreateLogProjectInput's MaxPrice and NoWait fields are registered with
+// NoFlag (see monitorOps), so they reach this command only through
+// --cli-input-json, and even set there this read ignores both.
+const monitorQuoteCreateLogProjectIgnoredFieldsNote = "Ignores MaxPrice and NoWait even when an inline " +
+	"--cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, " +
+	"a later release; this command neither orders anything nor waits."
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -528,6 +549,8 @@ var docOpNotes = map[string]string{
 	"monitor create-channel":                  monitorCreateChannelAddressNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote,
 	"monitor get-log-project":                 logProjectShapeUnverifiedNote,
+	"monitor list-log-projects":               logProjectShapeUnverifiedNote,
+	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote,
 	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
 	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
 	"monitor create-check":                    monitorCheckNotificationsNote,
@@ -598,9 +621,13 @@ var docExampleExtraFlag = map[string]string{
 // string field, but the CLI's own guard refuses exactly that flag for a real
 // Webhook or Slack channel. The override shows the runnable form instead:
 // Address (and Headers) through --cli-input-json file://channel.json.
+// list-alarms needs it too: buildExample would otherwise print the
+// placeholder "--kind <kind>" for its required Kind field, which is not a
+// value the command accepts, so the override names a real one, Log.
 var docExampleOverride = map[string]string{
 	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
 	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+	"monitor list-alarms":              "vngcloud monitor list-alarms --kind Log",
 	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
 }
 
