@@ -873,3 +873,28 @@ func TestDeleteLogProjectPurgeToleratesGoneBaselineWhenPurgeSucceeds(t *testing.
 		t.Fatalf("DeleteLogProject() error = %v", err)
 	}
 }
+
+// TestDeleteLogProjectNoWaitPurgeBothNotFoundReturnsNotFound checks NoWait
+// with Purge still reports NotFound when the delete and the purge both
+// 404, even though NoWait sends no baseline read.
+func TestDeleteLogProjectNoWaitPurgeBothNotFoundReturnsNotFound(t *testing.T) {
+	var requests atomic.Int64
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodDelete {
+			t.Fatalf("unexpected %s request to %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+	}))
+
+	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{
+		LogProjectID: "proj-1", Purge: true, NoWait: true,
+	})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("DeleteLogProject() error = %v, want ErrNotFound", err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests = %d, want 2 (delete and purge)", requests.Load())
+	}
+}

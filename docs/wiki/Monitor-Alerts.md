@@ -367,10 +367,10 @@ the trash list together, so `DeleteLogProject`'s own pre-delete baseline
 read can already 404 by the time a later `Purge` call runs. When that
 happens with `Purge` set, `DeleteLogProject` still sends the delete and the
 purge, tolerating a 404 from either, and returns success at once, with no
-wait, since there is no baseline left to wait against, unless the delete
-and the purge both 404 too, in which case nothing here ever confirmed
+wait, since there is no baseline left to wait against. When the delete
+and the purge both 404, with or without `NoWait`, nothing confirmed
 `LogProjectID` named a real project, and `DeleteLogProject` returns the
-not-found error instead of that tolerant success. Without `Purge`, the
+not-found error instead. Without `Purge`, the
 baseline 404 alone comes back as the SDK's ordinary not-found result, same
 as any other delete. A second `DeleteLogProject` call on a project another
 call is still in the middle of removing, rather than one the SDK's own

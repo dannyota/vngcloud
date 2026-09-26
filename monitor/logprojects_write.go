@@ -294,12 +294,11 @@ type DeleteLogProjectOutput struct{}
 // live list (seen live for a free project, gone from trash within a few
 // seconds of an earlier delete): DeleteLogProject still sends the delete
 // and the purge, tolerating a 404 from either, and returns success at
-// once, with no wait, since there is no baseline left to wait against. But
-// when the baseline read, the delete, and the purge all 404, nothing here
-// ever confirmed LogProjectID ever named a real project, so
-// DeleteLogProject returns that not-found error instead of the tolerant
-// success above; a delete or a purge that succeeds still keeps that
-// success, baseline 404 included. Without Purge, the baseline 404 alone is
+// once, with no wait, since there is no baseline left to wait against.
+// When the delete and the purge both 404, with or without NoWait, nothing
+// confirmed LogProjectID ever named a real project, so DeleteLogProject
+// returns that not-found error; a delete or a purge that succeeds keeps
+// the success. Without Purge, the baseline 404 alone is
 // returned unchanged, the ordinary not-found result any other delete in
 // this SDK returns for an already-gone resource. If the bound runs out, or
 // a read or a sleep in the wait fails, such as from a canceled ctx, the
@@ -342,12 +341,11 @@ func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput
 		}
 	}
 
-	// deleteErr and purgeErr are non-nil here only as the tolerated 404
-	// case above (any other error already returned). When the baseline
-	// read also 404'd, all three requests 404'd and nothing ever confirmed
-	// LogProjectID named a real project, unlike the ordinary gone-baseline
-	// case this otherwise tolerates: report NotFound instead of success.
-	if baselineGone && deleteErr != nil && purgeErr != nil {
+	// deleteErr and purgeErr are non-nil here only as tolerated 404s (any
+	// other error already returned). When both 404'd, no request ever
+	// confirmed LogProjectID named a real project, with or without NoWait:
+	// report NotFound instead of success.
+	if deleteErr != nil && purgeErr != nil {
 		return nil, purgeErr
 	}
 
