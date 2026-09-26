@@ -296,6 +296,61 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	}
 }
 
+// testLivePortal reads the portal's zones, quotas, and tag quota, and calls
+// GetQuota on the first quota ListQuotaUsed returns (its "quotaName" key,
+// the field the live rows carry, per the CLI reads design's "portal"). A
+// map-backed Output has no ID field to compare against the list's the way
+// compute or monitor's typed Gets do, so this checks the returned Quota is
+// not empty instead, which still fails a GetQuota that decodes empty. It
+// logs counts and key counts only, never values.
+func testLivePortal(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := portal.New(cfg)
+
+	t.Run("user-info", func(t *testing.T) {
+		info, err := client.GetUserInfo(ctx, nil)
+		if err != nil {
+			t.Fatalf("GetUserInfo: %v", err)
+		}
+		t.Logf("portal user info keys: %d", len(info.UserInfo))
+	})
+
+	t.Run("zones", func(t *testing.T) {
+		res, err := client.ListZones(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListZones: %v", err)
+		}
+		t.Logf("zones: %d", len(res.Items))
+	})
+
+	quotas, err := client.ListQuotaUsed(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListQuotaUsed: %v", err)
+	}
+	t.Logf("quotas used: %d", len(quotas.Items))
+	if len(quotas.Items) == 0 {
+		t.Log("skipped: none")
+	} else {
+		t.Run("quota", func(t *testing.T) {
+			name := fmt.Sprint(quotas.Items[0]["quotaName"])
+			quota, err := client.GetQuota(ctx, &portal.GetQuotaInput{Name: name})
+			if err != nil {
+				t.Fatalf("GetQuota: %v", err)
+			}
+			if len(quota.Quota) == 0 {
+				t.Fatal("GetQuota decoded empty")
+			}
+		})
+	}
+
+	t.Run("tag-quota", func(t *testing.T) {
+		res, err := client.GetTagQuota(ctx, nil)
+		if err != nil {
+			t.Fatalf("GetTagQuota: %v", err)
+		}
+		t.Logf("tag quota keys: %d", len(res.TagQuota))
+	})
+}
+
 func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
@@ -364,13 +419,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		t.Logf("repositories: %d of %d", len(res.Items), res.TotalItem)
 	})
-	t.Run("portal-user", func(t *testing.T) {
-		info, err := portal.New(cfg).GetUserInfo(ctx, nil)
-		if err != nil {
-			t.Fatalf("GetUserInfo: %v", err)
-		}
-		t.Logf("portal user info keys: %d", len(info.UserInfo))
-	})
+	t.Run("portal", func(t *testing.T) { testLivePortal(ctx, t, cfg) })
 	t.Run("pricing-quote", func(t *testing.T) {
 		quoteClient := pricing.New(cfg)
 		if _, err := quoteClient.GetQuote(ctx, &pricing.GetQuoteInput{ResourceType: pricing.ResourceSnapshot}); err != nil {

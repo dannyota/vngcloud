@@ -8,8 +8,8 @@ import (
 
 // portalOps is portal's operation table. Every Output here is map-backed
 // (portal.UserInfo, portal.Zone, portal.Quota, portal.TagQuota), so its keys
-// are the API's own names, not Go field names, and redact.go's redactMaps
-// covers all four before render.go encodes them.
+// are the API's own names, not Go field names, and redact_maps.go's
+// redactMaps covers all four before render.go encodes them.
 var portalOps = []Op[portal.Client]{
 	Read[portal.Client, portal.GetUserInfoInput, portal.GetUserInfoOutput](
 		kebab("GetUserInfo"), (*portal.Client).GetUserInfo),

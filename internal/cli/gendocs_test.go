@@ -322,6 +322,33 @@ func TestGenDocsMonitorChannelOpsDocumentRedaction(t *testing.T) {
 	}
 }
 
+// TestGenDocsPortalOpsDocumentAccountDataAndRedaction checks that
+// get-user-info's section names the account-data risk, and that every
+// portal operation's section states the map-key redaction rule, so a reader
+// learns both from the wiki instead of internal/cli/redact_maps.go.
+func TestGenDocsPortalOpsDocumentAccountDataAndRedaction(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Portal.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Portal.md: %v", err)
+	}
+
+	userInfo := genDocsSection(t, string(data), "get-user-info")
+	if !strings.Contains(userInfo, "account data") {
+		t.Errorf("get-user-info section is missing the account-data note:\n%s", userInfo)
+	}
+
+	for _, op := range []string{"get-user-info", "list-zones", "list-quota-used", "get-quota", "get-tag-quota"} {
+		section := genDocsSection(t, string(data), op)
+		if !strings.Contains(section, "<redacted>") {
+			t.Errorf("%s section is missing the redaction note:\n%s", op, section)
+		}
+	}
+}
+
 // genDocsSection returns op's own heading block from a rendered service
 // page: from "## op\n" up to (not including) the next "## " heading, or to
 // the end of data when op is the last one on the page.

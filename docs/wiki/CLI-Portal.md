@@ -6,6 +6,8 @@
 
 Kind: Read.
 
+Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -18,6 +20,8 @@ vngcloud portal get-quota --name <name> --query Quota
 
 Kind: Read.
 
+Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+
 No fields.
 
 ```sh
@@ -27,6 +31,10 @@ vngcloud portal get-tag-quota --query TagQuota
 ## get-user-info
 
 Kind: Read.
+
+Prints account data: email, names, user ID, and cash and billing status. It is the caller's own account, but an agent transcript that keeps this command's output keeps that data too.
+
+Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
 No fields.
 
@@ -38,6 +46,8 @@ vngcloud portal get-user-info --query UserInfo
 
 Kind: Read.
 
+Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+
 No fields.
 
 ```sh
@@ -47,6 +57,8 @@ vngcloud portal list-quota-used
 ## list-zones
 
 Kind: Read.
+
+Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
 No fields.
 

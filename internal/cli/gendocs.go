@@ -403,14 +403,35 @@ const monitorChannelRedactionNote = "Redacts every header value and every Addres
 	"or Telegram channel's, since a Webhook, Slack, or other channel's Address can carry a bearer token; " +
 	"only Email, SMS, and Telegram addresses print in full."
 
+// portalMapRedactionNote documents the CLI's key redaction rule for
+// map-backed Outputs, shared by every portal operation: portal.UserInfo,
+// Zone, Quota, and TagQuota are all map[string]any, so every key the API
+// returns reaches this rule.
+const portalMapRedactionNote = "Values under a key that looks like a secret " +
+	"(password, token, credential, and similar, matched after lower-casing and " +
+	"stripping punctuation) print as `<redacted>`, at any depth."
+
+// portalUserInfoNote documents get-user-info's own account-data risk beyond
+// the shared map redaction rule: this command prints the caller's own
+// account data, which an agent transcript that captures its output keeps
+// too.
+const portalUserInfoNote = "Prints account data: email, names, user ID, and cash and billing status. " +
+	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
+	"that data too.\n\n" + portalMapRedactionNote
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints.
 var docOpNotes = map[string]string{
-	"monitor list-channels": monitorChannelRedactionNote,
-	"monitor get-channel":   monitorChannelRedactionNote,
+	"monitor list-channels":  monitorChannelRedactionNote,
+	"monitor get-channel":    monitorChannelRedactionNote,
+	"portal get-user-info":   portalUserInfoNote,
+	"portal list-zones":      portalMapRedactionNote,
+	"portal list-quota-used": portalMapRedactionNote,
+	"portal get-quota":       portalMapRedactionNote,
+	"portal get-tag-quota":   portalMapRedactionNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into

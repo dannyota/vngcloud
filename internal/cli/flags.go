@@ -67,11 +67,31 @@ func flagSpecsFor(inputPtr any) ([]flagSpec, error) {
 	return specs, nil
 }
 
+// inputFieldNames returns the set of inputPtr's exported struct field names,
+// by their Go name. validateOps (op.go) checks every NoFlag name against
+// this set, so a typo in NoFlag("Regoin") is rejected at registration
+// instead of silently marking nothing.
+func inputFieldNames(inputPtr any) (map[string]bool, error) {
+	v := reflect.ValueOf(inputPtr)
+	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
+		return nil, fmt.Errorf("cli: Input must be a non-nil pointer to a struct, got %T", inputPtr)
+	}
+	t := v.Elem().Type()
+	names := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		if f := t.Field(i); f.IsExported() {
+			names[f.Name] = true
+		}
+	}
+	return names, nil
+}
+
 // withoutNoFlag returns specs with every entry named in noFlag removed, so
 // the caller never registers a flag, or checks it for a global-flag
 // collision, for an Input field NoFlag (op.go) marks: it stays settable only
 // through --cli-input-json. It returns specs unchanged, not a copy, when
-// noFlag is empty, since every real Read op takes this path.
+// noFlag is empty, which most Read ops (every one but project's
+// list-projects, in this design) take.
 func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
 	if len(noFlag) == 0 {
 		return specs
@@ -177,10 +197,12 @@ func setFieldValue(field reflect.Value, isPointer bool, value reflect.Value) {
 	field.Set(ptr)
 }
 
-// checkRequiredFlags returns a usageError naming the flag for the first
-// vngcloud:"required" field of the struct inputPtr points to that is still
-// zero after the --cli-input-json and flag merge.
-func checkRequiredFlags(inputPtr any) error {
+// checkRequiredFlags returns a usageError for the first vngcloud:"required"
+// field of the struct inputPtr points to that is still zero after the
+// --cli-input-json and flag merge: naming the flag for an ordinary field, or
+// the Go field name for one noFlag (op.go's NoFlag) marks, since that field
+// has no flag to name. noFlag may be nil, which no field is ever in.
+func checkRequiredFlags(inputPtr any, noFlag map[string]bool) error {
 	v := reflect.ValueOf(inputPtr).Elem()
 	t := v.Type()
 	for i := range t.NumField() {
@@ -188,9 +210,13 @@ func checkRequiredFlags(inputPtr any) error {
 		if f.Tag.Get("vngcloud") != "required" {
 			continue
 		}
-		if v.Field(i).IsZero() {
-			return newUsageError("--%s is required", flagNameFor(f.Name))
+		if !v.Field(i).IsZero() {
+			continue
 		}
+		if noFlag[f.Name] {
+			return newUsageError("%s is required; set it with --cli-input-json", f.Name)
+		}
+		return newUsageError("--%s is required", flagNameFor(f.Name))
 	}
 	return nil
 }

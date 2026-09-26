@@ -84,7 +84,7 @@ func TestLiveCLI(t *testing.T) {
 		testLiveCLIItems(ctx, t, "monitor", "list-channels")
 	})
 	t.Run("project", func(t *testing.T) {
-		testLiveCLIItems(ctx, t, "project", "list-projects")
+		testLiveCLIItemsAtLeastOne(ctx, t, "project", "list-projects")
 	})
 	t.Run("portal", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "portal", "list-zones")
@@ -104,6 +104,29 @@ func testLiveCLIItems(ctx context.Context, t *testing.T, args ...string) {
 		t.Fatalf("stdout is not valid JSON: %v", err)
 	}
 	t.Logf("items: %d", len(decoded.Items))
+}
+
+// testLiveCLIItemsAtLeastOne runs a list command through the CLI like
+// testLiveCLIItems, and additionally fails when the decoded Items field is
+// empty. list-projects is the only caller today: LoadConfig's project
+// discovery (the CLI reads design's "Scope rules") needs exactly one project
+// in the configured region, so an empty result here means the read itself
+// is broken, not that the account happens to have none. It never logs an
+// item's value, only the count.
+func testLiveCLIItemsAtLeastOne(ctx context.Context, t *testing.T, args ...string) {
+	t.Helper()
+	stdout, _ := runLiveCLI(ctx, t, args...)
+
+	var decoded struct {
+		Items []json.RawMessage
+	}
+	if err := json.Unmarshal(stdout, &decoded); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v", err)
+	}
+	t.Logf("items: %d", len(decoded.Items))
+	if len(decoded.Items) == 0 {
+		t.Fatal("expected at least one item")
+	}
 }
 
 // runLiveCLI runs args through cli.Main with --output json and --region

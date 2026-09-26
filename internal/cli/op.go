@@ -87,6 +87,9 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 			noFlag[f] = true
 		}
 		if o.redact != nil {
+			if redact != nil {
+				panic("cli: " + name + " was given a second Redact option; an op takes at most one")
+			}
 			fn, ok := o.redact.(func(*Out))
 			if !ok {
 				panic("cli: Redact function does not match the Output of " + name)
@@ -178,14 +181,25 @@ func Service[C any](e *env, name, short string, newClient func(vngcloud.Config) 
 	return cmd
 }
 
-// validateOps checks every op in ops against the two invariants Service
+// validateOps checks every op in ops against the invariants Service
 // enforces; see Service's doc comment.
 func validateOps[C any](serviceName string, ops []Op[C]) error {
 	for _, op := range ops {
 		if err := checkOpName(op.methodName, op.name); err != nil {
 			return newUsageError("service %q: %s", serviceName, err)
 		}
-		specs, err := flagSpecsFor(op.newInput())
+		input := op.newInput()
+		fieldNames, err := inputFieldNames(input)
+		if err != nil {
+			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
+		}
+		for name := range op.noFlag {
+			if !fieldNames[name] {
+				return newUsageError("service %q op %q: NoFlag(%q) names no field of its Input",
+					serviceName, op.name, name)
+			}
+		}
+		specs, err := flagSpecsFor(input)
 		if err != nil {
 			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
 		}
@@ -247,7 +261,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		}
 	}
 
-	if err := checkRequiredFlags(input); err != nil {
+	if err := checkRequiredFlags(input, op.noFlag); err != nil {
 		return err
 	}
 	// Compiled again in renderOutput once there is a result to run it

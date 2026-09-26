@@ -115,7 +115,10 @@ func TestPortalGetUserInfoRedactsSensitiveKeys(t *testing.T) {
 	if strings.Contains(out, "tok-super-secret") {
 		t.Fatalf("stdout leaked apiToken's value:\n%s", out)
 	}
-	if !strings.Contains(out, redactedValue) {
+	// json.Marshal HTML-escapes "<" and ">" by default, so the literal
+	// redactedPlaceholder marker never survives JSON output unchanged;
+	// "redacted" alone does.
+	if !strings.Contains(out, "redacted") {
 		t.Fatalf("stdout is missing the redacted marker:\n%s", out)
 	}
 	if !strings.Contains(out, "iam-user") {
