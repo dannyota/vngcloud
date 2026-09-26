@@ -317,7 +317,11 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 		if err != nil {
 			t.Fatalf("ListPackages: %v", err)
 		}
-		t.Logf("packages: %d", len(res.Items))
+		if len(res.Items) == 0 {
+			t.Fatal("ListPackages returned no packages")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("packages: %d, first fields set %d/%d", len(res.Items), set, total)
 	})
 
 	t.Run("regions", func(t *testing.T) {
@@ -325,7 +329,11 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 		if err != nil {
 			t.Fatalf("ListRegions: %v", err)
 		}
-		t.Logf("glb regions: %d", len(res.Items))
+		if len(res.Items) == 0 {
+			t.Fatal("ListRegions returned no regions")
+		}
+		set, total := nonZeroFieldCount(res.Items[0])
+		t.Logf("glb regions: %d, first fields set %d/%d", len(res.Items), set, total)
 	})
 
 	lbs, err := client.ListLoadBalancers(ctx, &globalloadbalancer.ListLoadBalancersInput{Limit: 5})

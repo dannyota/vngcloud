@@ -372,6 +372,9 @@ func TestGenDocsGlobalLoadBalancerShapeOpsDocumentUnverified(t *testing.T) {
 			t.Errorf("%s section is missing the unverified-live note:\n%s", op, section)
 		}
 	}
+	if section := genDocsSection(t, string(data), "list-usage-histories"); !strings.Contains(section, "--from, --to, and --type are unknown") {
+		t.Errorf("list-usage-histories section is missing the unknown-format note:\n%s", section)
+	}
 	for _, op := range []string{"list-packages", "list-regions", "list-load-balancers"} {
 		section := genDocsSection(t, string(data), op)
 		if strings.Contains(section, "Unverified live") {

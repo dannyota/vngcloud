@@ -128,7 +128,7 @@ vngcloud globalloadbalancer list-regions
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture. The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.
 
 | Flag | Type | Required |
 |-|-|-|

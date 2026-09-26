@@ -510,7 +510,7 @@ var docOpNotes = map[string]string{
 	"globalloadbalancer get-listener":         globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pool-members":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer get-pool-member":      globalLoadBalancerShapeUnverifiedNote,
-	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote + " The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.",
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
