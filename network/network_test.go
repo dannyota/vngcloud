@@ -334,7 +334,7 @@ func TestNetworkDetailRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/network/get_vpc.json"),
 			call: func(c *Client) error {
 				out, err := c.GetVPC(context.Background(), &GetVPCInput{VPCID: "vpc-1"})
-				if err == nil && out.VPC.UUID != "vpc-1" {
+				if err == nil && (out.VPC.UUID != "vpc-1" || out.VPC.DNSStatus != "ENABLED" || out.VPC.CIDR != "<cidr>") {
 					t.Fatalf("unexpected vpc: %+v", out.VPC)
 				}
 				return err
@@ -346,7 +346,7 @@ func TestNetworkDetailRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/network/get_subnet.json"),
 			call: func(c *Client) error {
 				out, err := c.GetSubnet(context.Background(), &GetSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
-				if err == nil && out.Subnet.UUID != "subnet-1" {
+				if err == nil && (out.Subnet.UUID != "subnet-1" || out.Subnet.NetworkID != "vpc-1" || out.Subnet.ZoneID != "zone-a") {
 					t.Fatalf("unexpected subnet: %+v", out.Subnet)
 				}
 				return err

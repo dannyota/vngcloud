@@ -1,8 +1,14 @@
 {
-  "data": {
-    "id": "vpc-1",
-    "displayName": "<name>",
-    "cidr": "<cidr>",
-    "status": "ACTIVE"
+  "id": "vpc-1",
+  "displayName": "<name>",
+  "cidr": "<cidr>",
+  "status": "ACTIVE",
+  "dnsStatus": "ENABLED",
+  "dnsId": "dns-vpc-1",
+  "routeTableId": "rt-1",
+  "routeTableName": "<name>",
+  "mtu": 1450,
+  "zone": {
+    "uuid": "zone-a"
   }
 }

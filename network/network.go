@@ -308,9 +308,9 @@ func (c *Client) GetVPC(ctx context.Context, in *GetVPCInput) (*GetVPCOutput, er
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
-		Data VPC `json:"data"`
-	}
+	// Unlike GetSecurityGroup, this endpoint returns the VPC fields at the
+	// top level, not wrapped in a "data" object.
+	var resp VPC
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "network.GetVPC",
 		Method:    "GET",
@@ -319,7 +319,7 @@ func (c *Client) GetVPC(ctx context.Context, in *GetVPCInput) (*GetVPCOutput, er
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &GetVPCOutput{VPC: resp.Data}, nil
+	return &GetVPCOutput{VPC: resp}, nil
 }
 
 func (c *Client) GetSubnet(ctx context.Context, in *GetSubnetInput) (*GetSubnetOutput, error) {
@@ -330,9 +330,9 @@ func (c *Client) GetSubnet(ctx context.Context, in *GetSubnetInput) (*GetSubnetO
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
-		Data subnetResponse `json:"data"`
-	}
+	// Like GetVPC, and unlike GetSecurityGroup, this endpoint returns the
+	// subnet fields at the top level, not wrapped in a "data" object.
+	var resp subnetResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "network.GetSubnet",
 		Method:    "GET",
@@ -341,7 +341,7 @@ func (c *Client) GetSubnet(ctx context.Context, in *GetSubnetInput) (*GetSubnetO
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &GetSubnetOutput{Subnet: resp.Data.toSubnet()}, nil
+	return &GetSubnetOutput{Subnet: resp.toSubnet()}, nil
 }
 
 func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGroupRulesInput) (*ListSecurityGroupRulesOutput, error) {
