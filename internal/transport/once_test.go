@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -144,6 +145,42 @@ func TestOnceNoRetryAfterFailedDial(t *testing.T) {
 	}
 }
 
+// TestOnceRefusesRedirect checks that a Once request never follows a 307 or
+// 308 to the same host: net/http would otherwise resend req's method and
+// body at the Location the response names, sending a toggle PUT twice.
+func TestOnceRefusesRedirect(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Location", r.URL.String())
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client()})
+	err := c.DoJSON(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodPut,
+		URL:       server.URL,
+		OK:        []int{204},
+		SkipAuth:  true,
+		Once:      true,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error: a 307 is not in OK")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls = %d, want 1: a Once request must never follow a redirect", calls.Load())
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("StatusCode = %d, want %d: the caller sees the redirect itself", apiErr.StatusCode, http.StatusTemporaryRedirect)
+	}
+}
+
 // invalidateTrackingSource issues sequential tokens and records every value
 // Invalidate is called with, so a test can prove exactly which token, if
 // any, a 401 recovery invalidated.
@@ -208,5 +245,71 @@ func TestOnceNoResendAfter401(t *testing.T) {
 	}
 	if got := c.currentToken().AccessToken; got != "token-2" {
 		t.Fatalf("token after invalidateOnce = %q, want %q", got, "token-2")
+	}
+}
+
+// TestInvalidateOnceKeepsAccessTokenForConcurrentReaders proves the fix
+// deterministically, with no dependence on goroutine scheduling: right
+// after invalidateOnce, a reader must still see a token to send, and
+// NeedsRefresh must be true so the next real request fetches a
+// replacement instead of resending the rejected token.
+func TestInvalidateOnceKeepsAccessTokenForConcurrentReaders(t *testing.T) {
+	source := &invalidateTrackingSource{}
+	c := New(Config{TokenSource: source})
+	if err := c.EnsureToken(context.Background()); err != nil {
+		t.Fatalf("EnsureToken() error = %v", err)
+	}
+	sent := c.currentToken().AccessToken
+	if sent == "" {
+		t.Fatal("seed token is empty")
+	}
+
+	c.invalidateOnce(sent)
+
+	if got := c.currentToken().AccessToken; got == "" {
+		t.Fatal("AccessToken is empty after invalidateOnce: a concurrent reader would fail with a synthetic 401 unrelated to the real one")
+	}
+	if !c.currentToken().NeedsRefresh() {
+		t.Fatal("NeedsRefresh() = false after invalidateOnce, want true")
+	}
+}
+
+// TestInvalidateOnceRaceKeepsTokenForConcurrentReaders is a race test: a
+// reader spinning on currentToken() concurrently with invalidateOnce must
+// never observe an empty AccessToken. Before the fix, invalidateOnce wrote
+// Token{} (both fields empty), a state that persisted until some other call
+// fetched a replacement; here nothing does, so a reader spinning throughout
+// the invalidateOnce calls below would reliably catch it. Run with -race.
+func TestInvalidateOnceRaceKeepsTokenForConcurrentReaders(t *testing.T) {
+	source := &invalidateTrackingSource{}
+	c := New(Config{TokenSource: source})
+	if err := c.EnsureToken(context.Background()); err != nil {
+		t.Fatalf("EnsureToken() error = %v", err)
+	}
+	sent := c.currentToken().AccessToken
+
+	var stop atomic.Bool
+	var sawEmpty atomic.Bool
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for !stop.Load() {
+				if c.currentToken().AccessToken == "" {
+					sawEmpty.Store(true)
+				}
+			}
+		}()
+	}
+
+	for range 50 {
+		c.invalidateOnce(sent)
+	}
+	stop.Store(true)
+	wg.Wait()
+
+	if sawEmpty.Load() {
+		t.Fatal("a concurrent reader observed an empty AccessToken after invalidateOnce")
 	}
 }

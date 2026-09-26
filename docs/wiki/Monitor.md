@@ -80,8 +80,9 @@ you can help it, since anyone who can read the check can read it back.
 ## Pausing and resuming
 
 `PauseCheck` and `ResumeCheck` read the check's current status first and
-send a toggle request only when it is not already at the target, so
-calling either twice in a row is safe:
+send a toggle request only when it is not already at the target. Calling
+either again after it succeeds is safe. Calling it again after
+`ErrStatusUnconfirmed` is not; see [Errors](#errors) below for the recovery.
 
 ```go
 paused, err := client.PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: checkID})
@@ -103,7 +104,9 @@ if paused.Changed {
 caller that resumes only when its own pause changed something never
 re-enables a check someone else paused for maintenance. This is the
 pattern a deploy script uses: pause before a risky step, and resume after
-only if the pause reported `Changed: true`.
+only if the pause reported `Changed: true` (or failed with
+`ErrStatusUnconfirmed`, per [Errors](#errors): that also means the pause
+may have landed).
 
 Both calls can take a few seconds: after sending the toggle, the SDK
 confirms it landed by reading the check again, waiting up to 1, 2, and 4
@@ -123,20 +126,43 @@ unrecognized status is never guessed at.
 
 `ErrStatusUnconfirmed` means the toggle was sent, or may have been, but no
 confirm read showed the target status in time. The check may still reach it
-on its own, or the toggle may need resending; either way, the fix is to
-call `PauseCheck` or `ResumeCheck` again, since it reads the current status
-first and sends nothing when that already matches:
+on its own, or the toggle may still land later. Never call `PauseCheck` or
+`ResumeCheck` again to resolve it, and never in a loop: a rerun reads
+whatever status the check is actually at and, if that is not the target,
+returns `Changed: false` for a toggle it never sent, which can leave
+monitoring off with nothing left to alert on it.
+
+The recovery differs by call, because only a pause's pre-toggle read proves
+what the check was before the toggle:
+
+- After `ErrStatusUnconfirmed` from `PauseCheck`, treat the pause as your
+  own and resume the check later. This is safe because the call's own
+  pre-toggle read already found the check `ENABLED`, so a toggle it sent,
+  or may have sent, can only have paused it.
+- After `ErrStatusUnconfirmed` from `ResumeCheck`, stop and have a person
+  check the status by hand. The pre-toggle read only found the check
+  `DISABLED`; nothing proves a toggle that may not have landed would have
+  been safe to send, so a person decides instead of the caller guessing.
 
 ```go
-out, err := client.PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: checkID})
-if errors.Is(err, monitor.ErrStatusUnconfirmed) {
-	// Wait a moment, then call PauseCheck again; it is safe to retry.
+paused, err := client.PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: checkID})
+switch {
+case errors.Is(err, monitor.ErrStatusUnconfirmed):
+	// Treat checkID as paused. Resume it later, the same as if
+	// paused.Changed had come back true.
+case err != nil:
+	log.Fatal(err)
+case paused.Changed:
+	// ... later ...
+	if _, err := client.ResumeCheck(ctx, &monitor.ResumeCheckInput{CheckID: checkID}); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
 A 4xx on the toggle itself (401, 403, 404, 409, or 429) returns that
 `*vngcloud.APIError` directly instead: the server never acted on it, so
-there is nothing to confirm.
+there is nothing to confirm and nothing to treat as done.
 
 Two callers that read the same status at the same moment and both toggle
 leave the check where it started; each one's confirm reads then fail to

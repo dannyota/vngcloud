@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -437,6 +439,192 @@ func TestToggleNeverConfirms(t *testing.T) {
 	if apiErr.StatusCode != http.StatusBadGateway {
 		t.Fatalf("unwrapped StatusCode = %d, want %d: ErrStatusUnconfirmed must still expose the PUT's own error", apiErr.StatusCode, http.StatusBadGateway)
 	}
+	// A pause's pre-toggle read already proved the check was StatusEnabled,
+	// so the recovery text treats the pause as done rather than pointing at
+	// a person or telling the caller to rerun.
+	if !strings.Contains(err.Error(), "treat the pause as done and resume later") {
+		t.Fatalf("error = %q, want it to tell the caller to treat the pause as done", err.Error())
+	}
+}
+
+// TestResumeCheckNeverConfirms is TestToggleNeverConfirms' counterpart for
+// ResumeCheck: a 502 on the PUT followed by four confirm reads that never
+// show ENABLED still sends the PUT only once and ends in
+// ErrStatusUnconfirmed, whose message points at a person instead of telling
+// the caller to rerun, since a resume's pre-toggle read gives no proof the
+// check was ever DISABLED to begin with.
+func TestResumeCheckNeverConfirms(t *testing.T) {
+	var getCalls, putCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getCalls.Add(1)
+			_, _ = w.Write([]byte(checkBody(StatusDisabled)))
+		case http.MethodPut:
+			if putCalls.Add(1) > 1 {
+				t.Error("PUT sent more than once")
+			}
+			w.WriteHeader(http.StatusBadGateway)
+		}
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	client := newToggleClient(t, server, nil, func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	})
+	_, err := client.ResumeCheck(context.Background(), &ResumeCheckInput{CheckID: "chk-1"})
+	if !errors.Is(err, ErrStatusUnconfirmed) {
+		t.Fatalf("ResumeCheck() error = %v, want ErrStatusUnconfirmed", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
+	}
+	// getCalls: 1 pre-toggle read + 4 confirm reads.
+	if getCalls.Load() != 5 {
+		t.Fatalf("GET calls = %d, want 5", getCalls.Load())
+	}
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+	if len(waits) != len(want) {
+		t.Fatalf("waits = %v, want %v", waits, want)
+	}
+	if !strings.Contains(err.Error(), "ask a person to check it") {
+		t.Fatalf("error = %q, want it to point at a person, not a rerun", err.Error())
+	}
+}
+
+// TestResumeCheckPUTClientErrors is TestTogglePUTClientErrors' counterpart
+// for ResumeCheck: the pre-toggle read shows DISABLED, so every case still
+// sends the PUT and returns that 4xx directly with no confirm read.
+func TestResumeCheckPUTClientErrors(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{"401", http.StatusUnauthorized, core.ErrAuth},
+		{"403", http.StatusForbidden, core.ErrPermission},
+		{"409", http.StatusConflict, nil},
+		{"429", http.StatusTooManyRequests, core.ErrRateLimited},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var getCalls, putCalls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					getCalls.Add(1)
+					_, _ = w.Write([]byte(checkBody(StatusDisabled)))
+				case http.MethodPut:
+					if putCalls.Add(1) > 1 {
+						t.Error("PUT sent more than once")
+					}
+					w.WriteHeader(tc.status)
+				}
+			}))
+			defer server.Close()
+
+			client := newToggleClient(t, server, nil, func(context.Context, time.Duration) error {
+				t.Fatal("sleep called: a 4xx on the PUT must return at once, with no confirm read")
+				return nil
+			})
+			_, err := client.ResumeCheck(context.Background(), &ResumeCheckInput{CheckID: "chk-1"})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want to match %v", err, tc.want)
+			}
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("error = %T, want *core.APIError", err)
+			}
+			if apiErr.StatusCode != tc.status {
+				t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, tc.status)
+			}
+			if putCalls.Load() != 1 {
+				t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
+			}
+			if getCalls.Load() != 1 {
+				t.Fatalf("GET calls = %d, want 1 (no confirm read)", getCalls.Load())
+			}
+		})
+	}
+}
+
+// TestResumeCheckPUTCancelledContext is TestTogglePUTCancelledContext's
+// counterpart for ResumeCheck.
+func TestResumeCheckPUTCancelledContext(t *testing.T) {
+	var putCalls atomic.Int64
+	ctx, cancel := context.WithCancel(context.Background())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(checkBody(StatusDisabled)))
+		case http.MethodPut:
+			if putCalls.Add(1) > 1 {
+				t.Error("PUT sent more than once")
+			}
+			cancel()
+		}
+	}))
+	defer server.Close()
+
+	client := newToggleClient(t, server, nil, noopSleep)
+	_, err := client.ResumeCheck(ctx, &ResumeCheckInput{CheckID: "chk-1"})
+	if !errors.Is(err, ErrStatusUnconfirmed) {
+		t.Fatalf("ResumeCheck() error = %v, want ErrStatusUnconfirmed", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ResumeCheck() error = %v, want it to wrap context.Canceled", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
+	}
+}
+
+// TestTogglePUTDroppedConnectionNeverConfirms covers a dropped connection on
+// the PUT followed by confirm reads that never show the target: unlike
+// TestTogglePUTDroppedConnectionThenConfirmed, every confirm read here still
+// shows the pre-toggle status, so the call ends in ErrStatusUnconfirmed
+// rather than Changed: true, and the PUT is still sent only once.
+func TestTogglePUTDroppedConnectionNeverConfirms(t *testing.T) {
+	var getCalls, putCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getCalls.Add(1)
+			_, _ = w.Write([]byte(checkBody(StatusEnabled)))
+		case http.MethodPut:
+			if putCalls.Add(1) > 1 {
+				t.Error("PUT sent more than once")
+			}
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				panic("ResponseWriter does not support hijacking")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				panic(err)
+			}
+			_ = conn.Close()
+		}
+	}))
+	defer server.Close()
+
+	client := newToggleClient(t, server, nil, noopSleep)
+	_, err := client.PauseCheck(context.Background(), &PauseCheckInput{CheckID: "chk-1"})
+	if !errors.Is(err, ErrStatusUnconfirmed) {
+		t.Fatalf("PauseCheck() error = %v, want ErrStatusUnconfirmed", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
+	}
+	// getCalls: 1 pre-toggle read + 4 confirm reads, every one still ENABLED.
+	if getCalls.Load() != 5 {
+		t.Fatalf("GET calls = %d, want 5", getCalls.Load())
+	}
 }
 
 // TestTogglePUTCancelledContext covers a context canceled mid-PUT: Once
@@ -466,6 +654,9 @@ func TestTogglePUTCancelledContext(t *testing.T) {
 	if !errors.Is(err, ErrStatusUnconfirmed) {
 		t.Fatalf("PauseCheck() error = %v, want ErrStatusUnconfirmed", err)
 	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("PauseCheck() error = %v, want it to wrap context.Canceled", err)
+	}
 	if putCalls.Load() != 1 {
 		t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
 	}
@@ -474,9 +665,17 @@ func TestTogglePUTCancelledContext(t *testing.T) {
 // TestToggleSerializesUnderMutex checks that two concurrent PauseCheck calls
 // on one Client never interleave their read-toggle-confirm sequences: the
 // server only ever sees one in-flight request at a time from this Client.
+// The check starts ENABLED, so whichever goroutine's pre-toggle read wins
+// the mutex first actually sends a PUT and a confirm read, not just a GET
+// that short-circuits on an already-matching status; every later goroutine
+// then reads the now-DISABLED status and returns without a PUT of its own.
+// If toggleMu ever let two goroutines's requests overlap, this flips to
+// ENABLED under a concurrent PUT would race maxInFlight past 1.
 func TestToggleSerializesUnderMutex(t *testing.T) {
 	var inFlight atomic.Int64
 	var maxInFlight atomic.Int64
+	var mu sync.Mutex
+	status := StatusEnabled
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := inFlight.Add(1)
 		for {
@@ -492,8 +691,14 @@ func TestToggleSerializesUnderMutex(t *testing.T) {
 		defer inFlight.Add(-1)
 		switch r.Method {
 		case http.MethodGet:
-			_, _ = w.Write([]byte(checkBody(StatusDisabled)))
+			mu.Lock()
+			current := status
+			mu.Unlock()
+			_, _ = w.Write([]byte(checkBody(current)))
 		case http.MethodPut:
+			mu.Lock()
+			status = StatusDisabled
+			mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		}
 	}))
@@ -514,6 +719,14 @@ func TestToggleSerializesUnderMutex(t *testing.T) {
 	}
 	if maxInFlight.Load() > 1 {
 		t.Fatalf("max in-flight requests = %d, want 1: toggleMu must serialize PauseCheck calls", maxInFlight.Load())
+	}
+
+	out, err := client.GetCheck(context.Background(), &GetCheckInput{CheckID: "chk-1"})
+	if err != nil {
+		t.Fatalf("GetCheck() error = %v", err)
+	}
+	if out.Check.Status != StatusDisabled {
+		t.Fatalf("final status = %s, want %s: exactly one PauseCheck call must have sent the PUT", out.Check.Status, StatusDisabled)
 	}
 }
 
@@ -549,5 +762,64 @@ func TestPauseCheckPathIDRejection(t *testing.T) {
 				t.Fatalf("ResumeCheck(%q) error = %v, want ErrInvalidInput", id, err)
 			}
 		})
+	}
+}
+
+// fakeTokenSource issues sequential tokens and records every value
+// Invalidate is called with. Every other test in this file wires its
+// Client through newToggleClient or newTestClient, whose transport has no
+// TokenSource at all, so transport.doAuthenticated's 401 branch, and
+// invalidateOnce inside it, never run: EnsureToken is a no-op and the
+// synthetic-401 check on an empty token is skipped for a nil source. This
+// type lets a test build a monitor Client with a real one instead, so a
+// 401 on the toggle PUT actually reaches invalidateOnce's Once branch.
+type fakeTokenSource struct {
+	count       atomic.Int64
+	invalidated []string
+}
+
+func (s *fakeTokenSource) Token(context.Context) (transport.Token, error) {
+	n := s.count.Add(1)
+	return transport.Token{AccessToken: fmt.Sprintf("token-%d", n), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (s *fakeTokenSource) Invalidate(token string) {
+	s.invalidated = append(s.invalidated, token)
+}
+
+// TestTogglePUT401InvalidatesTokenOnce checks the monitor path with a real
+// TokenSource: a 401 on the toggle PUT invalidates the token it sent, the
+// same as an ordinary request would, but the Once request is never resent
+// with a refreshed one.
+func TestTogglePUT401InvalidatesTokenOnce(t *testing.T) {
+	var getCalls, putCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getCalls.Add(1)
+			_, _ = w.Write([]byte(checkBody(StatusEnabled)))
+		case http.MethodPut:
+			if putCalls.Add(1) > 1 {
+				t.Error("PUT sent more than once")
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+
+	source := &fakeTokenSource{}
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})
+	cfg := core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, tc)
+	client := &Client{c: core.ClientOf(cfg), sleep: noopSleep}
+
+	_, err := client.PauseCheck(context.Background(), &PauseCheckInput{CheckID: "chk-1"})
+	if !errors.Is(err, core.ErrAuth) {
+		t.Fatalf("PauseCheck() error = %v, want core.ErrAuth", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want 1: a Once request must never resend after a 401", putCalls.Load())
+	}
+	if len(source.invalidated) != 1 || source.invalidated[0] != "token-1" {
+		t.Fatalf("invalidated = %v, want [\"token-1\"]", source.invalidated)
 	}
 }

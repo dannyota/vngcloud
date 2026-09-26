@@ -6,13 +6,56 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/monitor"
 )
 
+// realStatusUnconfirmedErr drives one real monitor.PauseCheck call to the
+// error TestExitCode and TestClassify assert on below, instead of only a
+// synthetic fmt.Errorf: the pre-read returns StatusEnabled, and the toggle
+// PUT's own fixture handler cancels the call's context, mirroring the
+// monitor package's own canceled-context toggle test.
+//
+// The monitor package exposes no way to inject a fake clock from outside
+// it (Client.sleep is unexported), so a 502-then-lagging-reads case would
+// need the confirm reads' real 1, 2, and 4 second waits to elapse. Canceling
+// the context during the PUT avoids that: contextSleep sees the context
+// already done and returns at once, so every confirm-read wait ends
+// immediately and this case stays fast.
+func realStatusUnconfirmedErr(t *testing.T) error {
+	t.Helper()
+	withCleanEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": jsonHandler(http.StatusOK, monitorUptimesJSON("chk-1", monitor.StatusEnabled)),
+		"/vmonitor-uptime-manager/v1/uptimes/status/chk-1": func(_ http.ResponseWriter, _ *http.Request) {
+			cancel()
+			// The client's context is now canceled; whatever this handler
+			// writes next may never reach it, so nothing more is written.
+		},
+	})
+	opts := newFakeServer(t, fixture.mux)
+	opts = append(opts, vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("test-token"))
+	cfg, err := vngcloud.LoadConfig(ctx, opts...)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	_, err = monitor.New(cfg).PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: "chk-1"})
+	if err == nil {
+		t.Fatal("PauseCheck: expected an error")
+	}
+	return err
+}
+
 func TestExitCode(t *testing.T) {
+	realUnconfirmed := realStatusUnconfirmedErr(t)
 	tests := []struct {
 		name string
 		err  error
@@ -71,6 +114,7 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: %w", monitor.ErrStatusUnconfirmed, context.Canceled),
 			1,
 		},
+		{"status unconfirmed via a real SDK toggle canceled mid-PUT", realUnconfirmed, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,6 +126,7 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
+	realUnconfirmed := realStatusUnconfirmedErr(t)
 	tests := []struct {
 		name       string
 		err        error
@@ -136,6 +181,11 @@ func TestClassify(t *testing.T) {
 			"status unconfirmed wrapping an inner APIError",
 			fmt.Errorf("%w: %w", monitor.ErrStatusUnconfirmed,
 				&vngcloud.APIError{Operation: "monitor.PauseCheck", StatusCode: 502, Code: "ServerError"}),
+			"StatusUnconfirmed", 0, "",
+		},
+		{
+			"status unconfirmed via a real SDK toggle canceled mid-PUT",
+			realUnconfirmed,
 			"StatusUnconfirmed", 0, "",
 		},
 	}

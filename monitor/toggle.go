@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -18,11 +17,14 @@ import (
 var ErrUnexpectedStatus = errors.New("monitor: unexpected check status")
 
 // ErrStatusUnconfirmed means the toggle was sent, or may have been, but no
-// confirm read showed the target status before the reads ran out. The check
-// may still reach the target on its own (a confirm read that lagged the
-// toggle) or may need the toggle resent; the fix is the same either way:
-// run the same PauseCheck or ResumeCheck call again, since it reads the
-// current status first and sends nothing when that already matches.
+// confirm read showed the target status before the reads ran out. The
+// check may still reach the target on its own (a confirm read that lagged
+// the toggle), or the toggle may still land later. The recovery differs by
+// call and is never a rerun in a loop: after it from PauseCheck, the
+// pre-toggle read already proved the check was StatusEnabled, so a caller
+// treats the pause as its own and resumes it later; after it from
+// ResumeCheck, that proof does not exist, so a caller stops and alerts a
+// person instead of guessing.
 var ErrStatusUnconfirmed = errors.New("monitor: check status not confirmed")
 
 // confirmWaits are the delays between confirm reads after the toggle PUT:
@@ -146,7 +148,7 @@ func (c *Client) toggle(ctx context.Context, op, checkID, target string) (*Check
 		return confirmed, true, nil
 	}
 	return nil, false, &statusUnconfirmedError{
-		msg:     unconfirmedMessage(op, lastStatus),
+		msg:     unconfirmedMessage(target, lastStatus),
 		putErr:  putErr,
 		readErr: readErr,
 	}
@@ -259,17 +261,24 @@ func (e *statusUnconfirmedError) Unwrap() []error {
 }
 
 // unconfirmedMessage builds ErrStatusUnconfirmed's message, for example
-// "monitor: check status not confirmed: toggle sent, check still ENABLED;
-// run PauseCheck again, which reads the status first". lastStatus is the
-// last status a confirm read observed, or "" when every read failed.
-func unconfirmedMessage(op, lastStatus string) string {
+// "monitor: check status not confirmed: toggle sent or may have been sent,
+// check still ENABLED; treat the pause as done and resume later". lastStatus
+// is the last status a confirm read observed, or "" when every read failed.
+// target picks the recovery text: a pause (target StatusDisabled) can be
+// treated as done because the pre-toggle read proved the check was
+// StatusEnabled; a resume (target StatusEnabled) has no such proof, so the
+// recovery points at a person instead of telling the caller to rerun.
+func unconfirmedMessage(target, lastStatus string) string {
 	statusText := lastStatus
 	if statusText == "" {
 		statusText = "unknown"
 	}
-	method := strings.TrimPrefix(op, "monitor.")
-	return fmt.Sprintf("%s: toggle sent, check still %s; run %s again, which reads the status first",
-		ErrStatusUnconfirmed.Error(), statusText, method)
+	recovery := "ask a person to check it"
+	if target == StatusDisabled {
+		recovery = "treat the pause as done and resume later"
+	}
+	return fmt.Sprintf("%s: toggle sent or may have been sent, check still %s; %s",
+		ErrStatusUnconfirmed.Error(), statusText, recovery)
 }
 
 // truncateStatus caps an echoed status value at 64 bytes, so ErrUnexpectedStatus

@@ -373,19 +373,21 @@ func appendLiveWriteCapture(captured vngcloud.ResponseCapture) error {
 }
 
 // TestLiveWriteMonitor exercises PauseCheck and ResumeCheck against the
-// account named in .env. v0.8.0 has no CreateCheck, so it needs a check
-// named exactly "vngcloud-live-toggle" that the owner creates in the
-// console before the run and deletes after; the test skips when it does
-// not find one. It assumes that check starts StatusEnabled, which the owner
-// keeps true between runs (t.Cleanup restores it): a start status of
-// StatusDisabled means an earlier run's cleanup did not run, and the test
-// fails loudly on that rather than silently adapting to it.
+// account named in .env. It needs a check named exactly
+// "vngcloud-live-toggle" that the owner creates in the console before the
+// run and deletes after; the test skips when it does not find one. It
+// records the check's start status rather than assuming one, fails before
+// any write if that status is neither StatusEnabled nor StatusDisabled, and
+// registers t.Cleanup only once the start status is known, so the cleanup
+// can restore it; the cleanup sends a request only when the check is not
+// already back at the start status.
 //
-// It pauses twice and resumes twice, so both a real toggle and a same-state
-// no-op are exercised for each operation, and logs each call's confirm-read
-// count (the PUT's own read, plus every confirm read, minus the pre-toggle
-// read that never follows a PUT): this answers the design's open question
-// of whether the API's reads lag its writes.
+// It pauses twice and resumes twice, in whichever order ends back at the
+// start status, so both a real toggle and a same-state no-op are exercised
+// for each operation. It logs each call's confirm-read count: the GETs the
+// call made, minus the one pre-toggle read that never follows a PUT, which
+// leaves only the reads spent confirming the toggle landed. This answers
+// the design's open question of whether the API's reads lag its writes.
 func TestLiveWriteMonitor(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor write test")
@@ -446,30 +448,55 @@ func TestLiveWriteMonitor(t *testing.T) {
 	}
 	t.Log("step 1: found check")
 
-	// Step 2: register the restore before any toggle, so a failed assertion
-	// below still resumes the check with its own context.
+	// Step 2: read the start status before any write. A status the SDK does
+	// not toggle between is never guessed at; the test fails here instead of
+	// sending anything.
+	start, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checkID})
+	if err != nil {
+		t.Fatalf("step 2 GetCheck: %s", safeErr(err))
+	}
+	startStatus := start.Check.Status
+	if startStatus != monitor.StatusEnabled && startStatus != monitor.StatusDisabled {
+		t.Fatalf("step 2: status = %q, want %s or %s; refusing to toggle a status neither PauseCheck nor ResumeCheck understands",
+			startStatus, monitor.StatusEnabled, monitor.StatusDisabled)
+	}
+	t.Logf("step 2: start status %s", startStatus)
+
+	// Step 3: register the restore now that startStatus is known. It reads
+	// the current status on its own context and toggles back to startStatus
+	// only when the test left it somewhere else, so a clean run's cleanup
+	// sends no request.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		out, err := client.ResumeCheck(cleanupCtx, &monitor.ResumeCheckInput{CheckID: checkID})
+		now, err := client.GetCheck(cleanupCtx, &monitor.GetCheckInput{CheckID: checkID})
 		if err != nil {
-			t.Errorf("cleanup: resume check: %s", safeErr(err))
+			t.Errorf("cleanup: get check: %s", safeErr(err))
 			return
 		}
-		if out.Check.Status != monitor.StatusEnabled {
-			t.Errorf("cleanup: status = %s, want %s", out.Check.Status, monitor.StatusEnabled)
+		if now.Check.Status == startStatus {
+			return
+		}
+		var status string
+		if startStatus == monitor.StatusEnabled {
+			out, err := client.ResumeCheck(cleanupCtx, &monitor.ResumeCheckInput{CheckID: checkID})
+			if err != nil {
+				t.Errorf("cleanup: resume check: %s", safeErr(err))
+				return
+			}
+			status = out.Check.Status
+		} else {
+			out, err := client.PauseCheck(cleanupCtx, &monitor.PauseCheckInput{CheckID: checkID})
+			if err != nil {
+				t.Errorf("cleanup: pause check: %s", safeErr(err))
+				return
+			}
+			status = out.Check.Status
+		}
+		if status != startStatus {
+			t.Errorf("cleanup: status = %s, want %s", status, startStatus)
 		}
 	})
-
-	// Step 3: confirm the assumed start status before toggling anything.
-	start, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checkID})
-	if err != nil {
-		t.Fatalf("step 3 GetCheck: %s", safeErr(err))
-	}
-	if start.Check.Status != monitor.StatusEnabled {
-		t.Fatalf("step 3: status = %s, want %s (an earlier run's cleanup may not have run)",
-			start.Check.Status, monitor.StatusEnabled)
-	}
 
 	toggle := func(step string, want bool, call func() (bool, error)) {
 		before := getCount.Load()
@@ -486,36 +513,37 @@ func TestLiveWriteMonitor(t *testing.T) {
 		}
 		t.Logf("%s: confirm reads = %d", step, reads)
 	}
-
-	// Step 4: pause twice. The check starts enabled (step 3), so the first
-	// call toggles it and the second, already disabled, is a no-op.
-	toggle("step 4a pause", true, func() (bool, error) {
+	pause := func() (bool, error) {
 		out, err := client.PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: checkID})
 		return out != nil && out.Changed, err
-	})
-	toggle("step 4b pause", false, func() (bool, error) {
-		out, err := client.PauseCheck(ctx, &monitor.PauseCheckInput{CheckID: checkID})
-		return out != nil && out.Changed, err
-	})
-
-	// Step 5: resume twice. The check is now disabled, so the first call
-	// toggles it back and the second, already enabled, is a no-op.
-	toggle("step 5a resume", true, func() (bool, error) {
+	}
+	resume := func() (bool, error) {
 		out, err := client.ResumeCheck(ctx, &monitor.ResumeCheckInput{CheckID: checkID})
 		return out != nil && out.Changed, err
-	})
-	toggle("step 5b resume", false, func() (bool, error) {
-		out, err := client.ResumeCheck(ctx, &monitor.ResumeCheckInput{CheckID: checkID})
-		return out != nil && out.Changed, err
-	})
+	}
 
-	// Step 6: confirm the check ended enabled, the same status step 3
-	// found, before t.Cleanup runs its own (redundant, but harmless) resume.
+	// Steps 4 and 5: pause twice and resume twice, in whichever order ends
+	// back at startStatus, so a real toggle and a same-state no-op are both
+	// exercised for each operation.
+	if startStatus == monitor.StatusEnabled {
+		toggle("step 4a pause", true, pause)
+		toggle("step 4b pause", false, pause)
+		toggle("step 5a resume", true, resume)
+		toggle("step 5b resume", false, resume)
+	} else {
+		toggle("step 4a resume", true, resume)
+		toggle("step 4b resume", false, resume)
+		toggle("step 5a pause", true, pause)
+		toggle("step 5b pause", false, pause)
+	}
+
+	// Step 6: confirm the check ended back at startStatus, before t.Cleanup
+	// runs its own (redundant, but harmless) check.
 	final, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checkID})
 	if err != nil {
 		t.Fatalf("step 6 GetCheck: %s", safeErr(err))
 	}
-	if final.Check.Status != monitor.StatusEnabled {
-		t.Fatalf("step 6: status = %s, want %s", final.Check.Status, monitor.StatusEnabled)
+	if final.Check.Status != startStatus {
+		t.Fatalf("step 6: status = %s, want %s", final.Check.Status, startStatus)
 	}
 }

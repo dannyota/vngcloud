@@ -21,25 +21,23 @@ header, found the uptime manager at
 
 | Call | Result |
 |-|-|
-| `GET /uptimes` | 200, a JSON array of checks |
-| `GET /uptimes/{id}` | 200, one check |
+| `GET /uptimes` | 200, a bare JSON array of all checks; no paging |
+| `GET /uptimes/{id}` | 200, one check; 404 for an unknown ID |
 | `POST /uptimes` | 201, the new check |
 | `DELETE /uptimes/{id}` | 204 |
 | `PUT /uptimes/status/{id}` | 204; empty body; flips `status` between `ENABLED` and `DISABLED` |
-| `GET /locations` | 200, public probe locations such as `SYNTT-VN-HCM01` and `SYNTT-VN-HAN01` |
+| `GET /locations` | 200, public probe locations: a UUID ID and a name such as `SYNTT-VN-HCM01` |
 
 The console's create body has `type` `API`, `subtype` `HTTP`, `name`,
 `config.request` (`url`, `method`, `headers`, `query`, `body`, `timeout`,
 `verified_ssl`), `config.assertions` (by default one:
 `status_code` `does_not_match_regex` `[4-5][0-9][0-9]`),
-`options` (`test_frequency`, `tests`, `failed_locations`), `locations` (IDs),
-and `notifications` (`In-alarm`, `Up`, and `Undetermined` lists).
-`test_frequency` is in minutes. The server requires a name of 5 to 30
-characters that starts with a letter. Checks draw on a prepaid package
-quota; the test account has 10 API tests free until 2026-10-26.
-
-[Fixture work](../../instructions/live-data.md#adding-or-fixing-an-api)
-settles the rest; see [Open questions](#open-questions).
+`options` (`test_frequency` in minutes, `tests`, `failed_locations`),
+`locations` (location UUIDs; a name gets 404 `Not found location`), and
+`notifications` (`In-alarm`, `Up`, and `Undetermined` lists). The server
+requires a name of 5 to 30 characters that starts with a letter. Checks
+draw on a prepaid package quota; the test account has 10 API tests free
+until 2026-10-26.
 
 ## Non-goals
 
@@ -73,9 +71,8 @@ matching `Monitor` override. `internal/routes` gains `ProductMonitor`.
 live under a second prefix. Uptime paths are
 `vmonitor-uptime-manager/v1/...` under it.
 
-The host carries no region, so the SDK assumes checks are per account and
-ignores the configured region, as billing does. It sends no project ID.
-`Config` still requires a region, because the rest of the SDK needs one.
+The host carries no region, so the SDK assumes checks are per account,
+ignores the region as billing does, and sends no project ID.
 
 ## SDK
 
@@ -119,32 +116,34 @@ Operation names are `monitor.<Method>`.
 
 "(r)" marks `vngcloud:"required"`, and "L[T]" is `core.List[T]`. A nil
 Input is valid for the two lists. `ListChecksInput` and `ListLocationsInput`
-have no fields today, so later filters break no caller. If the capture shows
-that `GET /uptimes` pages, this design is amended before code.
+have no fields today, so later filters break no caller. `GET /uptimes` does
+not page, so `ListChecks` sends one request.
 
 ### Identifiers
 
 Every operation that puts `CheckID` in a path checks it with
 `core.CheckPathID` (`^[A-Za-z0-9-]+$`) before any request, reads included,
-as billing does. The ID format is not captured yet. If live IDs hold another
-character, this design states the wider pattern before code.
+as billing does. Check and location IDs are UUIDs, which match the pattern.
 
 ### Models
 
-`Check` and `Location` keep their API JSON tags. The models need these
-fields; the capture fixes their JSON names and types:
+`Check` and `Location` keep their API JSON tags:
 
 | Model | Fields |
 |-|-|
-| `Check` | `ID`, `Name`, `Type`, `Subtype`, `Status`, `Config` (`Request`, `Assertions`), `Options`, `Locations`, and created and updated times when present |
+| `Check` | `ID`, `Name`, `Type`, `Subtype`, `Status`, `Config` (`Request`, `Assertions`), `Options`, `Locations` (UUIDs), `CreatedAt`, `UpdatedAt` |
 | `CheckRequest` | `URL`, `Method`, `Headers`, `Query`, `Body`, `Timeout`, `VerifiedSSL` |
 | `Assertion` | `Type`, `Operator`, `Target` |
 | `CheckOptions` | `TestFrequency` (minutes), `Tests`, `FailedLocations` |
 | `Location` | `ID`, `Name`, and region or country fields when present |
 
-`Notifications` is left out of `Check` until channels are designed, rather
-than kept as `json.RawMessage`; adding it later breaks no caller. `Status`
-is a plain string, so an unknown value decodes and reaches the caller.
+`Notifications` is left out until channels are designed; adding it later
+breaks no caller. `Status` is a plain string, so an unknown value reaches
+the caller. `headers` and `query` are JSON objects, seen only empty, so
+they are `map[string]string`; `body` is a string. `timeout`,
+`test_frequency`, `tests`, and `failed_locations` arrive as decimals such
+as `30.0` and decode into `int`. `created_at` and `updated_at` are console
+strings such as `Jan 2, 2026, 1:00:00 PM`, not ISO 8601, and stay strings.
 
 ## Pause and resume
 
@@ -156,8 +155,7 @@ Both share one implementation with a target status `T`. They follow
    `ErrInvalidInput` and send nothing.
 2. Read the check with `GET /uptimes/{id}`, a normal read with normal
    retries. An error, such as `NotFound`, returns at once; nothing was sent.
-3. If `Status` equals `T`, return the check with `Changed: false`. Send
-   nothing.
+3. If `Status` equals `T`, return it with `Changed: false`; send nothing.
 4. If `Status` is neither `ENABLED` nor `DISABLED`, return an error wrapping
    `ErrUnexpectedStatus` that names the status, cut to 64 bytes. Send
    nothing. The SDK never flips a state it does not understand.
@@ -165,38 +163,49 @@ Both share one implementation with a target status `T`. They follow
    accepted.
 6. If the response is a 4xx (including 401, 403, 404, 409, and 429), or the
    dial failed, the server did not act. Return that error.
-7. Otherwise, whether the PUT returned 2xx, 5xx, or failed after
-   connecting (timeout, reset, cancelled context), confirm by reading. Read
-   the check at once, then after 1, 2, and 4 seconds, stopping at the first
-   read whose `Status` is `T`. Each read is a normal read. The waits honour
-   `ctx` and use an injected clock in tests.
+7. Otherwise (a 2xx, a 5xx, or a timeout, reset, or cancelled context
+   after connecting), confirm with normal reads at once and after 1, 2,
+   and 4 seconds, stopping at the first that shows `T`. Waits honour `ctx`.
 8. When a confirm read shows `T`, return that check with `Changed: true`,
-   even if the PUT itself failed: the check reached the target, and this
-   call sent the only toggle it saw.
+   even if the PUT failed: this call sent the only toggle it saw.
 9. When no confirm read shows `T`, or the reads fail, return an error
-   wrapping `ErrStatusUnconfirmed`. It also wraps the PUT error and the last
-   read error, when there are ones. Output is nil.
+   wrapping `ErrStatusUnconfirmed`, the PUT error, and the last read error,
+   when present. Output is nil. See
+   [After ErrStatusUnconfirmed](#after-errstatusunconfirmed).
 
 The confirm reads bound the wait at about 7 seconds plus request time, per
-ADR 0002 rule 7. They cover a server whose reads lag its writes; whether
-the real API lags is an open question the live test answers.
+ADR 0002 rule 7, and cover a server whose reads lag its writes.
 
-`Changed` lets a caller restore the prior state. A deploy that pauses at
-step 5 resumes at step 9 only when the pause reported `Changed: true`, so a
-check a person paused for maintenance stays paused.
+`Changed` lets a caller restore the prior state. A deploy that pauses
+before it ships resumes after only when the pause reported `Changed: true` or
+failed with `ErrStatusUnconfirmed`, so a check a person paused for
+maintenance stays paused.
+
+### After ErrStatusUnconfirmed
+
+A toggle can land after the last confirm read, so a rerun of the same call
+can return `Changed: false` for a change the first call made. After
+`ErrStatusUnconfirmed` from `PauseCheck`, the caller does not rerun it: it
+treats the pause as its own and resumes later. That is safe because steps
+3 and 4 saw a known status other than `DISABLED`, so the check was
+`ENABLED` before the call. After `ErrStatusUnconfirmed` from `ResumeCheck`,
+the caller stops and alerts a person. A caller never reruns either call in
+a loop.
 
 ### No retry
 
 Every resend of the `PUT`, even after a 429 or a failed dial, acts on the
-status read in step 2, which gets older with each backoff. Running the whole
-operation again is safe instead, because it reads first. So the SDK sends
-at most one `PUT` per call, the CLI never retries, and the transport gains
-`transport.Request.Once bool`. With `Once` set, the transport:
+status read in step 2, which gets older with each backoff. After a 4xx or
+failed dial, rerunning the whole call is safe, because it reads first. The SDK
+sends at most one `PUT` per call, the CLI never retries, and the transport
+gains `transport.Request.Once bool`. With `Once` set, the transport:
 
 - sends the request once: no retry after any status or network error,
   including 429, 5xx, and a failed dial;
 - on a 401, invalidates the sent token as usual and returns the error
   without resending;
+- refuses HTTP redirects, so `net/http` never resends the `PUT` after a
+  307 or 308;
 - sets `APIError.Retryable` true only for a 429 or a failed dial, where the
   server did not act. A caller that retries on it reruns the operation.
 
@@ -213,9 +222,6 @@ SDK can detect this race but not prevent it. Within one process, a
 mutex. Across processes, the caller serializes; aboutme runs one deploy at
 a time.
 
-A toggle that a 5xx hid can land after the last confirm read. A caller
-whose rerun also fails to confirm stops and alerts a person, never loops.
-
 ## Create
 
 `CreateCheckInput` is flat, so most fields map to CLI flags:
@@ -224,11 +230,11 @@ whose rerun also fails to confirm stops and alerts a person, never loops.
 |-|-|-|
 | `Name` | string | (r). The server requires 5 to 30 characters, starting with a letter |
 | `URL` | string | (r). Sent as `config.request.url` |
-| `Locations` | []string | (r). Location IDs from `ListLocations` |
+| `Locations` | []string | (r). Location UUIDs from `ListLocations`, not names |
 | `Method` | string | Empty sends `GET` |
-| `Headers`, `Query` | type per capture | Nil sends what the console sends for none |
+| `Headers`, `Query` | map[string]string | Nil sends what the console sends for none |
 | `Body` | string | Empty sends what the console sends for none |
-| `Timeout` | int | Unit per capture; 0 sends the console default |
+| `Timeout` | int | Unit open; 0 sends the console default |
 | `TestFrequency` | int | Minutes; 0 sends the console default |
 | `Tests` | int | 0 sends the console default |
 | `FailedLocations` | int | 0 sends the console default |
@@ -256,11 +262,9 @@ Create semantics:
 ### Why no quote
 
 ADR 0002 rule 8 asks every paid create for a quote. A check is not billed
-per create: it uses one slot of a package the account bought in the
-console. Within the quota a create costs nothing more, and past it the
-server is expected to refuse. So `CreateCheck` has no quote. If the capture
-shows that a create past the quota bills the account instead of failing, it
-becomes a paid create and needs a quote before release.
+per create: it takes one slot of a prepaid package, and past the quota the
+server is expected to refuse. If a create past the quota bills instead, it
+needs a quote before release.
 
 ### Why no notifications yet
 
@@ -281,18 +285,17 @@ that finds the check gone returns `NotFound`; the SDK does not hide it.
 | Case | Result | CLI code and exit |
 |-|-|-|
 | Missing `CheckID`, bad ID shape, missing create field | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
-| Unknown check | `NotFound` if the server sends 404 | `NotFound`, 4 |
+| Unknown check | `NotFound` from the server's 404 | `NotFound`, 4 |
 | Status other than `ENABLED` or `DISABLED` | `ErrUnexpectedStatus`, no toggle | `UnexpectedStatus`, 1 |
-| Toggle sent or maybe sent, target not confirmed | `ErrStatusUnconfirmed` | `StatusUnconfirmed`, 1 |
+| Toggle sent or may have been sent, target not confirmed | `ErrStatusUnconfirmed` | `StatusUnconfirmed`, 1 |
 | 4xx or failed dial on the toggle | That `*APIError` | As for any `*APIError` |
 | Name rule, quota, or bad location on create | The server's `*APIError` | 1 |
 
-If the capture shows an unknown check is not a 404, this design adds a
-mapping like [billing's](billing.md#errors) before code.
-
-`ErrStatusUnconfirmed` errors say what happened and the fix, for example
-`monitor: check status not confirmed: toggle sent, check still ENABLED; run
-PauseCheck again, which reads the status first`. The CLI checks
+`ErrStatusUnconfirmed` errors say what happened and the recovery from [After
+ErrStatusUnconfirmed](#after-errstatusunconfirmed), and never say to rerun, for
+example `monitor: check status not confirmed: toggle sent or may have been
+sent, check still ENABLED; treat the pause as done and resume later`. For
+`ResumeCheck` the end reads `ask a person to check it`. The CLI checks
 `ErrStatusUnconfirmed` before its cancelled-context rule, so a Ctrl-C during
 the `PUT` still reports that the toggle may have landed. The CLI error codes
 list in [CLI](cli.md#errors-and-exit-codes) gains `UnexpectedStatus` and
@@ -325,13 +328,15 @@ list in [CLI](cli.md#errors-and-exit-codes) gains `UnexpectedStatus` and
   types today, so they come through `--cli-input-json`.
 
 aboutme's deploy saves `pause-check --query Changed`, and runs
-`resume-check` from a trap when it was `true`, so a failed deploy does not
-leave monitoring off. The CLI cannot enforce the trap.
+`resume-check` from a trap when it was `true` or when `pause-check` failed
+with `StatusUnconfirmed`, so a failed deploy does not leave monitoring off.
+It never reruns `pause-check`. The CLI cannot enforce the trap.
 
 ## Security
 
 - Every write in this design gets an adversarial review before its release.
-  The review checks: the toggle is sent at most once at every layer; no
+  The review checks: the toggle is sent at most once at every layer,
+  redirects included; no
   toggle when the status is already the target or unknown; the confirm
   reads never lead to a second `PUT`; `Retryable` on the toggle; path ID
   checks on every call; `--yes` on delete; read-only refusal of all four
@@ -383,10 +388,11 @@ on 2026-10-26 or with a new package.
   `ListLocations`. The live CLI test adds `monitor list-checks`.
 - `v0.8.0` live write test: the SDK cannot create a check yet, so the owner
   creates one `vngcloud-live-toggle` check in the console before the run and
-  deletes it after. The test finds it by exact name, or skips. It records
-  the start status, pauses twice (`Changed` true, then false), resumes
-  twice, restores the start status in `t.Cleanup` with its own
-  `context.WithTimeout(context.Background(), ...)`, and asserts it. It also
+  deletes it after. The test finds it by exact name, or skips. It reads the
+  start status and only then registers `t.Cleanup`, which restores that
+  status only if the test changed it, with its own
+  `context.WithTimeout(context.Background(), ...)`, and asserts it. It
+  pauses twice (`Changed` true, then false) and resumes twice. It also
   logs, as a count only, how many confirm reads each toggle needed, which
   answers the read-lag question.
 - `v0.9.0` live write test: it deletes leftover `vngcloud-live-` checks,
@@ -406,16 +412,11 @@ on 2026-10-26 or with a new package.
 | `v0.9.0` | `CreateCheck`, `DeleteCheck`, and `ListLocations`, with their CLI commands |
 
 Neither release changes an existing method, field, or command. Pause and
-resume ship first: aboutme runs them on every deploy but creates
-its check once, in the console. The cost is that the `v0.8.0` live write
-test needs a console-created check. Create first would avoid that but delay
-aboutme's per-deploy need by one release.
+resume ship first because aboutme runs them on every deploy; the cost is a
+console-created check for the `v0.8.0` live write test.
 
 A `Monitor` SDK wiki page covers per-account scope, `Changed`,
 `ErrStatusUnconfirmed`, silent created checks, and the header warning.
-
-Alarms, log projects, and notification channels follow after discovery, in
-their own designs.
 
 ## Owner decisions
 
@@ -441,10 +442,8 @@ their own designs.
   assumes per account.
 - Whether reads lag the toggle. The `v0.8.0` live test measures it; a lag
   longer than the confirm window changes step 7.
-- The check ID format, the unknown-check error status, whether
-  `GET /uptimes` pages, and the JSON types of `headers`, `query`, `body`,
-  and `timeout`. The fixture capture answers these before code.
-- The console defaults for `timeout`, `tests`, and `failed_locations`, and
+- The shape of populated `headers` and `query`, the unit of `timeout`, the
+  console defaults for `timeout`, `tests`, and `failed_locations`, and
   whether a create past the quota fails or bills.
 - What happens to existing checks, and to pause and resume, when the free
   package ends on 2026-10-26.

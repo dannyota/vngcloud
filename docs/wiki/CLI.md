@@ -38,7 +38,7 @@ Every operation command also accepts `--cli-input-json '<json>'` or `--cli-input
 | 0 | Success |
 | 1 | API or network error, or a canceled command |
 | 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a missing region, or an ambiguous project |
-| 3 | No credentials, a login failure, or a 401 after the retry |
+| 3 | No credentials, a login failure, or a 401 (retried once, except on a toggle write, which is sent only once) |
 | 4 | Not found |
 
 ## Error classes
@@ -49,7 +49,7 @@ A failed command prints one JSON line to stderr:
 {"error":{"code":"NotFound","message":"server not found","status":404,"operation":"compute.GetServer"}}
 ```
 
-`status` and `operation` appear only for an API error, whose `code` is the API's own code, or a status-derived fallback code when the API gives none. Every other error names one class: `InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, `QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status the SDK does not know, so nothing was sent), or `StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)). Both exit 1.
+`status` and `operation` appear only for an API error, whose `code` is the API's own code, or a status-derived fallback code when the API gives none. Every other error names one class: `InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, `QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status the SDK does not know, so nothing was sent), or `StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)). `UnexpectedStatus` and `StatusUnconfirmed` both exit 1.
 
 ## Read-only
 

@@ -128,8 +128,10 @@ func TestGenDocsExitCodeTableCoversAmbiguousProjectAndRetryUnauthorized(t *testi
 	if !strings.Contains(data, "ambiguous project") {
 		t.Errorf("exit code table is missing the ambiguous-project case:\n%s", data)
 	}
-	if !strings.Contains(data, "401 after the retry") {
-		t.Errorf("exit code table is missing the 401-after-retry case:\n%s", data)
+	// Wording must hold for a toggle write, which the SDK never retries, as
+	// well as an ordinary request, which it retries once after a 401.
+	if !strings.Contains(data, "except on a toggle write") {
+		t.Errorf("exit code table is missing the toggle-write 401 case:\n%s", data)
 	}
 }
 
@@ -176,6 +178,24 @@ func TestGenDocsErrorClassesMentionMonitorCodes(t *testing.T) {
 		if !strings.Contains(data, want) {
 			t.Errorf("error class text is missing %s:\n%s", want, data)
 		}
+	}
+}
+
+// TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
+// closing the error-classes list names UnexpectedStatus and
+// StatusUnconfirmed rather than "Both exit 1", which reads as ambiguous
+// after a list of ten classes.
+func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	if !strings.Contains(data, "`UnexpectedStatus` and `StatusUnconfirmed` both exit 1") {
+		t.Errorf("error class text does not name the two exit-1 codes:\n%s", data)
+	}
+	if strings.Contains(data, "Both exit 1") {
+		t.Errorf("error class text still has the ambiguous \"Both exit 1\":\n%s", data)
 	}
 }
 

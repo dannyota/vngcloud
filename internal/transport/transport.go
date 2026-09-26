@@ -126,13 +126,15 @@ type Request struct {
 
 	// Once sends req at most once, overriding every retry rule Idempotent
 	// and the method would otherwise apply: no retry after any status or
-	// network error, including 429 and a failed dial, and no resend after a
-	// 401 (the token is still invalidated, as for any other request). It is
-	// for a toggle write that must not be sent twice; see ADR 0003. The
-	// resulting APIError.Retryable is true only for a 429 or a failed dial,
-	// the two cases where the server provably never acted, never for a 5xx
-	// or a non-dial network error, which Once still sent only once but which
-	// may have reached a handler.
+	// network error, including 429 and a failed dial, no resend after a
+	// 401 (the token is still invalidated, as for any other request), and
+	// no resend after a 307 or 308 either, since net/http would otherwise
+	// replay req's method and body at the redirect's Location on its own.
+	// It is for a toggle write that must not be sent twice; see ADR 0003.
+	// The resulting APIError.Retryable is true only for a 429 or a failed
+	// dial, the two cases where the server provably never acted, never for
+	// a 5xx or a non-dial network error, which Once still sent only once
+	// but which may have reached a handler.
 	Once bool
 }
 
@@ -279,6 +281,20 @@ func (c *Client) rawClient() *http.Client {
 	return &cp
 }
 
+// refuseRedirects returns a client that behaves exactly like base except it
+// never follows a redirect: its CheckRedirect always returns
+// http.ErrUseLastResponse, so http.Client.Do returns the 3xx response itself
+// instead of resending req's method and body at the Location it names. It
+// builds a copy rather than mutating base, which the caller may still reuse
+// for a request this rule must not apply to.
+func refuseRedirects(base *http.Client) *http.Client {
+	cp := *base
+	cp.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &cp
+}
+
 // errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
 // leaves the token empty, so an authenticated request is never sent without
 // one. It carries StatusCode so the caller's status-to-sentinel mapping
@@ -358,8 +374,14 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 	// it must return whatever it has. Once forces it to 0: exactly one
 	// attempt, whatever the response, per ADR 0003 rule 3.
 	maxAttempts := c.retryCount
+	sendClient := client
 	if req.Once {
 		maxAttempts = 0
+		// net/http resends a redirected PUT's method and body at the
+		// Location it names, which would send the toggle a second time.
+		// http.ErrUseLastResponse stops it from following any redirect at
+		// all, so the caller sees the 3xx itself instead.
+		sendClient = refuseRedirects(client)
 	}
 
 	var lastErr error
@@ -396,7 +418,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 		}
 
-		resp, err := client.Do(httpReq)
+		resp, err := sendClient.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
 			c.logRequest(ctx, httpReq, 0, false, duration)
@@ -600,13 +622,17 @@ func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 // invalidateOnce drops sent from every cache the token source holds, the
 // same as invalidateAndRefresh's own invalidation step, but never fetches a
 // replacement: a Once request that hits a 401 is never resent, so there is
-// nothing to fetch a replacement token for. It also clears the token from
-// this Client's own in-memory cache, so a later call, on this Client, never
-// resends the same rejected token; that later call fetches a fresh one
-// through the ordinary EnsureToken path instead. Invalidation runs only
-// while sent is still the Client's current token, the same guard
-// invalidateAndRefresh uses, so a token another goroutine already replaced
-// is left alone.
+// nothing to fetch a replacement token for. It also marks the token in this
+// Client's own in-memory cache as needing refresh, so a later call, on this
+// Client, never resends the same rejected token; that later call fetches a
+// fresh one through the ordinary EnsureToken path instead. It never clears
+// AccessToken itself, only ExpiresAt, the same window invalidateAndRefresh
+// avoids: a concurrent request on this shared Client that already passed
+// EnsureToken must still see a token to send, never an empty string that
+// makes it fail with a synthetic 401 of its own, unrelated to the real one
+// this call saw. Invalidation runs only while sent is still the Client's
+// current token, the same guard invalidateAndRefresh uses, so a token
+// another goroutine already replaced is left alone.
 func (c *Client) invalidateOnce(sent string) {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
@@ -616,7 +642,7 @@ func (c *Client) invalidateOnce(sent string) {
 	}
 	c.tokenSource.Invalidate(sent)
 	c.mu.Lock()
-	c.token = Token{}
+	c.token = Token{AccessToken: sent}
 	c.mu.Unlock()
 }
 

@@ -238,17 +238,18 @@ status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 CDN IP range FAQ changed format; see [CDN](cdn.md)), `UnexpectedStatus` (a
 vMonitor check has a status the SDK does not know, so nothing was sent), or
 `StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read
-did not confirm it; see [vMonitor](monitor.md#pause-and-resume)). Both exit
-1. `QueryFailed` means `--query` failed after the operation succeeded; for
-a write, the message says the write succeeded, so an agent does not retry
-it.
+did not confirm it; see
+[vMonitor](monitor.md#after-errstatusunconfirmed)). `UnexpectedStatus` and
+`StatusUnconfirmed` exit 1. `QueryFailed` means `--query` failed after the
+operation succeeded; for a write, the message says the write succeeded, so
+an agent does not retry it.
 
 | Exit code | Meaning |
 |-|-|
 | 0 | Success |
 | 1 | API or network error, or a cancelled command |
 | 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a literal secret in `configure set`, a missing region, or an ambiguous project |
-| 3 | `ErrNoCredentials`, `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry |
+| 3 | `ErrNoCredentials`, `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
 | 4 | `NotFound` |
 
 `ErrNoCredentials` and `ErrCredentialsFile` also match `ErrInvalidConfig`, so
