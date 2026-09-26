@@ -1,6 +1,6 @@
 # vMonitor Alerts Design
 
-Status: Proposed (2026-09-26).
+Status: Accepted (2026-09-26).
 
 This design adds vMonitor notification channels, check notifications, log
 projects, and log alarms to the SDK and CLI. aboutme needs its app-down
@@ -292,12 +292,12 @@ returns the response at once. Other writes are synchronous.
 | No channel with the ID | Not-found sentinel | `NotFound`, 4 |
 | Wrong or expired OTP | `ErrOTPRejected`, no create | `OTPRejected`, 1 |
 | Quote above `MaxPrice` | `ErrPriceAboveMax`, no order | `PriceAboveMax`, 1 |
-| Wait failed or timed out | `ErrFailed`, `ErrNotSettled` | As in vDNS, 1 |
+| Wait failed or timed out | `ErrFailed`, `ErrNotSettled` | `WriteFailed`, `NotSettled`, 1 |
 | Server refuses | The server's `*APIError` | 1, or 4 on 404 |
 
-The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed`
-and `ErrNotSettled` reuse the vDNS codes when that design merges first;
-otherwise this design adds them.
+The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
+`ErrNotSettled` reuse the vDNS sentinels and codes `WriteFailed` and
+`NotSettled` ([vDNS](dns.md#after-a-write)); no new names are added for them.
 
 ## CLI
 
@@ -426,22 +426,22 @@ release changes an existing method or command.
 
 ## Owner decisions
 
-Each is recommended as written.
+All 13 are approved as recommended.
 
-1. Extend `monitor` instead of adding a package.
-2. Call GreenNode's notifications "channels".
-3. The CLI always redacts webhook and Slack secrets; no reveal flag.
-4. The CLI refuses a literal webhook or Slack `--address`.
-5. OTP channels use two commands, with the OTP on argv.
-6. SMS channels are allowed but not live-tested, with a cost warning.
-7. Updates read, merge, and send a full body; lost updates stay possible.
-8. `CreateLogProject` sends `pay: true` and refuses a quote above
+1. Approved: extend `monitor` instead of adding a package.
+2. Approved: call GreenNode's notifications "channels".
+3. Approved: the CLI redacts webhook and Slack secrets; no reveal flag.
+4. Approved: the CLI refuses a literal webhook or Slack `--address`.
+5. Approved: OTP channels use two commands, with the OTP on argv.
+6. Approved: SMS channels are allowed, not live-tested; a cost warning.
+7. Approved: updates read, merge, and resend the full body; may lose one.
+8. Approved: `CreateLogProject` sends `pay: true`; refuses a quote over
    `MaxPrice`, default 0.
-9. The log project quote lives in `monitor`, not `pricing`.
-10. `DeleteLogProject` has `Purge`; the command needs `--yes`.
-11. No metric alarm writes or metric quotas until aboutme names one.
-12. Releases M1 to M8 in this order.
-13. The owner relays one email OTP for live check 3, before M4.
+9. Approved: the log project quote lives in `monitor`, not `pricing`.
+10. Approved: `DeleteLogProject` has `Purge`; the command needs `--yes`.
+11. Approved: no metric alarm writes or quotas until aboutme names one.
+12. Approved: releases M1 to M8 in this order.
+13. Approved: the owner relays one email OTP for live check 3, before M4.
 
 ## Open questions
 

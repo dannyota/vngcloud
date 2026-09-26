@@ -1,6 +1,6 @@
 # vStorage Design
 
-Status: Proposed (2026-09-26).
+Status: Accepted (2026-09-26).
 
 This design adds vStorage object storage management to the SDK and CLI:
 buckets, their settings, S3 keys, and the service accounts that scope a key
@@ -426,25 +426,25 @@ riskiest part.
 
 ## Owner decisions
 
-Each is recommended as written.
+All 12 are approved as recommended.
 
-1. Buckets go through the undocumented console API with the IAM User token;
-   the documented external API needs service-account login, a non-goal.
-2. Two packages, `storage` and `iam`: keys and service accounts live in the
-   IAM API, as in AWS.
-3. Projects stay a console step, because a project is a paid checkout.
-4. Live writes use the smallest pay-as-you-go project on the test account
-   once it has credit, about 1,400 VND per month. Until then only S1 can
-   be verified live.
-5. `Region` Input, defaulting `hcm-3` to `HCM04` and `han-1` to `HAN02`.
-6. The secret goes only to `--secret-file` as an AWS credentials file, with
-   no stdout option, which would put it in agent transcripts and CI logs.
-7. `vngcloud.Secret` redacts even in `json.Marshal`.
-8. The CLI never shows or saves a service account's client secret.
-9. `DeleteBucket` refuses a bucket with objects; no force option.
-10. `--yes` when making a bucket public.
-11. rclone as the documented S3 client; no object commands in the CLI.
-12. The release order above.
+1. Approved: buckets use the undocumented console API with the IAM User
+   token; the documented external API needs service-account login.
+2. Approved: two packages, `storage` and `iam`: keys and service accounts
+   live in the IAM API, as in AWS.
+3. Approved: projects stay a console step; a project is a paid checkout.
+4. Approved: the test IAM user has vStorage access. Live writes wait for
+   credit to buy the smallest pay-as-you-go project, about 1,400 VND per
+   month. Until then only S1 verifies live.
+5. Approved: `Region` Input, `hcm-3` defaults to `HCM04`, `han-1` to `HAN02`.
+6. Approved: the secret goes only to `--secret-file`, an AWS credentials
+   file; no stdout option, which would reach transcripts and CI logs.
+7. Approved: `vngcloud.Secret` redacts even in `json.Marshal`.
+8. Approved: the CLI never shows or saves a service account's client secret.
+9. Approved: `DeleteBucket` refuses a bucket with objects; no force option.
+10. Approved: `--yes` when making a bucket public.
+11. Approved: rclone as the S3 client; no object commands in the CLI.
+12. Approved: the release order above.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.

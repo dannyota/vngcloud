@@ -134,7 +134,9 @@ Service packages may import each other for shared models; `network` imports
 | `project` | The project listing that `internal/core` keeps for discovery |
 | `billing`, `pricing` | Budgets, cost, balances, and quotes; see [billing](billing.md) |
 | `cdn` | CDN IP ranges; see [CDN](cdn.md) |
-| `monitor` | vMonitor synthetic checks; see [vMonitor](monitor.md) |
+| `monitor` | vMonitor synthetic checks, notification channels, log projects, and alarms; see [vMonitor](monitor.md) |
+| `storage` | vStorage regions, projects, and buckets; see [vStorage](storage.md) |
+| `iam` | Service accounts and S3 keys; see [vStorage](storage.md) |
 
 Every operation has one signature:
 
@@ -370,19 +372,27 @@ the SDK and CLI together:
 1. vCDN origin IP ranges, in `v0.7.0` ([CDN](cdn.md)).
 2. vMonitor synthetic checks ([vMonitor](monitor.md)): read, pause, and
    resume in `v0.8.0`, then create, delete, and probe locations in `v0.9.0`.
-   Alarms, log projects, and notification channels follow once discovered.
+   Channels, check alerting, log projects, and alarms follow in
+   [vMonitor Alerts](monitor-alerts.md).
 3. vDNS private zone and record writes ([vDNS](dns.md)): zones in
    `v0.10.0`, records in `v0.11.0`. vDNS has no public zone, so these serve
    private names inside a VPC, not aboutme's nameserver move.
-4. vStorage buckets and service-account keys.
+4. vStorage buckets and service-account keys ([vStorage](storage.md)):
+   reads, then bucket writes, S3 keys, service accounts, bucket policy, and
+   bucket settings.
 
 vCDN cache rules, the origin header, and the certificate stay console steps
 for aboutme: vCDN has no public API, and its console accepts only root login
 (see [CDN non-goals](cdn.md#non-goals)).
 
-Discovery found that an IAM User token can call the vMonitor uptime API.
-vMonitor alarms, log projects, and notification channels still need a
-discovery pass.
+Discovery found that an IAM User token can call the vMonitor uptime API and
+the vStorage console API. [vMonitor Alerts](monitor-alerts.md) and
+[vStorage](storage.md) cover channels, check alerting, log projects, alarms,
+buckets, S3 keys, and service accounts.
+
+vMonitor Alerts releases M1 to M8 and vStorage releases S1 to S6 are built in
+parallel, outside the `v0.x.y` sequence above; each gets its version number
+when it ships, so no version rows are reserved for them here.
 
 CLI read commands for the other services, and compute, volume, and network
 writes, come after these. OpenTofu covers those writes for aboutme.

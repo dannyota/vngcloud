@@ -41,12 +41,15 @@ until 2026-10-26.
 
 ## Non-goals
 
-These wait for their own discovery and design:
+These are covered by [vMonitor Alerts](monitor-alerts.md):
 
-- Notification channels. They live under
-  `/notification-gateway/api/v1/notification/...`, which is not mapped.
-- Alarms and log projects. Not discovered.
-- Updating a check. Not discovered. Delete and create replace one.
+- Notification channels and check notifications.
+- Alarms and log projects.
+- Updating a check. `PUT /uptimes/{id}` exists; see
+  [vMonitor Alerts](monitor-alerts.md#check-notifications).
+
+These stay out of scope here:
+
 - Check types other than `API`/`HTTP`, private locations, and check
   results or history.
 - Finding a check by name. Names may not be unique; callers pass the ID.
@@ -269,11 +272,11 @@ needs a quote before release.
 
 ### Why no notifications yet
 
-Channel IDs come from the notification gateway, which is not mapped. A
+Channel IDs come from the notification gateway, which is not mapped here. A
 check created now alerts nobody, and the wiki page says so. aboutme's
 app-down check keeps its console-set notifications; pause and resume do not
-touch them. A `Notifications` field is added when channels are designed,
-which breaks no caller.
+touch them. [vMonitor Alerts](monitor-alerts.md) adds a `Notifications`
+field and `UpdateCheck`, which breaks no caller here.
 
 ## Delete
 
@@ -425,7 +428,8 @@ A `Monitor` SDK wiki page covers per-account scope, `Changed`,
 5. Approved: `CreateCheck` always sends `verified_ssl: true`, with no field to
    turn it off.
 6. Approved: `CreateCheck` ships without notifications, so a created check
-   alerts nobody until channels are designed.
+   alerts nobody until [vMonitor Alerts](monitor-alerts.md) adds
+   `Notifications` and `UpdateCheck`.
 7. Approved: check headers and bodies print unredacted in CLI output.
 8. Approved: `Locations`, `Headers`, `Query`, and `Assertions` go through
    `--cli-input-json`, with no new CLI flag types.

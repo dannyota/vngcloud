@@ -128,6 +128,13 @@ A command registered with `cli.Destructive` fails with exit code 2 and a
 message naming `--yes` unless `--yes` is given. It never prompts, so it cannot
 hang an agent. Create and update commands run without `--yes`.
 
+## Secret files
+
+A command that would otherwise print a secret instead writes it to a file
+named by a `--secret-file <path>` flag, refuses an existing path or a
+symlink, and creates the file at mode 0600. `iam create-s3-key` is the
+first such command; see [vStorage](storage.md#create-s3-key).
+
 ## Read-only
 
 Read-only lets the owner hand an agent a profile that cannot change anything.
@@ -241,11 +248,21 @@ vMonitor check has a status the SDK does not know, so nothing was sent),
 did not confirm it; see
 [vMonitor](monitor.md#after-errstatusunconfirmed)), `ZoneBusy` (a vDNS
 zone stayed busy past the wait before a write, so nothing was sent),
-`WriteFailed` (a vDNS write went to status `ERROR`), or `NotSettled` (a vDNS
-write was accepted but did not settle within the wait; do not repeat it).
+`WriteFailed` (a vDNS write went to status `ERROR`, or, per
+[vMonitor Alerts](monitor-alerts.md#errors), a vMonitor log project or
+alarm wait failed), or `NotSettled` (a vDNS, or vMonitor Alerts, write was
+accepted but did not settle within the wait; do not repeat it). vMonitor
+Alerts also adds `OTPRejected` (a channel OTP was wrong or expired, so no
+create was sent) and `PriceAboveMax` (a log project quote exceeded
+`--max-price`, so no order was sent); see
+[vMonitor Alerts](monitor-alerts.md#errors). [vStorage](storage.md#errors)
+adds `BucketNotEmpty` (`delete-bucket` refused a bucket holding objects,
+so nothing was sent) and `SecretFileFailed` (`create-s3-key` could not
+write `--secret-file` after the create, so it deleted the new key).
 For `WriteFailed` and `NotSettled` the CLI also prints the Output on stdout;
 see [vDNS](dns.md#after-a-write). `UnexpectedStatus`, `StatusUnconfirmed`,
-`ZoneBusy`, `WriteFailed`, and `NotSettled` exit 1. `QueryFailed` means
+`ZoneBusy`, `WriteFailed`, `NotSettled`, `OTPRejected`, `PriceAboveMax`,
+`BucketNotEmpty`, and `SecretFileFailed` exit 1. `QueryFailed` means
 `--query` failed after the operation succeeded; for a write, the message
 says the write succeeded, so an agent does not retry it.
 

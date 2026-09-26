@@ -11,4 +11,6 @@ code starts. Decisions with lasting trade-offs also get an
 | [Billing and pricing](billing.md) | Approved |
 | [CDN IP ranges](cdn.md) | Approved |
 | [vMonitor](monitor.md) | Accepted |
+| [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vDNS](dns.md) | Accepted |
+| [vStorage](storage.md) | Accepted |
