@@ -466,18 +466,13 @@ type VolumeType struct {
 	VolumeTypeZoneID string `json:"volumeTypeZoneId"`
 }
 
+// VolumeTypeZone holds only the fields a live ListVolumeTypeZones item
+// carries.
 type VolumeTypeZone struct {
-	ID              string   `json:"id"`
-	UUID            string   `json:"uuid"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	PoolName        []string `json:"poolName"`
-	VolumeTypeZones any      `json:"volumeTypeZones"`
-	Extra           any      `json:"extra"`
-	Success         bool     `json:"success"`
-	ErrorCode       string   `json:"errorCode"`
-	ErrorMsg        string   `json:"errorMsg"`
-	Zone            Zone     `json:"zone"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Zone        Zone   `json:"zone"`
 }
 
 type EncryptionType struct {

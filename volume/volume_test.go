@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"reflect"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -103,6 +104,21 @@ func TestVolumeListSnapshots(t *testing.T) {
 	}
 }
 
+// TestVolumeTypeZoneHasNoNeverSentEnvelopeFields checks that VolumeTypeZone
+// carries none of the seven envelope fields a live ListVolumeTypeZones
+// response never sets (see the CLI reads design's volume section): they
+// always decoded empty, so they are dropped rather than kept as dead
+// columns in CLI output.
+func TestVolumeTypeZoneHasNoNeverSentEnvelopeFields(t *testing.T) {
+	dropped := []string{"UUID", "PoolName", "VolumeTypeZones", "Extra", "Success", "ErrorCode", "ErrorMsg"}
+	typ := reflect.TypeOf(VolumeTypeZone{})
+	for _, name := range dropped {
+		if _, ok := typ.FieldByName(name); ok {
+			t.Errorf("VolumeTypeZone still has field %q, want it dropped", name)
+		}
+	}
+}
+
 func TestVolumeListVolumeTypeZones(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/project-1/volume_type_zones" {
@@ -118,7 +134,8 @@ func TestVolumeListVolumeTypeZones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListVolumeTypeZones() error = %v", err)
 	}
-	if len(out.Items) != 1 || out.Items[0].ID != "volume-zone-1" || out.Items[0].PoolName[0] != "<name>" {
+	if len(out.Items) != 1 || out.Items[0].ID != "volume-zone-1" || out.Items[0].Description != "<description>" ||
+		out.Items[0].Zone.UUID != "zone-a" {
 		t.Fatalf("unexpected zones: %+v", out)
 	}
 }
