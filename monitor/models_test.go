@@ -43,6 +43,111 @@ func TestCheckRequestTimeoutDecode(t *testing.T) {
 	})
 }
 
+// TestCheckNotificationsDecode checks Check.Notifications decodes the
+// hyphenated "In-alarm" key alongside the plain "Up" and "Undetermined"
+// keys, each a list of channel IDs.
+func TestCheckNotificationsDecode(t *testing.T) {
+	raw := `{"id":"chk-1","notifications":{"In-alarm":["ch-1","ch-2"],"Up":["ch-3"],"Undetermined":[]}}`
+	var check Check
+	if err := json.Unmarshal([]byte(raw), &check); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	n := check.Notifications
+	if len(n.InAlarm) != 2 || n.InAlarm[0] != "ch-1" || n.InAlarm[1] != "ch-2" {
+		t.Fatalf("InAlarm = %v", n.InAlarm)
+	}
+	if len(n.Up) != 1 || n.Up[0] != "ch-3" {
+		t.Fatalf("Up = %v", n.Up)
+	}
+	if len(n.Undetermined) != 0 {
+		t.Fatalf("Undetermined = %v, want empty", n.Undetermined)
+	}
+}
+
+// TestChannelDecode covers Channel's custom UnmarshalJSON: Type comes from
+// the nested typeNotification.name, and Headers comes from the header field,
+// a JSON string of [{"key","value"}] pairs that is absent for a channel with
+// no headers.
+func TestChannelDecode(t *testing.T) {
+	t.Run("webhook with headers", func(t *testing.T) {
+		raw := `{
+			"id": "ch-1",
+			"name": "example-webhook",
+			"address": "https://example.com/hooks/incoming",
+			"header": "[{\"key\":\"X-Example\",\"value\":\"secret\"}]",
+			"typeNotification": {"id": "type-webhook", "name": "Webhook", "description": "Webhook"},
+			"createdDate": "2026-09-26T15:46:45"
+		}`
+		var ch Channel
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if ch.ID != "ch-1" || ch.Name != "example-webhook" {
+			t.Fatalf("unexpected identity: %+v", ch)
+		}
+		if ch.Type != ChannelTypeWebhook {
+			t.Fatalf("Type = %q, want %q", ch.Type, ChannelTypeWebhook)
+		}
+		if len(ch.Headers) != 1 || ch.Headers[0].Key != "X-Example" || ch.Headers[0].Value != "secret" {
+			t.Fatalf("Headers = %+v", ch.Headers)
+		}
+		if ch.CreatedDate != "2026-09-26T15:46:45" || ch.UpdatedDate != "" {
+			t.Fatalf("unexpected timestamps: %+v", ch)
+		}
+	})
+
+	t.Run("no header field", func(t *testing.T) {
+		raw := `{"id":"ch-2","name":"example-email","address":"<account>",
+			"typeNotification":{"id":"type-email","name":"Email","description":"Email"},
+			"createdDate":"2026-09-26T15:40:00","updatedDate":"2026-09-26T16:00:00"}`
+		var ch Channel
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if ch.Headers != nil {
+			t.Fatalf("Headers = %+v, want nil", ch.Headers)
+		}
+		if ch.UpdatedDate != "2026-09-26T16:00:00" {
+			t.Fatalf("UpdatedDate = %q", ch.UpdatedDate)
+		}
+	})
+
+	t.Run("header not a JSON array of key/value objects", func(t *testing.T) {
+		for _, header := range []string{"not json", "{}", `"a string"`, "[1,2,3]"} {
+			raw := `{"id":"ch-3","header":` + jsonString(header) + `}`
+			var ch Channel
+			if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+				t.Fatalf("Unmarshal() error = %v for header %q", err, header)
+			}
+			if ch.Headers != nil {
+				t.Fatalf("Headers = %+v, want nil for header %q", ch.Headers, header)
+			}
+		}
+	})
+
+	t.Run("empty header field", func(t *testing.T) {
+		raw := `{"id":"ch-4","header":""}`
+		var ch Channel
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if ch.Headers != nil {
+			t.Fatalf("Headers = %+v, want nil", ch.Headers)
+		}
+	})
+}
+
+// jsonString encodes s as a JSON string literal, so a test table can embed
+// arbitrary raw text, including text that is itself invalid JSON, as a JSON
+// string value.
+func jsonString(s string) string {
+	data, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
+}
+
 func TestCheckOptionsDecode(t *testing.T) {
 	t.Run("integral decimals", func(t *testing.T) {
 		var o CheckOptions

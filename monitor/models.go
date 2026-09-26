@@ -16,24 +16,32 @@ const (
 )
 
 // Check is one vMonitor synthetic check. The API also sends user_id,
-// monitor_status, history_alarm, deleted_at, and notifications; the SDK
-// drops them, the same way it drops any field a caller's struct omits.
-// Notifications is left out until notification channels are designed:
-// adding a Notifications field later breaks no caller. CreatedAt and
+// monitor_status, history_alarm, and deleted_at; the SDK drops them, the
+// same way it drops any field a caller's struct omits. CreatedAt and
 // UpdatedAt hold whatever the API sends, a formatted string such as "Sep
 // 26, 2026, 7:56:28 AM" rather than an ISO 8601 timestamp; the SDK does not
 // parse them.
 type Check struct {
-	ID        string       `json:"id"`
-	Name      string       `json:"name"`
-	Type      string       `json:"type"`
-	Subtype   string       `json:"subtype"`
-	Status    string       `json:"status"`
-	Config    CheckConfig  `json:"config"`
-	Options   CheckOptions `json:"options"`
-	Locations []string     `json:"locations"`
-	CreatedAt string       `json:"created_at"`
-	UpdatedAt string       `json:"updated_at"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Type          string             `json:"type"`
+	Subtype       string             `json:"subtype"`
+	Status        string             `json:"status"`
+	Config        CheckConfig        `json:"config"`
+	Options       CheckOptions       `json:"options"`
+	Locations     []string           `json:"locations"`
+	Notifications CheckNotifications `json:"notifications"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+}
+
+// CheckNotifications names, by ID, which Channels a check alerts on each
+// alarm transition. CreateCheck sends [] for every list left nil, so adding
+// this field broke no caller when it was introduced.
+type CheckNotifications struct {
+	InAlarm      []string `json:"In-alarm"`
+	Up           []string `json:"Up"`
+	Undetermined []string `json:"Undetermined"`
 }
 
 // CheckConfig holds the request a check sends and the assertions it
@@ -113,6 +121,100 @@ func (o *CheckOptions) UnmarshalJSON(data []byte) error {
 	o.Tests = int(aux.Tests)
 	o.FailedLocations = int(aux.FailedLocations)
 	return nil
+}
+
+// ChannelTypeEmail, ChannelTypeSlack, ChannelTypeSMS, ChannelTypeTelegram,
+// and ChannelTypeWebhook name the notification channel types the console
+// offers today; a Teams channel can still exist on an account, but the
+// console no longer creates one. Channel.Type is a plain string field, so a
+// type the console adds later reaches the caller unchanged.
+const (
+	ChannelTypeEmail    = "Email"
+	ChannelTypeSlack    = "Slack"
+	ChannelTypeSMS      = "SMS"
+	ChannelTypeTelegram = "Telegram"
+	ChannelTypeWebhook  = "Webhook"
+)
+
+// ChannelType is one kind of notification channel ListChannelTypes can
+// return, and the shape of the typeNotification object a Channel read
+// embeds.
+type ChannelType struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// ChannelHeader is one key/value pair a Webhook channel sends with every
+// notification.
+type ChannelHeader struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// Channel is one notification channel. GreenNode's own API calls it a
+// "notification"; the SDK says "channel" so the name does not clash with a
+// Check's Notifications field. There is no get-by-ID call for a channel;
+// GetChannel lists every page and matches by ID. Address and Headers can
+// hold a secret, such as a webhook URL or a header value carrying a token:
+// the SDK returns them unchanged, because UpdateChannel needs them to resend
+// the full body, and the CLI redacts them on print.
+type Channel struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+
+	// Type is the API's typeNotification.name: one of the ChannelType*
+	// constants, or a type the console adds later.
+	Type string `json:"-"`
+
+	// Headers decodes the header field: a JSON string of [{"key","value"}]
+	// pairs for a Webhook channel. The field is absent for a channel with no
+	// headers, and a header string that does not decode to that shape also
+	// leaves Headers nil rather than failing the read.
+	Headers []ChannelHeader `json:"-"`
+
+	// MetricMappingID names this channel in a metric alarm. Unseen in a
+	// channel list read so far; the field stays empty until one is.
+	MetricMappingID string `json:"metricMappingId"`
+
+	// CreatedDate and UpdatedDate hold whatever the API sends, a timestamp
+	// with no time zone such as "2026-09-26T15:46:45"; the SDK does not
+	// parse them. UpdatedDate is absent until the channel is updated.
+	CreatedDate string `json:"createdDate"`
+	UpdatedDate string `json:"updatedDate"`
+}
+
+// UnmarshalJSON decodes Channel with Type read from the nested
+// typeNotification.name and Headers read from the header JSON string.
+func (ch *Channel) UnmarshalJSON(data []byte) error {
+	type alias Channel
+	aux := struct {
+		TypeNotification ChannelType `json:"typeNotification"`
+		Header           string      `json:"header"`
+		*alias
+	}{alias: (*alias)(ch)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	ch.Type = aux.TypeNotification.Name
+	ch.Headers = decodeChannelHeaders(aux.Header)
+	return nil
+}
+
+// decodeChannelHeaders parses raw as a JSON array of ChannelHeader. An empty
+// string, and a string that is valid JSON but not that shape, both return
+// nil rather than an error: the design leaves a channel readable even when
+// its header field cannot be understood.
+func decodeChannelHeaders(raw string) []ChannelHeader {
+	if raw == "" {
+		return nil
+	}
+	var headers []ChannelHeader
+	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+		return nil
+	}
+	return headers
 }
 
 // Location is a probe location ListLocations can return. The API also

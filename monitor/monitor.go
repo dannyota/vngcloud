@@ -10,6 +10,7 @@
 package monitor
 
 import (
+	"net/url"
 	"sync"
 
 	"danny.vn/vngcloud"
@@ -41,9 +42,16 @@ func New(cfg vngcloud.Config) *Client {
 }
 
 // route builds a URL under the Monitor endpoint's uptime manager prefix. No
-// operation in this release sends a query string; a later one that needs
-// one takes a q url.Values parameter then.
+// operation under this prefix sends a query string.
 func (c *Client) route(parts []string) string {
 	full := append([]string{"vmonitor-uptime-manager", "v1"}, parts...)
 	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full})
+}
+
+// notificationRoute builds a URL under the Monitor endpoint's notification
+// gateway prefix, which serves channels and channel types separately from
+// the uptime manager prefix route builds under.
+func (c *Client) notificationRoute(parts []string, q url.Values) string {
+	full := append([]string{"notification-gateway", "api", "v1"}, parts...)
+	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full, Query: q})
 }

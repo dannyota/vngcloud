@@ -232,7 +232,8 @@ func testLiveCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 // testLiveMonitor lists vMonitor checks and, when the account has at least
 // one, reads the first by ID. It never pins the count: the test account's
 // checks change over time, and a count change must not fail CI. It also
-// lists probe locations, which every account can read regardless of quota.
+// lists probe locations, which every account can read regardless of quota,
+// and notification channel types and channels.
 func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := monitor.New(cfg)
 
@@ -259,6 +260,39 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	t.Logf("locations: %d", len(locations.Items))
 	if len(locations.Items) == 0 {
 		t.Fatal("expected at least one probe location")
+	}
+
+	types, err := client.ListChannelTypes(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListChannelTypes: %v", err)
+	}
+	t.Logf("channel types: %d", len(types.Items))
+	if len(types.Items) == 0 {
+		t.Fatal("expected at least one channel type")
+	}
+
+	channels, err := client.ListChannels(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	t.Logf("channels: %d", len(channels.Items))
+	if len(channels.Items) > 0 {
+		first := channels.Items[0]
+		detail, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: first.ID})
+		if err != nil {
+			t.Fatalf("GetChannel: %v", err)
+		}
+		if detail.Channel.ID != first.ID {
+			t.Fatalf("GetChannel returned id %q, want %q", detail.Channel.ID, first.ID)
+		}
+	} else {
+		// The test account has no channels today (see the design's live
+		// facts). GetChannel's page-walk-then-miss path is otherwise unread
+		// by any live test, so exercise it here against a channel ID no
+		// account has.
+		if _, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: "vngcloud-live-missing"}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("GetChannel(missing): %v, want IsNotFound", err)
+		}
 	}
 }
 

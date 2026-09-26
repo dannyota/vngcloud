@@ -68,9 +68,10 @@ log.Println(detail.Check.Config.Request.URL)
 `ListChecksInput` has no fields; a nil Input is valid, and the API returns
 every check in one response with no paging. `Check` decodes the console's
 own field names, including `Config.Request` (the HTTP request the check
-sends) and `Config.Assertions` (the pass/fail rules it evaluates). It leaves
-out fields the design has not covered yet: notification channels, alarms,
-and a few account-internal fields the API also sends.
+sends), `Config.Assertions` (the pass/fail rules it evaluates), and
+`Notifications` (the [channels](#notification-channels) that alert on each
+alarm transition, by ID). It leaves out alarms and a few account-internal
+fields the API also sends.
 
 A check's request headers and body may hold a credential for the monitored
 service, such as a bearer token in a header. The SDK returns them exactly
@@ -226,6 +227,63 @@ find their target, so each gets `ErrStatusUnconfirmed`. The API offers no
 conditional request to prevent this. Within one process, a `monitor.Client`
 runs its pause and resume calls one at a time, so this can only happen
 across two processes or two `Client` values.
+
+## Notification channels
+
+A notification channel is what GreenNode's own API calls a "notification";
+the SDK says "channel" so the name does not clash with a check's
+`Notifications` field. `ListChannels` and `GetChannel` return every channel
+type the console offers, including `Email`, `Slack`, `SMS`, `Telegram`, and
+`Webhook`; the SDK does not yet create, update, or delete one.
+
+```go
+types, err := client.ListChannelTypes(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+for _, t := range types.Items {
+	log.Printf("%s: %s", t.ID, t.Name)
+}
+
+channels, err := client.ListChannels(ctx, &monitor.ListChannelsInput{Type: monitor.ChannelTypeWebhook})
+if err != nil {
+	log.Fatal(err)
+}
+for _, ch := range channels.Items {
+	log.Printf("%s: %s (%s)", ch.ID, ch.Name, ch.Type)
+}
+```
+
+`ListChannelTypesInput` has no fields; a nil Input is valid, and the API
+returns every type in one response with no paging. `ListChannelsInput` has
+`Type` (empty for every type), `Page`, and `Size`; a nil Input, or one left
+at its zero value, lists every channel from `core.DefaultPage` at
+`core.DefaultPageSize`.
+
+```go
+found, err := client.GetChannel(ctx, &monitor.GetChannelInput{ChannelID: channelID})
+if err != nil {
+	if vngcloud.IsNotFound(err) {
+		log.Printf("no channel %s", channelID)
+	} else {
+		log.Fatal(err)
+	}
+}
+```
+
+There is no get-by-ID call for a channel: `GetChannel` lists every page and
+returns the item whose ID matches, so `vngcloud.IsNotFound(err)` is true both
+for an unknown ID and for an account with no channels at all.
+
+`Channel.Address` is the email, Slack webhook URL, Telegram chat ID, phone
+number, or webhook URL the channel notifies, and `Channel.Headers` is the
+key/value pairs a `Webhook` channel sends with every notification; both can
+hold a secret, such as a token in a header value. The SDK returns them
+exactly as the API does, so a caller that will recreate or update a channel
+can read them back; they never appear in log output (`vngcloud.WithLogger`
+never logs a body) or in an error message. The
+[CLI](CLI-Monitor.md) redacts both on print instead, with no flag to reveal
+them.
 
 ## Endpoint
 

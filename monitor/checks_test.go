@@ -42,6 +42,10 @@ func assertExampleCheck(t *testing.T, got Check) {
 	if got.CreatedAt != "Jan 1, 2026, 12:00:00 AM" || got.UpdatedAt != "Jan 2, 2026, 1:00:00 PM" {
 		t.Fatalf("unexpected timestamps: %+v", got)
 	}
+	n := got.Notifications
+	if len(n.InAlarm) != 0 || len(n.Up) != 0 || len(n.Undetermined) != 0 {
+		t.Fatalf("unexpected notifications: %+v", n)
+	}
 
 	req := got.Config.Request
 	if req.URL != "https://example.com" || req.Method != "GET" || req.Body != "" {

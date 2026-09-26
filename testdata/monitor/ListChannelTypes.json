@@ -1,0 +1,29 @@
+{
+  "lstData": [
+    {
+      "id": "type-email",
+      "name": "Email",
+      "description": "Email"
+    },
+    {
+      "id": "type-slack",
+      "name": "Slack",
+      "description": "Slack"
+    },
+    {
+      "id": "type-sms",
+      "name": "SMS",
+      "description": "SMS"
+    },
+    {
+      "id": "type-telegram",
+      "name": "Telegram",
+      "description": "Telegram"
+    },
+    {
+      "id": "type-webhook",
+      "name": "Webhook",
+      "description": "Webhook"
+    }
+  ]
+}

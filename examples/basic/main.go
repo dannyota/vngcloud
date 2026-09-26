@@ -106,6 +106,7 @@ func main() {
 				showBilling(ctx, cfg, sdkOutputs)
 				showMonitor(ctx, cfg, sdkOutputs)
 				showMonitorLocations(ctx, cfg, sdkOutputs)
+				showMonitorChannels(ctx, cfg, sdkOutputs)
 			}
 		}
 	}
