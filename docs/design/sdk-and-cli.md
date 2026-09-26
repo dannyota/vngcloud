@@ -132,6 +132,8 @@ Service packages may import each other for shared models; `network` imports
 | `portal` | Account info, zones, and quotas |
 | `project` | The project listing that `internal/core` keeps for discovery |
 | `billing`, `pricing` | Budgets, cost, balances, and quotes; see [billing](billing.md) |
+| `cdn` | CDN IP ranges; see [CDN](cdn.md) |
+| `monitor` | vMonitor synthetic checks; see [vMonitor](monitor.md) |
 
 Every operation has one signature:
 
@@ -345,6 +347,8 @@ Each release ships when CI is green on its commit.
 | `v0.5.0` | `LoadConfig`, profile files, environment variables, and the token cache |
 | `v0.6.0` | CLI foundation: `configure`, `version`, output, `--query`, read-only profiles, `--debug` logging, generated docs, `billing` and `pricing` commands, and `compute`, `network`, and `dns` read commands. SDK: `APIError.Code` fallback, `*LoginError`, `WithLogger` logging, and `Config.ProfileSetting` |
 | `v0.7.0` | `cdn.ListIPRanges` and `vngcloud cdn list-ip-ranges`: the CDN IP ranges read from GreenNode's public FAQ page; see [CDN](cdn.md) |
+| `v0.8.0` | vMonitor checks: list, get, pause, and resume, SDK and CLI; see [vMonitor](monitor.md) |
+| `v0.9.0` | vMonitor checks: create and delete, and probe locations; see [vMonitor](monitor.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the
@@ -361,8 +365,9 @@ After `v0.6.0`, designs follow aboutme's needs in this order, each covering
 the SDK and CLI together:
 
 1. vCDN origin IP ranges, in `v0.7.0` ([CDN](cdn.md)).
-2. vMonitor: pausing and resuming checks first, then alarms, log projects, and
-   synthetic checks.
+2. vMonitor synthetic checks ([vMonitor](monitor.md)): read, pause, and
+   resume in `v0.8.0`, then create, delete, and probe locations in `v0.9.0`.
+   Alarms, log projects, and notification channels follow once discovered.
 3. vDNS record writes.
 4. vStorage buckets and service-account keys.
 
@@ -370,8 +375,9 @@ vCDN cache rules, the origin header, and the certificate stay console steps
 for aboutme: vCDN has no public API, and its console accepts only root login
 (see [CDN non-goals](cdn.md#non-goals)).
 
-A discovery pass for vMonitor can start now, because it needs no SDK code. It
-confirms which console APIs an IAM User token can call.
+Discovery found that an IAM User token can call the vMonitor uptime API.
+vMonitor alarms, log projects, and notification channels still need a
+discovery pass.
 
 CLI read commands for the other services, and compute, volume, and network
 writes, come after these. OpenTofu covers those writes for aboutme.

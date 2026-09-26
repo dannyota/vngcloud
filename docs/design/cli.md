@@ -234,10 +234,14 @@ For an `*APIError`, `code` is `APIError.Code`, which falls back to the
 status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 `status` and `operation`, and `code` names the class: `InvalidUsage`,
 `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`,
-`RequestFailed`, `QueryFailed`, or `PageFormat` (a public page such as the
-CDN IP range FAQ changed format; see [CDN](cdn.md)). `QueryFailed` means `--query` failed after
-the operation succeeded; for a write, the message says the write succeeded,
-so an agent does not retry it.
+`RequestFailed`, `QueryFailed`, `PageFormat` (a public page such as the
+CDN IP range FAQ changed format; see [CDN](cdn.md)), `UnexpectedStatus` (a
+vMonitor check has a status the SDK does not know, so nothing was sent), or
+`StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read
+did not confirm it; see [vMonitor](monitor.md#pause-and-resume)). Both exit
+1. `QueryFailed` means `--query` failed after the operation succeeded; for
+a write, the message says the write succeeded, so an agent does not retry
+it.
 
 | Exit code | Meaning |
 |-|-|

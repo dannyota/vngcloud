@@ -7,3 +7,4 @@ supersedes it.
 |-|-|-|
 | [0001](0001-wiki-from-docs.md) | Publish the GitHub wiki from `docs/wiki/` | Accepted |
 | [0002](0002-write-api-conventions.md) | Conventions for write APIs: retries, partial updates, IDs, quotes | Accepted |
+| [0003](0003-toggle-writes.md) | Toggle writes: read first, send once, confirm by reading | Accepted |
