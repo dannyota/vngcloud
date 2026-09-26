@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -351,6 +352,112 @@ func testLivePortal(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	})
 }
 
+// nonZeroFieldCount reports how many top-level fields of the struct v hold a
+// non-zero value, out of the total field count. A live Get test uses it to
+// confirm decoding filled in real fields without logging any of their
+// values: a struct that decodes with every field empty (set == 0) is a
+// decoding bug.
+func nonZeroFieldCount(v any) (set, total int) {
+	rv := reflect.ValueOf(v)
+	total = rv.NumField()
+	for i := 0; i < total; i++ {
+		if !rv.Field(i).IsZero() {
+			set++
+		}
+	}
+	return set, total
+}
+
+// testLiveVolume reads volume type zones, volume types, and encryption
+// types, and calls GetVolumeType on the first volume type, per the CLI
+// reads design's "volume" live checks. When the account holds a volume (the
+// list the "volumes" subtest above already fetched), it also reads
+// GetVolume, GetUnderlyingVolume, and ListSnapshots on the first one, and
+// skips those three when the account has none. It logs counts and field
+// presence only, never values.
+func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volumes []volume.Volume) {
+	client := volume.New(cfg)
+
+	t.Run("volume-type-zones", func(t *testing.T) {
+		res, err := client.ListVolumeTypeZones(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListVolumeTypeZones: %v", err)
+		}
+		t.Logf("volume type zones: %d", len(res.Items))
+		if len(res.Items) > 0 {
+			first := res.Items[0]
+			set, total := nonZeroFieldCount(first)
+			t.Logf("volume type zone fields set: %d/%d", set, total)
+			if first.ID == "" || first.Name == "" || first.Zone.UUID == "" {
+				t.Fatal("ListVolumeTypeZones item missing id, name, or zone uuid")
+			}
+		}
+	})
+
+	types, err := client.ListVolumeTypes(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListVolumeTypes: %v", err)
+	}
+	t.Logf("volume types: %d", len(types.Items))
+	if len(types.Items) == 0 {
+		t.Log("skipped get-volume-type: none")
+	} else {
+		t.Run("volume-type", func(t *testing.T) {
+			detail, err := client.GetVolumeType(ctx, &volume.GetVolumeTypeInput{VolumeTypeID: types.Items[0].ID})
+			if err != nil {
+				t.Fatalf("GetVolumeType: %v", err)
+			}
+			if detail.VolumeType.ID != types.Items[0].ID {
+				t.Fatalf("GetVolumeType returned id %q, want %q", detail.VolumeType.ID, types.Items[0].ID)
+			}
+		})
+	}
+
+	t.Run("encryption-types", func(t *testing.T) {
+		res, err := client.ListEncryptionTypes(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListEncryptionTypes: %v", err)
+		}
+		t.Logf("encryption types: %d", len(res.Items))
+	})
+
+	if len(volumes) == 0 {
+		t.Log("skipped get-volume, get-underlying-volume, list-snapshots: none")
+		return
+	}
+	first := volumes[0]
+
+	t.Run("get-volume", func(t *testing.T) {
+		detail, err := client.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: first.UUID})
+		if err != nil {
+			t.Fatalf("GetVolume: %v", err)
+		}
+		if detail.Volume.UUID != first.UUID {
+			t.Fatalf("GetVolume returned uuid %q, want %q", detail.Volume.UUID, first.UUID)
+		}
+	})
+
+	t.Run("underlying-volume", func(t *testing.T) {
+		detail, err := client.GetUnderlyingVolume(ctx, &volume.GetUnderlyingVolumeInput{VolumeID: first.UUID})
+		if err != nil {
+			t.Fatalf("GetUnderlyingVolume: %v", err)
+		}
+		set, total := nonZeroFieldCount(detail.Volume)
+		t.Logf("underlying volume fields set: %d/%d", set, total)
+		if set == 0 {
+			t.Fatal("GetUnderlyingVolume decoded empty")
+		}
+	})
+
+	t.Run("snapshots", func(t *testing.T) {
+		res, err := client.ListSnapshots(ctx, &volume.ListSnapshotsInput{VolumeID: first.UUID, Page: 1, Size: 5})
+		if err != nil {
+			t.Fatalf("ListSnapshots: %v", err)
+		}
+		t.Logf("snapshots: %d of %d", len(res.Items), res.TotalItem)
+	})
+}
+
 func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	projects, err := project.New(cfg).ListProjects(ctx, nil)
 	if err != nil {
@@ -368,13 +475,16 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		t.Logf("servers: %d of %d", len(res.Items), res.TotalItem)
 	})
+	var volumes []volume.Volume
 	t.Run("volumes", func(t *testing.T) {
 		res, err := volume.New(cfg).ListVolumes(ctx, &volume.ListVolumesInput{Page: 1, Size: 5})
 		if err != nil {
 			t.Fatalf("ListVolumes: %v", err)
 		}
 		t.Logf("volumes: %d of %d", len(res.Items), res.TotalItem)
+		volumes = res.Items
 	})
+	t.Run("volume", func(t *testing.T) { testLiveVolume(ctx, t, cfg, volumes) })
 	t.Run("vpcs", func(t *testing.T) {
 		res, err := network.New(cfg).ListVPCs(ctx, &network.ListVPCsInput{Page: 1, Size: 5})
 		if err != nil {

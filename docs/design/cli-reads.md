@@ -66,10 +66,8 @@ Findings:
 - `volume.GetDefaultVolumeType` is Broken: 404 `NotFound` in both regions,
   body `{message}`. The official SDK calls the same path. Either the account
   has no default type or the endpoint is gone; nothing tells which.
-- `volume.ListVolumeTypeZones` decodes, but its item model holds envelope
-  fields the items never carry (`Success`, `ErrorCode`, `ErrorMsg`,
-  `Extra`, `PoolName`, `VolumeTypeZones`, `UUID`). They print empty in
-  every row.
+- `volume.ListVolumeTypeZones` decodes. Its item model holds only the
+  fields a live item carries: `ID`, `Name`, `Description`, and `Zone`.
 - `containerregistry` lists are Empty, and their models are map-backed, so
   every key the API returns reaches the output unchecked (see
   [Secrets](#secrets)).
@@ -156,8 +154,6 @@ Short description: "Block volumes, volume types, and snapshots".
 - `list-all-snapshots` sends one request per volume after the volume list.
 - `Volume.VolumeType`, `Volume.Throughput`, and several `Snapshot` fields
   are `any`. They print whatever the API sent, with the API's key names.
-- `list-volume-type-zones` prints the empty envelope columns listed under
-  [Verification](#verification) until the SDK model drops them.
 
 ### loadbalancer
 
