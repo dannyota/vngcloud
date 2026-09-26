@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.22.0 - vMonitor Log Project Orders
+
+### Highlights
+
+- New `monitor.CreateLogProject` and `vngcloud monitor create-log-project`
+  order a log project. It quotes first and refuses with
+  `monitor.ErrPriceAboveMax`, CLI code `PriceAboveMax`, when the price is
+  above `MaxPrice`, which defaults to 0. It also refuses a name already in
+  use, a `NaN`, infinite, or negative `MaxPrice`, and a quote with no price.
+  The order is never resent. It waits for the project to be `ACTIVE`.
+- New `monitor.DeleteLogProject` and `vngcloud monitor delete-log-project`
+  (`--yes`) delete a log project, with `Purge` to also remove it from trash.
+- The Basic class allows 3 orders or recoveries per month.
+
+### Fixes
+
+- `ListLogProjects` returned no projects: it sent empty filters that the
+  API treats as real ones.
+- `LogProject.ProjectName` and `ProjectDescription` were always empty.
+
+### Behavior changes
+
+`monitor.LogProject` drops `Zone` and `UpdatedAt`, which the API never
+sends. Breaking.
+
 ## v0.21.0 - vMonitor OTP Channels
 
 ### Highlights
