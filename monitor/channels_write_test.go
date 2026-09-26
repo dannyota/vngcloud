@@ -259,6 +259,47 @@ func TestCreateChannelRejectsOTPWithoutRef(t *testing.T) {
 	}
 }
 
+// TestCreateChannelRejectsOTPRefWithoutOTP checks OTPRef set with no OTP is
+// refused before any request, the same as OTP set with no OTPRef: Validate
+// OTP needs both, and a caller that sets only OTPRef most likely forgot OTP.
+func TestCreateChannelRejectsOTPRefWithoutOTP(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+	client := newTestClient(t, failIfCalled)
+
+	_, err := client.CreateChannel(context.Background(), &CreateChannelInput{
+		Name:    "vngcloud-live-x",
+		Type:    ChannelTypeEmail,
+		Address: "user@example.com",
+		OTPRef:  "ref-123",
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("CreateChannel() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestCreateChannelRejectsWebhookWithOTP checks Type Webhook with OTP or
+// OTPRef set is refused before any request: Webhook needs no OTP, and
+// CreateChannel must never call Validate OTP for it.
+func TestCreateChannelRejectsWebhookWithOTP(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+	client := newTestClient(t, failIfCalled)
+
+	_, err := client.CreateChannel(context.Background(), &CreateChannelInput{
+		Name:    "vngcloud-live-x",
+		Type:    ChannelTypeWebhook,
+		Address: "https://example.com/hook",
+		OTPRef:  "ref-123",
+		OTP:     "111111",
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("CreateChannel() error = %v, want ErrInvalidInput", err)
+	}
+}
+
 // TestCreateChannelOTPRejectedSendsNoCreate checks a null validated code
 // returns ErrOTPRejected and sends no create request.
 func TestCreateChannelOTPRejectedSendsNoCreate(t *testing.T) {
@@ -805,6 +846,99 @@ func TestUpdateChannelRejectsOTPWithoutRef(t *testing.T) {
 	})
 	if !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("UpdateChannel() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestUpdateChannelRejectsOTPRefWithoutOTP checks OTPRef set with no OTP is
+// refused before any request, the same as OTP set with no OTPRef.
+func TestUpdateChannelRejectsOTPRefWithoutOTP(t *testing.T) {
+	failIfCalled := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})
+	client := newTestClient(t, failIfCalled)
+
+	newAddress := "new@example.com"
+	_, err := client.UpdateChannel(context.Background(), &UpdateChannelInput{
+		ChannelID: "ch-1",
+		Address:   &newAddress,
+		OTPRef:    "ref-1",
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateChannel() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestUpdateChannelRejectsWebhookWithOTP checks a Webhook channel with OTP
+// or OTPRef set is refused once GetChannel's read shows its type, before
+// any validate request: Webhook needs no OTP, and UpdateChannel must never
+// call Validate OTP for one.
+func TestUpdateChannelRejectsWebhookWithOTP(t *testing.T) {
+	var getCalls int
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected request %s %s, only GetChannel's read should be sent", r.Method, r.URL.Path)
+		}
+		getCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"lstData":[{"id":"ch-1","name":"old-name","address":"https://example.com/hook",
+			"typeNotification":{"id":"type-webhook","name":"Webhook","description":"Webhook"},
+			"createdDate":"2026-09-26T00:00:00"}],
+			"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+	}))
+
+	newName := "new-name"
+	_, err := client.UpdateChannel(context.Background(), &UpdateChannelInput{
+		ChannelID: "ch-1",
+		Name:      &newName,
+		OTPRef:    "ref-1",
+		OTP:       "111111",
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateChannel() error = %v, want ErrInvalidInput", err)
+	}
+	if getCalls != 1 {
+		t.Fatalf("getCalls = %d, want 1", getCalls)
+	}
+}
+
+// TestUpdateChannelPUTWithOTPCodeNotRetriedAfter502 checks the PUT is sent
+// at most once when it carries a validated otpCode: PUT is idempotent and
+// normally kept the transport's retries, but a retry here could resend a
+// code the first attempt already spent and get back a misleading error
+// instead of the 502 the caller should see.
+func TestUpdateChannelPUTWithOTPCodeNotRetriedAfter502(t *testing.T) {
+	var putCalls int
+	client := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"lstData":[{"id":"ch-1","name":"old-name","address":"old@example.com",
+				"typeNotification":{"id":"type-email","name":"Email","description":"Email"},
+				"createdDate":"2026-09-26T00:00:00"}],
+				"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/notification-gateway/api/v1/notification/otps/validate":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"code":"validated-code"}`))
+		case r.Method == http.MethodPut:
+			putCalls++
+			w.WriteHeader(http.StatusBadGateway)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	newAddress := "new@example.com"
+	_, err := client.UpdateChannel(context.Background(), &UpdateChannelInput{
+		ChannelID: "ch-1",
+		Address:   &newAddress,
+		OTPRef:    "ref-1",
+		OTP:       "222222",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if putCalls != 1 {
+		t.Fatalf("putCalls = %d, want 1: a PUT carrying a spent otpCode must never be retried", putCalls)
 	}
 }
 

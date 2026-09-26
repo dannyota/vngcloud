@@ -86,8 +86,12 @@ func (c *Client) SendChannelOTP(ctx context.Context, in *SendChannelOTPInput) (*
 		Body:      sendOTPBody{Type: in.Type, Address: in.Address, Header: headerField},
 		OK:        []int{200},
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	if err != nil {
 		return nil, redactOTPError(err, in.Address, in.Headers, headerField, "", "", "")
+	}
+	if resp.Ref == "" {
+		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "send otp response had no ref"}
 	}
 	return &SendChannelOTPOutput{Ref: resp.Ref, ExpiresAt: time.UnixMilli(int64(resp.ExpiredAt))}, nil
 }

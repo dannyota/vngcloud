@@ -136,6 +136,29 @@ func TestSendChannelOTPRequiredFields(t *testing.T) {
 	}
 }
 
+// TestSendChannelOTPMissingRef checks a 200 response without a ref is an
+// *core.APIError, the same rule CreateChannel applies to a response missing
+// an id: a blank Ref would otherwise silently satisfy a caller that later
+// tries to use it as CreateChannel or UpdateChannel's OTPRef.
+func TestSendChannelOTPMissingRef(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"expiredAt":1790000000000}`))
+	}))
+
+	_, err := client.SendChannelOTP(context.Background(), &SendChannelOTPInput{
+		Type:    ChannelTypeEmail,
+		Address: "user@example.com",
+	})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *core.APIError, got %v", err)
+	}
+	if apiErr.Message != "send otp response had no ref" {
+		t.Fatalf("Message = %q", apiErr.Message)
+	}
+}
+
 // TestSendChannelOTPNotRetriedAfter502 checks Send OTP is never retried
 // after an ambiguous failure: a retry could message the address a second
 // time.

@@ -105,9 +105,9 @@ needs and every other type is refused for.
 `Address`, `OTPRef`, and the OTP itself are secrets, the same as a header
 value: none ever appears in an error message, and a server message that
 echoes one back comes back with `<redacted>` in its place instead.
-Sending an OTP to, and later notifying, an `SMS` channel spends the
-account's SMS package and can cost money past the free quota; `Email`,
-`Slack`, and `Telegram` cost nothing extra.
+Sending an OTP to, and later notifying, an `SMS` or `Email` channel counts
+toward that channel's free 20 messages; either one past its free 20 spends
+a paid package. `Slack` and `Telegram` cost nothing extra.
 
 ### Creating, updating, and deleting channels
 
