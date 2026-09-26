@@ -26,3 +26,4 @@
 - [CLI: Project](CLI-Project.md)
 - [CLI: Portal](CLI-Portal.md)
 - [CLI: Volume](CLI-Volume.md)
+- [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)

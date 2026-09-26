@@ -1,0 +1,27 @@
+{
+  "LoadBalancer": {
+    "ID": "glb-1",
+    "Name": "my-glb",
+    "Description": "",
+    "Status": "ACTIVE",
+    "Package": "basic",
+    "Type": "DNS",
+    "UserID": 0,
+    "CreatedAt": "2026-01-01T00:00:00Z",
+    "UpdatedAt": "",
+    "DeletedAt": "",
+    "VIPs": [
+      {
+        "ID": 1,
+        "Address": "203.0.113.10",
+        "Status": "ACTIVE",
+        "Region": "hcm-3",
+        "GlobalLoadBalancerID": "glb-1",
+        "CreatedAt": "",
+        "UpdatedAt": "",
+        "DeletedAt": ""
+      }
+    ],
+    "Domains": []
+  }
+}

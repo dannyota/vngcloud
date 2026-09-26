@@ -155,6 +155,7 @@ func runGenDocs(dir string) error {
 		buildDocService("project", projectOps),
 		buildDocService("portal", portalOps),
 		buildDocService("volume", volumeOps),
+		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -426,6 +427,12 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 const volumeShapeUnverifiedNote = "Unverified live: the test account has no volume, so this output shape " +
 	"comes from GreenNode's official SDK, not a live capture."
 
+// globalLoadBalancerShapeUnverifiedNote flags an output shape the live
+// checks cannot confirm: the test account holds no global load balancer, so
+// nothing exercises this command's decoding against a real response.
+const globalLoadBalancerShapeUnverifiedNote = "Unverified live: the test account has no global load " +
+	"balancer, so this output shape comes from GreenNode's official SDK, not a live capture."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -442,6 +449,14 @@ var docOpNotes = map[string]string{
 	"volume get-volume":            volumeShapeUnverifiedNote,
 	"volume get-underlying-volume": volumeShapeUnverifiedNote,
 	"volume list-snapshots":        volumeShapeUnverifiedNote,
+
+	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer get-listener":         globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-pool-members":    globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer get-pool-member":      globalLoadBalancerShapeUnverifiedNote,
+	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into

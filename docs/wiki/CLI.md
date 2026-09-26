@@ -10,6 +10,7 @@
 - [CDN](CLI-CDN.md)
 - [Compute](CLI-Compute.md)
 - [DNS](CLI-DNS.md)
+- [GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
 - [Monitor](CLI-Monitor.md)
 - [Network](CLI-Network.md)
 - [Portal](CLI-Portal.md)
