@@ -298,6 +298,33 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("GetChannel(missing): %v, want IsNotFound", err)
 		}
 	}
+
+	// The test account holds no log project, so this only exercises the
+	// list envelope and GetLogProject's page-walk-free path stays unread
+	// here; see the design's log projects section for what LogProject's own
+	// field shape still lacks a live confirmation for.
+	projects, err := client.ListLogProjects(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListLogProjects: %v", err)
+	}
+	t.Logf("log projects: %d", len(projects.Items))
+
+	classes, err := client.ListLogProjectClasses(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListLogProjectClasses: %v", err)
+	}
+	t.Logf("log project classes: %d", len(classes.Items))
+	if len(classes.Items) == 0 {
+		t.Fatal("expected at least one log project class")
+	}
+
+	// QuoteCreateLogProject is a read (a price quote, ADR 0002 rule 1): it
+	// prices a Basic project without ordering one.
+	quote, err := client.QuoteCreateLogProject(ctx, &monitor.CreateLogProjectInput{Name: "vngcloud-live-quote"})
+	if err != nil {
+		t.Fatalf("QuoteCreateLogProject: %v", err)
+	}
+	t.Logf("basic log project quote: %.0f VND/month", quote.OptimumPrice)
 }
 
 // testLiveGlobalLoadBalancer reads GLB packages, regions, and load

@@ -1,0 +1,16 @@
+{
+  "optimumPrice": 917000,
+  "discountPercent": null,
+  "originalPrice": 917000,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 917000,
+      "discountPercent": null,
+      "originalPrice": 917000,
+      "discountPrice": 0,
+      "name": "monitor-platform-log",
+      "description": null
+    }
+  ]
+}

@@ -370,6 +370,78 @@ scheme and host for an `http` or `https` URL and redacting the rest whole
 otherwise. Every header value is always redacted, regardless of channel
 type. There is no flag to reveal either.
 
+## Log projects
+
+A log project is a vMonitor log quota: ordering one both provisions the log
+project and creates its billing quota, sharing one ID. `ListLogProjects` and
+`GetLogProject` read them; `ListLogProjectClasses` lists the classes and
+retention options a project can be ordered from, and
+`QuoteCreateLogProject` prices an order without placing it. Ordering one
+ships in a later release.
+
+```go
+projects, err := client.ListLogProjects(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+for _, p := range projects.Items {
+	log.Printf("%s: %s (%s)", p.ID, p.ProjectName, p.Status)
+}
+
+classes, err := client.ListLogProjectClasses(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+for _, c := range classes.Items {
+	log.Printf("%s: %s, %d retention options", c.Name, c.Status, len(c.Retentions))
+}
+```
+
+`ListLogProjectsInput` has `Query`, `BillingStatus`, `Page`, and `Size`; a
+nil Input, or one left at its zero value, lists from page 0 at size 100.
+Unlike `ListChannels`, the underlying API's page is 0-based, so `Page: 0`
+asks for the real first page rather than being promoted to page 1, and its
+`Size` tops out at 100: a larger value, including what `ListChannels`
+itself defaults to, gets a 400 from the server.
+
+`GetLogProject` reads one project by ID. The test account has never held
+one, so `LogProject`'s field shape past `ID` is unverified: see its doc
+comment for what it is based on, and confirm it against a live project
+before depending on a field other than `ID`.
+
+`ListLogProjectClassesInput` has no fields; a nil Input is valid, and the
+API returns every class in one response with no paging.
+`LogProjectClass.Retentions` is empty for a disabled class such as
+Enterprise, which has no retention options to order from.
+
+### Pricing an order
+
+```go
+quote, err := client.QuoteCreateLogProject(ctx, &monitor.CreateLogProjectInput{
+	Name:          "vngcloud-my-logs",
+	Class:         monitor.LogProjectClassPro,
+	RetentionDays: 7,
+	GBPerDay:      20,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("%.0f VND/month", quote.OptimumPrice)
+```
+
+`CreateLogProjectInput.Class` empty prices `monitor.LogProjectClassBasic`.
+`RetentionDays` 0 picks the class's only retention option; a class with more
+than one, such as Pro, needs it named. `GBPerDay` 0 sends the chosen
+option's minimum size. A class or retention the live class list does not
+have returns `vngcloud.ErrInvalidInput` before any pricing request.
+
+`QuoteCreateLogProject` sends a `POST`, but it prices an order without
+placing one, so it is a read: it is retried after a failure that may have
+already reached the server, unlike a create. It always re-reads the class
+list first, since the class list and its prices can change between one
+request and the next; `CreateLogProject`, a later release, re-reads the
+same class list again immediately before ordering, for the same reason.
+
 ## Endpoint
 
 The uptime API defaults to
