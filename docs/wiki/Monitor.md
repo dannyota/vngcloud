@@ -2,8 +2,9 @@
 
 `monitor` is a separate package, `danny.vn/vngcloud/monitor`, with its own
 `New(cfg)`. It reads vMonitor synthetic checks (GreenNode calls them uptime
-checks) and pauses or resumes them. Every call is per account: it sends no
-project ID and ignores the region in `Config`, like billing.
+checks), pauses or resumes them, creates and deletes them, and lists probe
+locations. Every call is per account: it sends no project ID and ignores
+the region in `Config`, like billing.
 
 `CreateCheck` always makes an HTTP `API` check with `verified_ssl` on; it
 ships with no way to name a notification channel, so a check it creates
@@ -123,9 +124,11 @@ every location is a known UUID; a bad value there comes back as a plain
 `*vngcloud.APIError`, not `vngcloud.ErrInvalidInput`.
 
 `CreateCheck` is a `POST` and is never retried after a failure that may
-already have reached the server. After a 5xx or a network error, call
-`ListChecks` and look for the check's name before creating it again, so a
-retry never creates two checks for the same name.
+already have reached the server. After any error that is not a 4xx
+`*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the check may exist:
+that covers a 5xx, a network error, a 201 with no `id`, and a body the SDK
+could not decode. Call `ListChecks` and look for the check's name before
+creating it again, so a retry never creates two checks for the same name.
 
 `DeleteCheck` removes a check and its history; there is no undo. A second
 delete of the same `CheckID` returns `vngcloud.IsNotFound(err) == true`.

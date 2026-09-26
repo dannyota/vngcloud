@@ -374,11 +374,8 @@ func appendLiveWriteCapture(captured vngcloud.ResponseCapture) error {
 }
 
 // longLiveTestFrequency is the TestFrequency CreateCheck sends for
-// TestLiveWriteMonitor's created check, in minutes. It is the longest value
-// the design's live discovery confirmed the server accepts; the console
-// form itself imposes no client-side maximum, so a larger untested value is
-// not used here. A long frequency keeps the check's own probes of the
-// approved URL to a minimum during the run.
+// TestLiveWriteMonitor's created check, in minutes. A long frequency makes
+// the fewest probes of the owner's URL during the run.
 const longLiveTestFrequency = 60
 
 // TestLiveWriteMonitor exercises CreateCheck, PauseCheck, ResumeCheck, and
@@ -386,32 +383,24 @@ const longLiveTestFrequency = 60
 //
 // VNGCLOUD_LIVE_MONITOR_URL names the URL the created check probes; it
 // never enters the repository, and the test skips when it is unset.
-// VNGCLOUD_LIVE_MONITOR_QUOTA, when set, is the account's check quota named
-// in this run's approval; the test skips instead of creating a check when
-// the account is already at it after step 1's cleanup.
+// VNGCLOUD_LIVE_MONITOR_QUOTA is the account's check quota named in this
+// run's approval; the test skips instead of creating a check when it is
+// unset, is not a positive integer, or the account is already at it after
+// step 1's cleanup.
 //
 // It deletes every leftover vngcloud-live-* check first (step 1), then
 // creates vngcloud-live-<8 hex> against the approved URL with one location
-// and longLiveTestFrequency (step 4). It registers the fallback delete
-// before anything else can fail (step 5), then runs the same pause and
-// resume sequence the v0.8.0 version of this test ran against a
-// console-made check, here against the check it just created (steps 6 and
-// 7), logging each call's confirm-read count: the GETs the call made, minus
-// the one pre-toggle read that never follows a PUT, which leaves only the
-// reads spent confirming the toggle landed. It deletes the check explicitly
-// (step 9); t.Cleanup deletes it again with its own context (NotFound
-// there is success, not failure) and asserts no vngcloud-live-* check
-// remains.
-//
-// The v0.8.0 version of this test drove PauseCheck and ResumeCheck against
-// a check the owner made by hand in the console, named exactly
-// "vngcloud-live-toggle", because CreateCheck did not exist yet. That path
-// is dropped rather than kept alongside this one: keeping both would mean
-// two full toggle sequences to maintain for a test that already needs
-// CreateCheck and DeleteCheck to be correct for its own setup and teardown,
-// and every scenario the old path covered (pause and resume, each toggling
-// and each a same-state no-op) still runs here, against a check this test
-// controls end to end.
+// and longLiveTestFrequency (step 4), registers the fallback delete as soon
+// as the created check's id is known (step 5), and confirms its start
+// status is one PauseCheck and ResumeCheck understand. It then pauses and
+// resumes the check twice each, in whichever order ends back at the start
+// status (steps 6 and 7), logging each call's confirm-read count: the GETs
+// the call made, minus the one pre-toggle read that never follows a PUT,
+// which leaves only the reads spent confirming the toggle landed. It
+// confirms the final status matches the start status (step 8) and deletes
+// the check explicitly (step 9); t.Cleanup deletes it again with its own
+// context (NotFound there is success, not failure) and asserts no
+// vngcloud-live-* check remains.
 func TestLiveWriteMonitor(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor write test")
@@ -419,6 +408,11 @@ func TestLiveWriteMonitor(t *testing.T) {
 	targetURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_URL")
 	if targetURL == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_URL to the approved probe URL to run the live monitor write test")
+	}
+	quotaRaw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MONITOR_QUOTA"))
+	quota, quotaErr := strconv.Atoi(quotaRaw)
+	if quotaRaw == "" || quotaErr != nil || quota <= 0 {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_QUOTA to the account's check quota (a positive integer) named in this run's approval to run the live monitor write test")
 	}
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -482,14 +476,8 @@ func TestLiveWriteMonitor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2 ListChecks: %s", safeErr(err))
 	}
-	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MONITOR_QUOTA")); raw != "" {
-		quota, err := strconv.Atoi(raw)
-		if err != nil {
-			t.Fatalf("step 2: VNGCLOUD_LIVE_MONITOR_QUOTA = %q is not an integer", raw)
-		}
-		if len(current.Items) >= quota {
-			t.Skipf("step 2: account has %d check(s), at the named quota of %d", len(current.Items), quota)
-		}
+	if len(current.Items) >= quota {
+		t.Skipf("step 2: account has %d check(s), at the named quota of %d", len(current.Items), quota)
 	}
 
 	// Step 3: pick one location; CreateCheck takes a location UUID, never a
@@ -528,15 +516,10 @@ func TestLiveWriteMonitor(t *testing.T) {
 		deleteCheckByName(t, client, name)
 		t.Fatal("step 4: CreateCheck returned an empty id; the design requires one")
 	}
-	startStatus := created.Check.Status
-	if startStatus != monitor.StatusEnabled && startStatus != monitor.StatusDisabled {
-		t.Fatalf("step 4: created check status = %q, want %s or %s; refusing to toggle a status neither PauseCheck nor ResumeCheck understands",
-			startStatus, monitor.StatusEnabled, monitor.StatusDisabled)
-	}
-	t.Logf("step 4: created check, start status %s", startStatus)
 
-	// Step 5: register the fallback delete immediately, before anything else
-	// can fail and skip the explicit delete in step 9.
+	// Step 5: register the fallback delete as soon as checkID is known,
+	// before the status check below or any later step can fail and skip
+	// the explicit delete in step 9.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -559,6 +542,13 @@ func TestLiveWriteMonitor(t *testing.T) {
 			t.Errorf("cleanup: expected 0 vngcloud-live checks, found %d", remaining)
 		}
 	})
+
+	startStatus := created.Check.Status
+	if startStatus != monitor.StatusEnabled && startStatus != monitor.StatusDisabled {
+		t.Fatalf("step 4: created check status = %q, want %s or %s; refusing to toggle a status neither PauseCheck nor ResumeCheck understands",
+			startStatus, monitor.StatusEnabled, monitor.StatusDisabled)
+	}
+	t.Logf("step 4: created check, start status %s", startStatus)
 
 	toggle := func(step string, want bool, call func() (bool, error)) {
 		before := getCount.Load()

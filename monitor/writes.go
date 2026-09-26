@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
@@ -93,12 +94,20 @@ type CreateCheckOutput struct {
 // CreateCheck creates a check with type API and subtype HTTP, the only
 // values the console offers today, and verified_ssl always true. It is not
 // retried after a failure that may have already reached the server,
-// because a POST is not idempotent: after a 5xx or a network error, the
-// caller lists checks and looks for its name before trying again.
+// because a POST is not idempotent. After any error that is not a 4xx
+// *core.APIError or core.ErrInvalidInput, the check may exist: that covers
+// a 5xx, a network error, a 201 with no id, and a body the SDK could not
+// decode. The caller lists checks and looks for its name before trying
+// again.
 func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*CreateCheckOutput, error) {
 	const op = "monitor.CreateCheck"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
+	}
+	// CheckRequired treats a non-nil empty slice as set, so an empty but
+	// non-nil Locations passes it; check its length here too.
+	if len(in.Locations) == 0 {
+		return nil, fmt.Errorf("%w: %s requires at least one Locations entry", core.ErrInvalidInput, op)
 	}
 
 	method := in.Method

@@ -334,17 +334,40 @@ func renderServicePage(svc docService) string {
 	return b.String()
 }
 
+// docJSONPlaceholders gives the JSON literal buildExample writes into
+// --cli-input-json for a required Input field that has no flag (viaJSON),
+// keyed by its Go field name. A required viaJSON field missing here would
+// make buildExample print a command that exits 2 when run as shown, so
+// buildExample panics instead of silently omitting the field.
+var docJSONPlaceholders = map[string]string{
+	"Locations": `["<location-id>"]`,
+}
+
 // buildExample builds one example command line for op: every service and
 // operation name, then --<flag> <flag> for each required, flag-settable
 // field (a placeholder that names the flag, since gen-docs has no sample
-// values), then --yes for a destructive write.
+// values), then one --cli-input-json holding every required field that has
+// no flag, then --yes for a destructive write. The example must be runnable
+// as printed, so a required field can never be left out of it.
 func buildExample(service string, op docOp) string {
 	parts := []string{"vngcloud", service, op.name}
+	var jsonPairs []string
 	for _, f := range op.fields {
-		if !f.required || f.viaJSON {
+		if !f.required {
 			continue
 		}
-		parts = append(parts, "--"+f.name, "<"+f.name+">")
+		if !f.viaJSON {
+			parts = append(parts, "--"+f.name, "<"+f.name+">")
+			continue
+		}
+		placeholder, ok := docJSONPlaceholders[f.name]
+		if !ok {
+			panic(fmt.Sprintf("gen-docs: required field %q of %s %s has no --cli-input-json example in docJSONPlaceholders", f.name, service, op.name))
+		}
+		jsonPairs = append(jsonPairs, fmt.Sprintf("%q:%s", f.name, placeholder))
+	}
+	if len(jsonPairs) > 0 {
+		parts = append(parts, "--cli-input-json", "'{"+strings.Join(jsonPairs, ",")+"}'")
 	}
 	if op.kind == "Write, destructive" {
 		parts = append(parts, "--yes")

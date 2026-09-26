@@ -22,7 +22,7 @@ Kind: Write.
 | `Assertions` (via `--cli-input-json` only) | `[]monitor.Assertion` |  |
 
 ```sh
-vngcloud monitor create-check --name <name> --url <url>
+vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
 ```
 
 ## delete-check

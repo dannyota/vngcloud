@@ -413,6 +413,37 @@ func TestMonitorCreateCheckMissingLocationsExitsWithZeroRequests(t *testing.T) {
 	}
 }
 
+// TestMonitorCreateCheckEmptyLocationsExitsWithZeroRequests checks
+// create-check with Locations set to an explicit empty list through
+// --cli-input-json. A non-nil empty slice is not zero, so the CLI's own
+// required-field check (checkRequiredFlags) passes it through; the command
+// still must exit 2 with zero requests, on the SDK's own empty-Locations
+// check (monitor.CreateCheck returns ErrInvalidInput).
+func TestMonitorCreateCheckEmptyLocationsExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-check",
+		"--name", "vngcloud-test-check",
+		"--url", "https://example.com/health",
+		"--cli-input-json", `{"Locations":[]}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error with an empty Locations list")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
 // TestMonitorDeleteCheckWithoutYesExitsWithZeroRequests checks the monitor
 // design's --yes rule for delete-check: it is Write and Destructive, so it
 // fails with exit code 2 and sends no request unless --yes is given.

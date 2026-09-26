@@ -243,8 +243,9 @@ a time.
 
 The SDK always sends `type: "API"`, `subtype: "HTTP"`,
 `verified_ssl: true`, and `notifications` with three empty lists. The
-defaults for the zero values are the console's create form defaults. Zero is never a valid value for those
-fields, so ADR 0002 rule 3 needs no pointer.
+defaults for the zero values are the console's create form defaults. Zero
+is never a valid value for those fields, so ADR 0002 rule 3 needs no
+pointer.
 
 Per ADR 0002 rule 5, the SDK checks only that required fields are set. The
 name rule, frequency range, and location validity stay on the server, whose
@@ -383,25 +384,20 @@ run needs the owner's approval naming the account, region, and checks, and
 touches only checks named `vngcloud-live-*`, before the free package ends
 on 2026-10-26 or with a new package.
 
-- `make live` gains `ListChecks` and, when a check exists, `GetCheck` on
-  the first one, without pinning counts. From `v0.9.0` it adds
-  `ListLocations`. The live CLI test adds `monitor list-checks`.
-- `v0.8.0` live write test: the SDK cannot create a check yet, so the test
-  uses an existing `vngcloud-live-toggle` check. The test finds it by exact name, or skips. It reads the
-  start status and only then registers `t.Cleanup`, which restores that
-  status only if the test changed it, with its own
-  `context.WithTimeout(context.Background(), ...)`, and asserts it. It
-  pauses twice (`Changed` true, then false) and resumes twice. It also
-  logs, as a count only, how many confirm reads each toggle needed, which
-  answers the read-lag question.
-- `v0.9.0` live write test: it deletes leftover `vngcloud-live-` checks,
-  skips when the list is at the quota the approval names, creates
-  `vngcloud-live-<8 hex>` with one location and the longest test frequency
-  against a URL the owner names in the approval, and runs the pause and
-  resume steps above on it. If `CreateCheck` fails, it lists checks and
-  deletes the one with its name. `t.Cleanup` deletes the check with its own
-  context and asserts no `vngcloud-live-` check remains, logging only a
-  count. The target URL never enters the repository.
+- `make live` runs `ListChecks`, `GetCheck` on the first check when one
+  exists, and `ListLocations`, without pinning counts. The live CLI test
+  runs `monitor list-checks` and `monitor list-locations`.
+- The live write test deletes leftover `vngcloud-live-` checks and skips
+  unless `VNGCLOUD_LIVE_MONITOR_QUOTA` names the approved quota and the
+  list is below it. It creates `vngcloud-live-<8 hex>` with one location
+  and a 60-minute test frequency against the URL in
+  `VNGCLOUD_LIVE_MONITOR_URL`, which never enters the repository. Its
+  `t.Cleanup`, registered as soon as the check ID is known, deletes the
+  check with its own context and asserts no `vngcloud-live-` check
+  remains. If `CreateCheck` fails, it lists checks and deletes the one with
+  its name. On the created check it pauses twice (`Changed` true, then
+  false) and resumes twice, logging only counts, including the confirm
+  reads each toggle needed.
 
 ## Releases
 

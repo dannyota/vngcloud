@@ -53,9 +53,9 @@ type CheckRequest struct {
 	Headers map[string]string `json:"headers"`
 	Query   map[string]string `json:"query"`
 	Body    string            `json:"body"`
-	// Timeout's unit is not confirmed; the live capture behind this design
-	// showed only the console default, 30. The API sends it as an integral
-	// decimal, such as 30.0, alongside CheckOptions' three fields;
+	// Timeout is in seconds; CreateCheck sends 10, the console's own
+	// default, when the caller leaves it zero. The API sends it as an
+	// integral decimal, such as 10.0, alongside CheckOptions' three fields;
 	// UnmarshalJSON accepts either shape.
 	Timeout     int  `json:"timeout"`
 	VerifiedSSL bool `json:"verified_ssl"`

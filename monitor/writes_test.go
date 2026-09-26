@@ -175,13 +175,26 @@ func TestCreateCheckSendsFieldsAndDefaults(t *testing.T) {
 			testutil.WriteFixture(t, w, "../testdata/monitor/CreateCheck.json")
 		}))
 
-		_, err := client.CreateCheck(context.Background(), &CreateCheckInput{
+		out, err := client.CreateCheck(context.Background(), &CreateCheckInput{
 			Name:      "vngcloud-live-abcd1234",
 			URL:       "https://example.com/health",
 			Locations: []string{"loc-1"},
 		})
 		if err != nil {
 			t.Fatalf("CreateCheck() error = %v", err)
+		}
+		// CreateCheck.json encodes these as integral decimals (10.0, 1.0);
+		// they must still decode into the response Check's int and bool
+		// fields.
+		gotOptions := out.Check.Options
+		if gotOptions.TestFrequency != 1 || gotOptions.Tests != 1 || gotOptions.FailedLocations != 1 {
+			t.Fatalf("unexpected options: %+v", gotOptions)
+		}
+		if out.Check.Config.Request.Timeout != 10 {
+			t.Fatalf("Timeout = %d, want 10", out.Check.Config.Request.Timeout)
+		}
+		if !out.Check.Config.Request.VerifiedSSL {
+			t.Fatal("VerifiedSSL = false, want true")
 		}
 	})
 }
@@ -199,6 +212,7 @@ func TestCreateCheckRequiredFields(t *testing.T) {
 		{"missing name", &CreateCheckInput{URL: "https://example.com", Locations: []string{"loc-1"}}},
 		{"missing url", &CreateCheckInput{Name: "vngcloud-live-x", Locations: []string{"loc-1"}}},
 		{"missing locations", &CreateCheckInput{Name: "vngcloud-live-x", URL: "https://example.com"}},
+		{"empty locations", &CreateCheckInput{Name: "vngcloud-live-x", URL: "https://example.com", Locations: []string{}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,6 +284,39 @@ func TestCreateCheckNotRetriedAfter502(t *testing.T) {
 	}
 	if core.IsRetryable(err) {
 		t.Fatal("IsRetryable(err) = true, want false")
+	}
+}
+
+// TestCreateCheckAPIErrorNotRetried checks a create the server rejects with
+// a 4xx returns that status as an *core.APIError, sent exactly once: a 4xx
+// is never retryable, so a POST is not retried after a client error
+// either.
+func TestCreateCheckAPIErrorNotRetried(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			calls := 0
+			client := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"rejected"}`))
+			})))
+
+			_, err := client.CreateCheck(context.Background(), &CreateCheckInput{
+				Name:      "vngcloud-live-x",
+				URL:       "https://example.com",
+				Locations: []string{"loc-1"},
+			})
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected *core.APIError, got %v", err)
+			}
+			if apiErr.StatusCode != status {
+				t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, status)
+			}
+			if calls != 1 {
+				t.Fatalf("calls = %d, want 1", calls)
+			}
+		})
 	}
 }
 
