@@ -82,12 +82,20 @@ func scriptedGets(t *testing.T, bodies []string, other http.HandlerFunc) http.Ha
 	})
 }
 
-// withInstantSleep replaces c's sleep with one that never really waits, so a
-// test exercising a wait's full bound runs in milliseconds. It still
-// reports ctx's own error, so a canceled-context test still behaves
-// correctly.
+// withInstantSleep replaces c's sleep and now with fakes that never really
+// wait, so a test exercising a wait's full bound runs in milliseconds
+// rather than the real pollBound. The fake clock advances by exactly the
+// duration each sleep call is asked to wait, so a wait's bound is still
+// reached after the same number of iterations a real clock would take. It
+// still reports ctx's own error from sleep, so a canceled-context test
+// still behaves correctly.
 func withInstantSleep(c *Client) *Client {
-	c.sleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
 	return c
 }
 

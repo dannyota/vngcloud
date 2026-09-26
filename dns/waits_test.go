@@ -11,7 +11,7 @@ import (
 // onTimeout, when step reports stop on its first call.
 func TestPollStopsOnFirstStep(t *testing.T) {
 	sleeps := 0
-	err := poll(context.Background(),
+	err := poll(context.Background(), time.Now,
 		func(ctx context.Context, d time.Duration) error { sleeps++; return nil },
 		func(ctx context.Context) (bool, error) { return true, nil },
 		func() error { t.Fatal("onTimeout called"); return nil },
@@ -28,12 +28,21 @@ func TestPollStopsOnFirstStep(t *testing.T) {
 // that never settles calls step 31 times (once at the start of each of the
 // 30 pollInterval-wide windows within pollBound, plus the final check
 // exactly at the bound) and sleeps pollInterval, never any other duration,
-// between them.
+// between them. The fake clock only advances when the injected sleep
+// advances it, by exactly the duration it was asked to sleep, so this
+// reproduces the same accounting as a real clock would when every read is
+// instant and only the sleeps between them consume time.
 func TestPollStepCountAndSpacing(t *testing.T) {
 	steps := 0
 	var sleptFor []time.Duration
-	err := poll(context.Background(),
-		func(ctx context.Context, d time.Duration) error { sleptFor = append(sleptFor, d); return nil },
+	clock := time.Unix(0, 0)
+	now := func() time.Time { return clock }
+	sleep := func(ctx context.Context, d time.Duration) error {
+		sleptFor = append(sleptFor, d)
+		clock = clock.Add(d)
+		return nil
+	}
+	err := poll(context.Background(), now, sleep,
 		func(ctx context.Context) (bool, error) { steps++; return false, nil },
 		func() error { return ErrZoneBusy },
 	)
@@ -54,13 +63,42 @@ func TestPollStepCountAndSpacing(t *testing.T) {
 	}
 }
 
+// TestPollBoundsByElapsedTimeNotStepCount checks that a slow step itself
+// counts against pollBound. Each step here advances the fake clock by 25
+// seconds, as a slow read would advance a real one, while sleep advances
+// nothing. Counting poll intervals instead of elapsed time would let this
+// run pollBound/pollInterval (30) steps regardless of how long each one
+// took; bounding by the clock must instead stop once it has advanced past
+// pollBound, which the third step (75s) does.
+func TestPollBoundsByElapsedTimeNotStepCount(t *testing.T) {
+	clock := time.Unix(0, 0)
+	now := func() time.Time { return clock }
+	const stepCost = 25 * time.Second
+	steps := 0
+	err := poll(context.Background(), now,
+		func(ctx context.Context, d time.Duration) error { return nil },
+		func(ctx context.Context) (bool, error) {
+			steps++
+			clock = clock.Add(stepCost)
+			return false, nil
+		},
+		func() error { return ErrZoneBusy },
+	)
+	if !errors.Is(err, ErrZoneBusy) {
+		t.Fatalf("err = %v, want ErrZoneBusy", err)
+	}
+	if steps != 3 {
+		t.Fatalf("steps = %d, want 3", steps)
+	}
+}
+
 // TestPollCanceledContext checks that a context canceled during a sleep
 // ends the wait with that context's own error, never onTimeout or a step
 // error.
 func TestPollCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	err := poll(ctx,
+	err := poll(ctx, time.Now,
 		func(ctx context.Context, d time.Duration) error { cancel(); return ctx.Err() },
 		func(ctx context.Context) (bool, error) { calls++; return false, nil },
 		func() error { t.Fatal("onTimeout called"); return nil },
@@ -78,7 +116,7 @@ func TestPollCanceledContext(t *testing.T) {
 // ever consulting onTimeout.
 func TestPollPropagatesReadError(t *testing.T) {
 	readErr := errors.New("read failed")
-	err := poll(context.Background(),
+	err := poll(context.Background(), time.Now,
 		func(ctx context.Context, d time.Duration) error { t.Fatal("sleep called"); return nil },
 		func(ctx context.Context) (bool, error) { return true, readErr },
 		func() error { t.Fatal("onTimeout called"); return nil },

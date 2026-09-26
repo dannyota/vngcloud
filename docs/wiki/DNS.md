@@ -6,10 +6,10 @@ nothing else. There is no public zone type, so a zone cannot take over a
 public domain such as `example.com`; keep public DNS elsewhere and use vDNS
 for private names inside a VPC.
 
-This release adds hosted zone writes: `CreateHostedZone`, `UpdateHostedZone`,
-and `DeleteHostedZone`. Records (`CreateRecord`, `UpdateRecord`,
-`DeleteRecord`) ship in a later release; for now, manage records from the
-console or through the CLI's read commands.
+`dns` reads and writes hosted zones: `ListHostedZones`, `GetHostedZone`,
+`CreateHostedZone`, `UpdateHostedZone`, and `DeleteHostedZone`. Records are
+read-only for now (`ListRecords`, `GetRecord`); manage record writes from
+the console or through the CLI's read commands.
 
 ## Setup
 
@@ -51,7 +51,7 @@ The rest of this page assumes `cfg` and `ctx` from this setup, plus
 ## Reading zones and records
 
 ```go
-zones, err := client.ListHostedZones(ctx, nil)      // Name
+zones, err := client.ListHostedZones(ctx, nil)      // Name, Page, Size
 zone, err := client.GetHostedZone(ctx, in)          // HostedZoneID (required)
 records, err := client.ListRecords(ctx, in)         // HostedZoneID (required), Name
 record, err := client.GetRecord(ctx, in)             // HostedZoneID, RecordID (both required)
@@ -154,13 +154,17 @@ after sending it:
 | `UpdateHostedZone` | Zone `StatusActive` with the sent fields | Zone `StatusError` |
 | `DeleteHostedZone` | A `GetHostedZone` read returns not-found | |
 
-A wait polls every 2 seconds for up to 60 seconds. If the zone reaches
-`StatusError`, the call returns an error wrapping `dns.ErrFailed`. If the
-bound runs out first, it returns an error wrapping `dns.ErrNotSettled`,
-meaning the write was sent and may have landed, but the SDK could not
-confirm it: do not send the same write again. Both cases still return a
-non-nil Output holding the zone the SDK last read, so the caller keeps the
-zone's id to check on it later:
+A wait polls every 2 seconds for up to 60 seconds of elapsed time. If the
+zone reaches `StatusError`, the call returns an error wrapping
+`dns.ErrFailed`. Once the write itself has succeeded, every later failure,
+the bound running out, a read failing, or the wait's own sleep ending
+early, such as from a canceled `ctx`, returns an error wrapping
+`dns.ErrNotSettled`: the write may have landed and the SDK could not
+confirm it, so do not send it again. Every one of these outcomes still
+returns a non-nil Output: it holds the last zone a read returned, or, when
+no read after the write ever succeeded, the zone the write's own response
+or sent fields carried, so the caller keeps the zone's id to check on it
+later:
 
 ```go
 created, err := client.CreateHostedZone(ctx, in)
@@ -185,6 +189,11 @@ a call's entire pre-write wait, write, and post-write wait, so two
 goroutines sharing a `Client` never race the zone lock against each other.
 Across processes, or across two `Client` values, the caller serializes; a
 lost race there is the zone-lock 400 above, with nothing written.
+
+`UpdateHostedZone` reads the zone and resends every field as a full
+replacement, so a race between two processes updating the same zone is not
+merged: whichever write reaches the server last simply overwrites the
+other's change, since the API takes no condition field to detect it.
 
 ### Errors
 

@@ -92,6 +92,6 @@ Kind: Write.
 | `--no-wait` | `bool` |  |
 
 ```sh
-vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id>
+vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id> --description <description>
 ```
 

@@ -28,7 +28,7 @@ carry no project ID; zones are per account.
 | Call | Method and path | Success | Async |
 |-|-|-|-|
 | Create zone | `POST /dns/hosted-zone` | 200, zone in `data`, `CREATING` | `ACTIVE` after about 7 s |
-| Update zone | `PUT /dns/hosted-zone/{zoneId}` | 204 | `UPDATING` about 6 s, then `ACTIVE` |
+| Update zone | `PUT /dns/hosted-zone/{zoneId}` | 204 | `UPDATING` about 6 s when the VPCs change, then `ACTIVE` |
 | Delete zone | `DELETE /dns/hosted-zone/{zoneId}` | 204 | GET 404 after about 5 s |
 | Create record | `POST /dns/hosted-zone/{zoneId}/record` | 200, record in `data`, `CREATING` | Zone locked about 12 s |
 | Update record | `PUT /dns/hosted-zone/{zoneId}/record/{recordId}` | 204 | Zone locked about 12 s |
@@ -69,7 +69,10 @@ A repeat delete returns 404. Lists return `listData`, `page`, `pageSize`,
 ### Zone status and the zone lock
 
 Zone statuses seen are `CREATING`, `ACTIVE`, `UPDATING`, and `ERROR`. A
-zone update moves the zone to `UPDATING` for about 6 seconds. Every record
+zone update that changes the VPC list sets `UPDATING` before the 204
+returns and holds it for about 6 seconds; a description-only update,
+including a no-op, never leaves `ACTIVE`. So a read that is `ACTIVE` and
+shows the sent fields is settled. Every record
 create or update moves its zone out of `ACTIVE` for about 11 to 12 seconds.
 Meanwhile any other record write to that zone fails with 400 `<zone> was
 invalid status. Allowed in [ACTIVE, ERROR]`, and nothing is written. A record
@@ -397,9 +400,9 @@ waits, `NoWait`, partial updates, and listing before rerunning a create.
 1. Settled: `aboutme.vn` stays off vDNS, which has no public zone.
 2. Approved: build private zone and record writes.
 3. Approved: zones in `v0.10.0`, records in `v0.11.0`.
-4. Approved, revised by the live checks: update Inputs use pointers and the
-   SDK sends only the non-nil fields, because the API applies partial
-   bodies. No read-merge.
+4. Approved, revised by the live checks: update Inputs use pointers. A
+   record update sends only the non-nil fields, because the API applies a
+   partial record body; a zone update is the read-merge in decision 11.
 5. Approved: `Values` and `VPCIDs` go through `--cli-input-json`.
 6. Approved: no bulk import or sync command.
 7. Approved: no quote, pending the next-day bill check.

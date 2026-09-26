@@ -348,12 +348,26 @@ var docJSONPlaceholders = map[string]string{
 	"VPCIDs":    `["<vpc-id>"]`,
 }
 
+// docExampleExtraFlag names one flag buildExample adds to an operation's
+// example beyond its required fields, keyed by "service op-name". An
+// operation goes here when none of its Input fields are marked "required"
+// for this purpose, yet the operation itself rejects a call that leaves a
+// whole group of fields unset: update-hosted-zone's only required field is
+// HostedZoneID, but UpdateHostedZone also requires at least one of
+// Description or VPCIDs, so the plain required-flags-only example would
+// print a command that exits 2 with InvalidUsage when run as shown.
+var docExampleExtraFlag = map[string]string{
+	"dns update-hosted-zone": "description",
+}
+
 // buildExample builds one example command line for op: every service and
 // operation name, then --<flag> <flag> for each required, flag-settable
 // field (a placeholder that names the flag, since gen-docs has no sample
 // values), then one --cli-input-json holding every required field that has
-// no flag, then --yes for a destructive write. The example must be runnable
-// as printed, so a required field can never be left out of it.
+// no flag, then the docExampleExtraFlag entry for op if any, then --yes for
+// a destructive write. The example must be runnable as printed, so a
+// required field, or a field docExampleExtraFlag names, can never be left
+// out of it.
 func buildExample(service string, op docOp) string {
 	parts := []string{"vngcloud", service, op.name}
 	var jsonPairs []string
@@ -370,6 +384,9 @@ func buildExample(service string, op docOp) string {
 			panic(fmt.Sprintf("gen-docs: required field %q of %s %s has no --cli-input-json example in docJSONPlaceholders", f.name, service, op.name))
 		}
 		jsonPairs = append(jsonPairs, fmt.Sprintf("%q:%s", f.name, placeholder))
+	}
+	if extra, ok := docExampleExtraFlag[service+" "+op.name]; ok {
+		parts = append(parts, "--"+extra, "<"+extra+">")
 	}
 	if len(jsonPairs) > 0 {
 		parts = append(parts, "--cli-input-json", "'{"+strings.Join(jsonPairs, ",")+"}'")

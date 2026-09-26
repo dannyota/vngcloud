@@ -298,6 +298,27 @@ func TestGenDocsCreateCheckExampleIncludesLocations(t *testing.T) {
 	}
 }
 
+// TestGenDocsUpdateHostedZoneExampleSetsAField checks that update-hosted-zone's
+// example command line is runnable as printed. HostedZoneID is its only
+// required Input field, but UpdateHostedZone itself also rejects a call that
+// leaves both VPCIDs and Description unset, so a plain required-flags-only
+// example would print a command that exits 2 with InvalidUsage when run as
+// shown.
+func TestGenDocsUpdateHostedZoneExampleSetsAField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-DNS.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-DNS.md: %v", err)
+	}
+	want := "vngcloud dns update-hosted-zone --hosted-zone-id <hosted-zone-id> --description <description>"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("update-hosted-zone example is missing %q:\n%s", want, data)
+	}
+}
+
 func TestGenDocsCommandIsHidden(t *testing.T) {
 	withCleanEnv(t)
 	out, err := runConfigure(t, "", []string{"--help"})

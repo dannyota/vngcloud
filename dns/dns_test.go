@@ -35,6 +35,41 @@ func TestDNSListHostedZones(t *testing.T) {
 	}
 }
 
+// TestDNSListHostedZonesPagination checks that Page and Size reach the
+// query string, so a caller that must see every zone, such as a cleanup
+// routine, can page through them with ListHostedZonesInput alone rather
+// than assuming one call returns them all.
+func TestDNSListHostedZonesPagination(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name") != "example" || r.URL.Query().Get("page") != "2" || r.URL.Query().Get("size") != "10" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		testutil.WriteFixture(t, w, "../testdata/dns/list_hosted_zones.json")
+	}))
+
+	if _, err := c.ListHostedZones(context.Background(), &ListHostedZonesInput{Name: "example", Page: 2, Size: 10}); err != nil {
+		t.Fatalf("ListHostedZones() error = %v", err)
+	}
+}
+
+// TestDNSListHostedZonesDefaultPageSize checks that a Page and Size left
+// zero send the package's own defaults, as every other paginated list does.
+func TestDNSListHostedZonesDefaultPageSize(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" || r.URL.Query().Get("size") != "10000" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Has("name") {
+			t.Fatalf("unexpected name in query: %s", r.URL.RawQuery)
+		}
+		testutil.WriteFixture(t, w, "../testdata/dns/list_hosted_zones.json")
+	}))
+
+	if _, err := c.ListHostedZones(context.Background(), nil); err != nil {
+		t.Fatalf("ListHostedZones() error = %v", err)
+	}
+}
+
 func TestDNSGetHostedZone(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/dns/hosted-zone/zone-1" {

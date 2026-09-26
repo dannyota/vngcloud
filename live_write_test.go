@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -674,12 +675,12 @@ func TestLiveWriteDNS(t *testing.T) {
 
 	// Step 1: delete every leftover vngcloud-live-*.internal zone from a
 	// previous run.
-	leftovers, err := client.ListHostedZones(ctx, nil)
+	leftovers, err := listAllHostedZones(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListHostedZones: %s", safeErr(err))
 	}
 	deletedLeftovers := 0
-	for _, leftover := range leftovers.Items {
+	for _, leftover := range leftovers {
 		if !isLiveDNSZoneName(leftover.DomainName) {
 			continue
 		}
@@ -725,13 +726,13 @@ func TestLiveWriteDNS(t *testing.T) {
 		if _, err := client.DeleteHostedZone(cleanupCtx, &dns.DeleteHostedZoneInput{HostedZoneID: zoneID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete zone: %s", safeErr(err))
 		}
-		final, err := client.ListHostedZones(cleanupCtx, nil)
+		final, err := listAllHostedZones(cleanupCtx, client)
 		if err != nil {
 			t.Errorf("cleanup: final ListHostedZones: %s", safeErr(err))
 			return
 		}
 		remaining := 0
-		for _, z := range final.Items {
+		for _, z := range final {
 			if isLiveDNSZoneName(z.DomainName) {
 				remaining++
 			}
@@ -755,6 +756,11 @@ func TestLiveWriteDNS(t *testing.T) {
 		t.Fatalf("step 4 UpdateHostedZone: %s", safeErr(err))
 	}
 	t.Logf("step 4: updated zone, status %s, wait %s", updated.HostedZone.Status, time.Since(start))
+	if len(updated.HostedZone.AssociatedVPCIDs) == 1 && updated.HostedZone.AssociatedVPCIDs[0] == vpcID {
+		t.Log("step 4: description-only update kept the zone's VPC: pass")
+	} else {
+		t.Error("step 4: description-only update did not keep the zone's VPC: fail")
+	}
 
 	// Step 5: delete the zone explicitly. DELETE is idempotent, so a retry
 	// that reaches the server after an earlier attempt already deleted the
@@ -767,10 +773,32 @@ func TestLiveWriteDNS(t *testing.T) {
 	t.Logf("step 5: deleted zone, wait %s", time.Since(start))
 }
 
-// isLiveDNSZoneName reports whether domainName matches the live DNS write
-// test's own naming scheme, vngcloud-live-<8 hex>.internal.
+// liveDNSZoneNamePattern is the live DNS write test's own zone naming
+// scheme: vngcloud-live-<8 lowercase hex>.internal, exactly, so a name that
+// merely starts and ends the right way, but is not one this test itself
+// could have generated, is never swept up as a leftover.
+var liveDNSZoneNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}\.internal$`)
+
+// isLiveDNSZoneName reports whether domainName matches liveDNSZoneNamePattern.
 func isLiveDNSZoneName(domainName string) bool {
-	return strings.HasPrefix(domainName, "vngcloud-live-") && strings.HasSuffix(domainName, ".internal")
+	return liveDNSZoneNamePattern.MatchString(domainName)
+}
+
+// listAllHostedZones pages through every hosted zone the account has,
+// since a leftover cleanup or a remaining-zone check must not miss a zone
+// that landed past the first page.
+func listAllHostedZones(ctx context.Context, client *dns.Client) ([]dns.HostedZone, error) {
+	var all []dns.HostedZone
+	for page := 1; ; page++ {
+		out, err := client.ListHostedZones(ctx, &dns.ListHostedZonesInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
 }
 
 // deleteZoneByName lists zones by domainName and deletes any match. It is

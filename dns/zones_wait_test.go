@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/testutil"
 )
 
 // TestUpdateHostedZoneUnknownZonePropagatesNotFound checks that the
@@ -129,23 +130,34 @@ func TestCreateHostedZoneErrNotSettled(t *testing.T) {
 
 // --- UpdateHostedZone's pre- and post-write waits ---
 
+// TestUpdateHostedZonePreWriteWaitThroughBusyToActive checks both that the
+// pre-write wait carries an update through busy reads to the ready one, and
+// that the merge uses that last read, not an earlier busy one: the busy
+// reads and the ready read carry different descriptions, the update leaves
+// Description unset so the merge must pick it up from whichever read
+// waitZoneReady returns, and the PUT handler asserts it is the ready read's
+// "ready", not the busy reads' "busy".
 func TestUpdateHostedZonePreWriteWaitThroughBusyToActive(t *testing.T) {
 	var putCalls atomic.Int64
 	handler := scriptedGets(t, []string{
-		zoneBody(StatusUpdating, "d", []string{"vpc-1"}),
-		zoneBody(StatusUpdating, "d", []string{"vpc-1"}),
-		zoneBody(StatusActive, "d", []string{"vpc-1"}),
+		zoneBody(StatusUpdating, "busy", []string{"vpc-1"}),
+		zoneBody(StatusUpdating, "busy", []string{"vpc-1"}),
+		zoneBody(StatusActive, "ready", []string{"vpc-1"}),
 		// The confirm read after the PUT below settles at once.
-		zoneBody(StatusActive, "new", []string{"vpc-1"}),
+		zoneBody(StatusActive, "ready", []string{"vpc-2"}),
 	}, func(w http.ResponseWriter, r *http.Request) {
 		putCalls.Add(1)
+		body := decodeBody(t, r)
+		if body["description"] != "ready" {
+			t.Fatalf("PUT description = %v, want %q from the pre-write wait's last read, not an earlier busy one", body["description"], "ready")
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	client := withInstantSleep(newTestClient(t, handler))
 
 	_, err := client.UpdateHostedZone(context.Background(), &UpdateHostedZoneInput{
 		HostedZoneID: "zone-1",
-		Description:  vngcloud.Ptr("new"),
+		VPCIDs:       vngcloud.Ptr([]string{"vpc-2"}),
 	})
 	if err != nil {
 		t.Fatalf("UpdateHostedZone() error = %v", err)
@@ -324,7 +336,7 @@ func TestDeleteHostedZoneErrNotSettled(t *testing.T) {
 	}
 }
 
-// TestZoneWritesSerializeWithinOneClient checks that writeMu keeps two
+// TestZoneWritesSerializeWithinOneClient checks that writeLock keeps two
 // goroutines from ever running a write's pre-write-read-through-write
 // sequence concurrently on one Client: each DeleteHostedZone call below
 // holds the handler busy for a moment, and inFlight would catch either
@@ -338,7 +350,7 @@ func TestZoneWritesSerializeWithinOneClient(t *testing.T) {
 		}
 		// A real, short sleep, not the injected wait clock: it gives the
 		// other goroutine's request a chance to reach this handler while
-		// this one is still "in flight", which is exactly what writeMu must
+		// this one is still "in flight", which is exactly what writeLock must
 		// prevent for two writes sharing one Client.
 		time.Sleep(5 * time.Millisecond)
 		inFlight.Add(-1)
@@ -367,6 +379,213 @@ func TestZoneWritesSerializeWithinOneClient(t *testing.T) {
 	wg.Wait()
 
 	if overlapped.Load() {
-		t.Fatal("two writes overlapped; writeMu did not serialize them")
+		t.Fatal("two writes overlapped; writeLock did not serialize them")
+	}
+}
+
+// --- Cancellation after a write already succeeded ---
+
+// TestCreateHostedZoneCancelDuringSettleSleep checks that a ctx canceled
+// while the post-create wait sleeps between polls, after the create's own
+// POST already succeeded, still returns a non-nil Output carrying the new
+// zone's id, and an error wrapping both ErrNotSettled and the
+// cancellation itself, never a bare ctx.Err() that would lose the id.
+func TestCreateHostedZoneCancelDuringSettleSleep(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			testutil.WriteFixture(t, w, "../testdata/dns/create_hosted_zone.json")
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneBody(StatusCreating, "d", []string{"vpc-1"})))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	client.sleep = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		return ctx.Err()
+	}
+
+	out, err := client.CreateHostedZone(ctx, &CreateHostedZoneInput{
+		DomainName: "example.internal",
+		VPCIDs:     []string{"vpc-1"},
+	})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if out == nil || out.HostedZone.ID != "zone-1" {
+		t.Fatalf("out = %+v, want a non-nil Output carrying the zone id", out)
+	}
+}
+
+// TestCreateHostedZoneCancelDuringFirstSettleRead checks the same guarantee
+// as TestCreateHostedZoneCancelDuringSettleSleep, but for a ctx canceled
+// during the very first settle read, before any read after the create ever
+// succeeds: the Output must then fall back to the create response itself,
+// which still carries the new zone's id, rather than going nil.
+func TestCreateHostedZoneCancelDuringFirstSettleRead(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	gotFirstGet := make(chan struct{})
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			testutil.WriteFixture(t, w, "../testdata/dns/create_hosted_zone.json")
+		case http.MethodGet:
+			close(gotFirstGet)
+			<-ctx.Done() // released by the goroutine below, once it cancels ctx
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	go func() {
+		<-gotFirstGet
+		cancel()
+	}()
+
+	out, err := client.CreateHostedZone(ctx, &CreateHostedZoneInput{
+		DomainName: "example.internal",
+		VPCIDs:     []string{"vpc-1"},
+	})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if out == nil || out.HostedZone.ID != "zone-1" {
+		t.Fatalf("out = %+v, want a non-nil Output carrying the zone id from the create response", out)
+	}
+}
+
+// TestUpdateHostedZoneNoWaitConfirmReadFailure checks that a failure of
+// NoWait's own single confirm read, after the PUT has already succeeded,
+// wraps ErrNotSettled and still returns a non-nil Output carrying the
+// zone's id, rather than the bare read error over a nil Output.
+func TestUpdateHostedZoneNoWaitConfirmReadFailure(t *testing.T) {
+	putDone := false
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if !putDone {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+				return
+			}
+			// The confirm read after the PUT fails outright.
+			w.WriteHeader(http.StatusInternalServerError)
+		case http.MethodPut:
+			putDone = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := client.UpdateHostedZone(context.Background(), &UpdateHostedZoneInput{
+		HostedZoneID: "zone-1",
+		Description:  vngcloud.Ptr("new"),
+		NoWait:       true,
+	})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if out == nil || out.HostedZone.ID != "zone-1" {
+		t.Fatalf("out = %+v, want a non-nil Output carrying the zone id", out)
+	}
+}
+
+// TestDeleteHostedZoneReadFailureAfterDeleteWrapsNotSettled checks that a
+// read failure other than NotFound, after the DELETE has already
+// succeeded, wraps ErrNotSettled rather than propagating the bare read
+// error, and still returns a non-nil Output.
+func TestDeleteHostedZoneReadFailureAfterDeleteWrapsNotSettled(t *testing.T) {
+	// The first read is the pre-write wait, which must succeed with ACTIVE
+	// so the DELETE gets sent; every read after that fails outright rather
+	// than ever reporting NotFound.
+	first := true
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if first {
+				first = false
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := client.DeleteHostedZone(context.Background(), &DeleteHostedZoneInput{HostedZoneID: "zone-1"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if out == nil {
+		t.Fatal("out is nil, want a non-nil Output")
+	}
+}
+
+// --- writeLock honors ctx ---
+
+// TestWriteLockRespectsCanceledContext checks that a caller waiting for
+// writeLock gives up as soon as its own ctx ends, instead of blocking until
+// the current holder releases it, and that the lock still works normally
+// for a later caller once the original holder does release it.
+func TestWriteLockRespectsCanceledContext(t *testing.T) {
+	gotGet := make(chan struct{})
+	release := make(chan struct{})
+	var gotGetOnce sync.Once
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			gotGetOnce.Do(func() { close(gotGet) })
+			<-release
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	holderDone := make(chan struct{})
+	go func() {
+		defer close(holderDone)
+		if _, err := client.DeleteHostedZone(context.Background(), &DeleteHostedZoneInput{HostedZoneID: "zone-1", NoWait: true}); err != nil {
+			t.Errorf("holder DeleteHostedZone() error = %v", err)
+		}
+	}()
+
+	<-gotGet // the holder now has writeLock and is blocked in its pre-write read.
+
+	waiterCtx, waiterCancel := context.WithCancel(context.Background())
+	waiterCancel() // already done before the waiter ever tries to acquire the lock.
+	if _, err := client.DeleteHostedZone(waiterCtx, &DeleteHostedZoneInput{HostedZoneID: "zone-2", NoWait: true}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waiter err = %v, want context.Canceled: lock acquisition must honor ctx", err)
+	}
+
+	close(release)
+	<-holderDone
+
+	// The lock must still be usable: a third call proceeds normally now
+	// that the holder released it.
+	if _, err := client.DeleteHostedZone(context.Background(), &DeleteHostedZoneInput{HostedZoneID: "zone-3", NoWait: true}); err != nil {
+		t.Fatalf("third call error = %v", err)
 	}
 }

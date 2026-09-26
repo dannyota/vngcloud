@@ -142,11 +142,11 @@ func TestDNSCreateHostedZoneEndToEnd(t *testing.T) {
 // TestDNSCreateHostedZoneWriteFailedPrintsOutputOnStdout drives a real
 // create-hosted-zone call whose very first confirm read already shows
 // StatusError, so the SDK's settleZone wait fails at once with no real
-// sleep: this exercises the real dns.ErrFailed path (unlike ErrZoneBusy and
-// ErrNotSettled below, which the SDK's public API gives no way to reach
-// quickly; see TestOpZoneBusyPrintsNoOutput and
-// TestOpNotSettledPrintsOutputOnStdout for why those two are driven through
-// a fake Op instead).
+// sleep: this exercises the real dns.ErrFailed path (unlike ErrZoneBusy
+// below, which the SDK's public API gives no way to reach quickly; see
+// TestOpZoneBusyPrintsNoOutput for why that one is driven through a fake Op
+// instead). TestDNSCreateHostedZoneNotSettledOnCanceledContext below covers
+// the real dns.ErrNotSettled path.
 func TestDNSCreateHostedZoneWriteFailedPrintsOutputOnStdout(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/dns/hosted-zone": func(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +182,53 @@ func TestDNSCreateHostedZoneWriteFailedPrintsOutputOnStdout(t *testing.T) {
 	got := stdout.String()
 	if !strings.Contains(got, `"ID": "zone-1"`) || !strings.Contains(got, `"Status": "ERROR"`) {
 		t.Fatalf("stdout = %s, want the ERROR zone with its id printed alongside the error", got)
+	}
+}
+
+// TestDNSCreateHostedZoneNotSettledOnCanceledContext drives a real
+// create-hosted-zone call whose POST succeeds and whose settle GET is
+// interrupted by canceling the command's own context, mirroring a Ctrl-C
+// during the post-write wait. The zone fixture answers the settle GET once,
+// with the zone still CREATING (the write reached the server), then cancels
+// the context the command runs under; the settle poll's next step then
+// fails on that canceled context, not on a real 60-second bound.
+//
+// Per the vDNS design, that failure must still surface as an error wrapping
+// dns.ErrNotSettled with the last zone the SDK read as a non-nil Output,
+// not as the plain canceled-context path the CLI otherwise falls back to.
+func TestDNSCreateHostedZoneNotSettledOnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/dns/hosted-zone": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusCreating, "", []string{"vpc-1"})))
+		},
+		"/v1/dns/hosted-zone/zone-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(zoneJSON(dns.StatusCreating, "", []string{"vpc-1"})))
+			cancel()
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "dns", "create-hosted-zone",
+		"--domain-name", "app.internal",
+		"--cli-input-json", `{"VPCIDs":["vpc-1"]}`,
+	})
+	err := root.ExecuteContext(ctx)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "NotSettled" {
+		t.Fatalf("Code = %q, want NotSettled, not the plain canceled-context path (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"ID": "zone-1"`) {
+		t.Fatalf("stdout = %s, want the Output with the new zone ID", got)
 	}
 }
 
@@ -374,17 +421,18 @@ func TestDNSWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	}
 }
 
-// fakeWaitInput and fakeWaitOutput back the three fake Op methods below: the
-// dns package exposes no way to inject a fake clock from outside it
-// (Client.sleep is unexported), and dns's own poll loop never wraps a
-// context cancellation in ErrZoneBusy or ErrNotSettled (unlike monitor's
-// confirmStatus, a plain read failure or canceled sleep during a dns wait
-// propagates unwrapped), so there is no way to reach those two sentinels
-// through a real dns.Client without the real 60-second bound elapsing. These
-// two fake methods return them synthetically instead, to test the CLI's own
-// handling of them (classify, exitCode, and the Output-on-stdout rule)
-// rather than the SDK's own wait, which dns/zones_wait_test.go already
-// covers.
+// fakeWaitInput and fakeWaitOutput back the fake Op method below: the dns
+// package exposes no way to inject a fake clock from outside it (Client.sleep
+// is unexported), and dns's own pre-write poll loop never wraps a context
+// cancellation in ErrZoneBusy (a plain read failure or canceled sleep during
+// that wait propagates unwrapped), so there is no way to reach that
+// sentinel through a real dns.Client without the real 60-second bound
+// elapsing. FakeZoneBusy returns it synthetically instead, to test the
+// CLI's own handling of it (classify, exitCode, and the Output-on-stdout
+// rule) rather than the SDK's own wait, which dns/zones_wait_test.go already
+// covers. ErrNotSettled needs no such fake: canceling the context during a
+// real settle GET reaches it directly, per
+// TestDNSCreateHostedZoneNotSettledOnCanceledContext above.
 type fakeWaitInput struct{ ID string }
 
 type fakeWaitOutput struct {
@@ -392,37 +440,8 @@ type fakeWaitOutput struct {
 	Status string
 }
 
-func (c *fakeClient) FakeNotSettled(_ context.Context, in *fakeWaitInput) (*fakeWaitOutput, error) {
-	return &fakeWaitOutput{ID: in.ID, Status: dns.StatusCreating}, fmt.Errorf("%w: %s was accepted; do not send the same write again", dns.ErrNotSettled, in.ID)
-}
-
 func (c *fakeClient) FakeZoneBusy(_ context.Context, in *fakeWaitInput) (*fakeWaitOutput, error) {
 	return nil, fmt.Errorf("%w: %s did not leave CREATING", dns.ErrZoneBusy, in.ID)
-}
-
-// TestOpNotSettledPrintsOutputOnStdout checks that runOp prints a Write op's
-// Output on stdout when its error wraps dns.ErrNotSettled, per the vDNS
-// design's "the CLI prints that Output on stdout and the error on stderr".
-func TestOpNotSettledPrintsOutputOnStdout(t *testing.T) {
-	h := newFakeHarness(t)
-	root := newTestRoot(h.e)
-	root.AddCommand(Service(h.e, "fakewait", "fake wait errors for tests", h.newClient,
-		Write[fakeClient, fakeWaitInput, fakeWaitOutput]("fake-not-settled", (*fakeClient).FakeNotSettled)))
-
-	err := execCmd(t, root, []string{"fakewait", "fake-not-settled", "--id", "zone-1"})
-	if err == nil {
-		t.Fatal("expected an error")
-	}
-	if got := classify(err).Code; got != "NotSettled" {
-		t.Fatalf("Code = %q, want NotSettled", got)
-	}
-	if got := exitCode(err); got != 1 {
-		t.Fatalf("exitCode = %d, want 1", got)
-	}
-	stdout := h.stdout.String()
-	if !strings.Contains(stdout, `"ID": "zone-1"`) || !strings.Contains(stdout, `"Status": "CREATING"`) {
-		t.Fatalf("stdout = %q, want the Output printed alongside the error", stdout)
-	}
 }
 
 // TestOpZoneBusyPrintsNoOutput checks that runOp prints nothing on stdout

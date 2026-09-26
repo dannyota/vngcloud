@@ -180,7 +180,7 @@ nested resource methods require IAM User access to the target resources.
 
 ```go
 dnsClient := dns.New(cfg)
-dnsClient.ListHostedZones(ctx, in)  // Name
+dnsClient.ListHostedZones(ctx, in)  // Name, Page, Size
 dnsClient.GetHostedZone(ctx, in)    // HostedZoneID (required)
 dnsClient.ListRecords(ctx, in)      // HostedZoneID (required), Name
 dnsClient.GetRecord(ctx, in)        // HostedZoneID, RecordID (both required)

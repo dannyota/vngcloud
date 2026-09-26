@@ -46,17 +46,21 @@ type CreateHostedZoneOutput struct {
 //
 // Without NoWait, CreateHostedZone then waits for the new zone to reach
 // StatusActive. If the zone reaches StatusError instead, or the wait's
-// bound runs out first, the returned error wraps ErrFailed or ErrNotSettled
-// and the Output still holds the zone the SDK last read, so the caller
-// keeps its id.
+// bound runs out, or a read or a sleep in that wait fails, such as from a
+// canceled ctx, the returned error wraps ErrFailed or ErrNotSettled and
+// the Output still holds the zone: the last one a read returned, or, if
+// none did, the zone the create response itself carried. Either way the
+// Output is never nil and the caller keeps the new zone's id.
 func (c *Client) CreateHostedZone(ctx context.Context, in *CreateHostedZoneInput) (*CreateHostedZoneOutput, error) {
 	const op = "dns.CreateHostedZone"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	if err := c.lockWrite(ctx); err != nil {
+		return nil, err
+	}
+	defer c.unlockWrite()
 
 	var resp struct {
 		Data HostedZone `json:"data"`
@@ -89,7 +93,10 @@ func (c *Client) CreateHostedZone(ctx context.Context, in *CreateHostedZoneInput
 		return z.Status == StatusActive
 	})
 	if settled == nil {
-		return nil, err
+		// The create already succeeded; no read after it ever came back, so
+		// fall back to the create response itself, which at least carries
+		// the new zone's id, rather than losing it to a nil Output.
+		settled = &zone
 	}
 	return &CreateHostedZoneOutput{HostedZone: *settled}, err
 }
@@ -131,8 +138,12 @@ type UpdateHostedZoneOutput struct {
 // Without NoWait, it then waits for the zone to reach StatusActive with the
 // sent description and VPC ids, or returns an error wrapping ErrFailed if
 // the zone reaches StatusError, or one wrapping ErrNotSettled if that
-// wait's own bound runs out; both keep the Output. With NoWait, it returns
-// after one read instead of waiting.
+// wait's own bound runs out or a read or a sleep in it fails, such as from
+// a canceled ctx. With NoWait, it returns after one read instead of
+// waiting, and wraps that same read's failure in ErrNotSettled too, since
+// the PUT above has already succeeded by then. Every one of these outcomes
+// keeps a non-nil Output: the last zone a read returned, or, if none did,
+// one built from the fields the PUT itself sent.
 func (c *Client) UpdateHostedZone(ctx context.Context, in *UpdateHostedZoneInput) (*UpdateHostedZoneOutput, error) {
 	const op = "dns.UpdateHostedZone"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -145,8 +156,10 @@ func (c *Client) UpdateHostedZone(ctx context.Context, in *UpdateHostedZoneInput
 		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
 	}
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	if err := c.lockWrite(ctx); err != nil {
+		return nil, err
+	}
+	defer c.unlockWrite()
 
 	current, err := c.waitZoneReady(ctx, op, in.HostedZoneID)
 	if err != nil {
@@ -181,20 +194,28 @@ func (c *Client) UpdateHostedZone(ctx context.Context, in *UpdateHostedZoneInput
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
 		return nil, err
 	}
+	// The PUT above already succeeded, so from here on every error means
+	// the write may have landed and must not be sent again; fallback is
+	// what the caller falls back to when no read after the write confirms
+	// it, built from the fields the PUT itself carried.
+	fallback := HostedZone{ID: in.HostedZoneID, Description: description, AssociatedVPCIDs: vpcIDs}
 
 	if in.NoWait {
 		zone, err := c.getHostedZone(ctx, op, in.HostedZoneID)
 		if err != nil {
-			return nil, err
+			return &UpdateHostedZoneOutput{HostedZone: fallback}, fmt.Errorf("%w: %s: hosted zone %s: %w", ErrNotSettled, op, in.HostedZoneID, err)
 		}
 		return &UpdateHostedZoneOutput{HostedZone: *zone}, nil
 	}
 
+	// A description-only update, including a no-op, never leaves ACTIVE;
+	// only a VPC change passes through UPDATING, so an ACTIVE read with the
+	// sent fields is already settled.
 	settled, err := c.settleZone(ctx, op, in.HostedZoneID, func(z *HostedZone) bool {
 		return z.Status == StatusActive && z.Description == description && equalStringSets(z.AssociatedVPCIDs, vpcIDs)
 	})
 	if settled == nil {
-		return nil, err
+		settled = &fallback
 	}
 	return &UpdateHostedZoneOutput{HostedZone: *settled}, err
 }
@@ -217,10 +238,13 @@ type DeleteHostedZoneOutput struct{}
 //
 // Without NoWait, it then waits for a read of the zone to fail with
 // NotFound, or returns an error wrapping ErrNotSettled if that wait's own
-// bound runs out first. With NoWait, it returns at once after the delete
-// request succeeds. DELETE is idempotent and keeps the transport's own
-// retries; a retry that finds the zone already gone returns NotFound, which
-// is not an error DeleteHostedZone itself needs to handle specially.
+// bound runs out or a read or a sleep in it fails, such as from a canceled
+// ctx. With NoWait, it returns at once after the delete request succeeds.
+// DELETE is idempotent and keeps the transport's own retries; a retry that
+// finds the zone already gone returns NotFound, which is not an error
+// DeleteHostedZone itself needs to handle specially. The Output is always
+// non-nil; DeleteHostedZoneOutput carries no field, so there is nothing
+// else for a caller to fall back to.
 func (c *Client) DeleteHostedZone(ctx context.Context, in *DeleteHostedZoneInput) (*DeleteHostedZoneOutput, error) {
 	const op = "dns.DeleteHostedZone"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -230,8 +254,10 @@ func (c *Client) DeleteHostedZone(ctx context.Context, in *DeleteHostedZoneInput
 		return nil, err
 	}
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	if err := c.lockWrite(ctx); err != nil {
+		return nil, err
+	}
+	defer c.unlockWrite()
 
 	if _, err := c.waitZoneReady(ctx, op, in.HostedZoneID); err != nil {
 		return nil, err
@@ -251,7 +277,7 @@ func (c *Client) DeleteHostedZone(ctx context.Context, in *DeleteHostedZoneInput
 		return &DeleteHostedZoneOutput{}, nil
 	}
 	if err := c.waitZoneGone(ctx, op, in.HostedZoneID); err != nil {
-		return nil, err
+		return &DeleteHostedZoneOutput{}, err
 	}
 	return &DeleteHostedZoneOutput{}, nil
 }
