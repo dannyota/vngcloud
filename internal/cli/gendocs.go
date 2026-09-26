@@ -488,6 +488,18 @@ var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote 
 // nothing exercises this command's decoding against a real response.
 var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
 
+// monitorAlarmShapeUnverifiedNote flags an output shape the live checks
+// cannot confirm: the test account holds no alarm, so nothing exercises
+// list-alarms' or get-alarm's decoding against a real response.
+var monitorAlarmShapeUnverifiedNote = unverifiedLiveNote("alarm")
+
+// monitorGetAlarmUnknownIDNote documents get-alarm's own exit code for a
+// missing alarm, since it differs from every other Get command's: the API
+// answers an unknown ID with a 500, not a 404, so vngcloud.IsNotFound never
+// matches it and the command exits 1 rather than 4.
+const monitorGetAlarmUnknownIDNote = "A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, " +
+	"not a 404, so this command never reports the NotFound error class."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -498,6 +510,8 @@ var docOpNotes = map[string]string{
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote,
+	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
+	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
 	"portal get-user-info":                    portalUserInfoNote,
 	"portal list-zones":                       portalMapRedactionNote,
 	"portal list-quota-used":                  portalMapRedactionNote,

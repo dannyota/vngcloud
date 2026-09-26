@@ -66,6 +66,22 @@ Kind: Write, destructive.
 vngcloud monitor delete-check --check-id <check-id> --yes
 ```
 
+## get-alarm
+
+Kind: Read.
+
+Unverified live: the test account has no alarm, so this output shape comes from GreenNode's official SDK, not a live capture.
+
+A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, not a 404, so this command never reports the NotFound error class.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--alarm-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-alarm --alarm-id <alarm-id> --query Alarm
+```
+
 ## get-channel
 
 Kind: Read.
@@ -90,6 +106,25 @@ Kind: Read.
 
 ```sh
 vngcloud monitor get-check --check-id <check-id> --query Check
+```
+
+## list-alarms
+
+Kind: Read.
+
+Unverified live: the test account has no alarm, so this output shape comes from GreenNode's official SDK, not a live capture.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+| `--name` | `string` |  |
+| `--status` | `string` |  |
+| `--severity` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud monitor list-alarms --kind <kind>
 ```
 
 ## list-channel-types

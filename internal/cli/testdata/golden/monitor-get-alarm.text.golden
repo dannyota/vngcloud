@@ -1,0 +1,1 @@
+{"ID":"alarm-1","Kind":"Log","Log":{"InAlarm":["channel-1","channel-2"],"OK":["channel-1"]},"MetricMappingID":"","Name":"example-log-alarm","Severity":"MEDIUM","Status":"OK"}

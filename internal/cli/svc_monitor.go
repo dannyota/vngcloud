@@ -38,6 +38,13 @@ import (
 // restored by one more command, so it needs --yes. A read-only profile
 // refuses all three, before any request, the same as every other Write op
 // here.
+//
+// ListAlarms and GetAlarm carry no Guard or Redact: an Alarm holds no
+// secret. GetAlarm needs no special handling for an unknown ID either: the
+// API answers one with a 500, which vngcloud.IsNotFound never matches, so
+// exitCode's default case already returns 1 rather than the 4 a real 404
+// gets; docOpNotes states this for the wiki page since the flag table
+// cannot show it.
 var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
@@ -81,6 +88,10 @@ var monitorOps = []Op[monitor.Client]{
 		})),
 	Write[monitor.Client, monitor.DeleteChannelInput, monitor.DeleteChannelOutput](
 		kebab("DeleteChannel"), (*monitor.Client).DeleteChannel, Destructive()),
+	Read[monitor.Client, monitor.ListAlarmsInput, monitor.ListAlarmsOutput](
+		kebab("ListAlarms"), (*monitor.Client).ListAlarms),
+	Read[monitor.Client, monitor.GetAlarmInput, monitor.GetAlarmOutput](
+		kebab("GetAlarm"), (*monitor.Client).GetAlarm),
 }
 
 // literalCLIInputJSONFields returns the top-level key set of cmd's
