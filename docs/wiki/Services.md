@@ -18,9 +18,11 @@ changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
 [Compute](Compute.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
-[Container Registry](#container-registry) below. `iam` reads caller
-identity, users, actions, policies, groups, and service accounts. See
-[IAM](#iam) below.
+[Container Registry](#container-registry) below. `iam` covers IAM reads
+and service account writes: a service account can be created, updated,
+have its secret reset, and deleted, each guarded against changing the
+caller's own access or a principal that already holds an IAM write right.
+See [IAM](#iam) below.
 
 ## Coverage
 
@@ -35,7 +37,7 @@ identity, users, actions, policies, groups, and service accounts. See
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
-| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below. |
+| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
 
 ## Project
 
@@ -375,3 +377,7 @@ first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it
 can be read and attached, but never updated or deleted.
+
+`iam` also writes service accounts; see [IAM](IAM.md) for
+`CreateServiceAccount`, `UpdateServiceAccount`, `ResetServiceAccountSecret`,
+`DeleteServiceAccount`, their guards, and their errors.

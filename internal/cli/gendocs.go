@@ -442,6 +442,9 @@ func renderConfigureSection() string {
 func renderServicePage(svc docService) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n# CLI: %s\n\n", genDocsMarker, serviceTitle(svc.name))
+	if intro, ok := docServiceIntro[svc.name]; ok {
+		fmt.Fprintf(&b, "%s\n\n", intro)
+	}
 
 	ops := append([]docOp{}, svc.ops...)
 	sort.Slice(ops, func(i, j int) bool { return ops[i].name < ops[j].name })

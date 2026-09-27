@@ -394,6 +394,10 @@ const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certif
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"iam create-service-account":              iamCreateServiceAccountNote,
+	"iam update-service-account":              iamUpdateServiceAccountNote,
+	"iam reset-service-account-secret":        iamResetServiceAccountSecretNote,
+	"iam delete-service-account":              iamDeleteServiceAccountNote,
 	"compute get-ssh-key":                     computeGetSSHKeyNote,
 	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
 	"compute create-ssh-key":                  computeCreateSSHKeyNote,

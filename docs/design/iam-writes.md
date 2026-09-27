@@ -100,7 +100,7 @@ sends nothing and names the rule, never a policy document.
 | Attach or detach a policy | The policy is privileged, or the target is protected |
 | `AddUserToGroup`, `RemoveUserFromGroup` | The user or the group is protected |
 | `DeleteGroup` | The group has a member or a policy |
-| `UpdateServiceAccount`, `DeleteServiceAccount`, `ResetServiceAccountSecret` | The service account is protected |
+| `UpdateServiceAccount`, `DeleteServiceAccount`, `ResetServiceAccountSecret` | The service account is protected, or the caller is a service account |
 
 `CreateServiceAccount`, `CreateGroup`, and `UpdateGroup` change no one's
 rights and have no guard beyond read-only.
@@ -112,6 +112,17 @@ IAM write rights, is a protected principal wherever the tool runs.
 
 There is no flag or Input field that turns a guard off. The owner makes
 such changes in the IAM console.
+
+A guard read that comes back incomplete or unprovable refuses instead of
+guessing: an account action list naming no write action, or an attachment
+page whose item count does not match its own reported total, is treated as
+a failed read, never as evidence that nothing is privileged. A policy with
+no statements at all is privileged, and any statement effect other than
+`deny` counts as a grant, including one the API has not defined yet.
+
+A caller whose own type is a service account (`user-sa` or `service-sa`)
+refuses every service-account-targeted write, not only one against its own
+ID: see the [open question](#open-questions) on the caller identity form.
 
 ### Cost of the checks
 
@@ -129,6 +140,9 @@ not yet read in that call. A user in a group with 30 policies costs about
   it saves. Only the server's rights stop that; see decision 5.
 - A `deny` statement attached to an unprotected principal can take its
   rights away. That is allowed, with `--yes`.
+- A service-account caller cannot target any service account at all, itself
+  included, until the [open question](#open-questions) on the caller
+  identity form is settled with a live check.
 
 ## Policy documents
 
@@ -170,12 +184,22 @@ uses the server's own action list.
    `SecretFileFailed`. After a reset it cannot undo, so the error says to
    reset again. If the create's delete fails, the error names the
    service account ID.
-4. If a create response holds no secret, the CLI keeps the service
-   account, writes no file, and exits 1 with `SecretFileFailed`; the
-   error names `reset-service-account-secret`.
+4. If a create or reset response holds no secret, `iam.CreateServiceAccount`
+   and `iam.ResetServiceAccountSecret` return `iam.ErrNoSecret` alongside
+   their Output rather than succeeding silently. The CLI keeps the service
+   account, writes no file, and exits 1 with `SecretFileFailed`; a create's
+   message names `reset-service-account-secret`, and a reset's says the
+   secret was probably rotated already and to reset again.
 5. Stdout gets the service account without the secret: `ClientSecret`
    prints as `[redacted]`, and a `SecretFile` field names the path. The
    public `ClientID` prints as usual.
+6. If the read-back `CreateServiceAccount` makes after the create request
+   fails, it returns `iam.ErrCreateUnconfirmed` alongside an Output holding
+   the create response's own ID and client secret (every other
+   `ServiceAccount` field zero), instead of dropping them: the account and
+   its secret are real either way. The CLI still writes `--secret-file`
+   from that Output and exits 1 naming `list-service-accounts`; if the file
+   write fails, it deletes the account by the create's own ID.
 
 ## Errors
 
@@ -187,6 +211,7 @@ uses the server's own action list.
 | Privileged policy, or protected principal or group | `iam.ErrPrivilegedChange`, no write sent | `PrivilegedChange`, 1 |
 | Update or delete of a managed policy | `iam.ErrManagedPolicy`, no write sent | `ManagedPolicy`, 1 |
 | Delete of an attached policy or a non-empty group | `iam.ErrInUse`, no write sent | `ResourceInUse`, 1 |
+| Create or reset response held no secret | `iam.ErrNoSecret`, write already applied | `SecretFileFailed`, 1 |
 | Unknown ID | `NotFound` | `NotFound`, 4 |
 | Name taken, repeated attach or add | `Conflict` | 1 |
 | IAM policy denies the call | `ErrPermission` | 1 |
@@ -339,6 +364,11 @@ existing method or command.
 - Statuses for a repeated attach or add, a detach of what is not
   attached, and a delete of an attached policy or a non-empty group.
 - Whether the server checks action names on create.
-- `userinfo` for a service account token, and the user type it reports.
+- `userinfo` for a service account token, and the user type it reports: in
+  particular, whether `userId` is the calling service account's own ID or
+  its `clientId`. Until this is checked live, the guard refuses every
+  service-account-targeted write from a service-account caller rather than
+  compare `userId` against either form; this is the stricter of the two
+  choices, chosen because a wrong comparison could miss a real self-change.
 - Whether a service account can be a group member; the create spec says
   so, but no call adds one.

@@ -12,6 +12,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
@@ -106,7 +107,10 @@ type errorEnvelope struct {
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (create-log-project's quote
 // priced its order above --max-price, so no order was sent),
-// SystemSecurityGroup (a network update-security-group or
+// SelfChange (an iam write refused because its target is the caller
+// itself, before any request), PrivilegedChange (an iam write refused
+// because its target holds, or would gain, an IAM write right, before any
+// request), SystemSecurityGroup (a network update-security-group or
 // delete-security-group targeted a project's system group, so nothing was
 // sent), SecurityGroupInUse (a network delete-security-group was refused
 // because the group has servers attached, found by a pre-delete read, or
@@ -224,6 +228,19 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, monitor.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
+	}
+	// iam.ErrSelfChange and iam.ErrPrivilegedChange are always returned bare,
+	// never wrapping an inner *APIError: the guard in iam/guard.go refuses a
+	// write before any request ever reaches the server. They still join this
+	// early group, ahead of the generic *APIError branch below, for the same
+	// reason network.ErrInUse and the others above do: consistent placement
+	// for every sentinel this file classifies by errors.Is rather than by an
+	// *APIError's own status-derived code.
+	if errors.Is(err, iam.ErrSelfChange) {
+		return errorEnvelope{Code: "SelfChange", Message: err.Error()}
+	}
+	if errors.Is(err, iam.ErrPrivilegedChange) {
+		return errorEnvelope{Code: "PrivilegedChange", Message: err.Error()}
 	}
 
 	if vngcloud.IsNotFound(err) {

@@ -230,27 +230,34 @@ Models keep their API JSON tags; `_id` is dropped.
   nil, because the `PATCH` requires `name`.
 - `UpdateServiceAccount` sends only non-nil fields.
 - Every update and create returns a read after the write. If that read
-  fails, the error says the write happened.
+  fails, the error says the write happened; `CreateServiceAccount` also
+  keeps a non-nil Output, carrying the create response's own ID and client
+  secret, and wraps `iam.ErrCreateUnconfirmed` rather than returning nil.
 
 ### Secrets
 
 `CreateServiceAccount` and `ResetServiceAccountSecret` set `Sensitive` on
 the request, so the capture hook never sees the response and a decode
 error never quotes it. `clientSecret` decodes straight into
-`vngcloud.Secret`. `ClientSecret` is empty when a create response holds
-none; the CLI then fails as the [secret file](iam-writes.md#secret-file)
+`vngcloud.Secret`. When a create or reset response holds no secret, the
+method returns `iam.ErrNoSecret` alongside its Output instead of succeeding
+silently; the CLI then fails as the [secret file](iam-writes.md#secret-file)
 section says.
 
 ### Identifiers and retries
 
 - Every path ID passes `core.CheckPathID` before any request, reads
   included. The probes confirm the service account ID form.
-- Creates, attaches, adds, and the reset are `POST`: retried only after a
-  429 or a failed dial (ADR 0002 rule 2). After a 5xx or a network error
-  the error names the read that shows whether the write landed:
-  `list-service-accounts --name`, `list-policies --name`, `list-groups`,
-  `list-policy-attachments`, or `get-group`. A service account found that
-  way lost its secret: reset it.
+- `CreateServiceAccount` and `ResetServiceAccountSecret` set
+  `transport.Request.Once`: a resend after a 401 or a followed redirect
+  would create a second account or rotate the secret a second time, so
+  each is sent at most once, whatever the response. Attaches and adds
+  (I3, I4) are plain `POST` instead, retried only after a 429 or a failed
+  dial (ADR 0002 rule 2), since a repeat is visible as a `Conflict`. After
+  a 5xx or a network error from any of these, the error names the read
+  that shows whether the write landed: `list-service-accounts --name`,
+  `list-policies --name`, `list-groups`, `list-policy-attachments`, or
+  `get-group`. A service account found that way lost its secret: reset it.
 - A repeated attach or add returns the server's `Conflict`, which the SDK
   does not hide, as `AttachS3Key` does in [vStorage](storage.md#retries).
 - `PATCH` updates send full values and are safe to repeat, so they set
