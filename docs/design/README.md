@@ -22,3 +22,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vCR writes](vcr-writes.md) | Accepted |
 | [vLB writes](lb-writes.md) | Accepted |
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
+| [IAM writes](iam-writes.md) | Proposed |
