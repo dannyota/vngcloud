@@ -409,3 +409,6 @@ CLI read commands for project, portal, volume, loadbalancer,
 globalloadbalancer, and containerregistry ship as releases R1 to R5 in
 [CLI reads](cli-reads.md), each numbered when it ships. Compute, volume,
 and network writes come after these; OpenTofu covers them for aboutme.
+The free ones, security groups, rules, and SSH keys, are proposed as
+releases V1 and V2 in [vServer free writes](vserver-writes.md), each
+numbered when it ships.
