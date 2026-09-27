@@ -234,10 +234,10 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
 - Default rules never change. `RemoveNetworkACLRule` on a default rule
   returns `ErrDefaultResource`, nothing sent. The list sent leaves default
   rules out when the live check shows the server keeps them; otherwise it
-  resends each exactly as read. The marker that identifies a default rule
-  comes from the live check; the rule seen live has `seqNumber` 0, below
-  any priority a user can send. The design is amended with the marker
-  before code.
+  resends each exactly as read. Until the live check shows the marker, a
+  rule is default when its priority is 0 or above 32766 (outside the user
+  range 1 to 32766) or its `system` field is true; the rule seen live has
+  `seqNumber` 0.
 - The confirm read checks the user rules and that every default rule is
   unchanged.
 
