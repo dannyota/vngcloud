@@ -104,7 +104,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_load_balancer.json"),
 			call: func(c *Client) error {
 				out, err := c.GetLoadBalancer(context.Background(), &GetLoadBalancerInput{LoadBalancerID: "lb-1"})
-				if err == nil && out.LoadBalancer.UUID != "lb-1" {
+				if err == nil && (out.LoadBalancer.UUID != "lb-1" || out.LoadBalancer.ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected load balancer: %+v", out.LoadBalancer)
 				}
 				return err
@@ -128,7 +128,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_listener.json"),
 			call: func(c *Client) error {
 				out, err := c.GetListener(context.Background(), &GetListenerInput{LoadBalancerID: "lb-1", ListenerID: "listener-1"})
-				if err == nil && out.Listener.UUID != "listener-1" {
+				if err == nil && (out.Listener.UUID != "listener-1" || out.Listener.ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected listener: %+v", out.Listener)
 				}
 				return err
@@ -152,7 +152,8 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_pool.json"),
 			call: func(c *Client) error {
 				out, err := c.GetPool(context.Background(), &GetPoolInput{LoadBalancerID: "lb-1", PoolID: "pool-1"})
-				if err == nil && (out.Pool.UUID != "pool-1" || len(out.Pool.Members) != 1) {
+				if err == nil && (out.Pool.UUID != "pool-1" || len(out.Pool.Members) != 1 ||
+					out.Pool.ProgressStatus != lbStatusCreated || out.Pool.Members[0].ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected pool: %+v", out.Pool)
 				}
 				return err
@@ -176,7 +177,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/list_pool_members.json"),
 			call: func(c *Client) error {
 				out, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: "lb-1", PoolID: "pool-1"})
-				if err == nil && (len(out.Items) != 1 || out.Items[0].UUID != "member-1") {
+				if err == nil && (len(out.Items) != 1 || out.Items[0].UUID != "member-1" || out.Items[0].ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected members: %+v", out)
 				}
 				return err
@@ -200,7 +201,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_policy.json"),
 			call: func(c *Client) error {
 				out, err := c.GetPolicy(context.Background(), &GetPolicyInput{LoadBalancerID: "lb-1", ListenerID: "listener-1", PolicyID: "policy-1"})
-				if err == nil && (out.Policy.UUID != "<policy-id>" || len(out.Policy.L7Rules) != 1) {
+				if err == nil && (out.Policy.UUID != "<policy-id>" || len(out.Policy.L7Rules) != 1 || out.Policy.ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected policy: %+v", out.Policy)
 				}
 				return err

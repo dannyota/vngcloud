@@ -11,6 +11,7 @@
     "loadBalancerSchema": "INTERNET",
     "packageId": "pkg-1",
     "status": "ACTIVE",
+    "progressStatus": "CREATED",
     "zoneId": "zone-a"
   }
 }

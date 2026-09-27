@@ -77,6 +77,86 @@ func createLoadBalancerHandler(getStatuses []string, postCalls *atomic.Int32) ht
 	}
 }
 
+// TestCreateLoadBalancerPackageIDChangesQuoteAndOrder checks that a
+// non-default PackageID reaches both the quote and the order body, proving
+// createLoadBalancerQuoteInfo backs both: the quote and the order must
+// always describe the same resource, not just agree on the default value.
+func TestCreateLoadBalancerPackageIDChangesQuoteAndOrder(t *testing.T) {
+	const otherPackageID = "pkg-other"
+	var quoteBody, orderBody map[string]any
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read quote body: %v", err)
+			}
+			if err := json.Unmarshal(data, &quoteBody); err != nil {
+				t.Fatalf("decode quote body: %v, raw = %s", err, data)
+			}
+			_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/project-1/loadBalancers":
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read order body: %v", err)
+			}
+			if err := json.Unmarshal(data, &orderBody); err != nil {
+				t.Fatalf("decode order body: %v, raw = %s", err, data)
+			}
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
+		case r.Method == http.MethodGet:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, createLoadBalancerUUID, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	in := validCreateLoadBalancerInput()
+	in.PackageID = otherPackageID
+	in.MaxPrice = 400000
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err != nil {
+		t.Fatalf("CreateLoadBalancer() error = %v", err)
+	}
+	quoteInfo, ok := quoteBody["resourceInfo"].(map[string]any)
+	if !ok || quoteInfo["packageId"] != otherPackageID {
+		t.Fatalf("quote resourceInfo = %+v, want packageId %q", quoteInfo, otherPackageID)
+	}
+	if orderBody["packageId"] != otherPackageID {
+		t.Fatalf("order body packageId = %v, want %q", orderBody["packageId"], otherPackageID)
+	}
+}
+
+// TestCreateLoadBalancerDecodesFixtureResponse checks that the create
+// response fixture, the flat {"uuid": "..."} shape VNG Cloud's SDK
+// documents until a live capture replaces it, decodes as CreateLoadBalancer
+// expects.
+func TestCreateLoadBalancerDecodesFixtureResponse(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/project-1/loadBalancers":
+			testutil.WriteFixture(t, w, "../testdata/loadbalancer/create_load_balancer.json")
+		case r.Method == http.MethodGet:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":"lb-1","progressStatus":%q}}`, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	out, err := c.CreateLoadBalancer(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CreateLoadBalancer() error = %v", err)
+	}
+	if out.LoadBalancer.UUID != "lb-1" {
+		t.Fatalf("UUID = %q, want lb-1", out.LoadBalancer.UUID)
+	}
+}
+
 func TestCreateLoadBalancerRequestBody(t *testing.T) {
 	var body map[string]any
 	c := newTestClient(t, createLoadBalancerHandlerCapture(t, &body))

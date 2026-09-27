@@ -434,6 +434,32 @@ func TestUpdatePoolReadMergeResendsUnsetFields(t *testing.T) {
 	}
 }
 
+// TestUpdatePoolWriteStatusesPassThrough checks that a 404, 409, or 500 on
+// the PUT itself reaches the caller as an unwrapped *vngcloud.APIError
+// naming that status.
+func TestUpdatePoolWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError} {
+		get := poolGetHandler(t, lbStatusCreated)
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				get(w, r)
+			case http.MethodPut:
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+		}))
+		in := &UpdatePoolInput{LoadBalancerID: poolTestLBID, PoolID: poolTestPoolID, HealthyThreshold: vngcloud.Ptr(5)}
+		_, err := c.UpdatePool(context.Background(), in)
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+	}
+}
+
 func TestUpdatePoolRejectsNoFieldsSet(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")

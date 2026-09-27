@@ -106,6 +106,22 @@ func fixedStatusPackage(status string) ([]string, []string) {
 	return []string{status}, []string{resizeLoadBalancerOldPackage}
 }
 
+// TestResizeLoadBalancerToleratesFixtureResponseBody checks that the
+// resize response fixture, the same flat {"uuid": "..."} shape a create
+// returns per VNG Cloud's SDK, does not break ResizeLoadBalancer when the
+// server sends it on the PUT: the SDK does not decode this body today, so
+// this documents that a body of this shape is harmless either way.
+func TestResizeLoadBalancerToleratesFixtureResponseBody(t *testing.T) {
+	statuses := []string{lbStatusCreated, lbStatusCreated, lbStatusCreated}
+	packages := []string{resizeLoadBalancerOldPackage, resizeLoadBalancerOldPackage, resizeLoadBalancerNewPackage}
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, nil, http.StatusAccepted, testutil.FixtureBody(t, "../testdata/loadbalancer/resize_load_balancer.json")))
+	withInstantSleep(c)
+
+	if _, err := c.ResizeLoadBalancer(context.Background(), validResizeInput()); err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v", err)
+	}
+}
+
 func TestResizeLoadBalancerSuccess(t *testing.T) {
 	// The first read (before the PUT) shows the old package; the second
 	// (mid-wait) still UPDATING; the third settles on the new package.

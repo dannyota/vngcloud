@@ -156,6 +156,35 @@ func TestAddPoolMemberSameFieldsNoOp(t *testing.T) {
 	}
 }
 
+// TestAddPoolMemberWriteStatusesPassThrough checks that a 404, 409, or 500
+// on the members PUT itself reaches the caller as an unwrapped
+// *vngcloud.APIError naming that status.
+func TestAddPoolMemberWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+				_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+			case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+				_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestPoolID, lbStatusCreated)
+			case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+				_, _ = w.Write([]byte(memberFixture))
+			case r.Method == http.MethodPut && r.URL.Path == memberMembersPath:
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080}
+		_, err := c.AddPoolMember(context.Background(), in)
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+	}
+}
+
 func TestAddPoolMemberConflictingFieldsRefused(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

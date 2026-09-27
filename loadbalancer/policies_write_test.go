@@ -343,6 +343,33 @@ func TestUpdatePolicyReplacesRules(t *testing.T) {
 	}
 }
 
+// TestUpdatePolicyWriteStatusesPassThrough checks that a 404, 409, or 500 on
+// the PUT itself reaches the caller as an unwrapped *vngcloud.APIError
+// naming that status.
+func TestUpdatePolicyWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == policyLBPath:
+				policyLBHandler(w, r)
+			case r.Method == http.MethodGet && r.URL.Path == policyPath:
+				policyGetHandler(w, r)
+			case r.Method == http.MethodPut:
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		in := &UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID, KeepQueryString: vngcloud.Ptr(false)}
+		_, err := c.UpdatePolicy(context.Background(), in)
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+	}
+}
+
 func TestUpdatePolicyRejectsNoFieldsSet(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")

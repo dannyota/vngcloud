@@ -407,6 +407,33 @@ func TestUpdateListenerRejectsNoFieldsSet(t *testing.T) {
 	}
 }
 
+// TestUpdateListenerWriteStatusesPassThrough checks that a 404, 409, or 500
+// on the PUT itself reaches the caller as an unwrapped *vngcloud.APIError
+// naming that status.
+func TestUpdateListenerWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == listenerLBPath:
+				listenerLBHandler(w, r)
+			case r.Method == http.MethodGet && r.URL.Path == listenerPath:
+				listenerGetHandler(w, r)
+			case r.Method == http.MethodPut:
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		in := &UpdateListenerInput{LoadBalancerID: listenerTestLBID, ListenerID: listenerTestID, TimeoutClient: vngcloud.Ptr(30)}
+		_, err := c.UpdateListener(context.Background(), in)
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+	}
+}
+
 func TestUpdateListenerRejectsCertificateFieldOnHTTP(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
