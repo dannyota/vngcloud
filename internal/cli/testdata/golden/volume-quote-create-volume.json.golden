@@ -1,0 +1,16 @@
+{
+  "OptimumPrice": 32000,
+  "OriginalPrice": 32000,
+  "DiscountPrice": 0,
+  "DiscountPercent": 0,
+  "Properties": [
+    {
+      "Name": "Volume",
+      "Description": "",
+      "OptimumPrice": 32000,
+      "MonthlyPrice": 32000,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    }
+  ]
+}

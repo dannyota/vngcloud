@@ -125,6 +125,39 @@ const computeDeleteServerGroupNote = "Refuses, before any write, a group with an
 	"by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, " +
 	"and what status that refusal carries, has not been confirmed live."
 
+// computeListFlavorZonesNote documents that --zone-id filters client side:
+// the flag table shows it as an ordinary optional string, with no hint that
+// the API itself always returns every zone's flavor zones regardless.
+const computeListFlavorZonesNote = "Filters client side: the API always returns every zone's flavor zones, " +
+	"and --zone-id only narrows what this command then prints."
+
+// computeQuoteCreateServerNote documents quote-create-server's own price
+// guard exemptions and unit, and that the billing gateway ignores fields it
+// does not price: the flag table shows every CreateServerInput field the
+// same way create-server itself will, with no hint that this command never
+// orders anything or that three of those fields do nothing here.
+const computeQuoteCreateServerNote = "Never orders anything: prices the server CreateServerInput describes " +
+	"without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. " +
+	"Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is " +
+	"never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. " +
+	"The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, " +
+	"or a public IP: changing them does not change the quoted price."
+
+// volumeQuoteCreateVolumeNote documents quote-create-volume's own price
+// guard exemptions and unit, matching computeQuoteCreateServerNote's shape
+// for the fields CreateVolumeInput shares with CreateServerInput.
+const volumeQuoteCreateVolumeNote = "Never orders anything: prices the volume CreateVolumeInput describes " +
+	"without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. " +
+	"Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an " +
+	"actual create."
+
+// volumeGetDefaultVolumeTypeNote documents --zone-id's own effect: without
+// it, a disabled first zone reads as NotFound, which the flag table cannot
+// show since --zone-id looks like an ordinary optional filter.
+const volumeGetDefaultVolumeTypeNote = "Without --zone-id, the API looks up the region's first zone, which " +
+	"can be disabled for the account and then reads as NotFound; pass an enabled zone's ID instead, found with " +
+	"portal list-zones."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation (portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
@@ -401,6 +434,8 @@ var docOpNotes = map[string]string{
 	"compute get-server-group":                computeGetServerGroupNote,
 	"compute create-server-group":             computeCreateServerGroupNote,
 	"compute delete-server-group":             computeDeleteServerGroupNote,
+	"compute list-flavor-zones":               computeListFlavorZonesNote,
+	"compute quote-create-server":             computeQuoteCreateServerNote,
 	"network create-security-group":           networkCreateSecurityGroupNote,
 	"network create-security-group-rule":      networkCreateSecurityGroupRuleNote,
 	"network delete-security-group":           networkDeleteSecurityGroupNote,
@@ -433,6 +468,8 @@ var docOpNotes = map[string]string{
 	"volume get-volume":                       volumeShapeUnverifiedNote,
 	"volume get-underlying-volume":            volumeShapeUnverifiedNote,
 	"volume list-snapshots":                   volumeShapeUnverifiedNote,
+	"volume get-default-volume-type":          volumeGetDefaultVolumeTypeNote,
+	"volume quote-create-volume":              volumeQuoteCreateVolumeNote,
 	"loadbalancer get-load-balancer":          loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-certificate":            certificateShapeUnverifiedNote,
 	"loadbalancer list-listeners":             loadBalancerShapeUnverifiedNote,

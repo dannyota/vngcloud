@@ -107,6 +107,35 @@ func (c *fakeClient) FakeSecretWrite(ctx context.Context, in *fakeSecretInput) (
 	return &fakeSecretOutput{Secret: in.Secret}, nil
 }
 
+// fakeTagsInput and fakeTagsOutput exercise WriteNoFlag: Tags is a required
+// []string field, the type flags.go can bind since compute's
+// CreateServerInput.SecurityGroupIDs needs it, but this op hides it with
+// WriteNoFlag anyway, the same way monitor's create-check and dns's
+// create-hosted-zone keep their own pre-existing []string fields
+// JSON-only.
+type fakeTagsInput struct {
+	Name string
+	Tags []string `vngcloud:"required"`
+}
+
+type fakeTagsOutput struct {
+	Tags []string
+}
+
+func (c *fakeClient) FakeTagsWrite(ctx context.Context, in *fakeTagsInput) (*fakeTagsOutput, error) {
+	atomic.AddInt32(c.calls, 1)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/fake-tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return &fakeTagsOutput{Tags: in.Tags}, nil
+}
+
 // fakeHarness bundles a fake server, its request counter, and the env/root
 // a test drives commands through.
 type fakeHarness struct {
@@ -134,6 +163,9 @@ func newFakeHarness(t *testing.T) *fakeHarness {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/fake-secret", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/fake-tags", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.server = httptest.NewServer(mux)
@@ -164,6 +196,8 @@ func (h *fakeHarness) fakeOps() []Op[fakeClient] {
 		Write[fakeClient, fakeSecretInput, fakeSecretOutput]("fake-secret-write", (*fakeClient).FakeSecretWrite,
 			Guard(fakeSecretGuard),
 			WriteRedact(func(out *fakeSecretOutput) { out.Secret = "<redacted>" })),
+		Write[fakeClient, fakeTagsInput, fakeTagsOutput]("fake-tags-write", (*fakeClient).FakeTagsWrite,
+			WriteNoFlag("Tags")),
 	}
 }
 
@@ -478,6 +512,40 @@ func TestOpGuardAllowsCLIInputJSON(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&h.calls); got != 1 {
 		t.Fatalf("calls = %d, want 1", got)
+	}
+}
+
+// TestWriteNoFlagHidesFlagButAllowsCLIInputJSON checks WriteNoFlag's own
+// contract on a Write op: the named field registers no flag at all, the
+// required-field error still fires and names the Go field (there is no flag
+// to name), and the field still reaches the SDK call through
+// --cli-input-json.
+func TestWriteNoFlagHidesFlagButAllowsCLIInputJSON(t *testing.T) {
+	h := newFakeHarness(t)
+	root := newTestRoot(h.e)
+	root.AddCommand(h.serviceCmd())
+
+	cmd, _, err := root.Find([]string{"fake", "fake-tags-write"})
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if f := cmd.Flags().Lookup("tags"); f != nil {
+		t.Fatalf("fake-tags-write registered its own --tags flag: %+v", f)
+	}
+
+	err = execCmd(t, root, []string{"fake", "fake-tags-write"})
+	if err == nil {
+		t.Fatalf("expected a required-field error without Tags")
+	}
+	if got := err.Error(); got != "Tags is required; set it with --cli-input-json" {
+		t.Fatalf("error = %q, want it to name the JSON field Tags", got)
+	}
+
+	if err := execCmd(t, root, []string{"fake", "fake-tags-write", "--cli-input-json", `{"Tags":["a","b"]}`}); err != nil {
+		t.Fatalf("execute: %v (stderr=%s)", err, h.stderr.String())
+	}
+	if !strings.Contains(h.stdout.String(), `"a"`) || !strings.Contains(h.stdout.String(), `"b"`) {
+		t.Fatalf("stdout = %s, want Tags [a b] printed", h.stdout.String())
 	}
 }
 

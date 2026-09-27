@@ -104,6 +104,12 @@ func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 			continue
 		}
 		goType := kind.String()
+		// reflect.Slice's own String() is "slice", not a Go type: flags.go
+		// only ever gives this kind to a []string field (see
+		// supportedFieldKind), so the type is always exactly this.
+		if kind == reflect.Slice {
+			goType = "[]string"
+		}
 		if isPointer {
 			goType = "*" + goType
 		}

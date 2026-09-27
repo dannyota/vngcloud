@@ -213,6 +213,14 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{
+			// vngcloud.ErrPriceAboveMax is the same value monitor.ErrPriceAboveMax
+			// aliases (see the root package), so a compute or volume paid
+			// write's own quote guard exits the same way monitor's already does.
+			"root price above max",
+			fmt.Errorf("%w: compute.CreateServer: quote 347800 VND exceeds MaxPrice 0 VND", vngcloud.ErrPriceAboveMax),
+			1,
+		},
+		{
 			"monitor otp rejected",
 			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
 			1,
@@ -454,6 +462,14 @@ func TestClassify(t *testing.T) {
 		{
 			"monitor log project price above max",
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
+			"PriceAboveMax", 0, "",
+		},
+		{
+			// See the matching case in TestExitCode: classify checks
+			// vngcloud.ErrPriceAboveMax directly, and monitor.ErrPriceAboveMax
+			// is that same value, so both classify identically.
+			"root price above max",
+			fmt.Errorf("%w: compute.CreateServer: quote 347800 VND exceeds MaxPrice 0 VND", vngcloud.ErrPriceAboveMax),
 			"PriceAboveMax", 0, "",
 		},
 		{

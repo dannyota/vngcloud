@@ -1,0 +1,10 @@
+{
+  "Items": [
+    {
+      "ID": "flavor-zone-1",
+      "Name": "General Purpose",
+      "Description": "General purpose flavors",
+      "ZoneID": "zone-1"
+    }
+  ]
+}
