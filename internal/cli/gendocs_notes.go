@@ -373,6 +373,26 @@ var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a 
 	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
 	"parsed prefix is refused, nothing sent.")
 
+// loadbalancerImportCertificateNote documents import-certificate's file
+// flags and their rules, none of which the flag table can show on its own:
+// --name and --type still take ordinary flags, but every field that can
+// hold PEM or key text comes from a file instead.
+const loadbalancerImportCertificateNote = "Certificate, CertificateChain, PrivateKey, and Passphrase all come " +
+	"from a file: --certificate-file (required), --certificate-chain-file, --private-key-file, and " +
+	"--passphrase-file; none of the four has a plain string flag, and --cli-input-json refuses PrivateKey and " +
+	"Passphrase outright, inline or file://, though Certificate and CertificateChain may still be set that " +
+	"way instead of by file. Each file is read whole, at most 64 KiB, and an empty file is refused; " +
+	"--passphrase-file additionally drops one trailing newline. PrivateKey is required for Type TLS/SSL; for " +
+	"any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key; " +
+	"no later read or error ever returns it, and the printed Certificate holds none either."
+
+// loadbalancerDeleteCertificateNote documents delete-certificate's
+// pre-delete guard and why it needs --yes: the flag table shows only
+// --certificate-id.
+const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certificate a listener still uses " +
+	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
+	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -429,6 +449,8 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-policies":              loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-policy":                 loadBalancerShapeUnverifiedNote,
 	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
+	"loadbalancer import-certificate":         loadbalancerImportCertificateNote,
+	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
 	"containerregistry list-repositories":     containerRegistryRepositoryNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
@@ -491,6 +513,14 @@ var docExampleExtraFlag = map[string]string{
 // so buildExample's own destructive-only rule would never append --yes, but
 // requireYesToChangeRoutes (svc_network_write.go) refuses either command
 // without it on every call.
+// loadbalancer import-certificate needs it for a different reason: its
+// required Certificate field is NoFlag'd (importCertificateOp,
+// svc_loadbalancer_certificates.go), so buildExample's loop would otherwise
+// try to build a --cli-input-json placeholder for it, which would panic
+// (docJSONPlaceholders has no entry for Certificate, on purpose: PEM text
+// makes a poor placeholder) and, even with one, would print a command that
+// sets Certificate two contradictory ways at once. The override shows the
+// one runnable form: every PEM and key field through its own file flag.
 var docExampleOverride = map[string]string{
 	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",
 	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
@@ -499,4 +529,6 @@ var docExampleOverride = map[string]string{
 	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
 	"network add-route":                "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
 	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
+	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
+		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
 }

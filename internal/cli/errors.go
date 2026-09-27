@@ -11,6 +11,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 )
@@ -108,12 +109,15 @@ type errorEnvelope struct {
 // VPC with subnets, a subnet with servers, or a route table a subnet still
 // names, or because the server's own refusal named it in use, including a
 // VPC delete the server keeps refusing with "contains the subnet" for
-// several minutes after that subnet's own delete), DefaultResource (a
-// network delete-route-table targeted a VPC's main route table while a
-// subnet names no route table of its own and so relies on it; the server
-// itself deletes a main table once no subnet relies on it), ResourceBusy (a
-// network add-route or remove-route read a route table that was not ACTIVE
-// and stayed that way past the wait before the write), or SecretFileFailed
+// several minutes after that subnet's own delete, or a loadbalancer
+// delete-certificate refused because a pre-delete read showed the
+// certificate still in use by a listener, or because the server's own
+// refusal named it in use), DefaultResource (a network delete-route-table
+// targeted a VPC's main route table while a subnet names no route table of
+// its own and so relies on it; the server itself deletes a main table once
+// no subnet relies on it), ResourceBusy (a network add-route or
+// remove-route read a route table that was not ACTIVE and stayed that way
+// past the wait before the write), or SecretFileFailed
 // (create-ssh-key's own create succeeded but writing --secret-file failed
 // afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
@@ -161,7 +165,11 @@ func classify(err error) errorEnvelope {
 	// that inner error first and report its own status-derived code instead.
 	// compute.ErrServerGroupInUse joins it for the same reason:
 	// wrapServerGroupInUse (compute/server_groups_write.go) can wrap the
-	// server's own refusal the same way.
+	// server's own refusal the same way. loadbalancer.ErrCertificateInUse
+	// joins it too: wrapCertificateDeleteErr
+	// (loadbalancer/certificates_write.go) can wrap the server's own refusal
+	// of a delete the same way, on top of the plain sentinel
+	// DeleteCertificate itself returns from its own pre-delete read.
 	if errors.Is(err, network.ErrSystemGroup) {
 		return errorEnvelope{Code: "SystemSecurityGroup", Message: err.Error()}
 	}
@@ -171,7 +179,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, compute.ErrServerGroupInUse) {
 		return errorEnvelope{Code: "ServerGroupInUse", Message: err.Error()}
 	}
-	if errors.Is(err, network.ErrInUse) {
+	if errors.Is(err, network.ErrInUse) || errors.Is(err, loadbalancer.ErrCertificateInUse) {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	// network.ErrDefaultResource and network.ErrBusy join this same early

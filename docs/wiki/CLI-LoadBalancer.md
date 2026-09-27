@@ -2,6 +2,20 @@
 
 # CLI: LoadBalancer
 
+## delete-certificate
+
+Kind: Write, destructive.
+
+Refuses, before any request, a certificate a listener still uses (error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again to re-import, and the key may no longer exist anywhere else, so this needs --yes.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--certificate-id` | `string` | yes |
+
+```sh
+vngcloud loadbalancer delete-certificate --certificate-id <certificate-id> --yes
+```
+
 ## get-certificate
 
 Kind: Read.
@@ -89,6 +103,27 @@ Unverified live: the test account has no load balancer, so this output shape com
 
 ```sh
 vngcloud loadbalancer get-pool-health-monitor --load-balancer-id <load-balancer-id> --pool-id <pool-id> --query HealthMonitor
+```
+
+## import-certificate
+
+Kind: Write.
+
+Certificate, CertificateChain, PrivateKey, and Passphrase all come from a file: --certificate-file (required), --certificate-chain-file, --private-key-file, and --passphrase-file; none of the four has a plain string flag, and --cli-input-json refuses PrivateKey and Passphrase outright, inline or file://, though Certificate and CertificateChain may still be set that way instead of by file. Each file is read whole, at most 64 KiB, and an empty file is refused; --passphrase-file additionally drops one trailing newline. PrivateKey is required for Type TLS/SSL; for any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key; no later read or error ever returns it, and the printed Certificate holds none either.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--type` | `string` | yes |
+| `Certificate` (via `--cli-input-json` only) | `string` | yes |
+| `CertificateChain` (via `--cli-input-json` only) | `string` |  |
+| `--certificate-chain-file` | `string` |  |
+| `--certificate-file` | `string` | yes |
+| `--passphrase-file` | `string` |  |
+| `--private-key-file` | `string` |  |
+
+```sh
+vngcloud loadbalancer import-certificate --name example-com --type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem
 ```
 
 ## list-certificates

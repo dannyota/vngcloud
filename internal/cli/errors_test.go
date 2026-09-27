@@ -12,6 +12,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 )
@@ -155,6 +156,11 @@ func TestExitCode(t *testing.T) {
 		},
 		{"network resource in use (VPC)", fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse), 1},
 		{"network resource in use (route table)", fmt.Errorf("%w: route table rt-1 is named by a subnet", network.ErrInUse), 1},
+		{
+			"loadbalancer certificate in use",
+			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1 is in use", loadbalancer.ErrCertificateInUse),
+			1,
+		},
 		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
 		{"network resource busy", fmt.Errorf("%w: route table rt-1 is not ACTIVE", network.ErrBusy), 1},
 		{
@@ -385,6 +391,23 @@ func TestClassify(t *testing.T) {
 			// resource produced the wrap.
 			"network resource in use (route table)",
 			fmt.Errorf("%w: route table rt-1 is named by a subnet of its VPC", network.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"loadbalancer certificate in use (pre-delete read)",
+			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1 is in use", loadbalancer.ErrCertificateInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			// wrapCertificateDeleteErr (loadbalancer/certificates_write.go)
+			// rewraps the server's own refusal of the DELETE itself, an
+			// *APIError, alongside ErrCertificateInUse; Code must still be
+			// ResourceInUse, not that inner APIError's own status-derived code,
+			// the same way network.ErrInUse wins over its own inner APIError
+			// above.
+			"loadbalancer certificate in use wrapping an inner APIError",
+			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1: %w", loadbalancer.ErrCertificateInUse,
+				&vngcloud.APIError{Operation: "loadbalancer.DeleteCertificate", StatusCode: 409, Code: "Conflict", Message: "certificate is used by a listener"}),
 			"ResourceInUse", 0, "",
 		},
 		{

@@ -6,12 +6,20 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 )
 
-// loadbalancerOps is loadbalancer's operation table. Every operation reads.
-// No Input field here
-// needs NoFlag or Redact: the CLI reads design's "loadbalancer" section
-// notes that Certificate has no key or PEM field, and a typed model drops
-// every field it does not declare, so a private key in a response could
-// never reach output.
+// loadbalancerOps is loadbalancer's operation table. Every read here needs
+// no NoFlag or Redact: the CLI reads design's "loadbalancer" section notes
+// that Certificate has no key or PEM field, and a typed model drops every
+// field it does not declare, so a private key in a response could never
+// reach output. import-certificate and delete-certificate are the two
+// writes, per the vLB certificate design: import-certificate is built by
+// hand (importCertificateOp, in svc_loadbalancer_certificates.go) since
+// Certificate and CertificateChain need NoFlag and the certificate, chain,
+// key, and passphrase all arrive through its own file flags rather than
+// flags.go's reflection; delete-certificate is Destructive, since a deleted
+// certificate needs its key again to re-import and the key may no longer
+// exist anywhere else, and needs no Guard of its own: DeleteCertificate
+// itself refuses a certificate a listener still uses before sending
+// anything.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -41,6 +49,9 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 		kebab("GetPolicy"), (*loadbalancer.Client).GetPolicy),
 	Read[loadbalancer.Client, loadbalancer.ListTagsInput, loadbalancer.ListTagsOutput](
 		kebab("ListTags"), (*loadbalancer.Client).ListTags),
+	importCertificateOp(),
+	Write[loadbalancer.Client, loadbalancer.DeleteCertificateInput, loadbalancer.DeleteCertificateOutput](
+		kebab("DeleteCertificate"), (*loadbalancer.Client).DeleteCertificate, Destructive()),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

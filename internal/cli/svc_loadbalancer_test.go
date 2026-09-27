@@ -63,8 +63,11 @@ func TestGoldenLoadBalancerGetLoadBalancer(t *testing.T) {
 }
 
 // TestLoadBalancerCommandsMatchDesignTable checks the CLI reads design's
-// "loadbalancer" table: all 14 command names, their flags in Input
-// declaration order, and which of those flags are required.
+// "loadbalancer" table: every Read command's name, its flags in Input
+// declaration order, and which of those flags are required. It scopes to
+// Read ops only, so import-certificate and delete-certificate (the vLB
+// certificate design's two writes) are out of its scope, the same as this
+// test already was before either existed.
 func TestLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 	type wantFlag struct {
 		name     string
@@ -86,10 +89,16 @@ func TestLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 		"get-policy":              {{"load-balancer-id", true}, {"listener-id", true}, {"policy-id", true}},
 		"list-tags":               {{"load-balancer-id", true}},
 	}
-	if got := opNames(loadbalancerOps); len(got) != len(wantFlags) {
-		t.Fatalf("loadbalancer ops = %v, want %d commands", got, len(wantFlags))
-	}
+	var reads []Op[loadbalancer.Client]
 	for _, op := range loadbalancerOps {
+		if op.kind == kindRead {
+			reads = append(reads, op)
+		}
+	}
+	if got := opNames(reads); len(got) != len(wantFlags) {
+		t.Fatalf("loadbalancer read ops = %v, want %d commands", got, len(wantFlags))
+	}
+	for _, op := range reads {
 		want, ok := wantFlags[op.name]
 		if !ok {
 			t.Fatalf("unexpected loadbalancer command %q", op.name)
