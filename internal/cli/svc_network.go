@@ -27,9 +27,9 @@ import (
 // RemoveNetworkACLRule carries requireYesAndPriorityToRemoveACLRule
 // (svc_network_acl.go) instead: the same --yes requirement, plus a
 // --priority requirement the SDK's own Input does not carry, since
-// Priority 0 is both CheckRequired's zero value and the marker for a
-// default rule (see network/acl_rules_write.go), so the SDK cannot use
-// IsZero to tell "not given" from "naming the default rule on purpose" the
+// Priority 0 is both CheckRequired's zero value and the priority of the
+// ACL's own pass-all rules, which a caller may remove, so the SDK cannot
+// use IsZero to tell "not given" from "naming priority 0 on purpose" the
 // way the CLI can. A read-only profile refuses every one of these Write
 // operations, before any request.
 var networkOps = []Op[network.Client]{

@@ -31,16 +31,16 @@ func requireYesForACLChange(command string) func(cmd *cobra.Command, in any) err
 //
 // RemoveNetworkACLRuleInput's Priority field carries no vngcloud:"required"
 // tag (see its doc comment in network/acl_rules_write.go): 0 is both
-// core.CheckRequired's zero value and the live-observed marker for a
-// default rule, so the SDK cannot use IsZero to tell "the flag was not
-// given" apart from "naming that rule on purpose" without also refusing the
-// one call that must be able to name it. The CLI does not have that
+// core.CheckRequired's zero value and the priority of an ACL's own
+// pass-all rules, which a caller may remove, so the SDK cannot use IsZero
+// to tell "the flag was not given" apart from "naming priority 0 on
+// purpose" without also refusing the one call that must be able to name
+// it. The CLI does not have that
 // problem: cobra reports whether --priority was actually set (Changed)
 // regardless of its value, and cliInputJSONHasKey reports the same for an
 // inline or file --cli-input-json value, so this guard requires one of the
 // two here instead of letting a caller who simply forgot --priority
-// silently target priority 0 and reach network.ErrDefaultResource with a
-// confusing message.
+// silently target priority 0.
 func requireYesAndPriorityToRemoveACLRule(cmd *cobra.Command, _ any) error {
 	if !cmd.Flags().Changed("priority") && !cliInputJSONHasKey(cmd, "Priority") {
 		return newUsageError("--priority is required")

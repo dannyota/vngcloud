@@ -302,7 +302,7 @@ func TestNetworkAddNetworkACLRuleRequiresYesWithZeroRequests(t *testing.T) {
 // with Changed true.
 func TestNetworkAddNetworkACLRuleEndToEndSendsDefaultPlusNewRule(t *testing.T) {
 	var putBody []byte
-	newRule := ruleJSON("aclr-2", "inbound", 100, "TCP", "443-443", "203.0.113.0/24", "pass")
+	newRule := ruleJSON("aclr-2", "inbound", 100, "tcp", "443", "203.0.113.0/24", "pass")
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()}),
@@ -356,7 +356,7 @@ func TestNetworkAddNetworkACLRuleEndToEndSendsDefaultPlusNewRule(t *testing.T) {
 			}
 		case 100:
 			sawNew = true
-			if r.System || r.Protocol != "TCP" || r.Port != "443-443" || r.Source != "203.0.113.0/24" || r.Action != "pass" {
+			if r.System || r.Protocol != "tcp" || r.Port != "443" || r.Source != "203.0.113.0/24" || r.Action != "pass" {
 				t.Fatalf("new rule entry = %+v, want the flags mapped in and System false", r)
 			}
 		}
@@ -426,7 +426,7 @@ func TestNetworkRemoveNetworkACLRuleRequiresYesWithZeroRequests(t *testing.T) {
 // comes back with Changed true.
 func TestNetworkRemoveNetworkACLRuleEndToEndSendsRemainingRules(t *testing.T) {
 	var putBody []byte
-	userRule := ruleJSON("aclr-2", "inbound", 100, "TCP", "443-443", "203.0.113.0/24", "pass")
+	userRule := ruleJSON("aclr-2", "inbound", 100, "tcp", "443", "203.0.113.0/24", "pass")
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), userRule}),
@@ -469,10 +469,11 @@ func TestNetworkRemoveNetworkACLRuleEndToEndSendsRemainingRules(t *testing.T) {
 }
 
 // TestNetworkRemoveNetworkACLRulePriorityZeroExitsDefaultResourceWithNoPUT
-// checks that the CLI lets --priority 0 through to the SDK's own guard,
-// rather than mistaking it for "the flag was not given": priority 0 is a
-// valid value, since it also names the default rule, and reaching
-// DefaultResource here (rather than a generic missing-flag error) is the
+// checks that the CLI lets --priority 0 through to the SDK, rather than
+// mistaking it for "the flag was not given": the fixture's priority-0 rule
+// carries system true, so the SDK's default-rule guard answers, and
+// reaching DefaultResource here (rather than a generic missing-flag error)
+// is the
 // point of requireYesAndPriorityToRemoveACLRule checking Changed instead of
 // the merged value.
 func TestNetworkRemoveNetworkACLRulePriorityZeroExitsDefaultResourceWithNoPUT(t *testing.T) {
