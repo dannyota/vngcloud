@@ -113,16 +113,16 @@ func matchesWriteAction(pattern string, writeActionNames []string) bool {
 	return false
 }
 
-// policyIsPrivileged reports whether p has any statement, other than an
-// explicit "deny", whose action pattern matches any name in
-// writeActionNames. A policy with no statements at all counts as
-// privileged: there is nothing to prove it safe, so it is refused rather
-// than waved through. Resources and conditions are not read.
-func policyIsPrivileged(p *Policy, writeActionNames []string) bool {
-	if len(p.Statements) == 0 {
+// statementsArePrivileged reports whether statements has any statement,
+// other than an explicit "deny", whose action pattern matches any name in
+// writeActionNames. No statements at all counts as privileged: there is
+// nothing to prove the document safe, so it is refused rather than waved
+// through. Resources and conditions are not read.
+func statementsArePrivileged(statements []Statement, writeActionNames []string) bool {
+	if len(statements) == 0 {
 		return true
 	}
-	for _, stmt := range p.Statements {
+	for _, stmt := range statements {
 		if strings.EqualFold(stmt.Effect, "deny") {
 			continue
 		}
@@ -133,6 +133,12 @@ func policyIsPrivileged(p *Policy, writeActionNames []string) bool {
 		}
 	}
 	return false
+}
+
+// policyIsPrivileged reports whether p's statements are privileged; see
+// statementsArePrivileged.
+func policyIsPrivileged(p *Policy, writeActionNames []string) bool {
+	return statementsArePrivileged(p.Statements, writeActionNames)
 }
 
 // guardCallerIdentity returns the caller's identity, fetching it once per
@@ -197,19 +203,30 @@ type pagedPolicySummaries struct {
 }
 
 // guardServiceAccountPolicySummaries reads every policy attached to
-// serviceAccountID for a guard check, in one page sized at
-// maxGuardAttachmentPage, and refuses instead of guessing whenever the
-// response cannot prove that page held everything: a missing data or
-// totalItems key, a totalItems the returned data does not match, or more
-// than one totalPages. Reading a partial or ambiguous page as "no more
-// attachments" would silently stop protecting a service account whose
-// attachments the guard never fully saw.
+// serviceAccountID for a guard check; see guardPagedPolicySummaries.
 func (c *Client) guardServiceAccountPolicySummaries(ctx context.Context, op, serviceAccountID string) ([]PolicySummary, error) {
+	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "service-accounts", serviceAccountID, "policies"})
+}
+
+// guardUserPolicySummaries reads every policy attached to userID for a
+// guard check; see guardPagedPolicySummaries.
+func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string) ([]PolicySummary, error) {
+	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "iam-users", userID, "policies"})
+}
+
+// guardPagedPolicySummaries reads a policy-attachment list at urlParts for a
+// guard check, in one page sized at maxGuardAttachmentPage, and refuses
+// instead of guessing whenever the response cannot prove that page held
+// everything: a missing data or totalItems key, a totalItems the returned
+// data does not match, or more than one totalPages. Reading a partial or
+// ambiguous page as "no more attachments" would silently stop protecting a
+// principal whose attachments the guard never fully saw.
+func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlParts []string) ([]PolicySummary, error) {
 	var resp pagedPolicySummaries
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
-		URL:       c.policiesURL([]string{"user-attachments", "service-accounts", serviceAccountID, "policies"}, pageQuery(0, maxGuardAttachmentPage)),
+		URL:       c.policiesURL(urlParts, pageQuery(0, maxGuardAttachmentPage)),
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
@@ -257,6 +274,21 @@ func (c *Client) serviceAccountIsProtected(ctx context.Context, op, serviceAccou
 	return false, nil
 }
 
+// requireClassifiedCaller returns the caller's identity, refusing op with no
+// request sent when the caller's user type is not one the guard can reason
+// about (see the design's Terms section: an unknown user type fails every
+// guarded write, whatever that write's own rule names).
+func (c *Client) requireClassifiedCaller(ctx context.Context, op string) (*GetCallerIdentityOutput, error) {
+	caller, err := c.guardCallerIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !isClassifiedCallerType(caller.UserType) {
+		return nil, fmt.Errorf("%w: %s: the caller's user type is not recognized", ErrPrivilegedChange, op)
+	}
+	return caller, nil
+}
+
 // guardServiceAccountWrite refuses a write targeting serviceAccountID
 // before op builds any request: it returns ErrSelfChange when the caller is
 // a service account (see below), ErrPrivilegedChange when the caller's type
@@ -273,12 +305,9 @@ func (c *Client) serviceAccountIsProtected(ctx context.Context, op, serviceAccou
 // self-change; refusing every case is the conservative choice until that is
 // verified live.
 func (c *Client) guardServiceAccountWrite(ctx context.Context, op, serviceAccountID string) error {
-	caller, err := c.guardCallerIdentity(ctx)
+	caller, err := c.requireClassifiedCaller(ctx, op)
 	if err != nil {
 		return err
-	}
-	if !isClassifiedCallerType(caller.UserType) {
-		return fmt.Errorf("%w: %s: the caller's user type is not recognized", ErrPrivilegedChange, op)
 	}
 	if isServiceAccountCallerType(caller.UserType) {
 		return fmt.Errorf("%w: %s: the caller is a service account", ErrSelfChange, op)

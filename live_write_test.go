@@ -5373,3 +5373,253 @@ func TestLiveWriteIAMServiceAccount(t *testing.T) {
 	}
 	t.Log("step 7: deleted service account")
 }
+
+// liveIAMPolicyNamePattern is this test's own naming scheme, the same
+// vngcloud-live-<8 hex> form liveIAMServiceAccountNamePattern uses.
+var liveIAMPolicyNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func isLiveIAMPolicyName(name string) bool {
+	return liveIAMPolicyNamePattern.MatchString(name)
+}
+
+// listAllLiveIAMPolicies lists every customer policy whose exact name
+// matches liveIAMPolicyNamePattern. ListPolicies' default page size is far
+// above the account's 20-customer-policy quota, so one call always returns
+// every policy there is, live or not.
+func listAllLiveIAMPolicies(ctx context.Context, client *iam.Client) ([]iam.PolicySummary, error) {
+	out, err := client.ListPolicies(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	var live []iam.PolicySummary
+	for _, p := range out.Items {
+		if isLiveIAMPolicyName(p.Name) {
+			live = append(live, p)
+		}
+	}
+	return live, nil
+}
+
+// deleteLiveIAMPolicies deletes every leftover policy whose exact name
+// matches liveIAMPolicyNamePattern, detaching it from every service account
+// it still holds first, and returns how many it deleted. It never touches a
+// managed policy (DeletePolicy's own guard refuses one), the caller's IAM
+// user, or a group: this test only ever attaches a policy to a service
+// account it creates itself.
+func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client) int {
+	t.Helper()
+	live, err := listAllLiveIAMPolicies(ctx, client)
+	if err != nil {
+		t.Errorf("delete live iam policies: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, p := range live {
+		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
+		if err != nil {
+			t.Errorf("delete live iam policies: list attachments: %s", safeErr(err))
+			continue
+		}
+		for _, saID := range attachments.ServiceAccountIDs {
+			if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: p.ID, ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("delete live iam policies: detach: %s", safeErr(err))
+			}
+		}
+		if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: p.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live iam policies: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// containsPolicyID reports whether policies holds one whose ID is id.
+func containsPolicyID(policies []iam.PolicySummary, id string) bool {
+	for _, p := range policies {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// VNGCLOUD_LIVE_IAM_POLICY must be set to "1" in addition to
+// VNGCLOUD_LIVE_WRITE.
+//
+// It sweeps leftover vngcloud-live-* policies and service accounts from a
+// previous run first, policies before accounts so a leftover attachment is
+// detached before either delete (step 1); creates a read-only customer
+// policy granting one vServer List action on "*" (step 2); updates its
+// description (step 3); creates a service account to attach it to (step 4);
+// attaches the policy (step 5); lists the attachment both ways to confirm
+// it landed (step 6); detaches it (step 7); and deletes both the policy and
+// the service account (step 8). It never attaches to, or otherwise
+// touches, a managed policy, the caller's own IAM user, or any group.
+// Cleanup is registered as soon as the policy's id is known, before any
+// later step can fail and skip the explicit deletes. Every step logs only
+// statuses, codes, and booleans.
+func TestLiveWriteIAMPolicy(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live iam policy write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_IAM_POLICY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_IAM_POLICY=1 to run the live iam policy write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := iam.New(cfg)
+
+	// Step 1: sweep up leftovers from an earlier run.
+	leftoverPolicies := deleteLiveIAMPolicies(ctx, t, client)
+	leftoverAccounts := deleteLiveIAMServiceAccounts(ctx, t, client)
+	t.Logf("step 1: deleted %d leftover polic(ies), %d leftover service account(s)", leftoverPolicies, leftoverAccounts)
+
+	// Step 2: create a read-only customer policy.
+	policySuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	policyName := "vngcloud-live-" + policySuffix
+
+	createdPolicy, err := client.CreatePolicy(ctx, &iam.CreatePolicyInput{
+		Name: policyName,
+		Statements: []iam.Statement{
+			{Effect: "allow", Actions: []string{"vserver:ListServers"}, Resources: []string{"*"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("step 2 CreatePolicy: %s", safeErr(err))
+	}
+	policyID := createdPolicy.Policy.ID
+	if policyID == "" {
+		t.Fatal("step 2: CreatePolicy returned an empty id")
+	}
+
+	// Step 3: register cleanup as soon as policyID is known, before any
+	// later step can fail and skip the explicit deletes below.
+	// serviceAccountID is filled in by step 4; the cleanup closure reads it
+	// when it runs, after the rest of the test body has finished.
+	var serviceAccountID string
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if serviceAccountID != "" {
+			if _, err := client.DetachServiceAccountPolicy(cleanupCtx, &iam.DetachServiceAccountPolicyInput{PolicyID: policyID, ServiceAccountID: serviceAccountID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: detach policy: %s", safeErr(err))
+			}
+		}
+		if _, err := client.DeletePolicy(cleanupCtx, &iam.DeletePolicyInput{PolicyID: policyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete policy: %s", safeErr(err))
+		}
+		if serviceAccountID != "" {
+			if _, err := client.DeleteServiceAccount(cleanupCtx, &iam.DeleteServiceAccountInput{ServiceAccountID: serviceAccountID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete service account: %s", safeErr(err))
+			}
+		}
+		livePolicies, err := listAllLiveIAMPolicies(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final policy list: %s", safeErr(err))
+		} else {
+			t.Logf("cleanup: vngcloud-live polic(ies) remaining: %d", len(livePolicies))
+			if len(livePolicies) != 0 {
+				t.Errorf("cleanup: expected 0 vngcloud-live policies, found %d", len(livePolicies))
+			}
+		}
+		liveAccounts, err := listAllLiveIAMServiceAccounts(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final service account list: %s", safeErr(err))
+			return
+		}
+		t.Logf("cleanup: vngcloud-live service account(s) remaining: %d", len(liveAccounts))
+		if len(liveAccounts) != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live service accounts, found %d", len(liveAccounts))
+		}
+	})
+	t.Logf("step 2: created policy, managed=%v", createdPolicy.Policy.Managed())
+
+	// Step 3: update its description.
+	updatedPolicy, err := client.UpdatePolicy(ctx, &iam.UpdatePolicyInput{
+		PolicyID:    policyID,
+		Description: vngcloud.Ptr("vngcloud live write test, updated"),
+	})
+	if err != nil {
+		t.Fatalf("step 3 UpdatePolicy: %s", safeErr(err))
+	}
+	t.Logf("step 3: updated policy, statements unchanged=%v", len(updatedPolicy.Policy.Statements) == len(createdPolicy.Policy.Statements))
+
+	// Step 4: create a service account to attach the policy to, with its own
+	// independent name suffix.
+	saSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	createdSA, err := client.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{
+		Name:        "vngcloud-live-" + saSuffix,
+		Description: "vngcloud live write test",
+	})
+	// As in TestLiveWriteIAMServiceAccount, CreateServiceAccount returns a
+	// non-nil Output whenever the create request itself succeeded, so
+	// serviceAccountID is set from it before this Fatals on err.
+	if createdSA == nil {
+		t.Fatalf("step 4 CreateServiceAccount: %s", safeErr(err))
+	}
+	serviceAccountID = createdSA.ServiceAccount.ID
+	if serviceAccountID == "" {
+		t.Fatalf("step 4: CreateServiceAccount returned an empty id: %s", safeErr(err))
+	}
+	if err != nil {
+		t.Fatalf("step 4 CreateServiceAccount: %s", safeErr(err))
+	}
+	t.Logf("step 4: created service account, secret present=%v", createdSA.ClientSecret.Reveal() != "")
+
+	// Step 5: attach the policy to the service account.
+	if _, err := client.AttachServiceAccountPolicy(ctx, &iam.AttachServiceAccountPolicyInput{PolicyID: policyID, ServiceAccountID: serviceAccountID}); err != nil {
+		t.Fatalf("step 5 AttachServiceAccountPolicy: %s", safeErr(err))
+	}
+	t.Log("step 5: attached policy to service account")
+
+	// Step 6: list the attachment both ways to confirm it landed.
+	policyAttachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: policyID})
+	if err != nil {
+		t.Fatalf("step 6 ListPolicyAttachments: %s", safeErr(err))
+	}
+	saAttachments, err := client.ListServiceAccountPolicies(ctx, &iam.ListServiceAccountPoliciesInput{ServiceAccountID: serviceAccountID})
+	if err != nil {
+		t.Fatalf("step 6 ListServiceAccountPolicies: %s", safeErr(err))
+	}
+	t.Logf("step 6: policy shows the attachment=%v, service account shows the attachment=%v",
+		slices.Contains(policyAttachments.ServiceAccountIDs, serviceAccountID),
+		containsPolicyID(saAttachments.Items, policyID))
+
+	// Step 7: detach it.
+	if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: policyID, ServiceAccountID: serviceAccountID}); err != nil {
+		t.Fatalf("step 7 DetachServiceAccountPolicy: %s", safeErr(err))
+	}
+	t.Log("step 7: detached policy from service account")
+
+	// Step 8: delete both explicitly.
+	if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: policyID}); err != nil {
+		t.Fatalf("step 8 DeletePolicy: %s", safeErr(err))
+	}
+	if _, err := client.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: serviceAccountID}); err != nil {
+		t.Fatalf("step 8 DeleteServiceAccount: %s", safeErr(err))
+	}
+	t.Log("step 8: deleted policy and service account")
+}

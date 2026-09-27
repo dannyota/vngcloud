@@ -44,6 +44,25 @@ type guardFixture struct {
 	// mismatched totalItems, or a response that differs across calls.
 	actionsHandler     http.HandlerFunc
 	attachmentsHandler http.HandlerFunc
+
+	// policyGroups, policyUserIDs, and policyServiceAccountIDs are the
+	// attachments ListPolicyAttachments reports for the one policy a
+	// CreatePolicy, UpdatePolicy, or DeletePolicy guard test targets (its
+	// path parameter is accepted as any {id}, so these fixtures only ever
+	// represent a single policy under test at a time, as attachedPolicyIDs
+	// does for a single service account).
+	policyGroups            []GroupSummary
+	policyUserIDs           []string
+	policyServiceAccountIDs []string
+
+	// groups is keyed by group ID, for GetGroup.
+	groups map[string]Group
+
+	// userPolicyIDs and userGroups are each keyed by IAM user ID, for a
+	// user's direct policy attachments (guardUserPolicySummaries) and the
+	// groups it belongs to (ListUserGroups).
+	userPolicyIDs map[string][]string
+	userGroups    map[string][]Group
 }
 
 func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.ServeMux {
@@ -93,6 +112,66 @@ func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.Se
 			t.Fatalf("unexpected policy id: %s", r.PathValue("id"))
 		}
 		if err := json.NewEncoder(w).Encode(p); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/policies/{id}/groups", func(w http.ResponseWriter, r *http.Request) {
+		groups := g.policyGroups
+		if groups == nil {
+			groups = []GroupSummary{}
+		}
+		if err := json.NewEncoder(w).Encode(groups); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/policies/{id}/iam-users", func(w http.ResponseWriter, r *http.Request) {
+		ids := g.policyUserIDs
+		if ids == nil {
+			ids = []string{}
+		}
+		if err := json.NewEncoder(w).Encode(ids); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/policies/{id}/service-accounts", func(w http.ResponseWriter, r *http.Request) {
+		ids := g.policyServiceAccountIDs
+		if ids == nil {
+			ids = []string{}
+		}
+		if err := json.NewEncoder(w).Encode(ids); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/groups/{id}", func(w http.ResponseWriter, r *http.Request) {
+		group, ok := g.groups[r.PathValue("id")]
+		if !ok {
+			t.Fatalf("unexpected group id: %s", r.PathValue("id"))
+		}
+		if err := json.NewEncoder(w).Encode(group); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/policies", func(w http.ResponseWriter, r *http.Request) {
+		ids := g.userPolicyIDs[r.PathValue("id")]
+		rows := make([]PolicySummary, 0, len(ids))
+		for _, id := range ids {
+			rows = append(rows, PolicySummary{ID: id})
+		}
+		resp := struct {
+			Data       []PolicySummary `json:"data"`
+			TotalItems int             `json:"totalItems"`
+			TotalPages int             `json:"totalPages"`
+		}{Data: rows, TotalItems: len(rows), TotalPages: 1}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/groups", func(w http.ResponseWriter, r *http.Request) {
+		groups := g.userGroups[r.PathValue("id")]
+		if groups == nil {
+			groups = []Group{}
+		}
+		if err := json.NewEncoder(w).Encode(groups); err != nil {
 			t.Fatal(err)
 		}
 	})
