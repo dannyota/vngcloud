@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.36.0 - Load Balancer Quotes
+
+### Highlights
+
+- New `loadbalancer.QuoteCreateLoadBalancer` and `QuoteResizeLoadBalancer`,
+  with `vngcloud loadbalancer quote-create-load-balancer` and
+  `quote-resize-load-balancer`. A quote orders nothing; prices are VND a
+  month (400,000 for the smallest package).
+- `loadbalancer.Pool` gains `ProgressStatus`.
+
+### Behavior changes
+
+Every load balancer, listener, pool, member, policy, and tag read refuses a
+malformed ID before any request.
+
 ## v0.35.0 - Flavors and Create Quotes
 
 ### Highlights
