@@ -4,7 +4,8 @@ package pricing
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 
 	"danny.vn/vngcloud"
@@ -82,9 +83,11 @@ type quoteBody struct {
 
 // quoteResponse is GetQuote's wire response. It is not enveloped: the price
 // fields sit at the top level. artifactPrices is left out until a capture
-// shows it filled.
+// shows it filled. OptimumPrice is a pointer: a response that omits it, or
+// sends it null, must not silently decode as a free price and let a paid
+// write's guard (quoted > MaxPrice) compare a real budget against 0.
 type quoteResponse struct {
-	OptimumPrice    float64             `json:"optimumPrice"`
+	OptimumPrice    *float64            `json:"optimumPrice"`
 	OriginalPrice   float64             `json:"originalPrice"`
 	DiscountPrice   float64             `json:"discountPrice"`
 	DiscountPercent float64             `json:"discountPercent"`
@@ -114,7 +117,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		action = ActionCreate
 	}
 
-	var raw json.RawMessage
+	var resp quoteResponse
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPost,
@@ -127,25 +130,13 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		OK:         []int{200},
 		Idempotent: true,
 	}
-	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
+	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
 
-	// A quote response always carries optimumPrice. Its absence, on an
-	// otherwise successful HTTP 200, means the body is an error shape (such
-	// as a billing-style envelope) rather than a priced quote; decoding it
-	// as one would silently return a zero-value price.
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil, &core.APIError{Operation: op, Err: err}
-	}
-	if _, ok := probe["optimumPrice"]; !ok {
-		return nil, &core.APIError{Operation: op, Message: "quote response had no price"}
-	}
-
-	var resp quoteResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, &core.APIError{Operation: op, Err: err}
+	price, err := validQuotePrice(op, resp.OptimumPrice)
+	if err != nil {
+		return nil, err
 	}
 
 	properties := make([]PriceProperty, len(resp.PropertiesPrice))
@@ -153,10 +144,32 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		properties[i] = PriceProperty(p)
 	}
 	return &GetQuoteOutput{
-		OptimumPrice:    resp.OptimumPrice,
+		OptimumPrice:    price,
 		OriginalPrice:   resp.OriginalPrice,
 		DiscountPrice:   resp.DiscountPrice,
 		DiscountPercent: resp.DiscountPercent,
 		Properties:      properties,
 	}, nil
+}
+
+// validQuotePrice returns price's value, refusing every shape a paid
+// write's guard (quoted > MaxPrice) cannot compare safely. price is nil
+// when the response omitted optimumPrice or sent it null, which an
+// otherwise successful HTTP 200 gives for an error shape (such as a
+// billing-style envelope) rather than a priced quote; decoding that as a
+// price would silently return 0 and let a write guarded by the default
+// MaxPrice of 0 through unpriced. A negative price would compare below any
+// non-negative MaxPrice and pass the same guard; NaN and an infinite price
+// can never arrive through a valid JSON number (encoding/json rejects both
+// the bare literal and a value that overflows float64 while decoding), but
+// are still refused here as defense in depth, the same values
+// core.CheckMaxPrice refuses for the caller's own MaxPrice.
+func validQuotePrice(op string, price *float64) (float64, error) {
+	if price == nil {
+		return 0, &core.APIError{Operation: op, Message: "quote response had no price"}
+	}
+	if math.IsNaN(*price) || math.IsInf(*price, 0) || *price < 0 {
+		return 0, &core.APIError{Operation: op, Message: fmt.Sprintf("quote response had an invalid price: %v", *price)}
+	}
+	return *price, nil
 }
