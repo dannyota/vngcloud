@@ -1,0 +1,16 @@
+{
+  "OptimumPrice": 400000,
+  "OriginalPrice": 400000,
+  "DiscountPrice": 0,
+  "DiscountPercent": 0,
+  "Properties": [
+    {
+      "Name": "LOAD BALANCER",
+      "Description": "",
+      "OptimumPrice": 400000,
+      "MonthlyPrice": 400000,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    }
+  ]
+}

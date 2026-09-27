@@ -421,6 +421,29 @@ const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certif
 	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
 	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
 
+// loadbalancerQuoteCreateLoadBalancerNote documents quote-create-load-balancer's
+// own price guard exemptions and unit, and that the billing gateway prices
+// only PackageID and ZoneID: the flag table shows every
+// CreateLoadBalancerInput field the same way create-load-balancer itself
+// will, with no hint that this command never orders anything or that most
+// of those fields do nothing here.
+const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices the load balancer " +
+	"CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND " +
+	"a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets " +
+	"them: both govern only an actual create. The billing gateway also ignores every key it does not price, " +
+	"such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price."
+
+// loadbalancerQuoteResizeLoadBalancerNote documents quote-resize-load-balancer's
+// own price guard exemptions, unit, and its not-found status, which differs
+// from every other load-balancer command's: the flag table shows only
+// --load-balancer-id and --package-id, with no hint of any of this.
+const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices the package change " +
+	"ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND " +
+	"a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
+	"only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the " +
+	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
+	"checks this request's shape before it checks the ID."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -501,6 +524,8 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
 	"loadbalancer import-certificate":         loadbalancerImportCertificateNote,
 	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
+	"loadbalancer quote-create-load-balancer": loadbalancerQuoteCreateLoadBalancerNote,
+	"loadbalancer quote-resize-load-balancer": loadbalancerQuoteResizeLoadBalancerNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,

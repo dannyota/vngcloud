@@ -238,3 +238,41 @@ Unverified live: the test account has no load balancer, so this output shape com
 vngcloud loadbalancer list-tags --load-balancer-id <load-balancer-id>
 ```
 
+## quote-create-load-balancer
+
+Kind: Read.
+
+Never orders anything: prices the load balancer CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `--type` | `string` | yes |
+| `--scheme` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud loadbalancer quote-create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme <scheme> --subnet-id <subnet-id> --zone-id <zone-id>
+```
+
+## quote-resize-load-balancer
+
+Kind: Read.
+
+Never orders anything: prices the package change ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the server's own status 400 message, not NotFound: unlike every other load-balancer command, the server checks this request's shape before it checks the ID.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud loadbalancer quote-resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
+```
+

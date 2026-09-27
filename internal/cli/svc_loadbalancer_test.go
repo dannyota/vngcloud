@@ -63,31 +63,36 @@ func TestGoldenLoadBalancerGetLoadBalancer(t *testing.T) {
 }
 
 // TestLoadBalancerCommandsMatchDesignTable checks the CLI reads design's
-// "loadbalancer" table: every Read command's name, its flags in Input
-// declaration order, and which of those flags are required. It scopes to
-// Read ops only, so import-certificate and delete-certificate (the vLB
-// certificate design's two writes) are out of its scope, the same as this
-// test already was before either existed.
+// "loadbalancer" table, plus the vLB writes design's L1 additions
+// (quote-create-load-balancer and quote-resize-load-balancer): every Read
+// command's name, its flags in Input declaration order, and which of those
+// flags are required. NoFlag'd fields (MaxPrice and NoWait on both quote
+// commands) are filtered out here the same way newOpCmd filters them for
+// the real command. It scopes to Read ops only, so import-certificate and
+// delete-certificate (the vLB certificate design's two writes) are out of
+// its scope, the same as this test already was before either existed.
 func TestLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 	type wantFlag struct {
 		name     string
 		required bool
 	}
 	wantFlags := map[string][]wantFlag{
-		"list-load-balancers":     {{"name", false}, {"page", false}, {"size", false}},
-		"get-load-balancer":       {{"load-balancer-id", true}},
-		"list-packages":           {{"zone-id", false}},
-		"list-certificates":       {{"name", false}, {"page", false}, {"size", false}},
-		"get-certificate":         {{"certificate-id", true}},
-		"list-listeners":          {{"load-balancer-id", true}},
-		"get-listener":            {{"load-balancer-id", true}, {"listener-id", true}},
-		"list-pools":              {{"load-balancer-id", true}},
-		"get-pool":                {{"load-balancer-id", true}, {"pool-id", true}},
-		"get-pool-health-monitor": {{"load-balancer-id", true}, {"pool-id", true}},
-		"list-pool-members":       {{"load-balancer-id", true}, {"pool-id", true}},
-		"list-policies":           {{"load-balancer-id", true}, {"listener-id", true}},
-		"get-policy":              {{"load-balancer-id", true}, {"listener-id", true}, {"policy-id", true}},
-		"list-tags":               {{"load-balancer-id", true}},
+		"list-load-balancers":        {{"name", false}, {"page", false}, {"size", false}},
+		"get-load-balancer":          {{"load-balancer-id", true}},
+		"list-packages":              {{"zone-id", false}},
+		"list-certificates":          {{"name", false}, {"page", false}, {"size", false}},
+		"get-certificate":            {{"certificate-id", true}},
+		"list-listeners":             {{"load-balancer-id", true}},
+		"get-listener":               {{"load-balancer-id", true}, {"listener-id", true}},
+		"list-pools":                 {{"load-balancer-id", true}},
+		"get-pool":                   {{"load-balancer-id", true}, {"pool-id", true}},
+		"get-pool-health-monitor":    {{"load-balancer-id", true}, {"pool-id", true}},
+		"list-pool-members":          {{"load-balancer-id", true}, {"pool-id", true}},
+		"list-policies":              {{"load-balancer-id", true}, {"listener-id", true}},
+		"get-policy":                 {{"load-balancer-id", true}, {"listener-id", true}, {"policy-id", true}},
+		"list-tags":                  {{"load-balancer-id", true}},
+		"quote-create-load-balancer": {{"name", true}, {"package-id", true}, {"type", true}, {"scheme", true}, {"subnet-id", true}, {"zone-id", true}},
+		"quote-resize-load-balancer": {{"load-balancer-id", true}, {"package-id", true}},
 	}
 	var reads []Op[loadbalancer.Client]
 	for _, op := range loadbalancerOps {
@@ -107,6 +112,7 @@ func TestLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: flagSpecsFor: %v", op.name, err)
 		}
+		specs = withoutNoFlag(specs, op.noFlag)
 		required := requiredFieldNames(op.newInput())
 		var got []wantFlag
 		for _, s := range specs {

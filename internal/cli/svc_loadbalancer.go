@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud/loadbalancer"
+	"danny.vn/vngcloud/pricing"
 )
 
 // loadbalancerOps is loadbalancer's operation table. Every read here needs
@@ -20,6 +21,11 @@ import (
 // exist anywhere else, and needs no Guard of its own: DeleteCertificate
 // itself refuses a certificate a listener still uses before sending
 // anything.
+//
+// quote-create-load-balancer and quote-resize-load-balancer are the vLB
+// writes design's L1 release: Read, per ADR 0002 rule 1, since a quote
+// orders nothing; both hide MaxPrice and NoWait with NoFlag since both
+// govern only an actual create or resize, which this SDK does not send yet.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -52,6 +58,12 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 	importCertificateOp(),
 	Write[loadbalancer.Client, loadbalancer.DeleteCertificateInput, loadbalancer.DeleteCertificateOutput](
 		kebab("DeleteCertificate"), (*loadbalancer.Client).DeleteCertificate, Destructive()),
+	Read[loadbalancer.Client, loadbalancer.CreateLoadBalancerInput, pricing.GetQuoteOutput](
+		kebab("QuoteCreateLoadBalancer"), (*loadbalancer.Client).QuoteCreateLoadBalancer,
+		NoFlag("MaxPrice", "NoWait")),
+	Read[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, pricing.GetQuoteOutput](
+		kebab("QuoteResizeLoadBalancer"), (*loadbalancer.Client).QuoteResizeLoadBalancer,
+		NoFlag("MaxPrice", "NoWait")),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {
