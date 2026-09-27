@@ -28,11 +28,11 @@ import (
 // govern only an actual create or resize, which this SDK does not send yet.
 //
 // create-load-balancer and delete-load-balancer are the design's L2
-// release. create-load-balancer takes requireYesForInternetLoadBalancer
-// (svc_loadbalancer_create.go) as its Guard: Scheme has no default, so the
-// design's own --yes rule applies only once the caller actually names
-// Internet. delete-load-balancer is Destructive: a deleted load balancer
-// loses its address and its prepaid time for good.
+// release. create-load-balancer takes requireYesUnlessSchemeInternal
+// (svc_loadbalancer_create.go) as its Guard: Scheme has no default, so every
+// value except Internal, trimmed and matched case-insensitively, needs
+// --yes. delete-load-balancer is Destructive: a deleted load balancer loses
+// its address and its prepaid time for good.
 //
 // resize-load-balancer is the design's L3 release: Write, no Guard, since
 // the CLI table gives it no --yes rule of its own; --max-price governs the
@@ -52,9 +52,10 @@ import (
 // release. create-listener and update-listener are built by hand
 // (createListenerOp, updateListenerOp, in svc_loadbalancer_listeners.go)
 // since AllowedCIDRs takes its own comma-separated --allowed-cidrs flag
-// rather than flags.go's default repeatable one, and needs --yes for a /0
-// prefix; CertificateIDs is NoFlag'd on both, per the design's nested
-// fields. delete-listener is Destructive.
+// rather than flags.go's default repeatable one, and needs --yes for any
+// entry outside every private range (requireYesForPublicListener);
+// CertificateIDs is NoFlag'd on both, per the design's nested fields.
+// delete-listener is Destructive.
 //
 // create-policy, update-policy, and delete-policy are the design's L6
 // release, the last one. Rules ([]PolicyRuleInput on create, a pointer to
@@ -101,7 +102,7 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 		NoFlag("MaxPrice", "NoWait")),
 	Write[loadbalancer.Client, loadbalancer.CreateLoadBalancerInput, loadbalancer.CreateLoadBalancerOutput](
 		kebab("CreateLoadBalancer"), (*loadbalancer.Client).CreateLoadBalancer,
-		Guard(requireYesForInternetLoadBalancer)),
+		Guard(requireYesUnlessSchemeInternal)),
 	Write[loadbalancer.Client, loadbalancer.DeleteLoadBalancerInput, loadbalancer.DeleteLoadBalancerOutput](
 		kebab("DeleteLoadBalancer"), (*loadbalancer.Client).DeleteLoadBalancer, Destructive()),
 	Write[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, loadbalancer.ResizeLoadBalancerOutput](

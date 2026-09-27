@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/loadbalancer"
 )
@@ -113,35 +115,77 @@ func TestLoadBalancerCreateLoadBalancerDefaultMaxPriceRefusesOrder(t *testing.T)
 	}
 }
 
-// TestLoadBalancerCreateLoadBalancerMaxPriceNaNExitsWithZeroRequests checks
-// that a NaN --max-price is refused with InvalidUsage and exit code 2 before
-// any request, mirroring monitor's own create-log-project test.
-func TestLoadBalancerCreateLoadBalancerMaxPriceNaNExitsWithZeroRequests(t *testing.T) {
+// TestLoadBalancerCreateLoadBalancerInvalidMaxPriceExitsWithZeroRequests
+// checks that a NaN, +Inf, or negative --max-price is refused with
+// InvalidUsage and exit code 2 before any request, mirroring monitor's own
+// create-log-project test.
+func TestLoadBalancerCreateLoadBalancerInvalidMaxPriceExitsWithZeroRequests(t *testing.T) {
+	for _, maxPrice := range []string{"NaN", "Inf", "-1"} {
+		t.Run(maxPrice, func(t *testing.T) {
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			root, _, stderr := newSvcRoot(t, fixture)
+			root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1"},
+				append(validCreateLoadBalancerArgs, "--max-price", maxPrice)...))
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatalf("expected a %s MaxPrice refusal", maxPrice)
+			}
+			if got := exitCode(err); got != 2 {
+				t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+			}
+			if got := fixture.requestCount(); got != 0 {
+				t.Fatalf("requestCount = %d, want 0", got)
+			}
+		})
+	}
+}
+
+// TestLoadBalancerCreateLoadBalancer502KeepsListAdvice checks that a 502 on
+// the create POST is sent exactly once (Once: the order is never resent)
+// and that the CLI's own error envelope keeps the SDK's advice to check
+// list-load-balancers --name before ordering again, not just the bare
+// "Bad Gateway" text the wrapped *APIError alone carries.
+func TestLoadBalancerCreateLoadBalancer502KeepsListAdvice(t *testing.T) {
+	var createCalls int
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		"/v1/price": jsonHandler(http.StatusOK, `{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"propertiesPrice":[]}`),
+		"/v2/proj-1/loadBalancers": func(w http.ResponseWriter, _ *http.Request) {
+			createCalls++
+			w.WriteHeader(http.StatusBadGateway)
 		},
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1"},
-		append(validCreateLoadBalancerArgs, "--max-price", "NaN")...))
+		append(validCreateLoadBalancerArgs, "--max-price", "400000")...))
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
-		t.Fatal("expected a NaN MaxPrice refusal")
+		t.Fatal("expected a 502 error")
 	}
-	if got := exitCode(err); got != 2 {
-		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	if createCalls != 1 {
+		t.Fatalf("createCalls = %d, want 1 (Once: never resent)", createCalls)
 	}
-	if got := fixture.requestCount(); got != 0 {
-		t.Fatalf("requestCount = %d, want 0", got)
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1 (stderr=%s)", got, stderr.String())
+	}
+	msg := classify(err).Message
+	if !strings.Contains(msg, "list-load-balancers --name") {
+		t.Fatalf("Message = %q, want it to name list-load-balancers --name", msg)
+	}
+	if !strings.Contains(msg, "may have already reached the server") {
+		t.Fatalf("Message = %q, want the ambiguous-create advice", msg)
 	}
 }
 
-// TestLoadBalancerCreateLoadBalancerInternetSchemeRequiresYes checks the
-// design's exposure guard: Scheme Internet, matched case-insensitively,
-// needs --yes; any other Scheme needs none. The guard runs before any
-// request, including the quote.
-func TestLoadBalancerCreateLoadBalancerInternetSchemeRequiresYes(t *testing.T) {
+// TestLoadBalancerCreateLoadBalancerSchemeRequiresYes checks the design's
+// exposure guard: every Scheme except Internal, trimmed of surrounding
+// space and matched case-insensitively, needs --yes, including a value the
+// SDK will itself go on to refuse as neither Internet nor Internal. The
+// guard runs before any request, including the quote.
+func TestLoadBalancerCreateLoadBalancerSchemeRequiresYes(t *testing.T) {
 	tests := []struct {
 		name        string
 		scheme      string
@@ -152,6 +196,9 @@ func TestLoadBalancerCreateLoadBalancerInternetSchemeRequiresYes(t *testing.T) {
 		{"Internet with --yes", "Internet", true, false},
 		{"lowercase internet without --yes", "internet", false, true},
 		{"uppercase INTERNET without --yes", "INTERNET", false, true},
+		{"leading space Internet without --yes", " Internet", false, true},
+		{"trailing space Internet without --yes", "Internet ", false, true},
+		{"a value the SDK will itself refuse without --yes", "Public", false, true},
 		{"Internal needs no --yes", "Internal", false, false},
 	}
 	for _, tt := range tests {
@@ -191,6 +238,70 @@ func TestLoadBalancerCreateLoadBalancerInternetSchemeRequiresYes(t *testing.T) {
 				t.Fatalf("requestCount = %d, want 2", n)
 			}
 		})
+	}
+}
+
+// TestRequireYesUnlessSchemeInternalIsCaseInsensitiveAndTrims checks
+// requireYesUnlessSchemeInternal directly, independent of the SDK's own
+// separate, exact-match check on CreateLoadBalancer (Scheme must read
+// exactly "Internet" or "Internal"): the guard's own case-insensitive,
+// trimmed match against Internal is a CLI-only convenience so an agent's
+// stray casing or whitespace does not turn a private load balancer into one
+// this guard fails to warn about, and it must not depend on the SDK ever
+// accepting the same value.
+func TestRequireYesUnlessSchemeInternalIsCaseInsensitiveAndTrims(t *testing.T) {
+	tests := []struct {
+		scheme       string
+		wantNeedsYes bool
+	}{
+		{"Internal", false},
+		{"internal", false},
+		{"INTERNAL", false},
+		{" Internal ", false},
+		{"Internet", true},
+		{"internet", true},
+		{"", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.scheme, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.Flags().Bool("yes", false, "")
+			err := requireYesUnlessSchemeInternal(cmd, &loadbalancer.CreateLoadBalancerInput{Scheme: tt.scheme})
+			if tt.wantNeedsYes && err == nil {
+				t.Fatalf("Scheme %q: expected the guard to require --yes", tt.scheme)
+			}
+			if !tt.wantNeedsYes && err != nil {
+				t.Fatalf("Scheme %q: expected no --yes requirement, got %v", tt.scheme, err)
+			}
+		})
+	}
+}
+
+// TestLoadBalancerCreateLoadBalancerCLIInputJSONSchemeRequiresYes checks that
+// the Scheme guard runs on the merged Input, so a Scheme set only through
+// --cli-input-json still needs --yes: --cli-input-json cannot bypass it.
+func TestLoadBalancerCreateLoadBalancerCLIInputJSONSchemeRequiresYes(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "create-load-balancer",
+		"--name", "lb-1", "--package-id", "pkg-1", "--type", "Layer 4",
+		"--subnet-id", "subnet-1", "--zone-id", "zone-1", "--no-wait",
+		"--cli-input-json", `{"Scheme":"Internet"}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected the guard to refuse this command")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := fixture.requestCount(); got != 0 {
+		t.Fatalf("requestCount = %d, want 0", got)
 	}
 }
 

@@ -110,10 +110,12 @@ func TestLoadBalancerCreateListenerMissingAllowedCIDRsExitsWithZeroRequests(t *t
 	}
 }
 
-// TestLoadBalancerCreateListenerOpenCIDRRequiresYes checks the design's
-// exposure guard: an AllowedCIDRs entry with prefix length 0 needs --yes;
-// a narrower prefix needs none. The guard runs before any request.
-func TestLoadBalancerCreateListenerOpenCIDRRequiresYes(t *testing.T) {
+// TestLoadBalancerCreateListenerPublicCIDRRequiresYes checks the design's
+// exposure guard: an AllowedCIDRs entry outside every private range (
+// 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) needs --yes; a
+// prefix wholly inside one of them needs none. The guard runs before any
+// request.
+func TestLoadBalancerCreateListenerPublicCIDRRequiresYes(t *testing.T) {
 	tests := []struct {
 		name        string
 		cidrs       string
@@ -124,6 +126,10 @@ func TestLoadBalancerCreateListenerOpenCIDRRequiresYes(t *testing.T) {
 		{"open CIDR with --yes", "0.0.0.0/0", true, false},
 		{"open CIDR among others without --yes", "10.0.0.0/24,0.0.0.0/0", false, true},
 		{"narrow CIDR needs no --yes", "10.0.0.0/24", false, false},
+		{"10.0.0.0/8 alone needs no --yes", "10.0.0.0/8", false, false},
+		{"the two halves of the address space without --yes", "0.0.0.0/1,128.0.0.0/1", false, true},
+		{"a single public /32 without --yes", "203.0.113.5/32", false, true},
+		{"an IPv6 default route without --yes", "::/0", false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,8 +209,8 @@ func TestLoadBalancerUpdateListenerSendsMergedBody(t *testing.T) {
 }
 
 // TestLoadBalancerUpdateListenerOpenCIDRRequiresYes checks that
-// update-listener's own --allowed-cidrs needs --yes for a /0 prefix, the
-// same guard create-listener runs.
+// update-listener's own --allowed-cidrs needs --yes for an entry outside
+// every private range, the same guard create-listener runs.
 func TestLoadBalancerUpdateListenerOpenCIDRRequiresYes(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/loadBalancers/lb-1": func(_ http.ResponseWriter, r *http.Request) {
@@ -219,6 +225,88 @@ func TestLoadBalancerUpdateListenerOpenCIDRRequiresYes(t *testing.T) {
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
 		t.Fatal("expected the guard to refuse this command")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := fixture.requestCount(); got != 0 {
+		t.Fatalf("requestCount = %d, want 0", got)
+	}
+}
+
+// TestLoadBalancerCreateListenerCLIInputJSONPublicCIDRRequiresYes checks that
+// the private-range guard runs on the merged Input, so AllowedCIDRs set only
+// through --cli-input-json still needs --yes for a public entry:
+// --cli-input-json cannot bypass it.
+func TestLoadBalancerCreateListenerCLIInputJSONPublicCIDRRequiresYes(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/loadBalancers/lb-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "create-listener",
+		"--load-balancer-id", "lb-1", "--name", "https", "--protocol", "HTTP", "--port", "80",
+		"--cli-input-json", `{"AllowedCIDRs":["0.0.0.0/0"]}`, "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected the guard to refuse this command")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := fixture.requestCount(); got != 0 {
+		t.Fatalf("requestCount = %d, want 0", got)
+	}
+}
+
+// TestLoadBalancerUpdateListenerCLIInputJSONPublicCIDRRequiresYes is
+// TestLoadBalancerCreateListenerCLIInputJSONPublicCIDRRequiresYes for
+// update-listener.
+func TestLoadBalancerUpdateListenerCLIInputJSONPublicCIDRRequiresYes(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/loadBalancers/lb-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "update-listener",
+		"--load-balancer-id", "lb-1", "--listener-id", "listener-1",
+		"--cli-input-json", `{"AllowedCIDRs":["0.0.0.0/0"]}`, "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected the guard to refuse this command")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := fixture.requestCount(); got != 0 {
+		t.Fatalf("requestCount = %d, want 0", got)
+	}
+}
+
+// TestLoadBalancerUpdateListenerEmptyAllowedCIDRsExitsWithZeroRequests
+// checks that an explicitly empty --allowed-cidrs on update-listener needs
+// no --yes (an empty list opens nothing) but is still refused, by the SDK's
+// own required-entry check, before any request.
+func TestLoadBalancerUpdateListenerEmptyAllowedCIDRsExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/loadBalancers/lb-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "update-listener",
+		"--load-balancer-id", "lb-1", "--listener-id", "listener-1", "--allowed-cidrs", "", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an InvalidUsage refusal")
 	}
 	if got := exitCode(err); got != 2 {
 		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
