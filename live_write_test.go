@@ -5254,7 +5254,7 @@ func deleteLiveIAMServiceAccountByExactName(ctx context.Context, t *testing.T, c
 			continue
 		}
 		if _, err := client.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: sa.ID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete service account %s: %s", name, safeErr(err))
+			t.Errorf("cleanup: delete service account: %s", safeErr(err))
 		}
 	}
 }
@@ -5488,16 +5488,16 @@ func deleteLiveIAMPolicyByExactName(ctx context.Context, t *testing.T, client *i
 		}
 		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
 		if err != nil {
-			t.Errorf("cleanup: list attachments for %s: %s", name, safeErr(err))
+			t.Errorf("cleanup: list attachments for policy: %s", safeErr(err))
 			continue
 		}
 		for _, saID := range attachments.ServiceAccountIDs {
 			if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: p.ID, ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("cleanup: detach policy %s: %s", name, safeErr(err))
+				t.Errorf("cleanup: detach policy: %s", safeErr(err))
 			}
 		}
 		if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: p.ID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete policy %s: %s", name, safeErr(err))
+			t.Errorf("cleanup: delete policy: %s", safeErr(err))
 		}
 	}
 }
@@ -5592,10 +5592,10 @@ func TestLiveWriteIAMPolicy(t *testing.T) {
 		t.Fatal("step 2: CreatePolicy returned an empty id")
 	}
 
-	// Step 3: register cleanup as soon as policyID is known, before any
-	// later step can fail and skip the explicit deletes below.
-	// serviceAccountID is filled in by step 4; the cleanup closure reads it
-	// when it runs, after the rest of the test body has finished.
+	// Register cleanup as soon as policyID is known, before any later step
+	// can fail and skip the explicit deletes below. serviceAccountID is
+	// filled in by step 4; the cleanup closure reads it when it runs, after
+	// the rest of the test body has finished.
 	var serviceAccountID string
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
