@@ -289,8 +289,8 @@ func TestComputeUpdateServerGroupResendsUnsetField(t *testing.T) {
 					if body["name"] != tt.want["name"] || body["description"] != tt.want["description"] {
 						t.Fatalf("body = %+v, want %+v", body, tt.want)
 					}
-					if _, ok := body["serverGroupId"]; ok {
-						t.Fatalf("body = %+v, must not send serverGroupId", body)
+					if body["serverGroupId"] != "server-group-1" {
+						t.Fatalf("body = %+v, want serverGroupId set to the path id server-group-1", body)
 					}
 					w.WriteHeader(http.StatusOK)
 				default:

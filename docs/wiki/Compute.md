@@ -109,10 +109,11 @@ is no wait.
 `UpdateServerGroup` changes `Name`, `Description`, or both; at least one
 must be set, or the call fails with `vngcloud.ErrInvalidInput` and sends
 nothing. The API takes a full replacement body, so the SDK reads the group
-first and resends whichever field the caller left `nil` unchanged, then
-reads the group once more after the `PUT` to build the Output from a shape
-the SDK trusts rather than the `PUT` response itself. If that confirm read
-fails, the write has already succeeded: the error wraps
+first and resends whichever field the caller left `nil` unchanged, plus a
+`serverGroupId` field set to the same id as the path (the `PUT` fails
+without it), then reads the group once more after the `PUT` to build the
+Output from a shape the SDK trusts rather than the `PUT` response itself.
+If that confirm read fails, the write has already succeeded: the error wraps
 `compute.ErrNotSettled`, and the Output falls back to the fields the `PUT`
 itself sent. There is no `PolicyID` field on the update; a group's policy
 cannot change after create.

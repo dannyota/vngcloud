@@ -28,11 +28,13 @@ var (
 )
 
 // serverGroupWriteBody is the request body UpdateServerGroup's PUT sends.
-// The API also takes tags, zoneId, and a serverGroupId string; the SDK
-// sends none of them unless a live check shows serverGroupId is needed.
+// ServerGroupID is always the path UUID: a PUT without it fails with 400
+// "serverGroupId: must not be null;", confirmed live. The API also takes
+// tags and zoneId; the SDK sends neither.
 type serverGroupWriteBody struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	ServerGroupID string `json:"serverGroupId"`
 }
 
 // createServerGroupBody is the request body CreateServerGroup's POST sends.
@@ -184,7 +186,7 @@ func (c *Client) UpdateServerGroup(ctx context.Context, in *UpdateServerGroupInp
 		Operation: op,
 		Method:    http.MethodPut,
 		URL:       c.computeURL("v2", []string{projectID, "serverGroups", in.ServerGroupID}, nil),
-		Body:      serverGroupWriteBody{Name: name, Description: description},
+		Body:      serverGroupWriteBody{Name: name, Description: description, ServerGroupID: in.ServerGroupID},
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {

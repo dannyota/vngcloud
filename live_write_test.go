@@ -3166,9 +3166,8 @@ func TestLiveWriteServerGroup(t *testing.T) {
 		t.Logf("step 6: duplicate name refused, %s", safeErr(dupErr))
 	}
 
-	// Step 7: update the group three ways, with serverGroupId left out of
-	// the body throughout, confirming each call resent the field it left
-	// out unchanged.
+	// Step 7: update the group three ways, confirming each call resent the
+	// field it left out unchanged.
 	update := func(step string, newName, desc *string) *compute.UpdateServerGroupOutput {
 		out, err := client.UpdateServerGroup(ctx, &compute.UpdateServerGroupInput{
 			ServerGroupID: groupID,
