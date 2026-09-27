@@ -3915,7 +3915,7 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 
 	// Step 1: create this run's own VPC and /24 subnet. createLiveVPCAndSubnet
 	// registers the VPC's own t.Cleanup as soon as its id is known.
-	vpcID, _ := createLiveVPCAndSubnet(ctx, t, client, portalClient)
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, client, portalClient)
 	t.Log("step 1: created this run's own VPC and /24 subnet")
 
 	// Step 2: delete every leftover vngcloud-live-* route table from a
@@ -3967,12 +3967,28 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	t.Logf("step 3: created route table, status %s, routes %d, wait %s",
 		created.RouteTable.Status, len(created.RouteTable.Routes), time.Since(start))
 
+	// A VPC created with no main route table gets one assigned
+	// automatically (confirmed live): the first table ever created in it
+	// becomes its main table. This VPC is this run's own and had no main
+	// table before this create, so becameMain answers the design's own
+	// open question of whether that first table carries any routes right
+	// after becoming main, rather than probing an existing VPC's main
+	// table for system routes as originally planned: this run has no such
+	// pre-existing VPC to probe.
 	vpcAfterCreate, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
 	if err != nil {
 		t.Fatalf("step 3 GetVPC (check main table): %s", safeErr(err))
 	}
 	becameMain := vpcAfterCreate.VPC.RouteTableID == routeTableID
-	t.Logf("step 3: new route table became the VPC's main route table: %v", becameMain)
+	routesAfterMain := created.RouteTable.Routes
+	if becameMain {
+		if refreshed, err := client.GetRouteTable(ctx, &network.GetRouteTableInput{RouteTableID: routeTableID}); err != nil {
+			t.Logf("step 3: GetRouteTable after becoming main: %s", safeErr(err))
+		} else {
+			routesAfterMain = refreshed.RouteTable.Routes
+		}
+	}
+	t.Logf("step 3: new route table became the VPC's main route table: %v, routes: %d", becameMain, len(routesAfterMain))
 
 	// Step 4: register the fallback cleanup as soon as routeTableID is
 	// known, before any later step can fail and skip the explicit delete
@@ -4082,20 +4098,31 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		t.Log("step 10: repeat remove returned NotFound as expected")
 	}
 
-	// Step 11: delete the table explicitly.
+	// Step 11: delete this run's own subnet before the route table. Step 3
+	// showed whether this table became the VPC's main table; when it did,
+	// this subnet relies on it implicitly (an empty routeTableUuid), which
+	// would refuse the table's own delete with ErrDefaultResource.
+	// DeleteSubnet waits for the subnet to leave the VPC's own subnet list.
+	start = time.Now()
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil {
+		t.Fatalf("step 11 DeleteSubnet: %s", safeErr(err))
+	}
+	t.Logf("step 11: deleted this run's subnet, wait %s", time.Since(start))
+
+	// Step 12: delete the table explicitly.
 	start = time.Now()
 	if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID}); err != nil {
-		t.Fatalf("step 11 DeleteRouteTable: %s", safeErr(err))
+		t.Fatalf("step 12 DeleteRouteTable: %s", safeErr(err))
 	}
-	t.Logf("step 11: deleted route table, wait %s", time.Since(start))
+	t.Logf("step 12: deleted route table, wait %s", time.Since(start))
 
-	// Step 12: repeat delete; the design expects NotFound, since the
+	// Step 13: repeat delete; the design expects NotFound, since the
 	// delete's own guard reads run first.
 	_, repeatErr := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID, NoWait: true})
 	if !vngcloud.IsNotFound(repeatErr) {
-		t.Errorf("step 12: repeat delete err = %s, want NotFound", safeErr(repeatErr))
+		t.Errorf("step 13: repeat delete err = %s, want NotFound", safeErr(repeatErr))
 	} else {
-		t.Log("step 12: repeat delete returned NotFound as expected")
+		t.Log("step 13: repeat delete returned NotFound as expected")
 	}
 }
 

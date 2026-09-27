@@ -142,9 +142,10 @@ On a VPC and `/24` subnet the run creates:
 2. Add a route to `10.251.200.0/24` with a target address inside the test
    subnet that no interface holds: accepted or refused, the new route's
    `routingType`, statuses from `UPDATING` to `ACTIVE`, time.
-3. On the test VPC's main route table: whether it has system routes, and
-   whether a `PUT` that leaves them out keeps them. Restore the table as
-   read afterwards.
+3. Whether the new table became the VPC's main table: a VPC created with
+   none gets one assigned automatically, and this run's own VPC has none
+   beforehand. When it did, whether that table carries any routes right
+   after becoming main.
 4. Remove the route: status and final list.
 5. Delete the route table: 202, then 404. Repeat delete: status.
 
