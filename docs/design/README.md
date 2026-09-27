@@ -21,3 +21,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vLB certificates](lb-certificates.md) | Accepted |
 | [vCR writes](vcr-writes.md) | Accepted |
 | [vLB writes](lb-writes.md) | Accepted |
+| [vServer paid writes](vserver-paid-writes.md) | Accepted |
