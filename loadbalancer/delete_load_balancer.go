@@ -92,6 +92,13 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 // core.ErrNotFound (settled) or the load balancer's ProgressStatus is
 // lbStatusError (failed); any other status, or any other read outcome,
 // keeps it polling.
+//
+// ERROR stops the wait at once rather than being polled through to the
+// bound: the design's wait table names it as a delete's own failed status,
+// the same as a create's or a resize's, with no note that it can still
+// resolve to 404 on its own. Whether that holds, and what the real failed
+// status is, is unverified until the live check; until then this follows
+// the table as written rather than assuming ERROR here is transient.
 func (c *Client) waitLoadBalancerDeleted(ctx context.Context, op, id string) error {
 	err := poll(ctx, c.now, c.sleep, 0, lbDeletePollInterval, lbDeleteBound,
 		func(ctx context.Context) (bool, error) {

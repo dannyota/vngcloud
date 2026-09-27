@@ -80,6 +80,23 @@ func checkPolicyRules(op string, rules []PolicyRuleInput) error {
 	return nil
 }
 
+// checkReadRulesComplete returns an error naming the first rule missing
+// RuleType, CompareType, or RuleValue, for the rules UpdatePolicy read back
+// and would otherwise resend unchanged when the caller leaves Rules unset.
+// policyRuleBodiesFromRead can only carry forward what L7Rule models; a rule
+// missing one of these three here would mean either a genuinely incomplete
+// read or a server rule shape this SDK does not fully capture, and
+// UpdatePolicy must refuse rather than silently resend it narrowed to
+// whatever it did decode.
+func checkReadRulesComplete(op string, rules []policyRuleBody) error {
+	for i, r := range rules {
+		if r.RuleType == "" || r.CompareType == "" || r.RuleValue == "" {
+			return &core.APIError{Operation: op, Message: fmt.Sprintf("policy rule %d read back incomplete; refusing to resend it unchanged", i)}
+		}
+	}
+	return nil
+}
+
 // checkPolicyRedirectFields returns core.ErrInvalidInput when action is
 // ActionRedirectToPool but redirectPoolID is empty or redirectURL is set,
 // or when action is ActionRedirectToURL but redirectURL is empty or
@@ -348,6 +365,8 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 	rules := policyRuleBodiesFromRead(policy.L7Rules)
 	if in.Rules != nil {
 		rules = policyRuleBodiesOf(*in.Rules)
+	} else if err := checkReadRulesComplete(op, rules); err != nil {
+		return nil, err
 	}
 	keepQueryString := policy.KeepQueryString
 	if in.KeepQueryString != nil {

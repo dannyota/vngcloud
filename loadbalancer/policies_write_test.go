@@ -282,6 +282,37 @@ func TestUpdatePolicyReadMergeResendsUnsetFields(t *testing.T) {
 	}
 }
 
+// TestUpdatePolicyRefusesIncompleteReadRule checks that UpdatePolicy refuses
+// to resend a rule the read carried back missing a field, rather than
+// silently narrowing it: with Rules left unset, the read-merge must resend
+// every rule exactly as read, and a rule this SDK cannot fully reconstruct
+// must stop the update instead of resending it incomplete.
+func TestUpdatePolicyRefusesIncompleteReadRule(t *testing.T) {
+	var putCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == policyLBPath:
+			policyLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == policyPath:
+			_, _ = w.Write([]byte(`{"data":{"uuid":"policy-1","action":"REDIRECT_TO_POOL","redirectPoolId":"pool-1",` +
+				`"keepQueryString":true,"l7Rules":[{"compareType":"EQUAL_TO","ruleType":"PATH"}],` +
+				`"progressStatus":"CREATED"}}`))
+		case r.Method == http.MethodPut:
+			putCalls.Add(1)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := &UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID, KeepQueryString: vngcloud.Ptr(false)}
+	if _, err := c.UpdatePolicy(context.Background(), in); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want an error for an incomplete read rule")
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
+	}
+}
+
 func TestUpdatePolicyReplacesRules(t *testing.T) {
 	var body map[string]any
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

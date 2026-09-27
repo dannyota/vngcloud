@@ -293,6 +293,11 @@ func (c *Client) waitChildSettled(ctx context.Context, op, lbID, kind, id string
 // reports the child gone (notFound true) and a fresh GetLoadBalancer shows
 // lbID no longer busy (settled), or getStatus reports lbStatusError
 // (failed); any other status keeps it polling.
+//
+// As with waitLoadBalancerDeleted, ERROR stops the wait at once rather than
+// being polled through to the bound, matching the design's wait table
+// (Child delete: Failed ERROR) rather than assuming it can still resolve to
+// 404; see that function's doc comment.
 func (c *Client) waitChildDeleted(ctx context.Context, op, lbID, kind, id string, getStatus func(ctx context.Context) (status string, notFound bool, err error)) error {
 	err := poll(ctx, c.now, c.sleep, 0, childPollInterval, childBound,
 		func(ctx context.Context) (bool, error) {
