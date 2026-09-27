@@ -2,13 +2,13 @@
 
 `network` is `danny.vn/vngcloud/network`, with its own `New(cfg)`. It reads
 VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
-ACLs, interconnects, and endpoints; see the [Network section of
-Services](Services.md#network) for that full read list. This page covers
-security groups and their rules, VPCs, subnets, and Private DNS, the
-network resources this SDK writes here. See [Network Route
-Tables](Network-RouteTables.md) for route tables and routes, and [Network
-ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations.
-Servers, volumes, and floating IPs stay read-only.
+ACLs, interconnects, and endpoints; see [Services](Services.md#network) for
+that full read list. This page covers security groups and their rules, VPCs,
+subnets, and Private DNS, the network resources this SDK writes here. See
+[Network Route Tables](Network-RouteTables.md) for route tables and routes,
+[Network ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations,
+and [Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs. Servers,
+volumes, and floating IPs stay read-only.
 
 If a VPC, subnet, route table, ACL, or security group is managed by
 OpenTofu or Terraform, a write made here drifts from that state; keep such
@@ -429,9 +429,10 @@ the resource still holds something, or that the server's own refusal named
 it in use; see [Creating, renaming, and deleting
 VPCs](#creating-renaming-and-deleting-vpcs) and [Creating, renaming, and
 deleting subnets](#creating-renaming-and-deleting-subnets) above.
-`DeleteRouteTable` and `DeleteNetworkACL` return the same `ErrInUse`,
-alongside their own `ErrDefaultResource` and `ErrBusy`; see [Network Route
-Tables](Network-RouteTables.md) and [Network ACLs](Network-ACLs.md) for
+`DeleteRouteTable`, `DeleteNetworkACL`, and `DeleteVirtualIPAddress` also
+return `ErrInUse`; the first two add their own `ErrDefaultResource` and
+`ErrBusy`. See [Network Route Tables](Network-RouteTables.md), [Network
+ACLs](Network-ACLs.md), and [Network Virtual IPs](Network-VirtualIPs.md) for
 those. `ErrUnexpectedStatus` means `EnableVPCPrivateDNS` read a `dnsStatus`
 this SDK does not know how to act on. `ErrFailed` means a create or delete
 reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
@@ -448,3 +449,8 @@ See [Network Route Tables](Network-RouteTables.md) for `GetRouteTable`,
 See [Network ACLs](Network-ACLs.md) for `GetNetworkACL`, `CreateNetworkACL`,
 `DeleteNetworkACL`, `AddNetworkACLRule`, `RemoveNetworkACLRule`,
 `AssociateNetworkACLSubnet`, and `DisassociateNetworkACLSubnet`.
+
+## Virtual IPs
+
+See [Network Virtual IPs](Network-VirtualIPs.md) for `CreateVirtualIPAddress`,
+`UpdateVirtualIPAddress`, and `DeleteVirtualIPAddress`.
