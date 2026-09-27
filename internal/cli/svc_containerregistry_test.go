@@ -614,13 +614,17 @@ func TestContainerRegistryListPermissionsEndToEnd(t *testing.T) {
 const containerRegistryTestSecret = "vcr-test-secret-not-a-real-value"
 
 // containerRegistryUserFixture builds the fixture create-user's own tests
-// share: permissions, create, and post-create list handlers, plus an
-// optional delete handler. listNames names the rows the post-create list
-// answers with, so a test can drive either a single exact match or the
-// UserNotFound case (no match) by passing zero or several names.
+// share: permissions, create, and list handlers, plus an optional delete
+// handler. CreateUser lists by name twice: once before the create, to refuse
+// a taken name, and once after, to resolve the new row. This fixture answers
+// the first GET with no match, so the pre-create check always passes, and
+// every later GET with listNames, so a test still drives the post-create
+// lookup's own single-match or UserNotFound (no match) case by passing one or
+// zero names.
 func containerRegistryUserFixture(t *testing.T, listNames []string, deleteHandler func(http.ResponseWriter, *http.Request)) (*svcFixture, *[]byte) {
 	t.Helper()
 	var createBody []byte
+	getCount := 0
 	routes := map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/user/permissions": jsonHandler(http.StatusOK, listPermissionsJSON()),
 		"/v1/user": func(w http.ResponseWriter, r *http.Request) {
@@ -636,7 +640,12 @@ func containerRegistryUserFixture(t *testing.T, listNames []string, deleteHandle
 				}
 				_, _ = w.Write(b)
 			case http.MethodGet:
+				getCount++
 				w.Header().Set("Content-Type", "application/json")
+				if getCount == 1 {
+					_, _ = w.Write([]byte(userListJSON()))
+					return
+				}
 				_, _ = w.Write([]byte(userListJSON(listNames...)))
 			default:
 				t.Fatalf("unexpected method %s for /v1/user", r.Method)
@@ -787,6 +796,41 @@ func TestContainerRegistryCreateUserRefusesExistingSecretFile(t *testing.T) {
 	}
 }
 
+// TestContainerRegistryCreateUserRefusesTakenName checks the vCR writes
+// design's create-user step 3: the pre-create list already finds a row
+// named exactly like --name, so the command exits InvalidUsage before any
+// create request and writes no --secret-file.
+func TestContainerRegistryCreateUserRefusesTakenName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vcr-secret")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/user/permissions": jsonHandler(http.StatusOK, listPermissionsJSON()),
+		"/v1/user": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("unexpected method %s for /v1/user, want GET (no create should be sent for a taken name)", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(userListJSON("app-ci")))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs(containerRegistryCreateUserArgs(path))
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for a name that is already taken")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Fatalf("a --secret-file was written at %s despite the taken name", path)
+	}
+}
+
 // TestContainerRegistryCreateUserNotFoundStillWritesSecretFile checks the vCR
 // writes design's create-user step 4 and errors table: when the create
 // itself succeeds but the post-create list finds no row named exactly like
@@ -873,17 +917,18 @@ func TestContainerRegistryCreateUserSecretFileFailureDeletesUser(t *testing.T) {
 	}
 }
 
-// TestContainerRegistryCreateUserSecretFileFailureNamesUserByNameWhenDeleteFails
-// checks the vCR writes design's create-user step 3 for its own exceptional
-// case: when the cleanup delete itself also fails, even though the user's id
-// was known, the error names the user only by --name, not by id, so a person
-// can find and delete it with list-users --name <name>.
-func TestContainerRegistryCreateUserSecretFileFailureNamesUserByNameWhenDeleteFails(t *testing.T) {
+// TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDeleteFails
+// checks create-user's own exceptional case: when the cleanup delete itself
+// also fails, even though the user's id was known, the error names the user
+// by that id and includes both the write error and the delete error, so a
+// person can act on why each one failed, while the secret itself, which
+// neither error can hold, never appears.
+func TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDeleteFails(t *testing.T) {
 	path := filepath.Join(unwritableSecretFileDir(t), "vcr-secret")
 
 	fixture, _ := containerRegistryUserFixture(t, []string{"app-ci"}, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		_, _ = w.Write([]byte(`{"message":"cleanup delete boom"}`))
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs(containerRegistryCreateUserArgs(path))
@@ -894,14 +939,18 @@ func TestContainerRegistryCreateUserSecretFileFailureNamesUserByNameWhenDeleteFa
 	if got := classify(err).Code; got != "SecretFileFailed" {
 		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", got, stderr.String())
 	}
-	if !strings.Contains(err.Error(), "app-ci") {
-		t.Fatalf("error = %q, want it to name the user by --name (app-ci)", err.Error())
+	if !strings.Contains(err.Error(), "ra-1") {
+		t.Fatalf("error = %q, want it to name the user by its known id (ra-1)", err.Error())
 	}
-	if strings.Contains(err.Error(), "ra-1") {
-		t.Fatalf("error = %q, want it to name the user only by --name, not its id", err.Error())
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("error = %q, want it to include the write error", err.Error())
 	}
-	if strings.Contains(stdout.String(), containerRegistryTestSecret) || strings.Contains(stderr.String(), containerRegistryTestSecret) {
-		t.Fatalf("the secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	if !strings.Contains(err.Error(), "cleanup delete boom") {
+		t.Fatalf("error = %q, want it to include the delete error", err.Error())
+	}
+	if strings.Contains(stdout.String(), containerRegistryTestSecret) || strings.Contains(stderr.String(), containerRegistryTestSecret) ||
+		strings.Contains(err.Error(), containerRegistryTestSecret) {
+		t.Fatalf("the secret leaked into output: stdout=%s stderr=%s err=%s", stdout.String(), stderr.String(), err.Error())
 	}
 }
 

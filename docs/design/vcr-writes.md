@@ -350,8 +350,9 @@ follows [CLI secret files](cli.md#secret-files) and the steps of
    --password-stdin` strips.
 3. If the write fails, it removes any partial file, deletes the new user,
    and exits 1 with `SecretFileFailed`. Without a user ID (after
-   `ErrUserNotFound`) or if that delete fails, the error names the user
-   name so a person can delete it.
+   `ErrUserNotFound`), the error names the user name so a person can
+   delete it. If the delete fails, the error names the user ID and both
+   the write and delete errors.
 4. Stdout gets the user without the secret: `SecretKey` prints as
    `[redacted]`, and a `SecretFile` field names the path. The wiki names
    the field that is the `docker login` username.

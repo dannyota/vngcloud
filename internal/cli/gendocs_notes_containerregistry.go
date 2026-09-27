@@ -55,23 +55,23 @@ const containerRegistryUserNameNote = "The server applies no account prefix: a r
 // Permissions only as a Go type settable through --cli-input-json, and no
 // --secret-file at all, since it backs no Input field.
 const containerRegistryCreateUserNote = "The server requires --name to be 6 to 14 characters of letters, " +
-	"digits, '_', or '-', starting with a letter or digit, and refuses any other name with 400. Each " +
-	"Permissions[].Actions entry must exactly match one of the server's own action names, read from " +
-	"list-permissions: currently \"Pull Images\", \"Push Images\", and \"All\"; an unknown action is refused " +
-	"before any request, naming the ones list-permissions did return. Needs --secret-file <path>: the create " +
-	"returns the new secret once, and this command writes it only to that file, at mode 0600, never to " +
-	"stdout, stderr, --debug, or an error message; the printed SecretKey field always reads \"[redacted]\", " +
-	"and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked " +
-	"before any request. The create is never retried after a failure that may have already reached the " +
-	"server: run list-users --name <name> and delete a stray match before creating again, rather than " +
-	"repeating this command blindly, since that match has already lost its secret. When the create itself " +
-	"succeeds but a follow-up list cannot confirm the new user by name (error code UserNotFound), the secret " +
-	"is still written to --secret-file and the command still exits 1; check list-users --name <name> by hand. " +
-	"If writing --secret-file itself fails, the new user is deleted through the SDK and the command exits 1 " +
-	"with error code SecretFileFailed; without a confirmed user id (after UserNotFound) or if that delete " +
-	"also fails, the message names the user only by --name, for a person to find and delete by hand. Which of " +
-	"the printed User's Name or a repository's own Name is docker login's -u value is unconfirmed; the vCR " +
-	"writes design recommends trying the user's Name first."
+	"digits, '_', or '-', starting with a letter or digit, and refuses any other name with 400. A name that " +
+	"already matches an existing user's is refused with InvalidUsage before any create request; check " +
+	"list-users --name <name>. Each Permissions[].Actions entry must exactly match one of the server's own " +
+	"action names, read from list-permissions: currently \"Pull Images\", \"Push Images\", and \"All\"; an " +
+	"unknown action is refused before any create request, naming the ones list-permissions did return. Needs " +
+	"--secret-file <path>: the create returns the new secret once, and this command writes it only to that " +
+	"file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed SecretKey field " +
+	"always reads \"[redacted]\", and a SecretFile field names the path. --secret-file must not already exist, " +
+	"symlink included, checked before any request. The create is never retried after a failure that may have " +
+	"already reached the server: run list-users --name <name> and delete a stray match before creating again, " +
+	"rather than repeating this command blindly, since that match has already lost its secret. When the create " +
+	"itself succeeds but a follow-up list cannot confirm the new user by name (error code UserNotFound), the " +
+	"secret is still written to --secret-file and the command still exits 1; check list-users --name <name> by " +
+	"hand. If writing --secret-file itself fails, the new user is deleted through the SDK and the command " +
+	"exits 1 with error code SecretFileFailed; without a confirmed user id (after UserNotFound) or if that " +
+	"delete also fails, the message names the user only by --name, for a person to find and delete by hand. " +
+	"Which of the printed User's Name or a repository's own Name is docker login's -u value is unconfirmed."
 
 // containerRegistryDeleteUserNote documents delete-user's repeat-delete
 // status, since the flag table shows only --user-id.

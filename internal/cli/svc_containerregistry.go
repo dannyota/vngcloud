@@ -112,13 +112,18 @@ func callCreateUser(cmd *cobra.Command, client *containerregistry.Client, ctx co
 // succeeding, since the user is gone either way), names the user by that id,
 // the same shape callCreateSSHKey (svc_compute.go) already reports for a
 // compute SSH key. Without a known id, after containerregistry.ErrUserNotFound
-// left User unfilled, or when the delete itself fails, the design calls for
-// naming the user only by the --name the caller gave, not an id, so a person
-// can find and delete it by hand with list-users --name <name>; both of those
-// cases share newCreateUserCleanupFailed below. The cleanup delete runs on a
-// context detached from ctx (context.WithoutCancel, with the same bound
-// callCreateSSHKey's own cleanup delete uses), so a canceled command still
-// cleans up the orphaned user.
+// left User unfilled, the user cannot be deleted automatically, so the design
+// calls for naming it only by the --name the caller gave, so a person can
+// find and delete it by hand with list-users --name <name>
+// (newCreateUserCleanupFailed). When the id is known but the cleanup delete
+// itself also fails, the id is already in hand, so the message names it
+// directly and includes writeErr's and delErr's own text
+// (newCreateUserDeleteCleanupFailed): neither can hold the secret, which the
+// create response returns only once and which this function never passes to
+// either, so quoting them helps someone fix the write or the delete rather
+// than guess. The cleanup delete runs on a context detached from ctx
+// (context.WithoutCancel, with the same bound callCreateSSHKey's own cleanup
+// delete uses), so a canceled command still cleans up the orphaned user.
 func cleanUpAfterFailedUserSecretFile(ctx context.Context, client *containerregistry.Client, name, userID string, writeErr error) error {
 	if userID == "" {
 		return newCreateUserCleanupFailed(name)
@@ -126,20 +131,30 @@ func cleanUpAfterFailedUserSecretFile(ctx context.Context, client *containerregi
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), secretFileCleanupDeleteTimeout)
 	defer cancel()
 	if _, delErr := client.DeleteUser(cleanupCtx, &containerregistry.DeleteUserInput{UserID: userID}); delErr != nil && !vngcloud.IsNotFound(delErr) {
-		return newCreateUserCleanupFailed(name)
+		return newCreateUserDeleteCleanupFailed(userID, writeErr, delErr)
 	}
 	return newSecretFileWriteFailed("user", userID, writeErr)
 }
 
 // newCreateUserCleanupFailed reports a create-user --secret-file write
-// failure whose orphaned user cannot be deleted automatically, either
-// because CreateUser's own post-create lookup never confirmed its id (an
-// error wrapping containerregistry.ErrUserNotFound) or because the cleanup
-// delete this command tried itself failed. Per the vCR writes design, both
-// cases name the user only by the --name the caller gave, not an id, so a
-// person can find and delete it with list-users --name <name>.
+// failure whose orphaned user has no confirmed id to delete automatically,
+// after containerregistry.ErrUserNotFound left User unfilled. Per the vCR
+// writes design, this names the user only by the --name the caller gave, so
+// a person can find and delete it with list-users --name <name>.
 func newCreateUserCleanupFailed(name string) error {
 	return secretFileFailedError{msg: fmt.Sprintf(
 		"could not write --%s: user %q exists and must be deleted; check with list-users --name %q",
 		secretFileFlagName, name, name)}
+}
+
+// newCreateUserDeleteCleanupFailed reports a create-user --secret-file write
+// failure whose cleanup delete of the new user, already known by id, itself
+// also failed: unlike newCreateUserCleanupFailed's name-only message, the id
+// is already in hand here, so the message names it directly and includes
+// writeErr's and delErr's own text, never the secret, which neither error
+// can hold.
+func newCreateUserDeleteCleanupFailed(userID string, writeErr, delErr error) error {
+	return secretFileFailedError{msg: fmt.Sprintf(
+		"could not write --%s: %s; then could not delete orphaned user %s: %s; delete it manually",
+		secretFileFlagName, writeErr, userID, delErr)}
 }
