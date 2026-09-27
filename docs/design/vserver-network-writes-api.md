@@ -109,7 +109,7 @@ All live, except the replace calls.
 
 | Resource | Get after delete | Repeat delete |
 |-|-|-|
-| Server group | 200 with `data` null | Not probed |
+| Server group | 200 with `data` null | Not found (live) |
 | VPC | 404, 3 to 42 s after the delete | Not probed |
 | Subnet | 200 with status `DELETED` for more than 5 minutes; gone from the VPC's subnet list | 500 |
 | Route table | 404 `Route Table with uuid <id> not found`, about 5 s after | Not probed |
@@ -117,7 +117,9 @@ All live, except the replace calls.
 
 Each create decodes into a private response type and maps it to the public
 model, as security group create does, so a field type that differs from
-the read model cannot fail the decode.
+the read model cannot fail the decode. Server group create is the
+exception: its live response matches the read model, so it decodes into
+`ServerGroup` directly.
 
 ## Server rules (from the product docs)
 
@@ -150,8 +152,9 @@ the read model cannot fail the decode.
   moves it. An ACL with subnets cannot be deleted.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
-  are unique (live: a duplicate create returns 400); a group with servers
-  is refused (`server group is in use`).
+  are unique (live: a duplicate create returns 400). VNG Cloud's own SDK
+  says a group with servers is refused (`server group is in use`); not
+  verified live.
 - Live quota on the test account: 2 VPCs, 5 subnets, 5 server groups, 100
   routes, and 10 routes per route table.
 

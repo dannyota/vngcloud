@@ -121,7 +121,7 @@ const computeGetServerGroupNote = "A deleted, or otherwise unknown, group ID rea
 // guard and its unverified in-use status: the flag table shows only
 // --server-group-id, with no hint of the list scan this command runs before
 // its own DELETE.
-const computeDeleteServerGroupNote = "Refuses, before any request, a group with any server attached, found " +
+const computeDeleteServerGroupNote = "Refuses, before any write, a group with any server attached, found " +
 	"by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, " +
 	"and what status that refusal carries, has not been confirmed live."
 
@@ -281,14 +281,14 @@ const networkCreateSecurityGroupRuleNote = "Confirmed live: the new rule is alre
 // guards and its unverified in-use status: the flag table shows only
 // --security-group-id, with no hint of the reads this command makes before
 // its own DELETE.
-const networkDeleteSecurityGroupNote = "Refuses, before any request, a system group or a group with any " +
+const networkDeleteSecurityGroupNote = "Refuses, before any write, a system group or a group with any " +
 	"server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete " +
 	"the server itself refuses as in use for some other reason has not been confirmed live."
 
 // networkDeleteSecurityGroupRuleNote documents delete-security-group-rule's
 // pre-read guard and repeat-delete status: the flag table shows only the
 // two IDs, with no hint that this command lists the group's rules first.
-const networkDeleteSecurityGroupRuleNote = "Refuses, before any request, a rule that does not belong to " +
+const networkDeleteSecurityGroupRuleNote = "Refuses, before any write, a rule that does not belong to " +
 	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
@@ -310,6 +310,7 @@ var docOpNotes = map[string]string{
 	"network delete-security-group-rule":      networkDeleteSecurityGroupRuleNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
+	"compute update-server-group":             "vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>",
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,

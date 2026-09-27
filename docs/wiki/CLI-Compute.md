@@ -37,7 +37,7 @@ vngcloud compute create-ssh-key --name <name> --secret-file <secret-file>
 
 Kind: Write, destructive.
 
-Refuses, before any request, a group with any server attached, found by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, and what status that refusal carries, has not been confirmed live.
+Refuses, before any write, a group with any server attached, found by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, and what status that refusal carries, has not been confirmed live.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -225,6 +225,8 @@ vngcloud compute list-user-images
 ## update-server-group
 
 Kind: Write.
+
+vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>
 
 | Flag | Type | Required |
 |-|-|-|

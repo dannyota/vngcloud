@@ -43,7 +43,7 @@ vngcloud network create-security-group-rule --security-group-id <security-group-
 
 Kind: Write, destructive.
 
-Refuses, before any request, a system group or a group with any server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete the server itself refuses as in use for some other reason has not been confirmed live.
+Refuses, before any write, a system group or a group with any server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete the server itself refuses as in use for some other reason has not been confirmed live.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -57,7 +57,7 @@ vngcloud network delete-security-group --security-group-id <security-group-id> -
 
 Kind: Write, destructive.
 
-Refuses, before any request, a rule that does not belong to the named group. A repeat delete of an already-deleted rule also returns NotFound.
+Refuses, before any write, a rule that does not belong to the named group. A repeat delete of an already-deleted rule also returns NotFound.
 
 | Flag | Type | Required |
 |-|-|-|

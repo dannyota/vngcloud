@@ -83,7 +83,7 @@ All methods live in `network`.
   stay on the server (ADR 0002 rule 5). The SDK does not check that a
   subnet lies inside its VPC; the server does.
 - `CreateVPC` sends no `zoneId`, which the server ignores. This is the
-  recommendation of [decision A](#owner-decisions-after-the-probes).
+  approved [decision A](#owner-decisions-after-the-probes).
 - `CreateSubnet` sends `ZoneID` as `zoneId`; the server refuses a create
   without an enabled zone. The SDK picks no default, since a guess places
   the subnet and its servers in a zone the caller did not choose. The CLI
