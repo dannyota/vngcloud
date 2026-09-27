@@ -43,9 +43,9 @@ log.Println(created.Server.UUID, created.MonthlyPrice)
 `CreateServer`'s `MaxPrice` is VND a month and defaults to 0, so an Input
 with no `MaxPrice` set always refuses with `vngcloud.ErrPriceAboveMax` and
 orders nothing: raising `MaxPrice` to the quote's own `OptimumPrice` is the
-caller's explicit consent to pay that price, the same role the CLI's
-`--max-price` flag plays for `vngcloud compute create-server`. Before any
-request, `CreateServer` also rejects a `NaN`, `+Inf`, `-Inf`, or negative
+caller's explicit consent to pay that price, the same role the CLI command
+plays (see [CLI-Compute](CLI-Compute.md)). Before any request,
+`CreateServer` also rejects a `NaN`, `+Inf`, `-Inf`, or negative
 `MaxPrice` with `vngcloud.ErrInvalidInput`. It then lists every server and
 refuses, also with `vngcloud.ErrInvalidInput`, when one already exists with
 `Name` exactly (`ListServers` has no name filter of its own, so this scans
@@ -131,12 +131,13 @@ log.Println(deleted.DeletedVolumeIDs)
 `volume.ListVolumesByServer`, before sending anything. With
 `DeleteVolumes` false (the default), its volumes, including the boot
 volume, stay and keep being billed: `KeptVolumeIDs` names every volume
-still attached after the delete settles, since the CLI's `--yes` flag
-consents only to deleting the server, not silently losing data on
-volumes still costing money; pass `DeleteVolumes` (`--delete-volumes` on
-the CLI) to delete them with the server. `DELETE` keeps the transport's
-normal retries. Unless `NoWait` is set, `DeleteServer` then waits up to 10
-minutes, polling every 5 seconds, for the server to be gone; `ERROR` wraps
+still attached after the delete settles, since deleting a server should
+never silently lose data on volumes still costing money; pass
+`DeleteVolumes` to delete them with the server (see
+[CLI-Compute](CLI-Compute.md) for the matching CLI command). `DELETE`
+keeps the transport's normal retries. Unless `NoWait` is set,
+`DeleteServer` then waits up to 10 minutes, polling every 5 seconds, for
+the server to be gone; `ERROR` wraps
 `compute.ErrFailed`, and the bound running out wraps
 `compute.ErrNotSettled`. A rerun is always safe, since `DeleteServer`
 always reads first.

@@ -102,7 +102,10 @@ them; the SDK sends `zoneId` only on creates.
   delete, resize, attach, and detach return `data` holding the volume.
 - The quote returns `optimumPrice`, `originalPrice`, `discountPrice`,
   `discountPercent`, and `propertiesPrice` at the top level (live), as
-  [billing](billing.md#price-quotes) records.
+  [billing](billing.md#price-quotes) records. The response carries no
+  currency field; every price in this design, and every guard compared
+  against `MaxPrice`, assumes VND, matching the account's own region and
+  the console's own display.
 
 ## Statuses
 

@@ -82,8 +82,8 @@ if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{
 `CreateVolumeInput{Name: "x", ZoneID: z, Size: 10, VolumeTypeID: t}` alone
 always refuses with `vngcloud.ErrPriceAboveMax` and orders nothing: raising
 `MaxPrice` to the quote's own `OptimumPrice` is the caller's explicit
-consent to pay that price, the same role the CLI's `--max-price` flag
-plays for `vngcloud volume create-volume`. Before any request,
+consent to pay that price, the same role the CLI command plays (see
+[CLI-Volume](CLI-Volume.md)). Before any request,
 `CreateVolume` also rejects a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice`
 with `vngcloud.ErrInvalidInput`, since none of those compares safely
 against a quote. It then lists volumes by `Name` and refuses, also with
@@ -160,18 +160,21 @@ to 5 minutes, polling every 2 seconds, for the volume to read `IN-USE`
 with `ServerID` among its attached servers.
 
 `DetachVolume` reads the volume first: not attached to `ServerID` returns
-at once with `Changed` false, sending nothing. Attached, but it is the
-server's boot volume (`Volume.Bootable`), refuses with
-`volume.ErrBootVolume`, sending nothing: detaching the disk a server boots
-from is never allowed. Unless `AllowRunning` is set, `DetachVolume` also
-reads the server's own status and refuses with `volume.ErrServerRunning`,
-sending nothing, when it is `ACTIVE`: the volume may be mounted there, and
-detaching an in-use filesystem can lose unwritten data. Stop the server
-first, or unmount it yourself and pass `AllowRunning`, the same role the
-CLI's `--allow-running` flag plays for `vngcloud volume detach-volume`.
-The `PUT` keeps the transport's normal retries. Unless `NoWait` is set, it
-then waits up to 5 minutes, polling every 2 seconds, for the volume to
-read `AVAILABLE`.
+at once with `Changed` false, sending nothing. Attached, `DetachVolume`
+always reads the server next, whether or not `AllowRunning` is set, and
+refuses with `volume.ErrBootVolume`, sending nothing, when `VolumeID`
+equals the server's own boot volume id, when `Volume.Bootable` says so, or
+when the server's read carries no boot volume id at all: a missing id
+cannot rule out this being the boot volume, so it fails closed. Unless
+`AllowRunning` is set, that same read's status must be `STOPPED`; any
+other status, including one this SDK does not recognize or an empty
+string, refuses with `volume.ErrServerRunning`, sending nothing, since the
+volume may be mounted on a server that is not fully stopped. Stop the
+server first, or unmount it yourself and pass `AllowRunning`, the same
+role the CLI command plays (see [CLI-Volume](CLI-Volume.md)). The `PUT`
+keeps the transport's normal retries. Unless `NoWait` is set, it then
+waits up to 5 minutes, polling every 2 seconds, for the volume to read
+`AVAILABLE`.
 
 ## Resizing
 
