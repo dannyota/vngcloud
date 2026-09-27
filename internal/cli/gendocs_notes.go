@@ -399,6 +399,30 @@ var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a 
 	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
 	"parsed prefix is refused, nothing sent.")
 
+// networkCreateVirtualIPAddressNote documents create-virtual-ip-address's
+// own retry advice and its wait, neither of which the flag table can show:
+// Mode is a plain, required string with no hint that a create must never be
+// retried blind, or that its post-create wait has never been seen to poll at
+// all.
+const networkCreateVirtualIPAddressNote = "Never resent after a failure that may have already reached the " +
+	"server: list-virtual-ip-addresses and match --name exactly, or --ip-address if one was given, before " +
+	"creating again, rather than retrying blind. Waits up to 60 seconds for ACTIVE only when the create " +
+	"response itself is not already there; whether the server ever actually returns an intermediate status, " +
+	"so this wait ever runs at all, has not been confirmed live."
+
+// networkDeleteVirtualIPAddressNote documents delete-virtual-ip-address's
+// pre-delete guards, including the one that currently refuses every virtual
+// IP: the flag table shows only --virtual-ip-address-id, with no hint that
+// this command can never delete anything yet.
+const networkDeleteVirtualIPAddressNote = "Refuses, before any request, with error code ResourceInUse, a " +
+	"virtual IP that still has an address pair, found either on its own read or by " +
+	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
+	"deleting it would move traffic. Refuses, with error code InvalidUsage, a virtual IP whose Type is not " +
+	"the empty string, so a public virtual IP, which has its own delete call and price, is never deleted " +
+	"through this one; no live check has yet recorded what Type value a private virtual IP itself carries, " +
+	"so today this command refuses every virtual IP, private included, until that value is confirmed and the " +
+	"SDK is updated to accept it."
+
 // loadbalancerImportCertificateNote documents import-certificate's file
 // flags and their rules, none of which the flag table can show on its own:
 // --name and --type still take ordinary flags, but every field that can
@@ -497,6 +521,8 @@ var docOpNotes = map[string]string{
 	"network remove-network-acl-rule":         networkRemoveNetworkACLRuleNote,
 	"network associate-network-acl-subnet":    networkAssociateNetworkACLSubnetNote,
 	"network disassociate-network-acl-subnet": networkDisassociateNetworkACLSubnetNote,
+	"network create-virtual-ip-address":       networkCreateVirtualIPAddressNote,
+	"network delete-virtual-ip-address":       networkDeleteVirtualIPAddressNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -576,15 +602,19 @@ var docJSONPlaceholders = map[string]string{
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
 // field to change. compute update-server-group is the same shape: it also
-// requires Name or Description. compute create-ssh-key does not need an entry here even
+// requires Name or Description. network update-virtual-ip-address is the
+// same shape again: VirtualIPAddressID is its only required field, but
+// UpdateVirtualIPAddress also requires at least one of Name, Description, or
+// Mode to change. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
 // required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
-	"compute update-server-group": "name",
-	"dns update-hosted-zone":      "description",
-	"dns update-record":           "ttl",
-	"monitor update-check":        "name",
+	"compute update-server-group":       "name",
+	"dns update-hosted-zone":            "description",
+	"dns update-record":                 "ttl",
+	"monitor update-check":              "name",
+	"network update-virtual-ip-address": "name",
 }
 
 // docExampleOverride gives a full example command line for "service
