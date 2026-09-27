@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"net/http"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
+
+// createServerWithheldMessage replaces a failing create response's own
+// message when Input.UserData is set: the response could otherwise quote
+// the cloud-init text, or its base64 form, back in a validation error.
+const createServerWithheldMessage = "server message withheld: it may quote user data"
 
 // CreateServerInput creates a server. QuoteCreateServer takes the same
 // Input and prices it, per the SDK's paid-write convention that a quote is
@@ -40,10 +46,14 @@ type CreateServerInput struct {
 
 	ServerGroupID string
 
-	// UserData is cloud-init text. The SDK base64-encodes it and sends
+	// UserData is cloud-init text, which can hold secrets such as a
+	// bootstrap token. The SDK base64-encodes it and sends
 	// userDataBase64Encoded true. It is never sent to QuoteCreateServer's
-	// quote.
-	UserData string
+	// quote. When it is set, CreateServer's own create request is
+	// transport.Request.Sensitive and carries both this value and its
+	// base64 form as Redact, plus a fixed WithholdMessage, so a failing
+	// create's error can never echo it back.
+	UserData vngcloud.Secret
 
 	// AutoRenew is sent as isEnableAutoRenew; false by default, so nothing
 	// renews from credit without a command.
@@ -94,6 +104,12 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 	if len(in.SecurityGroupIDs) == 0 {
 		return createServerBody{}, fmt.Errorf("%w: %s requires at least one SecurityGroupIDs entry", core.ErrInvalidInput, op)
 	}
+	if in.RootDiskSize <= 0 {
+		return createServerBody{}, fmt.Errorf("%w: %s: RootDiskSize must be greater than 0, got %d", core.ErrInvalidInput, op, in.RootDiskSize)
+	}
+	if in.DataDiskSize < 0 {
+		return createServerBody{}, fmt.Errorf("%w: %s: DataDiskSize must not be negative, got %d", core.ErrInvalidInput, op, in.DataDiskSize)
+	}
 	if (in.DataDiskSize > 0) != (in.DataDiskTypeID != "") {
 		return createServerBody{}, fmt.Errorf("%w: %s requires DataDiskSize and DataDiskTypeID together or neither", core.ErrInvalidInput, op)
 	}
@@ -143,8 +159,8 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 		ServerGroupID:     in.ServerGroupID,
 		IsEnableAutoRenew: in.AutoRenew,
 	}
-	if in.UserData != "" {
-		body.UserData = base64.StdEncoding.EncodeToString([]byte(in.UserData))
+	if in.UserData.Reveal() != "" {
+		body.UserData = base64.StdEncoding.EncodeToString([]byte(in.UserData.Reveal()))
 		body.UserDataBase64Encoded = true
 	}
 	return body, nil
@@ -210,12 +226,18 @@ type createServerResponse struct {
 // ordering nothing, when the quote's OptimumPrice exceeds Input.MaxPrice
 // (default 0).
 //
-// The order is a POST and is never retried after a failure that may have
-// already reached the server: after any error that is not a 4xx
-// *core.APIError, the server may exist, and the caller lists servers and
-// matches Name exactly before ordering again. When Input.UserData is set,
-// the request is transport.Request.Sensitive, so a decode failure never
-// quotes the response body; UserData itself is never sent to the quote,
+// The order is sent with transport.Request.Once (ADR 0003) and is never
+// retried after a failure that may have already reached the server: Once
+// also stops a 401 from being retried with a refreshed token and stops
+// net/http from replaying a 307 or 308 redirect's method and body at the
+// Location it names, either of which would otherwise resend this create.
+// After any error that is not a 4xx *core.APIError, the server may exist,
+// and the caller lists servers and matches Name exactly before ordering
+// again. When Input.UserData is set, the request is
+// transport.Request.Sensitive, so a decode failure never quotes the
+// response body, and it carries Redact (the plain and base64 forms of
+// UserData) and WithholdMessage, so a failing response's error can never
+// echo it back either. UserData itself is never sent to the quote,
 // captured, logged, or echoed in any error.
 //
 // Without NoWait, CreateServer waits up to 15 minutes, polling GetServer
@@ -265,14 +287,35 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*Crea
 	if err != nil {
 		return nil, err
 	}
+
+	// UserData can hold secrets, such as a bootstrap token. Sensitive keeps
+	// the response out of the configured capture hook; Redact scrubs both
+	// its plain and base64 forms from a failing response's Message and
+	// Code, and WithholdMessage replaces that Message outright, as defense
+	// in depth for whatever form Redact's exact-match scrubbing might miss.
+	userData := in.UserData.Reveal()
+	var redact []string
+	var withhold string
+	if userData != "" {
+		redact = []string{userData, body.UserData}
+		withhold = createServerWithheldMessage
+	}
+
 	var resp createServerResponse
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodPost,
-		URL:       c.computeURL("v2", []string{projectID, "servers"}, nil),
-		Body:      body,
-		OK:        []int{202},
-		Sensitive: in.UserData != "",
+		Operation:       op,
+		Method:          http.MethodPost,
+		URL:             c.computeURL("v2", []string{projectID, "servers"}, nil),
+		Body:            body,
+		OK:              []int{202},
+		Sensitive:       userData != "",
+		Redact:          redact,
+		WithholdMessage: withhold,
+		// Once (ADR 0003): without it, a 401 would be retried once with a
+		// refreshed token, and net/http would replay a 307 or 308 redirect's
+		// method and body at the Location it names, either sending this
+		// create a second time. A create must never be resent.
+		Once: true,
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
@@ -312,16 +355,13 @@ func wrapAmbiguousServerCreateErr(op string, err error) error {
 
 // refuseIfServerNameExists refuses to order a server named name when one
 // already exists on the account, before any pricing or order request. It
-// scans every server since ListServers has no name filter of its own.
+// walks every page ListServers has, since it has no name filter of its own,
+// and fails closed, refusing the create, when the account's own page
+// metadata cannot prove the walk saw every server.
 func (c *Client) refuseIfServerNameExists(ctx context.Context, op, name string) error {
-	servers, err := c.ListServers(ctx, nil)
-	if err != nil {
-		return err
-	}
-	for i := range servers.Items {
-		if servers.Items[i].Name == name {
-			return fmt.Errorf("%w: %s: a server named %q already exists", core.ErrInvalidInput, op, name)
-		}
-	}
-	return nil
+	return core.CheckNoDuplicateName(op, "server", name,
+		func(s Server) string { return s.Name },
+		func(page int) (*core.PagedList[Server], error) {
+			return c.ListServers(ctx, &ListServersInput{Page: page, Size: core.DefaultPageSize})
+		})
 }
