@@ -373,11 +373,14 @@ func renderCLIPage(services []docService) string {
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
-		"a compute create-server, delete-server, start-server, stop-server, reboot-server, or " +
-		"resize-server whose wait ran out of time or otherwise failed to read back: create-server must " +
-		"not be sent again, since the server exists, but every other server write reads first and is " +
-		"safe to run again (see [Compute](CLI-Compute.md#create-server)), or a volume create-volume, " +
-		"delete-volume, attach-volume, or detach-volume whose wait ran out of time or otherwise failed " +
+		"a compute create-server, delete-server, start-server, stop-server, or reboot-server whose wait " +
+		"ran out of time or otherwise failed to read back: create-server must not be sent again, since " +
+		"the server exists, but every other one of these reads first and is safe to run again (see " +
+		"[Compute](CLI-Compute.md#create-server)), or a compute resize-server whose wait ran out of " +
+		"time or otherwise failed to read back: check get-server rather than repeating this paid write, " +
+		"since a repeat risks a second charge (see [Compute](CLI-Compute.md#resize-server)), or a " +
+		"volume create-volume, delete-volume, attach-volume, or detach-volume whose wait ran out of " +
+		"time or otherwise failed " +
 		"to read back: create-volume must not be sent again, since the volume exists, but every other " +
 		"one of these reads first and is safe to run again; see [Volume](CLI-Volume.md#create-volume)), " +
 		"or a volume resize-volume whose wait ran out of time or otherwise failed to read back: check " +
