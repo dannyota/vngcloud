@@ -1,6 +1,6 @@
 # vServer Paid Writes: Checks
 
-Status: Proposed, with [vServer paid writes](vserver-paid-writes.md).
+Status: Accepted (2026-09-28), with [vServer paid writes](vserver-paid-writes.md).
 
 The tests, free checks, live runs, and security review for
 [vServer paid writes](vserver-paid-writes.md). Terms and sentinels are
@@ -89,9 +89,9 @@ it moves.
 
 ## Refusal probe
 
-Needs owner approval ([decision 17](vserver-paid-writes.md#owner-decisions)),
-because it sends a paid write. On the zero-balance test account in
-`hcm-3`, before P2 is built:
+Declined ([decision 17](vserver-paid-writes.md#owner-decisions)): no
+paid write is sent before the account has credit. The steps stay here for
+a later owner decision. On the zero-balance test account in `hcm-3`:
 
 1. Read `GetBalances`; stop unless every balance is 0 or null.
 2. `CreateVolume` named `vngcloud-live-<8 hex>`, 1 GB SSD, zone

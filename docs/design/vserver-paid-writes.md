@@ -1,6 +1,6 @@
 # vServer Paid Writes Design
 
-Status: Proposed.
+Status: Accepted (2026-09-28), except owner decision 17.
 
 This design adds the vServer writes that cost money: servers in `compute`
 and volumes in `volume`. Every paid create and resize quotes first and
@@ -428,8 +428,8 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
     string flag. Recommend the file.
 17. Refusal probe. Options: approve one `CreateVolume` of 1 GB
     (3,200 VND a month) on the zero-balance account to record the
-    server's refusal; skip it. Recommend approve; see
-    [refusal probe](vserver-paid-writes-checks.md#refusal-probe).
+    server's refusal; skip it. Declined: no create is sent before the
+    account has credit, since a create the server accepts may bill later.
 18. Live budget. Recommend the owner adds at least 1,000,000 VND of
     credit and approves the caps in
     [live runs](vserver-paid-writes-checks.md#live-runs).

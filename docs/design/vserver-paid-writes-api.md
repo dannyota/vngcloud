@@ -1,6 +1,6 @@
 # vServer Paid Writes: API
 
-Status: Proposed, with [vServer paid writes](vserver-paid-writes.md).
+Status: Accepted (2026-09-28), with [vServer paid writes](vserver-paid-writes.md).
 
 The API shapes, billing model, and prices behind
 [vServer paid writes](vserver-paid-writes.md).
