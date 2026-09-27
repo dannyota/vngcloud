@@ -95,8 +95,15 @@ type errorEnvelope struct {
 // sent), SecurityGroupInUse (a network delete-security-group was refused
 // because the group has servers attached, found by a pre-delete read, or
 // because the server's own refusal named the group in use for some other
-// reason), or SecretFileFailed (create-ssh-key's own create succeeded but
-// writing --secret-file failed afterward, so the CLI deleted the new key).
+// reason), ResourceInUse (a network delete-route-table was refused because a
+// subnet still names the table, found by a pre-delete read), DefaultResource
+// (a network write targeted a resource the server manages and never lets a
+// caller change or delete, such as a VPC's main route table while a subnet
+// still relies on it), ResourceBusy (a network add-route or remove-route
+// read a route table that was not ACTIVE and stayed that way past the wait
+// before the write), or SecretFileFailed (create-ssh-key's own create
+// succeeded but writing --secret-file failed afterward, so the CLI deleted
+// the new key).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -140,6 +147,23 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, network.ErrSecurityGroupInUse) {
 		return errorEnvelope{Code: "SecurityGroupInUse", Message: err.Error()}
+	}
+	// network.ErrInUse, network.ErrDefaultResource, and network.ErrBusy join
+	// this same early group for the same reason network.ErrSecurityGroupInUse
+	// above does: a route table delete's ErrInUse (and, for a later
+	// resource sharing these sentinels, a VPC delete's own) can wrap an
+	// inner *core.APIError, such as the server's 400 refusal, and this check
+	// must win over the generic *APIError branch below rather than let
+	// errors.As find that inner error first and report its own
+	// status-derived code instead.
+	if errors.Is(err, network.ErrInUse) {
+		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
+	}
+	if errors.Is(err, network.ErrDefaultResource) {
+		return errorEnvelope{Code: "DefaultResource", Message: err.Error()}
+	}
+	if errors.Is(err, network.ErrBusy) {
+		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
 	}
 	if errors.Is(err, monitor.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}

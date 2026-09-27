@@ -2,6 +2,39 @@
 
 # CLI: Network
 
+## add-route
+
+Kind: Write.
+
+Needs --yes on every call: add-route changes routing for every server behind the table, and the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Adding a route to --destination-cidr that is already there with the same --target is a no-op: Changed is false and nothing is sent. The same --destination-cidr with a different --target already there is refused with InvalidUsage, naming the current target; remove-route the old one first. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the routes just sent; a mismatch, such as from another writer changing the table at the same time, is NotSettled.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--route-table-id` | `string` | yes |
+| `--destination-cidr` | `string` | yes |
+| `--target` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes
+```
+
+## create-route-table
+
+Kind: Write.
+
+Confirmed live: the new table reaches ACTIVE about 5 seconds after the create response, with no routes. A duplicate --name is refused with the server's own message at status 400. If --vpc-id names a VPC with no main route table yet, the new table becomes it; see delete-route-table for what that means for a later delete.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network create-route-table --vpc-id <vpc-id> --name <name>
+```
+
 ## create-security-group
 
 Kind: Write.
@@ -37,6 +70,21 @@ Confirmed live: the new rule is already ACTIVE in the create response, so this c
 
 ```sh
 vngcloud network create-security-group-rule --security-group-id <security-group-id> --direction <direction> --protocol <protocol> --remote-ip-prefix <remote-ip-prefix>
+```
+
+## delete-route-table
+
+Kind: Write, destructive.
+
+Reads the table, its VPC, and every subnet of that VPC first. Refuses, before any request, with error code ResourceInUse when a subnet names this table, and with DefaultResource when this is the VPC's main route table and some subnet names no table at all, so it relies on this one; a main table no subnet relies on, including one with no subnets at all, deletes normally. Confirmed live: the DELETE settles on a 404 read about 5 seconds later. A repeat delete of an already-deleted table also returns NotFound.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--route-table-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network delete-route-table --route-table-id <route-table-id> --yes
 ```
 
 ## delete-security-group
@@ -78,6 +126,18 @@ Kind: Read.
 
 ```sh
 vngcloud network get-endpoint --endpoint-id <endpoint-id> --query Endpoint
+```
+
+## get-route-table
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--route-table-id` | `string` | yes |
+
+```sh
+vngcloud network get-route-table --route-table-id <route-table-id> --query RouteTable
 ```
 
 ## get-security-group
@@ -391,6 +451,22 @@ Kind: Read.
 
 ```sh
 vngcloud network list-wanips
+```
+
+## remove-route
+
+Kind: Write.
+
+Needs --yes on every call: remove-route changes routing for every server behind the table, and the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Removing a --destination-cidr the table does not have returns NotFound, nothing sent. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the routes just sent; a mismatch, such as from another writer changing the table at the same time, is NotSettled.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--route-table-id` | `string` | yes |
+| `--destination-cidr` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes
 ```
 
 ## update-security-group

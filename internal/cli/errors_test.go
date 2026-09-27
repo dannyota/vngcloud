@@ -152,6 +152,9 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
 			1,
 		},
+		{"network resource in use", fmt.Errorf("%w: route table rt-1 is named by a subnet", network.ErrInUse), 1},
+		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
+		{"network resource busy", fmt.Errorf("%w: route table rt-1 is not ACTIVE", network.ErrBusy), 1},
 		{
 			"monitor log project price above max",
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
@@ -305,6 +308,34 @@ func TestClassify(t *testing.T) {
 			fmt.Errorf("%w: %w", network.ErrSecurityGroupInUse,
 				&vngcloud.APIError{Operation: "network.DeleteSecurityGroup", StatusCode: 409, Code: "Conflict", Message: "SecurityGroupInUse"}),
 			"SecurityGroupInUse", 0, "",
+		},
+		{
+			"network resource in use",
+			fmt.Errorf("%w: route table rt-1 is named by a subnet of its VPC", network.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			// A route table delete's ErrInUse is only ever returned bare
+			// today (network/route_tables_write.go sends nothing before
+			// building it), but the sentinel is shared, and a later
+			// resource may wrap an inner *APIError alongside it the same
+			// way ErrSecurityGroupInUse does above; Code must still be
+			// ResourceInUse then, not that inner error's own status-derived
+			// code.
+			"network resource in use wrapping an inner APIError",
+			fmt.Errorf("%w: %w", network.ErrInUse,
+				&vngcloud.APIError{Operation: "network.DeleteVPC", StatusCode: 400, Code: "BadRequest", Message: "Cannot delete this VPC because it contains the subnet."}),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"network default resource",
+			fmt.Errorf("%w: route table rt-1 is the VPC's main route table and a subnet relies on it", network.ErrDefaultResource),
+			"DefaultResource", 0, "",
+		},
+		{
+			"network resource busy",
+			fmt.Errorf("%w: route table rt-1 is not ACTIVE within 1m0s; nothing sent", network.ErrBusy),
+			"ResourceBusy", 0, "",
 		},
 		{
 			"monitor log project price above max",

@@ -7,14 +7,21 @@ import (
 )
 
 // networkOps is network's operation table. Every Get and List operation
-// reads. CreateSecurityGroup, UpdateSecurityGroup, and CreateSecurityGroupRule
-// are Write; DeleteSecurityGroup and DeleteSecurityGroupRule are Write and
-// Destructive, since a deleted group or rule cannot be restored by one more
-// command, so each needs --yes. CreateSecurityGroupRule also carries a Guard,
+// reads. CreateSecurityGroup, UpdateSecurityGroup, CreateSecurityGroupRule,
+// and CreateRouteTable are Write; DeleteSecurityGroup, DeleteSecurityGroupRule,
+// and DeleteRouteTable are Write and Destructive, since a deleted group,
+// rule, or table cannot be restored by one more command, so each needs
+// --yes. CreateSecurityGroupRule also carries a Guard,
 // refuseWorldOpenIngressWithoutYes (svc_network_write.go), that needs --yes
 // for an ingress rule whose remote prefix is 0.0.0.0/0 or ::/0: such a rule
-// opens every port it names to the whole internet. A read-only profile
-// refuses all five, before any request.
+// opens every port it names to the whole internet. AddRoute and RemoveRoute
+// are Write, each carrying the Guard requireYesToChangeRoutes
+// (svc_network_write.go): unlike delete-route-table, neither is Destructive,
+// since running the other of the pair undoes it with one more command, but
+// each still needs --yes on every call, since either can redirect or cut
+// traffic for every server behind the table and the CLI cannot tell cheaply
+// whether the table is in use. A read-only profile refuses every one of
+// these Write operations, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -40,6 +47,16 @@ var networkOps = []Op[network.Client]{
 		kebab("ListVirtualIPAddresses"), (*network.Client).ListVirtualIPAddresses),
 	Read[network.Client, network.ListRouteTablesInput, network.ListRouteTablesOutput](
 		kebab("ListRouteTables"), (*network.Client).ListRouteTables),
+	Read[network.Client, network.GetRouteTableInput, network.GetRouteTableOutput](
+		kebab("GetRouteTable"), (*network.Client).GetRouteTable),
+	Write[network.Client, network.CreateRouteTableInput, network.CreateRouteTableOutput](
+		kebab("CreateRouteTable"), (*network.Client).CreateRouteTable),
+	Write[network.Client, network.DeleteRouteTableInput, network.DeleteRouteTableOutput](
+		kebab("DeleteRouteTable"), (*network.Client).DeleteRouteTable, Destructive()),
+	Write[network.Client, network.AddRouteInput, network.AddRouteOutput](
+		kebab("AddRoute"), (*network.Client).AddRoute, Guard(requireYesToChangeRoutes("add-route"))),
+	Write[network.Client, network.RemoveRouteInput, network.RemoveRouteOutput](
+		kebab("RemoveRoute"), (*network.Client).RemoveRoute, Guard(requireYesToChangeRoutes("remove-route"))),
 	Read[network.Client, network.ListPeeringsInput, network.ListPeeringsOutput](
 		kebab("ListPeerings"), (*network.Client).ListPeerings),
 	Read[network.Client, network.ListNetworkACLsInput, network.ListNetworkACLsOutput](

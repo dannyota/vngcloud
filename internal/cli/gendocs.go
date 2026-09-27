@@ -344,14 +344,21 @@ func renderCLIPage(services []docService) string {
 		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +
 		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
 		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
-		"attached or the server itself refused it as in use), `SecretFileFailed` (create-ssh-key's own " +
+		"attached or the server itself refused it as in use), `ResourceInUse` (a network delete-route-table " +
+		"was refused because a subnet still names the table, found by a pre-delete read; see " +
+		"[Network](Network.md#errors)), `DefaultResource` (a network write targeted a resource the server " +
+		"manages and never lets a caller change or delete, such as a VPC's main route table while a subnet " +
+		"still relies on it), `ResourceBusy` (a network add-route or remove-route read a route table that " +
+		"was not ACTIVE and stayed that way past the wait before the write, so nothing was sent), " +
+		"`SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
 		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits) and " +
 		"[Network](Network.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, and " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`ResourceInUse`, `DefaultResource`, `ResourceBusy`, and " +
 		"`SecretFileFailed` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
