@@ -244,7 +244,7 @@ func TestContainerRegistryCreateRepositoryEndToEnd(t *testing.T) {
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
 		"--region", "hcm-3", "containerregistry", "create-repository",
-		"--name", "app", "--quota-limit-gb", "1",
+		"--name", "app-test", "--quota-limit-gb", "1",
 	})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("create-repository: %v (stderr=%s)", err, stderr.String())
@@ -254,8 +254,8 @@ func TestContainerRegistryCreateRepositoryEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
 	}
-	if decoded["repoName"] != "app" || decoded["quotaLimit"] != float64(1) || decoded["isPublic"] != false {
-		t.Fatalf("body = %s, want repoName=app quotaLimit=1 isPublic=false", body)
+	if decoded["repoName"] != "app-test" || decoded["quotaLimit"] != float64(1) || decoded["isPublic"] != false {
+		t.Fatalf("body = %s, want repoName=app-test quotaLimit=1 isPublic=false", body)
 	}
 
 	if !strings.Contains(stdout.String(), `"Status": "ACTIVE"`) {
@@ -289,7 +289,7 @@ func TestContainerRegistryCreateRepositoryNotSettledOnCanceledContext(t *testing
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
 		"--region", "hcm-3", "containerregistry", "create-repository",
-		"--name", "app", "--quota-limit-gb", "1",
+		"--name", "app-test", "--quota-limit-gb", "1",
 	})
 	err := root.ExecuteContext(ctx)
 	if err == nil {

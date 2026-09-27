@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-Always creates a private repository; there is no --public flag. The server prefixes the account id onto --name, so the output's Name differs from it; match a name that ends with --name's value. Never retried after a failure that may have already reached the server: run list-repositories --name <name> and match that way before creating again, rather than repeating this command blindly. Without --no-wait, waits up to 60 seconds for the new repository to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the repository exists, so the create must not be sent again.
+Always creates a private repository; there is no --public flag. The server prefixes the account id onto --name, so the output's Name differs from it; match a name that ends with --name's value. Never retried after a failure that may have already reached the server: run list-repositories --name <name> and match that way before creating again, rather than repeating this command blindly. Without --no-wait, waits up to 60 seconds for the new repository to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the repository exists, so the create must not be sent again. --name must be 6 to 20 characters of lowercase letters, digits, '_' or '-', starting with a letter or digit; any other name exits InvalidUsage before any request.
 
 | Flag | Type | Required |
 |-|-|-|
