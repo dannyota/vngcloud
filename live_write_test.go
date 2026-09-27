@@ -5157,11 +5157,16 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	}
 }
 
-// liveDHCPOptionsResolvers are the region's default DNS resolvers named in
-// the design and its product docs (HCM). CreateDHCPOptions never adds them
-// on its own, so the live check supplies them explicitly, as the manager's
-// own probe did.
-var liveDHCPOptionsResolvers = []string{"10.166.12.196", "10.166.12.197"}
+// liveDHCPOptionsResolversFor returns region's documented default DNS
+// resolvers, named in the design and its product docs: HCM's pair for
+// hcm-3, HAN's for han-1. CreateDHCPOptions never adds them on its own, so
+// the live check supplies them explicitly, as the manager's own probe did.
+func liveDHCPOptionsResolversFor(region string) []string {
+	if strings.HasPrefix(region, "han") {
+		return []string{"10.236.10.196", "10.236.10.197"}
+	}
+	return []string{"10.166.12.196", "10.166.12.197"}
+}
 
 // listAllDHCPOptions pages through every DHCP options set the account has,
 // since a leftover cleanup or a remaining-set check must not miss one that
@@ -5308,7 +5313,7 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 		t.Fatalf("generate DHCP options set name suffix: %v", err)
 	}
 	name1 := "vngcloud-live-" + suffix1
-	createdSet1, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name1, DNSServers: liveDHCPOptionsResolvers})
+	createdSet1, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name1, DNSServers: liveDHCPOptionsResolversFor(region)})
 	if err != nil {
 		t.Fatalf("step 2 CreateDHCPOptions (first set): %s", safeErr(err))
 	}
@@ -5328,7 +5333,7 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 		t.Fatalf("generate DHCP options set name suffix: %v", err)
 	}
 	name2 := "vngcloud-live-" + suffix2
-	createdSet2, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name2, DNSServers: liveDHCPOptionsResolvers})
+	createdSet2, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name2, DNSServers: liveDHCPOptionsResolversFor(region)})
 	if err != nil {
 		t.Fatalf("step 2 CreateDHCPOptions (second set): %s", safeErr(err))
 	}

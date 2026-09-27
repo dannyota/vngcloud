@@ -224,9 +224,9 @@ func TestDeleteDHCPOptionsSendsDeleteWhenUnattached(t *testing.T) {
 	}
 }
 
-// TestDeleteDHCPOptionsAllowsUnattachedSystemSet checks decision 3: an
-// unattached set left by a deleted Private DNS VPC deletes like any other
-// set, with no extra guard on its dhcp-option-dns- name.
+// TestDeleteDHCPOptionsAllowsUnattachedSystemSet checks that an unattached
+// set left by a deleted Private DNS VPC deletes like any other set, with no
+// extra guard on its dhcp-option-dns- name.
 func TestDeleteDHCPOptionsAllowsUnattachedSystemSet(t *testing.T) {
 	var deleteCalled atomic.Bool
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -277,6 +277,92 @@ func TestDeleteDHCPOptionsNotFound(t *testing.T) {
 	_, err := c.DeleteDHCPOptions(context.Background(), &DeleteDHCPOptionsInput{DHCPOptionsID: "dop-missing"})
 	if !vngcloud.IsNotFound(err) {
 		t.Fatalf("err = %v, want NotFound", err)
+	}
+}
+
+// TestDeleteDHCPOptionsRefusesUnexpectedRead checks the rule that the
+// pre-delete read's UUID must equal the requested DHCPOptionsID: a read that
+// names a different set is never acted on, whatever caused the mismatch.
+func TestDeleteDHCPOptionsRefusesUnexpectedRead(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodDelete:
+			t.Fatal("no DELETE expected")
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-other","status":"ACTIVE","associatedNetworks":[]}`))
+		}
+	}))
+
+	_, err := c.DeleteDHCPOptions(context.Background(), &DeleteDHCPOptionsInput{DHCPOptionsID: "dop-1"})
+	if err == nil {
+		t.Fatal("err = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "dop-other") || !strings.Contains(err.Error(), "dop-1") {
+		t.Fatalf("err = %v, want it to name both the unexpected read dop-other and the requested dop-1", err)
+	}
+}
+
+// TestDeleteDHCPOptionsServerRefusalAfterUnattachedRead checks that the
+// server's own refusal on the DELETE itself passes through unchanged even
+// though the SDK's own pre-delete read found the set unattached: the read is
+// a guard, not a guarantee, and the server's answer is the final word.
+func TestDeleteDHCPOptionsServerRefusalAfterUnattachedRead(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+	}{
+		{"400", http.StatusBadRequest},
+		{"409", http.StatusConflict},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{"uuid":"dop-1","status":"ACTIVE","associatedNetworks":[]}`))
+				case http.MethodDelete:
+					w.WriteHeader(tt.status)
+					_, _ = w.Write([]byte(`{"message":"still in use"}`))
+				}
+			}))
+
+			_, err := c.DeleteDHCPOptions(context.Background(), &DeleteDHCPOptionsInput{DHCPOptionsID: "dop-1"})
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status {
+				t.Fatalf("err = %v, want a %d *core.APIError", err, tt.status)
+			}
+		})
+	}
+}
+
+// TestDeleteDHCPOptionsRetriesThenNotFound checks that a DELETE the
+// transport retries after a 503 (idempotent, per the design) can still land
+// on the set already gone, in which case DeleteDHCPOptions returns NotFound.
+func TestDeleteDHCPOptionsRetriesThenNotFound(t *testing.T) {
+	var deleteCalls atomic.Int64
+	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-1","status":"ACTIVE","associatedNetworks":[]}`))
+		case http.MethodDelete:
+			if deleteCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		}
+	})))
+
+	_, err := c.DeleteDHCPOptions(context.Background(), &DeleteDHCPOptionsInput{DHCPOptionsID: "dop-1"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("err = %v, want NotFound", err)
+	}
+	if deleteCalls.Load() != 2 {
+		t.Fatalf("DELETE calls = %d, want 2 (the transport retries a 503)", deleteCalls.Load())
 	}
 }
 
@@ -383,6 +469,70 @@ func TestSetVPCDHCPOptionsGuardCurrentSystemSet(t *testing.T) {
 	}
 }
 
+// TestSetVPCDHCPOptionsGuardCurrentSystemSetEmptyName checks that when the
+// VPC read gives a current DHCPOptionID but an empty DHCPOptionName,
+// SetVPCDHCPOptions reads that set by id rather than assuming it is not a
+// system set, and still refuses when that read shows the system prefix.
+func TestSetVPCDHCPOptionsGuardCurrentSystemSetEmptyName(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPatch:
+			t.Fatal("no PATCH expected")
+		case strings.Contains(r.URL.Path, "/dhcp_option/dop-2"):
+			t.Fatal("target set must not be read after refusing on the current system set")
+		case strings.Contains(r.URL.Path, "/dhcp_option/dop-sys"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-sys","name":"dhcp-option-dns-1","status":"ACTIVE","associatedNetworks":["vpc-1"]}`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-sys", "")))
+		}
+	}))
+
+	_, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-1", DHCPOptionsID: "dop-2"})
+	if !errors.Is(err, ErrDefaultResource) {
+		t.Fatalf("err = %v, want ErrDefaultResource", err)
+	}
+}
+
+// TestSetVPCDHCPOptionsCurrentSetEmptyNameNotSystemProceeds checks the other
+// side of the empty-name case: reading the current set by id and finding it
+// is not a system set lets the write proceed normally.
+func TestSetVPCDHCPOptionsCurrentSetEmptyNameNotSystemProceeds(t *testing.T) {
+	var patched atomic.Bool
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPatch:
+			patched.Store(true)
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/dhcp_option/dop-1"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-1","name":"corp-current","status":"ACTIVE","associatedNetworks":["vpc-1"]}`))
+		case strings.Contains(r.URL.Path, "/dhcp_option/dop-2"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-2","status":"ACTIVE","associatedNetworks":[]}`))
+		case r.Method == http.MethodGet:
+			current := "dop-1"
+			if patched.Load() {
+				current = "dop-2"
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", current, "")))
+		}
+	})))
+
+	out, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-1", DHCPOptionsID: "dop-2"})
+	if err != nil {
+		t.Fatalf("SetVPCDHCPOptions() error = %v", err)
+	}
+	if !patched.Load() {
+		t.Fatal("PATCH was never sent")
+	}
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+}
+
 func TestSetVPCDHCPOptionsGuardTargetNotFound(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -440,6 +590,65 @@ func TestSetVPCDHCPOptionsGuardTargetNotActive(t *testing.T) {
 	_, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-1", DHCPOptionsID: "dop-2"})
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
+// TestSetVPCDHCPOptionsVPCNotFound checks that a 404 from the initial
+// GetVPC read passes straight through as NotFound.
+func TestSetVPCDHCPOptionsVPCNotFound(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no write expected")
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+	}))
+
+	_, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-missing", DHCPOptionsID: "dop-1"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("err = %v, want NotFound", err)
+	}
+}
+
+// TestSetVPCDHCPOptionsPatchFails checks the PATCH's own failure statuses: a
+// 400 or 404 is a 4xx *core.APIError returned as is, since the server never
+// acted on it, while a 5xx additionally wraps a hint that the change may
+// already be in place and that get-vpc shows the VPC's current set.
+func TestSetVPCDHCPOptionsPatchFails(t *testing.T) {
+	cases := []struct {
+		name     string
+		status   int
+		wantHint bool
+	}{
+		{"400", http.StatusBadRequest, false},
+		{"404", http.StatusNotFound, false},
+		{"500", http.StatusInternalServerError, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPatch:
+					w.WriteHeader(tt.status)
+					_, _ = w.Write([]byte(`{"message":"failed"}`))
+				case strings.Contains(r.URL.Path, "/dhcp_option/"):
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{"uuid":"dop-2","status":"ACTIVE","associatedNetworks":[]}`))
+				case r.Method == http.MethodGet:
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+				}
+			}))
+
+			_, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-1", DHCPOptionsID: "dop-2"})
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status {
+				t.Fatalf("err = %v, want a %d *core.APIError", err, tt.status)
+			}
+			if strings.Contains(err.Error(), "get-vpc") != tt.wantHint {
+				t.Fatalf("err = %v, want hint to run get-vpc = %v", err, tt.wantHint)
+			}
+		})
 	}
 }
 

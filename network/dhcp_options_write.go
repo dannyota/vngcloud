@@ -148,10 +148,12 @@ func wrapAmbiguousDHCPOptionsCreateErr(op string, err error) error {
 }
 
 // DeleteDHCPOptions deletes a DHCP options set. It reads the set first with
-// GetDHCPOptions and sends nothing when VPCIDs is not empty (ErrInUse),
-// naming the VPCs: the product docs require a set to be detached from every
-// VPC before delete. An unattached set left by a deleted Private DNS VPC
-// deletes like any other set.
+// GetDHCPOptions and refuses, sending nothing, when the read's UUID does not
+// equal DHCPOptionsID: acting on a set the caller did not ask for is never
+// safe, whatever caused the mismatch. It also sends nothing when VPCIDs is
+// not empty (ErrInUse), naming the VPCs: the product docs require a set to
+// be detached from every VPC before delete. An unattached set left by a
+// deleted Private DNS VPC deletes like any other set.
 //
 // The server's own refusal is the final guard. DELETE is idempotent and
 // keeps the transport's normal retries; a retry that finds the set already
@@ -170,6 +172,10 @@ func (c *Client) DeleteDHCPOptions(ctx context.Context, in *DeleteDHCPOptionsInp
 	current, err := c.GetDHCPOptions(ctx, &GetDHCPOptionsInput{DHCPOptionsID: in.DHCPOptionsID})
 	if err != nil {
 		return nil, err
+	}
+	if current.DHCPOptions.UUID != in.DHCPOptionsID {
+		return nil, fmt.Errorf("%s: get returned DHCP options set %q instead of the requested %q; refusing to delete an unexpected set",
+			op, current.DHCPOptions.UUID, in.DHCPOptionsID)
 	}
 	if len(current.DHCPOptions.VPCIDs) > 0 {
 		return nil, fmt.Errorf("%w: %s: DHCP options set %s is attached to VPC(s) %s; detach it from every VPC first",
@@ -207,7 +213,11 @@ type dhcpOptionsSetBody struct {
 // Otherwise, a VPC whose DNSStatus is not DISABLED, or whose current set is
 // already a system set (by name prefix), is refused with ErrDefaultResource
 // and nothing sent: replacing the Private DNS set would cut the VPC off
-// from its private zones, and the API cannot swap it back.
+// from its private zones, and the API cannot swap it back. When the VPC
+// read gives a current DHCPOptionID but an empty DHCPOptionName, the name
+// prefix cannot tell a system set from a user one, so SetVPCDHCPOptions
+// reads that set by id instead of assuming either way; a failure reading it
+// is returned as is, sending nothing.
 //
 // It then reads the target set with GetDHCPOptions: a 404 surfaces as
 // NotFound, a system set (by name prefix) is refused with
@@ -215,7 +225,11 @@ type dhcpOptionsSetBody struct {
 // ErrBusy. Each of these refusals sends nothing.
 //
 // The PATCH is marked idempotent: sending the same DHCPOptionsID twice is
-// harmless. Its own response is not decoded; SetVPCDHCPOptions instead
+// harmless. A PATCH failure that is a 4xx *core.APIError is returned as is,
+// since the server never acted on it; any other failure, such as a 5xx or a
+// network error after the dial succeeded, wraps a hint that the change may
+// already be in place and that get-vpc shows the VPC's current set. The
+// PATCH's own response is not decoded; on success, SetVPCDHCPOptions instead
 // waits for a follow-up GetVPC to show DHCPOptionID equal to DHCPOptionsID,
 // polling every 2 seconds for up to 60 seconds of elapsed time, per the
 // design's waits table. A VPC that reaches ERROR during that wait fails
@@ -242,7 +256,11 @@ func (c *Client) SetVPCDHCPOptions(ctx context.Context, in *SetVPCDHCPOptionsInp
 	if current.VPC.DHCPOptionID == in.DHCPOptionsID {
 		return &SetVPCDHCPOptionsOutput{VPC: current.VPC, Changed: false}, nil
 	}
-	if current.VPC.DNSStatus != vpcDNSStatusDisabled || isDHCPOptionsSystemSet(current.VPC.DHCPOptionName) {
+	currentIsSystemSet, err := c.currentDHCPOptionsIsSystemSet(ctx, &current.VPC)
+	if err != nil {
+		return nil, err
+	}
+	if current.VPC.DNSStatus != vpcDNSStatusDisabled || currentIsSystemSet {
 		return nil, fmt.Errorf("%w: %s: VPC %s has Private DNS enabled or a system DHCP options set; setting another set would cut it off from its private zones",
 			ErrDefaultResource, op, in.VPCID)
 	}
@@ -271,7 +289,7 @@ func (c *Client) SetVPCDHCPOptions(ctx context.Context, in *SetVPCDHCPOptionsInp
 		Idempotent: true,
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+		return nil, wrapAmbiguousDHCPOptionsPatchErr(op, in.VPCID, err)
 	}
 
 	settled, waitErr := c.waitVPCDHCPOptionsSet(ctx, op, in.VPCID, in.DHCPOptionsID)
@@ -281,13 +299,50 @@ func (c *Client) SetVPCDHCPOptions(ctx context.Context, in *SetVPCDHCPOptionsInp
 	return &SetVPCDHCPOptionsOutput{VPC: *settled, Changed: true}, waitErr
 }
 
+// currentDHCPOptionsIsSystemSet reports whether vpc's current DHCP options
+// set is a system set. vpc.DHCPOptionName usually names it, but the VPC read
+// can give a current DHCPOptionID with an empty DHCPOptionName; the name
+// prefix check cannot tell a system set from a user one on an empty name, so
+// this reads the set by id instead of guessing, and never replaces a system
+// set because its name happened to be missing. A VPC with no current set
+// (DHCPOptionID empty) is never a system set.
+func (c *Client) currentDHCPOptionsIsSystemSet(ctx context.Context, vpc *VPC) (bool, error) {
+	if vpc.DHCPOptionID == "" {
+		return false, nil
+	}
+	if vpc.DHCPOptionName != "" {
+		return isDHCPOptionsSystemSet(vpc.DHCPOptionName), nil
+	}
+	current, err := c.GetDHCPOptions(ctx, &GetDHCPOptionsInput{DHCPOptionsID: vpc.DHCPOptionID})
+	if err != nil {
+		return false, err
+	}
+	return isDHCPOptionsSystemSet(current.DHCPOptions.Name), nil
+}
+
+// wrapAmbiguousDHCPOptionsPatchErr wraps err, from the PATCH SetVPCDHCPOptions
+// just sent, with a hint to check the VPC's current set with get-vpc, unless
+// err is already a 4xx *core.APIError: a 4xx means the server rejected the
+// request outright, so the VPC's set was never changed. Any other failure,
+// such as a 5xx or a network error after the dial succeeded, leaves whether
+// the change landed unknown; the PATCH is idempotent and safe to send again
+// with the same DHCPOptionsID.
+func wrapAmbiguousDHCPOptionsPatchErr(op, vpcID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if is4xxAPIError(err) {
+		return err
+	}
+	return fmt.Errorf("%s: the change may already be in place; run get-vpc to see VPC %s's current DHCP options set: %w", op, vpcID, err)
+}
+
 // waitVPCDHCPOptionsSet is SetVPCDHCPOptions's post-PATCH wait: it reads
 // vpcID with GetVPC, using the package's generic pollInterval (2 seconds)
 // and pollBound (60 seconds), per the design's waits table, until its
 // DHCPOptionID equals target. A VPC that reaches vpcStatusError instead
 // stops the wait with an error wrapping ErrFailed; any other read failure
-// also stops it and is returned as is. Only the bound running out or such a
-// read failure produces ErrNotSettled.
+// also stops it, wrapped in ErrNotSettled, as is the bound running out.
 //
 // It returns the last VPC a read returned alongside the outcome. The
 // returned VPC is nil only when no read ever succeeded, in which case the

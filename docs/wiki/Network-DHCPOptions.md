@@ -60,6 +60,10 @@ already gone returns `vngcloud.IsNotFound(err) == true`.
 
 ## Setting a VPC's DHCP options
 
+A change here redirects DNS resolution for every server in the VPC. Try it
+on a VPC used for testing before running it against one carrying production
+traffic.
+
 ```go
 result, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{
 	VPCID:         vpcID,
@@ -76,24 +80,35 @@ VPC's set, so this is one-way: a VPC can move to another set but never back
 to having none. It reads the VPC first; if its current set already matches,
 it returns at once with `Changed` false, sending nothing.
 
+To restore a VPC's default resolvers, create a set with the region's
+documented defaults (see above) and move the VPC to it with
+`SetVPCDHCPOptions`; there is no call that clears a set or restores the
+defaults directly.
+
 It refuses, with `network.ErrDefaultResource` and nothing sent, a VPC whose
 Private DNS is enabled or enabling, or whose current set is already one
 Private DNS created: replacing that set would cut every server in the VPC
 off from its private zone lookups, and there is no call to put it back.
-Enable Private DNS after choosing a caller-made set, not before, if both
-are wanted; the two cannot be combined once Private DNS is on.
+Whether enabling Private DNS on a VPC that already carries a caller-made set
+replaces that set, rather than refusing or leaving it alone, is unverified;
+until it is checked live, treat the two as unsafe to combine in either
+order.
 
 It then reads the target set: a set that does not exist returns
 `vngcloud.IsNotFound(err) == true`; one Private DNS created returns
 `network.ErrDefaultResource`; one not yet `"ACTIVE"` returns
 `network.ErrBusy`. Each of these sends nothing.
 
-The `PATCH`'s own response is not decoded; `SetVPCDHCPOptions` instead
-waits for a follow-up `GetVPC` to show the target set, polling every 2
-seconds for up to 60 seconds of elapsed time. `Changed` is `true` once the
-`PATCH` is sent, whatever the wait's own outcome: reaching `"ERROR"` returns
-an error wrapping `network.ErrFailed`, and the bound running out, or a read
-or a sleep failing, wraps `network.ErrNotSettled`; either way the Output
-still holds the last VPC a read returned. Existing servers keep their old
-resolvers until a DHCP renew or reboot (`dhclient`, `ipconfig /renew`); only
-a new server, or one renewed, picks up the change.
+A `PATCH` failure that is a 4xx error is returned as is, since the server
+never acted on it; any other failure, such as a 5xx or a network error,
+wraps a hint that the change may already be in place and that `GetVPC`
+shows the VPC's current set. The `PATCH`'s own response is not decoded; on
+success, `SetVPCDHCPOptions` instead waits for a follow-up `GetVPC` to show
+the target set, polling every 2 seconds for up to 60 seconds of elapsed
+time. `Changed` is `true` once the `PATCH` is sent, whatever the wait's own
+outcome: reaching `"ERROR"` returns an error wrapping `network.ErrFailed`,
+and the bound running out, or a read or a sleep failing, wraps
+`network.ErrNotSettled`; either way the Output still holds the last VPC a
+read returned. Existing servers keep their old resolvers until a DHCP renew
+or reboot (`dhclient`, `ipconfig /renew`); only a new server, or one
+renewed, picks up the change.
