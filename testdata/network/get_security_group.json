@@ -1,8 +1,10 @@
 {
   "data": {
-    "id": "secgroup-1",
+    "id": "secg-1",
     "name": "<name>",
+    "description": "<description>",
     "status": "ACTIVE",
-    "description": "<description>"
+    "createdAt": "2026-01-01T00:00:00Z",
+    "system": false
   }
 }

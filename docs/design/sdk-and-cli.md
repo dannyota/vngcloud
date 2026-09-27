@@ -365,6 +365,7 @@ Each release ships when CI is green on its commit.
 | `v0.20.0` | vMonitor log project reads and quote, and alarm reads; see [vMonitor Alerts](monitor-alerts.md) |
 | `v0.21.0` | vMonitor OTP notification channels; see [vMonitor Alerts](monitor-alerts.md) |
 | `v0.22.0` | vMonitor log project order and delete; read model fix. Breaking; see [vMonitor Alerts](monitor-alerts.md) |
+| `v0.23.0` | Security group and rule writes; see [vServer free writes](vserver-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the
@@ -409,6 +410,6 @@ CLI read commands for project, portal, volume, loadbalancer,
 globalloadbalancer, and containerregistry ship as releases R1 to R5 in
 [CLI reads](cli-reads.md), each numbered when it ships. Compute, volume,
 and network writes come after these; OpenTofu covers them for aboutme.
-The free ones, security groups, rules, and SSH keys, are proposed as
+The free ones, security groups, rules, and SSH keys, are planned as
 releases V1 and V2 in [vServer free writes](vserver-writes.md), each
 numbered when it ships.

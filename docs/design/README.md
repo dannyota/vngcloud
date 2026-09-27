@@ -15,4 +15,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |
-| [vServer free writes](vserver-writes.md) | Proposed |
+| [vServer free writes](vserver-writes.md) | Accepted |

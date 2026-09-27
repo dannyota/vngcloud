@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
@@ -24,12 +25,18 @@ type Client struct {
 	mu           sync.Mutex
 	vnetZoneID   string
 	vnetEndpoint string
+
+	// sleep and now back CreateSecurityGroup's post-create wait; see
+	// waitSecurityGroupActive. Tests replace both with fakes so the real
+	// 2-second and 60-second bounds never really elapse.
+	sleep sleepFunc
+	now   clockFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
 func (c *Client) ListVNetworkRegions(ctx context.Context, _ *ListVNetworkRegionsInput) (*ListVNetworkRegionsOutput, error) {
@@ -172,6 +179,9 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 	if err := core.CheckRequired("network.GetSecurityGroup", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("network.GetSecurityGroup", "SecurityGroupID", in.SecurityGroupID); err != nil {
+		return nil, err
+	}
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -192,6 +202,9 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 
 func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServersBySecurityGroupInput) (*ListServersBySecurityGroupOutput, error) {
 	if err := core.CheckRequired("network.ListServersBySecurityGroup", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("network.ListServersBySecurityGroup", "SecurityGroupID", in.SecurityGroupID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -346,6 +359,9 @@ func (c *Client) GetSubnet(ctx context.Context, in *GetSubnetInput) (*GetSubnetO
 
 func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGroupRulesInput) (*ListSecurityGroupRulesOutput, error) {
 	if err := core.CheckRequired("network.ListSecurityGroupRules", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("network.ListSecurityGroupRules", "SecurityGroupID", in.SecurityGroupID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)

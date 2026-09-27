@@ -98,8 +98,8 @@ would fail.
   unknown; Neutron uses 409.
 - Quotas exist for groups and rules (`exceeded secgroup quota`,
   `exceeded secgroup_rule quota`).
-- SSH keys: ED25519 and 2048-bit RSA. A lost private key cannot be
-  recovered.
+- SSH keys: import takes RSA only (`ssh-ed25519` gets 400 "Invalid public
+  key", seen live). A lost private key cannot be recovered.
 
 ### Waits (inferred)
 
@@ -324,7 +324,7 @@ GreenNode generated the key and saw it.
   are ([vStorage](storage.md)). A prefix of length 0 is checked after
   parsing, so `0.0.0.0/00` cannot slip past.
 - `--public-key` is not a secret and may come from argv:
-  `--public-key "$(cat ~/.ssh/id_ed25519.pub)"`.
+  `--public-key "$(cat ~/.ssh/id_rsa.pub)"`.
 
 ```sh
 vngcloud network create-security-group --name web
