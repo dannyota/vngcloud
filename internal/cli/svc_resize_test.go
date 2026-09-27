@@ -273,6 +273,33 @@ func TestVolumeResizeVolumeShrinkIsInvalidUsageWithZeroRequests(t *testing.T) {
 	}
 }
 
+// TestVolumeResizeVolumeUnexpectedStatusWithZeroRequests checks that a
+// volume that is neither AVAILABLE nor IN-USE refuses with error code
+// UnexpectedStatus before any quote or resize request.
+func TestVolumeResizeVolumeUnexpectedStatusWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, `{"data":{"uuid":"volume-1","name":"data","status":"CREATING","size":10,"volumeTypeId":"type-1"}}`),
+		"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes", "volume", "resize-volume",
+		"--volume-id", "volume-1", "--size", "20",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an UnexpectedStatus refusal")
+	}
+	if got := classify(err).Code; got != "UnexpectedStatus" {
+		t.Fatalf("Code = %q, want UnexpectedStatus (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1 (the one read only)", n)
+	}
+}
+
 // TestVolumeResizeVolumeDefaultMaxPriceRefusesAboveZero checks the design's
 // price guard for resize-volume.
 func TestVolumeResizeVolumeDefaultMaxPriceRefusesAboveZero(t *testing.T) {

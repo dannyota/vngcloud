@@ -83,9 +83,10 @@ type errorEnvelope struct {
 // its parser expects), UnexpectedStatus (a vMonitor check had a status
 // PauseCheck or ResumeCheck does not recognize, a network
 // enable-vpc-private-dns read a VPC dnsStatus it does not know how to act
-// on, or a compute start-server, stop-server, reboot-server, or
-// resize-server read a server status that call does not act on, before any
-// request), StatusUnconfirmed (a
+// on, a compute start-server, stop-server, reboot-server, or resize-server
+// read a server status that call does not act on, or a volume
+// resize-volume read a volume Status other than AVAILABLE or IN-USE,
+// before any request), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
 // sent), WriteFailed (a vDNS write reached status ERROR, a network
@@ -170,11 +171,14 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) {
 		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
 	}
-	// compute.ErrUnexpectedStatus joins monitor.ErrUnexpectedStatus and
-	// network.ErrUnexpectedStatus: a server's own status ruled out
-	// start-server, stop-server, reboot-server, or resize-server before any
-	// request, the same fail-closed shape the other two already use.
-	if errors.Is(err, monitor.ErrUnexpectedStatus) || errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) {
+	// compute.ErrUnexpectedStatus and volume.ErrUnexpectedStatus join
+	// monitor.ErrUnexpectedStatus and network.ErrUnexpectedStatus: a
+	// server's own status ruled out start-server, stop-server,
+	// reboot-server, or resize-server, or a volume's own status ruled out
+	// resize-volume, before any request, the same fail-closed shape the
+	// other two already use.
+	if errors.Is(err, monitor.ErrUnexpectedStatus) || errors.Is(err, network.ErrUnexpectedStatus) ||
+		errors.Is(err, compute.ErrUnexpectedStatus) || errors.Is(err, volume.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
 	// monitor.ErrOTPRejected, like dns.ErrZoneBusy, dns.ErrFailed,
@@ -407,15 +411,16 @@ func exitCode(err error) int {
 	// network.ErrUnexpectedStatus, compute.ErrFailed, compute.ErrNotSettled,
 	// compute.ErrUnexpectedStatus, containerregistry.ErrNotSettled,
 	// containerregistry.ErrUserNotFound, iam.ErrNotSettled,
-	// monitor.ErrOTPRejected, volume.ErrFailed, volume.ErrNotSettled, and
-	// volume.ErrVolumeInUse join the same early
+	// monitor.ErrOTPRejected, volume.ErrFailed, volume.ErrNotSettled,
+	// volume.ErrVolumeInUse, and volume.ErrUnexpectedStatus join the same
+	// early
 	// return for the same reason: per the vDNS, network, vServer, vCR writes,
 	// and iam designs, a not-settled write, and a create-user whose own create
 	// already succeeded, must exit the same way even after a canceled
 	// context, because the write already landed, and the others join it
 	// for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
-		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) ||
+		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) || errors.Is(err, volume.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrFailed) || errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||

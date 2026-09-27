@@ -168,20 +168,22 @@ const computeQuoteResizeServerNote = "Never sends a resize: prices the flavor ch
 	"NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize."
 
 // volumeResizeVolumeNote documents resize-volume's own price guard,
-// grow-only guard, why it needs --yes, and its wait bound: the flag table
-// shows --size as a plain, required int with no hint that it must exceed
-// the volume's current size or that the type never changes.
+// grow-only and status guards, why it needs --yes, its wait bound, and its
+// own recovery advice: the flag table shows --size as a plain, required int
+// with no hint that it must exceed the volume's current size, that the
+// type never changes, or that a rerun after an ambiguous failure is unsafe.
 const volumeResizeVolumeNote = "Needs --yes: a resize can charge more, and this design only grows a volume. " +
 	"Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax " +
 	"until --max-price is raised to at least the quoted price. Refuses, before any request, with error code " +
 	"InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the " +
-	"end of the data. Resends the volume's own current volume type, so a type never changes by accident. " +
-	"The resize is sent at most once (never retried after a failure that may have already reached the " +
-	"server); run this command again to check, since it always reads first. Without --no-wait, waits up to " +
-	"5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; ERROR during that wait is " +
-	"WriteFailed, and the bound running out is NotSettled, a rerun is safe. The filesystem inside a server " +
-	"that has this volume attached must still be grown separately; this command only grows the block " +
-	"device.\n\n" + vserverDriftNote
+	"end of the data, and with error code UnexpectedStatus when the volume is neither AVAILABLE nor " +
+	"IN-USE. Resends the volume's own current volume type, so a type never changes by accident. The resize " +
+	"is sent at most once and never retried after a failure that may have already reached the server; " +
+	"check get-volume rather than repeating this command, since a repeat risks a second charge. Without " +
+	"--no-wait, waits up to 5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; " +
+	"ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check " +
+	"get-volume rather than repeating this command. The filesystem inside a server that has this volume " +
+	"attached must still be grown separately; this command only grows the block device.\n\n" + vserverDriftNote
 
 // volumeQuoteResizeVolumeNote documents quote-resize-volume's own price
 // guard exemptions and unit, and that it always reads the volume fresh:

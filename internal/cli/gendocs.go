@@ -346,9 +346,11 @@ func renderCLIPage(services []docService) string {
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
 		"the SDK does not know, so nothing was sent, a network enable-vpc-private-dns read a VPC " +
-		"dnsStatus it does not know how to act on, so nothing was sent, or a compute start-server, " +
-		"stop-server, or reboot-server read a server status that call does not act on, before any " +
-		"request; see [Compute](CLI-Compute.md#start-server)), `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"dnsStatus it does not know how to act on, so nothing was sent, a compute start-server, " +
+		"stop-server, reboot-server, or resize-server read a server status that call does not act on, " +
+		"or a volume resize-volume read a volume Status other than AVAILABLE or IN-USE, before any " +
+		"request; see [Compute](CLI-Compute.md#start-server) and [Volume](CLI-Volume.md#resize-volume)), " +
+		"`StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
@@ -375,10 +377,12 @@ func renderCLIPage(services []docService) string {
 		"resize-server whose wait ran out of time or otherwise failed to read back: create-server must " +
 		"not be sent again, since the server exists, but every other server write reads first and is " +
 		"safe to run again (see [Compute](CLI-Compute.md#create-server)), or a volume create-volume, " +
-		"delete-volume, attach-volume, detach-volume, or resize-volume whose wait ran out of time or " +
-		"otherwise failed to read back: create-volume must not be sent again, since the volume exists, " +
-		"but every other volume write reads first and is safe to run again; see " +
-		"[Volume](CLI-Volume.md#create-volume)), `VolumeInUse` (a volume delete-volume was refused " +
+		"delete-volume, attach-volume, or detach-volume whose wait ran out of time or otherwise failed " +
+		"to read back: create-volume must not be sent again, since the volume exists, but every other " +
+		"one of these reads first and is safe to run again; see [Volume](CLI-Volume.md#create-volume)), " +
+		"or a volume resize-volume whose wait ran out of time or otherwise failed to read back: check " +
+		"get-volume rather than repeating this paid write, since a repeat risks a second charge; see " +
+		"[Volume](CLI-Volume.md#resize-volume)), `VolumeInUse` (a volume delete-volume was refused " +
 		"because a pre-delete read showed the volume attached to a server, before any request), " +
 		"`BootVolume` (a volume detach-volume targeted a server's own boot volume, before any " +
 		"request), `ServerRunning` (a volume detach-volume targeted a server that was not STOPPED " +
