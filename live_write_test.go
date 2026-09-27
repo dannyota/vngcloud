@@ -2441,23 +2441,38 @@ func TestLiveWriteNetworkSecurityGroup(t *testing.T) {
 		t.Logf("step 4: duplicate name refused, %s", safeErr(dupErr))
 	}
 
-	// Step 5: update the group three ways, confirming Name never changes.
-	update := func(step string, desc *string) {
+	// Step 5: update the group three ways. A rename leaves Description
+	// out, so the step checks the read-first update kept it.
+	update := func(step string, newName, desc *string) {
 		out, err := client.UpdateSecurityGroup(ctx, &network.UpdateSecurityGroupInput{
 			SecurityGroupID: groupID,
+			Name:            newName,
 			Description:     desc,
 		})
 		if err != nil {
 			t.Fatalf("%s UpdateSecurityGroup: %s", step, safeErr(err))
 		}
+		if newName != nil {
+			name = *newName
+		}
 		if out.SecurityGroup.Name != name {
-			t.Errorf("%s: Name changed unexpectedly", step)
+			t.Errorf("%s: Name is not the expected value", step)
 		}
 		t.Logf("%s: updated group, description length %d", step, len(out.SecurityGroup.Description))
 	}
-	update("step 5a (new description)", vngcloud.Ptr("vngcloud live write test updated"))
-	update("step 5b (empty description)", vngcloud.Ptr(""))
-	update("step 5c (description left out)", nil)
+	const updatedDescription = "vngcloud live write test updated"
+	update("step 5a (new description)", nil, vngcloud.Ptr(updatedDescription))
+	renameSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 5b generate name suffix: %v", err)
+	}
+	update("step 5b (rename, description left out)", vngcloud.Ptr("vngcloud-live-"+renameSuffix), nil)
+	if got, err := client.GetSecurityGroup(ctx, &network.GetSecurityGroupInput{SecurityGroupID: groupID}); err != nil {
+		t.Fatalf("step 5b GetSecurityGroup: %s", safeErr(err))
+	} else if got.SecurityGroup.Description != updatedDescription {
+		t.Errorf("step 5b: rename changed Description (length %d)", len(got.SecurityGroup.Description))
+	}
+	update("step 5c (empty description)", nil, vngcloud.Ptr(""))
 
 	// Step 6: create a tcp/22 rule from 203.0.113.0/24.
 	start = time.Now()
@@ -2496,13 +2511,14 @@ func TestLiveWriteNetworkSecurityGroup(t *testing.T) {
 	}
 
 	// Step 8: create a second rule from a host prefix and log whether the
-	// server stored it as sent or masked it to the network address.
+	// server stored it as sent or masked it to the network address. It uses
+	// its own port: the server refuses a rule that overlaps step 6's.
 	hostRule, err := client.CreateSecurityGroupRule(ctx, &network.CreateSecurityGroupRuleInput{
 		SecurityGroupID: groupID,
 		Direction:       "ingress",
 		Protocol:        "tcp",
 		RemoteIPPrefix:  "203.0.113.5/24",
-		PortRangeMin:    22,
+		PortRangeMin:    2222,
 	})
 	if err != nil {
 		t.Fatalf("step 8 CreateSecurityGroupRule: %s", safeErr(err))
