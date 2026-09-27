@@ -329,6 +329,23 @@ Never orders anything: prices the server CreateServerInput describes without sen
 vngcloud compute quote-create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
 ```
 
+## quote-resize-server
+
+Kind: Read.
+
+Never sends a resize: prices the flavor change ResizeServerInput describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud compute quote-resize-server --server-id <server-id> --flavor-id <flavor-id>
+```
+
 ## reboot-server
 
 Kind: Write, destructive.
@@ -361,6 +378,25 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 
 ```sh
 vngcloud compute rename-server --server-id <server-id> --name <name>
+```
+
+## resize-server
+
+Kind: Write, destructive.
+
+Needs --yes: a resize restarts the server and may charge more. Sends nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --flavor-id already names the server's current flavor, and with error code UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once (never retried after a failure that may have already reached the server); run this command again to check, since it always reads first. Without --no-wait, waits up to 15 minutes for a read showing the new flavor with Status ACTIVE or STOPPED; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe. The root disk does not grow with the flavor; use resize-volume on the server's own BootVolumeID (see get-server) for that.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute resize-server --server-id <server-id> --flavor-id <flavor-id> --yes
 ```
 
 ## start-server

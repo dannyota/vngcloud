@@ -142,3 +142,53 @@ const volumeDetachVolumeNote = "Needs --yes: detaching a volume can lose unwritt
 	"already available, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to " +
 	"read AVAILABLE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun " +
 	"is safe, since this command always reads first.\n\n" + vserverDriftNote
+
+// computeResizeServerNote documents resize-server's own price guard,
+// same-flavor and status guards, why it needs --yes, and its wait bound:
+// the flag table shows --max-price as a plain, optional float with no hint
+// that a bare resize-server, with --max-price left at 0, already refuses
+// almost every real flavor change.
+const computeResizeServerNote = "Needs --yes: a resize restarts the server and may charge more. Sends " +
+	"nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax " +
+	"until --max-price is raised to at least the quoted price. Refuses, before any request, with error code " +
+	"InvalidUsage when --flavor-id already names the server's current flavor, and with error code " +
+	"UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once " +
+	"(never retried after a failure that may have already reached the server); run this command again to " +
+	"check, since it always reads first. Without --no-wait, waits up to 15 minutes for a read showing the " +
+	"new flavor with Status ACTIVE or STOPPED; ERROR during that wait is WriteFailed, and the bound running " +
+	"out is NotSettled, a rerun is safe. The root disk does not grow with the flavor; use resize-volume on " +
+	"the server's own BootVolumeID (see get-server) for that.\n\n" + vserverDriftNote
+
+// computeQuoteResizeServerNote documents quote-resize-server's own price
+// guard exemptions and unit, matching computeQuoteCreateServerNote's shape
+// for the two fields ResizeServerInput shares with every other paid write's
+// Input.
+const computeQuoteResizeServerNote = "Never sends a resize: prices the flavor change ResizeServerInput " +
+	"describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and " +
+	"NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize."
+
+// volumeResizeVolumeNote documents resize-volume's own price guard,
+// grow-only guard, why it needs --yes, and its wait bound: the flag table
+// shows --size as a plain, required int with no hint that it must exceed
+// the volume's current size or that the type never changes.
+const volumeResizeVolumeNote = "Needs --yes: a resize can charge more, and this design only grows a volume. " +
+	"Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax " +
+	"until --max-price is raised to at least the quoted price. Refuses, before any request, with error code " +
+	"InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the " +
+	"end of the data. Resends the volume's own current volume type, so a type never changes by accident. " +
+	"The resize is sent at most once (never retried after a failure that may have already reached the " +
+	"server); run this command again to check, since it always reads first. Without --no-wait, waits up to " +
+	"5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; ERROR during that wait is " +
+	"WriteFailed, and the bound running out is NotSettled, a rerun is safe. The filesystem inside a server " +
+	"that has this volume attached must still be grown separately; this command only grows the block " +
+	"device.\n\n" + vserverDriftNote
+
+// volumeQuoteResizeVolumeNote documents quote-resize-volume's own price
+// guard exemptions and unit, and that it always reads the volume fresh:
+// the flag table shows --max-price and --no-wait as plain, optional
+// fields, with no hint that this read still reaches the network once for
+// the volume's own current size and type before it ever reaches the quote.
+const volumeQuoteResizeVolumeNote = "Reads the volume first, on every call, for its current size and type, " +
+	"then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a " +
+	"month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
+	"only an actual resize."

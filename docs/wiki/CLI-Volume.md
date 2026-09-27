@@ -238,3 +238,39 @@ Never orders anything: prices the volume CreateVolumeInput describes without sen
 vngcloud volume quote-create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
 ```
 
+## quote-resize-volume
+
+Kind: Read.
+
+Reads the volume first, on every call, for its current size and type, then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud volume quote-resize-volume --volume-id <volume-id> --size <size>
+```
+
+## resize-volume
+
+Kind: Write, destructive.
+
+Needs --yes: a resize can charge more, and this design only grows a volume. Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the end of the data. Resends the volume's own current volume type, so a type never changes by accident. The resize is sent at most once (never retried after a failure that may have already reached the server); run this command again to check, since it always reads first. Without --no-wait, waits up to 5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe. The filesystem inside a server that has this volume attached must still be grown separately; this command only grows the block device.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume resize-volume --volume-id <volume-id> --size <size> --yes
+```
+

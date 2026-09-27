@@ -352,8 +352,11 @@ func renderCLIPage(services []docService) string {
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
-		"create wait saw the group reach `ERROR`, or a volume create-volume's or delete-volume's own " +
-		"post-write wait saw the volume reach `ERROR`; see [Network](Network.md#waits) and " +
+		"create wait saw the group reach `ERROR`, a compute create-server, delete-server, start-server, " +
+		"stop-server, reboot-server, or resize-server whose own post-write wait saw the server reach " +
+		"`ERROR`, or a volume create-volume, delete-volume, attach-volume, detach-volume, or " +
+		"resize-volume whose own post-write wait saw the volume reach `ERROR`; see " +
+		"[Network](Network.md#waits), [Compute](CLI-Compute.md#create-server), and " +
 		"[Volume](CLI-Volume.md#create-volume)), `NotSettled` (a vDNS " +
 		"write was accepted but did not settle within the wait, a network create-security-group's or " +
 		"update-security-group's wait ran out of time: a create must not be sent again, since a repeat " +
@@ -368,13 +371,13 @@ func renderCLIPage(services []docService) string {
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
-		"a compute create-server, delete-server, start-server, stop-server, or reboot-server whose " +
-		"wait ran out of time or otherwise failed to read back: create-server must not be sent again, " +
-		"since the server exists, but every other server write reads first and is safe to run again " +
-		"(see [Compute](CLI-Compute.md#create-server)), or a volume create-volume or delete-volume " +
-		"whose wait ran out of time or otherwise " +
-		"failed to read back: create-volume must not be sent again, since the volume exists, but " +
-		"delete-volume already reads first and is safe to run again; see " +
+		"a compute create-server, delete-server, start-server, stop-server, reboot-server, or " +
+		"resize-server whose wait ran out of time or otherwise failed to read back: create-server must " +
+		"not be sent again, since the server exists, but every other server write reads first and is " +
+		"safe to run again (see [Compute](CLI-Compute.md#create-server)), or a volume create-volume, " +
+		"delete-volume, attach-volume, detach-volume, or resize-volume whose wait ran out of time or " +
+		"otherwise failed to read back: create-volume must not be sent again, since the volume exists, " +
+		"but every other volume write reads first and is safe to run again; see " +
 		"[Volume](CLI-Volume.md#create-volume)), `VolumeInUse` (a volume delete-volume was refused " +
 		"because a pre-delete read showed the volume attached to a server, before any request), " +
 		"`BootVolume` (a volume detach-volume targeted a server's own boot volume, before any " +
@@ -382,8 +385,9 @@ func renderCLIPage(services []docService) string {
 		"without --allow-running, before any request; see [Volume](CLI-Volume.md#detach-volume)), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
-		"sent), `PriceAboveMax` (create-log-project's or volume create-volume's own quote priced its " +
-		"order above --max-price, so no order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
+		"sent), `PriceAboveMax` (create-log-project's, a compute create-server's or resize-server's, or a " +
+		"volume create-volume's or resize-volume's own quote priced its order above --max-price, so " +
+		"nothing was sent or ordered), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
 		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemSecurityGroup` " +

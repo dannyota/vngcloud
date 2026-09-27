@@ -52,6 +52,14 @@ var volumeOps = []Op[volume.Client]{
 		kebab("AttachVolume"), (*volume.Client).AttachVolume),
 	Write[volume.Client, volume.DetachVolumeInput, volume.DetachVolumeOutput](
 		kebab("DetachVolume"), (*volume.Client).DetachVolume, Destructive()),
+	Read[volume.Client, volume.ResizeVolumeInput, pricing.GetQuoteOutput](
+		kebab("QuoteResizeVolume"), (*volume.Client).QuoteResizeVolume,
+		NoFlag("MaxPrice", "NoWait")),
+	// ResizeVolume is Destructive per the paid writes design's --yes table,
+	// unlike CreateVolume: a resize can grow a volume's cost with no
+	// duplicate-name guard to make a mistaken rerun safe.
+	Write[volume.Client, volume.ResizeVolumeInput, volume.ResizeVolumeOutput](
+		kebab("ResizeVolume"), (*volume.Client).ResizeVolume, Destructive()),
 }
 
 func newVolumeCmd(e *env) *cobra.Command {
