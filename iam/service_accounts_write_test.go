@@ -171,6 +171,13 @@ func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.Se
 		if !ok {
 			t.Fatalf("unexpected group id: %s", r.PathValue("id"))
 		}
+		// A fixture that leaves Mode unset means "an ordinary iam-mode
+		// group", since almost every guard test fixture is about something
+		// other than mode; a test of the mode check itself sets Group.Mode or
+		// uses groupHandler directly.
+		if group.Mode == "" {
+			group.Mode = "iam"
+		}
 		// A fixture that leaves UserIDs or PolicyIDs unset means "this group
 		// has none", encoded as a real empty array: encoding/json marshals a
 		// nil slice as JSON null, which the guard's own fail-closed decode

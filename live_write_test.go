@@ -5437,10 +5437,11 @@ func listAllLiveIAMPolicies(ctx context.Context, client *iam.Client) ([]iam.Poli
 
 // deleteLiveIAMPolicies deletes every leftover policy whose exact name
 // matches liveIAMPolicyNamePattern, detaching it from every service account
-// it still holds first, and returns how many it deleted. It never touches a
-// managed policy (DeletePolicy's own guard refuses one), the caller's IAM
-// user, or a group: this test only ever attaches a policy to a service
-// account it creates itself.
+// and group it still holds first, and returns how many it deleted. It never
+// touches a managed policy (DeletePolicy's own guard refuses one), the
+// caller's IAM user, or a group other than one it detaches from here: this
+// test only ever attaches a policy to a service account or a group it
+// creates itself.
 func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client) int {
 	t.Helper()
 	live, err := listAllLiveIAMPolicies(ctx, client)
@@ -5451,13 +5452,21 @@ func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client
 	deleted := 0
 	for _, p := range live {
 		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
-		if err != nil {
+		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("delete live iam policies: list attachments: %s", safeErr(err))
+			continue
+		}
+		if err != nil {
 			continue
 		}
 		for _, saID := range attachments.ServiceAccountIDs {
 			if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: p.ID, ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
 				t.Errorf("delete live iam policies: detach: %s", safeErr(err))
+			}
+		}
+		for _, group := range attachments.Groups {
+			if _, err := client.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: p.ID, GroupID: group.ID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("delete live iam policies: detach from group: %s", safeErr(err))
 			}
 		}
 		if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: p.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -5471,10 +5480,10 @@ func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client
 
 // deleteLiveIAMPolicyByExactName deletes the one customer policy whose Name
 // is exactly name, if the account has one, detaching it from any service
-// account it still holds first. CreatePolicy never returns a non-nil Output
-// on error (see CreatePolicy in policies_write.go), so a cleanup that must
-// run before any id is known has to search by the name this test generated
-// instead.
+// account or group it still holds first. CreatePolicy never returns a
+// non-nil Output on error (see CreatePolicy in policies_write.go), so a
+// cleanup that must run before any id is known has to search by the name
+// this test generated instead.
 func deleteLiveIAMPolicyByExactName(ctx context.Context, t *testing.T, client *iam.Client, name string) {
 	t.Helper()
 	out, err := client.ListPolicies(ctx, nil)
@@ -5487,13 +5496,21 @@ func deleteLiveIAMPolicyByExactName(ctx context.Context, t *testing.T, client *i
 			continue
 		}
 		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
-		if err != nil {
+		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: list attachments for policy: %s", safeErr(err))
+			continue
+		}
+		if err != nil {
 			continue
 		}
 		for _, saID := range attachments.ServiceAccountIDs {
 			if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: p.ID, ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
 				t.Errorf("cleanup: detach policy: %s", safeErr(err))
+			}
+		}
+		for _, group := range attachments.Groups {
+			if _, err := client.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: p.ID, GroupID: group.ID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: detach policy from group: %s", safeErr(err))
 			}
 		}
 		if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: p.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -5713,4 +5730,389 @@ func TestLiveWriteIAMPolicy(t *testing.T) {
 		t.Fatalf("step 8 DeleteServiceAccount: %s", safeErr(err))
 	}
 	t.Log("step 8: deleted policy and service account")
+}
+
+// liveIAMGroupNamePattern is this test's own naming scheme, the same
+// vngcloud-live-<8 hex> form liveIAMPolicyNamePattern uses.
+var liveIAMGroupNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func isLiveIAMGroupName(name string) bool {
+	return liveIAMGroupNamePattern.MatchString(name)
+}
+
+// listAllLiveIAMGroups lists every group whose exact name matches
+// liveIAMGroupNamePattern. ListGroups returns a bare array with no paging,
+// well under the account's 20-group quota.
+func listAllLiveIAMGroups(ctx context.Context, client *iam.Client) ([]iam.GroupSummary, error) {
+	out, err := client.ListGroups(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	var live []iam.GroupSummary
+	for _, g := range out.Items {
+		if isLiveIAMGroupName(g.Name) {
+			live = append(live, g)
+		}
+	}
+	return live, nil
+}
+
+// detachLiveIAMGroupMembers detaches every policy id holds and removes
+// every member it has, so a DeleteGroup call on id is never refused with
+// ErrInUse. This test only ever adds a random, nonexistent user id as a
+// member (never the caller), so a leftover member here is never the caller
+// or one of its real groups.
+func detachLiveIAMGroupMembers(ctx context.Context, t *testing.T, client *iam.Client, id string) {
+	t.Helper()
+	got, err := client.GetGroup(ctx, &iam.GetGroupInput{GroupID: id})
+	if err != nil && !vngcloud.IsNotFound(err) {
+		t.Errorf("delete live iam group: get: %s", safeErr(err))
+		return
+	}
+	if err != nil {
+		return
+	}
+	for _, policyID := range got.Group.PolicyIDs {
+		if _, err := client.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: policyID, GroupID: id}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live iam group: detach policy: %s", safeErr(err))
+		}
+	}
+	for _, userID := range got.Group.UserIDs {
+		if _, err := client.RemoveUserFromGroup(ctx, &iam.RemoveUserFromGroupInput{GroupID: id, UserID: userID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live iam group: remove member: %s", safeErr(err))
+		}
+	}
+}
+
+// deleteLiveIAMGroups deletes every leftover group whose exact name matches
+// liveIAMGroupNamePattern, detaching its policies and removing its members
+// first, and returns how many it deleted.
+func deleteLiveIAMGroups(ctx context.Context, t *testing.T, client *iam.Client) int {
+	t.Helper()
+	live, err := listAllLiveIAMGroups(ctx, client)
+	if err != nil {
+		t.Errorf("delete live iam groups: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, g := range live {
+		detachLiveIAMGroupMembers(ctx, t, client, g.ID)
+		if _, err := client.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: g.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live iam groups: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// deleteLiveIAMGroupByExactName deletes the one group whose Name is exactly
+// name, if the account has one, detaching its policies and removing its
+// members first. CreateGroup never returns a non-nil Output on a rejected or
+// ambiguous create (the same shape as CreatePolicy; see groups_write.go), so
+// a cleanup that must run before any id is known has to search by the name
+// this test generated instead.
+func deleteLiveIAMGroupByExactName(ctx context.Context, t *testing.T, client *iam.Client, name string) {
+	t.Helper()
+	out, err := client.ListGroups(ctx, nil)
+	if err != nil {
+		t.Errorf("cleanup: list groups by name: %s", safeErr(err))
+		return
+	}
+	for _, g := range out.Items {
+		if g.Name != name {
+			continue
+		}
+		detachLiveIAMGroupMembers(ctx, t, client, g.ID)
+		if _, err := client.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: g.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete group: %s", safeErr(err))
+		}
+	}
+}
+
+// containsGroupID reports whether groups holds one whose ID is id.
+func containsGroupID(groups []iam.GroupSummary, id string) bool {
+	for _, g := range groups {
+		if g.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// randomLiveUserID returns a random, syntactically valid UUID that this
+// account can never have assigned to a real IAM user: the design's decision
+// on live membership checks probes AddUserToGroup and RemoveUserFromGroup
+// with a random nonexistent id instead of a spare real user, since the only
+// real IAM user on the test account is the caller, which the guard already
+// protects.
+func randomLiveUserID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	buf[6] = (buf[6] & 0x0f) | 0x40 // version 4
+	buf[8] = (buf[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16]), nil
+}
+
+// VNGCLOUD_LIVE_IAM_GROUP must be set to "1" in addition to
+// VNGCLOUD_LIVE_WRITE.
+//
+// It sweeps leftover vngcloud-live-* groups and policies from a previous
+// run first, groups before policies so a leftover group attachment is
+// detached before either delete (step 1); creates a read-only customer
+// policy granting one vServer List action on "*" (step 2); creates a group
+// (step 3); updates its description (step 4); attaches the policy (step 5);
+// lists the attachment both ways to confirm it landed (step 6); checks that
+// DeleteGroup refuses with iam.ErrInUse while the group still holds the
+// policy (step 7); checks that AddUserToGroup with the caller's own id
+// refuses with iam.ErrSelfChange (step 8); lists the account's IAM users and
+// records, as booleans only, whether the caller's own id appears exactly and
+// case-insensitively (step 9); probes AddUserToGroup and RemoveUserFromGroup
+// with a random, nonexistent user id and records only their resulting
+// status, since the design leaves that server behavior unconfirmed (step
+// 10); detaches the policy (step 11); and deletes both the group and the
+// policy (step 12). It never touches a managed policy, the caller's own IAM
+// user, or any group the caller actually belongs to: the self-change probe
+// in step 8 is refused before it ever reaches the server. Cleanup is
+// registered as soon as each id is known, before any later step can fail and
+// skip the explicit deletes. Every step logs only statuses, codes, and
+// booleans, never a name or an id.
+func TestLiveWriteIAMGroup(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live iam group write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_IAM_GROUP") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_IAM_GROUP=1 to run the live iam group write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := iam.New(cfg)
+
+	// Step 1: sweep up leftovers from an earlier run, groups before policies
+	// so a leftover group-to-policy attachment is detached before either
+	// delete.
+	leftoverGroups := deleteLiveIAMGroups(ctx, t, client)
+	leftoverPolicies := deleteLiveIAMPolicies(ctx, t, client)
+	t.Logf("step 1: deleted %d leftover group(s), %d leftover polic(ies)", leftoverGroups, leftoverPolicies)
+
+	// Step 2: create a read-only customer policy.
+	policySuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	policyName := "vngcloud-live-" + policySuffix
+
+	// Register a by-exact-name cleanup before the create call: CreatePolicy
+	// never returns a non-nil Output on error, so this is the only way to
+	// find and delete a policy that reached the server despite an error
+	// below. It runs even if this test never gets past the Fatalf that
+	// follows.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveIAMPolicyByExactName(cleanupCtx, t, client, policyName)
+	})
+
+	createdPolicy, err := client.CreatePolicy(ctx, &iam.CreatePolicyInput{
+		Name: policyName,
+		Statements: []iam.Statement{
+			{Effect: "allow", Actions: []string{"vserver:ListServers"}, Resources: []string{"*"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("step 2 CreatePolicy: %s", safeErr(err))
+	}
+	policyID := createdPolicy.Policy.ID
+	if policyID == "" {
+		t.Fatal("step 2: CreatePolicy returned an empty id")
+	}
+
+	// Register the policy's cleanup and final-state check as soon as
+	// policyID is known, before any later step can fail and skip the
+	// explicit deletes below. groupID is filled in by step 3; the cleanup
+	// closure reads it when it runs, after the rest of the test body has
+	// finished.
+	var groupID string
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if groupID != "" {
+			if _, err := client.DetachGroupPolicy(cleanupCtx, &iam.DetachGroupPolicyInput{PolicyID: policyID, GroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: detach policy from group: %s", safeErr(err))
+			}
+			detachLiveIAMGroupMembers(cleanupCtx, t, client, groupID)
+			if _, err := client.DeleteGroup(cleanupCtx, &iam.DeleteGroupInput{GroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete group: %s", safeErr(err))
+			}
+		}
+		if _, err := client.DeletePolicy(cleanupCtx, &iam.DeletePolicyInput{PolicyID: policyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete policy: %s", safeErr(err))
+		}
+		liveGroups, err := listAllLiveIAMGroups(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final group list: %s", safeErr(err))
+		} else {
+			t.Logf("cleanup: vngcloud-live group(s) remaining: %d", len(liveGroups))
+			if len(liveGroups) != 0 {
+				t.Errorf("cleanup: expected 0 vngcloud-live groups, found %d", len(liveGroups))
+			}
+		}
+		livePolicies, err := listAllLiveIAMPolicies(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final policy list: %s", safeErr(err))
+			return
+		}
+		t.Logf("cleanup: vngcloud-live polic(ies) remaining: %d", len(livePolicies))
+		if len(livePolicies) != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live policies, found %d", len(livePolicies))
+		}
+	})
+	t.Logf("step 2: created policy, managed=%v", createdPolicy.Policy.Managed())
+
+	// Step 3: create a group, with its own independent name suffix.
+	groupSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	groupName := "vngcloud-live-" + groupSuffix
+
+	// Register a by-exact-name cleanup before the create call, as step 2
+	// does for the policy: it is the only way to find and delete this group
+	// if the create below leaves Output nil.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveIAMGroupByExactName(cleanupCtx, t, client, groupName)
+	})
+
+	createdGroup, err := client.CreateGroup(ctx, &iam.CreateGroupInput{Name: groupName, Description: "vngcloud live write test"})
+	// As in TestLiveWriteIAMPolicy, CreateGroup returns a non-nil Output only
+	// once its own create request succeeded, so groupID is set from it
+	// before this Fatals on err.
+	if createdGroup == nil {
+		t.Fatalf("step 3 CreateGroup: %s", safeErr(err))
+	}
+	groupID = createdGroup.Group.ID
+	if groupID == "" {
+		t.Fatalf("step 3: CreateGroup returned an empty id: %s", safeErr(err))
+	}
+	if err != nil {
+		t.Fatalf("step 3 CreateGroup: %s", safeErr(err))
+	}
+	t.Logf("step 3: created group, mode=%v", createdGroup.Group.Mode)
+
+	// Step 4: update its description.
+	updatedGroup, err := client.UpdateGroup(ctx, &iam.UpdateGroupInput{
+		GroupID:     groupID,
+		Description: vngcloud.Ptr("vngcloud live write test, updated"),
+	})
+	if err != nil {
+		t.Fatalf("step 4 UpdateGroup: %s", safeErr(err))
+	}
+	t.Logf("step 4: updated group, name unchanged=%v", updatedGroup.Group.Name == createdGroup.Group.Name)
+
+	// Step 5: attach the policy to the group.
+	if _, err := client.AttachGroupPolicy(ctx, &iam.AttachGroupPolicyInput{PolicyID: policyID, GroupID: groupID}); err != nil {
+		t.Fatalf("step 5 AttachGroupPolicy: %s", safeErr(err))
+	}
+	t.Log("step 5: attached policy to group")
+
+	// Step 6: list the attachment both ways to confirm it landed.
+	groupPolicies, err := client.ListGroupPolicies(ctx, &iam.ListGroupPoliciesInput{GroupID: groupID})
+	if err != nil {
+		t.Fatalf("step 6 ListGroupPolicies: %s", safeErr(err))
+	}
+	policyAttachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: policyID})
+	if err != nil {
+		t.Fatalf("step 6 ListPolicyAttachments: %s", safeErr(err))
+	}
+	t.Logf("step 6: group shows the attachment=%v, policy shows the attachment=%v",
+		containsPolicyID(groupPolicies.Items, policyID),
+		containsGroupID(policyAttachments.Groups, groupID))
+
+	// Step 7: DeleteGroup must refuse with ErrInUse while the group still
+	// holds the policy, sending no request.
+	if _, err := client.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: groupID}); !errors.Is(err, iam.ErrInUse) {
+		t.Fatalf("step 7 DeleteGroup: err = %s, want ErrInUse", safeErr(err))
+	}
+	t.Log("step 7: DeleteGroup refused a non-empty group")
+
+	// Step 8: AddUserToGroup with the caller's own id must refuse as a
+	// self-change, sending no request.
+	caller, err := client.GetCallerIdentity(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 8 GetCallerIdentity: %s", safeErr(err))
+	}
+	if _, err := client.AddUserToGroup(ctx, &iam.AddUserToGroupInput{GroupID: groupID, UserID: caller.UserID}); !errors.Is(err, iam.ErrSelfChange) {
+		t.Fatalf("step 8 AddUserToGroup(caller): err = %s, want ErrSelfChange", safeErr(err))
+	}
+	t.Log("step 8: AddUserToGroup refused adding the caller")
+
+	// Step 9: ListUsers and check whether the caller's own userinfo id
+	// appears in it, exact and case-insensitive, without logging either id:
+	// a mismatch here would mean a target user id could equal the caller's
+	// own id in a different case, which the guard's case-insensitive self
+	// match (see policy_guard.go) accounts for and an exact-only compare
+	// would miss.
+	users, err := client.ListUsers(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 9 ListUsers: %s", safeErr(err))
+	}
+	var exactMatch, foldMatch bool
+	for _, u := range users.Items {
+		if u.ID == caller.UserID {
+			exactMatch = true
+		}
+		if strings.EqualFold(u.ID, caller.UserID) {
+			foldMatch = true
+		}
+	}
+	t.Logf("step 9: caller id found in ListUsers exact=%v, case-insensitive=%v", exactMatch, foldMatch)
+
+	// Step 10: probe AddUserToGroup and RemoveUserFromGroup with a random,
+	// nonexistent user id. The design leaves the server's behavior here
+	// unconfirmed, so this only records what happens rather than asserting a
+	// specific outcome; RemoveUserFromGroup always runs afterward to leave
+	// no membership behind, whatever the add did.
+	randomUserID, err := randomLiveUserID()
+	if err != nil {
+		t.Fatalf("step 10 generate random user id: %v", err)
+	}
+	_, addErr := client.AddUserToGroup(ctx, &iam.AddUserToGroupInput{GroupID: groupID, UserID: randomUserID})
+	t.Logf("step 10: AddUserToGroup(random nonexistent user) = %s", safeErr(addErr))
+	_, removeErr := client.RemoveUserFromGroup(ctx, &iam.RemoveUserFromGroupInput{GroupID: groupID, UserID: randomUserID})
+	t.Logf("step 10: RemoveUserFromGroup(random nonexistent user) = %s", safeErr(removeErr))
+
+	// Step 11: detach the policy.
+	if _, err := client.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: policyID, GroupID: groupID}); err != nil {
+		t.Fatalf("step 11 DetachGroupPolicy: %s", safeErr(err))
+	}
+	t.Log("step 11: detached policy from group")
+
+	// Step 12: delete both explicitly.
+	if _, err := client.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: groupID}); err != nil {
+		t.Fatalf("step 12 DeleteGroup: %s", safeErr(err))
+	}
+	if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: policyID}); err != nil {
+		t.Fatalf("step 12 DeletePolicy: %s", safeErr(err))
+	}
+	t.Log("step 12: deleted group and policy")
 }

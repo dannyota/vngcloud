@@ -3,6 +3,7 @@ package iam
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // protectedReason is the result of a check for a protected principal or
@@ -43,6 +44,11 @@ func (c *Client) guardCreatePolicy(ctx context.Context, op string, statements []
 // group. newStatements is the update's own Statements field, nil when the
 // caller leaves it unset.
 //
+// The attachment check runs before the privileged-statements checks, so a
+// policy that is both privileged and attached to the caller reports
+// ErrSelfChange rather than ErrPrivilegedChange: self wins wherever it is
+// found, not only when no other refusal would otherwise fire first.
+//
 // On success it returns the policy's current state, read once, so
 // UpdatePolicy can fill in the PUT body's fields the caller left nil from
 // it, without a second read.
@@ -65,21 +71,22 @@ func (c *Client) guardUpdatePolicy(ctx context.Context, op, policyID string, new
 	if err != nil {
 		return nil, err
 	}
+
+	reason, err := c.policyAttachedToProtected(ctx, op, policyID, caller, writeActionNames)
+	if err != nil {
+		return nil, err
+	}
+	if reason == protectedBySelf {
+		return nil, fmt.Errorf("%w: %s: the change would affect the caller's own rights", ErrSelfChange, op)
+	}
+
 	if statementsArePrivileged(current.Statements, writeActionNames) {
 		return nil, fmt.Errorf("%w: %s: the policy's current statements grant an IAM write action", ErrPrivilegedChange, op)
 	}
 	if newStatements != nil && statementsArePrivileged(*newStatements, writeActionNames) {
 		return nil, fmt.Errorf("%w: %s: the proposed statements grant an IAM write action", ErrPrivilegedChange, op)
 	}
-
-	reason, err := c.policyAttachedToProtected(ctx, op, policyID, caller, writeActionNames)
-	if err != nil {
-		return nil, err
-	}
-	switch reason {
-	case protectedBySelf:
-		return nil, fmt.Errorf("%w: %s: the change would affect the caller's own rights", ErrSelfChange, op)
-	case protectedByPrivilege:
+	if reason == protectedByPrivilege {
 		return nil, fmt.Errorf("%w: %s: the policy is attached to a protected principal or group", ErrPrivilegedChange, op)
 	}
 	return &current, nil
@@ -143,50 +150,66 @@ func (c *Client) guardServiceAccountPolicyAttach(ctx context.Context, op, policy
 // with one; or a service account with a privileged policy attached. seen
 // dedupes GetPolicy reads across this whole check.
 //
-// A caller whose own type is a service account never reaches the
-// service-account loop below: as soon as the policy is attached to any
-// service account at all, this refuses as protectedBySelf, mirroring
-// guardServiceAccountWrite's own blanket refusal (see its doc comment), since
-// the caller's UserID is not confirmed to use the same form as a target
-// service account's ID and so cannot safely be ruled out.
+// Every attachment is checked even once one has already found
+// protectedByPrivilege, rather than returning as soon as the first
+// non-notProtected result appears: the design's self-wins rule means a
+// policy attached to both a privileged group and, separately, the caller
+// directly must still report protectedBySelf, whichever attachment is
+// checked first. combineProtectedReasons folds each attachment's own result
+// into the running one, and the loops only stop once protectedBySelf itself
+// is reached, since nothing outranks it.
+//
+// A caller whose own type is a service account short-circuits the
+// service-account loop below to protectedBySelf as soon as the policy is
+// attached to any service account at all, mirroring guardServiceAccountWrite's
+// own blanket refusal (see its doc comment), since the caller's UserID is not
+// confirmed to use the same form as a target service account's ID and so
+// cannot safely be ruled out; that still folds into the running result the
+// same way, rather than returning immediately.
 func (c *Client) policyAttachedToProtected(ctx context.Context, op, policyID string, caller *GetCallerIdentityOutput, writeActionNames []string) (protectedReason, error) {
 	attachments, err := c.guardPolicyAttachments(ctx, op, policyID)
 	if err != nil {
 		return notProtected, err
 	}
 	seen := map[string]*Policy{}
+	reason := notProtected
 
 	for _, group := range attachments.Groups {
-		reason, err := c.groupIsProtected(ctx, op, group.ID, caller, writeActionNames, seen)
+		if reason == protectedBySelf {
+			break
+		}
+		groupReason, err := c.groupIsProtected(ctx, op, group.ID, caller, writeActionNames, seen)
 		if err != nil {
 			return notProtected, err
 		}
-		if reason != notProtected {
-			return reason, nil
-		}
+		reason = combineProtectedReasons(reason, groupReason)
 	}
 	for _, userID := range attachments.UserIDs {
-		reason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
+		if reason == protectedBySelf {
+			break
+		}
+		userReason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
 		if err != nil {
 			return notProtected, err
 		}
-		if reason != notProtected {
-			return reason, nil
-		}
+		reason = combineProtectedReasons(reason, userReason)
 	}
-	if isServiceAccountCallerType(caller.UserType) && len(attachments.ServiceAccountIDs) > 0 {
-		return protectedBySelf, nil
+	if reason != protectedBySelf && isServiceAccountCallerType(caller.UserType) && len(attachments.ServiceAccountIDs) > 0 {
+		reason = protectedBySelf
 	}
 	for _, saID := range attachments.ServiceAccountIDs {
+		if reason == protectedBySelf {
+			break
+		}
 		protected, err := c.serviceAccountIsProtected(ctx, op, saID, writeActionNames, seen)
 		if err != nil {
 			return notProtected, err
 		}
 		if protected {
-			return protectedByPrivilege, nil
+			reason = combineProtectedReasons(reason, protectedByPrivilege)
 		}
 	}
-	return notProtected, nil
+	return reason, nil
 }
 
 // groupIsProtected reports whether a group is a "Protected group": one with
@@ -195,35 +218,48 @@ func (c *Client) policyAttachedToProtected(ctx context.Context, op, policyID str
 // hide one), or with a protected member. Group members are IAM users only;
 // the design's open questions note that no call yet adds a service account
 // to a group.
+//
+// Every member is checked even once the group's own policy is already known
+// to be privileged, rather than returning as soon as that is found: the
+// design's self-wins rule means a group that is both privileged and holds
+// the caller as a member must still report protectedBySelf, never
+// protectedByPrivilege, so a later member's self-match can still upgrade the
+// result. The loop only stops once protectedBySelf itself is reached,
+// since nothing outranks it.
 func (c *Client) groupIsProtected(ctx context.Context, op, groupID string, caller *GetCallerIdentityOutput, writeActionNames []string, seen map[string]*Policy) (protectedReason, error) {
 	policyIDs, userIDs, err := c.guardGetGroupAttachments(ctx, op, groupID)
 	if err != nil {
 		return notProtected, err
 	}
+	reason := notProtected
 	privileged, err := c.anyPolicyIDPrivileged(ctx, policyIDs, writeActionNames, seen)
 	if err != nil {
 		return notProtected, err
 	}
 	if privileged {
-		return protectedByPrivilege, nil
+		reason = protectedByPrivilege
 	}
 	for _, userID := range userIDs {
-		reason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
+		if reason == protectedBySelf {
+			break
+		}
+		memberReason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
 		if err != nil {
 			return notProtected, err
 		}
-		if reason != notProtected {
-			return reason, nil
-		}
+		reason = combineProtectedReasons(reason, memberReason)
 	}
-	return notProtected, nil
+	return reason, nil
 }
 
 // userIsProtected reports whether userID is a "Protected principal": the
 // caller, an IAM user with a privileged policy attached directly, or one
 // that belongs to a group with a privileged policy attached. A match on the
 // caller itself returns protectedBySelf; either other case returns
-// protectedByPrivilege. The direct attachment read is the paged, fail-closed
+// protectedByPrivilege. The caller's own ID is compared against userID with
+// strings.EqualFold, since nothing guarantees the server returns userinfo's
+// ID and a target user's own ID in the same case. The direct attachment read
+// is the paged, fail-closed
 // guardUserPolicySummaries, not the plain ListUserPolicies, so a truncated
 // page can never hide a privileged policy. The group check reads the user's
 // groups and each one's own policies field through guardUserGroups, the
@@ -231,7 +267,7 @@ func (c *Client) groupIsProtected(ctx context.Context, op, groupID string, calle
 // null or missing policies list refuses instead of being read as "no
 // policies"; it never recurses back into groupIsProtected itself.
 func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller *GetCallerIdentityOutput, writeActionNames []string, seen map[string]*Policy) (protectedReason, error) {
-	if !isServiceAccountCallerType(caller.UserType) && caller.UserID == userID {
+	if !isServiceAccountCallerType(caller.UserType) && strings.EqualFold(caller.UserID, userID) {
 		return protectedBySelf, nil
 	}
 

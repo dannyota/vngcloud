@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -312,37 +313,73 @@ func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string
 	return &ListPolicyAttachmentsOutput{Groups: groups, UserIDs: userIDs, ServiceAccountIDs: serviceAccountIDs}, nil
 }
 
-// guardGroupAttachments is the shape a GetGroup response decodes into for a
-// guard check, instead of the public, tolerant Group model: PolicyIDs and
-// UserIDs are pointers so a null or missing key is distinguishable from an
-// actual empty list, and guardGetGroupAttachments refuses on either rather
-// than reading it as "no policies" or "no members".
-type guardGroupAttachments struct {
-	PolicyIDs *[]string `json:"policies"`
-	UserIDs   *[]string `json:"iamUsers"`
+// guardGroupKnownFields lists every top-level key a group response is
+// documented to carry: id, name, description, mode, root, iamUsers,
+// policies, createdAt, and _id. guardGetGroupAttachments refuses when a
+// response carries any other key: a member list under a name this check does
+// not recognize, an idp group's own membership field for instance, would
+// otherwise go unseen by every protected-group and protected-user check that
+// reads through it.
+var guardGroupKnownFields = map[string]bool{
+	"id": true, "name": true, "description": true, "mode": true,
+	"root": true, "iamUsers": true, "policies": true, "createdAt": true,
+	"_id": true,
 }
 
-// guardGetGroupAttachments reads groupID's own PolicyIDs and UserIDs for a
-// guard check, failing closed on a null or missing field on either; see
-// guardGroupAttachments.
+// guardGetGroupAttachments reads groupID's own mode, PolicyIDs, and UserIDs
+// for a guard check, failing closed on a null or missing policies or
+// iamUsers field, a top-level field this check does not recognize (see
+// guardGroupKnownFields), or a mode other than exactly "iam", missing
+// included: the design excludes idp groups from every guard rule, so a group
+// this check cannot confirm is in iam mode is refused outright, before its
+// own policies or members are ever read as evidence of anything.
 func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string) (policyIDs, userIDs []string, err error) {
-	var resp guardGroupAttachments
+	var raw map[string]json.RawMessage
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
 		URL:       c.policiesURL([]string{"groups", groupID}, nil),
 		OK:        []int{200},
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
 		return nil, nil, err
 	}
-	if resp.PolicyIDs == nil {
+	for key := range raw {
+		if !guardGroupKnownFields[key] {
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response held an unrecognized field %q", op, key)
+		}
+	}
+
+	var mode string
+	if v, ok := raw["mode"]; ok {
+		if err := json.Unmarshal(v, &mode); err != nil {
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable mode field: %w", op, err)
+		}
+	}
+	if mode != "iam" {
+		return nil, nil, fmt.Errorf("iam: guard: %s: the group is not in iam mode", op)
+	}
+
+	var policyIDsPtr *[]string
+	if v, ok := raw["policies"]; ok {
+		if err := json.Unmarshal(v, &policyIDsPtr); err != nil {
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable policies field: %w", op, err)
+		}
+	}
+	if policyIDsPtr == nil {
 		return nil, nil, fmt.Errorf("iam: guard: %s: a group response had no policies field", op)
 	}
-	if resp.UserIDs == nil {
+
+	var userIDsPtr *[]string
+	if v, ok := raw["iamUsers"]; ok {
+		if err := json.Unmarshal(v, &userIDsPtr); err != nil {
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable iamUsers field: %w", op, err)
+		}
+	}
+	if userIDsPtr == nil {
 		return nil, nil, fmt.Errorf("iam: guard: %s: a group response had no iamUsers field", op)
 	}
-	return *resp.PolicyIDs, *resp.UserIDs, nil
+	return *policyIDsPtr, *userIDsPtr, nil
 }
 
 // guardUserGroupAttachments is one entry of a guard check's read of a user's

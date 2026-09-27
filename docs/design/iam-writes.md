@@ -85,7 +85,9 @@ call the API another way.
   matches a real action name, so treating it as unprivileged would let an
   odd pattern through unnoticed.
 - **Caller**: the principal from `GetCallerIdentity`: an IAM user or a
-  service account. An unknown user type fails every guarded write.
+  service account. An unknown user type fails every guarded write. A guard
+  compares the caller's own ID against a target's case-insensitively, since
+  nothing guarantees the server returns them in the same case.
 - **Protected principal**: the caller; an IAM user with a privileged
   policy attached directly or through a group; a service account with a
   privileged policy attached.
@@ -123,7 +125,14 @@ guessing: an account action list naming no write action, or an attachment
 page whose item count does not match its own reported total, is treated as
 a failed read, never as evidence that nothing is privileged. A policy with
 no statements at all is privileged, and any statement effect other than
-`deny` counts as a grant, including one the API has not defined yet.
+`deny` counts as a grant, including one the API has not defined yet. A group
+whose `mode` is not exactly `iam`, missing included, or whose own response
+carries a member-holding field besides `iamUsers`, is unprovable the same
+way: every guard that reads a group object refuses it outright (the
+user-groups list only feeds the privilege check), since the design
+excludes idp groups entirely (see [Non-goals](#non-goals)) and a member list
+under a name the guard does not recognize could otherwise hide a protected
+member.
 
 A caller whose own type is a service account (`user-sa` or `service-sa`)
 refuses every service-account-targeted write, not only one against its own
@@ -220,7 +229,7 @@ uses the server's own action list.
 | Update or delete of a managed policy | `iam.ErrManagedPolicy`, no write sent | `ManagedPolicy`, 1 |
 | Delete of an attached policy or a non-empty group | `iam.ErrInUse`, no write sent | `ResourceInUse`, 1 |
 | Create or reset response held no secret | `iam.ErrNoSecret`, write already applied | `SecretFileFailed`, 1 |
-| A policy create or update landed but its confirm read failed | `iam.ErrNotSettled`, write already applied | `NotSettled`, 1 |
+| A policy or group create or update landed but its confirm read failed | `iam.ErrNotSettled`, write already applied | `NotSettled`, 1 |
 | Unknown ID | `NotFound` | `NotFound`, 4 |
 | Name taken, repeated attach or add | `Conflict` | 1 |
 | IAM policy denies the call | `ErrPermission` | 1 |

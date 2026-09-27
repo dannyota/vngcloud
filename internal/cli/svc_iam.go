@@ -35,6 +35,18 @@ import (
 // the ManagedPolicy, ResourceInUse, SelfChange, and PrivilegedChange error
 // classes. UpdatePolicy, DeletePolicy, AttachServiceAccountPolicy, and
 // DetachServiceAccountPolicy are Destructive, per the design's CLI table.
+//
+// CreateGroup, UpdateGroup, DeleteGroup, AddUserToGroup, RemoveUserFromGroup,
+// AttachGroupPolicy, DetachGroupPolicy, AttachUserPolicy, and
+// DetachUserPolicy all register through the plain Write helper: none needs a
+// CLI-side guard or a flag beyond its Input fields, since every refusal the
+// design lists for them (see iam/group_guard.go and iam/policy_guard.go) is
+// an SDK-side sentinel errors.go already maps. DeleteGroup, AddUserToGroup,
+// RemoveUserFromGroup, AttachGroupPolicy, DetachGroupPolicy,
+// AttachUserPolicy, and DetachUserPolicy are Destructive, per the design's
+// CLI table; CreateGroup and UpdateGroup are not, since creating a group
+// with no members or policies, or changing only its name or description,
+// changes no one's rights.
 var iamOps = []Op[iam.Client]{
 	Read[iam.Client, iam.GetCallerIdentityInput, iam.GetCallerIdentityOutput](
 		kebab("GetCallerIdentity"), (*iam.Client).GetCallerIdentity),
@@ -78,6 +90,24 @@ var iamOps = []Op[iam.Client]{
 		kebab("AttachServiceAccountPolicy"), (*iam.Client).AttachServiceAccountPolicy, Destructive()),
 	Write[iam.Client, iam.DetachServiceAccountPolicyInput, iam.DetachServiceAccountPolicyOutput](
 		kebab("DetachServiceAccountPolicy"), (*iam.Client).DetachServiceAccountPolicy, Destructive()),
+	Write[iam.Client, iam.CreateGroupInput, iam.CreateGroupOutput](
+		kebab("CreateGroup"), (*iam.Client).CreateGroup),
+	Write[iam.Client, iam.UpdateGroupInput, iam.UpdateGroupOutput](
+		kebab("UpdateGroup"), (*iam.Client).UpdateGroup),
+	Write[iam.Client, iam.DeleteGroupInput, iam.DeleteGroupOutput](
+		kebab("DeleteGroup"), (*iam.Client).DeleteGroup, Destructive()),
+	Write[iam.Client, iam.AddUserToGroupInput, iam.AddUserToGroupOutput](
+		kebab("AddUserToGroup"), (*iam.Client).AddUserToGroup, Destructive()),
+	Write[iam.Client, iam.RemoveUserFromGroupInput, iam.RemoveUserFromGroupOutput](
+		kebab("RemoveUserFromGroup"), (*iam.Client).RemoveUserFromGroup, Destructive()),
+	Write[iam.Client, iam.AttachGroupPolicyInput, iam.AttachGroupPolicyOutput](
+		kebab("AttachGroupPolicy"), (*iam.Client).AttachGroupPolicy, Destructive()),
+	Write[iam.Client, iam.DetachGroupPolicyInput, iam.DetachGroupPolicyOutput](
+		kebab("DetachGroupPolicy"), (*iam.Client).DetachGroupPolicy, Destructive()),
+	Write[iam.Client, iam.AttachUserPolicyInput, iam.AttachUserPolicyOutput](
+		kebab("AttachUserPolicy"), (*iam.Client).AttachUserPolicy, Destructive()),
+	Write[iam.Client, iam.DetachUserPolicyInput, iam.DetachUserPolicyOutput](
+		kebab("DetachUserPolicy"), (*iam.Client).DetachUserPolicy, Destructive()),
 }
 
 func newIAMCmd(e *env) *cobra.Command {

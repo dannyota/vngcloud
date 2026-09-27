@@ -19,12 +19,13 @@ writes too: a key can be imported, created, or deleted. See
 [Compute](Compute.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
 [Container Registry](#container-registry) below. `iam` covers IAM reads,
-service account writes, and policy writes: a service account can be
-created, updated, have its secret reset, and deleted; a customer policy
-can be created, updated, deleted, and attached to or detached from a
-service account. Every write is guarded against changing the caller's own
-access or a principal that already holds an IAM write right. See
-[IAM](#iam) below.
+service account writes, policy writes, and group writes: a service account
+can be created, updated, have its secret reset, and deleted; a customer
+policy can be created, updated, deleted, and attached to or detached from
+a service account, a group, or an IAM user; a group can be created,
+updated, deleted, and have members added or removed. Every write is
+guarded against changing the caller's own access or a principal that
+already holds an IAM write right. See [IAM](#iam) below.
 
 ## Coverage
 
@@ -39,7 +40,7 @@ access or a principal that already holds an IAM write right. See
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
-| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account and policy writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
 
 ## Project
 
@@ -380,8 +381,11 @@ first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it
 can be read and attached, but never updated or deleted.
 
-`iam` also writes service accounts and policies; see [IAM](IAM.md) for
-`CreateServiceAccount`, `UpdateServiceAccount`, `ResetServiceAccountSecret`,
-`DeleteServiceAccount`, `CreatePolicy`, `UpdatePolicy`, `DeletePolicy`,
-`AttachServiceAccountPolicy`, `DetachServiceAccountPolicy`, their guards,
-and their errors.
+`iam` also writes service accounts, policies, and groups; see
+[IAM](IAM.md) for `CreateServiceAccount`, `UpdateServiceAccount`,
+`ResetServiceAccountSecret`, `DeleteServiceAccount`, `CreatePolicy`,
+`UpdatePolicy`, `DeletePolicy`, `AttachServiceAccountPolicy`,
+`DetachServiceAccountPolicy`, `AttachUserPolicy`, `DetachUserPolicy`,
+`CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
+`RemoveUserFromGroup`, `AttachGroupPolicy`, `DetachGroupPolicy`, their
+guards, and their errors.

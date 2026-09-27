@@ -376,6 +376,32 @@ func TestUpdatePolicyCurrentStatementsPrivilegedRefused(t *testing.T) {
 	}
 }
 
+// TestUpdatePolicyPrivilegedAndSelfReportsSelfChange checks that a policy
+// whose own current statements are privileged, and which is also attached to
+// the caller directly, reports ErrSelfChange rather than ErrPrivilegedChange:
+// guardUpdatePolicy checks a policy's attachments for self before it reports
+// the current statements as privileged, so self wins even though the
+// privileged-statements refusal would otherwise fire first.
+func TestUpdatePolicyPrivilegedAndSelfReportsSelfChange(t *testing.T) {
+	g := unprivilegedGuardFixture()
+	g.policies = map[string]Policy{
+		"policy-1": {ID: "policy-1", Manager: "user", Statements: privilegedStatements()},
+	}
+	g.policyUserIDs = []string{"user-1"}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
 func TestUpdatePolicyProposedStatementsPrivilegedRefused(t *testing.T) {
 	g := unprivilegedPolicyFixture()
 	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
@@ -408,6 +434,25 @@ func TestUpdatePolicyAttachedToProtectedGroupItself(t *testing.T) {
 	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
 	if !errors.Is(err, ErrPrivilegedChange) {
 		t.Fatalf("UpdatePolicy() err = %v, want ErrPrivilegedChange", err)
+	}
+}
+
+// TestUpdatePolicyRefusesGroupAttachedInIdpMode checks that
+// policyAttachedToProtected refuses when a policy is attached to a group in
+// idp mode, the same as every other guard that reads a group.
+func TestUpdatePolicyRefusesGroupAttachedInIdpMode(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroups = []GroupSummary{{ID: "group-z"}}
+	g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"group-z","mode":"idp","iamUsers":[],"policies":[]}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for an idp-mode attached group")
 	}
 }
 
@@ -477,6 +522,32 @@ func TestUpdatePolicyAttachedToCallerRefused(t *testing.T) {
 	}
 }
 
+// TestUpdatePolicyMultiAttachmentSelfWinsAcrossAttachments checks that self
+// wins even when a different, privileged group is checked before the
+// caller's own direct attachment: policyAttachedToProtected combines every
+// attachment's own result rather than returning as soon as the first
+// non-notProtected one is found, so a later self-match still upgrades the
+// result.
+func TestUpdatePolicyMultiAttachmentSelfWinsAcrossAttachments(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroups = []GroupSummary{{ID: "group-z"}}
+	g.groups = map[string]Group{"group-z": {ID: "group-z", PolicyIDs: []string{"policy-priv"}}}
+	g.policyUserIDs = []string{"user-1"}
+	g.policies["policy-priv"] = Policy{ID: "policy-priv", Manager: "user", Statements: privilegedStatements()}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
 // TestUpdatePolicyServiceAccountCallerRefusesServiceAccountAttachment checks
 // that a service-account caller updating a policy attached to any service
 // account at all refuses as a self-change, mirroring guardServiceAccountWrite
@@ -489,6 +560,32 @@ func TestUpdatePolicyServiceAccountCallerRefusesServiceAccountAttachment(t *test
 	g := unprivilegedPolicyFixture()
 	g.caller = userInfoResponse{UserID: "sa-caller", UserType: callerTypeUserSA}
 	g.policyServiceAccountIDs = []string{"sa-1"}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
+// TestUpdatePolicyServiceAccountCallerSelfWinsAfterGroupPrivilege checks that
+// a service-account caller's blanket self-refusal wins even when a
+// privileged group attachment is found first: policyAttachedToProtected must
+// not stop at the first non-notProtected result before it ever reaches the
+// service-account attachments.
+func TestUpdatePolicyServiceAccountCallerSelfWinsAfterGroupPrivilege(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.caller = userInfoResponse{UserID: "sa-caller", UserType: callerTypeUserSA}
+	g.policyGroups = []GroupSummary{{ID: "group-z"}}
+	g.groups = map[string]Group{"group-z": {ID: "group-z", PolicyIDs: []string{"policy-priv"}}}
+	g.policyServiceAccountIDs = []string{"sa-1"}
+	g.policies["policy-priv"] = Policy{ID: "policy-priv", Manager: "user", Statements: privilegedStatements()}
 	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
 		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
 			t.Fatal("no write request expected")

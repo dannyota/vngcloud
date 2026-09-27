@@ -298,16 +298,40 @@ func TestIAMPathIDRejection(t *testing.T) {
 		if _, err := c.DeletePolicy(context.Background(), &DeletePolicyInput{PolicyID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("DeletePolicy(%q) err = %v, want ErrInvalidInput", id, err)
 		}
+		if _, err := c.UpdateGroup(context.Background(), &UpdateGroupInput{GroupID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("UpdateGroup(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DeleteGroup(context.Background(), &DeleteGroupInput{GroupID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DeleteGroup(%q) err = %v, want ErrInvalidInput", id, err)
+		}
 		if _, err := c.AttachServiceAccountPolicy(context.Background(), &AttachServiceAccountPolicyInput{PolicyID: id, ServiceAccountID: "sa-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("AttachServiceAccountPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
 		}
 		if _, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: id, ServiceAccountID: "sa-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("DetachServiceAccountPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
 		}
+		if _, err := c.AttachGroupPolicy(context.Background(), &AttachGroupPolicyInput{PolicyID: id, GroupID: "group-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachGroupPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachGroupPolicy(context.Background(), &DetachGroupPolicyInput{PolicyID: id, GroupID: "group-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachGroupPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AttachUserPolicy(context.Background(), &AttachUserPolicyInput{PolicyID: id, UserID: "user-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachUserPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachUserPolicy(context.Background(), &DetachUserPolicyInput{PolicyID: id, UserID: "user-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachUserPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AddUserToGroup(context.Background(), &AddUserToGroupInput{GroupID: id, UserID: "user-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AddUserToGroup(GroupID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.RemoveUserFromGroup(context.Background(), &RemoveUserFromGroupInput{GroupID: id, UserID: "user-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("RemoveUserFromGroup(GroupID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
 		if id == "" {
-			// CheckRequired already refuses an empty ServiceAccountID before
-			// CheckPathID's own message would name it; the PolicyID cases
-			// above already cover the empty path here.
+			// CheckRequired already refuses an empty second field before
+			// CheckPathID's own message would name it; the first-field cases
+			// above already cover the empty path for every dual-ID call.
 			continue
 		}
 		if _, err := c.AttachServiceAccountPolicy(context.Background(), &AttachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
@@ -315,6 +339,24 @@ func TestIAMPathIDRejection(t *testing.T) {
 		}
 		if _, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("DetachServiceAccountPolicy(ServiceAccountID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AttachGroupPolicy(context.Background(), &AttachGroupPolicyInput{PolicyID: "policy-1", GroupID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachGroupPolicy(GroupID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachGroupPolicy(context.Background(), &DetachGroupPolicyInput{PolicyID: "policy-1", GroupID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachGroupPolicy(GroupID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AttachUserPolicy(context.Background(), &AttachUserPolicyInput{PolicyID: "policy-1", UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachUserPolicy(UserID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachUserPolicy(context.Background(), &DetachUserPolicyInput{PolicyID: "policy-1", UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachUserPolicy(UserID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AddUserToGroup(context.Background(), &AddUserToGroupInput{GroupID: "group-1", UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AddUserToGroup(UserID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.RemoveUserFromGroup(context.Background(), &RemoveUserFromGroupInput{GroupID: "group-1", UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("RemoveUserFromGroup(UserID=%q) err = %v, want ErrInvalidInput", id, err)
 		}
 	}
 }

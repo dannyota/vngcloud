@@ -4,6 +4,36 @@
 
 The guards documented below stop mistakes, not a caller that already holds IAM write rights: give agent profiles an IAM user without IAM write rights, and turn on read_only where they only read, so the server itself refuses what a guard would. A caller whose own type is a service account is refused on every write that targets an existing service account (update-service-account, delete-service-account, and reset-service-account-secret), since its own identity cannot be confirmed against a target's ID or ClientID.
 
+## add-user-to-group
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the user is the caller or the group is one the caller already belongs to, and PrivilegedChange when the user or the group otherwise holds a privileged policy; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--group-id` | `string` | yes |
+| `--user-id` | `string` | yes |
+
+```sh
+vngcloud iam add-user-to-group --group-id <group-id> --user-id <user-id> --yes
+```
+
+## attach-group-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the group is one the caller already belongs to, and PrivilegedChange when the policy grants an IAM write action or the group otherwise holds one; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--group-id` | `string` | yes |
+
+```sh
+vngcloud iam attach-group-policy --policy-id <policy-id> --group-id <group-id> --yes
+```
+
 ## attach-service-account-policy
 
 Kind: Write, destructive.
@@ -17,6 +47,36 @@ Refuses, before any request, with error code SelfChange when the caller's own ty
 
 ```sh
 vngcloud iam attach-service-account-policy --policy-id <policy-id> --service-account-id <service-account-id> --yes
+```
+
+## attach-user-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the user is the caller, and PrivilegedChange when the policy grants an IAM write action or the user otherwise holds one, directly or through a group; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--user-id` | `string` | yes |
+
+```sh
+vngcloud iam attach-user-policy --policy-id <policy-id> --user-id <user-id> --yes
+```
+
+## create-group
+
+Kind: Write.
+
+Changes no one's rights and has no guard beyond read-only: a new group starts with no members and no attached policy, added only through add-user-to-group and attach-group-policy. Never retried after a failure that may have already reached the server: list groups by --name before creating it again rather than repeating this command.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+
+```sh
+vngcloud iam create-group --name <name>
 ```
 
 ## create-policy
@@ -58,6 +118,20 @@ Needs --secret-file <path>: the client secret is returned once, and this command
 vngcloud iam create-service-account --name <name> --secret-file <secret-file>
 ```
 
+## delete-group
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code ResourceInUse when the group has a member or an attached policy, protected or not: removing it would silently take rights from whatever it is attached to. See the IAM design's guard rules.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--group-id` | `string` | yes |
+
+```sh
+vngcloud iam delete-group --group-id <group-id> --yes
+```
+
 ## delete-policy
 
 Kind: Write, destructive.
@@ -86,6 +160,21 @@ Refuses, before any request, with error code SelfChange when the service account
 vngcloud iam delete-service-account --service-account-id <service-account-id> --yes
 ```
 
+## detach-group-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the group is one the caller already belongs to, and PrivilegedChange when the policy grants an IAM write action or the group otherwise holds one; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--group-id` | `string` | yes |
+
+```sh
+vngcloud iam detach-group-policy --policy-id <policy-id> --group-id <group-id> --yes
+```
+
 ## detach-service-account-policy
 
 Kind: Write, destructive.
@@ -99,6 +188,21 @@ Refuses, before any request, with error code SelfChange when the caller's own ty
 
 ```sh
 vngcloud iam detach-service-account-policy --policy-id <policy-id> --service-account-id <service-account-id> --yes
+```
+
+## detach-user-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the user is the caller, and PrivilegedChange when the policy grants an IAM write action or the user otherwise holds one, directly or through a group; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--user-id` | `string` | yes |
+
+```sh
+vngcloud iam detach-user-policy --policy-id <policy-id> --user-id <user-id> --yes
 ```
 
 ## get-caller-identity
@@ -274,6 +378,21 @@ Kind: Read.
 vngcloud iam list-users
 ```
 
+## remove-user-from-group
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the user is the caller or the group is one the caller already belongs to, and PrivilegedChange when the user or the group otherwise holds a privileged policy; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--group-id` | `string` | yes |
+| `--user-id` | `string` | yes |
+
+```sh
+vngcloud iam remove-user-from-group --group-id <group-id> --user-id <user-id> --yes
+```
+
 ## reset-service-account-secret
 
 Kind: Write, destructive.
@@ -289,6 +408,22 @@ Refuses, before any request, with error code SelfChange when the service account
 
 ```sh
 vngcloud iam reset-service-account-secret --service-account-id <service-account-id> --secret-file <secret-file> --yes
+```
+
+## update-group
+
+Kind: Write.
+
+Changes no one's rights and has no guard beyond read-only. Sends a full PATCH, reading the group first to fill Name when left unset, since the request requires a name either way; Description is sent only when set, and left as is otherwise.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--group-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+
+```sh
+vngcloud iam update-group --group-id <group-id>
 ```
 
 ## update-policy

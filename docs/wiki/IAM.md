@@ -3,8 +3,8 @@
 `iam` is `danny.vn/vngcloud/iam`, with its own `New(cfg)`. It reads caller
 identity, users, actions, policies, groups, and service accounts; see the
 [IAM section of Services](Services.md#iam) for that full read list. This
-page covers service account and policy writes, the IAM resources this SDK
-writes here. Groups stay read-only.
+page covers service account, policy, and group writes, the IAM resources
+this SDK writes here.
 
 ## Service account writes
 
@@ -144,17 +144,21 @@ again. `AttachServiceAccountPolicy` and `DetachServiceAccountPolicy` are
 plain `POST` and `DELETE`: a repeat attach or detach is visible as the
 server's own conflict or not-found response, so no such care is needed.
 
-`CreatePolicy`, `UpdatePolicy`, `DeletePolicy`, `AttachServiceAccountPolicy`,
-and `DetachServiceAccountPolicy` each refuse to run, sending no request, per
-the rules below. Every guard also refuses for a caller whose type cannot be
-classified.
+`CreatePolicy`, `UpdatePolicy`, `DeletePolicy`, every attach and detach,
+`DeleteGroup`, `AddUserToGroup`, and `RemoveUserFromGroup` each refuse to
+run, sending no request, per the rules below. Every guard also refuses for a
+caller whose type cannot be classified.
 
 | Write | Refused when |
 |-|-|
 | `CreatePolicy` | The statements grant an IAM write action |
 | `UpdatePolicy` | The policy is managed; its current or proposed statements grant an IAM write action; or it is attached to a protected principal or group |
 | `DeletePolicy` | The policy is managed, or attached to a group, an IAM user, or a service account |
+| `DeleteGroup` | The group has a member or a policy attached |
 | `AttachServiceAccountPolicy`, `DetachServiceAccountPolicy` | The policy grants an IAM write action, the target service account already holds one, or the caller is a service account |
+| `AttachGroupPolicy`, `DetachGroupPolicy` | The policy grants an IAM write action, or the target group is protected |
+| `AttachUserPolicy`, `DetachUserPolicy` | The policy grants an IAM write action, or the target user is protected |
+| `AddUserToGroup`, `RemoveUserFromGroup` | The user or the group is protected |
 
 A protected principal is the caller, an IAM user or service account holding
 a policy that grants an IAM write right (an IAM user counts as protected
@@ -163,14 +167,33 @@ policy attached, or with a protected principal as a member.
 
 | Sentinel | Meaning |
 |-|-|
-| `iam.ErrSelfChange` | The target service account is the caller, the caller is a service account, or `UpdatePolicy` targets a policy attached to the caller (or to any service account, when the caller is one) |
+| `iam.ErrSelfChange` | The target service account is the caller, the caller is a service account, `UpdatePolicy` targets a policy attached to the caller (or to any service account, when the caller is one), or a group membership or attach call would change the caller's own rights |
 | `iam.ErrPrivilegedChange` | The target, or something it is attached to, holds a policy that grants an IAM write right, or the caller's own type could not be classified |
 | `iam.ErrManagedPolicy` | `UpdatePolicy` or `DeletePolicy` targets a GreenNode-managed policy |
-| `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account |
+| `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account, or `DeleteGroup` targets a group with a member or a policy |
 | `iam.ErrNoSecret` | A create or reset response reported success but carried no client secret |
 | `iam.ErrCreateUnconfirmed` | A create succeeded but the read-back that confirms it failed |
-| `iam.ErrNotSettled` | `CreatePolicy` or `UpdatePolicy` succeeded but the read-back that confirms it failed; Output keeps the policy's ID |
+| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID |
 
 None of these sentinels name the policy, statement, or action involved, and
 there is no way to turn any guard off; make such a change from the IAM
 console instead.
+
+## Group writes
+
+```go
+group, err := iamClient.CreateGroup(ctx, &iam.CreateGroupInput{Name: "app-readers"})
+if err != nil {
+	log.Fatal(err)
+}
+iamClient.AddUserToGroup(ctx, &iam.AddUserToGroupInput{GroupID: group.Group.ID, UserID: userID})
+iamClient.AttachGroupPolicy(ctx, &iam.AttachGroupPolicyInput{PolicyID: policyID, GroupID: group.Group.ID})
+iamClient.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: policyID, GroupID: group.Group.ID})
+iamClient.RemoveUserFromGroup(ctx, &iam.RemoveUserFromGroupInput{GroupID: group.Group.ID, UserID: userID})
+iamClient.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: group.Group.ID})
+```
+
+`CreateGroup` always sends `mode: "iam"` with no initial members or
+policies; like `CreateServiceAccount`, `CreateGroup` and `UpdateGroup` have
+no guard. `AttachUserPolicy` and `DetachUserPolicy` attach a policy directly
+to an IAM user, in the same shape as the group calls above.
