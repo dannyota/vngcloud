@@ -266,11 +266,28 @@ func TestLoadBalancerImportCertificateMissingFileRefused(t *testing.T) {
 	}
 }
 
-// TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey checks that
-// --cli-input-json can never set PrivateKey, inline or file://, per the CLI
-// design.
-func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T) {
+// cliInputJSONSecretRefusal is the exact error applyCLIInputJSON (input.go)
+// returns for a --cli-input-json value that names field, a vngcloud.Secret
+// field.
+func cliInputJSONSecretRefusal(field string) string {
+	return `--cli-input-json: "` + field + `" holds a secret value and cannot be set through --cli-input-json`
+}
+
+// testCLIInputJSONRefusesSecretField drives import-certificate with a
+// --cli-input-json value that sets field to a PEM value holding literal
+// newlines, both inline and through file://, and checks that the command
+// fails on the design's Secret-field refusal rather than on invalid JSON. A
+// raw PEM value embedded directly inside a JSON string literal is not valid
+// JSON, since its newlines are unescaped control characters; building the
+// body with json.Marshal instead escapes them, so the decode succeeds and
+// the command actually reaches applyCLIInputJSON's secret check.
+func testCLIInputJSONRefusesSecretField(t *testing.T, field string) {
+	t.Helper()
 	certPath := writeCertFile(t, "cert.pem", certificateFixture.certPEM)
+	body, err := json.Marshal(map[string]string{field: certificateFixture.keyPEM})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
 
 	t.Run("inline", func(t *testing.T) {
 		fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -283,11 +300,14 @@ func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T
 			"--region", "hcm-3", "--project-id", "proj-1",
 			"loadbalancer", "import-certificate", "--name", "example-com", "--type", "TLS/SSL",
 			"--certificate-file", certPath,
-			"--cli-input-json", `{"PrivateKey":"` + certificateFixture.keyPEM + `"}`,
+			"--cli-input-json", string(body),
 		})
 		err := root.ExecuteContext(context.Background())
 		if err == nil {
-			t.Fatal("expected an error for an inline --cli-input-json PrivateKey")
+			t.Fatalf("expected an error for an inline --cli-input-json %s", field)
+		}
+		if got, want := err.Error(), cliInputJSONSecretRefusal(field); got != want {
+			t.Fatalf("error = %q, want %q (stderr=%s)", got, want, stderr.String())
 		}
 		if got := exitCode(err); got != 2 {
 			t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
@@ -298,7 +318,7 @@ func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T
 	})
 
 	t.Run("file", func(t *testing.T) {
-		jsonPath := writeCertFile(t, "input.json", `{"PrivateKey":"`+certificateFixture.keyPEM+`"}`)
+		jsonPath := writeCertFile(t, "input.json", string(body))
 		fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 			"/v2/proj-1/cas": func(_ http.ResponseWriter, r *http.Request) {
 				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -313,7 +333,10 @@ func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T
 		})
 		err := root.ExecuteContext(context.Background())
 		if err == nil {
-			t.Fatal("expected an error for a file:// --cli-input-json PrivateKey")
+			t.Fatalf("expected an error for a file:// --cli-input-json %s", field)
+		}
+		if got, want := err.Error(), cliInputJSONSecretRefusal(field); got != want {
+			t.Fatalf("error = %q, want %q (stderr=%s)", got, want, stderr.String())
 		}
 		if got := exitCode(err); got != 2 {
 			t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
@@ -322,6 +345,20 @@ func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T
 			t.Fatalf("requestCount = %d, want 0", n)
 		}
 	})
+}
+
+// TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey checks that
+// --cli-input-json can never set PrivateKey, inline or file://, per the CLI
+// design.
+func TestLoadBalancerImportCertificateCLIInputJSONRefusesPrivateKey(t *testing.T) {
+	testCLIInputJSONRefusesSecretField(t, "PrivateKey")
+}
+
+// TestLoadBalancerImportCertificateCLIInputJSONRefusesPassphrase checks that
+// --cli-input-json can never set Passphrase, inline or file://, the same
+// rule as PrivateKey.
+func TestLoadBalancerImportCertificateCLIInputJSONRefusesPassphrase(t *testing.T) {
+	testCLIInputJSONRefusesSecretField(t, "Passphrase")
 }
 
 // TestLoadBalancerImportCertificateReadOnlyRefusedWithZeroRequests checks
