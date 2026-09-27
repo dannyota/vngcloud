@@ -45,6 +45,7 @@ import (
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
+	"danny.vn/vngcloud/volume"
 )
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
@@ -6115,4 +6116,186 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 		t.Fatalf("step 12 DeletePolicy: %s", safeErr(err))
 	}
 	t.Log("step 12: deleted group and policy")
+}
+
+// liveMaxVND parses VNGCLOUD_LIVE_MAX_VND, the run's own budget cap in VND a
+// month, failing the test before any request when it is unset or not a
+// positive number. Every paid live write test checks its planned quotes
+// against this cap and sends nothing once their sum exceeds it, per the
+// design's live-run budget rule.
+func liveMaxVND(t *testing.T) float64 {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
+	if raw == "" {
+		t.Fatal("set VNGCLOUD_LIVE_MAX_VND to this run's VND-a-month cap; no paid write test sends anything without it")
+	}
+	budgetCap, err := strconv.ParseFloat(raw, 64)
+	if err != nil || budgetCap <= 0 {
+		t.Fatalf("VNGCLOUD_LIVE_MAX_VND = %q, want a positive number", raw)
+	}
+	return budgetCap
+}
+
+// deleteLiveVolumes deletes every unattached volume named with the
+// "vngcloud-live-" prefix and reports how many it deleted, for the
+// pre-test sweep and the cleanup of TestLiveWritePaidVolume and the later
+// paid vServer live tests. An attached volume is left for the caller's own
+// server cleanup to detach first.
+func deleteLiveVolumes(ctx context.Context, t *testing.T, client *volume.Client) int {
+	t.Helper()
+	list, err := client.ListVolumes(ctx, nil)
+	if err != nil {
+		t.Errorf("sweep: ListVolumes: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, v := range list.Items {
+		if !strings.HasPrefix(v.Name, "vngcloud-live-") || v.ServerID != "" || len(v.ServerIDList) > 0 {
+			continue
+		}
+		if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: v.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("sweep: DeleteVolume(%s): %s", v.UUID, safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// TestLiveWritePaidVolume is the design's L1 live run, gating the P2
+// release (volume.CreateVolume and volume.DeleteVolume). It orders one 10
+// GB SSD volume at the quoted price and deletes it.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends a real, billed
+// CreateVolume order. It is gated by VNGCLOUD_LIVE_WRITE=1,
+// VNGCLOUD_LIVE_PAID_VOLUME=1, and VNGCLOUD_LIVE_MAX_VND (this run's VND
+// cap); it quotes the volume and refuses to order anything once the quote
+// exceeds the cap, before sending any write, and it then passes that same
+// quote as CreateVolume's own MaxPrice, so a price change between the plan
+// and the order stops the run rather than paying more than planned.
+func TestLiveWritePaidVolume(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_VOLUME") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_VOLUME=1 to run the live paid volume test; " +
+			"it orders a real, billed volume and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	volumeClient := volume.New(cfg)
+	billingClient := billing.New(cfg)
+
+	// Step 1: sweep leftovers from an earlier aborted run first.
+	swept := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover volume(s)", swept)
+
+	// Step 2: find the zone's default volume type.
+	defaultType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{})
+	if err != nil {
+		t.Fatalf("step 2 GetDefaultVolumeType: %s", safeErr(err))
+	}
+	zoneID := defaultType.VolumeType.ZoneID
+	volumeTypeID := defaultType.VolumeType.ID
+	t.Logf("step 2: zone %s, volume type %s", zoneID, volumeTypeID)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+	createInput := &volume.CreateVolumeInput{Name: name, ZoneID: zoneID, Size: 10, VolumeTypeID: volumeTypeID}
+
+	// Step 3: quote first, and refuse to order once the quote alone exceeds
+	// this run's cap, before any write.
+	quote, err := volumeClient.QuoteCreateVolume(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 3 QuoteCreateVolume: %s", safeErr(err))
+	}
+	t.Logf("step 3: quote %.0f VND a month", quote.OptimumPrice)
+	if quote.OptimumPrice > budgetCap {
+		t.Fatalf("step 3: quote %.0f VND exceeds this run's cap %.0f VND; ordering nothing", quote.OptimumPrice, budgetCap)
+	}
+
+	before, err := billingClient.GetBalances(ctx, &billing.GetBalancesInput{})
+	if err != nil {
+		t.Logf("step 3: GetBalances before create failed (non-fatal): %s", safeErr(err))
+	}
+
+	// Step 4: register cleanup by name before ordering, since a POST that
+	// fails ambiguously may still have reached the server.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		swept := deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+	})
+
+	// Step 5: order at the quoted price, so a price change between step 3
+	// and now stops the run instead of paying more than planned.
+	createStart := time.Now()
+	created, err := volumeClient.CreateVolume(ctx, &volume.CreateVolumeInput{
+		Name: name, ZoneID: zoneID, Size: 10, VolumeTypeID: volumeTypeID, MaxPrice: quote.OptimumPrice,
+	})
+	if err != nil {
+		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
+	}
+	t.Logf("step 5: settled after %s at status %s", time.Since(createStart), created.Volume.Status)
+	if created.Volume.Status != "AVAILABLE" {
+		t.Fatalf("step 5: status = %s, want AVAILABLE", created.Volume.Status)
+	}
+	volumeID := created.Volume.UUID
+
+	if before != nil {
+		after, err := billingClient.GetBalances(ctx, &billing.GetBalancesInput{})
+		if err != nil {
+			t.Logf("step 5: GetBalances after create failed (non-fatal): %s", safeErr(err))
+		} else {
+			t.Logf("step 5: cash balance before=%v after=%v (compare manually; refund timing is unconfirmed)",
+				before.Balances.Cash, after.Balances.Cash)
+		}
+	}
+
+	// Step 6: a repeat create with the same name is refused by the SDK
+	// itself, sending nothing.
+	if _, err := volumeClient.CreateVolume(ctx, createInput); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("step 6: repeat CreateVolume error = %s, want ErrInvalidInput", safeErr(err))
+	}
+	t.Log("step 6: repeat create with the same name was refused")
+
+	// Step 7: delete and confirm gone.
+	deleteStart := time.Now()
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); err != nil {
+		t.Fatalf("step 7 DeleteVolume: %s", safeErr(err))
+	}
+	t.Logf("step 7: delete settled after %s", time.Since(deleteStart))
+	if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: volumeID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7: GetVolume after delete = %s, want NotFound", safeErr(err))
+	}
+	t.Log("step 7: confirmed the volume is gone")
 }

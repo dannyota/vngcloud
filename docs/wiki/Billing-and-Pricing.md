@@ -238,3 +238,31 @@ if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.Er
 
 `monitor.ErrPriceAboveMax` is the same value as `vngcloud.ErrPriceAboveMax`,
 so code written against either name still works.
+
+## vServer prices
+
+vServer has no hourly rate: a quote is VND a month, and a prepaid account
+pays one month at once from its credit wallet when a server or volume is
+created. A delete refunds the unused value, counted to the minute. Prices
+are public list prices and can change; a `Quote...` call always returns the
+account's current price, so treat this table as a rough guide, not a
+guarantee:
+
+| Item | Monthly (VND) |
+|-|-|
+| Server, 1 vCPU, 2 GB, 20 GB SSD root | ~347,800 |
+| Server, 2 vCPU, 4 GB, 20 GB SSD root | ~631,600 |
+| SSD volume | ~3,200 a GB |
+| Volume, 10 GB SSD | ~32,000 |
+
+Every paid create or resize in `compute` and `volume` refuses to send a
+write priced above its own `MaxPrice`, which defaults to 0: setting
+`MaxPrice` is the caller's explicit consent to pay up to that amount, the
+role the CLI's `--max-price` flag plays for the matching command. A
+destructive write, such as deleting a server or a volume, needs no price
+consent, since it does not order anything; the CLI instead requires its
+`--yes` flag there, since a delete cannot be undone.
+
+If a server or volume is managed by OpenTofu or Terraform, a write made
+through the SDK drifts from that state; keep such a resource's writes in
+its own tool.

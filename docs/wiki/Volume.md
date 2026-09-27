@@ -1,0 +1,147 @@
+# Volume
+
+`volume` is `danny.vn/vngcloud/volume`, with its own `New(cfg)`. It reads
+vServer volumes, volume types, and snapshots, and orders and deletes
+volumes. See [Services](Services.md#volume) for the full read method list.
+
+## Setup
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/volume"
+)
+
+func main() {
+	ctx := context.Background()
+
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+			RootEmail: "<root-email>",
+			Username:  "<iam-username>",
+			Password:  "<password>",
+		}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client := volume.New(cfg)
+	_ = ctx
+	_ = client
+}
+```
+
+The rest of this page assumes `cfg` and `ctx` from this setup, plus
+`client := volume.New(cfg)`.
+
+## Creating and deleting volumes
+
+Creating a volume charges the account: a prepaid account pays one month's
+price from its credit wallet when the volume is created, and deleting one
+refunds the unused value. There is no hourly rate; a quote is VND a month. A
+10 GB SSD volume, the smallest this SDK creates in one call, quotes about
+32,000 VND a month; see [Billing and
+Pricing](Billing-and-Pricing.md#vserver-prices) for the fuller price table.
+
+```go
+quote, err := client.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
+	Name: "vngcloud-my-data", ZoneID: "<zone-id>", Size: 10, VolumeTypeID: "<volume-type-id>",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("%.0f VND/month", quote.OptimumPrice)
+
+created, err := client.CreateVolume(ctx, &volume.CreateVolumeInput{
+	Name: "vngcloud-my-data", ZoneID: "<zone-id>", Size: 10, VolumeTypeID: "<volume-type-id>",
+	MaxPrice: quote.OptimumPrice,
+})
+switch {
+case errors.Is(err, vngcloud.ErrPriceAboveMax):
+	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
+case err != nil:
+	log.Fatal(err)
+}
+log.Println(created.Volume.UUID, created.MonthlyPrice)
+
+if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{
+	VolumeID: created.Volume.UUID,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`CreateVolume`'s `MaxPrice` is VND a month and defaults to 0, so
+`CreateVolumeInput{Name: "x", ZoneID: z, Size: 10, VolumeTypeID: t}` alone
+always refuses with `vngcloud.ErrPriceAboveMax` and orders nothing: raising
+`MaxPrice` to the quote's own `OptimumPrice` is the caller's explicit
+consent to pay that price, the same role the CLI's `--max-price` flag
+plays for `vngcloud volume create-volume`. Before any request,
+`CreateVolume` also rejects a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice`
+with `vngcloud.ErrInvalidInput`, since none of those compares safely
+against a quote. It then lists volumes by `Name` and refuses, also with
+`vngcloud.ErrInvalidInput`, when one already exists with that exact name
+(the list's own `Name` filter matches by substring, so `CreateVolume` still
+scans for an exact match itself), so a rerun after an unclear failure never
+risks ordering a second volume under the same name; a name that is only a
+substring match, such as ordering `"data-1"` when `"data-10"` already
+exists, still creates.
+
+`CreateVolume` builds one request body from `Input` and sends that same
+body to `QuoteCreateVolume`'s own quote endpoint first, so the quote always
+prices the exact volume the create would make; see [Billing and
+Pricing](Billing-and-Pricing.md#quoting-a-paid-write). It refuses with
+`vngcloud.ErrPriceAboveMax`, ordering nothing, when the quote's
+`OptimumPrice` exceeds `Input.MaxPrice`. The order is a `POST` and is never
+retried after a failure that may have already reached the server: after
+any error that is not a 4xx `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`,
+the volume may exist, and the caller lists volumes by `Name` and matches it
+exactly before ordering again, rather than retrying blind.
+
+Unless `NoWait` is set, `CreateVolume` then waits up to 5 minutes, polling
+every 2 seconds, for the new volume to reach `AVAILABLE`; a 404 read during
+that wait keeps polling, since a volume just created may not be readable at
+once. If the volume instead reaches `ERROR`, the returned error wraps
+`volume.ErrFailed`; if the bound runs out, or a read or a sleep fails, such
+as from a canceled `ctx`, it wraps `volume.ErrNotSettled` and says the
+create must not be repeated. Either way `Output.Volume` still holds the
+last volume a read returned, falling back to one with only the new UUID and
+`Input.Name` when no read ever succeeded. `NoWait` skips that wait and
+returns at once with only the UUID and Name filled in.
+
+`DeleteVolume` destroys the volume's data; there is no undo. It reads the
+volume first and, when that read shows it `IN-USE` or naming a server,
+sends nothing and returns `volume.ErrVolumeInUse`: detach it first. The
+server's own in-use refusal is the final guard for a race this pre-check
+misses. `DELETE` is idempotent and keeps the transport's normal retries; a
+retry that finds the volume already gone comes back as
+`vngcloud.IsNotFound(err) == true`. Unless `NoWait` is set, `DeleteVolume`
+then waits up to 5 minutes, polling every 2 seconds, for a 404 or a read
+showing `Status` `DELETED`; `ERROR` wraps `volume.ErrFailed`, and the bound
+running out, or a read or a sleep failing, wraps `volume.ErrNotSettled`. A
+rerun after either is always safe, since `DeleteVolume` reads first.
+
+If a volume is managed by OpenTofu or Terraform, a write made here drifts
+from that state; keep such a volume's writes in its own tool.
+
+## Errors
+
+```go
+var ErrNotSettled   = errors.New("volume: write accepted but not settled")
+var ErrFailed       = errors.New("volume: resource reached ERROR")
+var ErrVolumeInUse  = errors.New("volume: volume in use")
+```
+
+A malformed `VolumeID` or `VolumeTypeID`, an empty required field, or an
+invalid `MaxPrice` fails with `vngcloud.ErrInvalidInput` before any
+request. An unknown volume fails with `vngcloud.IsNotFound(err) == true`. A
+quota, billing refusal, or a rejected shape from the server itself comes
+back as the server's own `*vngcloud.APIError`; see [Errors](Errors.md) for
+the general error model.

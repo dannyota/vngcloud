@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -23,12 +24,21 @@ type Client struct {
 	// pricing prices a paid create before it sends one, sharing cfg's login
 	// and token cache with c.
 	pricing *pricing.Client
+
+	// sleep waits for d or ctx's end, whichever comes first, between poll
+	// reads. Tests replace it with a fake so a write's real wait never
+	// really elapses.
+	sleep sleepFunc
+
+	// now reads the current time. poll uses it, alongside sleep, to bound a
+	// write's wait by elapsed wall time; tests replace it with a fake clock.
+	now clockFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg)}
+	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg), sleep: contextSleep, now: time.Now}
 }
 
 type ListVolumesInput struct {

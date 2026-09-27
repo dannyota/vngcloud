@@ -1,0 +1,12 @@
+[
+  {"uuid": "volume-1", "name": "<name>", "status": "CREATING"},
+  {"uuid": "volume-1", "name": "<name>", "status": "CREATING-BILLING"},
+  {"uuid": "volume-1", "name": "<name>", "status": "AVAILABLE"},
+  {"uuid": "volume-1", "name": "<name>", "status": "ERROR"},
+  {"uuid": "volume-1", "name": "<name>", "status": "RESIZING"},
+  {"uuid": "volume-1", "name": "<name>", "status": "CHANGING-IOPS"},
+  {"uuid": "volume-1", "name": "<name>", "status": "IN-USE"},
+  {"uuid": "volume-1", "name": "<name>", "status": "ATTACHING"},
+  {"uuid": "volume-1", "name": "<name>", "status": "DETACHING"},
+  {"uuid": "volume-1", "name": "<name>", "status": "DELETING"}
+]
