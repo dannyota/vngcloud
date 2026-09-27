@@ -442,6 +442,35 @@ func TestAddPoolMemberSettleWaitSleepsBeforeConfirmRead(t *testing.T) {
 	}
 }
 
+// TestAddPoolMemberCrossCheckRefusesUnexpectedEmptyMembers checks that a
+// ListPoolMembers read of zero members is refused when the pool's own
+// embedded Members, from the pre-write GetPool read, named at least one:
+// ListPoolMembers already refuses a null or missing data key on its own, so
+// this is the second line of defense against any other way that read could
+// wrongly come back empty. Without it, AddPoolMember would resend that
+// empty read as the pool's whole member list, plus the one being added,
+// silently dropping every member the pool actually has.
+func TestAddPoolMemberCrossCheckRefusesUnexpectedEmptyMembers(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q,"members":[{"uuid":"member-1","address":"10.0.0.1","protocolPort":80}]}}`,
+				memberTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080}
+	if _, err := c.AddPoolMember(context.Background(), in); err == nil {
+		t.Fatal("AddPoolMember() error = nil, want an error when ListPoolMembers unexpectedly returns none")
+	}
+}
+
 func TestPoolMemberRejectsNonIPv4Address(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")

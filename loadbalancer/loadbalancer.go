@@ -439,14 +439,24 @@ func (c *Client) GetCertificate(ctx context.Context, in *GetCertificateInput) (*
 	return &GetCertificateOutput{Certificate: resp}, nil
 }
 
+// listLoadBalancerChild reads a child list (listeners, pools, pool members,
+// or policies) and refuses a response whose data key is missing or a
+// literal JSON null, decoded here as a nil *[]T: either would otherwise
+// decode to the same empty slice a genuinely empty list does, and a caller
+// such as a pool member replace must never mistake "the server sent no
+// data" for "this pool has no members" and reduce the list it resends to
+// just the one member being added or changed.
 func listLoadBalancerChild[T any](c *Client, ctx context.Context, operation, loadBalancerID string, childParts []string) ([]T, error) {
 	var resp struct {
-		Data []T `json:"data"`
+		Data *[]T `json:"data"`
 	}
 	if err := c.getLoadBalancerChild(ctx, operation, loadBalancerID, childParts, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Data, nil
+	if resp.Data == nil {
+		return nil, &core.APIError{Operation: operation, Message: "list response had no data"}
+	}
+	return *resp.Data, nil
 }
 
 func (c *Client) getLoadBalancerChild(ctx context.Context, operation, loadBalancerID string, childParts []string, out any) error {

@@ -247,6 +247,29 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 	}
 }
 
+// TestListPoolMembersRefusesNullOrMissingData checks that a list response
+// with a null or missing data key is refused, rather than decoded as an
+// empty list: a caller doing a members read-merge write must never mistake
+// "the server sent no data" for "this pool has no members".
+func TestListPoolMembersRefusesNullOrMissingData(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"null data", `{"data":null}`},
+		{"missing data", `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			if _, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: "lb-1", PoolID: "pool-1"}); err == nil {
+				t.Fatal("ListPoolMembers() error = nil, want an error for a null or missing data key")
+			}
+		})
+	}
+}
+
 func TestLoadBalancerRequiredInput(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
