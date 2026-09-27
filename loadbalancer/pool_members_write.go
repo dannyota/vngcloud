@@ -189,20 +189,52 @@ func poolMemberKeySetOf(members []PoolMember) map[poolMemberKey]bool {
 	return set
 }
 
-// checkMemberReadsAgree refuses to proceed when pool's own embedded
-// Members, from the pre-write GetPool read, and a fresh ListPoolMembers read
-// do not name the same set of members, keyed by Address and Port. The two
-// reads happen moments apart; server lag or another process's write between
-// them can make GetPool's embedded list and ListPoolMembers disagree by any
-// number of members, not just down to zero, and every write in this file
-// would otherwise resend whichever list it read as the pool's whole set,
-// silently dropping or fabricating the members only the other read named.
+// checkNoDuplicateMemberKey returns ErrBusy when members names the same
+// Address and Port twice. The members PUT carries no member id, so
+// findPoolMemberEntry and poolMembersEqual both assume Address and Port
+// uniquely name one member; a read that violates that would make an update
+// silently target only the first match, or a members replace read back as
+// mismatched even though it succeeded. label names which read produced
+// members, for the error message. Nothing has been sent by the time this
+// runs, so a retry is always safe.
+func checkNoDuplicateMemberKey(op, poolID, label string, members []PoolMember) error {
+	seen := make(map[poolMemberKey]bool, len(members))
+	for _, m := range members {
+		key := poolMemberKeyOf(m.Address, m.ProtocolPort)
+		if seen[key] {
+			return fmt.Errorf("%w: %s: pool %s: %s names more than one member at %s:%d; nothing sent, retry",
+				ErrBusy, op, poolID, label, m.Address, m.ProtocolPort)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+// checkMemberReadsAgree refuses to proceed when either the pre-write GetPool
+// read's own embedded Members, or a fresh ListPoolMembers read, names the
+// same Address and Port twice (checkNoDuplicateMemberKey), or when the two
+// reads do not name the same set of members, keyed by Address and Port. The
+// two reads happen moments apart; server lag or another process's write
+// between them can make GetPool's embedded list and ListPoolMembers disagree
+// by any number of members, not just down to zero, and every write in this
+// file would otherwise resend whichever list it read as the pool's whole
+// set, silently dropping or fabricating the members only the other read
+// named. A duplicate key within a single read can leave the two reads'
+// key sets equal in size and content even though one of them double-counts
+// an address and port, so the set comparison alone would not catch it.
 //
 // GetPool omitting the members field entirely leaves pool.Members nil,
 // distinct from the server naming an empty list; there is then nothing to
-// compare against, so this check is skipped and the write proceeds from the
-// ListPoolMembers read alone, as it always did before this check existed.
+// compare against, so the set comparison is skipped and the write proceeds
+// from the ListPoolMembers read alone, as it always did before this check
+// existed. The duplicate check on that ListPoolMembers read still runs.
 func checkMemberReadsAgree(op, poolID string, pool *Pool, members []PoolMember) error {
+	if err := checkNoDuplicateMemberKey(op, poolID, "the pool read", pool.Members); err != nil {
+		return err
+	}
+	if err := checkNoDuplicateMemberKey(op, poolID, "ListPoolMembers", members); err != nil {
+		return err
+	}
 	if pool.Members == nil {
 		return nil
 	}

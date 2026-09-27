@@ -548,6 +548,64 @@ func TestAddPoolMemberDisagreeingReadsRefuseWithoutPUT(t *testing.T) {
 	}
 }
 
+// memberDuplicateInPoolReadBody is the pool read's body when GetPool's
+// embedded Members names the same address and port twice. Its key set is
+// still {10.0.0.1:80}, the same set a ListPoolMembers read naming that
+// address and port once also produces, so checkMemberReadsAgree's plain
+// set-equality comparison alone would not catch this: a dedicated duplicate
+// check is required.
+const memberDuplicateInPoolReadBody = `{"data":{"uuid":"pool-1","progressStatus":"CREATED","members":[
+	{"address":"10.0.0.1","protocolPort":80},
+	{"address":"10.0.0.1","protocolPort":80}
+]}}`
+
+// memberDuplicateInListFixture is the ListPoolMembers counterpart to
+// memberDuplicateInPoolReadBody: the same address and port twice, same key
+// set as a pool read naming it once.
+const memberDuplicateInListFixture = `{"data":[
+	{"address":"10.0.0.1","protocolPort":80,"weight":1},
+	{"address":"10.0.0.1","protocolPort":80,"weight":2}
+]}`
+
+func TestAddPoolMemberDuplicateKeyInPoolReadRefusesWithoutPUT(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			_, _ = w.Write([]byte(memberDuplicateInPoolReadBody))
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			_, _ = w.Write([]byte(`{"data":[{"address":"10.0.0.1","protocolPort":80}]}`))
+		default:
+			t.Fatalf("unexpected request: %s %s (no PUT expected with a duplicate member key)", r.Method, r.URL.Path)
+		}
+	}))
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.4", Port: 8080}
+	if _, err := c.AddPoolMember(context.Background(), in); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
+func TestAddPoolMemberDuplicateKeyInListRefusesWithoutPUT(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q,"members":[{"address":"10.0.0.1","protocolPort":80}]}}`,
+				memberTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			_, _ = w.Write([]byte(memberDuplicateInListFixture))
+		default:
+			t.Fatalf("unexpected request: %s %s (no PUT expected with a duplicate member key)", r.Method, r.URL.Path)
+		}
+	}))
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.4", Port: 8080}
+	if _, err := c.AddPoolMember(context.Background(), in); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
 func TestUpdatePoolMemberDisagreeingReadsRefuseWithoutPUT(t *testing.T) {
 	c := newTestClient(t, memberDisagreementHandler(t))
 	in := &UpdatePoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.1", Port: 80, Weight: vngcloud.Ptr(5)}

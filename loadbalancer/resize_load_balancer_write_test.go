@@ -253,6 +253,11 @@ func TestResizeLoadBalancerRejectsBadMaxPriceSendsNothing(t *testing.T) {
 	}
 }
 
+// TestResizeLoadBalancerNoResendAfter5xx also checks that the returned error
+// advises reading the load balancer and comparing its package before any
+// rerun: the resize PUT is sent with Once and never resent, so after a 5xx
+// the caller does not know whether it reached the server, and a blind rerun
+// risks a second paid resize.
 func TestResizeLoadBalancerNoResendAfter5xx(t *testing.T) {
 	var putCalls atomic.Int32
 	statuses, packages := fixedStatusPackage(lbStatusCreated)
@@ -264,6 +269,46 @@ func TestResizeLoadBalancerNoResendAfter5xx(t *testing.T) {
 	}
 	if putCalls.Load() != 1 {
 		t.Fatalf("PUT calls = %d, want exactly 1 (Once)", putCalls.Load())
+	}
+	if !strings.Contains(err.Error(), "GetLoadBalancer") || !strings.Contains(err.Error(), "before any rerun") {
+		t.Fatalf("err = %v, want advice to read the load balancer and compare its package before any rerun", err)
+	}
+}
+
+// TestResizeLoadBalancerNoResendAfterDroppedConnection checks the same
+// advice as TestResizeLoadBalancerNoResendAfter5xx, but for a network error
+// (a connection dropped mid-request) rather than a 5xx status: both leave
+// the caller unsure whether the resize PUT reached the server.
+func TestResizeLoadBalancerNoResendAfterDroppedConnection(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	inner := resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, "")
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalls.Add(1)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("ResponseWriter does not support hijacking")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.Close()
+			return
+		}
+		inner(w, r)
+	}))
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if err == nil {
+		t.Fatal("ResizeLoadBalancer() error = nil, want an error")
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want exactly 1 (no resend)", putCalls.Load())
+	}
+	if !strings.Contains(err.Error(), "GetLoadBalancer") || !strings.Contains(err.Error(), "before any rerun") {
+		t.Fatalf("err = %v, want advice to read the load balancer and compare its package before any rerun", err)
 	}
 }
 

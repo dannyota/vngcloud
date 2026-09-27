@@ -40,7 +40,9 @@ type CreateLoadBalancerInput struct {
 	PackageID string `vngcloud:"required"`
 	// Type is TypeLayer4 or TypeLayer7.
 	Type string `vngcloud:"required"`
-	// Scheme is SchemeInternet or SchemeInternal.
+	// Scheme must be exactly SchemeInternet or SchemeInternal: any other
+	// value, including one padded or cased differently, or an invented
+	// value such as "Public", is refused before any request.
 	Scheme   string `vngcloud:"required"`
 	SubnetID string `vngcloud:"required"`
 	ZoneID   string `vngcloud:"required"`
@@ -63,12 +65,28 @@ type createLoadBalancerQuoteBody struct {
 	IsBuyMorePoc bool   `json:"isBuyMorePoc"`
 }
 
+// checkScheme returns core.ErrInvalidInput unless scheme is exactly
+// SchemeInternet or SchemeInternal, the console's own values. There is no
+// normalization: a padded, differently cased, or invented value such as
+// "Public" is refused rather than silently sent to the server, since an
+// Internet scheme is a public address the caller must name deliberately (see
+// the design's Security section).
+func checkScheme(op, scheme string) error {
+	if scheme != SchemeInternet && scheme != SchemeInternal {
+		return fmt.Errorf("%w: %s: Scheme must be %q or %q, got %q", core.ErrInvalidInput, op, SchemeInternet, SchemeInternal, scheme)
+	}
+	return nil
+}
+
 // createLoadBalancerQuoteInfo checks in's shape under op's name and builds
 // the create quote's resourceInfo from it, shared by QuoteCreateLoadBalancer
 // and CreateLoadBalancer so both check the same fields and price the same
 // way; each keeps its own op in every error it returns.
 func createLoadBalancerQuoteInfo(op string, in *CreateLoadBalancerInput) (map[string]any, error) {
 	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := checkScheme(op, in.Scheme); err != nil {
 		return nil, err
 	}
 	for _, id := range [...]struct{ field, value string }{

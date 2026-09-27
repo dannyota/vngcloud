@@ -103,8 +103,13 @@ type resizeLoadBalancerBody struct {
 // whatever the failure, since a resend could race a resize already in
 // progress. A busy refusal from the PUT itself, matched the same way as the
 // pre-write wait, returns ErrBusy: the server did not act, and a rerun is
-// safe because ResizeLoadBalancer always reads first. Any other failure is
-// returned as is.
+// safe because ResizeLoadBalancer always reads first. A 4xx that is not a
+// busy refusal is returned as is: the server rejected the request outright.
+// Any other failure, a 5xx, a network error, or a timeout, wraps advice to
+// read the load balancer with GetLoadBalancer and compare its package to the
+// one requested before any rerun, since that failure leaves it unknown
+// whether the PUT reached the server and a blind rerun could send a second
+// paid resize.
 //
 // Without NoWait, ResizeLoadBalancer then waits up to 45 minutes, polling
 // every 10 seconds, for the load balancer's progressStatus to reach CREATED
@@ -187,7 +192,7 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 		if isBusyRefusal(err) {
 			return nil, fmt.Errorf("%w: %s: load balancer %s: %w", ErrBusy, op, in.LoadBalancerID, err)
 		}
-		return nil, err
+		return nil, wrapAmbiguousResizeErr(op, in.LoadBalancerID, err)
 	}
 
 	if in.NoWait {

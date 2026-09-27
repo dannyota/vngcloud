@@ -642,6 +642,22 @@ func TestCreateLoadBalancerNoResendAfterDroppedConnection(t *testing.T) {
 	}
 }
 
+// TestCreateLoadBalancerRejectsBadSchemeSendsNothing checks the same Scheme
+// rule as TestQuoteCreateLoadBalancerRejectsBadScheme, but through
+// CreateLoadBalancer itself: nothing, including the quote, is sent.
+func TestCreateLoadBalancerRejectsBadSchemeSendsNothing(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"internet", "INTERNET", " Internet", "Internet ", "Public", "internal"} {
+		in := validCreateLoadBalancerInput()
+		in.Scheme = bad
+		if _, err := c.CreateLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("Scheme=%q err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}
+
 func TestCreateLoadBalancerRejectsBadBodyIDs(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")

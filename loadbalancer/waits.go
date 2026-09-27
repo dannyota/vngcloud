@@ -415,6 +415,24 @@ func wrapAmbiguousCreateErr(op, listCmd string, err error) error {
 	return fmt.Errorf("%s: create may have already reached the server; check with %s and match the name exactly: %w", op, listCmd, err)
 }
 
+// wrapAmbiguousResizeErr wraps err from a resize PUT that failed
+// ambiguously: any error that is not a 4xx *core.APIError, where whether the
+// resize reached the server is unknown. It is never called for a 4xx (which
+// means the server rejected the request outright and never acted on it) or
+// for a busy refusal (already mapped to ErrBusy by the caller). The resize
+// PUT is sent with Once and is never resent, so after a 5xx, a network
+// error, or a timeout, the caller must read the load balancer
+// (GetLoadBalancer) and compare its package to the one requested before any
+// rerun: a rerun that landed on top of a resize that already reached the
+// server would send a second paid resize. A nil err stays nil.
+func wrapAmbiguousResizeErr(op, loadBalancerID string, err error) error {
+	if err == nil || is4xxAPIError(err) {
+		return err
+	}
+	return fmt.Errorf("%s: load balancer %s: resize may have already reached the server; read the load balancer with GetLoadBalancer and compare its package to the one requested before any rerun: %w",
+		op, loadBalancerID, err)
+}
+
 // errCreateResponseNoID builds the error a create returns when its response
 // carries no uuid: the resource may exist, and listCmd names the exact CLI
 // list command to check with before creating it again.

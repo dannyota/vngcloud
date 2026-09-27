@@ -92,8 +92,10 @@ Constants: `TypeLayer4` (`Layer 4`), `TypeLayer7` (`Layer 7`),
 sends them as given (ADR 0002 rule 5).
 
 - `Scheme` has no default, unlike the console's `Internet`. An internet
-  address is an exposure the caller names; see
-  [Security](#security).
+  address is an exposure the caller names; see [Security](#security). It
+  must be exactly `SchemeInternet` or `SchemeInternal`: any other value,
+  including padding, a different case, or an invented value such as
+  `Public`, is `ErrInvalidInput` before any request, quote included.
 - `ZoneID` is required and goes to both the quote and the create. The
   SDK picks no default, since a vServer VPC create showed the server's
   default zone can be one the account cannot use. Whether it must match
@@ -279,7 +281,10 @@ by amending this table.
 - A create response without `uuid` is an `*APIError` that says the
   resource may exist and names the list.
 - Updates and deletes keep the transport's retries. The resize `PUT` uses
-  `Once`. The CLI never retries a write.
+  `Once`: after a 5xx, a network error, or a timeout, the error advises
+  reading the load balancer (`GetLoadBalancer`) and comparing its package to
+  the one requested before any rerun, since a rerun could send a second paid
+  resize. The CLI never retries a write.
 
 ## Security
 
@@ -316,7 +321,7 @@ by amending this table.
 | `loadbalancer delete-pool` | Write, destructive | Yes | L4 |
 | `loadbalancer add-pool-member`, `update-pool-member` | Write | No | L4 |
 | `loadbalancer remove-pool-member` | Write, changes traffic | Yes | L4 |
-| `loadbalancer create-listener`, `update-listener` | Write | When `--allowed-cidrs` has a `/0` prefix | L5 |
+| `loadbalancer create-listener`, `update-listener` | Write | Unless every `--allowed-cidrs` entry is inside a private range | L5 |
 | `loadbalancer delete-listener` | Write, destructive | Yes | L5 |
 | `loadbalancer create-policy`, `update-policy` | Write | No | L6 |
 | `loadbalancer delete-policy` | Write, destructive | Yes | L6 |
@@ -326,7 +331,10 @@ by amending this table.
   2 before any request.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request. The quotes are reads and run.
-- `--allowed-cidrs` is a comma-separated list, as the API takes it.
+- `--allowed-cidrs` is a comma-separated list, as the API takes it. `--yes`
+  is required unless every entry lies entirely inside a private range
+  (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`); several
+  prefixes that together cover a public address cannot avoid it.
 - Nested fields (`InsertHeaders`, `CertificateIDs`, policy `Rules`) come
   through `--cli-input-json`.
 - A deleted load balancer loses its address and its prepaid time, and a
@@ -386,9 +394,11 @@ the quotes.
    beyond the price. Recommend the first: the caller names the exposure,
    and an agent cannot add a public address by leaving a flag out.
 3. Open listener guard. Options: `AllowedCIDRs` required in the SDK and
-   `--yes` in the CLI when it has a `/0` prefix; `--yes` on every
-   listener create; none. Recommend the first: an input check with no
-   extra read, and an internal load balancer pays only the `--yes`.
+   `--yes` in the CLI unless every entry lies inside a private range (see
+   [CLI](#cli)); `--yes` only when an entry has a `/0` prefix; `--yes` on
+   every listener create; none. Recommend the private-range check: unlike
+   the `/0` check, several prefixes that together cover a public address
+   cannot pass without it.
 4. `MaxPrice` default. Options: 0, so every paid write needs
    `--max-price`; no default, a required flag. Recommend 0, as
    `create-log-project` does.

@@ -117,6 +117,23 @@ func TestQuoteCreateLoadBalancerRejectsMissingFields(t *testing.T) {
 	}
 }
 
+// TestQuoteCreateLoadBalancerRejectsBadScheme checks that Scheme is refused
+// before the quote request unless it is exactly SchemeInternet or
+// SchemeInternal: padding, a different case, or an invented value such as
+// "Public" must not silently reach the billing gateway or the create.
+func TestQuoteCreateLoadBalancerRejectsBadScheme(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"internet", "INTERNET", " Internet", "Internet ", "Public", "internal", "Internal\n"} {
+		in := validCreateLoadBalancerInput()
+		in.Scheme = bad
+		if _, err := c.QuoteCreateLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("Scheme=%q err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}
+
 func TestQuoteCreateLoadBalancerRejectsBadBodyIDs(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")
