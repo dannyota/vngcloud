@@ -3259,13 +3259,19 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	} else {
 		t.Logf("step 7a: overlapping subnet refused, %s", safeErr(overlapErr))
 	}
-	_, dupNameErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: "10.250.3.0/24", NoWait: true,
+	// Step 7b: a duplicate subnet name. The server allows it (seen live), so
+	// the extra subnet is deleted at once: a VPC delete refuses while it
+	// remains.
+	dupSubnet, dupNameErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: "10.250.3.0/24",
 	})
-	if dupNameErr == nil {
-		t.Error("step 7b: creating a duplicate-named subnet succeeded; whether names must be unique was an open question")
-	} else {
+	if dupNameErr != nil {
 		t.Logf("step 7b: duplicate-named subnet refused, %s", safeErr(dupNameErr))
+	} else {
+		t.Log("step 7b: duplicate-named subnet allowed")
+		if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: dupSubnet.Subnet.UUID}); err != nil {
+			t.Fatalf("step 7b DeleteSubnet (duplicate name): %s", safeErr(err))
+		}
 	}
 
 	// Step 8: rename the /24 subnet.
