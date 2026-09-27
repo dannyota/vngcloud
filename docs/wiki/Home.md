@@ -20,6 +20,8 @@ rename; the module keeps the `vngcloud` name.
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
   and alarms.
+- [Network](Network.md): security groups and their rules, including
+  writes and waits.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
 
 ## CLI
