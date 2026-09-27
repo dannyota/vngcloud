@@ -142,7 +142,7 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 		return &ResizeLoadBalancerOutput{LoadBalancer: current.LoadBalancer, Changed: false}, nil
 	}
 
-	if _, err := c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID); err != nil {
+	if err := c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID); err != nil {
 		return nil, err
 	}
 
