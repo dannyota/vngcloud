@@ -591,7 +591,7 @@ func TestNetworkDeleteSubnetWithYesSendsChecksDeleteAndWaits(t *testing.T) {
 				t.Fatalf("unexpected method %s", r.Method)
 			}
 		},
-		"/v2/proj-1/servers/subnets/subnet-1":   jsonHandler(http.StatusOK, `{"data":[]}`),
+		"/v2/proj-1/servers/subnets/subnet-1":   jsonHandler(http.StatusOK, `[]`),
 		"/v2/proj-1/network-interfaces-elastic": jsonHandler(http.StatusOK, emptyNetworkListJSON),
 		"/v2/proj-1/virtualIpAddress":           jsonHandler(http.StatusOK, emptyNetworkListJSON),
 		"/v2/proj-1/networks/vpc-1/subnets":     jsonHandler(http.StatusOK, `[]`),
@@ -624,7 +624,7 @@ func TestNetworkDeleteSubnetInUseWithServerNoDelete(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(subnetJSON("web")))
 		},
-		"/v2/proj-1/servers/subnets/subnet-1": jsonHandler(http.StatusOK, `{"data":[{"uuid":"server-1","name":"server-1"}]}`),
+		"/v2/proj-1/servers/subnets/subnet-1": jsonHandler(http.StatusOK, `[{"uuid":"server-1","name":"server-1"}]`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
@@ -652,7 +652,7 @@ func TestNetworkDeleteSubnetInUseWithServerNoDelete(t *testing.T) {
 // plain read: --subnet-id becomes the path segment, and needs no --yes.
 func TestNetworkListServersBySubnetEndToEnd(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/servers/subnets/subnet-1": jsonHandler(http.StatusOK, `{"data":[{"uuid":"server-1","name":"web-1"}]}`),
+		"/v2/proj-1/servers/subnets/subnet-1": jsonHandler(http.StatusOK, `[{"uuid":"server-1","name":"web-1"}]`),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
