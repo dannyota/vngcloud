@@ -188,3 +188,28 @@ const loadbalancerUpdateListenerNote = "At least one field must be set, checked 
 const loadbalancerDeleteListenerNote = "Waits, within the pre-write bound, until the load balancer and the " +
 	"listener are both not busy (error code ResourceBusy, nothing sent, past that bound), then sends the " +
 	"DELETE."
+
+// loadbalancerCreatePolicyNote documents create-policy's Rules field and
+// its redirect guard: the flag table shows Rules as
+// "via --cli-input-json only" and every redirect field as an independent,
+// unconditional flag.
+const loadbalancerCreatePolicyNote = "Rules comes only through --cli-input-json, a list of objects each " +
+	"with Type, CompareType, and Value all required, for example " +
+	`'{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'` + ". --action REDIRECT_TO_POOL " +
+	"requires --redirect-pool-id and refuses --redirect-url; REDIRECT_TO_URL requires --redirect-url and " +
+	"refuses --redirect-pool-id. Another --action value reaches the server as given."
+
+// loadbalancerUpdatePolicyNote documents update-policy's read-merge and its
+// own Rules-replace rule: the flag table shows every field as
+// independently optional, with no hint that at least one is required or
+// that a set Rules replaces the whole list.
+const loadbalancerUpdatePolicyNote = "At least one field must be set, checked before any request " +
+	"(InvalidUsage). Reads the policy, applies every set field, and sends the full body with the read values " +
+	"for the rest. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules " +
+	"read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The " +
+	"merged --action and redirect fields are checked exactly as create-policy checks them."
+
+// loadbalancerDeletePolicyNote documents delete-policy's pre-write wait,
+// which the flag table cannot show at all: it shows only --policy-id.
+const loadbalancerDeletePolicyNote = "Waits, within the pre-write bound, until the load balancer and the " +
+	"policy are both not busy (error code ResourceBusy, nothing sent, past that bound), then sends the DELETE."

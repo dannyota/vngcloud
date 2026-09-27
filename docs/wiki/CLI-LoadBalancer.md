@@ -73,6 +73,29 @@ Orders nothing above --max-price, default 0: a bare create-load-balancer only or
 vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme <scheme> --subnet-id <subnet-id> --zone-id <zone-id>
 ```
 
+## create-policy
+
+Kind: Write.
+
+Rules comes only through --cli-input-json, a list of objects each with Type, CompareType, and Value all required, for example '{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'. --action REDIRECT_TO_POOL requires --redirect-pool-id and refuses --redirect-url; REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Another --action value reaches the server as given.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--action` | `string` | yes |
+| `--redirect-pool-id` | `string` |  |
+| `--redirect-url` | `string` |  |
+| `--redirect-http-code` | `int` |  |
+| `--keep-query-string` | `bool` |  |
+| `Rules` (via `--cli-input-json` only) | `[]loadbalancer.PolicyRuleInput` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer create-policy --load-balancer-id <load-balancer-id> --listener-id <listener-id> --name <name> --action <action>
+```
+
 ## create-pool
 
 Kind: Write.
@@ -146,6 +169,23 @@ Reads the load balancer first: an unknown --load-balancer-id is NotFound, and on
 
 ```sh
 vngcloud loadbalancer delete-load-balancer --load-balancer-id <load-balancer-id> --yes
+```
+
+## delete-policy
+
+Kind: Write, destructive.
+
+Waits, within the pre-write bound, until the load balancer and the policy are both not busy (error code ResourceBusy, nothing sent, past that bound), then sends the DELETE.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+| `--policy-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer delete-policy --load-balancer-id <load-balancer-id> --listener-id <listener-id> --policy-id <policy-id> --yes
 ```
 
 ## delete-pool
@@ -483,6 +523,29 @@ At least one field must be set, checked before any request (InvalidUsage). Reads
 
 ```sh
 vngcloud loadbalancer update-listener --load-balancer-id <load-balancer-id> --listener-id <listener-id> --timeout-client <timeout-client>
+```
+
+## update-policy
+
+Kind: Write.
+
+At least one field must be set, checked before any request (InvalidUsage). Reads the policy, applies every set field, and sends the full body with the read values for the rest. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as create-policy checks them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+| `--policy-id` | `string` | yes |
+| `--action` | `*string` |  |
+| `--redirect-pool-id` | `*string` |  |
+| `--redirect-url` | `*string` |  |
+| `--redirect-http-code` | `*int` |  |
+| `--keep-query-string` | `*bool` |  |
+| `Rules` (via `--cli-input-json` only) | `*[]loadbalancer.PolicyRuleInput` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer update-policy --load-balancer-id <load-balancer-id> --listener-id <listener-id> --policy-id <policy-id> --action <action>
 ```
 
 ## update-pool

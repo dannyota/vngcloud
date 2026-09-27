@@ -1,0 +1,19 @@
+{
+  "Policy": {
+    "UUID": "policy-1",
+    "Name": "route-api",
+    "Description": "",
+    "RedirectPoolID": "pool-1",
+    "RedirectPoolName": "",
+    "Action": "REDIRECT_TO_POOL",
+    "RedirectURL": "",
+    "RedirectHTTPCode": 0,
+    "KeepQueryString": false,
+    "Position": 0,
+    "L7Rules": [],
+    "DisplayStatus": "ACTIVE",
+    "CreatedAt": "",
+    "UpdatedAt": "",
+    "ProgressStatus": ""
+  }
+}

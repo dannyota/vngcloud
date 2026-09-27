@@ -55,6 +55,12 @@ import (
 // rather than flags.go's default repeatable one, and needs --yes for a /0
 // prefix; CertificateIDs is NoFlag'd on both, per the design's nested
 // fields. delete-listener is Destructive.
+//
+// create-policy, update-policy, and delete-policy are the design's L6
+// release, the last one. Rules ([]PolicyRuleInput on create, a pointer to
+// it on update) needs no NoFlag: it is a slice of a struct type, which
+// flags.go's reflection already leaves to --cli-input-json on its own, the
+// same as monitor's CheckNotifications. delete-policy is Destructive.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -117,6 +123,12 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 	updateListenerOp(),
 	Write[loadbalancer.Client, loadbalancer.DeleteListenerInput, loadbalancer.DeleteListenerOutput](
 		kebab("DeleteListener"), (*loadbalancer.Client).DeleteListener, Destructive()),
+	Write[loadbalancer.Client, loadbalancer.CreatePolicyInput, loadbalancer.CreatePolicyOutput](
+		kebab("CreatePolicy"), (*loadbalancer.Client).CreatePolicy),
+	Write[loadbalancer.Client, loadbalancer.UpdatePolicyInput, loadbalancer.UpdatePolicyOutput](
+		kebab("UpdatePolicy"), (*loadbalancer.Client).UpdatePolicy),
+	Write[loadbalancer.Client, loadbalancer.DeletePolicyInput, loadbalancer.DeletePolicyOutput](
+		kebab("DeletePolicy"), (*loadbalancer.Client).DeletePolicy, Destructive()),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

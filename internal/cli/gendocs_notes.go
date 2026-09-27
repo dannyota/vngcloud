@@ -493,6 +493,9 @@ var docOpNotes = map[string]string{
 	"loadbalancer create-listener":            loadbalancerCreateListenerNote,
 	"loadbalancer update-listener":            loadbalancerUpdateListenerNote,
 	"loadbalancer delete-listener":            loadbalancerDeleteListenerNote,
+	"loadbalancer create-policy":              loadbalancerCreatePolicyNote,
+	"loadbalancer update-policy":              loadbalancerUpdatePolicyNote,
+	"loadbalancer delete-policy":              loadbalancerDeletePolicyNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
@@ -549,6 +552,7 @@ var docExampleExtraFlag = map[string]string{
 	"loadbalancer update-pool":        "algorithm",
 	"loadbalancer update-pool-member": "weight",
 	"loadbalancer update-listener":    "timeout-client",
+	"loadbalancer update-policy":      "action",
 }
 
 // docExampleOverride gives a full example command line for "service
