@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/url"
 	"strconv"
+	"sync"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -20,12 +22,37 @@ type Client struct {
 	// pricing prices a paid create or resize before it sends one, sharing
 	// cfg's login and token cache with c.
 	pricing *pricing.Client
+
+	// sleep waits for d or ctx's end, whichever comes first, between poll
+	// reads in a wait. Tests replace it with a fake so the real waits never
+	// really elapse.
+	sleep sleepFunc
+	// now reads the current time. A wait's poll uses it, alongside sleep, to
+	// bound itself by elapsed wall time; tests replace it with a fake clock.
+	now clockFunc
+
+	// locksMu guards locks itself, never a lock's own state.
+	locksMu sync.Mutex
+	// locks holds one 1-slot channel per load balancer ID that has ever been
+	// written through this Client, so writes to the same load balancer
+	// within one process queue instead of racing into busy refusals; see
+	// lockLoadBalancer. Entries are never removed: the design accepts the
+	// small, bounded memory cost of one channel per distinct ID a process
+	// ever writes to, in exchange for never freeing a lock while another
+	// goroutine might still be waiting on it.
+	locks map[string]chan struct{}
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg)}
+	return &Client{
+		c:       core.ClientOf(cfg),
+		pricing: pricing.New(cfg),
+		sleep:   contextSleep,
+		now:     time.Now,
+		locks:   make(map[string]chan struct{}),
+	}
 }
 
 type ListLoadBalancersInput struct {
