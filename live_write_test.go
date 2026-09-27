@@ -5,14 +5,15 @@ package vngcloud_test
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -2222,21 +2223,34 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 	t.Logf("step 8: a second Basic quote after purge prices at %.0f VND", secondQuote.OptimumPrice)
 }
 
-// sshEd25519PublicKeyLine returns pub encoded as an OpenSSH public key line
-// ("ssh-ed25519 <base64> <comment>"), built directly from the SSH wire
-// format (RFC 4253 section 6.6): a length-prefixed "ssh-ed25519" string
-// followed by a length-prefixed raw key, both base64-encoded together. This
-// is a test-only helper, built from the standard library alone rather than
-// adding a dependency for one key type.
-func sshEd25519PublicKeyLine(pub ed25519.PublicKey, comment string) string {
+// sshRSAPublicKeyLine returns pub encoded as an OpenSSH public key line
+// ("ssh-rsa <base64> <comment>"), built directly from the SSH wire format
+// (RFC 4253 section 6.6): a length-prefixed "ssh-rsa" string followed by
+// the mpints e and n, both length-prefixed and base64-encoded together.
+// This is a test-only helper, built from the standard library alone rather
+// than adding a dependency for one key type.
+func sshRSAPublicKeyLine(pub *rsa.PublicKey, comment string) string {
 	var buf bytes.Buffer
-	for _, field := range [][]byte{[]byte("ssh-ed25519"), pub} {
+	fields := [][]byte{[]byte("ssh-rsa"), sshMPInt(big.NewInt(int64(pub.E))), sshMPInt(pub.N)}
+	for _, field := range fields {
 		var length [4]byte
-		binary.BigEndian.PutUint32(length[:], uint32(len(field))) //nolint:gosec // G115: field is "ssh-ed25519" or one ed25519 public key, at most 32 bytes
+		binary.BigEndian.PutUint32(length[:], uint32(len(field))) //nolint:gosec // G115: field is "ssh-rsa" or one RSA-3072 mpint, well under 2^32 bytes
 		buf.Write(length[:])
 		buf.Write(field)
 	}
-	return "ssh-ed25519 " + base64.StdEncoding.EncodeToString(buf.Bytes()) + " " + comment
+	return "ssh-rsa " + base64.StdEncoding.EncodeToString(buf.Bytes()) + " " + comment
+}
+
+// sshMPInt encodes n as an SSH mpint (RFC 4253 section 5): the minimal
+// big-endian byte representation, with a leading zero byte added when the
+// high bit of the first byte would otherwise be read as a sign bit. n must
+// not be negative; e and an RSA modulus never are.
+func sshMPInt(n *big.Int) []byte {
+	b := n.Bytes()
+	if len(b) > 0 && b[0]&0x80 != 0 {
+		b = append([]byte{0}, b...)
+	}
+	return b
 }
 
 // firstPEMLine returns key's first line when it looks like a PEM boundary
@@ -2331,7 +2345,7 @@ func deleteSSHKeyByName(t *testing.T, client *compute.Client, name string) {
 // even though every SSH key write costs nothing.
 //
 // It deletes every leftover vngcloud-live-* SSH key from a previous run
-// first (step 1); imports a throwaway ED25519 public key generated in this
+// first (step 1); imports a throwaway RSA-3072 public key generated in this
 // test, so its matching private key never leaves this process (step 2);
 // registers its cleanup, and the final remaining-key check, as soon as its
 // id is known (step 3); reads it back (step 4); deletes it explicitly
@@ -2374,19 +2388,20 @@ func TestLiveWriteSSHKey(t *testing.T) {
 	leftovers := deleteLiveSSHKeys(ctx, t, client)
 	t.Logf("step 1: deleted %d leftover ssh key(s)", leftovers)
 
-	// Step 2: import a throwaway ED25519 public key made for this run. The
+	// Step 2: import a throwaway RSA-3072 public key made for this run. The
 	// matching private key is generated here and discarded; it is never
-	// sent anywhere.
+	// sent anywhere. The server accepts RSA public keys only; see
+	// ImportSSHKey's doc comment.
 	importSuffix, err := randomHex(4)
 	if err != nil {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
 	importName := "vngcloud-live-" + importSuffix
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
 	if err != nil {
-		t.Fatalf("step 2 generate ed25519 key: %v", err)
+		t.Fatalf("step 2 generate rsa key: %v", err)
 	}
-	publicKey := sshEd25519PublicKeyLine(pub, importName)
+	publicKey := sshRSAPublicKeyLine(&rsaKey.PublicKey, importName)
 
 	start := time.Now()
 	imported, err := client.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: importName, PublicKey: publicKey})

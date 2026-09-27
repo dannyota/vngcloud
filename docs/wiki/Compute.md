@@ -63,15 +63,19 @@ already returned by `ListServers` and `ListServerGroups`; see
 An SSH key is either imported from a public key made elsewhere, or created
 by having GreenNode generate the key pair and hand back the private key
 once. **Prefer `ImportSSHKey`**: generate a key pair yourself, such as with
-`ssh-keygen -t ed25519`, and import only the public half, so the private
-key never leaves your machine. Use `CreateSSHKey` only when you need
-GreenNode to generate the key pair itself; in that case GreenNode has
+`ssh-keygen -t rsa -b 3072`, and import only the public half, so the
+private key never leaves your machine. Use `CreateSSHKey` only when you
+need GreenNode to generate the key pair itself; in that case GreenNode has
 generated and seen the private key.
+
+The server accepts RSA public keys only: an ED25519 key (`ssh-ed25519`,
+such as from `ssh-keygen -t ed25519`) is rejected with a 400 "Invalid
+public key".
 
 ```go
 imported, err := client.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{
 	Name:      "laptop",
-	PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... me@laptop",
+	PublicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ... me@laptop",
 })
 if err != nil {
 	log.Fatal(err)
@@ -96,7 +100,7 @@ if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{
 trailing whitespace, and must not contain the text `PRIVATE KEY`; both
 checks run before any request, and neither one's error ever repeats the
 value back. Key type and size are not checked by the SDK; the server
-decides what it accepts.
+decides what it accepts, and currently accepts RSA keys only.
 
 `SSHKey` has no field for a private key, on any call: a read can never
 carry one back, matching what GreenNode's API itself returns. Only
