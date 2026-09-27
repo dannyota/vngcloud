@@ -403,14 +403,10 @@ the vStorage console API. [vMonitor Alerts](monitor-alerts.md) and
 [vStorage](storage.md) cover channels, check alerting, log projects, alarms,
 buckets, S3 keys, and service accounts.
 
-vMonitor Alerts releases M1 to M8 and vStorage releases S1 to S6 are built in
-parallel, outside the `v0.x.y` sequence above; each gets its version number
-when it ships, so no version rows are reserved for them here.
+Releases planned in other designs get a version number only when they
+ship, so the table above reserves no rows for them. Not yet shipped:
+vMonitor Alerts M8 (log alarm writes) and vStorage S1 to S6.
 
-CLI read commands for project, portal, volume, loadbalancer,
-globalloadbalancer, and containerregistry ship as releases R1 to R5 in
-[CLI reads](cli-reads.md), each numbered when it ships. Compute, volume,
-and network writes come after these; OpenTofu covers them for aboutme.
-The free ones, security groups, rules, and SSH keys, are planned as
-releases V1 and V2 in [vServer free writes](vserver-writes.md), each
-numbered when it ships.
+Security groups, rules, and SSH keys are the only compute and network
+writes shipped. Other compute, volume, and network writes come later;
+OpenTofu covers them for aboutme.
