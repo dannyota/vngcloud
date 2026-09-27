@@ -4184,21 +4184,52 @@ func encryptedRSAPrivateKeyPEM(key *rsa.PrivateKey, passphrase string) (string, 
 	return string(pem.EncodeToMemory(block)), nil
 }
 
-// errorEchoesAnyLine reports whether err's own message contains any line of
-// key that is still at least 8 characters after trimming, the same
-// threshold transport.Request.Redact uses. ImportCertificate already sets
-// Redact for PrivateKey, so a true result here means the live server's exact
-// wording slipped past that mechanism, not that the raw, unredacted response
-// would have been safe; see the design's Error redaction section. A nil err
-// never echoes anything.
-func errorEchoesAnyLine(err error, key string) bool {
+// importCertificateMessageWithheld reports whether err's own message is
+// exactly loadbalancer.ImportCertificateWithheldMessage: ImportCertificate
+// withholds the server's message on every failing status (see the design's
+// Error redaction section), so this must always be true for a non-nil err
+// from ImportCertificate. A nil err is never withheld.
+func importCertificateMessageWithheld(err error) bool {
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.Message == loadbalancer.ImportCertificateWithheldMessage
+}
+
+// keyBase64Body returns key's base64-encoded body with every PEM header,
+// footer, and newline removed, by decoding the PEM block and re-encoding its
+// raw bytes: the same text a PEM encoder would have wrapped into lines,
+// without depending on how it happened to wrap them. It returns "" if key is
+// not valid PEM.
+func keyBase64Body(key string) string {
+	block, _ := pem.Decode([]byte(key))
+	if block == nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(block.Bytes)
+}
+
+// errorContainsKeyWindow reports whether err's own message contains any
+// 16-character contiguous window of key's base64 body (PEM header, footer,
+// and newlines removed). A window this size is unlikely to occur in
+// unrelated text by chance, but short enough to survive a server that
+// escapes a character, truncates a line, or re-wraps the key at a different
+// width than this process's PEM encoder used: exact whole-line matching,
+// which transport.Request.Redact itself relies on, can miss all of those. A
+// nil err never matches.
+func errorContainsKeyWindow(err error, key string) bool {
 	if err == nil {
 		return false
 	}
+	const window = 16
+	body := keyBase64Body(key)
 	msg := err.Error()
-	for _, line := range strings.Split(key, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if len(trimmed) >= 8 && strings.Contains(msg, trimmed) {
+	if len(body) < window {
+		return body != "" && strings.Contains(msg, body)
+	}
+	for i := 0; i+window <= len(body); i++ {
+		if strings.Contains(msg, body[i:i+window]) {
 			return true
 		}
 	}
@@ -4290,9 +4321,10 @@ func (c *liveCertificateFieldCapture) fieldNames() (names []string, suspicious b
 // RSA certificate with an encrypted key and its passphrase, and a CA
 // certificate with no key (step 6); imports a malformed key and a key that
 // does not match the certificate, logging status and a boolean for whether
-// the message echoes any line of the sent key (step 7); and deletes every
-// certificate this run created, including a repeat delete and a GET after
-// delete, logging only statuses (step 8).
+// the SDK withheld the server's message (it must), and asserting the error
+// holds no 16-character window of the sent key's base64 body (step 7); and
+// deletes every certificate this run created, including a repeat delete and a
+// GET after delete, logging only statuses (step 8).
 func TestLiveWriteLBCertificate(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB certificate write test")
@@ -4557,8 +4589,14 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 		Certificate: certPEM,
 		PrivateKey:  vngcloud.Secret(malformedKeyPEM),
 	})
-	t.Logf("step 7a: malformed key import: %s, message echoes a key line=%v",
-		safeErr(malformedErr), errorEchoesAnyLine(malformedErr, malformedKeyPEM))
+	t.Logf("step 7a: malformed key import: %s, message withheld=%v",
+		safeErr(malformedErr), importCertificateMessageWithheld(malformedErr))
+	if malformedErr != nil && !importCertificateMessageWithheld(malformedErr) {
+		t.Error("step 7a: ImportCertificate did not withhold the server message")
+	}
+	if errorContainsKeyWindow(malformedErr, malformedKeyPEM) {
+		t.Error("step 7a: error message contains a 16-character window of the sent key's base64 body")
+	}
 	deleteCertificateByName(t, client, malformedName)
 
 	// Step 7b: a key that does not match the certificate.
@@ -4578,8 +4616,14 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 		Certificate: certPEM,
 		PrivateKey:  vngcloud.Secret(mismatchedKeyPEM),
 	})
-	t.Logf("step 7b: mismatched key import: %s, message echoes a key line=%v",
-		safeErr(mismatchedErr), errorEchoesAnyLine(mismatchedErr, mismatchedKeyPEM))
+	t.Logf("step 7b: mismatched key import: %s, message withheld=%v",
+		safeErr(mismatchedErr), importCertificateMessageWithheld(mismatchedErr))
+	if mismatchedErr != nil && !importCertificateMessageWithheld(mismatchedErr) {
+		t.Error("step 7b: ImportCertificate did not withhold the server message")
+	}
+	if errorContainsKeyWindow(mismatchedErr, mismatchedKeyPEM) {
+		t.Error("step 7b: error message contains a 16-character window of the sent key's base64 body")
+	}
 	deleteCertificateByName(t, client, mismatchedName)
 
 	// Step 8: delete every certificate this run created, then repeat the
