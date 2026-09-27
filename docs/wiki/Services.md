@@ -16,7 +16,9 @@ created, changed, and deleted. See [DNS](DNS.md). `network` covers
 security group and rule writes too: groups and rules can be created,
 changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
-[Compute](Compute.md).
+[Compute](Compute.md). `containerregistry` covers repository writes too: a
+repository can be created and deleted. See [Container
+Registry](#container-registry) below.
 
 ## Coverage
 
@@ -30,7 +32,7 @@ writes too: a key can be imported, created, or deleted. See
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes | Typed | Requires IAM User permissions for the target load balancer resources. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
-| Container Registry | `containerregistry` | Repositories and users | Map-backed | Map-backed until the API surface is stable enough for typed structs. |
+| Container Registry | `containerregistry` | Repositories, plus repository create and delete; users | Repository typed; User map-backed | User stays map-backed until it is typed in a later release; see [Container Registry](#container-registry) below for repository writes and waits. |
 
 ## Project
 
@@ -228,9 +230,39 @@ waits are on the [DNS](DNS.md) page.
 
 ```go
 vcrClient := containerregistry.New(cfg)
-vcrClient.ListRepositories(ctx, in)  // AccessLevel
+vcrClient.ListRepositories(ctx, in)  // AccessLevel, Name
+vcrClient.GetRepository(ctx, in)     // RepositoryID (required)
+vcrClient.CreateRepository(ctx, in)  // Name, QuotaLimitGB (both required), NoWait
+vcrClient.DeleteRepository(ctx, in)  // RepositoryID (required), NoWait
 vcrClient.ListUsers(ctx, in)         // Name, Page, Size
 ```
 
-Repository and user items are map-backed, so the SDK keeps every field the
-API returns.
+`Repository` is a typed struct, matching the vCR API reference's fields
+(`ID`, `Name`, `BackendName`, `AccessLevel`, `RegistryURL`, `QuotaLimitGB`,
+`QuotaUsed`, `ImageCount`, `AttachedUsers`, `Status`, `CreatedAt`); a field
+the reference does not document is dropped rather than kept. This breaks
+code that indexed `Repository` as a map. `User` stays map-backed, so the SDK
+keeps every field the API returns for it.
+
+`CreateRepository` always creates a private repository; there is no
+`Public` option, since a public repository accepts anonymous push. The
+server prefixes every name with the account id, so the created
+`Repository.Name` differs from the Input's `Name`. `CreateRepository` is a
+`POST` and is never retried after a failure that may have already reached
+the server: after such a failure, list repositories with `Name` set and
+match a row whose name ends with the input name before creating again.
+
+`DeleteRepository` reads the repository first and returns
+`ErrRepositoryNotEmpty`, sending nothing, when it still holds images;
+delete the images with `docker` or the console first. A repository user
+attached to it is not affected by the delete.
+
+Without `NoWait`, `CreateRepository` waits for the repository to reach
+`ACTIVE` and `DeleteRepository` waits for it to leave the list, each
+polling every 2 seconds for up to 60 seconds. Past that bound, or on a
+canceled context, the returned error wraps `ErrNotSettled`: for a create,
+the repository exists and must not be created again; for a delete, the
+delete was sent and a rerun is safe.
+
+Repository users, their secrets, and the `docker login` steps are not
+covered yet.

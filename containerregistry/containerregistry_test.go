@@ -32,7 +32,7 @@ func TestContainerRegistryListRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRepositories() error = %v", err)
 	}
-	if len(out.Items) != 1 || out.Items[0]["name"] != "<name>" || out.PageSize != 25 {
+	if len(out.Items) != 1 || out.Items[0].ID != "repo-1" || out.Items[0].Name != "<account>-<name>" || out.PageSize != 25 {
 		t.Fatalf("unexpected repositories: %+v", out)
 	}
 }

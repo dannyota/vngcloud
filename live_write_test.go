@@ -36,6 +36,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/internal/testutil"
@@ -4649,4 +4650,230 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 	// since the design treats import as free (see its Cost section) and
 	// there is no same-run way to confirm a bill that has not posted yet.
 	t.Log("step 9: check the next day's bill shows no vLB line, and get-balances is unchanged (manual, outside this test run)")
+}
+
+// vcrLiveNameSuffixPattern is the live vCR write test's own repository
+// naming scheme, matched at the end rather than the start: the server
+// prefixes every repository name with the account id, so a leftover sweep
+// and the cleanup's remaining-count check both look for a name ending with
+// vngcloud-live-<8 lowercase hex>, exactly, rather than one starting with
+// it.
+var vcrLiveNameSuffixPattern = regexp.MustCompile(`vngcloud-live-[0-9a-f]{8}$`)
+
+// isLiveVCRRepositoryName reports whether name ends with
+// vcrLiveNameSuffixPattern.
+func isLiveVCRRepositoryName(name string) bool {
+	return vcrLiveNameSuffixPattern.MatchString(name)
+}
+
+// isVCRPaymentRefusal reports whether err is a *vngcloud.APIError with a 4xx
+// status whose message mentions balance, credit, payment, or order: the
+// cost probe's own signal that a vCR repository is paid and the account has
+// no funds to cover it. TestLiveWriteContainerRegistryRepository stops at
+// the first such refusal rather than retrying it, since a paid create must
+// never be resent blind.
+func isVCRPaymentRefusal(err error) bool {
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode < 400 || apiErr.StatusCode >= 500 {
+		return false
+	}
+	lower := strings.ToLower(apiErr.Message)
+	for _, word := range []string{"balance", "credit", "payment", "order"} {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// deleteVCRRepositoryByName lists repositories and deletes any whose name
+// ends with name and holds no images. It is used after a CreateRepository
+// failure, since a POST that returned an error may still have reached the
+// server, and the server prefixes every repository name with the account
+// id, so an exact match on name never applies. It runs on its own timeout,
+// not the calling test step's context, so it can still clean up after that
+// step's context is the reason the step failed.
+func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := client.ListRepositories(ctx, &containerregistry.ListRepositoriesInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: list repositories by name: %s", safeErr(err))
+		return
+	}
+	for _, r := range list.Items {
+		if !strings.HasSuffix(r.Name, name) || r.ImageCount > 0 {
+			continue
+		}
+		if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: r.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete repository by name: %s", safeErr(err))
+		}
+	}
+}
+
+// TestLiveWriteContainerRegistryRepository exercises CreateRepository,
+// GetRepository, and DeleteRepository against the account named in .env.
+//
+// Whether a vCR repository costs money is unknown until the design's cost
+// probe runs; this test stops at the first create if the server refuses it
+// for payment (a 4xx naming balance, credit, payment, or order), logs the
+// status and code, and skips rather than fails: a paid create must not be
+// resent blind, and nothing was left behind to clean up. It never pushes an
+// image, so DeleteRepository's guard against a non-empty repository is not
+// exercised.
+//
+// It deletes every leftover vngcloud-live-* repository holding no images
+// first (step 1); creates vngcloud-live-<8 hex> with QuotaLimitGB 1 (step
+// 2); registers the fallback delete as soon as the created repository's id
+// is known (step 3); reads it back and confirms the id matches (step 4);
+// creates the same name again and logs the server's response either way,
+// cleaning up an unexpected second repository by name (step 5); and deletes
+// the repository, confirming a repeat delete returns NotFound (step 6).
+func TestLiveWriteContainerRegistryRepository(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := containerregistry.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* repository holding no
+	// images from a previous run.
+	leftovers, err := client.ListRepositories(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListRepositories: %s", safeErr(err))
+	}
+	deleted := 0
+	for _, leftover := range leftovers.Items {
+		if !isLiveVCRRepositoryName(leftover.Name) || leftover.ImageCount > 0 {
+			continue
+		}
+		if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover repository: %s", safeErr(err))
+		}
+		deleted++
+	}
+	t.Logf("step 1: deleted %d leftover repository(ies)", deleted)
+
+	// Step 2: create the repository. Whether this is free is the open
+	// question the design's cost probe answers; this test stops here,
+	// skipping rather than failing, if the server refuses for payment.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	created, err := client.CreateRepository(ctx, &containerregistry.CreateRepositoryInput{
+		Name:         name,
+		QuotaLimitGB: 1,
+	})
+	if isVCRPaymentRefusal(err) {
+		var apiErr *vngcloud.APIError
+		errors.As(err, &apiErr)
+		t.Skipf("step 2: server refused the create for payment, status=%d code=%s; a repository is paid, never retrying", apiErr.StatusCode, apiErr.Code)
+	}
+	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the create may
+		// still have reached the server. Find and delete it by its exact name.
+		deleteVCRRepositoryByName(t, client, name)
+		t.Fatalf("step 2 CreateRepository: %s", safeErr(err))
+	}
+	repositoryID := created.Repository.ID
+	if repositoryID == "" {
+		deleteVCRRepositoryByName(t, client, name)
+		t.Fatal("step 2: CreateRepository returned an empty id; the design requires one")
+	}
+	t.Logf("step 2: created repository, status %s", created.Repository.Status)
+
+	// Step 3: register the fallback delete as soon as repositoryID is
+	// known, before any later step can fail and skip the explicit delete in
+	// step 6.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteRepository(cleanupCtx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete repository: %s", safeErr(err))
+		}
+		final, err := client.ListRepositories(cleanupCtx, nil)
+		if err != nil {
+			t.Errorf("cleanup: final ListRepositories: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, r := range final.Items {
+			if isLiveVCRRepositoryName(r.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live repository(ies) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live repositories, found %d", remaining)
+		}
+	})
+
+	// Step 4: read the repository back and confirm its id matches the
+	// create response.
+	fetched, err := client.GetRepository(ctx, &containerregistry.GetRepositoryInput{RepositoryID: repositoryID})
+	if err != nil {
+		t.Fatalf("step 4 GetRepository: %s", safeErr(err))
+	}
+	if fetched.Repository.ID != repositoryID {
+		t.Fatal("step 4: GetRepository returned a different id")
+	}
+	t.Logf("step 4: read repository back, status %s", fetched.Repository.Status)
+
+	// Step 5: create the same name again and log the server's response,
+	// without failing the test either way: whether names collide is an
+	// open question. An unexpected second repository needs its own cleanup
+	// by name, since only repositoryID is registered above.
+	_, dupErr := client.CreateRepository(ctx, &containerregistry.CreateRepositoryInput{
+		Name:         name,
+		QuotaLimitGB: 1,
+		NoWait:       true,
+	})
+	if dupErr == nil {
+		t.Log("step 5: creating a duplicate name succeeded")
+		deleteVCRRepositoryByName(t, client, name)
+	} else {
+		t.Logf("step 5: duplicate name response, %s", safeErr(dupErr))
+	}
+
+	// Step 6: delete the repository and confirm a repeat delete returns
+	// NotFound.
+	if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID}); err != nil {
+		t.Fatalf("step 6 DeleteRepository: %s", safeErr(err))
+	}
+	_, secondErr := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID})
+	if !vngcloud.IsNotFound(secondErr) {
+		t.Fatalf("step 6: repeat delete = %v, want NotFound", secondErr)
+	}
 }

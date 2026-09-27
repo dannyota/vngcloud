@@ -1,11 +1,12 @@
-// Package containerregistry lists repositories and users in the vContainer
-// Registry.
+// Package containerregistry lists, creates, and deletes vContainer Registry
+// repositories, and lists users.
 package containerregistry
 
 import (
 	"context"
 	"net/url"
 	"strconv"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -16,16 +17,24 @@ import (
 // Client is the container registry service client.
 type Client struct {
 	c *core.Client
+
+	// sleep and now back CreateRepository and DeleteRepository's post-write
+	// waits; see waitRepositoryActive and waitRepositoryAbsent. Tests
+	// replace both with fakes so the real 2-second interval and 60-second
+	// bound never really elapse.
+	sleep sleepFunc
+	now   clockFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
 type ListRepositoriesInput struct {
 	AccessLevel string
+	Name        string
 }
 
 type ListRepositoriesOutput = core.PagedList[Repository]
@@ -33,16 +42,21 @@ type ListRepositoriesOutput = core.PagedList[Repository]
 func (c *Client) ListRepositories(ctx context.Context, in *ListRepositoriesInput) (*ListRepositoriesOutput, error) {
 	q := url.Values{}
 	accessLevel := "ALL"
-	if in != nil && in.AccessLevel != "" {
-		accessLevel = in.AccessLevel
+	name := ""
+	if in != nil {
+		if in.AccessLevel != "" {
+			accessLevel = in.AccessLevel
+		}
+		name = in.Name
 	}
 	q.Set("accessLevel", accessLevel)
+	q.Set("name", name)
 
 	var resp listRepositoriesResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "containerregistry.ListRepositories",
 		Method:    "GET",
-		URL:       c.vcrURL("v1", []string{"repository"}, q),
+		URL:       c.vcrURL([]string{"repository"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
@@ -64,7 +78,7 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "containerregistry.ListUsers",
 		Method:    "GET",
-		URL:       c.vcrURL("v1", []string{"user"}, q),
+		URL:       c.vcrURL([]string{"user"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
@@ -72,10 +86,12 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-func (c *Client) vcrURL(version string, parts []string, q url.Values) string {
+// vcrURL builds a vCR route. Every call in this package is against v1: the
+// reference names no other version.
+func (c *Client) vcrURL(parts []string, q url.Values) string {
 	return c.c.RouteURL(routes.Route{
 		Product: routes.ProductVCR,
-		Version: version,
+		Version: "v1",
 		Parts:   parts,
 		Query:   q,
 	})
@@ -142,9 +158,23 @@ func (r *listUsersResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Repository is map-backed until live rows are available to type the model
-// without dropping fields.
-type Repository map[string]any
+// Repository is a vCR repository. Fields follow the API reference's
+// RepositoryDto, confirmed by the cost probe before release; a field the
+// reference does not document is dropped rather than kept, unlike the
+// still map-backed User.
+type Repository struct {
+	ID            string  `json:"uuid"`
+	Name          string  `json:"name"`
+	BackendName   string  `json:"backendName"`
+	AccessLevel   string  `json:"accessLevel"`
+	RegistryURL   string  `json:"registryUrl"`
+	QuotaLimitGB  int     `json:"quotaLimit"`
+	QuotaUsed     float64 `json:"quotaUsed"`
+	ImageCount    int     `json:"imageCount"`
+	AttachedUsers int     `json:"attachedUser"`
+	Status        string  `json:"status"`
+	CreatedAt     string  `json:"createdAt"`
+}
 
 // User is map-backed until live rows are available to type the model
 // without dropping fields.

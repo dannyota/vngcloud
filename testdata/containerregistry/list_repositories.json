@@ -1,9 +1,17 @@
 {
   "data": [
     {
-      "name": "<name>",
-      "visibility": "PRIVATE",
-      "status": "ACTIVE"
+      "uuid": "repo-1",
+      "name": "<account>-<name>",
+      "backendName": "<account>-<name>",
+      "accessLevel": "PRIVATE",
+      "registryUrl": "<hostname>/<account>-<name>",
+      "quotaLimit": 1,
+      "quotaUsed": 0,
+      "imageCount": 0,
+      "attachedUser": 0,
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z"
     }
   ],
   "page": 1,
