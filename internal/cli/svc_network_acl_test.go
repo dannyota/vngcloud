@@ -46,7 +46,9 @@ func ruleJSON(uuid, direction string, priority int, protocol, port, cidr, action
 // port from every source, the shape confirmed live for a new ACL's own
 // default rule.
 func defaultInboundPassAllRuleJSON() map[string]any {
-	return ruleJSON("aclr-default", "inbound", 0, "ANY", "0-65535", "0.0.0.0/0", "pass")
+	rule := ruleJSON("aclr-default", "inbound", 0, "ANY", "0-65535", "0.0.0.0/0", "pass")
+	rule["system"] = true
+	return rule
 }
 
 // scriptedACLGetHandler answers each successive GET with the next body of
@@ -304,6 +306,7 @@ func TestNetworkAddNetworkACLRuleEndToEndSendsDefaultPlusNewRule(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()}),
+			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()}),
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), newRule}),
 		),
 		"/v2/proj-1/network-acl/acl-1/rules": func(w http.ResponseWriter, r *http.Request) {
@@ -426,6 +429,7 @@ func TestNetworkRemoveNetworkACLRuleEndToEndSendsRemainingRules(t *testing.T) {
 	userRule := ruleJSON("aclr-2", "inbound", 100, "TCP", "443-443", "203.0.113.0/24", "pass")
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
+			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), userRule}),
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), userRule}),
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()}),
 		),
@@ -550,12 +554,14 @@ func TestNetworkAssociateNetworkACLSubnetRequiresYesWithZeroRequests(t *testing.
 
 // TestNetworkAssociateNetworkACLSubnetEndToEndReadsSubnetThenSendsPUT checks
 // the success path's exact request sequence: the pre-write ACL read, the
-// subnet read under the ACL's own VPC, the PUT, then the confirm read, and
-// that the PUT's subnet list holds the new subnet.
+// subnet read under the ACL's own VPC, the pre-PUT recheck read, the PUT,
+// then the confirm read, and that the PUT's subnet list holds the new
+// subnet.
 func TestNetworkAssociateNetworkACLSubnetEndToEndReadsSubnetThenSendsPUT(t *testing.T) {
 	var putBody []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
+			aclJSON("web", false, nil, nil),
 			aclJSON("web", false, nil, nil),
 			aclJSON("web", false, []string{"sub-1"}, nil),
 		),
@@ -591,8 +597,8 @@ func TestNetworkAssociateNetworkACLSubnetEndToEndReadsSubnetThenSendsPUT(t *test
 	if got := stdout.String(); !strings.Contains(got, `"Changed": true`) {
 		t.Fatalf("stdout = %s, want Changed true", got)
 	}
-	if n := fixture.requestCount(); n != 4 {
-		t.Fatalf("requestCount = %d, want 4 (acl read, subnet read, put, confirm read)", n)
+	if n := fixture.requestCount(); n != 5 {
+		t.Fatalf("requestCount = %d, want 5 (acl read, subnet read, recheck read, put, confirm read)", n)
 	}
 }
 
@@ -654,6 +660,7 @@ func TestNetworkDisassociateNetworkACLSubnetEndToEndSendsRemainingSubnets(t *tes
 	var putBody []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
+			aclJSON("web", false, []string{"sub-1"}, nil),
 			aclJSON("web", false, []string{"sub-1"}, nil),
 			aclJSON("web", false, nil, nil),
 		),

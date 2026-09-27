@@ -334,8 +334,10 @@ const networkGetNetworkACLNote = "Sets DefaultACL, VPCID, Rules, and SubnetIDs; 
 // of its own.
 const networkCreateNetworkACLNote = "Confirmed live: the new ACL is already ACTIVE in the create response and " +
 	"starts with the server's own default rules, at least an inbound rule that passes all traffic at " +
-	"priority 0. Default rules are never removed by add-network-acl-rule or remove-network-acl-rule. A " +
-	"duplicate --name fails with the server's own message."
+	"priority 0. A default rule holds priority 0, a priority above 32766, or decodes System true, and is " +
+	"never removed by add-network-acl-rule or remove-network-acl-rule. It has not been shown live that a " +
+	"rule with Action deny takes effect while that pass-all default rule is still in the list; do not " +
+	"rely on a deny rule alone to block traffic. A duplicate --name fails with the server's own message."
 
 // networkDeleteNetworkACLNote documents delete-network-acl's pre-delete
 // guards and its confirmed-live 500-not-404 delete status: the flag table
@@ -355,7 +357,10 @@ func networkChangeACLRuleNote(command, extra string) string {
 	return "Needs --yes on every call: " + command + " can pass or drop traffic for every subnet this ACL " +
 		"covers, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach " +
 		"ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Resends every rule " +
-		"read, including the server's own default rules, which are never sent changed. " + extra + " Without " +
+		"read, including the server's own default rules (priority 0, a priority above 32766, or a rule " +
+		"marked System), which are never sent changed. " + extra + " Reads the ACL again right before " +
+		"sending and refuses with ResourceBusy, nothing sent, if its rules changed since that first read; a " +
+		"write that lands in the moment between this re-read and the send can still be overwritten. Without " +
 		"--no-wait, waits again after sending and confirms that a fresh read names exactly the rules just " +
 		"sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled."
 }
@@ -364,19 +369,22 @@ func networkChangeACLRuleNote(command, extra string) string {
 // and conflict cases, which networkChangeACLRuleNote's shared text does not
 // cover.
 var networkAddNetworkACLRuleNote = networkChangeACLRuleNote("add-network-acl-rule",
-	"Adding a rule already present at the same --direction and --priority with every other field equal is a "+
-		"no-op: Changed is false and nothing is sent. The same --direction and --priority already there with "+
-		"a different field is refused with InvalidUsage; remove-network-acl-rule the old one first.")
+	"Needs an explicit port range: --port-range-min and --port-range-max must not both be left at 0; for "+
+		"every port pass --port-range-min 0 --port-range-max 65535. Adding a rule already present at the "+
+		"same --direction and --priority with every other field equal is a no-op: Changed is false and "+
+		"nothing is sent. The same --direction and --priority already there with a different field is "+
+		"refused with InvalidUsage; remove-network-acl-rule the old one first.")
 
 // networkRemoveNetworkACLRuleNote documents remove-network-acl-rule's own
 // --priority requirement, missing-rule, and default-rule cases, which
 // networkChangeACLRuleNote's shared text does not cover.
 var networkRemoveNetworkACLRuleNote = networkChangeACLRuleNote("remove-network-acl-rule",
 	"Needs --priority even to name priority 0: it carries no vngcloud:\"required\" tag on the SDK's own Input, "+
-		"since 0 also marks a default rule, but this command requires the flag (or an inline --cli-input-json "+
-		"Priority) so a caller who simply forgot it is never mistaken for one naming that rule on purpose. "+
-		"Removing a --direction and --priority the ACL does not have returns NotFound, nothing sent; removing "+
-		"a default rule (--priority 0) is refused with DefaultResource, nothing sent.")
+		"since 0 also marks a default rule, but this command requires the flag (or a --cli-input-json "+
+		"Priority, inline or file://) so a caller who simply forgot it is never mistaken for one naming that "+
+		"rule on purpose. Removing a --direction and --priority the ACL does not have returns NotFound, "+
+		"nothing sent; removing a default rule (priority 0, a priority above 32766, or a rule marked System) "+
+		"is refused with DefaultResource, nothing sent.")
 
 // networkChangeACLSubnetNote builds the shared shape of
 // associate-network-acl-subnet's and disassociate-network-acl-subnet's
@@ -386,9 +394,11 @@ func networkChangeACLSubnetNote(command, extra string) string {
 	return "Needs --yes on every call: " + command + " can change which ACL's rules apply to a subnet's " +
 		"traffic at once, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL " +
 		"to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. " + extra + " " +
-		"Without --no-wait, waits again after sending and confirms that a fresh read names exactly the " +
-		"subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, is " +
-		"NotSettled."
+		"Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its subnet " +
+		"list changed since that first read; a write that lands in the moment between this re-read and the " +
+		"send can still be overwritten. Without --no-wait, waits again after sending and confirms that a " +
+		"fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing " +
+		"the ACL at the same time, is NotSettled."
 }
 
 // networkAssociateNetworkACLSubnetNote documents associate-network-acl-subnet's
@@ -399,7 +409,8 @@ var networkAssociateNetworkACLSubnetNote = networkChangeACLSubnetNote("associate
 		"it there, and this ACL's rules apply to its traffic at once. Associating a subnet already in this "+
 		"ACL's list is a no-op: Changed is false and nothing is sent, including no read of the subnet itself. "+
 		"Otherwise reads the subnet under this ACL's own VPC first, so a subnet of a different VPC is refused "+
-		"with NotFound before anything is sent.")
+		"with NotFound before anything is sent. The output's PreviousNetworkACLID names the ACL the subnet "+
+		"moved from, if any, read from the subnet just before the move; it is set only when Changed is true.")
 
 // networkDisassociateNetworkACLSubnetNote documents
 // disassociate-network-acl-subnet's own no-op case, which
@@ -527,6 +538,11 @@ var docExampleExtraFlag = map[string]string{
 // associate-network-acl-subnet, and disassociate-network-acl-subnet need it
 // for the same reason: none is Destructive, but requireYesForACLChange
 // (svc_network_acl.go) refuses each without --yes on every call.
+// add-network-acl-rule's override also supplies --port-range-min and
+// --port-range-max: neither PortRangeMin nor PortRangeMax is a required
+// Input field, so buildExample's required-fields loop would otherwise leave
+// both out, but checkACLRulePorts (network/acl_rules_write.go) refuses a
+// call that leaves both at their zero value.
 // remove-network-acl-rule needs it for both reasons at once: it also is not
 // Destructive, and its override additionally supplies --priority, since
 // Priority carries no vngcloud:"required" tag on RemoveNetworkACLRuleInput
@@ -541,7 +557,8 @@ var docExampleOverride = map[string]string{
 	"network add-route":                "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
 	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"network add-network-acl-rule": "vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> " +
-		"--direction <direction> --priority <priority> --protocol <protocol> --cidr <cidr> --action <action> --yes",
+		"--direction <direction> --priority <priority> --protocol <protocol> --cidr <cidr> --action <action> " +
+		"--port-range-min 0 --port-range-max 65535 --yes",
 	"network remove-network-acl-rule": "vngcloud network remove-network-acl-rule --network-acl-id <network-acl-id> " +
 		"--direction <direction> --priority <priority> --yes",
 	"network associate-network-acl-subnet": "vngcloud network associate-network-acl-subnet " +

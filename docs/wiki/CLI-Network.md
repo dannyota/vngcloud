@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-Needs --yes on every call: add-network-acl-rule can pass or drop traffic for every subnet this ACL covers, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Resends every rule read, including the server's own default rules, which are never sent changed. Adding a rule already present at the same --direction and --priority with every other field equal is a no-op: Changed is false and nothing is sent. The same --direction and --priority already there with a different field is refused with InvalidUsage; remove-network-acl-rule the old one first. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the rules just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
+Needs --yes on every call: add-network-acl-rule can pass or drop traffic for every subnet this ACL covers, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Resends every rule read, including the server's own default rules (priority 0, a priority above 32766, or a rule marked System), which are never sent changed. Needs an explicit port range: --port-range-min and --port-range-max must not both be left at 0; for every port pass --port-range-min 0 --port-range-max 65535. Adding a rule already present at the same --direction and --priority with every other field equal is a no-op: Changed is false and nothing is sent. The same --direction and --priority already there with a different field is refused with InvalidUsage; remove-network-acl-rule the old one first. Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its rules changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the rules just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -21,7 +21,7 @@ Needs --yes on every call: add-network-acl-rule can pass or drop traffic for eve
 | `--no-wait` | `bool` |  |
 
 ```sh
-vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> --direction <direction> --priority <priority> --protocol <protocol> --cidr <cidr> --action <action> --yes
+vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> --direction <direction> --priority <priority> --protocol <protocol> --cidr <cidr> --action <action> --port-range-min 0 --port-range-max 65535 --yes
 ```
 
 ## add-route
@@ -45,7 +45,7 @@ vngcloud network add-route --route-table-id <route-table-id> --destination-cidr 
 
 Kind: Write.
 
-Needs --yes on every call: associate-network-acl-subnet can change which ACL's rules apply to a subnet's traffic at once, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. A subnet belongs to at most one ACL, so associating one already associated with a different ACL moves it there, and this ACL's rules apply to its traffic at once. Associating a subnet already in this ACL's list is a no-op: Changed is false and nothing is sent, including no read of the subnet itself. Otherwise reads the subnet under this ACL's own VPC first, so a subnet of a different VPC is refused with NotFound before anything is sent. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
+Needs --yes on every call: associate-network-acl-subnet can change which ACL's rules apply to a subnet's traffic at once, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. A subnet belongs to at most one ACL, so associating one already associated with a different ACL moves it there, and this ACL's rules apply to its traffic at once. Associating a subnet already in this ACL's list is a no-op: Changed is false and nothing is sent, including no read of the subnet itself. Otherwise reads the subnet under this ACL's own VPC first, so a subnet of a different VPC is refused with NotFound before anything is sent. The output's PreviousNetworkACLID names the ACL the subnet moved from, if any, read from the subnet just before the move; it is set only when Changed is true. Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its subnet list changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -61,7 +61,7 @@ vngcloud network associate-network-acl-subnet --network-acl-id <network-acl-id> 
 
 Kind: Write.
 
-Confirmed live: the new ACL is already ACTIVE in the create response and starts with the server's own default rules, at least an inbound rule that passes all traffic at priority 0. Default rules are never removed by add-network-acl-rule or remove-network-acl-rule. A duplicate --name fails with the server's own message.
+Confirmed live: the new ACL is already ACTIVE in the create response and starts with the server's own default rules, at least an inbound rule that passes all traffic at priority 0. A default rule holds priority 0, a priority above 32766, or decodes System true, and is never removed by add-network-acl-rule or remove-network-acl-rule. It has not been shown live that a rule with Action deny takes effect while that pass-all default rule is still in the list; do not rely on a deny rule alone to block traffic. A duplicate --name fails with the server's own message.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -187,7 +187,7 @@ vngcloud network delete-security-group-rule --security-group-id <security-group-
 
 Kind: Write.
 
-Needs --yes on every call: disassociate-network-acl-subnet can change which ACL's rules apply to a subnet's traffic at once, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Disassociating a subnet not in this ACL's list is a no-op: Changed is false and nothing is sent. What a subnet falls back to once disassociated is not yet confirmed live. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
+Needs --yes on every call: disassociate-network-acl-subnet can change which ACL's rules apply to a subnet's traffic at once, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Disassociating a subnet not in this ACL's list is a no-op: Changed is false and nothing is sent. What a subnet falls back to once disassociated is not yet confirmed live. Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its subnet list changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -554,7 +554,7 @@ vngcloud network list-wanips
 
 Kind: Write.
 
-Needs --yes on every call: remove-network-acl-rule can pass or drop traffic for every subnet this ACL covers, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Resends every rule read, including the server's own default rules, which are never sent changed. Needs --priority even to name priority 0: it carries no vngcloud:"required" tag on the SDK's own Input, since 0 also marks a default rule, but this command requires the flag (or an inline --cli-input-json Priority) so a caller who simply forgot it is never mistaken for one naming that rule on purpose. Removing a --direction and --priority the ACL does not have returns NotFound, nothing sent; removing a default rule (--priority 0) is refused with DefaultResource, nothing sent. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the rules just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
+Needs --yes on every call: remove-network-acl-rule can pass or drop traffic for every subnet this ACL covers, and the CLI cannot tell cheaply whether the ACL is in active use. Waits for the ACL to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Resends every rule read, including the server's own default rules (priority 0, a priority above 32766, or a rule marked System), which are never sent changed. Needs --priority even to name priority 0: it carries no vngcloud:"required" tag on the SDK's own Input, since 0 also marks a default rule, but this command requires the flag (or a --cli-input-json Priority, inline or file://) so a caller who simply forgot it is never mistaken for one naming that rule on purpose. Removing a --direction and --priority the ACL does not have returns NotFound, nothing sent; removing a default rule (priority 0, a priority above 32766, or a rule marked System) is refused with DefaultResource, nothing sent. Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its rules changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the rules just sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled.
 
 | Flag | Type | Required |
 |-|-|-|
