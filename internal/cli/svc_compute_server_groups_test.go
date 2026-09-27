@@ -215,6 +215,64 @@ func TestComputeUpdateServerGroupEmptyUpdateIsUsageErrorWithZeroRequests(t *test
 	}
 }
 
+// TestComputeUpdateServerGroupNotSettledOnFailedConfirmRead drives a real
+// update-server-group call whose PUT succeeds and whose confirm read (the
+// second GetServerGroup call UpdateServerGroup makes, after the PUT lands)
+// fails with a 500. UpdateServerGroup has no post-write poll loop to
+// interrupt with a canceled context the way dns's zone waits do (see
+// TestDNSCreateHostedZoneNotSettledOnCanceledContext), so this drives its
+// own documented not-settled path directly: the PUT already reached the
+// server, but the read that would confirm it did not come back.
+//
+// Per compute.UpdateServerGroup's own contract, that failure surfaces as an
+// error wrapping compute.ErrNotSettled, with the Output falling back to the
+// fields the PUT itself sent; op.go must still print that Output on stdout
+// even though the command exits with an error, the same as dns and
+// network's own NotSettled writes.
+func TestComputeUpdateServerGroupNotSettledOnFailedConfirmRead(t *testing.T) {
+	getCount := 0
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/serverGroups/sg-1": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				getCount++
+				if getCount == 1 {
+					// The pre-PUT read UpdateServerGroup makes to merge the
+					// unchanged field.
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(serverGroupJSON("old-name", "desc", "policy-1", nil)))
+					return
+				}
+				// The confirm read after the PUT: fails, so the write is
+				// accepted but never confirmed.
+				w.WriteHeader(http.StatusInternalServerError)
+			case http.MethodPut:
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"compute", "update-server-group", "--server-group-id", "sg-1", "--name", "new-name",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "NotSettled" {
+		t.Fatalf("Code = %q, want NotSettled (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"UUID": "sg-1"`) || !strings.Contains(got, `"Name": "new-name"`) {
+		t.Fatalf("stdout = %s, want the fallback group printed", got)
+	}
+}
+
 // TestComputeGetServerGroupUnknownIDIsNotFound checks that get-server-group
 // treats a 200 response with "data" null, the server's own shape for a
 // deleted or unknown group, as NotFound rather than printing an empty
