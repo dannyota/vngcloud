@@ -68,6 +68,40 @@ const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up,
 	"other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); " +
 	"an unrecognized key is refused with exit code 2 before any request."
 
+// computeGetSSHKeyNote documents that SSHKey never carries a private key,
+// since the flag table gives no hint that one exists at all: only
+// import-ssh-key and create-ssh-key ever see one, and only once.
+const computeGetSSHKeyNote = "SSHKey never includes a private key; see import-ssh-key and create-ssh-key."
+
+// computeImportSSHKeyPreferredNote documents the wiki's own recommendation
+// for import-ssh-key, and the key type GreenNode actually accepts: the flag
+// table cannot show either. Only an RSA public key is accepted live; an
+// ssh-ed25519 key gets a 400 "Invalid public key" from the server, even
+// though ssh-keygen happily makes one.
+const computeImportSSHKeyPreferredNote = "Preferred over create-ssh-key: PublicKey is made elsewhere, for " +
+	"example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans " +
+	"more than one line, or that contains the text \"PRIVATE KEY\", before any request; neither error ever " +
+	"quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with " +
+	"400 \"Invalid public key\"."
+
+// computeCreateSSHKeyNote documents create-ssh-key's --secret-file
+// requirement and its cleanup-on-failure rule: the flag table shows no
+// --secret-file at all, since it backs no Input field, and shows PrivateKey
+// only as a plain field with no hint that it is redacted or written
+// anywhere.
+const computeCreateSSHKeyNote = "Prefer import-ssh-key instead: it never has GreenNode see the private key " +
+	"at all. Needs --secret-file <path>: GreenNode generates the key pair here and returns the private key " +
+	"once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or " +
+	"an error message; the printed PrivateKey field always reads \"[redacted]\", and a SecretFile field names " +
+	"the path. --secret-file must not already exist, symlink included, checked before any request. If " +
+	"writing it fails after the create, the new key is deleted through the SDK and the command exits 1 with " +
+	"error code SecretFileFailed; if that delete also fails, the message names the key only by its ID."
+
+// computeDeleteSSHKeyNote documents delete-ssh-key's own unverified case:
+// the flag table cannot show that a server might still reference the key.
+const computeDeleteSSHKeyNote = "Deleting a key a server still uses has not been checked live: whether the " +
+	"API refuses it, and what happens to the server if it does not, are both unknown."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation (portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
@@ -241,12 +275,55 @@ const monitorDeleteLogAlarmNote = "Reads the alarm first and refuses with Invali
 	"delete-log-project. A retry that finds the alarm already gone returns NotFound, the same as a second " +
 	"delete of the same --alarm-id."
 
+// networkCreateSecurityGroupNote documents create-security-group's
+// confirmed-live wait behavior and its duplicate-name status: the flag
+// table shows only --name and --description, with no hint that the wait
+// this command runs afterward never really polls in practice.
+const networkCreateSecurityGroupNote = "Confirmed live: the new group is already ACTIVE in the create " +
+	"response itself, so the wait this command runs afterward settles on its first read. A duplicate " +
+	"--name fails with the server's own message at status 400."
+
+// networkCreateSecurityGroupRuleNote documents create-security-group-rule's
+// confirmed-live no-wait behavior, its duplicate and overlap statuses, that
+// a prefix with host bits set is stored exactly as given rather than masked
+// to its network address, and the CLI's own world-open guard, which the
+// flag table cannot show since --direction and --remote-ip-prefix are each
+// listed as a plain, unconditional string.
+const networkCreateSecurityGroupRuleNote = "Confirmed live: the new rule is already ACTIVE in the create " +
+	"response, so this command takes no wait. A rule that exactly duplicates an existing one fails with " +
+	"status 409; a rule that overlaps an existing one without duplicating it fails with status 400. " +
+	"--remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to " +
+	"203.0.113.0/24. A rule whose --direction is not egress and whose --remote-ip-prefix has prefix length " +
+	"0, such as 0.0.0.0/0 or ::/0, needs --yes: it opens every port the rule names to the entire internet."
+
+// networkDeleteSecurityGroupNote documents delete-security-group's pre-read
+// guards and its unverified in-use status: the flag table shows only
+// --security-group-id, with no hint of the reads this command makes before
+// its own DELETE.
+const networkDeleteSecurityGroupNote = "Refuses, before any request, a system group or a group with any " +
+	"server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete " +
+	"the server itself refuses as in use for some other reason has not been confirmed live."
+
+// networkDeleteSecurityGroupRuleNote documents delete-security-group-rule's
+// pre-read guard and repeat-delete status: the flag table shows only the
+// two IDs, with no hint that this command lists the group's rules first.
+const networkDeleteSecurityGroupRuleNote = "Refuses, before any request, a rule that does not belong to " +
+	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"compute get-ssh-key":                     computeGetSSHKeyNote,
+	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
+	"compute create-ssh-key":                  computeCreateSSHKeyNote,
+	"compute delete-ssh-key":                  computeDeleteSSHKeyNote,
+	"network create-security-group":           networkCreateSecurityGroupNote,
+	"network create-security-group-rule":      networkCreateSecurityGroupRuleNote,
+	"network delete-security-group":           networkDeleteSecurityGroupNote,
+	"network delete-security-group-rule":      networkDeleteSecurityGroupRuleNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -314,7 +391,10 @@ var docJSONPlaceholders = map[string]string{
 // required fields, but UpdateRecord also requires at least one other field
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
-// field to change.
+// field to change. compute create-ssh-key does not need an entry here even
+// though --secret-file backs no Input field: extraDocFields (gendocs.go)
+// already gives it a required docField of its own, which the same
+// required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
 	"dns update-hosted-zone": "description",
 	"dns update-record":      "ttl",

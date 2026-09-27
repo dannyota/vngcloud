@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.24.0 - SSH Key Writes
+
+### Highlights
+
+- New `compute.GetSSHKey`, `ImportSSHKey`, `CreateSSHKey`, and
+  `DeleteSSHKey`, with matching `vngcloud compute` commands.
+- Import takes RSA public keys only; the server refuses `ssh-ed25519`.
+- `create-ssh-key` needs `--secret-file`: the CLI writes the new private
+  key to a new file with mode 0600 and prints it only as `[redacted]`. If
+  that write fails, the CLI deletes the key and exits with
+  `SecretFileFailed`.
+- New `vngcloud.Secret` type: its value prints as `[redacted]` under
+  `fmt`, `slog`, and JSON, except for `%p`, `gob`, and reflection.
+- A missing key reads as `NotFound` on get and delete.
+
+### Behavior changes
+
+`compute.SSHKey` drops `PrivateKey`. Breaking.
+
+## v0.23.0 - Security Group Writes
+
+### Highlights
+
+- New `network.CreateSecurityGroup`, `UpdateSecurityGroup`, and
+  `DeleteSecurityGroup`, and `CreateSecurityGroupRule` and
+  `DeleteSecurityGroupRule`, with matching `vngcloud network` commands.
+- An ingress rule from `0.0.0.0/0` or `::/0` needs `--yes`, and so does
+  every delete.
+- A system group, or a group with servers, is never updated or deleted.
+  A rule is deleted only when it belongs to the named group.
+- Rules are checked before any request: direction, protocol, prefix,
+  ports, and ether type. An `icmp` rule covers all ICMP and takes no
+  ports.
+- New CLI codes `SystemSecurityGroup` and `SecurityGroupInUse`.
+
+### Behavior changes
+
+`GetSecurityGroup`, `ListSecurityGroupRules`, and
+`ListServersBySecurityGroup` refuse a malformed ID before any request.
+
 ## v0.22.0 - vMonitor Log Project Orders
 
 ### Highlights

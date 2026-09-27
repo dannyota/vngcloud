@@ -24,6 +24,10 @@ turned off.
   calls to the wrong account.
 - `vngcloud configure` never takes a password or TOTP secret from the command
   line, and never echoes it.
+- A value an API returns only once, such as a created SSH key's private
+  key, is a `vngcloud.Secret`: it prints, logs, and encodes as `[redacted]`
+  everywhere except `Reveal()`. The CLI writes such a value only to a
+  `--secret-file`, at mode 0600, refusing an existing path or a symlink.
 
 ## Writes
 

@@ -2,6 +2,35 @@
 
 # CLI: Compute
 
+## create-ssh-key
+
+Kind: Write.
+
+Prefer import-ssh-key instead: it never has GreenNode see the private key at all. Needs --secret-file <path>: GreenNode generates the key pair here and returns the private key once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed PrivateKey field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. If writing it fails after the create, the new key is deleted through the SDK and the command exits 1 with error code SecretFileFailed; if that delete also fails, the message names the key only by its ID.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--secret-file` | `string` | yes |
+
+```sh
+vngcloud compute create-ssh-key --name <name> --secret-file <secret-file>
+```
+
+## delete-ssh-key
+
+Kind: Write, destructive.
+
+Deleting a key a server still uses has not been checked live: whether the API refuses it, and what happens to the server if it does not, are both unknown.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--ssh-key-id` | `string` | yes |
+
+```sh
+vngcloud compute delete-ssh-key --ssh-key-id <ssh-key-id> --yes
+```
+
 ## get-server
 
 Kind: Read.
@@ -12,6 +41,35 @@ Kind: Read.
 
 ```sh
 vngcloud compute get-server --server-id <server-id> --query Server
+```
+
+## get-ssh-key
+
+Kind: Read.
+
+SSHKey never includes a private key; see import-ssh-key and create-ssh-key.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--ssh-key-id` | `string` | yes |
+
+```sh
+vngcloud compute get-ssh-key --ssh-key-id <ssh-key-id> --query SSHKey
+```
+
+## import-ssh-key
+
+Kind: Write.
+
+Preferred over create-ssh-key: PublicKey is made elsewhere, for example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans more than one line, or that contains the text "PRIVATE KEY", before any request; neither error ever quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with 400 "Invalid public key".
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--public-key` | `string` | yes |
+
+```sh
+vngcloud compute import-ssh-key --name <name> --public-key <public-key>
 ```
 
 ## list-gpu-images

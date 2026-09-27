@@ -1,0 +1,16 @@
+{
+  "data": {
+    "id": 101,
+    "uuid": "secg-1",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "deletedAt": null,
+    "status": "ACTIVE",
+    "secgroupId": 101,
+    "secgroupName": "<name>",
+    "projectUuid": "pro-1",
+    "description": "<description>",
+    "updatedAt": null,
+    "isSystem": false,
+    "type": "vServer"
+  }
+}

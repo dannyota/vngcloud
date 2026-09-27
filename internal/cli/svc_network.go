@@ -6,8 +6,15 @@ import (
 	"danny.vn/vngcloud/network"
 )
 
-// networkOps is network's operation table. Every operation reads; network
-// writes are not part of this release.
+// networkOps is network's operation table. Every Get and List operation
+// reads. CreateSecurityGroup, UpdateSecurityGroup, and CreateSecurityGroupRule
+// are Write; DeleteSecurityGroup and DeleteSecurityGroupRule are Write and
+// Destructive, since a deleted group or rule cannot be restored by one more
+// command, so each needs --yes. CreateSecurityGroupRule also carries a Guard,
+// refuseWorldOpenIngressWithoutYes (svc_network_write.go), that needs --yes
+// for an ingress rule whose remote prefix is 0.0.0.0/0 or ::/0: such a rule
+// opens every port it names to the whole internet. A read-only profile
+// refuses all five, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -21,6 +28,12 @@ var networkOps = []Op[network.Client]{
 		kebab("ListSecurityGroups"), (*network.Client).ListSecurityGroups),
 	Read[network.Client, network.GetSecurityGroupInput, network.GetSecurityGroupOutput](
 		kebab("GetSecurityGroup"), (*network.Client).GetSecurityGroup),
+	Write[network.Client, network.CreateSecurityGroupInput, network.CreateSecurityGroupOutput](
+		kebab("CreateSecurityGroup"), (*network.Client).CreateSecurityGroup),
+	Write[network.Client, network.UpdateSecurityGroupInput, network.UpdateSecurityGroupOutput](
+		kebab("UpdateSecurityGroup"), (*network.Client).UpdateSecurityGroup),
+	Write[network.Client, network.DeleteSecurityGroupInput, network.DeleteSecurityGroupOutput](
+		kebab("DeleteSecurityGroup"), (*network.Client).DeleteSecurityGroup, Destructive()),
 	Read[network.Client, network.ListServersBySecurityGroupInput, network.ListServersBySecurityGroupOutput](
 		kebab("ListServersBySecurityGroup"), (*network.Client).ListServersBySecurityGroup),
 	Read[network.Client, network.ListVirtualIPAddressesInput, network.ListVirtualIPAddressesOutput](
@@ -43,6 +56,11 @@ var networkOps = []Op[network.Client]{
 		kebab("ListSecurityGroupRules"), (*network.Client).ListSecurityGroupRules),
 	Read[network.Client, network.ListAllSecurityGroupRulesInput, network.ListAllSecurityGroupRulesOutput](
 		kebab("ListAllSecurityGroupRules"), (*network.Client).ListAllSecurityGroupRules),
+	Write[network.Client, network.CreateSecurityGroupRuleInput, network.CreateSecurityGroupRuleOutput](
+		kebab("CreateSecurityGroupRule"), (*network.Client).CreateSecurityGroupRule,
+		Guard(refuseWorldOpenIngressWithoutYes)),
+	Write[network.Client, network.DeleteSecurityGroupRuleInput, network.DeleteSecurityGroupRuleOutput](
+		kebab("DeleteSecurityGroupRule"), (*network.Client).DeleteSecurityGroupRule, Destructive()),
 	Read[network.Client, network.ListRouteTableRoutesInput, network.ListRouteTableRoutesOutput](
 		kebab("ListRouteTableRoutes"), (*network.Client).ListRouteTableRoutes),
 	Read[network.Client, network.GetVirtualIPAddressInput, network.GetVirtualIPAddressOutput](

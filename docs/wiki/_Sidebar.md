@@ -9,10 +9,12 @@
 - [Services](Services.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
 - [CDN](CDN.md)
+- [Compute](Compute.md)
 - [DNS](DNS.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
 - [Monitor Log Alarms](Monitor-Log-Alarms.md)
+- [Network](Network.md)
 - [Security](Security.md)
 
 **CLI**

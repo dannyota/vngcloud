@@ -37,6 +37,16 @@ func NewRetryConfig(t testing.TB, handler http.Handler) core.Config {
 	return newConfig(t, handler, transport.Config{RetryCount: 3, RetryInterval: time.Millisecond})
 }
 
+// NewConfigWithCapture is NewConfig but also wires capture as the
+// transport's response-capture hook, for a test that must observe, or prove
+// the absence of, a captured response (such as one from a
+// transport.Request.Sensitive call).
+func NewConfigWithCapture(t testing.TB, handler http.Handler, capture transport.CaptureFunc) core.Config {
+	t.Helper()
+
+	return newConfig(t, handler, transport.Config{Capture: capture})
+}
+
 func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.Config {
 	t.Helper()
 

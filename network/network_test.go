@@ -187,7 +187,7 @@ func TestNetworkListSecurityGroupRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSecurityGroupRules() error = %v", err)
 	}
-	if len(out.Items) != 1 || out.Items[0].RuleID != "rule-1" || out.Items[0].SecurityGroupID != "secgroup-1" {
+	if len(out.Items) != 1 || out.Items[0].ID != "secr-1" || out.Items[0].SecurityGroupID != "secgroup-1" {
 		t.Fatalf("unexpected rules: %+v", out)
 	}
 }
@@ -205,7 +205,7 @@ func TestNetworkSecurityGroupHelpers(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/network/get_security_group.json"),
 			call: func(c *Client) error {
 				out, err := c.GetSecurityGroup(context.Background(), &GetSecurityGroupInput{SecurityGroupID: "secgroup-1"})
-				if err == nil && out.SecurityGroup.ID != "secgroup-1" {
+				if err == nil && out.SecurityGroup.ID != "secg-1" {
 					t.Fatalf("unexpected security group: %+v", out.SecurityGroup)
 				}
 				return err

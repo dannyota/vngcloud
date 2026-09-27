@@ -4,6 +4,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -122,6 +123,47 @@ func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSS
 		return nil, err
 	}
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+}
+
+type GetSSHKeyInput struct {
+	SSHKeyID string `vngcloud:"required"`
+}
+
+type GetSSHKeyOutput struct {
+	SSHKey SSHKey
+}
+
+// GetSSHKey reads one key by id. An unknown id gets a 200 with an empty
+// object, not a 404, so GetSSHKey treats an empty SSHKey.ID in the response
+// as not-found itself, returning the SDK's ordinary not-found sentinel
+// rather than an empty SSHKey with no error.
+func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyOutput, error) {
+	const op = "compute.GetSSHKey"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "SSHKeyID", in.SSHKeyID); err != nil {
+		return nil, err
+	}
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data SSHKey `json:"data"`
+	}
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: op,
+		Method:    "GET",
+		URL:       c.computeURL("v2", []string{projectID, "sshKeys", in.SSHKeyID}, nil),
+		OK:        []int{200},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Data.ID == "" {
+		return nil, fmt.Errorf("%w: %s: ssh key %s", core.ErrNotFound, op, in.SSHKeyID)
+	}
+	return &GetSSHKeyOutput{SSHKey: resp.Data}, nil
 }
 
 type ListServerGroupsInput struct {
@@ -472,13 +514,16 @@ type ServerSecgroup struct {
 	UUID string `json:"uuid"`
 }
 
+// SSHKey has no PrivateKey field: the API never returns one on a read, and
+// even if it did, this model would drop it rather than hold it. CreateSSHKey
+// is the only call that returns a private key, and it returns it separately
+// as a vngcloud.Secret, never on this type.
 type SSHKey struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	CreatedAt  string `json:"createdAt"`
-	PublicKey  string `json:"pubKey"`
-	PrivateKey string `json:"privateKey"`
-	Status     string `json:"status"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	PublicKey string `json:"pubKey"`
+	Status    string `json:"status"`
 }
 
 type ServerGroup struct {

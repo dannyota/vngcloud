@@ -136,6 +136,14 @@ type Request struct {
 	// a 5xx or a non-dial network error, which Once still sent only once
 	// but which may have reached a handler.
 	Once bool
+
+	// Sensitive marks a request whose successful response body carries a
+	// value, such as a private key, that must never reach the configured
+	// response-capture hook or an error message. DoJSONStatus still decodes
+	// the body into out as normal; Sensitive only suppresses the capture
+	// hook (see captureResponse) and, when that decode itself fails, the
+	// underlying decode error, which could otherwise quote the body.
+	Sensitive bool
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -190,6 +198,12 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 	}
 	if out != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, out); err != nil {
+			if req.Sensitive {
+				// The underlying json error never quotes body content, but a
+				// Sensitive request withholds the body from its error on
+				// principle, rather than relying on that always staying true.
+				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
+			}
 			return statusCode, &APIError{Operation: req.Operation, Err: err}
 		}
 	}
@@ -509,7 +523,7 @@ func isDialError(err error) bool {
 }
 
 func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
-	if c.capture == nil {
+	if c.capture == nil || req.Sensitive {
 		return
 	}
 	bodyCopy := append([]byte(nil), body...)

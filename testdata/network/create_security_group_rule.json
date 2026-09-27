@@ -1,0 +1,20 @@
+{
+  "data": {
+    "id": 501,
+    "uuid": "secr-1",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "deletedAt": null,
+    "updatedAt": null,
+    "status": "ACTIVE",
+    "secgroupUuid": "secg-1",
+    "direction": "ingress",
+    "etherType": "IPv4",
+    "portRangeMax": 22,
+    "portRangeMin": 22,
+    "protocol": "tcp",
+    "ruleId": 501,
+    "description": "<description>",
+    "remoteIpPrefix": "203.0.113.0/24",
+    "isSystem": false
+  }
+}

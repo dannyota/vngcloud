@@ -12,6 +12,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
+	"danny.vn/vngcloud/network"
 )
 
 // realStatusUnconfirmedErr drives one real monitor.PauseCheck call to the
@@ -135,6 +136,22 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: %w", dns.ErrNotSettled, context.Canceled),
 			1,
 		},
+		{"network write failed", fmt.Errorf("%w: secg-1 is ERROR", network.ErrFailed), 1},
+		{"network not settled", fmt.Errorf("%w: secg-1 was accepted", network.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during network's post-create wait must exit the same
+			// way (1), checked ahead of the context-canceled rule above, the
+			// same rule the vDNS case above follows.
+			"network not settled after a canceled context",
+			fmt.Errorf("%w: %w", network.ErrNotSettled, context.Canceled),
+			1,
+		},
+		{"network system group", fmt.Errorf("%w: security group secg-1 is a system group", network.ErrSystemGroup), 1},
+		{
+			"network security group in use",
+			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
+			1,
+		},
 		{
 			"monitor log project price above max",
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
@@ -256,6 +273,38 @@ func TestClassify(t *testing.T) {
 			"dns not settled",
 			fmt.Errorf("%w: zone-1 was accepted", dns.ErrNotSettled),
 			"NotSettled", 0, "",
+		},
+		{
+			"network write failed",
+			fmt.Errorf("%w: secg-1 is ERROR", network.ErrFailed),
+			"WriteFailed", 0, "",
+		},
+		{
+			"network not settled",
+			fmt.Errorf("%w: secg-1 was accepted", network.ErrNotSettled),
+			"NotSettled", 0, "",
+		},
+		{
+			"network system group",
+			fmt.Errorf("%w: security group secg-1 is a system group", network.ErrSystemGroup),
+			"SystemSecurityGroup", 0, "",
+		},
+		{
+			"network security group in use",
+			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
+			"SecurityGroupInUse", 0, "",
+		},
+		{
+			// wrapSecurityGroupInUse (network/security_groups_write.go)
+			// rewraps the server's own refusal, an *APIError, alongside
+			// ErrSecurityGroupInUse; Code must still be SecurityGroupInUse,
+			// not that inner APIError's own status-derived code, the same
+			// way monitor.ErrStatusUnconfirmed wins over its own inner
+			// APIError above.
+			"network security group in use wrapping an inner APIError",
+			fmt.Errorf("%w: %w", network.ErrSecurityGroupInUse,
+				&vngcloud.APIError{Operation: "network.DeleteSecurityGroup", StatusCode: 409, Code: "Conflict", Message: "SecurityGroupInUse"}),
+			"SecurityGroupInUse", 0, "",
 		},
 		{
 			"monitor log project price above max",
