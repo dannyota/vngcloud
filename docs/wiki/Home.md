@@ -18,6 +18,8 @@ rename; the module keeps the `vngcloud` name.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
 - [Compute](Compute.md): vServer instances, images, and SSH keys, including
   importing and creating them.
+- [IAM](IAM.md): service account writes, and their self-change and
+  privileged-change guards.
 - [Monitor](Monitor.md): vMonitor synthetic checks, and pausing and resuming
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
