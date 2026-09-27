@@ -200,7 +200,7 @@ func TestIAMDeleteGroupGolden(t *testing.T) {
 		"/policies-api/v1/groups/group-1": func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[]}`)(w, r)
+				jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[],"mode":"iam"}`)(w, r)
 			case http.MethodDelete:
 				deleted = true
 				w.WriteHeader(http.StatusNoContent)
@@ -230,7 +230,7 @@ func TestIAMDeleteGroupInUseMapsToResourceInUse(t *testing.T) {
 			if r.Method == http.MethodDelete {
 				t.Fatal("the DELETE must not be sent while the group has a member")
 			}
-			jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":["user-2"]}`)(w, r)
+			jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":["user-2"],"mode":"iam"}`)(w, r)
 		},
 	})
 	root, _, stderr := newSvcRoot(t, fixture)

@@ -13,7 +13,7 @@ func TestIAMAttachGroupPolicyGolden(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/accounts-api/v1/auth/userinfo":     jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
 		"/policies-api/v1/actions":           jsonHandler(http.StatusOK, iamWriteActionsJSON),
-		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[]}`),
+		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[],"mode":"iam"}`),
 		"/policies-api/v1/policies/policy-1": jsonHandler(http.StatusOK, iamCustomerPolicyJSON("policy-1")),
 		"/policies-api/v1/policies/policy-1/groups/group-1": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -65,7 +65,7 @@ func TestIAMAttachGroupPolicySelfChangeMapsToDesignCode(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/accounts-api/v1/auth/userinfo":  jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
 		"/policies-api/v1/actions":        jsonHandler(http.StatusOK, iamWriteActionsJSON),
-		"/policies-api/v1/groups/group-1": jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":["user-1"]}`),
+		"/policies-api/v1/groups/group-1": jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":["user-1"],"mode":"iam"}`),
 		"/policies-api/v1/policies/policy-1": func(_ http.ResponseWriter, r *http.Request) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		},
@@ -95,7 +95,7 @@ func TestIAMAttachGroupPolicyPrivilegedChangeMapsToDesignCode(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/accounts-api/v1/auth/userinfo":     jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
 		"/policies-api/v1/actions":           jsonHandler(http.StatusOK, iamWriteActionsJSON),
-		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[]}`),
+		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":[],"iamUsers":[],"mode":"iam"}`),
 		"/policies-api/v1/policies/policy-1": jsonHandler(http.StatusOK, iamPrivilegedPolicyJSON),
 		"/policies-api/v1/policies/policy-1/groups/group-1": func(_ http.ResponseWriter, r *http.Request) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -121,7 +121,7 @@ func TestIAMDetachGroupPolicyGolden(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/accounts-api/v1/auth/userinfo":     jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
 		"/policies-api/v1/actions":           jsonHandler(http.StatusOK, iamWriteActionsJSON),
-		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":["policy-1"],"iamUsers":[]}`),
+		"/policies-api/v1/groups/group-1":    jsonHandler(http.StatusOK, `{"policies":["policy-1"],"iamUsers":[],"mode":"iam"}`),
 		"/policies-api/v1/policies/policy-1": jsonHandler(http.StatusOK, iamCustomerPolicyJSON("policy-1")),
 		"/policies-api/v1/policies/policy-1/groups/group-1": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodDelete {
