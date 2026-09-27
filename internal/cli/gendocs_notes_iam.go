@@ -119,3 +119,60 @@ const iamServiceAccountPolicyAttachGuardNote = "Refuses, before any request, wit
 
 var iamAttachServiceAccountPolicyNote = iamServiceAccountPolicyAttachGuardNote
 var iamDetachServiceAccountPolicyNote = iamServiceAccountPolicyAttachGuardNote
+
+// iamCreateGroupNote documents create-group's own retry advice: creating a
+// group with no initial members or policies has no guard beyond read-only,
+// since it changes no one's rights, but the flag table gives no hint that a
+// failed create should never simply be run again.
+const iamCreateGroupNote = "Changes no one's rights and has no guard beyond read-only: a new group starts with " +
+	"no members and no attached policy, added only through add-user-to-group and attach-group-policy. Never " +
+	"retried after a failure that may have already reached the server: list groups by --name before creating it " +
+	"again rather than repeating this command."
+
+// iamUpdateGroupNote documents update-group's own no-guard rule and its
+// fill-from-read behavior, which the flag table cannot show.
+const iamUpdateGroupNote = "Changes no one's rights and has no guard beyond read-only. Sends a full PATCH, " +
+	"reading the group first to fill Name when left unset, since the request requires a name either way; " +
+	"Description is sent only when set, and left as is otherwise."
+
+// iamDeleteGroupNote documents delete-group's own guard, which the flag
+// table cannot show at all.
+const iamDeleteGroupNote = "Refuses, before any request, with error code ResourceInUse when the group has a " +
+	"member or an attached policy, protected or not: removing it would silently take rights from whatever it " +
+	"is attached to. See the IAM design's guard rules."
+
+// iamGroupMembershipGuardNote documents the guard add-user-to-group and
+// remove-user-from-group both run before any request: the flag table shows
+// only two IDs, with no hint that either the user's or the group's own
+// rights can refuse the command outright.
+const iamGroupMembershipGuardNote = "Refuses, before any request, with error code SelfChange when the user is " +
+	"the caller or the group is one the caller already belongs to, and PrivilegedChange when the user or the " +
+	"group otherwise holds a privileged policy; see the IAM design's guard rules. Neither guard has a flag or " +
+	"Input field that turns it off."
+
+var iamAddUserToGroupNote = iamGroupMembershipGuardNote
+var iamRemoveUserFromGroupNote = iamGroupMembershipGuardNote
+
+// iamGroupPolicyAttachGuardNote documents the guard attach-group-policy and
+// detach-group-policy both run before any request: the flag table shows only
+// two IDs, with no hint that either the group's own rights or the policy's
+// can refuse the command outright.
+const iamGroupPolicyAttachGuardNote = "Refuses, before any request, with error code SelfChange when the group is " +
+	"one the caller already belongs to, and PrivilegedChange when the policy grants an IAM write action or the " +
+	"group otherwise holds one; see the IAM design's guard rules. Neither guard has a flag or Input field that " +
+	"turns it off."
+
+var iamAttachGroupPolicyNote = iamGroupPolicyAttachGuardNote
+var iamDetachGroupPolicyNote = iamGroupPolicyAttachGuardNote
+
+// iamUserPolicyAttachGuardNote documents the guard attach-user-policy and
+// detach-user-policy both run before any request: the flag table shows only
+// two IDs, with no hint that either the user's own rights or the policy's
+// can refuse the command outright.
+const iamUserPolicyAttachGuardNote = "Refuses, before any request, with error code SelfChange when the user is " +
+	"the caller, and PrivilegedChange when the policy grants an IAM write action or the user otherwise holds " +
+	"one, directly or through a group; see the IAM design's guard rules. Neither guard has a flag or Input " +
+	"field that turns it off."
+
+var iamAttachUserPolicyNote = iamUserPolicyAttachGuardNote
+var iamDetachUserPolicyNote = iamUserPolicyAttachGuardNote

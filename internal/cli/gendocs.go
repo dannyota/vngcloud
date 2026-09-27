@@ -353,7 +353,11 @@ func renderCLIPage(services []docService) string {
 		"or update-policy whose write reached the server but the read to confirm it failed: create-policy " +
 		"must not be sent again, since a repeat risks a second policy, but update-policy may be sent " +
 		"again, since its PUT always resends the whole resolved policy rather than making a new one; see " +
-		"[IAM](CLI-IAM.md#create-policy)), `OTPRejected` (create-channel's or " +
+		"[IAM](CLI-IAM.md#create-policy), or an iam create-group or update-group whose write reached the " +
+		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
+		"risks a second group, but update-group may be sent again, since its own write always resends the " +
+		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
+		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
 		"order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
@@ -371,8 +375,9 @@ func renderCLIPage(services []docService) string {
 		"such as a VPC with subnets, a subnet with servers, or a route table a subnet still names, or " +
 		"because the server's own refusal named it in use, including a VPC delete the server keeps refusing " +
 		"with \"contains the subnet\" for several minutes after that subnet's own delete, or an iam " +
-		"delete-policy targeted a policy still attached to a group, an IAM user, or a service account, " +
-		"before any request; see [Network](Network.md#errors), [IAM](CLI-IAM.md#delete-policy)), " +
+		"delete-policy targeted a policy still attached to a group, an IAM user, or a service account, or " +
+		"an iam delete-group targeted a group with a member or an attached policy, before any request; " +
+		"see [Network](Network.md#errors), [IAM](CLI-IAM.md#delete-policy)), " +
 		"`DefaultResource` (a network delete-route-table targeted a VPC's " +
 		"main route table while a subnet names no route table of its own and so relies on it; the server " +
 		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +

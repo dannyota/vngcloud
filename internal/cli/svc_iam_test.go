@@ -241,6 +241,15 @@ func TestIAMReadOnlyRefusesEveryWriteWithZeroRequests(t *testing.T) {
 		{"delete-policy", []string{"delete-policy", "--policy-id", "policy-1", "--yes"}},
 		{"attach-service-account-policy", []string{"attach-service-account-policy", "--policy-id", "policy-1", "--service-account-id", "sa-1", "--yes"}},
 		{"detach-service-account-policy", []string{"detach-service-account-policy", "--policy-id", "policy-1", "--service-account-id", "sa-1", "--yes"}},
+		{"create-group", []string{"create-group", "--name", "app-readers"}},
+		{"update-group", []string{"update-group", "--group-id", "group-1", "--description", "x"}},
+		{"delete-group", []string{"delete-group", "--group-id", "group-1", "--yes"}},
+		{"add-user-to-group", []string{"add-user-to-group", "--group-id", "group-1", "--user-id", "user-x", "--yes"}},
+		{"remove-user-from-group", []string{"remove-user-from-group", "--group-id", "group-1", "--user-id", "user-x", "--yes"}},
+		{"attach-group-policy", []string{"attach-group-policy", "--policy-id", "policy-1", "--group-id", "group-1", "--yes"}},
+		{"detach-group-policy", []string{"detach-group-policy", "--policy-id", "policy-1", "--group-id", "group-1", "--yes"}},
+		{"attach-user-policy", []string{"attach-user-policy", "--policy-id", "policy-1", "--user-id", "user-x", "--yes"}},
+		{"detach-user-policy", []string{"detach-user-policy", "--policy-id", "policy-1", "--user-id", "user-x", "--yes"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.op, func(t *testing.T) {
@@ -264,6 +273,11 @@ func TestIAMReadOnlyRefusesEveryWriteWithZeroRequests(t *testing.T) {
 				"/policies-api/v1/policies/policy-1/service-accounts":              unexpected,
 				"/policies-api/v1/policies/policy-1/service-accounts/sa-1":         unexpected,
 				"/policies-api/v1/user-attachments/service-accounts/sa-1/policies": unexpected,
+				"/policies-api/v1/groups":                                          unexpected,
+				"/policies-api/v1/groups/group-1":                                  unexpected,
+				"/policies-api/v1/groups/group-1/iam-users/user-x":                 unexpected,
+				"/policies-api/v1/policies/policy-1/groups/group-1":                unexpected,
+				"/policies-api/v1/policies/policy-1/iam-users/user-x":              unexpected,
 			})
 			opts := newFakeServer(t, fixture.mux)
 			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
