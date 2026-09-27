@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -221,6 +222,87 @@ func TestGetRepository500ListIncompleteReturnsOriginal500(t *testing.T) {
 	}
 }
 
+// TestGetRepository500NoTotalsReturnsOriginal500 covers a list confirm
+// response that carries no totalPage or totalItem at all: an unrecognized
+// or minimal shape must not be read as a conclusive, empty page.
+func TestGetRepository500NoTotalsReturnsOriginal500(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository/repo-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.GetRepository(context.Background(), &GetRepositoryInput{RepositoryID: "repo-1"})
+	if errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("err = %v, want the original 500, not NotFound: the list carried no totals", err)
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError", err)
+	}
+}
+
+// TestGetRepository500ItemCountMismatchReturnsOriginal500 covers a response
+// whose totalPage says one page, but whose returned item count does not
+// equal totalItem: this page is short, so absence here does not settle it,
+// even though TotalPage alone would look conclusive.
+func TestGetRepository500ItemCountMismatchReturnsOriginal500(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository/repo-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"totalPage":1,"totalItem":1}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.GetRepository(context.Background(), &GetRepositoryInput{RepositoryID: "repo-1"})
+	if errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("err = %v, want the original 500, not NotFound: the item count does not match totalItem", err)
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError", err)
+	}
+}
+
+// TestGetRepository500ConfirmSendsExplicitSize confirms the list confirm
+// asks for a page large enough to be conclusive in one call, rather than
+// relying on the server's own default page size.
+func TestGetRepository500ConfirmSendsExplicitSize(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository/repo-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository":
+			if got, want := r.URL.Query().Get("size"), strconv.Itoa(core.DefaultPageSize); got != want {
+				t.Fatalf("size query = %q, want %q", got, want)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"totalPage":1,"totalItem":0}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.GetRepository(context.Background(), &GetRepositoryInput{RepositoryID: "repo-1"})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("err = %v, want core.ErrNotFound", err)
+	}
+}
+
 // --- CreateRepository ---
 
 func TestCreateRepositoryRequestBody(t *testing.T) {
@@ -272,43 +354,27 @@ func TestCreateRepositoryRequiredInput(t *testing.T) {
 	}
 }
 
-func TestCreateRepositoryNameRule(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("no request expected")
+// TestCreateRepositoryBadNameReachesServer confirms the SDK sends any
+// non-empty Name as is: repoName's own character and length rule is a
+// server value rule (ADR 0002 rule 5), not something CreateRepository
+// checks, so a name outside it still reaches the server and comes back as
+// its own 400.
+func TestCreateRepositoryBadNameReachesServer(t *testing.T) {
+	var sentName string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := decodeBody(t, r)
+		sentName, _ = body["repoName"].(string)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"repoName must be 6 to 20 characters"}`))
 	}))
-	rejected := []string{
-		"abcd",                  // 4 chars: too short
-		"abcde",                 // 5 chars: too short
-		strings.Repeat("a", 21), // 21 chars: too long
-		"ABCdef",                // uppercase not allowed
-		"-abcdef",               // leading '-' not allowed
-		"_abcdef",               // leading '_' not allowed
-		"abc def",               // space not allowed
-		"abc.def",               // '.' not allowed
-	}
-	for _, name := range rejected {
-		if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: name, QuotaLimitGB: 1}); !errors.Is(err, vngcloud.ErrInvalidInput) {
-			t.Errorf("Name %q: err = %v, want ErrInvalidInput", name, err)
-		}
-	}
-}
 
-func TestCreateRepositoryNameRuleAllowedEdgeCases(t *testing.T) {
-	allowed := []string{
-		"abcdef",                // 6 chars: the shortest allowed
-		strings.Repeat("a", 20), // 20 chars: the longest allowed
-		"0abcde",                // starts with a digit
-		"abc_de",                // contains '_'
-		"abc-de",                // contains '-', not leading
+	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "ab", QuotaLimitGB: 1, NoWait: true})
+	if sentName != "ab" {
+		t.Fatalf("sent repoName = %q, want the exact input name: the SDK must not check it itself", sentName)
 	}
-	for _, name := range allowed {
-		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody(0)))
-		}))
-		if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: name, QuotaLimitGB: 1, NoWait: true}); err != nil {
-			t.Errorf("Name %q: err = %v, want nil", name, err)
-		}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		t.Fatalf("err = %v, want a 400 *core.APIError", err)
 	}
 }
 
@@ -338,6 +404,29 @@ func TestCreateRepositoryNoRetryAfter502(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "list-repositories") {
 		t.Fatalf("err = %v, want a hint to list-repositories before creating again", err)
+	}
+}
+
+// TestCreateRepositoryTimeoutTreatedAsAmbiguous covers 408 (Request Timeout)
+// and 499 (a proxy's "client closed request"): both can mean the server
+// already received and started acting on the create even though the client
+// never saw a normal response, so they must carry the same
+// list-repositories hint as a 5xx rather than being treated as an outright
+// rejection safe to retry as is.
+func TestCreateRepositoryTimeoutTreatedAsAmbiguous(t *testing.T) {
+	for _, status := range []int{http.StatusRequestTimeout, 499} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"message":"gateway timeout"}`))
+		}))
+
+		_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
+		if err == nil {
+			t.Fatalf("status %d: err = nil, want an error", status)
+		}
+		if !strings.Contains(err.Error(), "list-repositories") {
+			t.Errorf("status %d: err = %v, want the ambiguous-create hint naming list-repositories", status, err)
+		}
 	}
 }
 
@@ -441,6 +530,41 @@ func TestCreateRepositoryConfirmBoundReached(t *testing.T) {
 	}
 }
 
+// TestCreateRepositoryConfirm5xxGoesThroughListConfirm covers a confirm read
+// that hits a 5xx while the repository is still listed: GetRepository's own
+// list confirm finds it and returns the original 5xx rather than NotFound,
+// so the wait must stop there instead of treating it as "keep polling."
+func TestCreateRepositoryConfirm5xxGoesThroughListConfirm(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(repoBody(0)))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository/repo-1":
+			getCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/repository":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"repo-1"}],"totalPage":1,"totalItem":1}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if out == nil || out.Repository.ID != "repo-1" {
+		t.Fatalf("out = %+v, want the create response's own repository as a fallback", out)
+	}
+	if getCalls.Load() != 1 {
+		t.Fatalf("GET /v1/repository/repo-1 calls = %d, want 1: a listed 5xx must stop the wait at once, not keep polling", getCalls.Load())
+	}
+}
+
 func TestCreateRepositoryNoWaitSkipsConfirm(t *testing.T) {
 	var getCalls atomic.Int64
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -531,6 +655,127 @@ func TestDeleteRepositoryGuardImageCount(t *testing.T) {
 	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
 	if !errors.Is(err, ErrRepositoryNotEmpty) {
 		t.Fatalf("err = %v, want ErrRepositoryNotEmpty", err)
+	}
+}
+
+// TestDeleteRepositoryGuardImageCountMissing covers a guard read whose body
+// has no imageCount key at all: the guard must refuse rather than default
+// ImageCount to 0 and fail open.
+func TestDeleteRepositoryGuardImageCountMissing(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no DELETE expected: the guard must refuse before any write")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"uuid":"repo-1","name":"app-test","attachedUser":0}`))
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	if err == nil {
+		t.Fatal("err = nil, want a refusal: imageCount was missing from the read")
+	}
+	if errors.Is(err, ErrRepositoryNotEmpty) {
+		t.Fatalf("err = %v, want a distinct refusal, not ErrRepositoryNotEmpty: the count is unknown, not positive", err)
+	}
+}
+
+// TestDeleteRepositoryGuardImageCountNull covers a guard read whose
+// imageCount is JSON null, the same "unknown" case as a missing key.
+func TestDeleteRepositoryGuardImageCountNull(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no DELETE expected: the guard must refuse before any write")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"uuid":"repo-1","name":"app-test","imageCount":null,"attachedUser":0}`))
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	if err == nil {
+		t.Fatal("err = nil, want a refusal: imageCount was null in the read")
+	}
+	if errors.Is(err, ErrRepositoryNotEmpty) {
+		t.Fatalf("err = %v, want a distinct refusal, not ErrRepositoryNotEmpty: the count is unknown, not positive", err)
+	}
+}
+
+// TestDeleteRepositoryGuardUUIDMismatch covers a guard read that names a
+// different repository than RepositoryID: the guard must refuse rather than
+// trust a count that may belong to the wrong resource.
+func TestDeleteRepositoryGuardUUIDMismatch(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no DELETE expected: the guard must refuse before any write")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"uuid":"repo-2","name":"app-test","imageCount":0,"attachedUser":0}`))
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	if err == nil {
+		t.Fatal("err = nil, want a refusal: the read named a different repository")
+	}
+}
+
+// TestDeleteRepositoryDeleteReturns400 covers the DELETE call itself, after
+// a guard read that clears the repository for delete, answering 400.
+func TestDeleteRepositoryDeleteReturns400(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(repoBody(0)))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"bad request"}`))
+		}
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		t.Fatalf("err = %v, want a 400 *core.APIError", err)
+	}
+}
+
+// TestDeleteRepositoryDeleteReturns409 covers the DELETE call answering 409.
+func TestDeleteRepositoryDeleteReturns409(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(repoBody(0)))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"conflict"}`))
+		}
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 409 {
+		t.Fatalf("err = %v, want a 409 *core.APIError", err)
+	}
+}
+
+// TestDeleteRepositoryDeleteReturns5xx covers the DELETE call answering a
+// 5xx: the default test client never retries, so this is the raw error.
+func TestDeleteRepositoryDeleteReturns5xx(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(repoBody(0)))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		}
+	}))
+
+	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want a 500 *core.APIError", err)
 	}
 }
 

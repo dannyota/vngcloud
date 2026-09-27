@@ -5,28 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
+	"net/url"
+	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
-
-// repoNamePattern is the server's own rule for a repository Name, confirmed
-// by a live 400 on a name outside it: 6 to 20 characters, only a-z, 0-9,
-// '_', and '-', starting with a letter or digit (not '_' or '-').
-// CreateRepository checks it before any request, since the server's only
-// feedback otherwise is that same 400 after a round trip.
-var repoNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{5,19}$`)
-
-// checkRepositoryName returns an error wrapping core.ErrInvalidInput when
-// name does not match repoNamePattern.
-func checkRepositoryName(op, name string) error {
-	if repoNamePattern.MatchString(name) {
-		return nil
-	}
-	return fmt.Errorf("%w: %s requires Name to be 6 to 20 characters, only a-z, 0-9, '_', and '-', and to start with a letter or digit, got %q",
-		core.ErrInvalidInput, op, name)
-}
 
 var (
 	// ErrRepositoryNotEmpty means DeleteRepository refused because the
@@ -53,35 +37,87 @@ func isVCRServerError(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode >= 500 && apiErr.StatusCode < 600
 }
 
-// is4xxAPIError reports whether err is a *core.APIError whose StatusCode is
-// 4xx, meaning the server rejected the request outright and never acted on
-// it.
-func is4xxAPIError(err error) bool {
+// isClientRejectionError reports whether err is a *core.APIError whose
+// status means the server rejected a create outright and never acted on it:
+// a 4xx other than 408 (Request Timeout) or 499 (a proxy's "client closed
+// request"). Both of those are excluded because a request timeout or a
+// dropped client connection can mean the server already received and
+// started acting on the request even though the caller never saw its
+// response, the same ambiguity as a 5xx; wrapAmbiguousRepositoryCreateErr
+// treats them that way.
+func isClientRejectionError(err error) bool {
 	var apiErr *core.APIError
-	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusRequestTimeout || apiErr.StatusCode == 499 {
+		return false
+	}
+	return apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
 }
 
-// repositoryFoundAfterServerError lists repositories once and reports
-// whether id is present, for GetRepository's list confirm after a 5xx. A
-// list that comes back short of the account's own count, more than one page
-// or fewer items than TotalItem, is not a reliable absence: id could simply
-// be on a page this call never asked for. GetRepository treats any error
-// from this method as "fall back to the original 5xx," so it returns an
-// error instead of a bare false in that case, rather than answering a
-// question the single-page list cannot actually settle.
+// repositoryListConfirmResponse is the shape repositoryFoundAfterServerError
+// decodes on its own, rather than through ListRepositories: TotalPage and
+// TotalItem are pointers so the confirm can tell "the response carried no
+// totals" (nil) apart from "the response said 0" (non-nil, pointing at 0).
+// The reference names the list key listData; a live capture has data
+// instead, so both are read, matching the two keys core.DecodeFlexibleList
+// itself reads for this endpoint.
+type repositoryListConfirmResponse struct {
+	ListData  []Repository `json:"listData"`
+	Data      []Repository `json:"data"`
+	TotalPage *int         `json:"totalPage"`
+	TotalItem *int         `json:"totalItem"`
+}
+
+// items returns whichever of ListData or Data the response carried.
+func (r *repositoryListConfirmResponse) items() []Repository {
+	if r.ListData != nil {
+		return r.ListData
+	}
+	return r.Data
+}
+
+// repositoryFoundAfterServerError lists repositories once, asking for a
+// page large enough to hold the account's whole repository list, and
+// reports whether id is present, for GetRepository's list confirm after a
+// 5xx. Absence is conclusive only when the response actually carries
+// totals: TotalPage and TotalItem both non-nil, TotalPage at most 1 (so no
+// other page could hold id), and the returned item count equal to
+// TotalItem (so this page is not itself short). A response with no totals,
+// an unrecognized shape, more than one page, or an item count that does
+// not match TotalItem cannot settle the question. GetRepository treats any
+// error from this method as "fall back to the original 5xx," so it returns
+// an error instead of a bare false in every one of those cases, rather
+// than answering a question the read cannot actually settle.
 func (c *Client) repositoryFoundAfterServerError(ctx context.Context, id string) (bool, error) {
-	out, err := c.ListRepositories(ctx, nil)
-	if err != nil {
+	q := url.Values{}
+	q.Set("accessLevel", "ALL")
+	q.Set("name", "")
+	q.Set("size", strconv.Itoa(core.DefaultPageSize))
+
+	var resp repositoryListConfirmResponse
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "containerregistry.repositoryFoundAfterServerError",
+		Method:    http.MethodGet,
+		URL:       c.vcrURL([]string{"repository"}, q),
+		OK:        []int{200},
+	}, &resp); err != nil {
 		return false, err
 	}
-	for _, r := range out.Items {
+
+	items := resp.items()
+	for _, r := range items {
 		if r.ID == id {
 			return true, nil
 		}
 	}
-	if out.TotalPage > 1 || len(out.Items) < out.TotalItem {
+	if resp.TotalPage == nil || resp.TotalItem == nil {
+		return false, errors.New("containerregistry: repository list confirm: response carried no totals; inconclusive")
+	}
+	if *resp.TotalPage > 1 || len(items) != *resp.TotalItem {
 		return false, fmt.Errorf("containerregistry: repository list confirm: got %d of %d item(s) across %d page(s); inconclusive",
-			len(out.Items), out.TotalItem, out.TotalPage)
+			len(items), *resp.TotalItem, *resp.TotalPage)
 	}
 	return false, nil
 }
@@ -139,8 +175,10 @@ func (c *Client) GetRepository(ctx context.Context, in *GetRepositoryInput) (*Ge
 // since a public one accepts anonymous push, letting anyone store images on
 // the account's quota under the account's name.
 //
-// Name must be 6 to 20 characters, only a-z, 0-9, '_', and '-', starting
-// with a letter or digit; see repoNamePattern.
+// The server requires Name to be 6 to 20 characters, only a-z, 0-9, '_',
+// and '-', starting with a letter or digit, and rejects any other name with
+// a 400 naming the rule. The SDK does not check this itself: it is a value
+// rule, which ADR 0002 rule 5 leaves to the server.
 type CreateRepositoryInput struct {
 	Name         string `vngcloud:"required"`
 	QuotaLimitGB int    `vngcloud:"required"`
@@ -163,11 +201,11 @@ type createRepositoryBody struct {
 // CreateRepository creates a private repository.
 //
 // It is a POST and is never retried after a failure that may have already
-// reached the server: after any error that is not a 4xx *core.APIError, the
-// repository may exist, and the caller runs list-repositories --name
-// <name> and matches the exact name (the server applies no account prefix;
-// Repository.Name equals the Input's Name) before creating it again, rather
-// than retrying blind.
+// reached the server: after any error isClientRejectionError does not
+// accept as an outright rejection, the repository may exist, and the caller
+// runs list-repositories --name <name> and matches the exact name (the
+// server applies no account prefix; Repository.Name equals the Input's
+// Name) before creating it again, rather than retrying blind.
 //
 // The create response carries no status to wait on: a live create has been
 // observed to complete in about 4 seconds, with the repository already
@@ -183,9 +221,6 @@ type createRepositoryBody struct {
 func (c *Client) CreateRepository(ctx context.Context, in *CreateRepositoryInput) (*CreateRepositoryOutput, error) {
 	const op = "containerregistry.CreateRepository"
 	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
-	}
-	if err := checkRepositoryName(op, in.Name); err != nil {
 		return nil, err
 	}
 	if in.QuotaLimitGB < 1 {
@@ -220,15 +255,15 @@ func (c *Client) CreateRepository(ctx context.Context, in *CreateRepositoryInput
 
 // wrapAmbiguousRepositoryCreateErr wraps err, from the create POST op just
 // sent, with a hint to list repositories before creating again, unless err
-// is already a 4xx *core.APIError: a 4xx means the server rejected the
-// request outright, so nothing was created and the exact same call is safe
-// to retry. Any other error leaves whether the repository was created
-// unknown.
+// is a *core.APIError isClientRejectionError accepts: a rejection outright,
+// so nothing was created and the exact same call is safe to retry. Any
+// other error, including a 408 or 499 (see isClientRejectionError), leaves
+// whether the repository was created unknown.
 func wrapAmbiguousRepositoryCreateErr(op string, err error) error {
 	if err == nil {
 		return nil
 	}
-	if is4xxAPIError(err) {
+	if isClientRejectionError(err) {
 		return err
 	}
 	return fmt.Errorf("%s: create may have already reached the server; list-repositories --name <name> and match the exact name before creating again: %w", op, err)
@@ -288,6 +323,12 @@ type DeleteRepositoryOutput struct{}
 // sentinel, through GetRepository, when RepositoryID no longer exists,
 // including on a retried delete.
 //
+// The guard read must actually confirm the repository before any DELETE is
+// sent: a response with no imageCount at all, missing or explicit null, or
+// one that names a different repository than RepositoryID, refuses the
+// delete with an error, rather than defaulting ImageCount to 0 and failing
+// open.
+//
 // DELETE is idempotent and keeps the transport's normal retries. Without
 // NoWait, DeleteRepository then waits for the repository to become
 // unreadable, polling GetRepository every 2 seconds for up to 60 seconds of
@@ -308,6 +349,14 @@ func (c *Client) DeleteRepository(ctx context.Context, in *DeleteRepositoryInput
 	current, err := c.GetRepository(ctx, &GetRepositoryInput{RepositoryID: in.RepositoryID})
 	if err != nil {
 		return nil, err
+	}
+	if current.Repository.ID != in.RepositoryID {
+		return nil, fmt.Errorf("containerregistry: %s: repository %s: the read returned repository %q instead; refusing to delete",
+			op, in.RepositoryID, current.Repository.ID)
+	}
+	if !current.Repository.imageCountIsKnown() {
+		return nil, fmt.Errorf("containerregistry: %s: repository %s: the read did not report an image count; refusing to delete without confirming it holds no images",
+			op, in.RepositoryID)
 	}
 	if current.Repository.ImageCount > 0 {
 		return nil, fmt.Errorf("%w: %s: repository %s has %d image(s); delete them first",

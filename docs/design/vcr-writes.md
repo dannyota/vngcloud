@@ -177,20 +177,26 @@ The change breaks callers that index the maps. The release notes say so.
   a 5xx a generated name cannot be found. `QuotaLimitGB` must be at least
   1 (`ErrInvalidInput`); the upper bound stays on the server.
 - A live 400 confirmed `repoName`'s own rule: 6 to 20 characters, only
-  `a-z`, `0-9`, `_`, and `-`, starting with a letter or digit. `Name` is
-  checked against this rule before any request (`ErrInvalidInput`).
+  `a-z`, `0-9`, `_`, and `-`, starting with a letter or digit. This is a
+  server value rule (ADR 0002 rule 5): the SDK does not check it, and a
+  name outside it reaches the server, which returns 400 naming the rule.
 - A live capture shows the server applies no account prefix: the Output's
   `Name` equals the Input's `Name` exactly. `BackendName`'s own relation to
   the account is unconfirmed. The wiki says so.
-- Create is `POST` and is never resent after a 5xx or network error (ADR
-  0002 rule 2). The error names `list-repositories --name <name>` and says
-  to match the exact name.
+- Create is `POST` and is never resent after a 5xx, a 408, a 499, or a
+  network error (ADR 0002 rule 2): a 408 or 499 can mean the server already
+  acted on the request even though the caller never saw a normal response,
+  the same ambiguity as a 5xx. The error names `list-repositories --name
+  <name>` and says to match the exact name.
 - `CreateRepository` waits unless `NoWait` (see [Waits](#waits)).
 - `DeleteRepository` reads first and returns `ErrRepositoryNotEmpty`,
   sending nothing, when `ImageCount` is above 0. Emptying a repository is
   image work for `docker` or the console. Attached users do not block the
   delete: they keep existing and lose access to it. The wiki says to
-  delete a user made only for that repository first.
+  delete a user made only for that repository first. The same read must
+  actually confirm the repository: a body with no `imageCount` at all,
+  missing or null, or one naming a different repository, also sends
+  nothing and returns an error, rather than treating either as "0 images".
 - A retried delete that finds the repository gone returns `NotFound`.
   The reference documents no 404; how a missing repository reads is a
   probe item. If it is not a 404, the SDK confirms by
@@ -271,7 +277,7 @@ probe shows one.
 | Repository not confirmed or not gone within the wait | `ErrNotSettled`, with Output | `NotSettled`, 1 |
 | User created but not found by list | `ErrUserNotFound`, with Output | `UserNotFound`, 1 |
 | Secret file write failed after create | User deleted | `SecretFileFailed`, 1 |
-| Duplicate name, quota, a refusal for no credit | The server's `*APIError` | 1 |
+| Bad repoName, duplicate name, quota, a refusal for no credit | The server's `*APIError` | 1 |
 | 5xx or network error on a create | The error; the message names the list | 1 |
 
 The CLI list in [CLI](cli.md#errors-and-exit-codes) gains

@@ -67,7 +67,9 @@ Baseline, read-only:
 One write session:
 
 4. Create one repository through a throwaway script: name
-   `vngcloud-live-<8 hex>`, `isPublic` false, `quotaLimit` 1.
+   `vcrlive-<8 hex>` (the server's own repoName rule is 6 to 20
+   characters, too short for the usual `vngcloud-live-` prefix plus 8
+   hex), `isPublic` false, `quotaLimit` 1.
    - A refusal (any 4xx naming balance, credit, payment, or order): the
      repository is paid. Log the status and code, send nothing more, and
      stop. Never retry the create.
@@ -114,7 +116,8 @@ the first live check after credit compares them against a capture.
 Each release's checks pass on the test account before its code merges,
 and only once the cost probe says free or the owner has added credit.
 Each write run needs the owner's approval naming the account and
-resources. Names are `vngcloud-live-<8 hex>`.
+resources. Names are `vcrlive-<8 hex>`: repoName's own server rule (6 to
+20 characters) is too short for the usual `vngcloud-live-` prefix.
 
 ### R1 repositories
 
@@ -149,7 +152,9 @@ On a repository the run creates:
 ### Cleanup
 
 The live write test first deletes users, then repositories, whose names
-end with a `vngcloud-live-` name and that hold no images. It registers
+end with a `vcrlive-` name (repoName's own 6 to 20 character server rule
+is too short for the usual `vngcloud-live-` prefix) and that hold no
+images. It registers
 `t.Cleanup` as soon as each ID is known, deletes users before
 repositories with its own context, and asserts none remain. If a create
 fails, it lists by name and deletes a match. It never touches a

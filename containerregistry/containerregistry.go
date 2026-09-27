@@ -4,6 +4,7 @@ package containerregistry
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strconv"
 	"time"
@@ -175,6 +176,41 @@ type Repository struct {
 	ImageCount    int     `json:"imageCount"`
 	AttachedUsers int     `json:"attachedUser"`
 	CreatedAt     string  `json:"createdAt"`
+
+	// imageCountKnown records whether the decoded response carried a
+	// non-null imageCount. DeleteRepository's pre-delete guard reads it
+	// through imageCountIsKnown to refuse the delete when the count is
+	// unknown, rather than defaulting ImageCount to 0 and failing open.
+	// Unexported: encoding/json never touches it either way.
+	imageCountKnown bool
+}
+
+// imageCountIsKnown reports whether r's ImageCount came from a non-null
+// imageCount in the decoded response.
+func (r Repository) imageCountIsKnown() bool {
+	return r.imageCountKnown
+}
+
+// UnmarshalJSON decodes a bare RepositoryDto body, the shape every
+// repository create, get, delete, and list row shares (see Repository). It
+// reads imageCount into a pointer first so a missing or explicit null value
+// is detectable: see imageCountKnown.
+func (r *Repository) UnmarshalJSON(data []byte) error {
+	type repositoryAlias Repository
+	aux := struct {
+		ImageCount *int `json:"imageCount"`
+		*repositoryAlias
+	}{repositoryAlias: (*repositoryAlias)(r)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	r.imageCountKnown = aux.ImageCount != nil
+	if aux.ImageCount != nil {
+		r.ImageCount = *aux.ImageCount
+	} else {
+		r.ImageCount = 0
+	}
+	return nil
 }
 
 // User is map-backed until live rows are available to type the model

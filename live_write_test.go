@@ -4688,14 +4688,17 @@ func isVCRPaymentRefusal(err error) bool {
 }
 
 // deleteVCRRepositoryByName lists repositories and deletes any whose name
-// exactly matches name and holds no images. It is used after a
-// CreateRepository call returns an error or an empty id, since a POST that
-// returned an error may still have reached the server, and the server
-// applies no account prefix: a created repository's name equals the input
-// name exactly. It runs on its own timeout, not the calling test step's
-// context, so it can still clean up after that step's context is the reason
-// the step failed.
-func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, name string) {
+// exactly matches name and holds no images, skipping any id in skipIDs. It
+// is used after a CreateRepository call returns an error or an empty id,
+// since a POST that returned an error may still have reached the server,
+// and the server applies no account prefix: a created repository's name
+// equals the input name exactly. skipIDs lets a caller that already tracks
+// one of these repositories by id, such as the original create's
+// repositoryID, exclude it here rather than deleting it by this by-name
+// sweep. It runs on its own timeout, not the calling test step's context, so
+// it can still clean up after that step's context is the reason the step
+// failed.
+func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, name string, skipIDs ...string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -4706,7 +4709,7 @@ func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, n
 		return
 	}
 	for _, r := range list.Items {
-		if r.Name != name || r.ImageCount > 0 {
+		if r.Name != name || r.ImageCount > 0 || slices.Contains(skipIDs, r.ID) {
 			continue
 		}
 		if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: r.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -4731,10 +4734,11 @@ func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, n
 // by-name fallback cleanup at once if the create returns an error or an
 // empty id (step 2); registers the fallback delete by id as soon as the
 // created repository's id is known (step 3); reads it back and confirms the
-// id matches (step 4); creates the same name again and logs the server's
-// response either way, cleaning up an unexpected second repository by name
-// (step 5); and deletes the repository, confirming a repeat delete returns
-// NotFound (step 6).
+// id matches (step 4); creates the same name again, logging the server's
+// response either way and cleaning up any second repository by name, other
+// than the original, whether that create succeeded or its ambiguous
+// failure may still have reached the server (step 5); and deletes the
+// repository, confirming a repeat delete returns NotFound (step 6).
 func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
@@ -4865,8 +4869,12 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 
 	// Step 5: create the same name again and log the server's response,
 	// without failing the test either way: whether names collide is an
-	// open question. An unexpected second repository needs its own cleanup
-	// by name, since only repositoryID is registered above.
+	// open question. The create is never retried after an ambiguous
+	// failure, so a non-nil dupErr may still mean a second repository
+	// reached the server under this name despite the error; that case
+	// registers the same by-name cleanup step 2 uses. Either way the
+	// cleanup skips repositoryID, so it never deletes the original ahead
+	// of step 6's own explicit delete.
 	_, dupErr := client.CreateRepository(ctx, &containerregistry.CreateRepositoryInput{
 		Name:         name,
 		QuotaLimitGB: 1,
@@ -4874,8 +4882,9 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	})
 	if dupErr == nil {
 		t.Log("step 5: creating a duplicate name succeeded")
-		deleteVCRRepositoryByName(t, client, name)
+		deleteVCRRepositoryByName(t, client, name, repositoryID)
 	} else {
+		t.Cleanup(func() { deleteVCRRepositoryByName(t, client, name, repositoryID) })
 		t.Logf("step 5: duplicate name response, %s", safeErr(dupErr))
 	}
 

@@ -248,18 +248,21 @@ keeps every field the API returns for it.
 `CreateRepository` always creates a private repository; there is no
 `Public` option, since a public repository accepts anonymous push. The
 server applies no account prefix, so the created `Repository.Name` equals
-the Input's `Name` exactly. `Name` must be 6 to 20 characters, only
-`a-z`, `0-9`, `_`, and `-`, starting with a letter or digit; a `Name`
-outside that shape fails with `ErrInvalidInput` before any request.
-`CreateRepository` is a `POST` and is never retried after a failure that
-may have already reached the server: after such a failure, list
-repositories with `Name` set and match a row whose name equals the input
-exactly before creating again.
+the Input's `Name` exactly. The server requires `Name` to be 6 to 20
+characters, only `a-z`, `0-9`, `_`, and `-`, starting with a letter or
+digit, and returns 400 naming the rule otherwise; the SDK sends `Name` as
+given and does not check its shape. `CreateRepository` is a `POST` and is
+never retried after a failure that may have already reached the server,
+including a 408 or 499: after such a failure, list repositories with
+`Name` set and match a row whose name equals the input exactly before
+creating again.
 
 `DeleteRepository` reads the repository first and returns
 `ErrRepositoryNotEmpty`, sending nothing, when it still holds images;
 delete the images with `docker` or the console first. A repository user
-attached to it is not affected by the delete.
+attached to it is not affected by the delete. That same read must confirm
+the repository: a response with no image count, or one naming a different
+repository, also sends nothing and returns an error.
 
 The create and delete responses carry no status to wait on. Without
 `NoWait`, `CreateRepository` confirms the new repository with
