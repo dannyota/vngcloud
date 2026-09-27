@@ -415,9 +415,16 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		// vServer volume write's own wait can fail after the request already
 		// reached the server, and its Output (the volume read before the
 		// write) is the caller's only way to see what it was doing.
+		// compute.ErrFailed joins compute.ErrNotSettled for the same reason
+		// on the server side: create-server's, delete-server's, and every
+		// server lifecycle write's own wait can report ERROR after the
+		// request already reached the server, and its Output (the server
+		// read before or during the wait) is the caller's only way to see
+		// what it was doing.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
 			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
-			errors.Is(callErr, compute.ErrNotSettled) || errors.Is(callErr, containerregistry.ErrNotSettled) ||
+			errors.Is(callErr, compute.ErrFailed) || errors.Is(callErr, compute.ErrNotSettled) ||
+			errors.Is(callErr, containerregistry.ErrNotSettled) ||
 			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled) ||
 			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled)) {
 			_ = renderOutput(e.stdout, format, "", out, true)

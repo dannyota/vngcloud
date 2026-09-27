@@ -81,15 +81,18 @@ type errorEnvelope struct {
 // NoCredentials, LoginFailed, RequestFailed, QueryFailed, PageFormat (a
 // public page, such as the CDN IP range FAQ, no longer matches the shape
 // its parser expects), UnexpectedStatus (a vMonitor check had a status
-// PauseCheck or ResumeCheck does not recognize, or a network
+// PauseCheck or ResumeCheck does not recognize, a network
 // enable-vpc-private-dns read a VPC dnsStatus it does not know how to act
-// on), StatusUnconfirmed (a
+// on, or a compute start-server, stop-server, reboot-server, or
+// resize-server read a server status that call does not act on, before any
+// request), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
 // sent), WriteFailed (a vDNS write reached status ERROR, a network
 // security group create's post-create wait saw the group reach ERROR, or
-// a vServer volume write's post-write wait, such as create-volume's or
-// delete-volume's, saw the volume reach ERROR),
+// a vServer server or volume write's post-write wait, such as
+// create-server's, delete-server's, create-volume's, or delete-volume's,
+// saw the resource reach ERROR),
 // NotSettled (a vDNS write was accepted but did not settle within the
 // post-write wait, or a network create-security-group's or
 // update-security-group's wait ran out of time: a create must not be sent
@@ -97,7 +100,11 @@ type errorEnvelope struct {
 // again, since its PUT always resends the whole resolved group rather than
 // making a new one, or a compute update-server-group's confirm read after a
 // successful PUT failed to come back, whose update may be sent again the
-// same way, or a containerregistry create-repository's or
+// same way, or a compute create-server, delete-server, start-server,
+// stop-server, or reboot-server whose wait ran out of time or otherwise
+// failed to read back: create-server must not be sent again, since the
+// server exists, but every other server write reads first and is safe to
+// run again, or a containerregistry create-repository's or
 // delete-repository's wait ran out of time: a create must not be sent
 // again, since the repository exists, but a delete already reads first, so
 // a rerun is safe, or an iam create-policy or update-policy whose write
@@ -160,7 +167,11 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) {
 		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
 	}
-	if errors.Is(err, monitor.ErrUnexpectedStatus) || errors.Is(err, network.ErrUnexpectedStatus) {
+	// compute.ErrUnexpectedStatus joins monitor.ErrUnexpectedStatus and
+	// network.ErrUnexpectedStatus: a server's own status ruled out
+	// start-server, stop-server, reboot-server, or resize-server before any
+	// request, the same fail-closed shape the other two already use.
+	if errors.Is(err, monitor.ErrUnexpectedStatus) || errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
 	// monitor.ErrOTPRejected, like dns.ErrZoneBusy, dns.ErrFailed,
@@ -176,10 +187,12 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
-	// volume.ErrFailed joins dns.ErrFailed and network.ErrFailed here: a
-	// vServer paid write's own post-write wait (create, delete, resize,
-	// attach, or detach) reaching ERROR reports the same WriteFailed class.
-	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) {
+	// volume.ErrFailed and compute.ErrFailed join dns.ErrFailed and
+	// network.ErrFailed here: a vServer paid write's own post-write wait
+	// (server create, delete, start, stop, reboot, or resize; volume
+	// create, delete, resize, attach, or detach) reaching ERROR reports the
+	// same WriteFailed class.
+	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled, and
@@ -379,19 +392,21 @@ func exitCode(err error) int {
 	// every other unconfirmed toggle, per monitor's design, rather than
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
-	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
-	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound,
-	// iam.ErrNotSettled, and monitor.ErrOTPRejected join the same early
-	// return for the same reason: per the vDNS, network, vCR writes, and
-	// iam designs, a not-settled write, and a create-user whose own create
+	// network.ErrUnexpectedStatus, compute.ErrFailed, compute.ErrNotSettled,
+	// compute.ErrUnexpectedStatus, containerregistry.ErrNotSettled,
+	// containerregistry.ErrUserNotFound, iam.ErrNotSettled,
+	// monitor.ErrOTPRejected, volume.ErrFailed, volume.ErrNotSettled, and
+	// volume.ErrVolumeInUse join the same early
+	// return for the same reason: per the vDNS, network, vServer, vCR writes,
+	// and iam designs, a not-settled write, and a create-user whose own create
 	// already succeeded, must exit the same way even after a canceled
 	// context, because the write already landed, and the others join it
 	// for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
-		errors.Is(err, network.ErrUnexpectedStatus) ||
+		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
-		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
+		errors.Is(err, compute.ErrFailed) || errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
 		errors.Is(err, monitor.ErrOTPRejected) ||
 		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) {

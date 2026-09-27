@@ -84,7 +84,8 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // never be set through --cli-input-json either (applyCLIInputJSON refuses
 // it), so viaJSON would misdocument it as settable that way. The operation's
 // own extraFlags and docOpNotes document how such a field is actually set,
-// such as import-certificate's --private-key-file.
+// such as import-certificate's --private-key-file or create-server's
+// --user-data-file.
 func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
@@ -344,8 +345,10 @@ func renderCLIPage(services []docService) string {
 		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
-		"the SDK does not know, so nothing was sent, or a network enable-vpc-private-dns read a VPC " +
-		"dnsStatus it does not know how to act on, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"the SDK does not know, so nothing was sent, a network enable-vpc-private-dns read a VPC " +
+		"dnsStatus it does not know how to act on, so nothing was sent, or a compute start-server, " +
+		"stop-server, or reboot-server read a server status that call does not act on, before any " +
+		"request; see [Compute](CLI-Compute.md#start-server)), `StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
@@ -365,7 +368,11 @@ func renderCLIPage(services []docService) string {
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
-		"or a volume create-volume or delete-volume whose wait ran out of time or otherwise " +
+		"a compute create-server, delete-server, start-server, stop-server, or reboot-server whose " +
+		"wait ran out of time or otherwise failed to read back: create-server must not be sent again, " +
+		"since the server exists, but every other server write reads first and is safe to run again " +
+		"(see [Compute](CLI-Compute.md#create-server)), or a volume create-volume or delete-volume " +
+		"whose wait ran out of time or otherwise " +
 		"failed to read back: create-volume must not be sent again, since the volume exists, but " +
 		"delete-volume already reads first and is safe to run again; see " +
 		"[Volume](CLI-Volume.md#create-volume)), `VolumeInUse` (a volume delete-volume was refused " +

@@ -75,6 +75,17 @@ var computeOps = []Op[compute.Client]{
 	Read[compute.Client, compute.CreateServerInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateServer"), (*compute.Client).QuoteCreateServer,
 		NoFlag("UserData", "MaxPrice", "NoWait")),
+	createServerOp(),
+	Write[compute.Client, compute.DeleteServerInput, compute.DeleteServerOutput](
+		kebab("DeleteServer"), (*compute.Client).DeleteServer, Destructive()),
+	Write[compute.Client, compute.StartServerInput, compute.StartServerOutput](
+		kebab("StartServer"), (*compute.Client).StartServer),
+	Write[compute.Client, compute.StopServerInput, compute.StopServerOutput](
+		kebab("StopServer"), (*compute.Client).StopServer, Destructive()),
+	Write[compute.Client, compute.RebootServerInput, compute.RebootServerOutput](
+		kebab("RebootServer"), (*compute.Client).RebootServer, Destructive()),
+	Write[compute.Client, compute.RenameServerInput, compute.RenameServerOutput](
+		kebab("RenameServer"), (*compute.Client).RenameServer),
 }
 
 func newComputeCmd(e *env) *cobra.Command {
