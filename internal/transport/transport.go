@@ -145,15 +145,18 @@ type Request struct {
 	// underlying decode error, which could otherwise quote the body.
 	Sensitive bool
 
-	// Redact lists secret values, such as a private key or a passphrase,
-	// that a failing response's error must never echo back. When a request
-	// fails, decodeError replaces, in the resulting APIError's Message and
-	// Code, every occurrence of each non-empty value, its JSON-escaped
-	// form, and each of its lines that is at least 8 characters after
-	// trimming, with "[redacted]". The line rule catches a server that
-	// quotes only one line of a multi-line value, such as a PEM key, back in
-	// its error text.
+	// Redact lists secret values, such as a private key or a passphrase, that
+	// a failing response's error must never echo back. On failure decodeError
+	// scrubs every occurrence of each value from the resulting APIError's
+	// Message and Code; see decodeError and redact for the exact rule.
 	Redact []string
+
+	// WithholdMessage, when non-empty, replaces a failing response's Message
+	// with this exact text on every failing status, leaving StatusCode and
+	// the still-Redacted Code alone: for a call whose input must never reach
+	// an error message, since Redact cannot be proven to catch every form a
+	// server might echo a rejected value back in.
+	WithholdMessage string
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.

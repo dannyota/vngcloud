@@ -458,6 +458,181 @@ func TestDecodeErrorNoRedactByDefault(t *testing.T) {
 	}
 }
 
+// TestDecodeErrorShortValueReplacesWholeMessage checks that a Redact value
+// shorter than 8 characters, such as a short passphrase, never gets
+// substituted in place: doing so could mangle an unrelated word that happens
+// to contain it ("pass" inside "passphrase"). Instead the whole Message is
+// replaced.
+func TestDecodeErrorShortValueReplacesWholeMessage(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{"pass"}}
+	err := decodeError(req, 400, []byte(`{"message":"wrong passphrase given"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, "phrase") {
+		t.Fatalf("Message = %q, an in-place substitution corrupted an unrelated word", apiErr.Message)
+	}
+	if strings.Contains(apiErr.Message, "pass") {
+		t.Fatalf("Message = %q, still holds the redacted value", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorShortValueDoesNotMangleDigits checks that a single-character
+// Redact value, such as a one-digit PIN, never corrupts an unrelated number
+// that happens to contain it: "4" must not turn "400" into "[redacted]00".
+func TestDecodeErrorShortValueDoesNotMangleDigits(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{"4"}}
+	err := decodeError(req, 400, []byte(`{"message":"status 400 returned"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, "00 returned") {
+		t.Fatalf("Message = %q, an in-place substitution mangled 400", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorShortValueLeavesNonMatchingMessageAlone checks that a short
+// Redact value that never appears in Message or Code leaves both untouched:
+// the whole-string fallback only fires on an actual match.
+func TestDecodeErrorShortValueLeavesNonMatchingMessageAlone(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{"pass"}}
+	err := decodeError(req, 400, []byte(`{"code":"BadRequest","message":"unrelated failure"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "unrelated failure" || apiErr.Code != "BadRequest" {
+		t.Fatalf("Message = %q, Code = %q, want both unchanged", apiErr.Message, apiErr.Code)
+	}
+}
+
+// TestDecodeErrorRedactsCRLFKeyLine checks that a multi-line Redact value
+// using CRLF line endings still gets an individually quoted line redacted:
+// splitting on "\n" leaves a trailing "\r" on every line but the last, which
+// TrimSpace must strip before the line is matched.
+func TestDecodeErrorRedactsCRLFKeyLine(t *testing.T) {
+	const quotedLine = "MIIFAKELINEOFKEYMATERIALCRLF"
+	key := strings.ReplaceAll(fakePEMPrivateKey(quotedLine), "\n", "\r\n")
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{key}}
+	err := decodeError(req, 400, []byte(`{"message":"invalid line: `+quotedLine+`"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, quotedLine) {
+		t.Fatalf("Message = %q, still holds the quoted line", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorWithholdsMessage checks that a non-empty
+// Request.WithholdMessage replaces Message with that exact text on a failing
+// response, regardless of what the body said, while Code still goes through
+// the ordinary Redact path.
+func TestDecodeErrorWithholdsMessage(t *testing.T) {
+	req := Request{
+		Operation:       "Op",
+		Method:          http.MethodPost,
+		WithholdMessage: "server message withheld",
+		Redact:          []string{"secret-value"},
+	}
+	err := decodeError(req, 400, []byte(`{"code":"bad: secret-value","message":"rejected: secret-value"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "server message withheld" {
+		t.Fatalf("Message = %q, want the withheld text", apiErr.Message)
+	}
+	if strings.Contains(apiErr.Code, "secret-value") {
+		t.Fatalf("Code = %q, still holds the redacted value", apiErr.Code)
+	}
+}
+
+// TestDecodeErrorWithholdsMessageOnEveryStatus checks that WithholdMessage
+// applies whatever the failing status is, not just one particular class.
+func TestDecodeErrorWithholdsMessageOnEveryStatus(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, WithholdMessage: "withheld"}
+	for _, status := range []int{400, 404, 409, 500, 503} {
+		err := decodeError(req, status, []byte(`{"message":"server said something"}`))
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("status %d: expected *APIError, got %T", status, err)
+		}
+		if apiErr.Message != "withheld" {
+			t.Fatalf("status %d: Message = %q, want the withheld text", status, apiErr.Message)
+		}
+		if apiErr.StatusCode != status {
+			t.Fatalf("status %d: StatusCode = %d, want it preserved", status, apiErr.StatusCode)
+		}
+	}
+}
+
+// TestDecodeErrorNoWithholdByDefault checks that an empty WithholdMessage (the
+// zero value) leaves Message exactly as Redact alone would have produced it,
+// so every existing caller keeps its current behavior.
+func TestDecodeErrorNoWithholdByDefault(t *testing.T) {
+	err := decodeError(Request{Operation: "Op", Method: http.MethodPost}, 400, []byte(`{"message":"plain message"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "plain message" {
+		t.Fatalf("Message = %q, want it unchanged", apiErr.Message)
+	}
+}
+
+// TestPostRetriedAfter429RedactsFinalMessage checks that Redact still applies
+// to the final response's error after a 429 forced a retry: the redaction
+// path must not be skipped just because the failing response was not the
+// first attempt.
+func TestPostRetriedAfter429RedactsFinalMessage(t *testing.T) {
+	const secret = "correct-horse-battery-staple"
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"rejected: ` + secret + `"}`))
+	}))
+	defer server.Close()
+
+	c := New(Config{HTTPClient: server.Client(), RetryCount: 3, RetryInterval: time.Millisecond})
+	err := c.DoJSON(context.Background(), Request{
+		Operation: "Op",
+		Method:    http.MethodPost,
+		URL:       server.URL,
+		OK:        []int{200},
+		SkipAuth:  true,
+		Redact:    []string{secret},
+	}, nil)
+	if err == nil {
+		t.Fatal("DoJSON() error = nil, want the final 400")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want 2 (one 429, one 400)", calls.Load())
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, secret) {
+		t.Fatalf("Message = %q, still holds the secret after a 429 retry", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
 // stubRoundTripper fails the first RoundTrip with failErr, then returns a
 // 200 with an empty JSON body, so a test can force one transport error
 // before the real request would succeed.

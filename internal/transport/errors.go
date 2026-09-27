@@ -103,6 +103,9 @@ func decodeError(req Request, status int, body []byte) error {
 		Message:    redact(strings.TrimSpace(msg), req.Redact),
 		Retryable:  req.retryable(status),
 	}
+	if req.WithholdMessage != "" {
+		apiErr.Message = req.WithholdMessage
+	}
 	switch status {
 	case http.StatusUnauthorized:
 		apiErr.Err = errors.New("authentication failed")
@@ -122,6 +125,14 @@ func decodeError(req Request, status int, body []byte) error {
 // unrelated messages; see Request.Redact.
 const redactLineMinLen = 8
 
+// shortValueMinLen is the shortest Redact value redact ever substitutes in
+// place. A shorter value, such as a four-character passphrase or a
+// single-digit PIN, is likely to also occur as an ordinary substring of
+// unrelated words or numbers ("pass" inside "passphrase", "4" inside "400"),
+// so redact never substitutes it in place: a match discards the whole string
+// instead.
+const shortValueMinLen = 8
+
 // redactedText replaces every match in s.
 const redactedText = "[redacted]"
 
@@ -132,9 +143,22 @@ const redactedText = "[redacted]"
 // first), and each of its lines that is still at least redactLineMinLen
 // characters after trimming surrounding whitespace. An empty value is
 // skipped, since it would otherwise match everywhere and corrupt s.
+//
+// A value shorter than shortValueMinLen is never substituted in place: if it
+// matches anywhere in s (or its JSON-escaped form does), the whole of s is
+// discarded and replaced by "[redacted]", since an in-place substitution
+// risks corrupting an unrelated word or number that merely contains the same
+// short text.
 func redact(s string, values []string) string {
 	for _, v := range values {
 		if v == "" {
+			continue
+		}
+		if len(v) < shortValueMinLen {
+			escaped := jsonEscapedForm(v)
+			if strings.Contains(s, v) || (escaped != "" && strings.Contains(s, escaped)) {
+				return redactedText
+			}
 			continue
 		}
 		s = strings.ReplaceAll(s, v, redactedText)
