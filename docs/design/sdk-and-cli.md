@@ -413,4 +413,7 @@ globalloadbalancer, and containerregistry ship as releases R1 to R5 in
 and network writes come after these; OpenTofu covers them for aboutme.
 The free ones, security groups, rules, and SSH keys, are planned as
 releases V1 and V2 in [vServer free writes](vserver-writes.md), each
-numbered when it ships.
+numbered when it ships. Server groups, VPCs and subnets, route tables, and
+network ACLs follow as releases N1 to N4 in
+[vServer network writes](vserver-network-writes.md), each numbered when it
+ships.

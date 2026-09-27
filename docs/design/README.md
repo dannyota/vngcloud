@@ -17,3 +17,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [CLI reads](cli-reads.md) | Accepted |
 | [vServer free writes](vserver-writes.md) | Accepted |
 | [Free writes survey](free-writes-survey.md) | Accepted |
+| [vServer network writes](vserver-network-writes.md) | Accepted |
