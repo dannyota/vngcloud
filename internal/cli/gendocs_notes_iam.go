@@ -68,3 +68,54 @@ const iamResetServiceAccountSecretNote = "Needs --secret-file <path>, checked th
 // flag table cannot show at all.
 var iamUpdateServiceAccountNote = iamServiceAccountGuardNote
 var iamDeleteServiceAccountNote = iamServiceAccountGuardNote
+
+// iamPolicyDocumentNote documents create-policy's and update-policy's own
+// --document-file format: the flag table lists Statements only as "(via
+// --cli-input-json only)", with no hint that --document-file is the other,
+// more usual way to set it, or of the shape either one must decode into.
+const iamPolicyDocumentNote = "Statements has no flag of its own; set it with --document-file <path>, a JSON " +
+	"object in the console's own form, or --cli-input-json (Statements, its exact Go field name). " +
+	"--document-file wins when both are given. The file must be a regular file of at most 64 KiB, opened " +
+	"without following a FIFO or other special file, and is decoded with unknown fields refused: an AWS-style " +
+	"document (top-level Version and Statement, or a statement's own Action and Resource) exits 2 before any " +
+	"request instead of reaching the server as an empty policy. Keys match without regard to case, so " +
+	"get-policy's own Go field names (Statements, Effect, Actions, Resources) decode the same way as the " +
+	"console's lower-case ones. Example, granting a read-only vServer action:\n\n" +
+	"```json\n{\"statements\": [{\"effect\": \"allow\", \"actions\": [\"vserver:ListServers\"], " +
+	"\"resources\": [\"*\"]}]}\n```"
+
+// iamCreatePolicyNote documents create-policy's own guard, its document
+// format, and its retry advice: the flag table shows only --name and
+// --description as plain fields, with no hint of any of this.
+const iamCreatePolicyNote = "Refuses, before any request, with error code PrivilegedChange when the statements " +
+	"grant an IAM write action; see the IAM design's guard rules. Never retried after a failure that may have " +
+	"already reached the server: list policies by --name before creating it again rather than repeating this " +
+	"command.\n\n" + iamPolicyDocumentNote
+
+// iamUpdatePolicyNote documents update-policy's own guard and document
+// format: the flag table shows only --policy-id, --name, and --description
+// as plain fields, with no hint of either.
+const iamUpdatePolicyNote = "Refuses, before any request, with error code ManagedPolicy when the policy is " +
+	"managed, and PrivilegedChange when its current or proposed statements grant an IAM write action, or it is " +
+	"attached to a protected principal or group; see the IAM design's guard rules. Sends a full PUT, filling any " +
+	"field left unset (Name, Description, Statements) from the policy's own current state first, so leaving out " +
+	"--document-file keeps the current statements rather than clearing them.\n\n" + iamPolicyDocumentNote
+
+// iamDeletePolicyNote documents delete-policy's own guard, which the flag
+// table cannot show at all.
+const iamDeletePolicyNote = "Refuses, before any request, with error code ManagedPolicy when the policy is " +
+	"managed, and ResourceInUse when it is attached to a group, an IAM user, or a service account; see the IAM " +
+	"design's guard rules."
+
+// iamServiceAccountPolicyAttachGuardNote documents the guard
+// attach-service-account-policy and detach-service-account-policy both run
+// before any request: the flag table shows only two IDs, with no hint that
+// either the caller's own type or the policy's or the target's own rights
+// can refuse the command outright.
+const iamServiceAccountPolicyAttachGuardNote = "Refuses, before any request, with error code SelfChange when the " +
+	"caller's own type is a service account, and PrivilegedChange when the policy grants an IAM write action or " +
+	"the target service account already holds one; see the IAM design's guard rules. Neither guard has a flag " +
+	"or Input field that turns it off."
+
+var iamAttachServiceAccountPolicyNote = iamServiceAccountPolicyAttachGuardNote
+var iamDetachServiceAccountPolicyNote = iamServiceAccountPolicyAttachGuardNote

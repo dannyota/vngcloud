@@ -77,6 +77,44 @@ func TestGetPolicyCustomer(t *testing.T) {
 	}
 }
 
+// TestGetPolicyCustomerNumericRoot checks that a customer policy's root
+// decodes when the server sends it as a JSON number, the form a real
+// account number arrives in, rather than the string form
+// TestGetPolicyCustomer's fixture uses. Both forms must decode to the same
+// kind of value: Root as a string, and Managed() still false.
+func TestGetPolicyCustomerNumericRoot(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/iam/get_policy_customer_numeric_root.json")
+	}))
+
+	out, err := c.GetPolicy(context.Background(), &GetPolicyInput{PolicyID: "policy-2"})
+	if err != nil {
+		t.Fatalf("GetPolicy() error = %v", err)
+	}
+	if out.Policy.Managed() {
+		t.Fatalf("Managed() = true for a user policy with a numeric root, want false")
+	}
+	if out.Policy.Root != "700000000123" {
+		t.Fatalf("Root = %q, want \"700000000123\"", out.Policy.Root)
+	}
+}
+
+// TestPolicyRootUnexpectedShapeFailsClosed checks that a root value this
+// package's decoder does not recognize, a JSON object here, is a decode
+// error rather than a silently empty Root: a shape the SDK has never seen
+// must never be read as "no root".
+func TestPolicyRootUnexpectedShapeFailsClosed(t *testing.T) {
+	body := `{"id":"policy-3","name":"<name>","manager":"user","scope":"account","root":{"unexpected":true},"statements":[]}`
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+
+	if _, err := c.GetPolicy(context.Background(), &GetPolicyInput{PolicyID: "policy-3"}); err == nil {
+		t.Fatal("GetPolicy() error = nil for an object-shaped root, want an error")
+	}
+}
+
 func TestGetGroup(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/policies-api/v1/groups/group-1" {
@@ -94,6 +132,26 @@ func TestGetGroup(t *testing.T) {
 	}
 	if out.Group.CreatedAt != 1750000000000 {
 		t.Fatalf("CreatedAt = %d, want the fixture value", out.Group.CreatedAt)
+	}
+	if out.Group.Root != "<account>" {
+		t.Fatalf("Root = %q, want the fixture value", out.Group.Root)
+	}
+}
+
+// TestGetGroupNumericRoot checks that a group's root decodes when the
+// server sends it as a JSON number, the same risk Policy.Root carries; see
+// TestGetPolicyCustomerNumericRoot.
+func TestGetGroupNumericRoot(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/iam/get_group_numeric_root.json")
+	}))
+
+	out, err := c.GetGroup(context.Background(), &GetGroupInput{GroupID: "group-2"})
+	if err != nil {
+		t.Fatalf("GetGroup() error = %v", err)
+	}
+	if out.Group.Root != "700000000123" {
+		t.Fatalf("Root = %q, want \"700000000123\"", out.Group.Root)
 	}
 }
 

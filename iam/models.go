@@ -38,6 +38,33 @@ func (m *epochMillis) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// flexibleRoot decodes the "root" field a policy or group get response
+// sends: a JSON number holding the owning account number, a string, or a
+// null or absent key when the policy or group has no owning account (a
+// GreenNode-managed policy). It always exposes the value as a string on the
+// model, so callers never need to know which form the server used. Any
+// other JSON shape is an error rather than an empty string, so a form this
+// decoder does not recognize is never mistaken for "no root".
+type flexibleRoot string
+
+func (r *flexibleRoot) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*r = ""
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*r = flexibleRoot(s)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("iam: root: %w", err)
+	}
+	*r = flexibleRoot(n.String())
+	return nil
+}
+
 // Statement is one allow or deny rule of a policy document, in the API's
 // own shape: Effect is lower case ("allow" or "deny"), Actions are
 // "<product>:<Action>" with optional "*" wildcards, and Resources use the
@@ -98,12 +125,14 @@ func (p Policy) Managed() bool {
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type alias Policy
 	aux := struct {
-		CreatedAt epochMillis `json:"createdAt"`
+		Root      flexibleRoot `json:"root"`
+		CreatedAt epochMillis  `json:"createdAt"`
 		*alias
 	}{alias: (*alias)(p)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
+	p.Root = string(aux.Root)
 	p.CreatedAt = int64(aux.CreatedAt)
 	return nil
 }
@@ -145,12 +174,14 @@ type Group struct {
 func (g *Group) UnmarshalJSON(data []byte) error {
 	type alias Group
 	aux := struct {
-		CreatedAt epochMillis `json:"createdAt"`
+		Root      flexibleRoot `json:"root"`
+		CreatedAt epochMillis  `json:"createdAt"`
 		*alias
 	}{alias: (*alias)(g)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
+	g.Root = string(aux.Root)
 	g.CreatedAt = int64(aux.CreatedAt)
 	return nil
 }

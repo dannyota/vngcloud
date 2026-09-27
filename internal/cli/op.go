@@ -13,6 +13,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/network"
 )
 
@@ -374,21 +375,22 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
 	}
 	if callErr != nil {
-		// A vDNS, network, compute, or containerregistry write that reached
-		// the server still carries its Output: the resource's id, needed to
-		// clean up or check again later. --query is skipped here, unlike the
-		// success path below, so that id is never filtered out by a query
-		// the caller wrote for the success shape. A render failure is not
-		// reported over callErr, the call's own error, which already carries
-		// the right error class and exit code. containerregistry.ErrUserNotFound
-		// joins this same group: create-user's own create succeeded, so its
-		// Output (the redacted secret and, once written, SecretFile) must
-		// still print even though the post-create list could not confirm the
-		// new user by name.
+		// A vDNS, network, compute, containerregistry, or iam write that
+		// reached the server still carries its Output: the resource's id,
+		// needed to clean up or check again later. --query is skipped here,
+		// unlike the success path below, so that id is never filtered out
+		// by a query the caller wrote for the success shape. A render
+		// failure is not reported over callErr, the call's own error,
+		// which already carries the right error class and exit code.
+		// containerregistry.ErrUserNotFound joins this same group:
+		// create-user's own create succeeded, so its Output (the redacted
+		// secret and, once written, SecretFile) must still print even
+		// though the post-create list could not confirm the new user by
+		// name.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
 			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
 			errors.Is(callErr, compute.ErrNotSettled) || errors.Is(callErr, containerregistry.ErrNotSettled) ||
-			errors.Is(callErr, containerregistry.ErrUserNotFound)) {
+			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled)) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

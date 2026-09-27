@@ -24,6 +24,17 @@ import (
 // ResetServiceAccountSecret and DeleteServiceAccount are Destructive, per
 // the design's CLI table: a reset invalidates the previous secret with no
 // way back, and a delete removes the account outright.
+//
+// CreatePolicy and UpdatePolicy are built by hand for the same reason as
+// CreateServiceAccount: --document-file, the only way to give Statements a
+// value beyond --cli-input-json, backs no Input field. DeletePolicy,
+// AttachServiceAccountPolicy, and DetachServiceAccountPolicy need no
+// CLI-side guard: the SDK itself refuses a managed or attached policy, a
+// privileged one, or a protected target before sending anything (see
+// iam/policy_guard.go), and internal/cli/errors.go maps those sentinels to
+// the ManagedPolicy, ResourceInUse, SelfChange, and PrivilegedChange error
+// classes. UpdatePolicy, DeletePolicy, AttachServiceAccountPolicy, and
+// DetachServiceAccountPolicy are Destructive, per the design's CLI table.
 var iamOps = []Op[iam.Client]{
 	Read[iam.Client, iam.GetCallerIdentityInput, iam.GetCallerIdentityOutput](
 		kebab("GetCallerIdentity"), (*iam.Client).GetCallerIdentity),
@@ -59,6 +70,14 @@ var iamOps = []Op[iam.Client]{
 	resetServiceAccountSecretOp(),
 	Write[iam.Client, iam.DeleteServiceAccountInput, iam.DeleteServiceAccountOutput](
 		kebab("DeleteServiceAccount"), (*iam.Client).DeleteServiceAccount, Destructive()),
+	createPolicyOp(),
+	updatePolicyOp(),
+	Write[iam.Client, iam.DeletePolicyInput, iam.DeletePolicyOutput](
+		kebab("DeletePolicy"), (*iam.Client).DeletePolicy, Destructive()),
+	Write[iam.Client, iam.AttachServiceAccountPolicyInput, iam.AttachServiceAccountPolicyOutput](
+		kebab("AttachServiceAccountPolicy"), (*iam.Client).AttachServiceAccountPolicy, Destructive()),
+	Write[iam.Client, iam.DetachServiceAccountPolicyInput, iam.DetachServiceAccountPolicyOutput](
+		kebab("DetachServiceAccountPolicy"), (*iam.Client).DetachServiceAccountPolicy, Destructive()),
 }
 
 func newIAMCmd(e *env) *cobra.Command {
@@ -256,4 +275,96 @@ func callResetServiceAccountSecret(cmd *cobra.Command, client *iam.Client, ctx c
 		return nil, newSecretFileResetFailed("service account", resetIn.ServiceAccountID, "reset-service-account-secret", writeErr)
 	}
 	return &resetServiceAccountSecretOutput{ResetServiceAccountSecretOutput: *out, SecretFile: path}, nil
+}
+
+// createPolicyOp and updatePolicyOp build create-policy's and
+// update-policy's Op directly, rather than through Write, because Statements
+// has no flag of its own (flagSpecsFor never derives one for a slice field):
+// both need --document-file, registered through extraFlags, and a guard that
+// reads it into the Input before checkRequiredFlags or the SDK ever sees it.
+// Statements is marked NoFlag so gen-docs lists it as JSON-only rather than
+// as a nonexistent "--statements" flag; guardCreatePolicyDocument's own
+// message names --document-file directly instead of relying on
+// checkRequiredFlags' generic NoFlag message, which would not.
+func createPolicyOp() Op[iam.Client] {
+	return Op[iam.Client]{
+		name:       kebab("CreatePolicy"),
+		methodName: "CreatePolicy",
+		kind:       kindWrite,
+		guard:      guardCreatePolicyDocument,
+		noFlag:     map[string]bool{"Statements": true},
+		extraFlags: registerDocumentFileFlag,
+		newInput:   func() any { return new(iam.CreatePolicyInput) },
+		newOutput:  func() any { return new(iam.CreatePolicyOutput) },
+		call: func(_ *cobra.Command, client *iam.Client, ctx context.Context, in any) (any, error) {
+			return client.CreatePolicy(ctx, in.(*iam.CreatePolicyInput))
+		},
+	}
+}
+
+// guardCreatePolicyDocument reads --document-file, when given, into the
+// merged Input's Statements field before create-policy's own required-field
+// check runs: a document that fails to parse refuses the whole command here,
+// before any request, and an empty --document-file leaves whatever
+// --cli-input-json already set (checkRequiredFlags then requires Statements,
+// via a message this function's own final check improves on). Statements
+// set through --document-file always wins over one --cli-input-json set,
+// matching every other field's own flag-wins-over-JSON rule (input.go).
+func guardCreatePolicyDocument(cmd *cobra.Command, in any) error {
+	create := in.(*iam.CreatePolicyInput)
+	path, err := cmd.Flags().GetString(policyDocumentFlagName)
+	if err != nil {
+		return usageError{msg: err.Error()}
+	}
+	if path != "" {
+		statements, rerr := readPolicyDocumentFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		create.Statements = statements
+	}
+	if len(create.Statements) == 0 {
+		return newUsageError("create-policy needs Statements: pass --document-file <path> or set Statements with --cli-input-json")
+	}
+	return nil
+}
+
+func updatePolicyOp() Op[iam.Client] {
+	return Op[iam.Client]{
+		name:        kebab("UpdatePolicy"),
+		methodName:  "UpdatePolicy",
+		kind:        kindWrite,
+		destructive: true,
+		guard:       guardUpdatePolicyDocument,
+		noFlag:      map[string]bool{"Statements": true},
+		extraFlags:  registerDocumentFileFlag,
+		newInput:    func() any { return new(iam.UpdatePolicyInput) },
+		newOutput:   func() any { return new(iam.UpdatePolicyOutput) },
+		call: func(_ *cobra.Command, client *iam.Client, ctx context.Context, in any) (any, error) {
+			return client.UpdatePolicy(ctx, in.(*iam.UpdatePolicyInput))
+		},
+	}
+}
+
+// guardUpdatePolicyDocument mirrors guardCreatePolicyDocument for
+// update-policy, whose Statements is optional (*[]iam.Statement): a
+// --document-file given at all, even one that parses to zero statements
+// (UpdatePolicy's own SDK-side shape check refuses that, before any
+// request), sets the pointer; leaving --document-file unset leaves the field
+// nil, exactly as if the caller never mentioned Statements.
+func guardUpdatePolicyDocument(cmd *cobra.Command, in any) error {
+	update := in.(*iam.UpdatePolicyInput)
+	path, err := cmd.Flags().GetString(policyDocumentFlagName)
+	if err != nil {
+		return usageError{msg: err.Error()}
+	}
+	if path == "" {
+		return nil
+	}
+	statements, rerr := readPolicyDocumentFile(path)
+	if rerr != nil {
+		return rerr
+	}
+	update.Statements = &statements
+	return nil
 }

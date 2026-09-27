@@ -97,20 +97,25 @@ type errorEnvelope struct {
 // same way, or a containerregistry create-repository's or
 // delete-repository's wait ran out of time: a create must not be sent
 // again, since the repository exists, but a delete already reads first, so
-// a rerun is safe), RepositoryNotEmpty (a containerregistry
-// delete-repository was refused because a pre-delete read showed the
-// repository still holds images), UserNotFound (a containerregistry
-// create-user's own create succeeded but a follow-up list could not confirm
-// the new user by name; the new secret is still written to --secret-file
-// either way), OTPRejected (a channel OTP create-channel
-// or update-channel
+// a rerun is safe, or an iam create-policy or update-policy whose write
+// reached the server but its own confirm read failed: create-policy must
+// not be sent again, since a repeat risks a second policy, but
+// update-policy may be sent again the same way), RepositoryNotEmpty (a
+// containerregistry delete-repository was refused because a pre-delete
+// read showed the repository still holds images), UserNotFound (a
+// containerregistry create-user's own create succeeded but a follow-up
+// list could not confirm the new user by name; the new secret is still
+// written to --secret-file either way), OTPRejected (a channel OTP
+// create-channel or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (create-log-project's quote
 // priced its order above --max-price, so no order was sent),
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
 // because its target holds, or would gain, an IAM write right, before any
-// request), SystemSecurityGroup (a network update-security-group or
+// request), ManagedPolicy (an iam update-policy or delete-policy targeted a
+// GreenNode-managed policy, before any request), SystemSecurityGroup (a
+// network update-security-group or
 // delete-security-group targeted a project's system group, so nothing was
 // sent), SecurityGroupInUse (a network delete-security-group was refused
 // because the group has servers attached, found by a pre-delete read, or
@@ -118,7 +123,7 @@ type errorEnvelope struct {
 // reason), ServerGroupInUse (a compute delete-server-group was refused
 // because the group has servers attached, found by a pre-delete list scan,
 // or because the server's own refusal named the group in use for some other
-// reason), ResourceInUse (a network VPC, subnet, route table, or ACL write
+// reason), ResourceInUse (a network VPC, subnet, or route table write
 // was refused because a pre-write read showed it still in use, such as a
 // VPC with subnets, a subnet with servers, or a route table a subnet still
 // names, or because the server's own refusal named it in use, including a
@@ -126,7 +131,9 @@ type errorEnvelope struct {
 // several minutes after that subnet's own delete, or a loadbalancer
 // delete-certificate refused because a pre-delete read showed the
 // certificate still in use by a listener, or because the server's own
-// refusal named it in use), DefaultResource (a network delete-route-table
+// refusal named it in use; or an iam delete-policy targeted a policy still
+// attached to a group, an IAM user, or a service account, before any
+// request), DefaultResource (a network delete-route-table
 // targeted a VPC's main route table while a subnet names no route table of
 // its own and so relies on it; the server itself deletes a main table once
 // no subnet relies on it), ResourceBusy (a network add-route or
@@ -162,14 +169,16 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
-	// compute.ErrNotSettled and containerregistry.ErrNotSettled join
-	// dns.ErrNotSettled and network.ErrNotSettled here for the same reason
-	// both already do: UpdateServerGroup's confirm read, and GetRepository's
-	// own 5xx-confirm path inside the containerregistry wait, can each wrap
-	// an inner *core.APIError, and this check must win over the generic
-	// *APIError branch below.
+	// compute.ErrNotSettled, containerregistry.ErrNotSettled, and
+	// iam.ErrNotSettled join dns.ErrNotSettled and network.ErrNotSettled
+	// here for the same reason they all do: UpdateServerGroup's confirm
+	// read, GetRepository's own 5xx-confirm path inside the
+	// containerregistry wait, and CreatePolicy's and UpdatePolicy's own
+	// confirm GetPolicy read, can each wrap an inner *core.APIError or a
+	// canceled context, and this check must win over the generic *APIError
+	// branch below.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrNotSettled) {
+		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
@@ -241,6 +250,20 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, iam.ErrPrivilegedChange) {
 		return errorEnvelope{Code: "PrivilegedChange", Message: err.Error()}
+	}
+	// iam.ErrManagedPolicy and iam.ErrInUse join the same early group, for the
+	// same reason: update-policy, delete-policy, and the guard.go sentinels
+	// above are always returned bare, never wrapping an inner *APIError, so
+	// placement relative to the generic *APIError branch below does not
+	// matter for correctness, but consistent placement keeps every iam
+	// sentinel in one place. ErrInUse reuses network.ErrInUse's own
+	// ResourceInUse code, since both mean the same thing: a delete was
+	// refused because something else still depends on the target.
+	if errors.Is(err, iam.ErrManagedPolicy) {
+		return errorEnvelope{Code: "ManagedPolicy", Message: err.Error()}
+	}
+	if errors.Is(err, iam.ErrInUse) {
+		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 
 	if vngcloud.IsNotFound(err) {
@@ -331,18 +354,19 @@ func exitCode(err error) int {
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
 	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
-	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound, and
-	// monitor.ErrOTPRejected join the same early return for the same reason:
-	// per the vDNS, network, and vCR writes designs, a not-settled write, and
-	// a create-user whose own create already succeeded, must exit the same
-	// way even after a canceled context, because the write already landed,
-	// and the others join it for consistency.
+	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound,
+	// iam.ErrNotSettled, and monitor.ErrOTPRejected join the same early
+	// return for the same reason: per the vDNS, network, vCR writes, and
+	// iam designs, a not-settled write, and a create-user whose own create
+	// already succeeded, must exit the same way even after a canceled
+	// context, because the write already landed, and the others join it
+	// for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrUserNotFound) ||
+		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
 		errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}

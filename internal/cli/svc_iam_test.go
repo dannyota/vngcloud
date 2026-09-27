@@ -213,14 +213,21 @@ func TestIAMListPolicyAttachmentsMakesThreeRequests(t *testing.T) {
 }
 
 // TestIAMReadOnlyRefusesEveryWriteWithZeroRequests checks the CLI design's
-// read-only rule for every one of iam's four writes: a profile with
-// read_only set refuses each before any request, including the SDK's own
-// guard reads. --secret-file names a path that passes checkSecretFilePath
-// (a fresh path under a real, existing directory), and --yes is given for
-// the two Destructive writes, so read-only is the only refusal each case can
+// read-only rule for every one of iam's writes: a profile with read_only set
+// refuses each before any request, including the SDK's own guard reads.
+// --secret-file names a path that passes checkSecretFilePath (a fresh path
+// under a real, existing directory), --document-file names a real, valid
+// document file (guardCreatePolicyDocument reads it, a local file operation,
+// before the profile's read_only is ever checked), and --yes is given for
+// every Destructive write, so read-only is the only refusal each case can
 // hit; without --yes the destructive check would refuse first, and without a
-// valid --secret-file the secret file guard would.
+// valid --secret-file or --document-file the respective guard would.
 func TestIAMReadOnlyRefusesEveryWriteWithZeroRequests(t *testing.T) {
+	documentFile := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(documentFile, []byte(`{"statements":[{"effect":"allow","actions":["vserver:ListServers"],"resources":["*"]}]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
 	tests := []struct {
 		op   string
 		args []string
@@ -229,6 +236,11 @@ func TestIAMReadOnlyRefusesEveryWriteWithZeroRequests(t *testing.T) {
 		{"update-service-account", []string{"update-service-account", "--service-account-id", "sa-1", "--description", "x"}},
 		{"delete-service-account", []string{"delete-service-account", "--service-account-id", "sa-1", "--yes"}},
 		{"reset-service-account-secret", []string{"reset-service-account-secret", "--service-account-id", "sa-1", "--secret-file", "/does-not-matter", "--yes"}},
+		{"create-policy", []string{"create-policy", "--name", "app-read", "--document-file", documentFile}},
+		{"update-policy", []string{"update-policy", "--policy-id", "policy-1", "--yes"}},
+		{"delete-policy", []string{"delete-policy", "--policy-id", "policy-1", "--yes"}},
+		{"attach-service-account-policy", []string{"attach-service-account-policy", "--policy-id", "policy-1", "--service-account-id", "sa-1", "--yes"}},
+		{"detach-service-account-policy", []string{"detach-service-account-policy", "--policy-id", "policy-1", "--service-account-id", "sa-1", "--yes"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.op, func(t *testing.T) {
@@ -236,19 +248,22 @@ func TestIAMReadOnlyRefusesEveryWriteWithZeroRequests(t *testing.T) {
 			writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
 			writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
 
+			unexpected := func(_ http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
 			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-				"/accounts-api/v1/auth/userinfo": func(_ http.ResponseWriter, r *http.Request) {
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-				},
-				"/accounts-api/v1/service-accounts": func(_ http.ResponseWriter, r *http.Request) {
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-				},
-				"/accounts-api/v1/service-accounts/sa-1": func(_ http.ResponseWriter, r *http.Request) {
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-				},
-				"/accounts-api/v1/service-accounts/sa-1/reset-secret": func(_ http.ResponseWriter, r *http.Request) {
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-				},
+				"/accounts-api/v1/auth/userinfo":                                   unexpected,
+				"/accounts-api/v1/service-accounts":                                unexpected,
+				"/accounts-api/v1/service-accounts/sa-1":                           unexpected,
+				"/accounts-api/v1/service-accounts/sa-1/reset-secret":              unexpected,
+				"/policies-api/v1/actions":                                         unexpected,
+				"/policies-api/v1/policies":                                        unexpected,
+				"/policies-api/v1/policies/policy-1":                               unexpected,
+				"/policies-api/v1/policies/policy-1/groups":                        unexpected,
+				"/policies-api/v1/policies/policy-1/iam-users":                     unexpected,
+				"/policies-api/v1/policies/policy-1/service-accounts":              unexpected,
+				"/policies-api/v1/policies/policy-1/service-accounts/sa-1":         unexpected,
+				"/policies-api/v1/user-attachments/service-accounts/sa-1/policies": unexpected,
 			})
 			opts := newFakeServer(t, fixture.mux)
 			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)

@@ -398,6 +398,11 @@ var docOpNotes = map[string]string{
 	"iam update-service-account":              iamUpdateServiceAccountNote,
 	"iam reset-service-account-secret":        iamResetServiceAccountSecretNote,
 	"iam delete-service-account":              iamDeleteServiceAccountNote,
+	"iam create-policy":                       iamCreatePolicyNote,
+	"iam update-policy":                       iamUpdatePolicyNote,
+	"iam delete-policy":                       iamDeletePolicyNote,
+	"iam attach-service-account-policy":       iamAttachServiceAccountPolicyNote,
+	"iam detach-service-account-policy":       iamDetachServiceAccountPolicyNote,
 	"compute get-ssh-key":                     computeGetSSHKeyNote,
 	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
 	"compute create-ssh-key":                  computeCreateSSHKeyNote,
@@ -528,7 +533,16 @@ var docExampleExtraFlag = map[string]string{
 // makes a poor placeholder) and, even with one, would print a command that
 // sets Certificate two contradictory ways at once. The override shows the
 // one runnable form: every PEM and key field through its own file flag.
+// iam create-policy needs it because Statements is required and viaJSON:
+// buildExample would otherwise need a docJSONPlaceholders entry for it and
+// print an unrunnable --cli-input-json blob, when --document-file is the
+// command's own real, documented way to set it. iam update-policy is not
+// required to have an override (Statements carries no vngcloud:"required"
+// tag there), but gets one anyway so its example shows --document-file too,
+// rather than leaving Statements out of the example entirely.
 var docExampleOverride = map[string]string{
+	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
+	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
 	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",
 	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
 	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",

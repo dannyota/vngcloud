@@ -349,10 +349,18 @@ func renderCLIPage(services []docService) string {
 		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
 		"resolved group rather than making a new one, or a compute update-server-group's confirm read " +
 		"after its PUT succeeded failed to come back: the update itself already landed and may be sent " +
-		"again the same way; see [Compute](CLI-Compute.md#update-server-group)), `OTPRejected` (create-channel's or " +
+		"again the same way; see [Compute](CLI-Compute.md#update-server-group)), or an iam create-policy " +
+		"or update-policy whose write reached the server but the read to confirm it failed: create-policy " +
+		"must not be sent again, since a repeat risks a second policy, but update-policy may be sent " +
+		"again, since its PUT always resends the whole resolved policy rather than making a new one; see " +
+		"[IAM](CLI-IAM.md#create-policy)), `OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
-		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +
+		"order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
+		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
+		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
+		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemSecurityGroup` " +
+		"(a network update-security-group or delete-security-group " +
 		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
 		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
 		"attached or the server itself refused it as in use), `ServerGroupInUse` (a compute " +
@@ -362,8 +370,10 @@ func renderCLIPage(services []docService) string {
 		"delete-subnet, or delete-route-table was refused because a pre-write read showed it still in use, " +
 		"such as a VPC with subnets, a subnet with servers, or a route table a subnet still names, or " +
 		"because the server's own refusal named it in use, including a VPC delete the server keeps refusing " +
-		"with \"contains the subnet\" for several minutes after that subnet's own delete; see " +
-		"[Network](Network.md#errors)), `DefaultResource` (a network delete-route-table targeted a VPC's " +
+		"with \"contains the subnet\" for several minutes after that subnet's own delete, or an iam " +
+		"delete-policy targeted a policy still attached to a group, an IAM user, or a service account, " +
+		"before any request; see [Network](Network.md#errors), [IAM](CLI-IAM.md#delete-policy)), " +
+		"`DefaultResource` (a network delete-route-table targeted a VPC's " +
 		"main route table while a subnet names no route table of its own and so relies on it; the server " +
 		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +
 		"remove-route read a route table that was not ACTIVE and stayed that way past the wait before the " +
@@ -384,7 +394,8 @@ func renderCLIPage(services []docService) string {
 		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), and " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`UserNotFound`, and `SecretFileFailed` all exit 1.\n\n")
 

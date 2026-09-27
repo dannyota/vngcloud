@@ -292,5 +292,29 @@ func TestIAMPathIDRejection(t *testing.T) {
 		if _, err := c.ResetServiceAccountSecret(context.Background(), &ResetServiceAccountSecretInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("ResetServiceAccountSecret(%q) err = %v, want ErrInvalidInput", id, err)
 		}
+		if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("UpdatePolicy(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DeletePolicy(context.Background(), &DeletePolicyInput{PolicyID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DeletePolicy(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.AttachServiceAccountPolicy(context.Background(), &AttachServiceAccountPolicyInput{PolicyID: id, ServiceAccountID: "sa-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachServiceAccountPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: id, ServiceAccountID: "sa-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachServiceAccountPolicy(PolicyID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if id == "" {
+			// CheckRequired already refuses an empty ServiceAccountID before
+			// CheckPathID's own message would name it; the PolicyID cases
+			// above already cover the empty path here.
+			continue
+		}
+		if _, err := c.AttachServiceAccountPolicy(context.Background(), &AttachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("AttachServiceAccountPolicy(ServiceAccountID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DetachServiceAccountPolicy(ServiceAccountID=%q) err = %v, want ErrInvalidInput", id, err)
+		}
 	}
 }

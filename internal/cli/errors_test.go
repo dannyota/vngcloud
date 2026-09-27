@@ -228,6 +228,31 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: iam.UpdateServiceAccount: the service account has a privileged policy attached", iam.ErrPrivilegedChange),
 			1,
 		},
+		{
+			"iam managed policy",
+			fmt.Errorf("%w: iam.UpdatePolicy: the policy is managed", iam.ErrManagedPolicy),
+			1,
+		},
+		{
+			"iam policy in use",
+			fmt.Errorf("%w: iam.DeletePolicy: the policy is attached", iam.ErrInUse),
+			1,
+		},
+		{
+			"iam not settled",
+			fmt.Errorf("iam.CreatePolicy: policy policy-1 was created but the read to confirm it failed: %w: %w", iam.ErrNotSettled, errors.New("server error")),
+			1,
+		},
+		{
+			// A Ctrl-C during CreatePolicy's or UpdatePolicy's own confirm
+			// GetPolicy read must still exit like every other not-settled
+			// write (1), checked ahead of the context-canceled rule above,
+			// the same rule the vDNS, network, and compute cases above
+			// follow.
+			"iam not settled after a canceled context",
+			fmt.Errorf("%w: %w", iam.ErrNotSettled, context.Canceled),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -491,6 +516,26 @@ func TestClassify(t *testing.T) {
 			"iam self change wins when both sentinels are chained",
 			fmt.Errorf("%w: %w", iam.ErrSelfChange, iam.ErrPrivilegedChange),
 			"SelfChange", 0, "",
+		},
+		{
+			"iam managed policy",
+			fmt.Errorf("%w: iam.UpdatePolicy: the policy is managed", iam.ErrManagedPolicy),
+			"ManagedPolicy", 0, "",
+		},
+		{
+			"iam policy in use",
+			fmt.Errorf("%w: iam.DeletePolicy: the policy is attached", iam.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"iam not settled",
+			fmt.Errorf("iam.CreatePolicy: policy policy-1 was created but the read to confirm it failed: %w: %w", iam.ErrNotSettled, errors.New("server error")),
+			"NotSettled", 0, "",
+		},
+		{
+			"iam not settled after a canceled context",
+			fmt.Errorf("%w: %w", iam.ErrNotSettled, context.Canceled),
+			"NotSettled", 0, "",
 		},
 	}
 	for _, tt := range tests {
