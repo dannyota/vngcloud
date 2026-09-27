@@ -2,7 +2,6 @@ package cli
 
 import (
 	"io"
-	"os"
 	"strings"
 )
 
@@ -17,14 +16,26 @@ const maxInputFileSize = 64 * 1024
 // Input field: at most maxInputFileSize bytes, following symlinks like any
 // other file argument, unlike --secret-file's own write path
 // (secretfile.go), which refuses one since it is about to create a file
-// rather than read an existing one. An empty file is refused. Every error
-// names flagName and path, never the file's content.
+// rather than read an existing one. It opens path with openConfigureFile
+// (on Unix, O_NONBLOCK, so a FIFO at path cannot hang this call) and then
+// checks the open file's type, closing the window in which the path could
+// be swapped for a FIFO between an earlier check and this open; anything
+// that is not a regular file is refused. An empty file is refused. Every
+// error names flagName and path, never the file's content.
 func readInputFile(flagName, path string) (string, error) {
-	f, err := os.Open(path) //nolint:gosec // path comes from a flag the operator typed, exactly like a shell command reading its own argument
+	f, err := openConfigureFile(path)
 	if err != nil {
 		return "", newUsageError("--%s: %s", flagName, err)
 	}
 	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return "", newUsageError("--%s: %s: %s", flagName, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", newUsageError("--%s: %s is not a regular file", flagName, path)
+	}
 
 	data, err := io.ReadAll(io.LimitReader(f, maxInputFileSize+1))
 	if err != nil {
