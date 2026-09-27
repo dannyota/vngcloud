@@ -54,14 +54,22 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 // computeDeleteServerNote documents delete-server's own volume disposition,
 // its wait bound, and that it destroys the server: the flag table shows
 // --delete-volumes as a plain, optional bool, with no hint of any of this.
+// Whether the boot volume stays when --delete-volumes is left unset is
+// unverified until the live check (see DeleteServerInput), so the note
+// hedges that claim rather than stating it as fact, and DeletedVolumeIDs
+// printed alongside a wait error is only what the delete requested, not a
+// confirmed deletion (see DeleteServerOutput).
 const computeDeleteServerNote = "Destroys the server; there is no undo. Without --delete-volumes, every " +
-	"attached volume, boot volume included, stays and keeps being billed: without --no-wait, this command " +
-	"reads each one back after the delete settles and prints the still-existing ones as KeptVolumeIDs, so " +
-	"nothing costing money goes unnoticed; with --no-wait, KeptVolumeIDs instead names every volume the server " +
-	"held before the delete, unconfirmed. With --delete-volumes, every attached volume is destroyed with the " +
-	"server, data included, and DeletedVolumeIDs names them. Without --no-wait, waits up to 10 minutes for the " +
-	"server to reach 404 or DELETED; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, but a " +
-	"rerun is always safe, since this command reads the server first every time.\n\n" + vserverDriftNote
+	"attached volume stays and keeps being billed; whether the boot volume also stays this way is unverified " +
+	"until the live check, so treat it as billed too until confirmed otherwise. Without --no-wait, this command " +
+	"reads each kept volume back after the delete settles and prints the still-existing ones as KeptVolumeIDs, " +
+	"so nothing costing money goes unnoticed; with --no-wait, KeptVolumeIDs instead names every volume the " +
+	"server held before the delete, unconfirmed. With --delete-volumes, every attached volume is sent for " +
+	"deletion with the server, data included, and DeletedVolumeIDs names them; a timeout or ERROR during the " +
+	"wait below still prints DeletedVolumeIDs, but only as requested for deletion, not confirmed deleted. " +
+	"Without --no-wait, waits up to 10 minutes for the server to reach 404 or DELETED; a timeout, or ERROR " +
+	"during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command reads the " +
+	"server first every time.\n\n" + vserverDriftNote
 
 // computeServerToggleWaitNote is the shared wait-and-repeat paragraph for
 // start-server, stop-server, and reboot-server: each reads the server
@@ -100,13 +108,19 @@ var computeStopServerNote = "Needs --yes: stopping a server cuts off what runs o
 // need for --yes, and its own settle condition (ACTIVE read at least 10
 // seconds after the reboot was sent, since an immediate read can still show
 // the pre-reboot ACTIVE state), which the shared toggle wait paragraph does
-// not cover.
+// not cover. Unlike start-server and stop-server, reboot-server's own
+// precondition (the server must read ACTIVE) is also what a settled reboot
+// looks like, so a rerun after NotSettled cannot tell "never rebooted" from
+// "already back to ACTIVE" and sends another reboot either way; the note
+// says so instead of calling every rerun safe.
 var computeRebootServerNote = "Needs --yes: a reboot interrupts what runs on the server. Needs the server " +
 	"ACTIVE first; any other status refuses with error code UnexpectedStatus, nothing sent. Without " +
 	"--no-wait, waits up to 5 minutes for a read showing ACTIVE at least 10 seconds after the reboot was " +
 	"sent, since an immediate read can still show the pre-reboot ACTIVE state before REBOOTING even appears; " +
-	"ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since " +
-	"this command always reads first.\n\n" + vserverDriftNote
+	"ERROR during that wait is WriteFailed. The bound running out is NotSettled; a rerun reads the server " +
+	"first, but ACTIVE is exactly what this command's own precondition needs, so a rerun that reads ACTIVE " +
+	"again reboots the server a second time rather than treating the first reboot as done, since neither read " +
+	"can tell a settled reboot from a server that never left ACTIVE.\n\n" + vserverDriftNote
 
 // computeRenameServerNote documents rename-server's own free, retryable
 // shape: the flag table shows --name as a plain, required string, with no

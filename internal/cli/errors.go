@@ -325,7 +325,7 @@ func classify(err error) errorEnvelope {
 		env := errorEnvelope{Code: "NotFound", Message: err.Error()}
 		var apiErr *vngcloud.APIError
 		if errors.As(err, &apiErr) {
-			fillEnvelopeFromAPIError(&env, apiErr)
+			fillEnvelopeFromAPIError(&env, err, apiErr)
 		}
 		return env
 	}
@@ -333,7 +333,7 @@ func classify(err error) errorEnvelope {
 	var apiErr *vngcloud.APIError
 	if errors.As(err, &apiErr) {
 		env := errorEnvelope{Code: apiErr.Code}
-		fillEnvelopeFromAPIError(&env, apiErr)
+		fillEnvelopeFromAPIError(&env, err, apiErr)
 		if env.Code == "" {
 			env.Code = "RequestFailed"
 		}
@@ -377,14 +377,28 @@ func classify(err error) errorEnvelope {
 
 // fillEnvelopeFromAPIError copies apiErr's own Message (or, if empty, its
 // full Error() text, which repeats the operation and status Message alone
-// would lack), Operation, and StatusCode into env. Both of classify's
+// would lack), Operation, and StatusCode into env. err is classify's own
+// argument, the error actually returned to the caller, which may wrap
+// apiErr with more text: an ambiguous create's advice not to repeat an
+// order that may have already reached the server (compute's
+// wrapAmbiguousServerCreateErr and volume's wrapAmbiguousVolumeCreateErr,
+// and their equivalents across dns, network, iam, containerregistry,
+// monitor, and loadbalancer) exists only on err, never on apiErr's own
+// Message, and dropping it risks a second paid order after a 502 or a
+// dropped connection. err.Error() equals apiErr.Error() exactly when err is
+// apiErr itself (nothing wrapped it), so env.Message keeps the plain
+// Message (or Error()) built above in that case, and switches to err's own
+// full text only when something wrapped it with more. Both of classify's
 // *APIError-aware branches call this, so a wrapped *APIError's detail
 // reaches the envelope the same way whether or not the NotFound branch also
 // forces Code to "NotFound" ahead of it.
-func fillEnvelopeFromAPIError(env *errorEnvelope, apiErr *vngcloud.APIError) {
+func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.APIError) {
 	message := apiErr.Message
 	if message == "" {
 		message = apiErr.Error()
+	}
+	if outer := err.Error(); outer != apiErr.Error() {
+		message = outer
 	}
 	env.Message = message
 	env.Operation = apiErr.Operation

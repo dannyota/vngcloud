@@ -158,6 +158,51 @@ func TestComputeCreateServerDefaultMaxPriceRefusesAboveZero(t *testing.T) {
 	}
 }
 
+// TestComputeCreateServerAmbiguous502KeepsListAdviceInMessage checks that a
+// 502 on the order POST reaches the CLI's error envelope with
+// wrapAmbiguousServerCreateErr's own advice folded into Message, not just
+// the bare APIError text a plain 502 would otherwise carry: an agent that
+// prints only Message must still see not to repeat a create that may have
+// already reached the server, while Code and Status still come from the
+// APIError underneath.
+func TestComputeCreateServerAmbiguous502KeepsListAdviceInMessage(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/servers": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(computeEmptyServerListJSON))
+			case http.MethodPost:
+				w.WriteHeader(http.StatusBadGateway)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+		"/v1/price": jsonHandler(http.StatusOK, computeQuoteJSON(500000)),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1"},
+		append(validCreateServerArgs, "--max-price", "500000", "--no-wait")...))
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a 502 error")
+	}
+
+	env := classify(err)
+	if env.Status != http.StatusBadGateway {
+		t.Fatalf("Status = %d, want %d (stderr=%s)", env.Status, http.StatusBadGateway, stderr.String())
+	}
+	if env.Code != "ServerError" {
+		t.Fatalf("Code = %q, want ServerError", env.Code)
+	}
+	if !strings.Contains(env.Message, "list servers and match the name exactly before creating it again") {
+		t.Fatalf("Message = %q, want the create-may-have-landed advice", env.Message)
+	}
+	if !strings.Contains(env.Message, "Bad Gateway") {
+		t.Fatalf("Message = %q, want the server's own Bad Gateway text kept too", env.Message)
+	}
+}
+
 // TestComputeCreateServerHasNoUserDataFlag checks that UserData registers no
 // plain flag at all: it is settable only through --user-data-file.
 func TestComputeCreateServerHasNoUserDataFlag(t *testing.T) {

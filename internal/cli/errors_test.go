@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -571,6 +572,46 @@ func TestClassify(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestClassifyAPIErrorMessage checks fillEnvelopeFromAPIError's own message
+// rule directly: a plain *APIError, never wrapped, prints exactly the same
+// Message it always has, while an *APIError wrapped with more text, the
+// shape wrapAmbiguousServerCreateErr and its equivalents across compute,
+// volume, dns, network, iam, containerregistry, monitor, and loadbalancer
+// build for a create or order that got a 502 or a dropped connection, keeps
+// that wrap's advice in Message, since Code and Status still come from the
+// APIError underneath either way.
+func TestClassifyAPIErrorMessage(t *testing.T) {
+	t.Run("unwrapped keeps the bare APIError message", func(t *testing.T) {
+		err := &vngcloud.APIError{Operation: "compute.GetServer", StatusCode: 502, Code: "ServerError", Message: "Bad Gateway"}
+		env := classify(err)
+		if env.Message != "Bad Gateway" {
+			t.Fatalf("Message = %q, want %q", env.Message, "Bad Gateway")
+		}
+		if env.Code != "ServerError" || env.Status != 502 {
+			t.Fatalf("Code/Status = %q/%d, want ServerError/502", env.Code, env.Status)
+		}
+	})
+
+	t.Run("wrapped with create advice keeps the full text", func(t *testing.T) {
+		inner := &vngcloud.APIError{Operation: "compute.CreateServer", StatusCode: 502, Code: "ServerError", Message: "Bad Gateway"}
+		err := fmt.Errorf("%s: create may have already reached the server; list servers and match the name exactly before creating it again: %w",
+			"compute.CreateServer", inner)
+		env := classify(err)
+		if env.Message != err.Error() {
+			t.Fatalf("Message = %q, want the full wrapped text %q", env.Message, err.Error())
+		}
+		if !strings.Contains(env.Message, "list servers and match the name exactly before creating it again") {
+			t.Fatalf("Message = %q, missing the create advice", env.Message)
+		}
+		if !strings.Contains(env.Message, "Bad Gateway") {
+			t.Fatalf("Message = %q, missing the server's own text", env.Message)
+		}
+		if env.Code != "ServerError" || env.Status != 502 {
+			t.Fatalf("Code/Status = %q/%d, want ServerError/502", env.Code, env.Status)
+		}
+	})
 }
 
 func TestPrintErrorShape(t *testing.T) {

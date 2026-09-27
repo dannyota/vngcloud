@@ -131,6 +131,54 @@ func TestVolumeCreateVolumeDefaultMaxPriceRefusesAboveZero(t *testing.T) {
 	}
 }
 
+// TestVolumeCreateVolumeAmbiguous502KeepsListAdviceInMessage checks that a
+// 502 on the order POST reaches the CLI's error envelope with
+// wrapAmbiguousVolumeCreateErr's own advice folded into Message, not just
+// the bare APIError text a plain 502 would otherwise carry: an agent that
+// prints only Message must still see not to repeat an order that may have
+// already reached the server, while Code and Status still come from the
+// APIError underneath.
+func TestVolumeCreateVolumeAmbiguous502KeepsListAdviceInMessage(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/volumes": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(volumeEmptyListJSON))
+			case http.MethodPost:
+				w.WriteHeader(http.StatusBadGateway)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+		"/v1/price": jsonHandler(http.StatusOK, volumeQuoteJSON(40000)),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "volume", "create-volume",
+		"--name", "data", "--zone-id", "zone-1", "--size", "10", "--volume-type-id", "voltype-1",
+		"--max-price", "40000", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a 502 error")
+	}
+
+	env := classify(err)
+	if env.Status != http.StatusBadGateway {
+		t.Fatalf("Status = %d, want %d (stderr=%s)", env.Status, http.StatusBadGateway, stderr.String())
+	}
+	if env.Code != "ServerError" {
+		t.Fatalf("Code = %q, want ServerError", env.Code)
+	}
+	if !strings.Contains(env.Message, "list volumes and match the name exactly before creating it again") {
+		t.Fatalf("Message = %q, want the create-may-have-landed advice", env.Message)
+	}
+	if !strings.Contains(env.Message, "Bad Gateway") {
+		t.Fatalf("Message = %q, want the server's own Bad Gateway text kept too", env.Message)
+	}
+}
+
 // TestVolumeCreateVolumeMaxPriceNaNExitsWithZeroRequests checks
 // core.CheckMaxPrice's guard reaches the CLI: a NaN --max-price is refused
 // with InvalidUsage before any request, including the duplicate-name list.
