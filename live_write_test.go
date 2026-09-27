@@ -2976,10 +2976,14 @@ func listAllRouteTables(ctx context.Context, client *network.Client) ([]network.
 }
 
 // deleteRouteTableLeftover deletes a leftover vngcloud-live-* route table
-// found by a previous run and reports whether it deleted one. It ignores
-// ErrDefaultResource, ErrInUse, and NotFound: a route table matched only by
-// its name prefix might still be a VPC's main table or one a subnet still
-// names, and this cleanup must never send those a DELETE.
+// found by a previous run of this same VPC, and reports whether it deleted
+// one. The caller passes only a table whose NetworkID equals the run's own
+// VPC ID, so a table belonging to some other VPC, including one that is
+// currently that VPC's main table, is never reached here. This still
+// ignores ErrDefaultResource, ErrInUse, and NotFound as a second guard:
+// even within this VPC, a matched table might currently be its main table
+// with a dependent subnet, or still named by a subnet, and this cleanup
+// must never send those a DELETE.
 func deleteRouteTableLeftover(ctx context.Context, t *testing.T, client *network.Client, routeTableID string) bool {
 	t.Helper()
 	_, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID})
@@ -2994,11 +2998,13 @@ func deleteRouteTableLeftover(ctx context.Context, t *testing.T, client *network
 	}
 }
 
-// deleteRouteTableByName finds a route table by its exact name and deletes
-// it: the recovery TestLiveWriteNetworkRouteTable takes after a create
-// whose own response never arrived, since the POST is not resent and the
-// table may still exist under the name it was given.
-func deleteRouteTableByName(t *testing.T, client *network.Client, name string) {
+// deleteRouteTableByName finds a route table by its exact name in the
+// given VPC and deletes it: the recovery TestLiveWriteNetworkRouteTable
+// takes after a create whose own response never arrived, since the POST is
+// not resent and the table may still exist under the name it was given.
+// Requiring vpcID too, alongside the exact name, keeps this from ever
+// deleting a table that belongs to some other VPC.
+func deleteRouteTableByName(t *testing.T, client *network.Client, vpcID, name string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -3009,12 +3015,36 @@ func deleteRouteTableByName(t *testing.T, client *network.Client, name string) {
 		return
 	}
 	for _, rt := range list {
-		if rt.Name != name {
+		if rt.Name != name || rt.NetworkID != vpcID {
 			continue
 		}
 		if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: rt.UUID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete route table by name: %s", safeErr(err))
 		}
+	}
+}
+
+// deleteRouteTableRetryNotFound deletes routeTableID, retrying a few times
+// on NotFound before giving up: a table this same test just created may not
+// be readable yet by DeleteRouteTable's own guard read, so treating an
+// immediate NotFound as already gone would leak it.
+func deleteRouteTableRetryNotFound(ctx context.Context, t *testing.T, client *network.Client, routeTableID string) {
+	t.Helper()
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		_, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID})
+		if err == nil {
+			return
+		}
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete route table: %s", safeErr(err))
+			return
+		}
+		if i == attempts-1 {
+			t.Errorf("cleanup: delete route table: still not found after %d attempts; it may have leaked", attempts)
+			return
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -3073,26 +3103,31 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		t.Fatalf("check VPC state: GetVPC: %s", safeErr(err))
 	}
 	if vpcState.VPC.RouteTableID != "" {
-		t.Skipf("VPC %s already has a main route table; this test needs an empty VPC the run created", vpcID)
+		t.Skip("VPC already has a main route table; this test needs an empty VPC the run created")
 	}
 	existingSubnets, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
 	if err != nil {
 		t.Fatalf("check VPC state: ListSubnetsByVPC: %s", safeErr(err))
 	}
 	if len(existingSubnets.Items) != 0 {
-		t.Skipf("VPC %s already has %d subnet(s); this test needs an empty VPC the run created", vpcID, len(existingSubnets.Items))
+		t.Skipf("VPC already has %d subnet(s); this test needs an empty VPC the run created", len(existingSubnets.Items))
 	}
 
 	// Step 1: delete every leftover vngcloud-live-* route table from a
-	// previous run. A table that is a VPC's main table, or is still named
-	// by a subnet, is left alone.
+	// previous run of this same VPC. listAllRouteTables pages through the
+	// whole account, which can include another concurrent run's tables in a
+	// different VPC; the NetworkID check keeps this sweep from ever
+	// touching one of those, including one that is currently that other
+	// VPC's main table. Within this VPC, a table that is still the main
+	// table with a dependent subnet, or is still named by a subnet, is also
+	// left alone.
 	leftovers, err := listAllRouteTables(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListRouteTables: %s", safeErr(err))
 	}
 	deletedLeftovers := 0
 	for _, leftover := range leftovers {
-		if !isLiveRouteTableName(leftover.Name) {
+		if !isLiveRouteTableName(leftover.Name) || leftover.NetworkID != vpcID {
 			continue
 		}
 		if deleteRouteTableLeftover(ctx, t, client, leftover.UUID) {
@@ -3114,12 +3149,12 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		// A POST is not retried after an ambiguous failure, so the table may
 		// still have reached the server. Find and delete it by its exact
 		// name.
-		deleteRouteTableByName(t, client, name)
+		deleteRouteTableByName(t, client, vpcID, name)
 		t.Fatalf("step 2 CreateRouteTable: %s", safeErr(err))
 	}
 	routeTableID := created.RouteTable.UUID
 	if routeTableID == "" {
-		deleteRouteTableByName(t, client, name)
+		deleteRouteTableByName(t, client, vpcID, name)
 		t.Fatal("step 2: CreateRouteTable returned an empty id; the design requires one")
 	}
 	t.Logf("step 2: created route table, status %s, routes %d, wait %s",
@@ -3146,29 +3181,33 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 			t.Errorf("cleanup: final ListRouteTables: %s", safeErr(err))
 			return
 		}
+		// Scoped to this run's own VPC: the account may hold another
+		// concurrent run's own vngcloud-live-* table in a different VPC,
+		// which is that run's responsibility, not this one's.
 		remaining := 0
 		for _, rt := range final {
-			if isLiveRouteTableName(rt.Name) {
+			if isLiveRouteTableName(rt.Name) && rt.NetworkID == vpcID {
 				remaining++
 			}
 		}
-		t.Logf("cleanup: vngcloud-live route table(s) remaining: %d", remaining)
+		t.Logf("cleanup: vngcloud-live route table(s) remaining in this VPC: %d", remaining)
 		if remaining != 0 {
-			t.Errorf("cleanup: expected 0 vngcloud-live route tables, found %d", remaining)
+			t.Errorf("cleanup: expected 0 vngcloud-live route tables in this VPC, found %d", remaining)
 		}
 	})
 
 	// Step 4: create the same name again. Whether route table names are
 	// unique per VPC or per project is not yet confirmed live, so either a
 	// refusal or a second table is possible; an unexpected success is
-	// cleaned up too, since it would otherwise leak a second table.
+	// cleaned up too, since it would otherwise leak a second table. NoWait
+	// means the delete's own guard read may hit the new table before it is
+	// readable, so a NotFound there is retried briefly rather than treated
+	// as already gone.
 	dup, dupErr := client.CreateRouteTable(ctx, &network.CreateRouteTableInput{VPCID: vpcID, Name: name, NoWait: true})
 	if dupErr == nil {
 		t.Log("step 4: creating a duplicate name succeeded")
 		if dup.RouteTable.UUID != "" {
-			if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: dup.RouteTable.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("step 4: delete duplicate table: %s", safeErr(err))
-			}
+			deleteRouteTableRetryNotFound(ctx, t, client, dup.RouteTable.UUID)
 		}
 	} else {
 		t.Logf("step 4: duplicate name refused, %s", safeErr(dupErr))
