@@ -83,6 +83,7 @@ const (
 	serverStartStopBound = 5 * time.Minute
 	serverRebootBound    = 5 * time.Minute
 	serverDeleteBound    = 10 * time.Minute
+	serverResizeBound    = 15 * time.Minute
 	serverRebootMinWait  = 10 * time.Second
 )
 

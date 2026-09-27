@@ -10,6 +10,7 @@
 - [Billing and Pricing](Billing-and-Pricing.md)
 - [CDN](CDN.md)
 - [Compute](Compute.md)
+- [Compute Servers](Compute-Servers.md)
 - [DNS](DNS.md)
 - [IAM](IAM.md)
 - [Monitor](Monitor.md)

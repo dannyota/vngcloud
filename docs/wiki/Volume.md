@@ -173,6 +173,52 @@ The `PUT` keeps the transport's normal retries. Unless `NoWait` is set, it
 then waits up to 5 minutes, polling every 2 seconds, for the volume to
 read `AVAILABLE`.
 
+## Resizing
+
+```go
+quote, err := client.QuoteResizeVolume(ctx, &volume.ResizeVolumeInput{
+	VolumeID: created.Volume.UUID, Size: 20,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+resized, err := client.ResizeVolume(ctx, &volume.ResizeVolumeInput{
+	VolumeID: created.Volume.UUID, Size: 20, MaxPrice: quote.OptimumPrice,
+})
+switch {
+case errors.Is(err, vngcloud.ErrPriceAboveMax):
+	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
+case err != nil:
+	log.Fatal(err)
+}
+log.Println(resized.Volume.Size, resized.MonthlyPrice)
+```
+
+`ResizeVolume` only grows: it reads the volume first, and `Size` at or
+below the current size fails with `vngcloud.ErrInvalidInput`, sending
+nothing, since shrinking would cut off the end of the data. It sends the
+volume's current `VolumeTypeID` back as `newVolumeTypeId`, which the API
+requires on every resize, so a type never changes by accident. It
+otherwise follows `CreateVolume`'s own price guard: `MaxPrice` defaults to
+0, and a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice` is
+`vngcloud.ErrInvalidInput` before any request. `QuoteResizeVolume` reads
+the volume fresh on every call, independently of `ResizeVolume`'s own
+read, to learn its current size and type.
+
+The resize `PUT` is sent at most once (`transport.Request.Once`): a resend
+would act on the size read this call already took. A 4xx response proves
+the server never acted and is returned as is; any other failure wraps
+`volume.ErrNotSettled`, and the recovery is to run `ResizeVolume` again.
+Unless `NoWait` is set, it then waits up to 5 minutes, polling every 2
+seconds, for a read showing the new size with `Status` `AVAILABLE` or
+`IN-USE`. `ERROR` wraps `volume.ErrFailed`.
+
+`ResizeVolume` grows only the block device; the filesystem inside a
+server that has the volume attached must still be grown separately, with
+whatever tool the guest OS provides (`resize2fs`, `xfs_growfs`, and so
+on).
+
 If a volume is managed by OpenTofu or Terraform, a write made here drifts
 from that state; keep such a volume's writes in its own tool.
 

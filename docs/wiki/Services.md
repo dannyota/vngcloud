@@ -15,10 +15,12 @@ paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
 created, changed, and deleted. See [DNS](DNS.md). `network` covers
 security group and rule writes too: groups and rules can be created,
 changed, and deleted. See [Network](Network.md). `compute` covers SSH key
-writes too: a key can be imported, created, or deleted. See
-[Compute](Compute.md). `volume` covers paid volume writes: a volume can be
-created and deleted. See [Volume](Volume.md). `containerregistry` covers
-repository and repository
+writes too: a key can be imported, created, or deleted (see
+[Compute](Compute.md)), and paid server writes: a server can be created,
+started, stopped, rebooted, renamed, resized, and deleted (see
+[Compute Servers](Compute-Servers.md)). `volume` covers paid volume
+writes: a volume can be created, deleted, attached, detached, and resized.
+See [Volume](Volume.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
 [Container Registry](#container-registry) below. `iam` covers IAM reads,
 service account writes, policy writes, and group writes: a service account
@@ -35,7 +37,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 |---|---|---|---|---|
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
-| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes. |
+| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types, plus volume create and delete | Typed | Includes a convenience method for walking snapshots; see [Volume](Volume.md) for writes. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes | Typed | Requires IAM User permissions for the target load balancer resources. |
@@ -92,10 +94,10 @@ already returned by server and server-group list APIs. They do not require
 extra API calls.
 
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
-`vngcloud.Secret` a create returns, and server writes (`CreateServer`,
-`DeleteServer`, `StartServer`, `StopServer`, `RebootServer`,
-`RenameServer`) and their price guard, are on the [Compute](Compute.md)
-page.
+`vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
+Server writes (`CreateServer`, `DeleteServer`, `StartServer`,
+`StopServer`, `RebootServer`, `RenameServer`, `ResizeServer`) and their
+price guard are on [Compute Servers](Compute-Servers.md).
 
 `ListFlavorZones` filters the API's full flavor zone list to `Input.ZoneID`
 itself; leave it unset to list every flavor zone. `QuoteCreateServer` prices
@@ -121,8 +123,8 @@ volumeClient.QuoteCreateVolume(ctx, in)    // *volume.CreateVolumeInput
 ```
 
 Volume writes (`CreateVolume`, `DeleteVolume`, `AttachVolume`,
-`DetachVolume`) and their price guard, waits, and errors are on the
-[Volume](Volume.md) page.
+`DetachVolume`, `ResizeVolume`) and their price guard, waits, and errors
+are on the [Volume](Volume.md) page.
 
 `ProjectID` is optional in `Config`. Volume methods discover the project for
 the configured region when needed.

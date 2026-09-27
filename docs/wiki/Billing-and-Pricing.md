@@ -227,6 +227,13 @@ create never prices, such as user data; both ignore the Input's `MaxPrice`
 and `NoWait` fields, which govern only the write itself once it orders
 something.
 
+`computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
+a flavor change or a grow the same way, from `compute.ResizeServerInput`
+and `volume.ResizeVolumeInput`. `QuoteResizeVolume` reads the volume fresh
+on every call to learn its current size and type, independently of
+`ResizeVolume`'s own read, the same way `QuoteCreateLogProject` always
+rereads its own class list rather than sharing a read with its create.
+
 A paid write refuses to order above its own `MaxPrice` (VND a month, default
 0), with an error wrapping `vngcloud.ErrPriceAboveMax`:
 

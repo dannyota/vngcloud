@@ -2,8 +2,9 @@
 
 `compute` is `danny.vn/vngcloud/compute`, with its own `New(cfg)`. It reads
 vServer instances and images; reads, creates, updates, and deletes server
-groups; reads, imports, creates, and deletes SSH keys; and orders, deletes,
-starts, stops, reboots, and renames servers.
+groups; and reads, imports, creates, and deletes SSH keys. Server writes
+(create, start, stop, reboot, rename, resize, and delete) are on
+[Compute Servers](Compute-Servers.md).
 
 ## Setup
 
@@ -62,143 +63,6 @@ already returned by `ListServers` and `ListServerGroups`; see
 `ListServerGroups`' own `Name` filter matches by substring, not exactly: a
 search for `"web"` also finds `"webhook"`. Any code that must find one
 group by name lists and scans for an exact match itself.
-
-## Creating, starting, stopping, rebooting, and deleting servers
-
-Creating a server charges the account: a prepaid account pays one month's
-price from its credit wallet when the server is created, and deleting one
-refunds the unused value. The smallest server this SDK can create (1 vCPU,
-2 GB, 20 GB SSD root) quotes about 347,800 VND a month; see [Billing and
-Pricing](Billing-and-Pricing.md#vserver-prices).
-
-```go
-quote, err := client.QuoteCreateServer(ctx, &compute.CreateServerInput{
-	Name: "web-1", ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
-	VPCID: "<vpc-id>", SubnetID: "<subnet-id>", SecurityGroupIDs: []string{"<security-group-id>"},
-	SSHKeyID: "<ssh-key-id>", RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
-})
-if err != nil {
-	log.Fatal(err)
-}
-
-created, err := client.CreateServer(ctx, &compute.CreateServerInput{
-	Name: "web-1", ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
-	VPCID: "<vpc-id>", SubnetID: "<subnet-id>", SecurityGroupIDs: []string{"<security-group-id>"},
-	SSHKeyID: "<ssh-key-id>", RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
-	MaxPrice: quote.OptimumPrice,
-})
-switch {
-case errors.Is(err, vngcloud.ErrPriceAboveMax):
-	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
-case err != nil:
-	log.Fatal(err)
-}
-log.Println(created.Server.UUID, created.MonthlyPrice)
-```
-
-`CreateServer`'s `MaxPrice` is VND a month and defaults to 0, so an Input
-with no `MaxPrice` set always refuses with `vngcloud.ErrPriceAboveMax` and
-orders nothing: raising `MaxPrice` to the quote's own `OptimumPrice` is the
-caller's explicit consent to pay that price, the same role the CLI's
-`--max-price` flag plays for `vngcloud compute create-server`. Before any
-request, `CreateServer` also rejects a `NaN`, `+Inf`, `-Inf`, or negative
-`MaxPrice` with `vngcloud.ErrInvalidInput`. It then lists every server and
-refuses, also with `vngcloud.ErrInvalidInput`, when one already exists with
-`Name` exactly (`ListServers` has no name filter of its own, so this scans
-every server), so a rerun after an unclear failure never risks ordering a
-second server under the same name.
-
-`CreateServerInput` requires `SSHKeyID`: this SDK sets up key login only,
-never a password. `SecurityGroupIDs` must hold at least one id, and the SDK
-never picks a default; the project's default security group opens SSH,
-RDP, HTTP, HTTPS, and ICMP from anywhere, so naming it is the caller's own
-choice, not the SDK's. The SDK never sends `attachFloating`: a public IP
-costs 120,000 VND a month and exposes the server, so getting one is not
-part of this design. `AutoRenew` defaults to false, so nothing renews from
-credit without a later command. `UserData`, when set, makes the create
-`transport.Request.Sensitive`, so a decode failure never quotes the
-response body; it is never sent to `QuoteCreateServer`'s quote, logged, or
-echoed in any error, and the SDK base64-encodes it itself.
-
-`CreateServer` builds one request body from `Input` and sends a copy of it,
-with `UserData` cleared, to `QuoteCreateServer`'s own quote endpoint first,
-so the quote always prices the exact server the create would make. The
-order is a `POST` and is never retried after a failure that may have
-already reached the server: after any error that is not a 4xx
-`*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the server may exist,
-and the caller lists servers and matches `Name` exactly before ordering
-again.
-
-Unless `NoWait` is set, `CreateServer` then waits up to 15 minutes, polling
-every 5 seconds, for the new server to reach `ACTIVE`. `ERROR` wraps
-`compute.ErrFailed`; the bound running out, or a read or a sleep failing,
-wraps `compute.ErrNotSettled` and says the create must not be repeated.
-`NoWait` returns at once with only the new UUID and `Name` filled in.
-
-```go
-stopped, err := client.StopServer(ctx, &compute.StopServerInput{ServerID: created.Server.UUID})
-if err != nil {
-	log.Fatal(err)
-}
-log.Println(stopped.Changed, stopped.Server.Status)
-
-started, err := client.StartServer(ctx, &compute.StartServerInput{ServerID: created.Server.UUID})
-if err != nil {
-	log.Fatal(err)
-}
-
-if _, err := client.RebootServer(ctx, &compute.RebootServerInput{ServerID: created.Server.UUID}); err != nil {
-	log.Fatal(err)
-}
-
-if _, err := client.RenameServer(ctx, &compute.RenameServerInput{
-	ServerID: created.Server.UUID, Name: "web-1-renamed",
-}); err != nil {
-	log.Fatal(err)
-}
-```
-
-`StartServer` and `StopServer` read the server first: already at the target
-status returns `Changed` false, sending nothing. Starting a server that is
-not `STOPPED`, or stopping one that is not `ACTIVE`, fails closed with
-`compute.ErrUnexpectedStatus`, sending nothing, so a start is never sent to
-a server mid-create. `RebootServer` needs `ACTIVE`; any other status is the
-same `ErrUnexpectedStatus` refusal. Each toggle is sent at most once
-(`transport.Request.Once`): a resend would act on a status read that only
-grows staler. A 4xx response after the send proves the server never acted
-and is returned as is; any other failure wraps `compute.ErrNotSettled`,
-and the recovery is to run the same call again, since it always reads
-first. `RebootServer`'s wait needs a read showing `ACTIVE` at least 10
-seconds after the send, since an immediate read can still show the
-pre-reboot `ACTIVE` state before `REBOOTING` appears. `RenameServer` is
-free and keeps the transport's normal `PUT` retries.
-
-```go
-deleted, err := client.DeleteServer(ctx, &compute.DeleteServerInput{
-	ServerID: created.Server.UUID, DeleteVolumes: true,
-})
-if err != nil {
-	log.Fatal(err)
-}
-log.Println(deleted.DeletedVolumeIDs)
-```
-
-`DeleteServer` reads the server, then lists its volumes with
-`volume.ListVolumesByServer`, before sending anything. With
-`DeleteVolumes` false (the default), its volumes, including the boot
-volume, stay and keep being billed: `KeptVolumeIDs` names every volume
-still attached after the delete settles, since the CLI's `--yes` flag
-consents only to deleting the server, not silently losing data on
-volumes still costing money; pass `DeleteVolumes` (`--delete-volumes` on
-the CLI) to delete them with the server. `DELETE` keeps the transport's
-normal retries. Unless `NoWait` is set, `DeleteServer` then waits up to 10
-minutes, polling every 5 seconds, for the server to be gone; `ERROR` wraps
-`compute.ErrFailed`, and the bound running out wraps
-`compute.ErrNotSettled`. A rerun is always safe, since `DeleteServer`
-always reads first.
-
-If a server is managed by OpenTofu or Terraform, a write made here drifts
-from that state; keep such a server's writes in its own tool.
 
 ## Creating, updating, and deleting server groups
 
@@ -374,36 +238,29 @@ you (`0600` on Unix), and never print or log it once read.
 
 ## Errors
 
-A malformed `SSHKeyID`, `ServerGroupID`, `PolicyID`, or `ServerID`, an empty
-required field, an invalid `MaxPrice`, an empty `UpdateServerGroup` input, an
-`UpdateServerGroup` `Name` set to the empty string, or an `ImportSSHKey`
-shape refusal fails with `vngcloud.ErrInvalidInput` before any request. An
-unknown key, server group, or server fails with
-`vngcloud.IsNotFound(err) == true`.
+A malformed `SSHKeyID`, `ServerGroupID`, or `PolicyID`, an empty required
+field, an empty `UpdateServerGroup` input, an `UpdateServerGroup` `Name` set
+to the empty string, or an `ImportSSHKey` shape refusal fails with
+`vngcloud.ErrInvalidInput` before any request. An unknown key or server
+group fails with `vngcloud.IsNotFound(err) == true`. Server write errors
+(`ErrFailed`, `ErrUnexpectedStatus`, and `ErrNotSettled` for `CreateServer`,
+`StartServer`, `StopServer`, `RebootServer`, `ResizeServer`, and
+`DeleteServer`) are on [Compute Servers](Compute-Servers.md#errors).
 
 ```go
-var ErrServerGroupInUse   = errors.New("compute: server group in use")
-var ErrNotSettled         = errors.New("compute: write accepted but not settled")
-var ErrFailed             = errors.New("compute: resource reached ERROR")
-var ErrUnexpectedStatus   = errors.New("compute: unexpected status")
+var ErrServerGroupInUse = errors.New("compute: server group in use")
+var ErrNotSettled       = errors.New("compute: write accepted but not settled")
 ```
 
 `ErrServerGroupInUse` means `DeleteServerGroup` sent nothing because the
 group has servers attached, or that its `DELETE` request was refused by
 the server; see [Creating, updating, and deleting server
 groups](#creating-updating-and-deleting-server-groups) above.
-`ErrNotSettled` means a write's confirm read or wait after a successful
-request failed to come back; `UpdateServerGroup`'s update is safe to run
-again either way, since it is a read-merge `PUT` that resends both fields;
-`CreateServer` must not be repeated, since the server already exists, while
-`StartServer`, `StopServer`, `RebootServer`, and `DeleteServer` are safe to
-run again, since each reads first. `ErrFailed` means a create, toggle, or
-delete's wait observed the server reach `ERROR`. `ErrUnexpectedStatus`
-means `StartServer`, `StopServer`, or `RebootServer` read a status that
-call does not act on, such as a reboot of a `STOPPED` server; nothing was
-sent.
+`ErrNotSettled` means `UpdateServerGroup`'s confirm read after a successful
+`PUT` failed to come back; the write already reached the server, but the
+update is safe to run again, since it is a read-merge `PUT` that resends
+both fields either way.
 
-A duplicate name, a quota, a billing refusal, or a rejected key, policy,
-flavor, or image shape from the server itself comes back as the server's
-own `*vngcloud.APIError`; see [Errors](Errors.md) for the general error
-model.
+A duplicate name, a quota, or a rejected key or policy shape from the
+server itself comes back as the server's own `*vngcloud.APIError`; see
+[Errors](Errors.md) for the general error model.

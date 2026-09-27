@@ -1,6 +1,18 @@
 package volume
 
-import "errors"
+import (
+	"errors"
+
+	"danny.vn/vngcloud/internal/core"
+)
+
+// is4xxAPIError reports whether err is a *core.APIError whose StatusCode is
+// 4xx, meaning the server rejected the request outright and never acted on
+// it.
+func is4xxAPIError(err error) bool {
+	var apiErr *core.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
+}
 
 var (
 	// ErrNotSettled means a write's post-write wait did not confirm the
