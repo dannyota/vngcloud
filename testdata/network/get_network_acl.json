@@ -1,0 +1,47 @@
+{
+  "data": {
+    "uuid": "acl-1",
+    "interfaceNetworkUuid": "vpc-1",
+    "name": "<name>",
+    "defaultAcl": false,
+    "status": "ACTIVE",
+    "projectUuid": "pro-1",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "subnetAssociationList": ["subnet-1", "subnet-2"],
+    "aclPolicyRules": [
+      {
+        "uuid": "aclr-1",
+        "seqNumber": 0,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "interfaceAclPolicyUuid": "acl-1",
+        "protocol": "ANY",
+        "type": "inbound",
+        "port": "0-65535",
+        "source": "0.0.0.0/0",
+        "action": "pass"
+      },
+      {
+        "uuid": "aclr-2",
+        "seqNumber": 0,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "interfaceAclPolicyUuid": "acl-1",
+        "protocol": "ANY",
+        "type": "outbound",
+        "port": "0-65535",
+        "source": "0.0.0.0/0",
+        "action": "pass"
+      },
+      {
+        "uuid": "aclr-3",
+        "seqNumber": 100,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "interfaceAclPolicyUuid": "acl-1",
+        "protocol": "tcp",
+        "type": "inbound",
+        "port": "443-443",
+        "source": "<cidr>",
+        "action": "pass"
+      }
+    ]
+  }
+}

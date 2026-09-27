@@ -17,6 +17,7 @@ func TestKebab(t *testing.T) {
 		{"ListWANIPs", "list-wanips"},
 		{"ID", "id"},
 		{"VPCID", "vpcid"},
+		{"NetworkACLID", "network-aclid"},
 		{"CreateBudgetThreshold", "create-budget-threshold"},
 		{"GetCurrentPeriodCost", "get-current-period-cost"},
 		{"ListAllSecurityGroupRules", "list-all-security-group-rules"},
@@ -36,6 +37,9 @@ func TestFlagNameForUsesRenameTable(t *testing.T) {
 	}
 	if got := flagNameFor("Query"); got != "search" {
 		t.Fatalf("flagNameFor(Query) = %q, want search", got)
+	}
+	if got := flagNameFor("NetworkACLID"); got != "network-acl-id" {
+		t.Fatalf("flagNameFor(NetworkACLID) = %q, want network-acl-id", got)
 	}
 	if got := flagNameFor("ServerID"); got != "server-id" {
 		t.Fatalf("flagNameFor(ServerID) = %q, want server-id", got)

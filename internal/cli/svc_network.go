@@ -8,14 +8,14 @@ import (
 
 // networkOps is network's operation table. Every Get and List operation
 // reads. CreateSecurityGroup, UpdateSecurityGroup, CreateSecurityGroupRule,
-// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, and CreateRouteTable
-// are Write. DeleteSecurityGroup, DeleteSecurityGroupRule, DeleteVPC,
-// DeleteSubnet, and DeleteRouteTable are Write and Destructive, since a
-// deleted group, rule, VPC, subnet, or table cannot be restored by one more
-// command, so each needs --yes. EnableVPCPrivateDNS is also Write and
-// Destructive: the API has no call that disables Private DNS again, so
-// enabling it is not undoable by one more command either.
-// CreateSecurityGroupRule also carries a Guard,
+// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, CreateRouteTable, and
+// CreateNetworkACL are Write. DeleteSecurityGroup, DeleteSecurityGroupRule,
+// DeleteVPC, DeleteSubnet, DeleteRouteTable, and DeleteNetworkACL are Write
+// and Destructive, since a deleted group, rule, VPC, subnet, table, or ACL
+// cannot be restored by one more command, so each needs --yes.
+// EnableVPCPrivateDNS is also Write and Destructive: the API has no call
+// that disables Private DNS again, so enabling it is not undoable by one
+// more command either. CreateSecurityGroupRule also carries a Guard,
 // refuseWorldOpenIngressWithoutYes (svc_network_write.go), that needs --yes
 // for an ingress rule whose remote prefix is 0.0.0.0/0 or ::/0: such a rule
 // opens every port it names to the whole internet. AddRoute and RemoveRoute
@@ -24,7 +24,16 @@ import (
 // since running the other of the pair undoes it with one more command, but
 // each still needs --yes on every call, since either can redirect or cut
 // traffic for every server behind the table and the CLI cannot tell cheaply
-// whether the table is in use. A read-only profile refuses every one of
+// whether the table is in use. AddNetworkACLRule, AssociateNetworkACLSubnet,
+// and DisassociateNetworkACLSubnet are the same shape, over an ACL instead
+// of a route table, each carrying requireYesForACLChange
+// (svc_network_acl.go). RemoveNetworkACLRule carries
+// requireYesAndPriorityToRemoveACLRule (svc_network_acl.go) instead: the
+// same --yes requirement, plus a --priority requirement the SDK's own Input
+// does not carry, since Priority 0 is both CheckRequired's zero value and
+// the priority of the ACL's own pass-all rules, which a caller may remove,
+// so the SDK cannot use IsZero to tell "not given" from "naming priority 0
+// on purpose" the way the CLI can. A read-only profile refuses every one of
 // these Write operations, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
@@ -116,6 +125,24 @@ var networkOps = []Op[network.Client]{
 		kebab("GetEndpoint"), (*network.Client).GetEndpoint),
 	Read[network.Client, network.ListEndpointTagsInput, network.ListEndpointTagsOutput](
 		kebab("ListEndpointTags"), (*network.Client).ListEndpointTags),
+	Read[network.Client, network.GetNetworkACLInput, network.GetNetworkACLOutput](
+		kebab("GetNetworkACL"), (*network.Client).GetNetworkACL),
+	Write[network.Client, network.CreateNetworkACLInput, network.CreateNetworkACLOutput](
+		kebab("CreateNetworkACL"), (*network.Client).CreateNetworkACL),
+	Write[network.Client, network.DeleteNetworkACLInput, network.DeleteNetworkACLOutput](
+		kebab("DeleteNetworkACL"), (*network.Client).DeleteNetworkACL, Destructive()),
+	Write[network.Client, network.AddNetworkACLRuleInput, network.AddNetworkACLRuleOutput](
+		kebab("AddNetworkACLRule"), (*network.Client).AddNetworkACLRule,
+		Guard(requireYesForACLChange("add-network-acl-rule"))),
+	Write[network.Client, network.RemoveNetworkACLRuleInput, network.RemoveNetworkACLRuleOutput](
+		kebab("RemoveNetworkACLRule"), (*network.Client).RemoveNetworkACLRule,
+		Guard(requireYesAndPriorityToRemoveACLRule)),
+	Write[network.Client, network.AssociateNetworkACLSubnetInput, network.AssociateNetworkACLSubnetOutput](
+		kebab("AssociateNetworkACLSubnet"), (*network.Client).AssociateNetworkACLSubnet,
+		Guard(requireYesForACLChange("associate-network-acl-subnet"))),
+	Write[network.Client, network.DisassociateNetworkACLSubnetInput, network.DisassociateNetworkACLSubnetOutput](
+		kebab("DisassociateNetworkACLSubnet"), (*network.Client).DisassociateNetworkACLSubnet,
+		Guard(requireYesForACLChange("disassociate-network-acl-subnet"))),
 }
 
 func newNetworkCmd(e *env) *cobra.Command {

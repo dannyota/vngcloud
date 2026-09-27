@@ -351,15 +351,18 @@ func renderCLIPage(services []docService) string {
 		"delete-server-group was refused because the group has servers attached, found by a pre-delete " +
 		"list scan, or the server itself refused it as in use; see " +
 		"[Compute](CLI-Compute.md#delete-server-group)), `ResourceInUse` (a network delete-vpc, " +
-		"delete-subnet, or delete-route-table was refused because a pre-write read showed it still in use, " +
-		"such as a VPC with subnets, a subnet with servers, or a route table a subnet still names, or " +
-		"because the server's own refusal named it in use, including a VPC delete the server keeps refusing " +
-		"with \"contains the subnet\" for several minutes after that subnet's own delete; see " +
-		"[Network](Network.md#errors)), `DefaultResource` (a network delete-route-table targeted a VPC's " +
-		"main route table while a subnet names no route table of its own and so relies on it; the server " +
-		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +
-		"remove-route read a route table that was not ACTIVE and stayed that way past the wait before the " +
-		"write, so nothing was sent), `SecretFileFailed` (create-ssh-key's own " +
+		"delete-subnet, delete-route-table, or delete-network-acl was refused because a pre-write read " +
+		"showed it still in use, such as a VPC with subnets, a subnet with servers, a route table a subnet " +
+		"still names, or an ACL a subnet is still associated with, or because the server's own refusal " +
+		"named it in use, including a VPC delete the server keeps refusing with \"contains the subnet\" " +
+		"for several minutes after that subnet's own delete; see [Network](Network.md#errors)), " +
+		"`DefaultResource` (a network delete-route-table targeted a VPC's main route table while a subnet " +
+		"names no route table of its own and so relies on it, though the server itself deletes a main " +
+		"table once nothing relies on it; or a write targeted a project's default network ACL or one of " +
+		"an ACL's own default rules), `ResourceBusy` (a network add-route, remove-route, or a network ACL " +
+		"rule or subnet write read a table or ACL that was not ACTIVE and stayed that way past the wait " +
+		"before the write, or saw it change before the send, so nothing was sent), " +
+		"`SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
