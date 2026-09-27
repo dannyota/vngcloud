@@ -22,7 +22,7 @@ vngcloud network create-security-group --name <name>
 
 Kind: Write.
 
-Confirmed live: the new rule is already ACTIVE in the create response, so this command takes no wait. A rule that exactly duplicates an existing one fails with status 409; a rule that overlaps an existing one without duplicating it fails with status 400. --remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to 203.0.113.0/24.
+Confirmed live: the new rule is already ACTIVE in the create response, so this command takes no wait. A rule that exactly duplicates an existing one fails with status 409; a rule that overlaps an existing one without duplicating it fails with status 400. --remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to 203.0.113.0/24. A rule whose --direction is not egress and whose --remote-ip-prefix has prefix length 0, such as 0.0.0.0/0 or ::/0, needs --yes: it opens every port the rule names to the entire internet.
 
 | Flag | Type | Required |
 |-|-|-|

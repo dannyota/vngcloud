@@ -82,16 +82,20 @@ type errorEnvelope struct {
 // sent), WriteFailed (a vDNS write reached status ERROR, or a network
 // security group create's post-create wait saw the group reach ERROR),
 // NotSettled (a vDNS write was accepted but did not settle within the
-// post-write wait, or a network security group create's wait ran out of
-// time), OTPRejected (a channel OTP create-channel or update-channel sent to
-// SendChannelOTP's Validate OTP step was wrong or expired, so no create or
-// update was sent), PriceAboveMax (create-log-project's quote priced its
-// order above --max-price, so no order was sent), SystemSecurityGroup (a
-// network update-security-group or delete-security-group targeted a
-// project's system group, so nothing was sent), or SecurityGroupInUse (a
-// network delete-security-group was refused because the group has servers
-// attached, found by a pre-delete read, or because the server's own refusal
-// named the group in use for some other reason).
+// post-write wait, or a network create-security-group's or
+// update-security-group's wait ran out of time: a create must not be sent
+// again, since a repeat risks a second group, but an update may be sent
+// again, since its PUT always resends the whole resolved group rather than
+// making a new one), OTPRejected (a channel OTP create-channel or
+// update-channel sent to SendChannelOTP's Validate OTP step was wrong or
+// expired, so no create or update was sent), PriceAboveMax
+// (create-log-project's quote priced its order above --max-price, so no
+// order was sent), SystemSecurityGroup (a network update-security-group or
+// delete-security-group targeted a project's system group, so nothing was
+// sent), or SecurityGroupInUse (a network delete-security-group was
+// refused because the group has servers attached, found by a pre-delete
+// read, or because the server's own refusal named the group in use for
+// some other reason).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError

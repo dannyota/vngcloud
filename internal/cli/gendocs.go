@@ -308,8 +308,10 @@ func renderCLIPage(services []docService) string {
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
 		"create wait saw the group reach `ERROR`; see [Network](Network.md#waits)), `NotSettled` (a vDNS " +
-		"write was accepted but did not settle within the wait, or a network create-security-group's wait " +
-		"ran out of time; do not repeat it), `OTPRejected` (create-channel's or " +
+		"write was accepted but did not settle within the wait, or a network create-security-group's or " +
+		"update-security-group's wait ran out of time: a create must not be sent again, since a repeat " +
+		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
+		"resolved group rather than making a new one), `OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
 		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +

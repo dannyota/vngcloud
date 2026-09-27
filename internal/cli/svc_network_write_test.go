@@ -472,8 +472,11 @@ func TestNetworkDeleteSecurityGroupInUseWithServersNoDelete(t *testing.T) {
 // TestNetworkCreateSecurityGroupRuleWorldOpenIngressRequiresYes drives the
 // refuseWorldOpenIngressWithoutYes guard (svc_network_write.go) through
 // both the flag path and the --cli-input-json path, for IPv4 and IPv6,
-// checking that only an ingress rule with a length-0 prefix is blocked
-// without --yes, before any request.
+// checking that a length-0 prefix is blocked without --yes for any
+// direction that is not exactly "egress" (case-insensitively): an uppercase
+// "INGRESS", a misspelled or padded value such as " ingress", and a
+// length-0 prefix with host bits set such as "1.2.3.4/0" must all still be
+// blocked, since the guard fails closed rather than open.
 func TestNetworkCreateSecurityGroupRuleWorldOpenIngressRequiresYes(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -511,6 +514,24 @@ func TestNetworkCreateSecurityGroupRuleWorldOpenIngressRequiresYes(t *testing.T)
 			false,
 		},
 		{
+			"flag path, uppercase INGRESS world-open, no --yes",
+			[]string{"--security-group-id", "secg-1", "--direction", "INGRESS", "--protocol", "tcp",
+				"--port-range-min", "443", "--remote-ip-prefix", "0.0.0.0/0"},
+			true,
+		},
+		{
+			"flag path, direction with a leading space fails closed, no --yes",
+			[]string{"--security-group-id", "secg-1", "--direction", " ingress", "--protocol", "tcp",
+				"--port-range-min", "443", "--remote-ip-prefix", "0.0.0.0/0"},
+			true,
+		},
+		{
+			"flag path, length-0 prefix with host bits set, no --yes",
+			[]string{"--security-group-id", "secg-1", "--direction", "ingress", "--protocol", "tcp",
+				"--port-range-min", "443", "--remote-ip-prefix", "1.2.3.4/0"},
+			true,
+		},
+		{
 			"cli-input-json path, IPv4 world-open ingress, no --yes",
 			[]string{"--cli-input-json", `{"SecurityGroupID":"secg-1","Direction":"ingress","Protocol":"tcp","PortRangeMin":443,"RemoteIPPrefix":"0.0.0.0/0"}`},
 			true,
@@ -523,6 +544,21 @@ func TestNetworkCreateSecurityGroupRuleWorldOpenIngressRequiresYes(t *testing.T)
 		{
 			"cli-input-json path, IPv6 world-open ingress, no --yes",
 			[]string{"--cli-input-json", `{"SecurityGroupID":"secg-1","Direction":"ingress","Protocol":"tcp","PortRangeMin":443,"RemoteIPPrefix":"::/0"}`},
+			true,
+		},
+		{
+			"cli-input-json path, uppercase INGRESS world-open, no --yes",
+			[]string{"--cli-input-json", `{"SecurityGroupID":"secg-1","Direction":"INGRESS","Protocol":"tcp","PortRangeMin":443,"RemoteIPPrefix":"0.0.0.0/0"}`},
+			true,
+		},
+		{
+			"cli-input-json path, direction with a leading space fails closed, no --yes",
+			[]string{"--cli-input-json", `{"SecurityGroupID":"secg-1","Direction":" ingress","Protocol":"tcp","PortRangeMin":443,"RemoteIPPrefix":"0.0.0.0/0"}`},
+			true,
+		},
+		{
+			"cli-input-json path, length-0 prefix with host bits set, no --yes",
+			[]string{"--cli-input-json", `{"SecurityGroupID":"secg-1","Direction":"ingress","Protocol":"tcp","PortRangeMin":443,"RemoteIPPrefix":"1.2.3.4/0"}`},
 			true,
 		},
 	}

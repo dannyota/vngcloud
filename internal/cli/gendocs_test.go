@@ -239,6 +239,29 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 }
 
+// TestGenDocsErrorClassesNotSettledNamesUpdateSecurityGroupAndRepeatRule
+// checks that the NotSettled class names update-security-group as a second
+// source alongside create-security-group, and states that a create must
+// not be repeated while an update may be, since update-security-group's
+// PUT always resends the whole resolved group rather than making a new
+// one.
+func TestGenDocsErrorClassesNotSettledNamesUpdateSecurityGroupAndRepeatRule(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{
+		"update-security-group's wait ran out of time",
+		"a create must not be sent again",
+		"an update may be sent again",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("NotSettled text is missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestGenDocsHasConfigureSectionAndCLIInputJSONSyntax(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -349,6 +372,28 @@ func TestGenDocsPortalOpsDocumentAccountDataAndRedaction(t *testing.T) {
 		section := genDocsSection(t, string(data), op)
 		if !strings.Contains(section, "<redacted>") {
 			t.Errorf("%s section is missing the redaction note:\n%s", op, section)
+		}
+	}
+}
+
+// TestGenDocsCreateSecurityGroupRuleNoteDocumentsWorldOpenGuard checks that
+// create-security-group-rule's own section states the CLI's own guard: an
+// ingress rule from a length-0 prefix (0.0.0.0/0 or ::/0) needs --yes,
+// since the flag table alone gives no hint that --remote-ip-prefix and
+// --direction interact this way.
+func TestGenDocsCreateSecurityGroupRuleNoteDocumentsWorldOpenGuard(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Network.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Network.md: %v", err)
+	}
+	section := genDocsSection(t, string(data), "create-security-group-rule")
+	for _, want := range []string{"--yes", "0.0.0.0/0", "::/0"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("create-security-group-rule section is missing %q:\n%s", want, section)
 		}
 	}
 }
