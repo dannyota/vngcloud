@@ -240,10 +240,10 @@ All methods live in `volume`.
   `Changed` false, nothing sent. Attached elsewhere: the server's refusal.
 - `DetachVolume` reads the volume and the server first:
   - Not attached to that server: `Changed` false, nothing sent.
-  - The server's boot volume: `ErrBootVolume`, nothing sent.
-  - Server `ACTIVE` and `AllowRunning` false: `ErrServerRunning`, nothing
-    sent. A running server may have the volume mounted, and a detach under
-    a mounted filesystem can lose unwritten data. Stop the server, or
+  - The boot volume, a bootable volume, or no boot ID on the server read
+    (always read): `ErrBootVolume`, nothing sent.
+  - Server not `STOPPED`, `AllowRunning` false: `ErrServerRunning`, nothing
+    sent; a mounted volume can lose unwritten data. Stop the server, or
     unmount and pass `AllowRunning`.
 - Attach and detach keep the transport's `PUT` retries: a repeat is
   refused as already attached or already available, never a second
@@ -344,7 +344,7 @@ vngcloud compute create-server ... --max-price 347800
 | Status wrong for start, stop, reboot, or resize | `ErrUnexpectedStatus`, nothing sent | `UnexpectedStatus`, 1 |
 | Delete of an attached volume | `ErrVolumeInUse` | `VolumeInUse`, 1 |
 | Detach of the boot volume | `ErrBootVolume`, nothing sent | `BootVolume`, 1 |
-| Detach from an `ACTIVE` server without `AllowRunning` | `ErrServerRunning`, nothing sent | `ServerRunning`, 1 |
+| Detach from a server that is not `STOPPED`, without `AllowRunning` | `ErrServerRunning`, nothing sent | `ServerRunning`, 1 |
 | `ERROR` in a wait | `ErrFailed`, with Output | `WriteFailed`, 1 |
 | Bound reached, or a start, stop, or reboot not confirmed | `ErrNotSettled`, with Output | `NotSettled`, 1 |
 | Unknown server or volume | `NotFound` | `NotFound`, 4 |
@@ -353,8 +353,8 @@ vngcloud compute create-server ... --max-price 347800
 
 New sentinels: `compute.ErrFailed` and `compute.ErrUnexpectedStatus`
 (`compute.ErrNotSettled` exists); `volume.ErrNotSettled`,
-`volume.ErrFailed`, `volume.ErrVolumeInUse`, `volume.ErrBootVolume`, and
-`volume.ErrServerRunning`. The CLI list in
+`volume.ErrFailed`, `volume.ErrVolumeInUse`, `volume.ErrBootVolume`,
+`volume.ErrServerRunning`, and `volume.ErrUnexpectedStatus`. The CLI list in
 [CLI](cli.md#errors-and-exit-codes) gains `VolumeInUse`, `BootVolume`, and
 `ServerRunning`; the other codes keep their meaning.
 
