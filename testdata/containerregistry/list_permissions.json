@@ -1,4 +1,5 @@
 [
-  {"uuid": "policy-1", "action": "PULL"},
-  {"uuid": "policy-2", "action": "PUSH_PULL"}
+  {"uuid": "policy-1", "action": "Pull Images"},
+  {"uuid": "policy-2", "action": "Push Images"},
+  {"uuid": "policy-3", "action": "All"}
 ]

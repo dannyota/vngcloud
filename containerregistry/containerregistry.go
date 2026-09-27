@@ -5,6 +5,7 @@ package containerregistry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -301,7 +302,9 @@ type User struct {
 // server sending it as a number, which a plain string field fails to
 // decode, unlike every other id in this package. A quoted string is also
 // accepted. Either shape, or the key being absent or null, leaves UserID a
-// string. description arriving JSON null needs no such handling:
+// string; anything else, an object, an array, or a boolean, is a decode
+// error, since userId should only ever be one of those two shapes.
+// description arriving JSON null needs no such handling:
 // encoding/json already leaves a plain string field at its zero value for a
 // null.
 func (u *User) UnmarshalJSON(data []byte) error {
@@ -319,11 +322,15 @@ func (u *User) UnmarshalJSON(data []byte) error {
 	case aux.UserID[0] == '"':
 		var s string
 		if err := json.Unmarshal(aux.UserID, &s); err != nil {
-			return err
+			return fmt.Errorf("containerregistry: user: userId: %w", err)
 		}
 		u.UserID = s
 	default:
-		u.UserID = string(aux.UserID)
+		var n json.Number
+		if err := json.Unmarshal(aux.UserID, &n); err != nil {
+			return fmt.Errorf("containerregistry: user: userId must be a JSON number or string, got %s", aux.UserID)
+		}
+		u.UserID = n.String()
 	}
 	return nil
 }

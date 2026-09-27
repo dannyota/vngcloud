@@ -54,11 +54,16 @@ func TestCreateUserRequestBodyAndLookup(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
-			atomic.AddInt32(&listCalls, 1)
+			n := atomic.AddInt32(&listCalls, 1)
 			if r.URL.Query().Get("name") != "app-ci" {
 				t.Fatalf("list name query = %q, want app-ci", r.URL.Query().Get("name"))
 			}
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				// The pre-create check: no user named app-ci exists yet.
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -67,7 +72,7 @@ func TestCreateUserRequestBodyAndLookup(t *testing.T) {
 
 	out, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
@@ -78,15 +83,81 @@ func TestCreateUserRequestBodyAndLookup(t *testing.T) {
 	if out.SecretKey.Reveal() != "<secret>" {
 		t.Fatalf("SecretKey.Reveal() = %q, want the fixture value", out.SecretKey.Reveal())
 	}
-	if permissionsCalls != 1 || createCalls != 1 || listCalls != 1 {
-		t.Fatalf("calls: permissions=%d create=%d list=%d, want 1 each", permissionsCalls, createCalls, listCalls)
+	if permissionsCalls != 1 || createCalls != 1 || listCalls != 2 {
+		t.Fatalf("calls: permissions=%d create=%d list=%d, want 1 permissions, 1 create, 2 list (pre- and post-create)",
+			permissionsCalls, createCalls, listCalls)
 	}
 }
 
-// TestCreateUserLookupNumericUserID checks that the post-create lookup
-// decodes a live-shaped row, whose userId arrives as a JSON number, without
-// error, and finds it by its exact name.
-func TestCreateUserLookupNumericUserID(t *testing.T) {
+// TestCreateUserNameAlreadyTakenRefusesWithNoCreate checks that CreateUser's
+// pre-create check refuses with ErrInvalidInput, sending no create, when a
+// user already exists with the exact input name: the post-create lookup
+// alone cannot protect against this, since it would just as happily accept
+// an older row with the same name as the one CreateUser itself made.
+func TestCreateUserNameAlreadyTakenRefusesWithNoCreate(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-0","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			t.Fatal("no create expected: a user named app-ci already exists")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
+	})
+	if !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if !strings.Contains(err.Error(), "list-users") {
+		t.Fatalf("err = %v, want it to name list-users", err)
+	}
+}
+
+// TestCreateUserPreCreateCheckFailsClosedOnPartialTotals checks that
+// CreateUser refuses, sending no create, when the pre-create name check's
+// own list response does not carry totals that account for every row: a
+// missing total must never be read as "no match found."
+func TestCreateUserPreCreateCheckFailsClosedOnPartialTotals(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			// No totalPage or totalItem at all: the walk cannot tell
+			// whether this page is the whole story.
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			t.Fatal("no create expected: the pre-create check could not settle whether the name is taken")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
+	})
+	if err == nil {
+		t.Fatal("err = nil, want an error: the pre-create check must fail closed on a response with no totals")
+	}
+}
+
+// TestCreateUserPostCreateLookupFailsClosedOnPartialTotals checks that
+// findCreatedUser also fails closed on a response with partial totals,
+// after a create that already succeeded: the result is ErrUserNotFound,
+// not a silent "found" or "not found", and the Output still holds the
+// secret, since the create itself is not in question.
+func TestCreateUserPostCreateLookupFailsClosedOnPartialTotals(t *testing.T) {
+	var listCalls int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
@@ -95,17 +166,108 @@ func TestCreateUserLookupNumericUserID(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				// The pre-create check: no user named app-ci exists yet.
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
+			// The post-create lookup: a row is there, but the response
+			// reports a total that the single page cannot account for.
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":2}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	out, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
+	})
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("err = %v, want ErrUserNotFound", err)
+	}
+	if out == nil || out.SecretKey.Reveal() != "<secret>" {
+		t.Fatalf("out = %+v, want the Output to still hold the secret", out)
+	}
+}
+
+// TestCreateUserExactNameLookupWalksMultiplePages checks that the shared
+// exact-name lookup does not stop at the first page: a match on a later
+// page must still be found, and the walk must still fail closed if a later
+// page's own totals do not add up.
+func TestCreateUserExactNameLookupWalksMultiplePages(t *testing.T) {
+	var listCalls int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			w.WriteHeader(http.StatusOK)
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case n == 1:
+				// The pre-create check: no user named app-ci exists yet,
+				// reported as a single, fully-accounted page.
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+			case r.URL.Query().Get("page") == "1":
+				// The post-create lookup's first page: one unrelated row,
+				// with a second page still to come.
+				_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-0","name":"other"}],"page":1,"pageSize":10000,"totalPage":2,"totalItem":2}`))
+			default:
+				// The post-create lookup's second page: the created row.
+				_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":2,"pageSize":10000,"totalPage":2,"totalItem":2}`))
+			}
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	out, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if out.User.ID != "ra-1" {
+		t.Fatalf("User.ID = %q, want ra-1: the match was on the lookup's second page", out.User.ID)
+	}
+}
+
+// TestCreateUserLookupNumericUserID checks that the post-create lookup
+// decodes a live-shaped row, whose userId arrives as a JSON number, without
+// error, and finds it by its exact name.
+func TestCreateUserLookupNumericUserID(t *testing.T) {
+	var listCalls int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			w.WriteHeader(http.StatusOK)
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
 			if r.URL.Query().Get("name") != "app-ci" {
 				t.Fatalf("list name query = %q, want app-ci", r.URL.Query().Get("name"))
 			}
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci","userId":20260101}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		}
 	}))
 
 	out, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
@@ -135,7 +297,7 @@ func TestCreateUserLookupSuffixIsNotAMatch(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err = %v, want ErrUserNotFound: prefix-app-ci only ends with app-ci, and the server applies no account prefix, so it is not a match", err)
@@ -143,6 +305,7 @@ func TestCreateUserLookupSuffixIsNotAMatch(t *testing.T) {
 }
 
 func TestCreateUserSendsDurationWhenSet(t *testing.T) {
+	var listCalls int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
@@ -155,7 +318,12 @@ func TestCreateUserSendsDurationWhenSet(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		}
 	}))
@@ -163,7 +331,7 @@ func TestCreateUserSendsDurationWhenSet(t *testing.T) {
 	if _, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:         "app-ci",
 		DurationDays: vngcloud.Ptr(90),
-		Permissions:  []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions:  []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	}); err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
@@ -178,12 +346,12 @@ func TestCreateUserShapeRefusals(t *testing.T) {
 		name string
 		in   *CreateUserInput
 	}{
-		{"empty name", &CreateUserInput{Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}}}},
+		{"empty name", &CreateUserInput{Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}}}},
 		{"nil permissions", &CreateUserInput{Name: "app"}},
 		{"empty permission list", &CreateUserInput{Name: "app", Permissions: []UserPermission{}}},
 		{"permission with no action", &CreateUserInput{Name: "app", Permissions: []UserPermission{{RepositoryID: "repo-1"}}}},
-		{"bad repository id", &CreateUserInput{Name: "app", Permissions: []UserPermission{{RepositoryID: "../etc", Actions: []string{"PULL"}}}}},
-		{"duration zero", &CreateUserInput{Name: "app", DurationDays: vngcloud.Ptr(0), Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}}}},
+		{"bad repository id", &CreateUserInput{Name: "app", Permissions: []UserPermission{{RepositoryID: "../etc", Actions: []string{"Pull Images"}}}}},
+		{"duration zero", &CreateUserInput{Name: "app", DurationDays: vngcloud.Ptr(0), Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}}}},
 	}
 	for _, tc := range cases {
 		if _, err := c.CreateUser(context.Background(), tc.in); !errors.Is(err, vngcloud.ErrInvalidInput) {
@@ -218,7 +386,7 @@ func TestCreateUserUnknownActionAfterPermissionsRead(t *testing.T) {
 	if permCalls != 1 {
 		t.Fatalf("permissions calls = %d, want 1: the unknown action must be checked against a live read", permCalls)
 	}
-	if !strings.Contains(err.Error(), "PULL") {
+	if !strings.Contains(err.Error(), "Pull Images") {
 		t.Fatalf("err = %v, want it to name a known action", err)
 	}
 }
@@ -239,7 +407,7 @@ func TestCreateUserLookupNoMatchReturnsUserNotFound(t *testing.T) {
 
 	out, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err = %v, want ErrUserNotFound", err)
@@ -250,6 +418,7 @@ func TestCreateUserLookupNoMatchReturnsUserNotFound(t *testing.T) {
 }
 
 func TestCreateUserLookupTwoMatchesReturnsUserNotFound(t *testing.T) {
+	var listCalls int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
@@ -258,14 +427,22 @@ func TestCreateUserLookupTwoMatchesReturnsUserNotFound(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				// The pre-create check must not itself see the two rows the
+				// post-create lookup below sees, or CreateUser would refuse
+				// before ever sending the create.
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"},{"uuid":"ra-2","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":2}`))
 		}
 	}))
 
 	out, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err = %v, want ErrUserNotFound", err)
@@ -294,7 +471,7 @@ func TestCreateUserLookupSubstringOnlyIsNotAMatch(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err = %v, want ErrUserNotFound: app-ci-2 only contains app-ci as a substring, not a suffix", err)
@@ -302,21 +479,26 @@ func TestCreateUserLookupSubstringOnlyIsNotAMatch(t *testing.T) {
 }
 
 func TestCreateUserEmptySecretKeyFails(t *testing.T) {
+	var listCalls int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			atomic.AddInt32(&listCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"secretKey":""}`))
 		default:
-			t.Fatal("no list expected: the create itself failed, there is nothing to look up")
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 	}))
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) {
@@ -324,6 +506,9 @@ func TestCreateUserEmptySecretKeyFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "list-users") {
 		t.Fatalf("err = %v, want it to name list-users", err)
+	}
+	if listCalls != 1 {
+		t.Fatalf("list calls = %d, want 1: only the pre-create check, since the create itself failed and there is nothing to look up", listCalls)
 	}
 }
 
@@ -333,6 +518,9 @@ func TestCreateUserStatusErrors(t *testing.T) {
 			switch {
 			case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 				testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 			case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 				w.WriteHeader(status)
 				_, _ = w.Write([]byte(`{"message":"failed"}`))
@@ -341,7 +529,7 @@ func TestCreateUserStatusErrors(t *testing.T) {
 
 		_, err := c.CreateUser(context.Background(), &CreateUserInput{
 			Name:        "app-ci",
-			Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+			Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 		})
 		var apiErr *core.APIError
 		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
@@ -356,6 +544,9 @@ func TestCreateUserNoRetryAfter502(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 			createCalls.Add(1)
 			w.WriteHeader(http.StatusBadGateway)
@@ -365,7 +556,7 @@ func TestCreateUserNoRetryAfter502(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err == nil {
 		t.Fatal("err = nil, want an error")
@@ -386,6 +577,9 @@ func TestCreateUserRejectionNotWrapped(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"message":"name already exists"}`))
@@ -394,7 +588,7 @@ func TestCreateUserRejectionNotWrapped(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err == nil {
 		t.Fatal("err = nil, want an error")
@@ -408,6 +602,7 @@ func TestCreateUserRejectionNotWrapped(t *testing.T) {
 // never leaks the fixture secret through fmt verbs, slog, or json.Marshal,
 // and that "[redacted]" appears in its place.
 func TestCreateUserSecretRedaction(t *testing.T) {
+	var listCalls int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
@@ -416,14 +611,19 @@ func TestCreateUserSecretRedaction(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		}
 	}))
 
 	out, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
@@ -474,6 +674,7 @@ func TestCreateUserSecretRedaction(t *testing.T) {
 // also makes) ever holds the fixture secret.
 func TestCreateUserNeverCaptured(t *testing.T) {
 	var captured []transport.Capture
+	var listCalls int32
 	cfg := testutil.NewConfigWithCapture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
@@ -482,7 +683,12 @@ func TestCreateUserNeverCaptured(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			n := atomic.AddInt32(&listCalls, 1)
 			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		}
 	}), func(call transport.Capture) {
@@ -492,7 +698,7 @@ func TestCreateUserNeverCaptured(t *testing.T) {
 
 	if _, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	}); err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
@@ -533,6 +739,9 @@ func TestCreateUserOnceNoResendAfter401(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 			createCalls.Add(1)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -548,13 +757,16 @@ func TestCreateUserOnceNoResendAfter401(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if !errors.Is(err, core.ErrAuth) {
 		t.Fatalf("err = %v, want core.ErrAuth", err)
 	}
 	if createCalls.Load() != 1 {
 		t.Fatalf("POST calls = %d, want 1: a Once request must never resend after a 401", createCalls.Load())
+	}
+	if strings.Contains(err.Error(), "list-users") {
+		t.Fatalf("a 401 should not get the ambiguous-create hint: it is the gateway rejecting the token before the create logic ever runs, so it creates nothing: %v", err)
 	}
 }
 
@@ -568,6 +780,9 @@ func TestCreateUserOnceRefusesRedirect(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
 			createCalls.Add(1)
 			w.Header().Set("Location", "/v1/user/moved")
@@ -579,7 +794,7 @@ func TestCreateUserOnceRefusesRedirect(t *testing.T) {
 
 	_, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
-		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
 	if err == nil {
 		t.Fatal("err = nil, want an error for the 307")

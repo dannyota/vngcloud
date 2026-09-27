@@ -9,14 +9,14 @@
       "expiredAt": "2026-06-01T00:00:00Z",
       "createdAt": "2026-01-01T00:00:00Z",
       "numberOfRepo": 2,
-      "userId": "<account>",
+      "userId": 1000001,
       "repoPermissionList": [
         {
           "repoId": "repo-1",
           "repoName": "app",
           "backendRepoName": "app",
           "policyDtoList": [
-            {"uuid": "policy-1", "action": "PULL"}
+            {"uuid": "policy-1", "action": "Pull Images"}
           ]
         },
         {
@@ -24,7 +24,7 @@
           "repoName": "web",
           "backendRepoName": "web",
           "policyDtoList": [
-            {"uuid": "policy-2", "action": "PUSH_PULL"}
+            {"uuid": "policy-2", "action": "Push Images"}
           ]
         }
       ]

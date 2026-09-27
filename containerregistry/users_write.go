@@ -76,34 +76,43 @@ type CreateUserOutput struct {
 
 // CreateUser creates a repository user.
 //
-// It runs in three steps: it checks Input shape, entirely offline; it reads
-// ListPermissions and maps each requested action to its policy id, since
-// the server's own list is the authority for action names (an unknown
-// action is core.ErrInvalidInput naming the ones ListPermissions did
-// return, and nothing is sent); and it sends the create itself with
-// transport.Request.Sensitive set, so the response never reaches the
+// It checks Input shape, entirely offline; reads ListPermissions and maps
+// each requested action to its policy id, since the server's own list is
+// the authority for action names (an unknown action is core.ErrInvalidInput
+// naming the ones ListPermissions did return, and nothing is sent); then,
+// before sending anything, lists users by Name and refuses with
+// core.ErrInvalidInput, naming list-users --name <name>, if a row already
+// matches the name exactly. That check walks every page and fails closed,
+// returning an error rather than a guess, when the listing cannot account
+// for every row (see listUsersExactMatch); either way this is the same
+// failure mode as any other pre-create validation, nothing sent, so it
+// costs nothing to check first. Only then does it send the create itself,
+// with transport.Request.Sensitive set, so the response never reaches the
 // configured response-capture hook and a decode failure never quotes it.
 //
 // The response carries only a secret key, no user id, so CreateUser finds
-// the new user by calling ListUsers with Name and keeping rows whose Name
-// equals the input exactly: a live capture confirms the server applies no
-// account prefix to a user's name. Exactly one match fills User; zero or
-// more than one leaves User unfilled and returns an error wrapping
-// ErrUserNotFound, naming list-users --name <name> to check by hand. Either
-// way SecretKey is already set on the returned Output, since the create
-// itself succeeded and the secret is shown once: a lookup failure never
-// drops it.
+// the new user with the same exact-name lookup: a live capture confirms
+// the server applies no account prefix to a user's name. Exactly one match
+// fills User; zero or more than one, or the lookup itself failing closed,
+// leaves User unfilled and returns an error wrapping ErrUserNotFound,
+// naming list-users --name <name> to check by hand. Either way SecretKey
+// is already set on the returned Output, since the create itself succeeded
+// and the secret is shown once: a lookup failure never drops it.
 //
 // The create is a POST, sent with Once (transport.Request.Once, ADR 0003
-// rule 3): besides never retrying after a failure that may have already
-// reached the server, it is never resent after a 401 or a followed
-// redirect, either of which would otherwise create a second user with a
-// second secret. After any error isClientRejectionError does not accept as
-// an outright rejection, the user may exist, and the caller runs list-users
-// --name <name> and deletes a match, since it has already lost its secret,
-// before creating again rather than retrying blind. A 200 response with an
-// empty secretKey is treated the same way, through a *core.APIError naming
-// the same check.
+// rule 3): a followed redirect would resend the same create at the
+// Location the server names, creating a second user with a second secret,
+// so Once refuses to follow one. A 401 is not the same kind of risk: the
+// API gateway rejects a stale or invalid token before the request ever
+// reaches the create logic, so it creates nothing, and
+// isClientRejectionError treats it as an outright rejection like any other
+// 4xx (see isClientRejectionError). After any other error
+// isClientRejectionError does not accept as an outright rejection, such as
+// a 5xx or a network failure, the user may exist, and the caller runs
+// list-users --name <name> and deletes a match, since it has already lost
+// its secret, before creating again rather than retrying blind. A 200
+// response with an empty secretKey is treated the same way, through a
+// *core.APIError naming the same check.
 func (c *Client) CreateUser(ctx context.Context, in *CreateUserInput) (*CreateUserOutput, error) {
 	const op = "containerregistry.CreateUser"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -145,6 +154,15 @@ func (c *Client) CreateUser(ctx context.Context, in *CreateUserInput) (*CreateUs
 			policyIDs = append(policyIDs, id)
 		}
 		body.PermissionRequestList = append(body.PermissionRequestList, permissionRequestBody{RepoID: p.RepositoryID, PolicyIDList: policyIDs})
+	}
+
+	existing, err := c.listUsersExactMatch(ctx, in.Name)
+	if err != nil {
+		return nil, fmt.Errorf("%s: could not confirm a user named %q does not already exist: %w", op, in.Name, err)
+	}
+	if len(existing) > 0 {
+		return nil, fmt.Errorf("%w: %s: a user named %q already exists; check list-users --name %q",
+			core.ErrInvalidInput, op, in.Name, in.Name)
 	}
 
 	var resp createUserResponse
@@ -192,10 +210,13 @@ func knownActions(items []Permission) []string {
 // wrapAmbiguousUserCreateErr wraps err from the create POST op just sent,
 // unless err is a *core.APIError isClientRejectionError accepts: a
 // rejection outright, so nothing was created and the exact same call is
-// safe to retry. Any other error, including a 401 or a redirect status the
-// create's Once request refused to follow, leaves whether the user reached
-// the server unknown, and a user found by list afterward has already lost
-// its secret and should be deleted rather than kept.
+// safe to retry. This includes a 401: the API gateway rejects a stale or
+// invalid token before the request reaches the create logic, so a 401
+// always creates nothing (see isClientRejectionError). Any other error,
+// such as a 5xx, a network failure, or a redirect status the create's Once
+// request refused to follow, leaves whether the user reached the server
+// unknown, and a user found by list afterward has already lost its secret
+// and should be deleted rather than kept.
 func wrapAmbiguousUserCreateErr(op, name string, err error) error {
 	if err == nil {
 		return nil
@@ -207,23 +228,86 @@ func wrapAmbiguousUserCreateErr(op, name string, err error) error {
 		op, name, err)
 }
 
+// maxUserListPages bounds the page walk in listUsersExactMatch: far more
+// pages than a personal account's user list should ever need, so a server
+// that never reaches its own reported last page is treated as an error
+// rather than an unbounded loop.
+const maxUserListPages = 100
+
+// listUsersExactMatch walks every page of GET v1/user filtered by name,
+// keeping only rows whose Name equals name exactly: the server's own name
+// filter matches by substring, not exact name, so a caller after only the
+// first page could miss a real match on a later one, or wrongly treat a
+// substring match as the name being taken. It is the shared basis for
+// CreateUser's own two exact-name lookups: the pre-create check that
+// refuses a create when the name is already taken, and findCreatedUser's
+// post-create lookup.
+//
+// It decodes each page itself, the same shape userFoundAfterServerError
+// uses, rather than through ListUsers, so it can tell "the response
+// carried no totals" apart from "the response said 0": TotalPage and
+// TotalItem being pointers is what makes that possible. It fails closed,
+// returning an error instead of a possibly-incomplete slice, whenever a
+// page cannot be trusted to account for every row: TotalPage or TotalItem
+// absent, the walk exceeding maxUserListPages before reaching the
+// reported last page, or the items collected across every page not adding
+// up to the server's own TotalItem. Both callers must refuse to guess
+// rather than risk a false negative: a missed duplicate name, or a missed
+// row that would have resolved the user CreateUser just made.
+func (c *Client) listUsersExactMatch(ctx context.Context, name string) ([]User, error) {
+	var matches []User
+	collected := 0
+	for page := 1; page <= maxUserListPages; page++ {
+		q := url.Values{}
+		q.Set("name", name)
+		q.Set("page", strconv.Itoa(page))
+		q.Set("size", strconv.Itoa(core.DefaultPageSize))
+
+		var resp userListConfirmResponse
+		if err := c.c.DoJSON(ctx, transport.Request{
+			Operation: "containerregistry.listUsersExactMatch",
+			Method:    http.MethodGet,
+			URL:       c.vcrURL([]string{"user"}, q),
+			OK:        []int{200},
+		}, &resp); err != nil {
+			return nil, err
+		}
+
+		items := resp.items()
+		for _, u := range items {
+			if u.Name == name {
+				matches = append(matches, u)
+			}
+		}
+		collected += len(items)
+
+		if resp.TotalPage == nil || resp.TotalItem == nil {
+			return nil, fmt.Errorf("containerregistry: user list for %q: response carried no totals; inconclusive", name)
+		}
+		if page >= *resp.TotalPage {
+			if collected != *resp.TotalItem {
+				return nil, fmt.Errorf("containerregistry: user list for %q: collected %d of %d item(s) across %d page(s); inconclusive",
+					name, collected, *resp.TotalItem, *resp.TotalPage)
+			}
+			return matches, nil
+		}
+	}
+	return nil, fmt.Errorf("containerregistry: user list for %q: exceeded %d pages without reaching the reported last page; inconclusive",
+		name, maxUserListPages)
+}
+
 // findCreatedUser lists users by name and keeps rows whose Name equals name
 // exactly, for CreateUser's post-create lookup: a live capture confirms the
 // server applies no account prefix to a user's name, so an exact match is
 // the only correct one. Exactly one match is returned; zero or more than
-// one, or the list call itself failing, returns an error wrapping
-// ErrUserNotFound, since the secret has already been issued either way and
-// must not be treated as lost just because the lookup could not settle it.
+// one, or the list itself failing closed (see listUsersExactMatch), returns
+// an error wrapping ErrUserNotFound, since the secret has already been
+// issued either way and must not be treated as lost just because the
+// lookup could not settle it.
 func (c *Client) findCreatedUser(ctx context.Context, op, name string) (*User, error) {
-	list, err := c.ListUsers(ctx, &ListUsersInput{Name: name})
+	matches, err := c.listUsersExactMatch(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: created user %q could not be confirmed by list-users --name %q: %w", ErrUserNotFound, op, name, name, err)
-	}
-	var matches []User
-	for _, u := range list.Items {
-		if u.Name == name {
-			matches = append(matches, u)
-		}
 	}
 	if len(matches) != 1 {
 		return nil, fmt.Errorf("%w: %s: %d user(s) named like %q found by list-users --name %q; check that list and delete an unwanted match",

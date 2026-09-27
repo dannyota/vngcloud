@@ -2,6 +2,7 @@ package containerregistry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -56,14 +57,14 @@ func TestContainerRegistryListUsers(t *testing.T) {
 		t.Fatalf("unexpected users: %+v", out)
 	}
 	u := out.Items[0]
-	if u.ID != "ra-1" || u.Name != "app-ci" || u.UserID != "<account>" || u.Disabled || u.NumberOfRepositories != 2 {
+	if u.ID != "ra-1" || u.Name != "app-ci" || u.UserID != "1000001" || u.Disabled || u.NumberOfRepositories != 2 {
 		t.Fatalf("unexpected user: %+v", u)
 	}
 	if len(u.Repositories) != 2 {
 		t.Fatalf("Repositories = %d, want 2", len(u.Repositories))
 	}
 	first := u.Repositories[0]
-	if first.RepositoryID != "repo-1" || first.RepositoryName != "app" || len(first.Policies) != 1 || first.Policies[0].Action != "PULL" {
+	if first.RepositoryID != "repo-1" || first.RepositoryName != "app" || len(first.Policies) != 1 || first.Policies[0].Action != "Pull Images" {
 		t.Fatalf("unexpected first repository permission: %+v", first)
 	}
 }
@@ -92,6 +93,27 @@ func TestContainerRegistryListUsersNumericUserID(t *testing.T) {
 	}
 	if u.ID != "ra-2" || u.Name != "vcu-live" {
 		t.Fatalf("unexpected user: %+v", u)
+	}
+}
+
+// TestUserUnmarshalJSONRejectsNonNumericUserID checks that a userId which is
+// neither a JSON number nor a JSON string, an object here, is a decode
+// error rather than being silently stringified.
+func TestUserUnmarshalJSONRejectsNonNumericUserID(t *testing.T) {
+	var u User
+	err := json.Unmarshal([]byte(`{"uuid":"ra-1","name":"app-ci","userId":{"bad":true}}`), &u)
+	if err == nil {
+		t.Fatal("Unmarshal() error = nil, want an error for an object userId")
+	}
+}
+
+// TestUserUnmarshalJSONRejectsBooleanUserID covers the same rule for a
+// boolean userId.
+func TestUserUnmarshalJSONRejectsBooleanUserID(t *testing.T) {
+	var u User
+	err := json.Unmarshal([]byte(`{"uuid":"ra-1","name":"app-ci","userId":true}`), &u)
+	if err == nil {
+		t.Fatal("Unmarshal() error = nil, want an error for a boolean userId")
 	}
 }
 
@@ -144,7 +166,8 @@ func TestContainerRegistryListPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPermissions() error = %v", err)
 	}
-	if len(out.Items) != 2 || out.Items[0].ID != "policy-1" || out.Items[0].Action != "PULL" || out.Items[1].Action != "PUSH_PULL" {
+	if len(out.Items) != 3 || out.Items[0].ID != "policy-1" || out.Items[0].Action != "Pull Images" ||
+		out.Items[1].Action != "Push Images" || out.Items[2].Action != "All" {
 		t.Fatalf("unexpected permissions: %+v", out.Items)
 	}
 }

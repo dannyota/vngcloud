@@ -4670,11 +4670,14 @@ func isLiveVCRRepositoryName(name string) bool {
 // vcrLiveUserNameSuffixPattern is the live vCR write test's own repository
 // user naming scheme. A live 400 confirms a user's own name rule is 6 to 14
 // characters, too short for vcrlive- (let alone vngcloud-live-) plus 8 hex
-// digits, so users get their own vcu- prefix instead.
-var vcrLiveUserNameSuffixPattern = regexp.MustCompile(`vcu-[0-9a-f]{8}$`)
+// digits, so users get their own vcu- prefix instead. The pattern is
+// anchored at both ends, unlike vcrLiveNameSuffixPattern: vcu- is short
+// enough that an unrelated name could otherwise end with it by chance,
+// wrongly pulling that name into the leftover sweep and cleanup checks.
+var vcrLiveUserNameSuffixPattern = regexp.MustCompile(`^vcu-[0-9a-f]{8}$`)
 
-// isLiveVCRUserName reports whether name ends with
-// vcrLiveUserNameSuffixPattern.
+// isLiveVCRUserName reports whether name matches
+// vcrLiveUserNameSuffixPattern exactly.
 func isLiveVCRUserName(name string) bool {
 	return vcrLiveUserNameSuffixPattern.MatchString(name)
 }
@@ -5000,7 +5003,7 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	}
 	client := containerregistry.New(cfg)
 
-	// Step 1: delete every leftover vcrlive-* user, then every leftover
+	// Step 1: delete every leftover vcu-* user, then every leftover
 	// vcrlive-* repository holding no images, from a previous run.
 	leftoverUsers, err := client.ListUsers(ctx, nil)
 	if err != nil {

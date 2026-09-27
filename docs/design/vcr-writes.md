@@ -217,15 +217,23 @@ The change breaks callers that index the maps. The release notes say so.
    `ErrInvalidInput` naming the known ones, nothing sent. The server's
    list is the authority, so this is a lookup, not a value rule (ADR 0002
    rule 5).
-3. Send the create with `Sensitive` set, so the capture hook never sees
+3. List users by the exact input name, walking every page up to a fixed
+   cap, and refuse with `ErrInvalidInput`, sending no create, if a row
+   already matches the name exactly: the post-create lookup in step 5
+   cannot tell its own new row apart from an older one with the same name,
+   so this check is the only place that can. The walk fails closed,
+   returning an error instead of a possibly wrong answer, whenever a page's
+   own totals do not account for every row it should have covered, or the
+   list call itself fails; either way nothing is sent.
+4. Send the create with `Sensitive` set, so the capture hook never sees
    the response and a decode error never quotes it. The secret is decoded
    straight into `vngcloud.Secret`. A 200 with an empty `secretKey` is an
    `*APIError` whose message says a user may exist and names
    `list-users --name <name>`.
-4. Find the user: `ListUsers` with the name filter, then keep the row whose
-   `name` equals the input exactly. A live capture confirms the server
-   applies no account prefix to a user's name. One row fills `User`. None
-   or several: the Output still holds `SecretKey`, and the error wraps
+5. Find the user with the same exact-name walk as step 3. A live capture
+   confirms the server applies no account prefix to a user's name. One row
+   fills `User`. None, several, or the walk failing closed the same way as
+   step 3: the Output still holds `SecretKey`, and the error wraps
    `ErrUserNotFound`, whose message names the list to check. The secret is
    never dropped because a lookup failed.
 
@@ -233,10 +241,14 @@ The change breaks callers that index the maps. The release notes say so.
   `A-Z`, `0-9`, `_`, and `-`, starting with a letter or digit. This is a
   server value rule (ADR 0002 rule 5): the SDK does not check it.
 - The create is `POST`, sent with `Once` (`transport.Request.Once`, ADR
-  0003 rule 3): a resend after a 401 or a followed redirect, not only a
-  5xx or network error, would create a second user with a second secret. A
-  user found by list after any such failure has lost its secret: delete
-  it.
+  0003 rule 3): a followed redirect would resend the same create at the
+  Location the server names, creating a second user with a second secret.
+  A 401 is different: the API gateway rejects a stale or invalid token
+  before the request reaches the create logic, so a 401 always creates
+  nothing, and is treated as an outright rejection like any other 4xx. A
+  resend after a 5xx or a network error is still refused, since either can
+  mean the server already acted; a user found by list after one of those
+  has lost its secret: delete it.
 - `DurationDays` nil sends no `duration`, which the console calls "no
   expiration". The wiki recommends an expiry.
 - `DeleteUser` sends the `DELETE` to the user's uuid (`User.ID`); a live

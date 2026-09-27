@@ -293,24 +293,54 @@ shows the three actions "Pull Images", "Push Images", and "All"), so an
 unknown action fails before any create is sent. The server's own name rule
 for a user is 6 to 14 characters, only `a-z`, `A-Z`, `0-9`, `_`, and `-`,
 starting with a letter or digit; the SDK sends `Name` as given and does not
-check this. The response carries only a secret key, no user id, so
-`CreateUser` finds the new user by listing users with `Name` and keeping
-the row whose name equals it exactly: a live capture shows the server
-applies no account prefix. One match fills `User`; zero or more than one
-returns an error wrapping `ErrUserNotFound`, naming `list-users --name
-<name>` to check by hand, while `SecretKey` on the Output is still set
-either way, since the create itself already succeeded. `SecretKey` is a
-`vngcloud.Secret`: printing, logging, or JSON-encoding the Output gives
-`[redacted]`, and `Reveal()` is the only way to read it back. `CreateUser`
-sends the create with `Once`: it is never resent after a 5xx, a network
-error, a 401, or a followed redirect, since any of these could still create
-a second user with a second secret; a user found afterward by `list-users
---name <name>` has already lost its secret and should be deleted before
-creating again. `DurationDays` left nil creates a user with no expiration;
-the wiki recommends setting one for a pull user meant to be temporary.
+check this. Before sending the create, `CreateUser` also lists users by the
+exact input name and refuses with `vngcloud.ErrInvalidInput`, sending
+nothing, if a user is already named that: the create response carries no
+user id, so a lookup after the fact could otherwise resolve to an older
+user that just happens to share the name.
+
+A repository user is a credential that can push images other systems run.
+The example below creates a pull-only user with an expiry, rather than an
+unrestricted, permanent one:
+
+```go
+created, err := vcrClient.CreateUser(ctx, &containerregistry.CreateUserInput{
+	Name:         "app-ci",
+	DurationDays: vngcloud.Ptr(90),
+	Permissions: []containerregistry.UserPermission{
+		{RepositoryID: "<repository-id>", Actions: []string{"Pull Images"}},
+	},
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.SecretKey.Reveal())
+```
+
+The response carries only a secret key, no user id, so `CreateUser` finds
+the new user with the same exact-name listing: a live capture shows the
+server applies no account prefix. One match fills `User`; zero or more
+than one returns an error wrapping `ErrUserNotFound`, naming `list-users
+--name <name>` to check by hand, while `SecretKey` on the Output is still
+set either way, since the create itself already succeeded. Both this
+lookup and the pre-create check walk every page of the list and fail
+closed, returning an error rather than a guess, when a page's own totals
+do not add up. `SecretKey` is a `vngcloud.Secret`: printing, logging, or
+JSON-encoding the Output gives `[redacted]`, and `Reveal()` is the only way
+to read it back. `CreateUser` sends the create with `Once`: a followed
+redirect is refused, since it would resend the same create and its secret
+a second time. A 401 is not the same risk: the API gateway rejects a stale
+or invalid token before the request reaches the create logic, so a 401
+always creates nothing. A 5xx or a network error is still never resent,
+since either can mean the server already acted; a user found afterward by
+`list-users --name <name>` has already lost its secret and should be
+deleted before creating again. `DurationDays` left nil creates a user with
+no expiration; set one for a pull user meant to be temporary.
 
 `DeleteUser` sends the delete directly: a user holds no data of its own,
 so there is no pre-delete guard.
 
-Repository and user names, registry URLs, and ids are account data. The
-`docker login` steps and which name it takes are not covered yet.
+Repository and user names, registry URLs, and ids are account data.
+`docker login vcr.vngcloud.vn -u <login name> --password-stdin` takes the
+secret as the password; whether `<login name>` is the repository user's
+own name or the repository's name is unverified.
