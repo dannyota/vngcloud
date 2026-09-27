@@ -1,6 +1,6 @@
 # vServer Network Writes 2: Checks
 
-Status: Proposed, with
+Status: Accepted (2026-09-27), with
 [vServer network writes 2](vserver-network-writes-2.md).
 
 The unit tests, probes, live checks, and security review for

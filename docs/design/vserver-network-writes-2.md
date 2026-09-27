@@ -1,6 +1,7 @@
 # vServer Network Writes 2 Design
 
-Status: Proposed.
+Status: Accepted (2026-09-27). The owner approved every recommendation
+under [Owner decisions](#owner-decisions).
 
 This design adds the three writes the
 [free writes survey](free-writes-survey.md) left after

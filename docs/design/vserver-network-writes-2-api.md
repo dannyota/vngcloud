@@ -1,6 +1,6 @@
 # vServer Network Writes 2: API
 
-Status: Proposed, with
+Status: Accepted (2026-09-27), with
 [vServer network writes 2](vserver-network-writes-2.md).
 
 The API shapes, server rules, and cost evidence behind
