@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.24.0 - SSH Key Writes
+
+### Highlights
+
+- New `compute.GetSSHKey`, `ImportSSHKey`, `CreateSSHKey`, and
+  `DeleteSSHKey`, with matching `vngcloud compute` commands.
+- Import takes RSA public keys only; the server refuses `ssh-ed25519`.
+- `create-ssh-key` needs `--secret-file`: the CLI writes the new private
+  key to a new file with mode 0600 and prints it only as `[redacted]`. If
+  that write fails, the CLI deletes the key and exits with
+  `SecretFileFailed`.
+- New `vngcloud.Secret` type: its value prints as `[redacted]` under
+  `fmt`, `slog`, and JSON, except for `%p`, `gob`, and reflection.
+- A missing key reads as `NotFound` on get and delete.
+
+### Behavior changes
+
+`compute.SSHKey` drops `PrivateKey`. Breaking.
+
 ## v0.23.0 - Security Group Writes
 
 ### Highlights
