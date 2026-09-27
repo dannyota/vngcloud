@@ -368,17 +368,22 @@ func renderCLIPage(services []docService) string {
 		"`RepositoryNotEmpty` (a containerregistry delete-repository was refused because a pre-delete read " +
 		"showed the repository still holds images; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#delete-repository)), " +
-		"`SecretFileFailed` (create-ssh-key's own " +
-		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
-		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
+		"`UserNotFound` (a containerregistry create-user's own create succeeded but a follow-up list could " +
+		"not confirm the new user by name; the new secret is still written to --secret-file either way; see " +
+		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
+		"`SecretFileFailed` (create-ssh-key's or create-user's own " +
+		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key or user; " +
+		"see [Compute](CLI-Compute.md#create-ssh-key) and [ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
+		"or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
-		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
-		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
-		"[Network](Network.md#waits), and [ContainerRegistry](CLI-ContainerRegistry.md#create-repository). " +
+		"404 already carries code `NotFound` through the API error case above). For `WriteFailed`, `NotSettled`, " +
+		"and `UserNotFound` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
+		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), and " +
+		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"and `SecretFileFailed` all exit 1.\n\n")
+		"`UserNotFound`, and `SecretFileFailed` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

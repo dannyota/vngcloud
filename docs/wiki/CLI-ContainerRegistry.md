@@ -18,6 +18,24 @@ Always creates a private repository; there is no --public flag. The server appli
 vngcloud containerregistry create-repository --name <name> --quota-limit-gb <quota-limit-gb>
 ```
 
+## create-user
+
+Kind: Write.
+
+The server requires --name to be 6 to 14 characters of letters, digits, '_', or '-', starting with a letter or digit, and refuses any other name with 400. Each Permissions[].Actions entry must exactly match one of the server's own action names, read from list-permissions: currently "Pull Images", "Push Images", and "All"; an unknown action is refused before any request, naming the ones list-permissions did return. Needs --secret-file <path>: the create returns the new secret once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed SecretKey field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. The create is never retried after a failure that may have already reached the server: run list-users --name <name> and delete a stray match before creating again, rather than repeating this command blindly, since that match has already lost its secret. When the create itself succeeds but a follow-up list cannot confirm the new user by name (error code UserNotFound), the secret is still written to --secret-file and the command still exits 1; check list-users --name <name> by hand. If writing --secret-file itself fails, the new user is deleted through the SDK and the command exits 1 with error code SecretFileFailed; without a confirmed user id (after UserNotFound) or if that delete also fails, the message names the user only by --name, for a person to find and delete by hand. Which of the printed User's Name or a repository's own Name is docker login's -u value is unconfirmed; the vCR writes design recommends trying the user's Name first.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--duration-days` | `*int` |  |
+| `Permissions` (via `--cli-input-json` only) | `[]containerregistry.UserPermission` | yes |
+| `--secret-file` | `string` | yes |
+
+```sh
+vngcloud containerregistry create-user --name <name> --secret-file <secret-file> --cli-input-json '{"Permissions":[{"RepositoryID":"<repository-id>","Actions":["Pull Images"]}]}'
+```
+
 ## delete-repository
 
 Kind: Write, destructive.
@@ -31,6 +49,20 @@ Refuses, before any request, a repository that still holds images (error code Re
 
 ```sh
 vngcloud containerregistry delete-repository --repository-id <repository-id> --yes
+```
+
+## delete-user
+
+Kind: Write, destructive.
+
+A user holds no data of its own, so there is no pre-delete guard. A repeat delete of an already-deleted user returns NotFound.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--user-id` | `string` | yes |
+
+```sh
+vngcloud containerregistry delete-user --user-id <user-id> --yes
 ```
 
 ## get-repository
@@ -47,6 +79,16 @@ How a missing repository reads is unconfirmed: the API reference documents only 
 vngcloud containerregistry get-repository --repository-id <repository-id> --query Repository
 ```
 
+## list-permissions
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud containerregistry list-permissions
+```
+
 ## list-repositories
 
 Kind: Read.
@@ -60,5 +102,38 @@ The server applies no account prefix: a row's Name is exactly the value given to
 
 ```sh
 vngcloud containerregistry list-repositories
+```
+
+## list-repository-users
+
+Kind: Read.
+
+The server applies no account prefix: a row's Name is exactly the value given to create-user's own --name.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--repository-id` | `string` | yes |
+| `--name` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud containerregistry list-repository-users --repository-id <repository-id>
+```
+
+## list-users
+
+Kind: Read.
+
+The server applies no account prefix: a row's Name is exactly the value given to create-user's own --name.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud containerregistry list-users
 ```
 

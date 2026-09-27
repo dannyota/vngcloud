@@ -98,7 +98,10 @@ type errorEnvelope struct {
 // again, since the repository exists, but a delete already reads first, so
 // a rerun is safe), RepositoryNotEmpty (a containerregistry
 // delete-repository was refused because a pre-delete read showed the
-// repository still holds images), OTPRejected (a channel OTP create-channel
+// repository still holds images), UserNotFound (a containerregistry
+// create-user's own create succeeded but a follow-up list could not confirm
+// the new user by name; the new secret is still written to --secret-file
+// either way), OTPRejected (a channel OTP create-channel
 // or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (create-log-project's quote
@@ -171,6 +174,14 @@ func classify(err error) errorEnvelope {
 	// pre-write and pre-delete guards below, for the same grouping reason.
 	if errors.Is(err, containerregistry.ErrRepositoryNotEmpty) {
 		return errorEnvelope{Code: "RepositoryNotEmpty", Message: err.Error()}
+	}
+	// containerregistry.ErrUserNotFound joins this same early group for the
+	// same reason ErrNotSettled above does: findCreatedUser's own lookup
+	// failure (containerregistry/users_write.go) can wrap an inner
+	// *core.APIError when the confirm list itself failed, and this check
+	// must win over the generic *APIError branch below.
+	if errors.Is(err, containerregistry.ErrUserNotFound) {
+		return errorEnvelope{Code: "UserNotFound", Message: err.Error()}
 	}
 	// network.ErrSystemGroup, network.ErrSecurityGroupInUse, and
 	// network.ErrInUse join this same early group for the same reason
@@ -303,16 +314,18 @@ func exitCode(err error) int {
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
 	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
-	// containerregistry.ErrNotSettled, and monitor.ErrOTPRejected join the
-	// same early return for the same reason: per the vDNS, network, and vCR
-	// writes designs, a not-settled write specifically must exit the same way
-	// even after a canceled context, because its write may have landed, and
-	// the others join it for consistency.
+	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound, and
+	// monitor.ErrOTPRejected join the same early return for the same reason:
+	// per the vDNS, network, and vCR writes designs, a not-settled write, and
+	// a create-user whose own create already succeeded, must exit the same
+	// way even after a canceled context, because the write already landed,
+	// and the others join it for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
+		errors.Is(err, containerregistry.ErrUserNotFound) ||
 		errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}

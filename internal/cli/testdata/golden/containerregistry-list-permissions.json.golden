@@ -1,0 +1,16 @@
+{
+  "Items": [
+    {
+      "ID": "policy-1",
+      "Action": "Pull Images"
+    },
+    {
+      "ID": "policy-2",
+      "Action": "Push Images"
+    },
+    {
+      "ID": "policy-3",
+      "Action": "All"
+    }
+  ]
+}

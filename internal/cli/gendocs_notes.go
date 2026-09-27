@@ -178,40 +178,9 @@ var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
 // against a real response.
 var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
-// containerRegistryListRepositoriesNote documents that a row's Name carries
-// no account prefix, since the flag table shows --name and --access-level as
-// plain filters with no hint of that.
-const containerRegistryListRepositoriesNote = "The server applies no account prefix: a row's Name is exactly " +
-	"the value given to create-repository's own --name."
-
-// containerRegistryGetRepositoryNote documents get-repository's own
-// unconfirmed not-found status, since the flag table shows only
-// --repository-id with no hint of it.
-const containerRegistryGetRepositoryNote = "How a missing repository reads is unconfirmed: the API reference " +
-	"documents only a 500 status for this call besides 401, never 404. After any other 5xx, this command lists " +
-	"repositories once to check whether the id is still there before deciding NotFound."
-
-// containerRegistryCreateRepositoryNote documents create-repository's always-
-// private, never-retried, and confirm-by-read behavior, for guidance the
-// flag table cannot show: it lists only --name, --quota-limit-gb, and
-// --no-wait, as plain fields.
-const containerRegistryCreateRepositoryNote = "Always creates a private repository; there is no --public flag. " +
-	"The server applies no account prefix, so the output's Name matches --name exactly. Never retried after a " +
-	"failure that may have already reached the server: run list-repositories --name <name> and match the exact " +
-	"name before creating again, rather than repeating this command blindly. The create response carries no " +
-	"status to wait on; without --no-wait, this command confirms the new repository with a read, polling for up " +
-	"to 60 seconds. A timeout, or any other failure during that confirm, is NotSettled, and the repository " +
-	"exists, so the create must not be sent again. The server requires --name to be 6 to 20 characters of " +
-	"lowercase letters, digits, '_' or '-', starting with a letter or digit, and refuses any other name with 400."
-
-// containerRegistryDeleteRepositoryNote documents delete-repository's
-// pre-delete image guard and its post-delete wait, since the flag table
-// shows only --repository-id and --no-wait.
-const containerRegistryDeleteRepositoryNote = "Refuses, before any request, a repository that still holds " +
-	"images (error code RepositoryNotEmpty); delete the images with docker or the console first. Attached " +
-	"users are not a guard: they keep existing and lose access to the deleted repository. Without --no-wait, " +
-	"waits up to 60 seconds for a read of the repository to report it gone; a timeout, or any other failure " +
-	"during that wait, is NotSettled, but this command always reads first, so a rerun is safe either way."
+// containerregistry's own doc notes (list-repositories through delete-user)
+// live in gendocs_notes_containerregistry.go, kept apart from this file so
+// neither grows past the length limit.
 
 // globalLoadBalancerShapeUnverifiedNote flags an output shape the live
 // checks cannot confirm: the test account holds no global load balancer, so
@@ -481,6 +450,10 @@ var docOpNotes = map[string]string{
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
 	"containerregistry delete-repository":     containerRegistryDeleteRepositoryNote,
+	"containerregistry list-users":            containerRegistryUserNameNote,
+	"containerregistry list-repository-users": containerRegistryUserNameNote,
+	"containerregistry create-user":           containerRegistryCreateUserNote,
+	"containerregistry delete-user":           containerRegistryDeleteUserNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,
@@ -496,9 +469,10 @@ var docOpNotes = map[string]string{
 // make buildExample print a command that exits 2 when run as shown, so
 // buildExample panics instead of silently omitting the field.
 var docJSONPlaceholders = map[string]string{
-	"Locations": `["<location-id>"]`,
-	"VPCIDs":    `["<vpc-id>"]`,
-	"Values":    `[{"Value":"<value>"}]`,
+	"Locations":   `["<location-id>"]`,
+	"VPCIDs":      `["<vpc-id>"]`,
+	"Values":      `[{"Value":"<value>"}]`,
+	"Permissions": `[{"RepositoryID":"<repository-id>","Actions":["Pull Images"]}]`,
 }
 
 // docExampleExtraFlag names one flag buildExample adds to an operation's
