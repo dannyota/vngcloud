@@ -195,28 +195,38 @@ func (c *Client) policyAttachedToProtected(ctx context.Context, op, policyID str
 // hide one), or with a protected member. Group members are IAM users only;
 // the design's open questions note that no call yet adds a service account
 // to a group.
+//
+// Every member is checked even once the group's own policy is already known
+// to be privileged, rather than returning as soon as that is found: the
+// design's self-wins rule means a group that is both privileged and holds
+// the caller as a member must still report protectedBySelf, never
+// protectedByPrivilege, so a later member's self-match can still upgrade the
+// result. The loop only stops once protectedBySelf itself is reached,
+// since nothing outranks it.
 func (c *Client) groupIsProtected(ctx context.Context, op, groupID string, caller *GetCallerIdentityOutput, writeActionNames []string, seen map[string]*Policy) (protectedReason, error) {
 	policyIDs, userIDs, err := c.guardGetGroupAttachments(ctx, op, groupID)
 	if err != nil {
 		return notProtected, err
 	}
+	reason := notProtected
 	privileged, err := c.anyPolicyIDPrivileged(ctx, policyIDs, writeActionNames, seen)
 	if err != nil {
 		return notProtected, err
 	}
 	if privileged {
-		return protectedByPrivilege, nil
+		reason = protectedByPrivilege
 	}
 	for _, userID := range userIDs {
-		reason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
+		if reason == protectedBySelf {
+			break
+		}
+		memberReason, err := c.userIsProtected(ctx, op, userID, caller, writeActionNames, seen)
 		if err != nil {
 			return notProtected, err
 		}
-		if reason != notProtected {
-			return reason, nil
-		}
+		reason = combineProtectedReasons(reason, memberReason)
 	}
-	return notProtected, nil
+	return reason, nil
 }
 
 // userIsProtected reports whether userID is a "Protected principal": the

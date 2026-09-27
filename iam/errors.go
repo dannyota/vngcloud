@@ -34,12 +34,13 @@ var ErrNoSecret = errors.New("iam: no client secret returned")
 // from Output.ClientSecret, or delete the account by Output.ServiceAccount.ID.
 var ErrCreateUnconfirmed = errors.New("iam: service account created but not confirmed by a read")
 
-// ErrNotSettled is returned by CreatePolicy and UpdatePolicy when their own
-// write reached the server, but the read that confirms it and fills in the
-// rest of the Policy failed. The write already happened either way: Output
-// still carries the policy's ID (every other Policy field left zero for
-// CreatePolicy, or as they were before the write for UpdatePolicy), so the
-// caller can look the policy up again with GetPolicy or list-policies.
+// ErrNotSettled is returned by CreatePolicy, UpdatePolicy, CreateGroup, and
+// UpdateGroup when their own write reached the server, but the read that
+// confirms it and fills in the rest of the Policy or Group failed. The write
+// already happened either way: Output still carries the resource's ID (every
+// other field left zero for a create, or as they were before the write for
+// an update), so the caller can look it up again with GetPolicy,
+// list-policies, GetGroup, or list-groups.
 var ErrNotSettled = errors.New("iam: write accepted but not confirmed by a read")
 
 // ErrManagedPolicy is returned, with no request sent, by UpdatePolicy and
@@ -50,6 +51,7 @@ var ErrManagedPolicy = errors.New("iam: refused: policy is managed")
 
 // ErrInUse is returned, with no request sent, by DeletePolicy when the
 // target policy is attached to a group, an IAM user, or a service account,
-// protected or not: deleting it would silently remove rights from whatever
-// it is attached to.
+// and by DeleteGroup when the target group has a member or an attached
+// policy, protected or not either way: the delete would silently remove
+// rights from whatever it is attached to, or from every member.
 var ErrInUse = errors.New("iam: refused: policy is attached")
