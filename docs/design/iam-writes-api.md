@@ -254,7 +254,8 @@ section says.
 
 - Every path ID passes `core.CheckPathID` before any request, reads
   included. The probes confirm the service account ID form.
-- `CreateServiceAccount`, `ResetServiceAccountSecret`, and `CreatePolicy`
+- `CreateServiceAccount`, `ResetServiceAccountSecret`, `CreatePolicy`, and
+  `CreateGroup`
   set `transport.Request.Once`: a resend after a 401 or a followed
   redirect would create a second account or policy, or rotate the secret a
   second time, so each is sent at most once, whatever the response.
