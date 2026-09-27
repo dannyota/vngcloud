@@ -44,16 +44,22 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every pollInterval, until step reports
-// stop true or pollBound has elapsed, by now, since poll's first call to
-// step. Elapsed time is read from now rather than counted in pollInterval
-// steps, so a step that itself takes real time, such as a slow read, counts
-// against the bound instead of only the sleeps between steps; a test
-// injects both a fake clock and a sleepFunc that returns quickly. This is
-// the same shape as vDNS's own unexported poll, duplicated here rather than
-// shared, since neither package imports the other.
-func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
-	deadline := now().Add(pollBound)
+// poll runs step at once, then again every interval, until step reports
+// stop true or bound has elapsed, by now, since poll's first call to step.
+// Elapsed time is read from now rather than counted in interval steps, so a
+// step that itself takes real time, such as a slow read, counts against
+// the bound instead of only the sleeps between steps; a test injects both a
+// fake clock and a sleepFunc that returns quickly. This is the same shape
+// as vDNS's own unexported poll, duplicated here rather than shared, since
+// neither package imports the other.
+//
+// Each wait in this package passes its own interval and bound rather than
+// a single fixed pair, since the design gives different writes different
+// bounds (60 seconds for a security group or a routes replace to settle, 3
+// minutes for a route table to create or delete) and, for a slower write
+// such as Private DNS enable, a longer interval too.
+func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error { //nolint:unparam // every wait defined so far shares the 2-second pollInterval; the design's Private DNS enable wait needs a 10-second one
+	deadline := now().Add(bound)
 	for {
 		stop, err := step(ctx)
 		if stop {
@@ -62,7 +68,7 @@ func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx con
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, pollInterval); err != nil {
+		if err := sleep(ctx, interval); err != nil {
 			return err
 		}
 	}
@@ -84,7 +90,7 @@ func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx con
 // the create response itself produced.
 func (c *Client) waitSecurityGroupActive(ctx context.Context, op, groupID string) (*SecurityGroup, error) {
 	var group *SecurityGroup
-	err := poll(ctx, c.now, c.sleep,
+	err := poll(ctx, c.now, c.sleep, pollInterval, pollBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetSecurityGroup(ctx, &GetSecurityGroupInput{SecurityGroupID: groupID})
 			if err != nil {

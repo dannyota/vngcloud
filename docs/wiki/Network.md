@@ -4,8 +4,8 @@
 VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
 ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
-security groups and their rules, the only network resources this SDK
-writes. Servers, volumes, and floating IPs stay read-only.
+security groups and their rules, and route tables and routes. Servers,
+volumes, and floating IPs stay read-only.
 
 ## Setup
 
@@ -258,3 +258,81 @@ sent and may have reached the server, but no confirming read followed; a
 create must not be sent again with the same input, while an update's `PUT`
 is idempotent and may be repeated. See [Waits](#waits) above for why the
 Output still holds the group.
+
+## Route tables and routes
+
+```go
+table, err := client.CreateRouteTable(ctx, &network.CreateRouteTableInput{
+	VPCID: vpcID,
+	Name:  "public",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(table.RouteTable.UUID)
+
+added, err := client.AddRoute(ctx, &network.AddRouteInput{
+	RouteTableID:    table.RouteTable.UUID,
+	DestinationCIDR: "10.251.200.0/24",
+	Target:          "10.251.200.10",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(added.Changed)
+
+if _, err := client.RemoveRoute(ctx, &network.RemoveRouteInput{
+	RouteTableID:    table.RouteTable.UUID,
+	DestinationCIDR: "10.251.200.0/24",
+}); err != nil {
+	log.Fatal(err)
+}
+
+if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{
+	RouteTableID: table.RouteTable.UUID,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`CreateRouteTable` makes an empty table in a VPC; a route table is never
+created with routes, so add one afterward with `AddRoute`. It is a `POST`
+and is never retried after an ambiguous failure, for the reason
+`CreateSecurityGroup` is not; list route tables with `ListRouteTables`
+before creating it again. Without `NoWait`, it waits for the table to reach
+`"ACTIVE"`, confirmed live at about 5 seconds.
+
+`DeleteRouteTable` reads the table first and sends nothing when it is its
+VPC's main route table (`network.ErrDefaultResource`) or a subnet of that
+VPC still names it (`network.ErrInUse`, found by reading the VPC's
+subnets). Deleting a VPC deletes its route tables too; there is no command
+to delete a VPC's main table on its own. `DELETE` is asynchronous,
+confirmed live at 202 then a 404 about 5 seconds later; without `NoWait`,
+`DeleteRouteTable` waits for that 404.
+
+The API replaces a route table's whole route list on every write, so
+`AddRoute` and `RemoveRoute` are read-merge writes: each reads the table's
+current routes, waits for the table to be `"ACTIVE"` first
+(`network.ErrBusy`, nothing sent, past a 60-second bound), then sends back
+every route it read plus one change. Neither ever takes a caller-supplied
+whole list, since an empty one from a script could wipe a table.
+
+`AddRoute` of a route already present with the same `Target` is a no-op:
+`Changed` is `false` and nothing is sent. One present with a different
+`Target` fails with `vngcloud.ErrInvalidInput` naming that target; remove
+the old route first. `RemoveRoute` of a destination with no matching route
+returns `vngcloud.IsNotFound(err) == true`, sending nothing. `Target` must
+be an IP address; whether the server requires it to belong to a live
+interface is not yet confirmed live.
+
+Without `NoWait`, both wait for the table to return to `"ACTIVE"` after
+their `PUT`, then confirm that a fresh read names exactly the routes just
+sent. Either wait failing, or the confirm read not matching, returns an
+error wrapping `network.ErrNotSettled`; the `PUT` itself is never resent,
+since running the same call again simply reads the table fresh and starts
+over.
+
+Which `routingType` marks a route the server manages outside a caller's
+control, if any, is not yet confirmed live. Until that is known, a replace
+resends every route this SDK read, so it never silently drops one the
+caller did not name.
