@@ -221,11 +221,20 @@ if err != nil {
 log.Printf("server would cost %.0f VND a month", quote.OptimumPrice)
 ```
 
-`volumeClient.QuoteCreateVolume` works the same way for a volume create. Both
-build the create's own request body and quote it, minus any field the
-create never prices, such as user data; both ignore the Input's `MaxPrice`
-and `NoWait` fields, which govern only the write itself once it orders
+`volumeClient.QuoteCreateVolume` and `lbClient.QuoteCreateLoadBalancer` work
+the same way for a volume and a load balancer create. All three build the
+create's own request body and quote it, minus any field the create never
+prices, such as user data; all three ignore the Input's `MaxPrice` and
+`NoWait` fields, which govern only the write itself once it orders
 something.
+
+`lbClient.QuoteResizeLoadBalancer` prices a change to a resource that
+already exists, rather than a create: it takes a
+`loadbalancer.ResizeLoadBalancerInput` (`LoadBalancerID` and the new
+`PackageID`) and sends `Action: pricing.ActionResize` instead of
+`ActionCreate`. A resize quote for an unknown `LoadBalancerID` returns the
+server's own error unchanged, since the price guard checks input shape, not
+that the resource exists.
 
 A paid write refuses to order above its own `MaxPrice` (VND a month, default
 0), with an error wrapping `vngcloud.ErrPriceAboveMax`:
