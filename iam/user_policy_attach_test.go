@@ -91,6 +91,24 @@ func TestDetachUserPolicyRefusesCaller(t *testing.T) {
 	}
 }
 
+// TestAttachUserPolicyRefusesCallerCaseInsensitive checks that the caller's
+// own id is matched against a target user id case-insensitively, since
+// nothing guarantees the server returns userinfo's id and a user's own id in
+// the same case.
+func TestAttachUserPolicyRefusesCallerCaseInsensitive(t *testing.T) {
+	g := unprivilegedUserAttachFixture()
+	g.caller = userInfoResponse{UserID: "USER-1", UserType: callerTypeIAMUser}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/policies/policy-1/iam-users/user-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.AttachUserPolicy(context.Background(), &AttachUserPolicyInput{PolicyID: "policy-1", UserID: "user-1"})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("AttachUserPolicy() err = %v, want ErrSelfChange", err)
+	}
+}
+
 func TestAttachUserPolicyRefusesPrivilegedPolicy(t *testing.T) {
 	g := unprivilegedUserAttachFixture()
 	g.policies["policy-1"] = Policy{ID: "policy-1", Manager: "user", Statements: privilegedStatements()}
@@ -155,6 +173,25 @@ func TestAttachUserPolicyRefusesProtectedUserByGroup(t *testing.T) {
 	_, err := c.AttachUserPolicy(context.Background(), &AttachUserPolicyInput{PolicyID: "policy-1", UserID: "user-x"})
 	if !errors.Is(err, ErrPrivilegedChange) {
 		t.Fatalf("AttachUserPolicy() err = %v, want ErrPrivilegedChange", err)
+	}
+}
+
+// TestDetachUserPolicyRefusesProtectedUser checks that detaching from a user
+// who already holds a different privileged policy directly refuses the same
+// way an attach does: the design refuses either direction on a protected
+// user, not only a privileged policy being attached or detached itself.
+func TestDetachUserPolicyRefusesProtectedUser(t *testing.T) {
+	g := unprivilegedUserAttachFixture()
+	g.userPolicyIDs = map[string][]string{"user-x": {"policy-priv"}}
+	g.policies["policy-priv"] = Policy{ID: "policy-priv", Manager: "user", Statements: privilegedStatements()}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1/iam-users/user-x", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.DetachUserPolicy(context.Background(), &DetachUserPolicyInput{PolicyID: "policy-1", UserID: "user-x"})
+	if !errors.Is(err, ErrPrivilegedChange) {
+		t.Fatalf("DetachUserPolicy() err = %v, want ErrPrivilegedChange", err)
 	}
 }
 

@@ -92,6 +92,31 @@ func TestDetachGroupPolicyRefusesPrivilegedPolicy(t *testing.T) {
 	}
 }
 
+// TestAttachGroupPolicyRefusesIdpModeGroup checks the case an adversarial
+// review raised: an idp group whose own attached policy denies rather than
+// grants would not, by itself, make the group privileged, so without a
+// dedicated mode check the attach could slip through unrefused. The design
+// excludes idp groups entirely, so guardGetGroupAttachments refuses any group
+// whose mode is not exactly "iam" before it ever looks at that policy or the
+// group's members.
+func TestAttachGroupPolicyRefusesIdpModeGroup(t *testing.T) {
+	g := unprivilegedGroupAttachFixture()
+	g.policies["policy-deny"] = Policy{ID: "policy-deny", Manager: "user", Statements: []Statement{
+		{Effect: "deny", Actions: []string{"iam:*"}, Resources: []string{"*"}},
+	}}
+	g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"group-1","mode":"idp","iamUsers":[],"policies":["policy-deny"]}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/policies/policy-1/groups/group-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.AttachGroupPolicy(context.Background(), &AttachGroupPolicyInput{PolicyID: "policy-1", GroupID: "group-1"}); err == nil {
+		t.Fatal("AttachGroupPolicy() error = nil, want a refusal for an idp-mode group")
+	}
+}
+
 // TestAttachGroupPolicyRefusesProtectedGroupByPrivilege checks that a group
 // which already holds a privileged policy refuses attaching another one.
 func TestAttachGroupPolicyRefusesProtectedGroupByPrivilege(t *testing.T) {
@@ -166,6 +191,25 @@ func TestAttachGroupPolicySelfWinsOverPrivilege(t *testing.T) {
 	}
 	if errors.Is(err, ErrPrivilegedChange) {
 		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
+// TestDetachGroupPolicyRefusesProtectedGroup checks that detaching from a
+// group that already holds a different privileged policy refuses the same
+// way an attach does: the design refuses either direction on a protected
+// group, not only a privileged policy being attached or detached itself.
+func TestDetachGroupPolicyRefusesProtectedGroup(t *testing.T) {
+	g := unprivilegedGroupAttachFixture()
+	g.groups["group-1"] = Group{ID: "group-1", PolicyIDs: []string{"policy-priv"}}
+	g.policies["policy-priv"] = Policy{ID: "policy-priv", Manager: "user", Statements: privilegedStatements()}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1/groups/group-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.DetachGroupPolicy(context.Background(), &DetachGroupPolicyInput{PolicyID: "policy-1", GroupID: "group-1"})
+	if !errors.Is(err, ErrPrivilegedChange) {
+		t.Fatalf("DetachGroupPolicy() err = %v, want ErrPrivilegedChange", err)
 	}
 }
 

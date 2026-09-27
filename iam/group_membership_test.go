@@ -106,6 +106,69 @@ func TestAddUserToGroupRefusesCallerGroupMembership(t *testing.T) {
 	}
 }
 
+// TestRemoveUserFromGroupRefusesCallerGroupMembership is
+// TestAddUserToGroupRefusesCallerGroupMembership for remove: removing a
+// different user from a group the caller already belongs to still refuses as
+// a self-change.
+func TestRemoveUserFromGroupRefusesCallerGroupMembership(t *testing.T) {
+	g := unprivilegedMembershipFixture()
+	g.groups["group-1"] = Group{ID: "group-1", UserIDs: []string{"user-1"}}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/groups/group-1/iam-users/user-x", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.RemoveUserFromGroup(context.Background(), &RemoveUserFromGroupInput{GroupID: "group-1", UserID: "user-x"})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("RemoveUserFromGroup() err = %v, want ErrSelfChange", err)
+	}
+}
+
+// TestAddUserToGroupRefusesIdpModeGroup checks that groupIsProtected, reused
+// by the membership guard, refuses an idp-mode target group the same way
+// every other group-reading guard does.
+func TestAddUserToGroupRefusesIdpModeGroup(t *testing.T) {
+	g := unprivilegedMembershipFixture()
+	g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"group-1","mode":"idp","iamUsers":[],"policies":[]}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/groups/group-1/iam-users/user-x", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.AddUserToGroup(context.Background(), &AddUserToGroupInput{GroupID: "group-1", UserID: "user-x"}); err == nil {
+		t.Fatal("AddUserToGroup() error = nil, want a refusal for an idp-mode group")
+	}
+}
+
+// TestAddUserToGroupGroupIsProtectedSelfWinsOverOwnPrivilege checks that
+// groupIsProtected itself, not only the outer combine in
+// guardGroupMembershipWrite, folds a group's own privileged policy together
+// with the caller's own membership into protectedBySelf: the target group
+// holds both, and the add's own target user is someone else entirely, so the
+// only source of self here is the caller's membership found inside
+// groupIsProtected's own member loop.
+func TestAddUserToGroupGroupIsProtectedSelfWinsOverOwnPrivilege(t *testing.T) {
+	g := unprivilegedMembershipFixture()
+	g.groups["group-1"] = Group{ID: "group-1", PolicyIDs: []string{"policy-priv"}, UserIDs: []string{"user-1"}}
+	g.policies = map[string]Policy{
+		"policy-priv": {ID: "policy-priv", Manager: "user", Statements: privilegedStatements()},
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/groups/group-1/iam-users/user-x", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.AddUserToGroup(context.Background(), &AddUserToGroupInput{GroupID: "group-1", UserID: "user-x"})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("AddUserToGroup() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
 // TestAddUserToGroupRefusesGroupProtectedByPrivilegedPolicy checks that a
 // group with a privileged policy attached refuses membership changes.
 func TestAddUserToGroupRefusesGroupProtectedByPrivilegedPolicy(t *testing.T) {

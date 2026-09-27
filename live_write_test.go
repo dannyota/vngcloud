@@ -5867,16 +5867,18 @@ func randomLiveUserID() (string, error) {
 // lists the attachment both ways to confirm it landed (step 6); checks that
 // DeleteGroup refuses with iam.ErrInUse while the group still holds the
 // policy (step 7); checks that AddUserToGroup with the caller's own id
-// refuses with iam.ErrSelfChange (step 8); probes AddUserToGroup and
-// RemoveUserFromGroup with a random, nonexistent user id and records only
-// their resulting status, since the design leaves that server behavior
-// unconfirmed (step 9); detaches the policy (step 10); and deletes both the
-// group and the policy (step 11). It never touches a managed policy, the
-// caller's own IAM user, or any group the caller actually belongs to: the
-// self-change probe in step 8 is refused before it ever reaches the server.
-// Cleanup is registered as soon as each id is known, before any later step
-// can fail and skip the explicit deletes. Every step logs only statuses,
-// codes, and booleans, never a name or an id.
+// refuses with iam.ErrSelfChange (step 8); lists the account's IAM users and
+// records, as booleans only, whether the caller's own id appears exactly and
+// case-insensitively (step 9); probes AddUserToGroup and RemoveUserFromGroup
+// with a random, nonexistent user id and records only their resulting
+// status, since the design leaves that server behavior unconfirmed (step
+// 10); detaches the policy (step 11); and deletes both the group and the
+// policy (step 12). It never touches a managed policy, the caller's own IAM
+// user, or any group the caller actually belongs to: the self-change probe
+// in step 8 is refused before it ever reaches the server. Cleanup is
+// registered as soon as each id is known, before any later step can fail and
+// skip the explicit deletes. Every step logs only statuses, codes, and
+// booleans, never a name or an id.
 func TestLiveWriteIAMGroup(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live iam group write test")
@@ -6064,32 +6066,53 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	}
 	t.Log("step 8: AddUserToGroup refused adding the caller")
 
-	// Step 9: probe AddUserToGroup and RemoveUserFromGroup with a random,
+	// Step 9: ListUsers and check whether the caller's own userinfo id
+	// appears in it, exact and case-insensitive, without logging either id:
+	// a mismatch here would mean a target user id could equal the caller's
+	// own id in a different case, which the guard's case-insensitive self
+	// match (see policy_guard.go) accounts for and an exact-only compare
+	// would miss.
+	users, err := client.ListUsers(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 9 ListUsers: %s", safeErr(err))
+	}
+	var exactMatch, foldMatch bool
+	for _, u := range users.Items {
+		if u.ID == caller.UserID {
+			exactMatch = true
+		}
+		if strings.EqualFold(u.ID, caller.UserID) {
+			foldMatch = true
+		}
+	}
+	t.Logf("step 9: caller id found in ListUsers exact=%v, case-insensitive=%v", exactMatch, foldMatch)
+
+	// Step 10: probe AddUserToGroup and RemoveUserFromGroup with a random,
 	// nonexistent user id. The design leaves the server's behavior here
 	// unconfirmed, so this only records what happens rather than asserting a
 	// specific outcome; RemoveUserFromGroup always runs afterward to leave
 	// no membership behind, whatever the add did.
 	randomUserID, err := randomLiveUserID()
 	if err != nil {
-		t.Fatalf("step 9 generate random user id: %v", err)
+		t.Fatalf("step 10 generate random user id: %v", err)
 	}
 	_, addErr := client.AddUserToGroup(ctx, &iam.AddUserToGroupInput{GroupID: groupID, UserID: randomUserID})
-	t.Logf("step 9: AddUserToGroup(random nonexistent user) = %s", safeErr(addErr))
+	t.Logf("step 10: AddUserToGroup(random nonexistent user) = %s", safeErr(addErr))
 	_, removeErr := client.RemoveUserFromGroup(ctx, &iam.RemoveUserFromGroupInput{GroupID: groupID, UserID: randomUserID})
-	t.Logf("step 9: RemoveUserFromGroup(random nonexistent user) = %s", safeErr(removeErr))
+	t.Logf("step 10: RemoveUserFromGroup(random nonexistent user) = %s", safeErr(removeErr))
 
-	// Step 10: detach the policy.
+	// Step 11: detach the policy.
 	if _, err := client.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{PolicyID: policyID, GroupID: groupID}); err != nil {
-		t.Fatalf("step 10 DetachGroupPolicy: %s", safeErr(err))
+		t.Fatalf("step 11 DetachGroupPolicy: %s", safeErr(err))
 	}
-	t.Log("step 10: detached policy from group")
+	t.Log("step 11: detached policy from group")
 
-	// Step 11: delete both explicitly.
+	// Step 12: delete both explicitly.
 	if _, err := client.DeleteGroup(ctx, &iam.DeleteGroupInput{GroupID: groupID}); err != nil {
-		t.Fatalf("step 11 DeleteGroup: %s", safeErr(err))
+		t.Fatalf("step 12 DeleteGroup: %s", safeErr(err))
 	}
 	if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: policyID}); err != nil {
-		t.Fatalf("step 11 DeletePolicy: %s", safeErr(err))
+		t.Fatalf("step 12 DeletePolicy: %s", safeErr(err))
 	}
-	t.Log("step 11: deleted group and policy")
+	t.Log("step 12: deleted group and policy")
 }

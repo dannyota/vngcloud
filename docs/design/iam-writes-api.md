@@ -238,9 +238,12 @@ Models keep their API JSON tags; `_id` is dropped.
   fails, the error says the write happened; `CreateServiceAccount` also
   keeps a non-nil Output, carrying the create response's own ID and client
   secret, and wraps `iam.ErrCreateUnconfirmed` rather than returning nil.
-  `CreatePolicy` and `UpdatePolicy` do the same for their own failed
-  confirm read: their Output keeps only the policy's ID, and the error
-  wraps `iam.ErrNotSettled`.
+  `CreatePolicy`, `UpdatePolicy`, and `CreateGroup` do the same for their own
+  failed confirm read: their Output keeps only the resource's ID, and the
+  error wraps `iam.ErrNotSettled`. `UpdateGroup`'s Output keeps the group as
+  it read it before the write when `Name` was nil, since that read already
+  ran to fill it in; otherwise it keeps only the ID, the same as the other
+  three.
 
 ### Secrets
 

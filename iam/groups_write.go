@@ -119,9 +119,11 @@ type updateGroupBody struct {
 // group back afterward to build the Output.
 //
 // If the confirm read after the PATCH fails, UpdateGroup still returns a
-// non-nil Output, its Group holding only GroupID (every other field left
-// zero), and wraps ErrNotSettled rather than returning nil: the update
-// already reached the server either way.
+// non-nil Output and wraps ErrNotSettled rather than returning nil: the
+// update already reached the server either way. Its Group holds the
+// pre-write read this call already made to fill a nil Name, when it made
+// one, or just GroupID (every other field left zero) when Name was given
+// directly and no such read ran.
 //
 // The request sets Idempotent: it sends the update's full intended state,
 // so the transport's own retry after a 5xx is safe to repeat.
@@ -134,6 +136,7 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 		return nil, err
 	}
 
+	fallback := Group{ID: in.GroupID}
 	var name string
 	if in.Name != nil {
 		name = *in.Name
@@ -143,6 +146,7 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 			return nil, err
 		}
 		name = got.Group.Name
+		fallback = got.Group
 	}
 
 	req := transport.Request{
@@ -159,8 +163,7 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 
 	got, err := c.GetGroup(ctx, &GetGroupInput{GroupID: in.GroupID})
 	if err != nil {
-		out := &UpdateGroupOutput{Group: Group{ID: in.GroupID}}
-		return out, fmt.Errorf("%s: group %s was updated but the read to confirm it failed: %w: %w", op, in.GroupID, ErrNotSettled, err)
+		return &UpdateGroupOutput{Group: fallback}, fmt.Errorf("%s: group %s was updated but the read to confirm it failed: %w: %w", op, in.GroupID, ErrNotSettled, err)
 	}
 	return &UpdateGroupOutput{Group: got.Group}, nil
 }

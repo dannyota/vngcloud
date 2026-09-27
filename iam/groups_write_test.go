@@ -282,6 +282,36 @@ func TestUpdateGroupReadFailureKeepsOutput(t *testing.T) {
 	}
 }
 
+// TestUpdateGroupReadFailureKeepsPreWriteReadWhenNameWasNil checks that a
+// failed confirm read, after a PATCH whose Name was filled in from a
+// pre-write read, returns that pre-write read's fields in Output rather than
+// just the group's own id: ErrNotSettled's own doc promises this whenever
+// UpdateGroup already made that read.
+func TestUpdateGroupReadFailureKeepsPreWriteReadWhenNameWasNil(t *testing.T) {
+	var gets int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if atomic.AddInt32(&gets, 1) == 1 {
+			testutil.WriteFixture(t, w, "../testdata/iam/get_group.json")
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	out, err := c.UpdateGroup(context.Background(), &UpdateGroupInput{GroupID: "group-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("UpdateGroup() err = %v, want ErrNotSettled", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want the pre-write read kept despite the failed confirm read")
+	}
+	if out.Group.ID != "group-1" || out.Group.Name != "<name>" {
+		t.Fatalf("Output.Group = %+v, want the pre-write read's fields kept", out.Group)
+	}
+}
+
 // TestUpdateGroupRetriesOn502 checks that the PATCH, idempotent regardless
 // of any request field, is retried by the transport after a 502.
 func TestUpdateGroupRetriesOn502(t *testing.T) {
@@ -367,6 +397,38 @@ func TestDeleteGroupRefusesWhenGetGroupAttachmentsFails(t *testing.T) {
 	})
 	if _, err := c.DeleteGroup(context.Background(), &DeleteGroupInput{GroupID: "group-1"}); err == nil {
 		t.Fatal("DeleteGroup() error = nil, want a refusal for a missing policies field")
+	}
+}
+
+// TestDeleteGroupRefusesNonIamGroup checks that guardGetGroupAttachments
+// refuses a group whose mode is not exactly "iam", a missing mode included,
+// and a group response holding a member-bearing field it does not
+// recognize, since the design excludes idp groups from every guard rule
+// entirely and treats a body it cannot fully account for as unprovable.
+func TestDeleteGroupRefusesNonIamGroup(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"idp mode", `{"id":"group-1","mode":"idp","iamUsers":[],"policies":[]}`},
+		{"missing mode", `{"id":"group-1","iamUsers":[],"policies":[]}`},
+		{"unrecognized field", `{"id":"group-1","mode":"iam","iamUsers":[],"policies":[],"serviceAccounts":["sa-1"]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := unprivilegedGuardFixture()
+			g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}
+			c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+				mux.HandleFunc("DELETE /policies-api/v1/groups/group-1", func(w http.ResponseWriter, r *http.Request) {
+					t.Fatal("no write request expected")
+				})
+			})
+			if _, err := c.DeleteGroup(context.Background(), &DeleteGroupInput{GroupID: "group-1"}); err == nil {
+				t.Fatal("DeleteGroup() error = nil, want a refusal")
+			}
+		})
 	}
 }
 
