@@ -161,16 +161,22 @@ input value; each names the field.
 
 ### Error redaction
 
-A 400 from the server may quote the input it rejected. `transport.Request`
-gains `Redact []string`. When a request fails, the transport replaces, in
-the `*APIError` message and code, every occurrence of each non-empty
-value, its JSON-escaped form, and each of its lines that is 8 characters or
-longer after trimming. The line rule catches a server that quotes one line
-of a key. `--debug` already logs no body.
+A 400 from the server may quote the input it rejected. `Redact` cannot be
+proven to catch every form a server might echo a value back in: an escaped
+character, a truncated or re-wrapped line, a `\uXXXX` escape, or the value
+encoded whole in a different form. `ImportCertificate` therefore withholds
+the server's own message outright rather than trusting a pattern match to
+catch it: `transport.Request` gains `WithholdMessage`, and on every failing
+status the returned error keeps its status and code but replaces the
+message with fixed text (`ImportCertificateWithheldMessage`).
 
-If the [live checks](#live-checks) show the server echoes key text in a
-form this misses, the SDK instead withholds the server message for this
-call and keeps only the status and code. That change amends this section.
+`transport.Request` also gains `Redact []string`, which still runs on every
+failing status as defense in depth for the code: it replaces every
+occurrence of each non-empty value, its JSON-escaped form, and each of its
+lines that is 8 characters or longer after trimming, with `[redacted]`. A
+value shorter than 8 characters is never substituted in place, since it
+could also occur as an ordinary substring of unrelated text; a match instead
+discards the whole message or code. `--debug` already logs no body.
 
 ### Delete
 
@@ -258,11 +264,11 @@ vngcloud loadbalancer import-certificate --name example-com \
   stdout, stderr, `--debug`, an error, a response capture, a fixture, or
   argv; the wire body holds the revealed key and the Input prints as
   `[redacted]`; no flag exists for a Secret field; `--cli-input-json`
-  refuses the secret fields; `Redact` covers the message and code on every
-  failing status, including after a retry; the `CA` rule keeps the key off
-  the wire; path ID checks on get and delete; the in-use pre-read sends
-  nothing; `--yes` on delete; read-only refusal of both writes; no import
-  resend after a 5xx.
+  refuses the secret fields; `ImportCertificate` withholds the server's
+  message on every failing status, including after a retry, and `Redact`
+  still covers the code; the `CA` rule keeps the key off the wire; path ID
+  checks on get and delete; the in-use pre-read sends nothing; `--yes` on
+  delete; read-only refusal of both writes; no import resend after a 5xx.
 - The wiki says the key is sent to GreenNode, which then holds it, and
   shows `--private-key-file` with a key file only the owner can read.
 - Certificate names, subjects, domains, serials, and IDs are account
@@ -326,9 +332,10 @@ Writes:
 5. Import an ECDSA P-256 `TLS/SSL` certificate, and an encrypted key with
    its passphrase: accepted or refused. Import a `CA` certificate.
 6. Import with a malformed key (a valid PEM header around random bytes)
-   and with a key that does not match the certificate: status, and a
-   boolean for whether the message holds any line of the sent key. The
-   result decides [Error redaction](#error-redaction).
+   and with a key that does not match the certificate: status, whether the
+   SDK withheld the message (see [Error redaction](#error-redaction), it
+   must), and that the error holds no 16-character window of the sent
+   key's base64 body.
 7. Delete each: status. Repeat delete: status. `GET` after delete: status.
 8. The next day's bill shows no vLB line, and `get-balances` is
    unchanged.
@@ -370,8 +377,10 @@ the live checks and an adversarial review.
    the server does not use should not leave the machine.
 5. Server error text. Options: redact the key, passphrase, and their
    lines (`Redact`); withhold the server message on every import error;
-   trust the server. Recommend redact, with step 6 of the live checks
-   deciding whether to withhold instead.
+   trust the server. Decided: withhold the message on every failing status,
+   since `Redact` cannot be proven to catch every form a server might echo
+   a value back in; `Redact` stays on the request as defense in depth for
+   the code.
 6. Delete guard. Options: `inUse` pre-read plus the server refusal; also
    scan every load balancer's listeners; server refusal only. Recommend
    the pre-read: the flag is the server's own answer, and a scan costs a

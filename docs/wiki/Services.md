@@ -176,9 +176,14 @@ stores the certificate and never returns the key back; both fields are
 `vngcloud.Secret`, so printing, logging, or JSON-encoding the Input gives
 `[redacted]`. `Type` is `loadbalancer.CertificateTypeTLS` ("TLS/SSL") or
 `loadbalancer.CertificateTypeCA` ("CA"); only `TLS/SSL` takes a key, chain,
-or passphrase. `ImportCertificate` is a POST and is never retried after a
-failure that may have already reached the server; the error names
-`ListCertificates` by name as the way to check what happened.
+or passphrase. A failing import never returns the server's own message: on
+every failing status the returned error's message is fixed text
+(`loadbalancer.ImportCertificateWithheldMessage`), since no pattern match
+can be proven to catch every way a server might echo a rejected key or
+passphrase back; the status and (still redacted) code still come from the
+server. `ImportCertificate` is a POST and is never retried after a failure
+that may have already reached the server; the error names `ListCertificates`
+by name as the way to check what happened.
 `DeleteCertificate` reads the certificate first and returns
 `loadbalancer.ErrCertificateInUse`, sending nothing, when a listener still
 uses it.
