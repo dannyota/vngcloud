@@ -1126,6 +1126,7 @@ func TestNetworkAddRouteEndToEndSendsExistingPlusNewRoute(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/route-table/rt-1": scriptedRouteTableGetHandler(
 			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),
 			routeTableGetJSON("rt-1", "rt-web",
 				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
 		),
@@ -1223,6 +1224,8 @@ func TestNetworkRemoveRouteEndToEndSendsRemainingRoutes(t *testing.T) {
 	var putBody []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/route-table/rt-1": scriptedRouteTableGetHandler(
+			routeTableGetJSON("rt-1", "rt-web",
+				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
 			routeTableGetJSON("rt-1", "rt-web",
 				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
 			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),

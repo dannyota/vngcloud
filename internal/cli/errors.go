@@ -97,15 +97,16 @@ type errorEnvelope struct {
 // because the server's own refusal named the group in use for some other
 // reason), ResourceInUse (a network delete-route-table was refused because a
 // subnet still names the table, or a delete-network-acl because a subnet is
-// still associated with it, found by a pre-delete read), DefaultResource
-// (a network write targeted a resource the server manages and never lets a
-// caller change or delete, such as a VPC's main route table while a subnet
-// still relies on it, a project's default network ACL, or one of an ACL's
-// own default rules), ResourceBusy (a network add-route, remove-route, or a
-// network ACL rule or subnet write read a table or ACL that was not ACTIVE
-// and stayed that way past the wait before the write), or SecretFileFailed
-// (create-ssh-key's own create succeeded but writing --secret-file failed
-// afterward, so the CLI deleted the new key).
+// still associated with it, found by a pre-delete read), DefaultResource (a
+// network delete-route-table targeted a VPC's main route table while a
+// subnet names no route table of its own and so relies on it, though the
+// server itself deletes a main table once nothing relies on it; or a write
+// targeted a project's default network ACL or one of an ACL's own default
+// rules), ResourceBusy (a network add-route, remove-route, or a network ACL
+// rule or subnet write read a table or ACL that was not ACTIVE and stayed
+// that way past the wait before the write, or saw it change before the
+// send), or SecretFileFailed (create-ssh-key's own create succeeded but
+// writing --secret-file failed afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -151,13 +152,12 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "SecurityGroupInUse", Message: err.Error()}
 	}
 	// network.ErrInUse, network.ErrDefaultResource, and network.ErrBusy join
-	// this same early group for the same reason network.ErrSecurityGroupInUse
-	// above does: a route table delete's ErrInUse (and, for a later
-	// resource sharing these sentinels, a VPC delete's own) can wrap an
-	// inner *core.APIError, such as the server's 400 refusal, and this check
-	// must win over the generic *APIError branch below rather than let
-	// errors.As find that inner error first and report its own
-	// status-derived code instead.
+	// this same early group with network.ErrSecurityGroupInUse above: all
+	// three come from DeleteRouteTable's own pre-delete reads or from
+	// AddRoute's and RemoveRoute's pre-write wait, never from wrapping the
+	// server's own response, so checking them here costs nothing extra
+	// today, but keeps every network sentinel error classified in the same
+	// place ahead of the generic *APIError branch below.
 	if errors.Is(err, network.ErrInUse) {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}

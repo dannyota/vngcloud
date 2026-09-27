@@ -299,7 +299,8 @@ if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{
 `CreateRouteTable` makes an empty table in a VPC; a route table is never
 created with routes, so add one afterward with `AddRoute`. It is a `POST`
 and is never retried after an ambiguous failure, for the reason
-`CreateSecurityGroup` is not; list route tables with `ListRouteTables`
+`CreateSecurityGroup` is not; list route tables with `ListRouteTables` and
+match the name exactly (the list's own filter may match by substring)
 before creating it again. Without `NoWait`, it waits for the table to reach
 `"ACTIVE"`, confirmed live at about 5 seconds.
 
@@ -326,21 +327,33 @@ current routes, waits for the table to be `"ACTIVE"` first
 (`network.ErrBusy`, nothing sent, past a 60-second bound), then sends back
 every route it read plus one change. Neither ever takes a caller-supplied
 whole list, since an empty one from a script could wipe a table.
+Immediately before sending that write, each also re-reads the table and
+refuses with `network.ErrBusy`, again sending nothing, if the routes no
+longer match the first read: some other writer changed the table in
+between. This narrows the race between the read and the write, but does
+not close it: a writer that changes the table between that final read and
+the moment the `PUT` reaches the server can still be overwritten by it.
 
-`AddRoute` of a route already present with the same `Target` is a no-op:
-`Changed` is `false` and nothing is sent. One present with a different
-`Target` fails with `vngcloud.ErrInvalidInput` naming that target; remove
-the old route first. `RemoveRoute` of a destination with no matching route
-returns `vngcloud.IsNotFound(err) == true`, sending nothing. `Target` must
-be an IP address; whether the server requires it to belong to a live
-interface is not yet confirmed live.
+A destination is compared as a parsed CIDR prefix, so equivalent spellings
+of the same prefix, such as `2001:DB8::/32` and `2001:0db8::/32`, are the
+same route. `AddRoute` of a route already present with the same `Target` is
+a no-op: `Changed` is `false` and nothing is sent. One present with a
+different `Target` fails with `vngcloud.ErrInvalidInput` naming that
+target; remove the old route first. `RemoveRoute` of a destination with no
+matching route returns `vngcloud.IsNotFound(err) == true`, sending nothing;
+one matching more than one route fails with `vngcloud.ErrInvalidInput`
+naming the count, sending nothing, rather than guessing which to drop.
+`Target` must be an IP address with no zone; whether the server requires it
+to belong to a live interface is not yet confirmed live.
 
 Without `NoWait`, both wait for the table to return to `"ACTIVE"` after
 their `PUT`, then confirm that a fresh read names exactly the routes just
 sent. Either wait failing, or the confirm read not matching, returns an
-error wrapping `network.ErrNotSettled`; the `PUT` itself is never resent,
-since running the same call again simply reads the table fresh and starts
-over.
+error wrapping `network.ErrNotSettled`. The transport itself may still
+retry the `PUT` request on its own after a transient failure such as a
+5xx, since `PUT` is idempotent; what never happens is `AddRoute` or
+`RemoveRoute` resending a previous call's already-computed route list.
+Running the same call again simply reads the table fresh and starts over.
 
 Which `routingType` marks a route the server manages outside a caller's
 control, if any, is not yet confirmed live. Until that is known, a replace
