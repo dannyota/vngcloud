@@ -1,10 +1,10 @@
 {
   "Repository": {
     "ID": "repo-1",
-    "Name": "\u003caccount\u003e-app",
-    "BackendName": "\u003caccount\u003e-app",
+    "Name": "app-test",
+    "BackendName": "app-test",
     "AccessLevel": "PRIVATE",
-    "RegistryURL": "\u003chostname\u003e/\u003caccount\u003e-app",
+    "RegistryURL": "\u003chostname\u003e/app-test",
     "QuotaLimitGB": 1,
     "QuotaUsed": 0,
     "ImageCount": 0,

@@ -201,8 +201,8 @@ const containerRegistryCreateRepositoryNote = "Always creates a private reposito
 	"name before creating again, rather than repeating this command blindly. The create response carries no " +
 	"status to wait on; without --no-wait, this command confirms the new repository with a read, polling for up " +
 	"to 60 seconds. A timeout, or any other failure during that confirm, is NotSettled, and the repository " +
-	"exists, so the create must not be sent again. --name must be 6 to 20 characters of lowercase letters, " +
-	"digits, '_' or '-', starting with a letter or digit; any other name exits InvalidUsage before any request."
+	"exists, so the create must not be sent again. The server requires --name to be 6 to 20 characters of " +
+	"lowercase letters, digits, '_' or '-', starting with a letter or digit, and refuses any other name with 400."
 
 // containerRegistryDeleteRepositoryNote documents delete-repository's
 // pre-delete image guard and its post-delete wait, since the flag table

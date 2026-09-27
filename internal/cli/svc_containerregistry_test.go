@@ -20,10 +20,10 @@ import (
 func exampleRepository() containerregistry.Repository {
 	return containerregistry.Repository{
 		ID:            "repo-1",
-		Name:          "<account>-app",
-		BackendName:   "<account>-app",
+		Name:          "app-test",
+		BackendName:   "app-test",
 		AccessLevel:   "PRIVATE",
-		RegistryURL:   "<hostname>/<account>-app",
+		RegistryURL:   "<hostname>/app-test",
 		QuotaLimitGB:  1,
 		QuotaUsed:     0,
 		ImageCount:    0,
@@ -124,7 +124,7 @@ func TestContainerRegistryListUsersIsHeld(t *testing.T) {
 // --access-level reaches the query string, and that the decoded Repository
 // prints under its own Go field names.
 func TestContainerRegistryListRepositoriesUsesTheGlobalScopedPath(t *testing.T) {
-	body := `{"data":[{"uuid":"repo-1","name":"<account>-app","accessLevel":"PRIVATE"}],"page":1,"pageSize":25,"totalPage":1,"totalItem":1}`
+	body := `{"data":[{"uuid":"repo-1","name":"app-test","accessLevel":"PRIVATE"}],"page":1,"pageSize":25,"totalPage":1,"totalItem":1}`
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/repository": jsonHandler(http.StatusOK, body),
 	})
@@ -183,10 +183,10 @@ func TestContainerRegistryListRepositoriesDropsUnknownKeys(t *testing.T) {
 func repoJSON() string {
 	body := map[string]any{
 		"uuid":         "repo-1",
-		"name":         "<account>-app",
-		"backendName":  "<account>-app",
+		"name":         "app-test",
+		"backendName":  "app-test",
 		"accessLevel":  "PRIVATE",
-		"registryUrl":  "<hostname>/<account>-app",
+		"registryUrl":  "<hostname>/app-test",
 		"quotaLimit":   1,
 		"quotaUsed":    0,
 		"imageCount":   0,
