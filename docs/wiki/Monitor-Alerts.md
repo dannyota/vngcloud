@@ -382,9 +382,9 @@ already headed to the state the call asked for.
 ## Alarms
 
 `ListAlarms` and `GetAlarm` read vMonitor alarms, of either `Kind`:
-`monitor.AlarmKindMetric` or `monitor.AlarmKindLog`. There is no create,
-update, or delete yet: a log alarm needs a log project, which
-`CreateLogProject` can now order, but log alarm writes do not exist yet.
+`monitor.AlarmKindMetric` or `monitor.AlarmKindLog`. `CreateLogAlarm`,
+`UpdateLogAlarm`, and `DeleteLogAlarm` write log alarms; see [Monitor Log
+Alarms](Monitor-Log-Alarms.md).
 
 ```go
 alarms, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: monitor.AlarmKindLog})
@@ -413,22 +413,27 @@ one kind; `ListAlarms` also sets each item's `Log` and `MetricMappingID`
 from that same `Kind`, clearing whichever field does not belong to it,
 rather than trusting which one the response happens to carry.
 
-`Alarm` holds `ID`, `Name`, `Kind`, `Status`, and `Severity` for both kinds.
-A Log alarm's `Log` field is non-nil and holds `InAlarm` and `OK`, the
-channel IDs that alert on entering and leaving the alarm state. A Metric
-alarm has `Log` nil and instead sets `MetricMappingID`, naming the channel
-by the same `MetricMappingID` a channel read itself returns, rather than by
-the channel's `ID`.
+`Alarm` holds `ID`, `Name`, `Description`, `Kind`, `Status`, and `Severity`
+for both kinds. `Kind` decodes from the response's own top-level `type`
+field (`LOG` gives `monitor.AlarmKindLog`, `METRIC` gives
+`monitor.AlarmKindMetric`, anything else leaves it empty); `ListAlarms`
+also overwrites `Kind`, and clears whichever of `Log` or `MetricMappingID`
+does not belong to it, from its own `Kind` filter, since one call always
+lists one kind, so `GetAlarm` is the only call whose `Alarm.Kind` comes
+from the response itself. A Metric alarm has `Log` nil and instead sets
+`MetricMappingID`, naming the channel by the same `MetricMappingID` a
+channel read itself returns, rather than by the channel's `ID`.
 
-`GetAlarm` takes no `Kind` filter, and the API sends no field confirmed to
-name the kind itself, so a `GetAlarm` read's `Alarm.Kind` comes back empty
-rather than inferred; unverified until a live read confirms what, if
-anything, would name it. `Log` and `MetricMappingID` still decode from
-whichever wire fields the response carries. This call's response shape has
-not been checked against a real alarm at all: the test account has none of
-either kind, and the design's source for the alarm calls is the console's
-own JavaScript, not a live capture. A live `GetAlarm` for an ID with no
-matching alarm returned a 500, not a 404, so unlike `GetCheck` and
-`GetChannel`, a missing alarm does not resolve to
+A Log alarm's `Log` field holds the fields [Monitor Log
+Alarms](Monitor-Log-Alarms.md#read-model) defines, decoded from the
+response's `alarmLog` object; a response with no `alarmLog` at all still
+decodes `InAlarm` and `OK` from top-level `inAlarm` and `ok` keys, leaving
+every other `LogAlarmDetail` field zero.
+
+`GetAlarm`'s response shape has not been checked against a real alarm at
+all: the test account has none of either kind, and the design's source for
+the alarm calls is the console's own JavaScript, not a live capture. A live
+`GetAlarm` for an ID with no matching alarm returned a 500, not a 404, so
+unlike `GetCheck` and `GetChannel`, a missing alarm does not resolve to
 `vngcloud.IsNotFound(err) == true`; it comes back as a plain
 `*vngcloud.APIError`.

@@ -2,9 +2,37 @@
   "data": {
     "id": "alarm-1",
     "name": "example-log-alarm",
+    "description": "Alerts when error logs spike",
+    "type": "LOG",
     "status": "OK",
     "severity": "MEDIUM",
-    "inAlarm": "channel-1,",
-    "ok": ""
+    "alarmLog": {
+      "logProject": "proj-1",
+      "logProjectName": "example-project",
+      "queryString": "status:500",
+      "logSearchQuery": "[]",
+      "filter": {
+        "type": "bool",
+        "value": {
+          "filter": [],
+          "should": [],
+          "must": [{"query_string": {"query": "status:500"}}],
+          "mustNot": []
+        }
+      },
+      "thresholdType": "frequency",
+      "condition": "gt",
+      "thresholdValue": 100,
+      "timeFrame": 5,
+      "groupByField": null,
+      "reason": "query(status:500) >100",
+      "inAlarm": "channel-1,",
+      "ok": "",
+      "undetermined": "",
+      "resendEnabled": false,
+      "resendPeriod": 30,
+      "resendTimes": 0,
+      "resendStatus": "ALARM"
+    }
   }
 }

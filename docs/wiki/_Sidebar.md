@@ -12,6 +12,7 @@
 - [DNS](DNS.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
+- [Monitor Log Alarms](Monitor-Log-Alarms.md)
 - [Security](Security.md)
 
 **CLI**

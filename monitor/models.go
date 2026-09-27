@@ -3,7 +3,9 @@ package monitor
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"strconv"
 )
 
 // StatusEnabled and StatusDisabled are the two Check.Status values
@@ -312,5 +314,30 @@ func (s *flexibleString) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	*s = ""
+	return nil
+}
+
+// flexibleNumber decodes a JSON number or a numeric string into a float64.
+// A log alarm's thresholdValue and timeFrame need this: the console's own
+// create form does not convert either to a number before sending it, so
+// the read API may echo back whichever shape a write, console or SDK, last
+// sent.
+type flexibleNumber float64
+
+func (n *flexibleNumber) UnmarshalJSON(data []byte) error {
+	var f float64
+	if err := json.Unmarshal(data, &f); err == nil {
+		*n = flexibleNumber(f)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return fmt.Errorf("monitor: value %q is not a number", s)
+	}
+	*n = flexibleNumber(f)
 	return nil
 }
