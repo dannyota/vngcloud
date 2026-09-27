@@ -404,6 +404,16 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 	if in.AllowedCIDRs != nil {
 		cidrs = *in.AllowedCIDRs
 	}
+	if len(cidrs) == 0 {
+		// checkAllowedCIDRs already refuses a caller-set empty slice; this
+		// catches the other way cidrs can end up empty, an unset
+		// AllowedCIDRs combined with a listener whose own read comes back
+		// with none. The PUT is a full replace, so sending allowedCidrs
+		// empty would either open the listener to everyone or close it to
+		// everyone, neither ever intended by a caller who left the field
+		// alone.
+		return nil, fmt.Errorf("%w: %s: the listener's own AllowedCIDRs read back empty; set AllowedCIDRs explicitly", core.ErrInvalidInput, op)
+	}
 	insertHeaders := listener.InsertHeaders
 	if in.InsertHeaders != nil {
 		insertHeaders = *in.InsertHeaders

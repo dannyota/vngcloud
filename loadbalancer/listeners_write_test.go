@@ -373,6 +373,30 @@ func TestUpdateListenerReadMergeResendsUnsetFields(t *testing.T) {
 	}
 }
 
+// TestUpdateListenerRefusesEmptyAllowedCIDRsFromRead checks that an update
+// leaving AllowedCIDRs unset is refused, sending no PUT, when the listener's
+// own read comes back with none: the PUT is a full replace, so silently
+// sending allowedCidrs empty would open or close the listener to everyone,
+// never what a caller who left the field alone intended.
+func TestUpdateListenerRefusesEmptyAllowedCIDRsFromRead(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == listenerLBPath:
+			listenerLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == listenerPath:
+			_, _ = w.Write([]byte(`{"data":{"uuid":"listener-1","protocol":"HTTP","protocolPort":80,` +
+				`"timeoutClient":60,"timeoutMember":60,"timeoutConnection":10,"allowedCidrs":"","progressStatus":"CREATED"}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := &UpdateListenerInput{LoadBalancerID: listenerTestLBID, ListenerID: listenerTestID, TimeoutClient: vngcloud.Ptr(30)}
+	if _, err := c.UpdateListener(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestUpdateListenerRejectsNoFieldsSet(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")
