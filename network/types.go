@@ -78,6 +78,54 @@ type GetVPCOutput struct {
 	VPC VPC
 }
 
+type ListDHCPOptionsInput struct {
+	Name string
+	Page int
+	Size int
+}
+type ListDHCPOptionsOutput = core.PagedList[DHCPOptions]
+
+type GetDHCPOptionsInput struct {
+	DHCPOptionsID string `vngcloud:"required"`
+}
+type GetDHCPOptionsOutput struct {
+	DHCPOptions DHCPOptions
+}
+
+// CreateDHCPOptionsInput creates a DHCP options set. DNSServers must hold at
+// least one IPv4 address; the server enforces the four-server limit. MTU is
+// sent only when set; the server's default is 1450.
+type CreateDHCPOptionsInput struct {
+	Name       string   `vngcloud:"required"`
+	DNSServers []string `vngcloud:"required"`
+
+	MTU *int
+}
+type CreateDHCPOptionsOutput struct {
+	DHCPOptions DHCPOptions
+}
+
+type DeleteDHCPOptionsInput struct {
+	DHCPOptionsID string `vngcloud:"required"`
+}
+type DeleteDHCPOptionsOutput struct{}
+
+// SetVPCDHCPOptionsInput moves VPCID onto DHCPOptionsID's set. There is no
+// call to clear a VPC's set, so this is a one-way write; see
+// SetVPCDHCPOptions's doc comment.
+type SetVPCDHCPOptionsInput struct {
+	VPCID         string `vngcloud:"required"`
+	DHCPOptionsID string `vngcloud:"required"`
+}
+
+// SetVPCDHCPOptionsOutput is the VPC after the call, and whether the call
+// itself changed anything. Changed is false only when the VPC's
+// DHCPOptionID already equaled DHCPOptionsID.
+type SetVPCDHCPOptionsOutput struct {
+	VPC     VPC
+	Changed bool
+}
+
 type GetSubnetInput struct {
 	VPCID    string `vngcloud:"required"`
 	SubnetID string `vngcloud:"required"`

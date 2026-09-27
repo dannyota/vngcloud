@@ -82,6 +82,14 @@ type listInterconnectsResponse struct {
 	TotalItem int            `json:"totalItem"`
 }
 
+type listDHCPOptionsResponse struct {
+	ListData  []DHCPOptions `json:"listData"`
+	Page      int           `json:"page"`
+	PageSize  int           `json:"pageSize"`
+	TotalPage int           `json:"totalPage"`
+	TotalItem int           `json:"totalItem"`
+}
+
 type listEndpointsResponse struct {
 	Data      []Endpoint `json:"data"`
 	Page      int        `json:"page"`
@@ -137,6 +145,23 @@ type VPC struct {
 	MTU            int      `json:"mtu"`
 	ServerCount    int      `json:"serverCount"`
 	VolumeCount    int      `json:"volumeCount"`
+}
+
+// DHCPOptions is a DHCP options set: a list of DNS server addresses and an
+// MTU that a VPC's servers pick up from its subnet's DHCP lease. VPCIDs
+// holds the VPCs the set is currently attached to (associatedNetworks); the
+// server gives no field marking a set as one Private DNS created, so the
+// SDK treats a Name with the dhcpOptionsSystemPrefix as a system set (see
+// dhcp_options_write.go).
+type DHCPOptions struct {
+	UUID       string   `json:"uuid"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	DNSServers []string `json:"dnsServers"`
+	MTU        int      `json:"mtu"`
+	VPCIDs     []string `json:"associatedNetworks"`
+	CreatedAt  string   `json:"createdAt"`
+	UpdatedAt  string   `json:"updatedAt"`
 }
 
 type WANIP struct {

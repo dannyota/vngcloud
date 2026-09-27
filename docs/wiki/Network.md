@@ -6,8 +6,9 @@ ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
 security groups and their rules, VPCs, subnets, and Private DNS, the
 network resources this SDK writes here. See [Network Route
-Tables](Network-RouteTables.md) for route tables and routes, and [Network
-ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations.
+Tables](Network-RouteTables.md) for route tables and routes, [Network
+ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations, and
+[Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets.
 Servers, volumes, and floating IPs stay read-only.
 
 If a VPC, subnet, route table, ACL, or security group is managed by
@@ -448,3 +449,8 @@ See [Network Route Tables](Network-RouteTables.md) for `GetRouteTable`,
 See [Network ACLs](Network-ACLs.md) for `GetNetworkACL`, `CreateNetworkACL`,
 `DeleteNetworkACL`, `AddNetworkACLRule`, `RemoveNetworkACLRule`,
 `AssociateNetworkACLSubnet`, and `DisassociateNetworkACLSubnet`.
+
+## DHCP options sets
+
+See [Network DHCP Options](Network-DHCPOptions.md) for `ListDHCPOptions`,
+`GetDHCPOptions`, `CreateDHCPOptions`, `DeleteDHCPOptions`, `SetVPCDHCPOptions`.
