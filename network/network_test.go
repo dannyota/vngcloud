@@ -429,6 +429,45 @@ func TestNetworkZeroConfig(t *testing.T) {
 	}
 }
 
+// pathIDRejections are path-segment values core.CheckPathID must refuse.
+var pathIDRejections = []string{"..", ".", "a/b", "a?b", ""}
+
+func TestGetVPCPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range pathIDRejections {
+		if _, err := c.GetVPC(context.Background(), &GetVPCInput{VPCID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
+func TestGetSubnetPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range pathIDRejections {
+		if _, err := c.GetSubnet(context.Background(), &GetSubnetInput{VPCID: id, SubnetID: "subnet-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.GetSubnet(context.Background(), &GetSubnetInput{VPCID: "vpc-1", SubnetID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("SubnetID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
+func TestListSubnetsByVPCPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range pathIDRejections {
+		if _, err := c.ListSubnetsByVPC(context.Background(), &ListSubnetsByVPCInput{VPCID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 

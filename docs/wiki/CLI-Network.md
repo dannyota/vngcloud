@@ -39,6 +39,40 @@ Confirmed live: the new rule is already ACTIVE in the create response, so this c
 vngcloud network create-security-group-rule --security-group-id <security-group-id> --direction <direction> --protocol <protocol> --remote-ip-prefix <remote-ip-prefix>
 ```
 
+## create-subnet
+
+Kind: Write.
+
+--zone-id must name a zone enabled for the account; the SDK picks no default, since a guess would place the subnet, and any server later created in it, in a zone the caller did not choose. Run portal list-zones to find an enabled zone.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--cidr` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network create-subnet --vpc-id <vpc-id> --zone-id <zone-id> --name <name> --cidr <cidr>
+```
+
+## create-vpc
+
+Kind: Write.
+
+Takes no zone: the server ignores a VPC's zone and always places it in the region's first zone, which can be disabled for the account. The zone that matters is a subnet's own --zone-id.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--cidr` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network create-vpc --name <name> --cidr <cidr>
+```
+
 ## delete-security-group
 
 Kind: Write, destructive.
@@ -66,6 +100,50 @@ Refuses, before any write, a rule that does not belong to the named group. A rep
 
 ```sh
 vngcloud network delete-security-group-rule --security-group-id <security-group-id> --security-group-rule-id <security-group-rule-id> --yes
+```
+
+## delete-subnet
+
+Kind: Write, destructive.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network delete-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --yes
+```
+
+## delete-vpc
+
+Kind: Write, destructive.
+
+Refuses, before any request, a VPC that still has a server, a volume, or a subnet; delete the subnets first. Even once every subnet is gone, the server keeps refusing the VPC's own delete with error code ResourceInUse for several minutes afterward; this command reads first every time, so a rerun once that window passes is safe.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network delete-vpc --vpc-id <vpc-id> --yes
+```
+
+## enable-vpc-private-dns
+
+Kind: Write, destructive.
+
+One-way: the API has no call that disables Private DNS again, so this command needs --yes. Takes about 6 minutes to settle; a server already on the VPC only picks up the new resolver after its own DHCP renew.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network enable-vpc-private-dns --vpc-id <vpc-id> --yes
 ```
 
 ## get-endpoint
@@ -319,6 +397,18 @@ Kind: Read.
 vngcloud network list-servers-by-security-group --security-group-id <security-group-id>
 ```
 
+## list-servers-by-subnet
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--subnet-id` | `string` | yes |
+
+```sh
+vngcloud network list-servers-by-subnet --subnet-id <subnet-id>
+```
+
 ## list-subnets
 
 Kind: Read.
@@ -405,5 +495,32 @@ Kind: Write.
 
 ```sh
 vngcloud network update-security-group --security-group-id <security-group-id>
+```
+
+## update-subnet
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--name` | `string` | yes |
+
+```sh
+vngcloud network update-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --name <name>
+```
+
+## update-vpc
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--name` | `string` | yes |
+
+```sh
+vngcloud network update-vpc --vpc-id <vpc-id> --name <name>
 ```
 
