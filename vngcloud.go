@@ -43,6 +43,7 @@ var (
 	ErrInvalidInput     = core.ErrInvalidInput
 	ErrNoCredentials    = core.ErrNoCredentials
 	ErrCredentialsFile  = core.ErrCredentialsFile
+	ErrPriceAboveMax    = core.ErrPriceAboveMax
 
 	NewConfig = core.NewConfig
 	// LoadConfig resolves a Config from LoadOption values, environment

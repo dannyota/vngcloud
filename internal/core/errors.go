@@ -21,6 +21,10 @@ var (
 	ErrInvalidConfig    = errors.New("vngcloud: invalid config")
 	ErrInvalidInput     = errors.New("vngcloud: invalid input")
 
+	// ErrPriceAboveMax means a paid write's quote priced the order above
+	// Input.MaxPrice. Nothing was ordered.
+	ErrPriceAboveMax = errors.New("vngcloud: quoted price is above MaxPrice")
+
 	// ErrNoCredentials is LoadConfig's error when no source (options,
 	// environment variables, or the resolved profile) sets any credential
 	// value. It wraps ErrInvalidConfig, so errors.Is(err, ErrInvalidConfig)

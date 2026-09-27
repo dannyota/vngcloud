@@ -14,6 +14,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -255,6 +256,19 @@ func TestLoadConfigProfileSetting(t *testing.T) {
 	}
 	if got := staticCfg.ProfileSetting("output"); got != "" {
 		t.Fatalf(`ProfileSetting("output") = %q, want "" for NewConfig`, got)
+	}
+}
+
+// TestErrPriceAboveMaxMatchesMonitor checks that vngcloud.ErrPriceAboveMax
+// and monitor.ErrPriceAboveMax are the same value, so errors.Is matches
+// either name for an error a paid write returns.
+func TestErrPriceAboveMaxMatchesMonitor(t *testing.T) {
+	wrapped := fmt.Errorf("quote too high: %w", vngcloud.ErrPriceAboveMax)
+	if !errors.Is(wrapped, monitor.ErrPriceAboveMax) {
+		t.Fatal("vngcloud.ErrPriceAboveMax does not match monitor.ErrPriceAboveMax")
+	}
+	if !errors.Is(wrapped, vngcloud.ErrPriceAboveMax) {
+		t.Fatal("vngcloud.ErrPriceAboveMax does not match itself")
 	}
 }
 

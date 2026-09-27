@@ -1,0 +1,6 @@
+{
+  "flavors": [
+    {"flavorId": "flavor-1", "name": "s2-general-1x2", "cpu": 1, "memory": 2048, "gpu": 0, "bandwidth": 100, "bandwidthUnit": "Mbps", "remainingVms": 10, "isSoldOut": false, "flavorZoneId": "flavor-zone-1"},
+    {"flavorId": "flavor-2", "name": "s2-general-2x4", "cpu": 2, "memory": 4096, "gpu": 0, "bandwidth": 100, "bandwidthUnit": "Mbps", "remainingVms": 0, "isSoldOut": true, "flavorZoneId": "flavor-zone-1"}
+  ]
+}
