@@ -248,10 +248,10 @@ section says.
 
 - Every path ID passes `core.CheckPathID` before any request, reads
   included. The probes confirm the service account ID form.
-- `CreateServiceAccount` and `ResetServiceAccountSecret` set
-  `transport.Request.Once`: a resend after a 401 or a followed redirect
-  would create a second account or rotate the secret a second time, so
-  each is sent at most once, whatever the response. Attaches and adds
+- `CreateServiceAccount`, `ResetServiceAccountSecret`, and `CreatePolicy`
+  set `transport.Request.Once`: a resend after a 401 or a followed
+  redirect would create a second account or policy, or rotate the secret a
+  second time, so each is sent at most once, whatever the response. Attaches and adds
   (I3, I4) are plain `POST` instead, retried only after a 429 or a failed
   dial (ADR 0002 rule 2), since a repeat is visible as a `Conflict`. After
   a 5xx or a network error from any of these, the error names the read
