@@ -247,6 +247,91 @@ func TestDeleteServerWaitBoundReached(t *testing.T) {
 	}
 }
 
+// TestDeleteServerWaitFailureNamesListedVolumes checks that a wait failure
+// still names the volumes the server held before the delete, rather than
+// an empty Output: they still cost money either way, and the caller should
+// not have to re-derive them from the pre-delete list on its own.
+func TestDeleteServerWaitFailureNamesListedVolumes(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/servers/server-1":
+			_, _ = w.Write([]byte(`[{"uuid":"volume-1"},{"uuid":"volume-2"}]`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(serverBody("ERROR")))
+		}
+	})))
+
+	out, err := c.DeleteServer(context.Background(), &DeleteServerInput{ServerID: "server-1"})
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+	if len(out.KeptVolumeIDs) != 2 {
+		t.Fatalf("KeptVolumeIDs = %v, want [volume-1 volume-2]", out.KeptVolumeIDs)
+	}
+}
+
+// TestDeleteServerWaitFailureNamesDeletedVolumes is
+// TestDeleteServerWaitFailureNamesListedVolumes for Input.DeleteVolumes
+// true: a wait failure names the volumes as DeletedVolumeIDs instead, the
+// same field a settled delete would have used.
+func TestDeleteServerWaitFailureNamesDeletedVolumes(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/servers/server-1":
+			_, _ = w.Write([]byte(`[{"uuid":"volume-1"}]`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(serverBody("ERROR")))
+		}
+	})))
+
+	out, err := c.DeleteServer(context.Background(), &DeleteServerInput{ServerID: "server-1", DeleteVolumes: true})
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+	if len(out.DeletedVolumeIDs) != 1 || out.DeletedVolumeIDs[0] != "volume-1" {
+		t.Fatalf("DeletedVolumeIDs = %v, want [volume-1]", out.DeletedVolumeIDs)
+	}
+}
+
+// TestDeleteServerKeptVolumeCountsUnlessNotFound checks that a volume read
+// failing with anything other than NotFound, here a 500, still counts as
+// kept: only a confirmed absence may drop a volume that could still be
+// billing.
+func TestDeleteServerKeptVolumeCountsUnlessNotFound(t *testing.T) {
+	var deleted atomic.Bool
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+			if deleted.Load() {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message":"not found"}`))
+				return
+			}
+			_, _ = w.Write([]byte(serverBody("ACTIVE")))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/servers/server-1":
+			_, _ = w.Write([]byte(`[{"uuid":"volume-1"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodDelete:
+			deleted.Store(true)
+			w.WriteHeader(http.StatusAccepted)
+		}
+	})))
+
+	out, err := c.DeleteServer(context.Background(), &DeleteServerInput{ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("DeleteServer() error = %v", err)
+	}
+	if len(out.KeptVolumeIDs) != 1 || out.KeptVolumeIDs[0] != "volume-1" {
+		t.Fatalf("KeptVolumeIDs = %v, want [volume-1]: a non-NotFound read error must not drop a volume", out.KeptVolumeIDs)
+	}
+}
+
 // TestWaitServerDeletedPollParameters checks the literal interval and
 // bound waitServerDeleted passes to poll.
 func TestWaitServerDeletedPollParameters(t *testing.T) {

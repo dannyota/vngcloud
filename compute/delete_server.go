@@ -48,14 +48,19 @@ type DeleteServerOutput struct {
 // every 5 seconds, for a 404 or a read showing Status DELETED. If a read
 // instead shows ERROR, or the bound runs out, or a read or a sleep fails,
 // such as from a canceled ctx, the returned error wraps ErrFailed or
-// ErrNotSettled; a rerun is safe either way, since DeleteServer always
-// reads first.
+// ErrNotSettled, and Output still names the volumes listed before the
+// delete (DeletedVolumeIDs or KeptVolumeIDs, whichever Input.DeleteVolumes
+// selects), unconfirmed, rather than an empty Output the caller would have
+// to re-derive; a rerun is safe either way, since DeleteServer always reads
+// first.
 //
 // Once the delete settles, DeleteServer reports the volumes it listed
 // before the delete: with Input.DeleteVolumes true, DeletedVolumeIDs names
 // all of them, since deleteAllVolume told the server to remove them with
 // the server itself; with it false, DeleteServer reads each one again with
-// volume.GetVolume, and KeptVolumeIDs names those that still exist. NoWait
+// volume.GetVolume, and KeptVolumeIDs names every one whose read did not
+// confirm it gone: only a core.ErrNotFound counts a volume as deleted, so a
+// transient read failure never hides one that may still be billing. NoWait
 // skips both the wait and this reconciliation: DeletedVolumeIDs or
 // KeptVolumeIDs (whichever Input.DeleteVolumes selects) names every volume
 // listed before the delete, unconfirmed.
@@ -102,7 +107,13 @@ func (c *Client) DeleteServer(ctx context.Context, in *DeleteServerInput) (*Dele
 		return &DeleteServerOutput{KeptVolumeIDs: volumeIDs}, nil
 	}
 	if err := c.waitServerDeleted(ctx, op, in.ServerID); err != nil {
-		return &DeleteServerOutput{}, err
+		// The wait itself failed, but the volumes this server held before the
+		// delete still cost money either way; name them with the error rather
+		// than an empty Output, so the caller does not have to re-derive them.
+		if in.DeleteVolumes {
+			return &DeleteServerOutput{DeletedVolumeIDs: volumeIDs}, err
+		}
+		return &DeleteServerOutput{KeptVolumeIDs: volumeIDs}, err
 	}
 
 	if in.DeleteVolumes {
@@ -110,7 +121,10 @@ func (c *Client) DeleteServer(ctx context.Context, in *DeleteServerInput) (*Dele
 	}
 	kept := make([]string, 0, len(volumeIDs))
 	for _, id := range volumeIDs {
-		if _, err := c.volume.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id}); err == nil {
+		// A volume counts as kept unless its read confirms it is gone: any
+		// other error, including a network failure, must not hide a
+		// resource that may still be billing.
+		if _, err := c.volume.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id}); !core.IsNotFound(err) {
 			kept = append(kept, id)
 		}
 	}
