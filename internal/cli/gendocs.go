@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // genDocsMarker starts every generated page, so scripts/check-lengths.sh
@@ -68,7 +69,7 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 		svc.ops[i] = docOp{
 			name:       op.name,
 			kind:       kind,
-			fields:     docFieldsFor(op.newInput(), op.noFlag),
+			fields:     append(docFieldsFor(op.newInput(), op.noFlag), extraDocFields(op.extraFlags)...),
 			queryField: wrappedResourceField(op.methodName, op.newOutput),
 		}
 	}
@@ -103,6 +104,32 @@ func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 		}
 		fields = append(fields, docField{name: flagNameFor(f.Name), goType: goType, required: required})
 	}
+	return fields
+}
+
+// extraDocFields lists the flags extraFlags registers beyond newInput's own
+// fields, such as compute create-ssh-key's --secret-file: extraFlags backs
+// no Input field, so docFieldsFor's reflection over the Input struct never
+// sees it, and the flag table would otherwise render as if the command took
+// no such flag at all. It runs extraFlags against a fresh, otherwise unused
+// *cobra.Command and reads back only what that call registered, so the flag
+// table always matches what newOpCmd actually adds. required is read from
+// extraFlags' own usage text, which registerSecretFileFlag (and any future
+// extraFlags) ends with the literal suffix "(required)" for exactly this.
+func extraDocFields(extraFlags func(cmd *cobra.Command)) []docField {
+	if extraFlags == nil {
+		return nil
+	}
+	cmd := &cobra.Command{}
+	extraFlags(cmd)
+	var fields []docField
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		fields = append(fields, docField{
+			name:     f.Name,
+			goType:   f.Value.Type(),
+			required: strings.HasSuffix(f.Usage, "(required)"),
+		})
+	})
 	return fields
 }
 

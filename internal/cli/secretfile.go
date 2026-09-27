@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -26,12 +27,16 @@ func registerSecretFileFlag(cmd *cobra.Command) {
 }
 
 // checkSecretFilePath refuses a --secret-file value the CLI design's secret
-// files contract already rules out, before any request: empty, or naming a
-// path something already occupies. os.Lstat, not os.Stat, is used
-// deliberately so a symlink is refused by its own existing directory entry,
-// never followed to whatever it points at (or does not); writeSecretFile
-// closes the remaining race, between this check and the actual open, with
-// its own O_EXCL and, where the platform supports it, O_NOFOLLOW.
+// files contract already rules out, before any request: empty, naming a path
+// something already occupies, or naming a path whose parent directory does
+// not exist or is not a directory. os.Lstat, not os.Stat, is used
+// deliberately for path itself so a symlink is refused by its own existing
+// directory entry, never followed to whatever it points at (or does not);
+// writeSecretFile closes the remaining race, between this check and the
+// actual open, with its own O_EXCL and, where the platform supports it,
+// O_NOFOLLOW. The parent directory check follows os.Stat, so a symlinked
+// directory is accepted the same way a plain one is; only path itself must
+// never be a symlink.
 func checkSecretFilePath(path string) error {
 	if path == "" {
 		return newUsageError("--%s is required", secretFileFlagName)
@@ -40,6 +45,16 @@ func checkSecretFilePath(path string) error {
 		return newUsageError("--%s %q already exists; refusing to overwrite it", secretFileFlagName, path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return newUsageError("--%s %q: %s", secretFileFlagName, path, err)
+	}
+	dir := filepath.Dir(path)
+	info, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return newUsageError("--%s %q: parent directory does not exist", secretFileFlagName, path)
+	case err != nil:
+		return newUsageError("--%s %q: %s", secretFileFlagName, path, err)
+	case !info.IsDir():
+		return newUsageError("--%s %q: parent path %s is not a directory", secretFileFlagName, path, dir)
 	}
 	return nil
 }

@@ -2,11 +2,21 @@ package cli
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
 )
+
+// secretFileCleanupDeleteTimeout bounds the cleanup delete callCreateSSHKey
+// sends after a failed --secret-file write: the delete runs on a context
+// detached from the command's own (via context.WithoutCancel), so a canceled
+// command still cleans up the orphaned key, but this bound keeps that cleanup
+// from hanging forever if the network stalls.
+const secretFileCleanupDeleteTimeout = 10 * time.Second
 
 // computeOps is compute's operation table. get-ssh-key, import-ssh-key, and
 // delete-ssh-key follow the usual Read and Write pattern; create-ssh-key is
@@ -81,11 +91,16 @@ func createSSHKeyOp() Op[compute.Client] {
 
 // callCreateSSHKey runs the real create, then writes the private key to
 // --secret-file, which guardSecretFilePath already checked before this call
-// ever ran. A write failure deletes the new key through the SDK, since the
-// key is unusable either way once its one-time private key is lost, and
-// reports SecretFileFailed; if that delete itself fails, the resource is
-// named only by its ID, per the CLI design's secret files contract, never
-// by the write or delete error's own text.
+// ever ran. Per the CLI design, the file gets the key as returned plus one
+// trailing newline, added only when Reveal() does not already end with one.
+// A write failure deletes the new key through the SDK, since the key is
+// unusable either way once its one-time private key is lost, and reports
+// SecretFileFailed; if that delete itself fails, the resource is named only
+// by its ID, per the CLI design's secret files contract, never by the write
+// or delete error's own text. The cleanup delete runs on a context detached
+// from ctx (context.WithoutCancel, with its own short timeout), so a
+// canceled command still cleans up the orphaned key; a NotFound from that
+// delete counts as cleanup succeeding, since the key is gone either way.
 func callCreateSSHKey(cmd *cobra.Command, client *compute.Client, ctx context.Context, in any) (any, error) {
 	out, err := client.CreateSSHKey(ctx, in.(*compute.CreateSSHKeyInput))
 	if err != nil {
@@ -95,8 +110,14 @@ func callCreateSSHKey(cmd *cobra.Command, client *compute.Client, ctx context.Co
 	// flag and checked its path, so the only new failure possible here is
 	// the actual write.
 	path, _ := cmd.Flags().GetString(secretFileFlagName)
-	if writeErr := writeSecretFile(path, []byte(out.PrivateKey.Reveal())); writeErr != nil {
-		if _, delErr := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{SSHKeyID: out.SSHKey.ID}); delErr != nil {
+	key := out.PrivateKey.Reveal()
+	if !strings.HasSuffix(key, "\n") {
+		key += "\n"
+	}
+	if writeErr := writeSecretFile(path, []byte(key)); writeErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), secretFileCleanupDeleteTimeout)
+		defer cancel()
+		if _, delErr := client.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: out.SSHKey.ID}); delErr != nil && !vngcloud.IsNotFound(delErr) {
 			return nil, newSecretFileCleanupFailed("ssh key", out.SSHKey.ID)
 		}
 		return nil, newSecretFileWriteFailed("ssh key", out.SSHKey.ID, writeErr)

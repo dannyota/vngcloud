@@ -74,11 +74,15 @@ const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up,
 const computeGetSSHKeyNote = "SSHKey never includes a private key; see import-ssh-key and create-ssh-key."
 
 // computeImportSSHKeyPreferredNote documents the wiki's own recommendation
-// for import-ssh-key: the flag table cannot show why it is preferred.
+// for import-ssh-key, and the key type GreenNode actually accepts: the flag
+// table cannot show either. Only an RSA public key is accepted live; an
+// ssh-ed25519 key gets a 400 "Invalid public key" from the server, even
+// though ssh-keygen happily makes one.
 const computeImportSSHKeyPreferredNote = "Preferred over create-ssh-key: PublicKey is made elsewhere, for " +
 	"example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans " +
 	"more than one line, or that contains the text \"PRIVATE KEY\", before any request; neither error ever " +
-	"quotes the value."
+	"quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with " +
+	"400 \"Invalid public key\"."
 
 // computeCreateSSHKeyNote documents create-ssh-key's --secret-file
 // requirement and its cleanup-on-failure rule: the flag table shows no
@@ -303,9 +307,11 @@ var docJSONPlaceholders = map[string]string{
 // required fields, but UpdateRecord also requires at least one other field
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
-// field to change.
+// field to change. compute create-ssh-key does not need an entry here even
+// though --secret-file backs no Input field: extraDocFields (gendocs.go)
+// already gives it a required docField of its own, which the same
+// required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
-	"compute create-ssh-key": "secret-file",
 	"dns update-hosted-zone": "description",
 	"dns update-record":      "ttl",
 	"monitor update-check":   "name",

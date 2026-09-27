@@ -8,11 +8,35 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
 )
+
+// unwritableSecretFileDir returns a directory the current process cannot
+// write into: a path inside it passes checkSecretFilePath's own checks (the
+// directory exists and is a directory) but fails at the actual open, giving
+// tests a way to force writeSecretFile to fail without a missing parent
+// directory, which checkSecretFilePath now refuses before any request.
+// Skipped on windows, where a directory's POSIX-style mode bits do not
+// govern whether a file can be created inside it, and skipped when running
+// as root, which such permission bits never restrict.
+func unwritableSecretFileDir(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission bits do not block file creation on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permission bits")
+	}
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	return dir
+}
 
 // sshKeyJSON builds a {"data": {...}} SSH key envelope, the shape GetSSHKey,
 // ImportSSHKey, and CreateSSHKey all decode, always under id "key-1", name
@@ -284,6 +308,34 @@ func TestComputeCreateSSHKeyRefusesSymlinkSecretFile(t *testing.T) {
 	}
 }
 
+// TestComputeCreateSSHKeyRefusesMissingParentDirWithZeroRequests checks that
+// create-ssh-key refuses a --secret-file whose parent directory does not
+// exist, before any request: checkSecretFilePath (secretfile.go) rejects it
+// the same way it already rejects an existing path or a symlink.
+func TestComputeCreateSSHKeyRefusesMissingParentDirWithZeroRequests(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-dir", "key.pem")
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/sshKeys": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "compute", "create-ssh-key",
+		"--name", "my-key", "--secret-file", path,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for a --secret-file with a missing parent directory")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
 // TestComputeCreateSSHKeyWritesSecretFileAndRedactsOutput drives a real
 // create-ssh-key call, with --debug on, and checks: the file lands at mode
 // 0600 holding exactly the private key the fixture returned, stdout's
@@ -346,13 +398,15 @@ func TestComputeCreateSSHKeyWritesSecretFileAndRedactsOutput(t *testing.T) {
 
 // TestComputeCreateSSHKeyCleansUpOnUnwritableSecretFile checks the CLI
 // design's cleanup rule: when --secret-file cannot be written (here, its
-// parent directory does not exist), the CLI deletes the new key through the
-// SDK and reports SecretFileFailed, and the private key never reaches
+// parent directory exists but denies write permission, so
+// checkSecretFilePath's own before-any-request checks pass and the failure
+// happens only at the actual write), the CLI deletes the new key through
+// the SDK and reports SecretFileFailed, and the private key never reaches
 // stdout or stderr either.
 func TestComputeCreateSSHKeyCleansUpOnUnwritableSecretFile(t *testing.T) {
 	// Split so secret scanners do not read the fake key as a real one.
 	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----\n"
-	path := filepath.Join(t.TempDir(), "missing-dir", "key.pem")
+	path := filepath.Join(unwritableSecretFileDir(t), "key.pem")
 
 	deleted := false
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -402,7 +456,7 @@ func TestComputeCreateSSHKeyCleansUpOnUnwritableSecretFile(t *testing.T) {
 func TestComputeCreateSSHKeyCleanupFailureNamesOnlyTheID(t *testing.T) {
 	// Split so secret scanners do not read the fake key as a real one.
 	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----\n"
-	path := filepath.Join(t.TempDir(), "missing-dir", "key.pem")
+	path := filepath.Join(unwritableSecretFileDir(t), "key.pem")
 
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/sshKeys": func(w http.ResponseWriter, r *http.Request) {
@@ -431,6 +485,172 @@ func TestComputeCreateSSHKeyCleanupFailureNamesOnlyTheID(t *testing.T) {
 	}
 	if strings.Contains(env.Message, "fake-key-material") {
 		t.Fatalf("message = %q, leaked the private key", env.Message)
+	}
+	if strings.Contains(stdout.String(), "fake-key-material") || strings.Contains(stderr.String(), "fake-key-material") {
+		t.Fatalf("the private key leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestComputeCreateSSHKeyAppendsMissingTrailingNewline checks the CLI
+// design's rule that --secret-file holds the private key as returned plus
+// one trailing newline: when the fixture's own PrivateKey has none, the
+// written file must gain exactly one.
+func TestComputeCreateSSHKeyAppendsMissingTrailingNewline(t *testing.T) {
+	// Split so secret scanners do not read the fake key as a real one.
+	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key.pem")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/sshKeys": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(sshKeyJSON(privateKey)))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "compute", "create-ssh-key",
+		"--name", "my-key", "--secret-file", path,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-ssh-key: %v (stderr=%s)", err, stderr.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if want := privateKey + "\n"; string(data) != want {
+		t.Fatalf("secret file content = %q, want %q", data, want)
+	}
+}
+
+// TestComputeCreateSSHKeyKeepsSingleTrailingNewline checks the CLI design's
+// same rule for the other case: when the fixture's own PrivateKey already
+// ends with a newline, the written file must not gain a second one.
+func TestComputeCreateSSHKeyKeepsSingleTrailingNewline(t *testing.T) {
+	// Split so secret scanners do not read the fake key as a real one.
+	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key.pem")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/sshKeys": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(sshKeyJSON(privateKey)))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "compute", "create-ssh-key",
+		"--name", "my-key", "--secret-file", path,
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-ssh-key: %v (stderr=%s)", err, stderr.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != privateKey {
+		t.Fatalf("secret file content = %q, want %q (no second newline)", data, privateKey)
+	}
+}
+
+// TestComputeCreateSSHKeyCleanupTreatsNotFoundAsDeleted checks that the
+// cleanup delete after a failed --secret-file write treats a 404 from
+// DeleteSSHKey the same as a successful delete: the key is gone either way,
+// so the error must read as SecretFileFailed with the ordinary "was
+// deleted" wording, never the double-failure "could not be deleted" case.
+func TestComputeCreateSSHKeyCleanupTreatsNotFoundAsDeleted(t *testing.T) {
+	// Split so secret scanners do not read the fake key as a real one.
+	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----\n"
+	path := filepath.Join(unwritableSecretFileDir(t), "key.pem")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/sshKeys": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(sshKeyJSON(privateKey)))
+		},
+		"/v2/proj-1/sshKeys/key-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodDelete {
+				t.Fatalf("method = %s, want DELETE", r.Method)
+			}
+			w.WriteHeader(http.StatusNotFound)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "compute", "create-ssh-key",
+		"--name", "my-key", "--secret-file", path,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a SecretFileFailed error")
+	}
+	env := classify(err)
+	if env.Code != "SecretFileFailed" {
+		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", env.Code, stderr.String())
+	}
+	if !strings.Contains(env.Message, "was deleted") {
+		t.Fatalf("message = %q, want a 404 delete treated as already deleted", env.Message)
+	}
+	if strings.Contains(env.Message, "could not be deleted") {
+		t.Fatalf("message = %q, a 404 delete must not read as a cleanup failure", env.Message)
+	}
+	if strings.Contains(stdout.String(), "fake-key-material") || strings.Contains(stderr.String(), "fake-key-material") {
+		t.Fatalf("the private key leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestComputeCreateSSHKeyCleanupSurvivesCanceledContext checks that the
+// cleanup delete runs to completion even once the command's own context is
+// canceled: callCreateSSHKey builds the delete's own context with
+// context.WithoutCancel, so it is not the same Done channel ctx carries.
+// cancel is called from inside the DELETE fixture handler, which by
+// construction only ever runs after CreateSSHKey has already completed and
+// the cleanup delete's own (detached) request is already in flight, so
+// canceling ctx at that point cannot affect CreateSSHKey's own, already
+// finished, round trip, and must not affect the already-detached delete
+// either.
+func TestComputeCreateSSHKeyCleanupSurvivesCanceledContext(t *testing.T) {
+	// Split so secret scanners do not read the fake key as a real one.
+	const privateKey = "-----BEGIN " + "PRIVATE KEY-----\nfake-key-material\n-----END " + "PRIVATE KEY-----\n"
+	path := filepath.Join(unwritableSecretFileDir(t), "key.pem")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	deleted := false
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/sshKeys": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(sshKeyJSON(privateKey)))
+		},
+		"/v2/proj-1/sshKeys/key-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodDelete {
+				t.Fatalf("method = %s, want DELETE", r.Method)
+			}
+			cancel()
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "compute", "create-ssh-key",
+		"--name", "my-key", "--secret-file", path,
+	})
+	err := root.ExecuteContext(ctx)
+	if err == nil {
+		t.Fatal("expected a SecretFileFailed error")
+	}
+	env := classify(err)
+	if env.Code != "SecretFileFailed" {
+		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", env.Code, stderr.String())
+	}
+	if !deleted {
+		t.Fatal("the orphaned key was not deleted once the command's own context was canceled")
+	}
+	if !strings.Contains(env.Message, "was deleted") {
+		t.Fatalf("message = %q, want the cleanup delete to have succeeded", env.Message)
 	}
 	if strings.Contains(stdout.String(), "fake-key-material") || strings.Contains(stderr.String(), "fake-key-material") {
 		t.Fatalf("the private key leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())

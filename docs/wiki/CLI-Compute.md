@@ -11,6 +11,7 @@ Prefer import-ssh-key instead: it never has GreenNode see the private key at all
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
+| `--secret-file` | `string` | yes |
 
 ```sh
 vngcloud compute create-ssh-key --name <name> --secret-file <secret-file>
@@ -60,7 +61,7 @@ vngcloud compute get-ssh-key --ssh-key-id <ssh-key-id> --query SSHKey
 
 Kind: Write.
 
-Preferred over create-ssh-key: PublicKey is made elsewhere, for example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans more than one line, or that contains the text "PRIVATE KEY", before any request; neither error ever quotes the value.
+Preferred over create-ssh-key: PublicKey is made elsewhere, for example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans more than one line, or that contains the text "PRIVATE KEY", before any request; neither error ever quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with 400 "Invalid public key".
 
 | Flag | Type | Required |
 |-|-|-|
