@@ -139,7 +139,10 @@ exception: its live response matches the read model, so it decodes into
   a subnet is listed, and kept failing after a deleted subnet left the
   list; it succeeded about 11 minutes after the subnet delete.
 - A subnet can be deleted only when no resource uses it.
-- Each VPC has a main route table. Only routes a user added can change.
+- A VPC can have no main route table (the test VPC had none). The first
+  route table created in such a VPC becomes its main table, and the server
+  still deletes it on request, leaving the VPC without one (live). Only
+  routes a user added can change.
 - The docs say a new ACL has two default deny rules (inbound and
   outbound) that cannot change or be deleted, and list an allow-all rule
   per direction. Live: a new ACL has at least an inbound rule with

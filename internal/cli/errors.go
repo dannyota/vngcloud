@@ -103,14 +103,19 @@ type errorEnvelope struct {
 // reason), ServerGroupInUse (a compute delete-server-group was refused
 // because the group has servers attached, found by a pre-delete list scan,
 // or because the server's own refusal named the group in use for some other
-// reason), SecretFileFailed (create-ssh-key's own create succeeded but
-// writing --secret-file failed afterward, so the CLI deleted the new key),
-// or ResourceInUse (a network VPC, subnet, route table, or ACL write was
-// refused because a pre-write read showed it still in use, such as a VPC
-// with subnets or a subnet with servers, or because the server's own
-// refusal named it in use, including a VPC delete the server keeps
-// refusing with "contains the subnet" for several minutes after that
-// subnet's own delete).
+// reason), ResourceInUse (a network VPC, subnet, route table, or ACL write
+// was refused because a pre-write read showed it still in use, such as a
+// VPC with subnets, a subnet with servers, or a route table a subnet still
+// names, or because the server's own refusal named it in use, including a
+// VPC delete the server keeps refusing with "contains the subnet" for
+// several minutes after that subnet's own delete), DefaultResource (a
+// network delete-route-table targeted a VPC's main route table while a
+// subnet names no route table of its own and so relies on it; the server
+// itself deletes a main table once no subnet relies on it), ResourceBusy (a
+// network add-route or remove-route read a route table that was not ACTIVE
+// and stayed that way past the wait before the write), or SecretFileFailed
+// (create-ssh-key's own create succeeded but writing --secret-file failed
+// afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -168,6 +173,18 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, network.ErrInUse) {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
+	}
+	// network.ErrDefaultResource and network.ErrBusy join this same early
+	// group too: both come from DeleteRouteTable's own pre-delete reads or
+	// from AddRoute's and RemoveRoute's pre-write wait, never from wrapping
+	// the server's own response, so checking them here costs nothing extra
+	// today, but keeps every network sentinel error classified in the same
+	// place ahead of the generic *APIError branch below.
+	if errors.Is(err, network.ErrDefaultResource) {
+		return errorEnvelope{Code: "DefaultResource", Message: err.Error()}
+	}
+	if errors.Is(err, network.ErrBusy) {
+		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
 	}
 	if errors.Is(err, monitor.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}

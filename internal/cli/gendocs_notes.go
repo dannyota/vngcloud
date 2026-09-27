@@ -320,6 +320,59 @@ const networkEnableVPCPrivateDNSNote = "One-way: the API has no call that disabl
 	"this command needs --yes. Takes about 6 minutes to settle; a server already on the VPC only " +
 	"picks up the new resolver after its own DHCP renew."
 
+// networkCreateRouteTableNote documents create-route-table's confirmed-live
+// timing, its duplicate-name status, and the side effect of creating the
+// first table in a VPC that has no main route table yet: the flag table
+// shows only --vpc-id, --name, and --no-wait, with no hint of any of this.
+const networkCreateRouteTableNote = "Confirmed live: the new table reaches ACTIVE about 5 seconds after the " +
+	"create response, with no routes. A duplicate --name is refused with the server's own message at status " +
+	"400. If --vpc-id names a VPC with no main route table yet, the new table becomes it; see " +
+	"delete-route-table for what that means for a later delete."
+
+// networkDeleteRouteTableNote documents delete-route-table's pre-delete
+// reads and guards, and its confirmed-live delete timing: the flag table
+// shows only --route-table-id and --no-wait, with no hint that this command
+// reads the table's VPC and every one of its subnets before its own DELETE.
+const networkDeleteRouteTableNote = "Reads the table, its VPC, and every subnet of that VPC first. Refuses, " +
+	"before any request, with error code ResourceInUse when a subnet names this table, and with " +
+	"DefaultResource when this is the VPC's main route table and some subnet names no table at all, so it " +
+	"relies on this one; a main table no subnet relies on, including one with no subnets at all, deletes " +
+	"normally. Confirmed live: the DELETE settles on a 404 read about 5 seconds later. A repeat delete of an " +
+	"already-deleted table also returns NotFound."
+
+// networkChangeRouteNote documents the shared shape of add-route's and
+// remove-route's --yes requirement, pre-write wait, and read-merge write:
+// the flag table shows only their own fields, with no hint that either
+// command reads the table, waits for it to be ACTIVE, and resends every
+// route it read alongside the caller's own change. sameRouteBehavior is the
+// one paragraph that differs between the two: what happens when the named
+// route is already there (add-route) or already gone (remove-route).
+func networkChangeRouteNote(command, sameRouteBehavior string) string {
+	return "Needs --yes on every call: " + command + " changes routing for every server behind the table, and " +
+		"the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before " +
+		"sending; past that wait, error code ResourceBusy, nothing sent. Matches --destination-cidr as a " +
+		"parsed prefix, not by its exact text. " + sameRouteBehavior + " Reads the table again right before " +
+		"sending and refuses with ResourceBusy, nothing sent, if its routes changed since that first read; a " +
+		"write that lands in the moment between this re-read and the send can still be overwritten. Without " +
+		"--no-wait, waits again after sending and confirms that a fresh read names exactly the routes just " +
+		"sent, which only catches a write that lands after this command's own send, not one from before it; " +
+		"a mismatch there is NotSettled."
+}
+
+// networkAddRouteNote documents add-route's own no-op and conflict cases,
+// which networkChangeRouteNote's shared text does not cover.
+var networkAddRouteNote = networkChangeRouteNote("add-route", "Adding a route to --destination-cidr that is "+
+	"already there with the same --target is a no-op: Changed is false and nothing is sent. The same "+
+	"--destination-cidr with a different --target already there is refused with InvalidUsage, naming the "+
+	"current target; remove-route the old one first.")
+
+// networkRemoveRouteNote documents remove-route's own missing-route and
+// ambiguous-match cases, which networkChangeRouteNote's shared text does
+// not cover.
+var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a --destination-cidr the table "+
+	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
+	"parsed prefix is refused, nothing sent.")
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -341,6 +394,10 @@ var docOpNotes = map[string]string{
 	"network create-subnet":                   networkCreateSubnetNote,
 	"network delete-vpc":                      networkDeleteVPCNote,
 	"network enable-vpc-private-dns":          networkEnableVPCPrivateDNSNote,
+	"network create-route-table":              networkCreateRouteTableNote,
+	"network delete-route-table":              networkDeleteRouteTableNote,
+	"network add-route":                       networkAddRouteNote,
+	"network remove-route":                    networkRemoveRouteNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -429,11 +486,17 @@ var docExampleExtraFlag = map[string]string{
 // value the command accepts, so the override names a real one, Log.
 // send-channel-otp is the same shape as list-alarms: Type only accepts
 // Email, Slack, SMS, or Telegram, so the override names Email, matching
-// the monitor design's own CLI example.
+// the monitor design's own CLI example. network add-route and remove-route
+// need this too: neither is Destructive (see networkOps in svc_network.go),
+// so buildExample's own destructive-only rule would never append --yes, but
+// requireYesToChangeRoutes (svc_network_write.go) refuses either command
+// without it on every call.
 var docExampleOverride = map[string]string{
 	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",
 	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
 	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
 	"monitor list-alarms":              "vngcloud monitor list-alarms --kind Log",
 	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
+	"network add-route":                "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
+	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 }

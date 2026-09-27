@@ -49,11 +49,17 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 // Elapsed time is read from now rather than counted in interval steps, so a
 // step that itself takes real time, such as a slow read, counts against
 // the bound instead of only the sleeps between steps; a test injects both a
-// fake clock and a sleepFunc that returns quickly. Each write's own
-// interval and bound come from its design; see vpcs_write.go and
-// subnets_write.go for the values this package uses today. This is the
-// same shape as vDNS's own unexported poll, duplicated here rather than
-// shared, since neither package imports the other.
+// fake clock and a sleepFunc that returns quickly. This is the same shape
+// as vDNS's own unexported poll, duplicated here rather than shared, since
+// neither package imports the other.
+//
+// Each wait in this package passes its own interval and bound rather than a
+// single fixed pair, since the design gives different writes different
+// bounds (60 seconds for a security group or a routes replace to settle, 3
+// minutes for a VPC, subnet, or route table to create or delete) and, for a
+// slower write such as Private DNS enable, a longer interval too; see
+// vpcs_write.go, subnets_write.go, and route_tables_write.go for the values
+// this package uses today.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
 	deadline := now().Add(bound)
 	for {

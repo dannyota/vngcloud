@@ -5,12 +5,13 @@ VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
 ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
 security groups and their rules, VPCs, subnets, and Private DNS, the
-network resources this SDK writes. Servers, volumes, floating IPs, route
-tables, and ACLs stay read-only.
+network resources this SDK writes here. See [Network Route
+Tables](Network-RouteTables.md) for route tables and routes. Servers,
+volumes, floating IPs, and ACLs stay read-only.
 
-If a VPC, subnet, or security group is managed by OpenTofu or Terraform, a
-write made here drifts from that state; keep such a resource's writes in
-its own tool.
+If a VPC, subnet, route table, or security group is managed by OpenTofu or
+Terraform, a write made here drifts from that state; keep such a
+resource's writes in its own tool.
 
 ## Setup
 
@@ -422,9 +423,11 @@ the resource still holds something, or that the server's own refusal named
 it in use; see [Creating, renaming, and deleting
 VPCs](#creating-renaming-and-deleting-vpcs) and [Creating, renaming, and
 deleting subnets](#creating-renaming-and-deleting-subnets) above.
-`ErrUnexpectedStatus` means `EnableVPCPrivateDNS` read a `dnsStatus` this
-SDK does not know how to act on. `ErrFailed` means a create or delete
-reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
-reached the server, but no confirming read followed; see
-[Waits](#waits) above for what to do next and for why the Output still
-holds the resource.
+`DeleteRouteTable` returns the same `ErrInUse`, alongside its own
+`ErrDefaultResource` and `ErrBusy`; see [Network Route
+Tables](Network-RouteTables.md) for those. `ErrUnexpectedStatus` means
+`EnableVPCPrivateDNS` read a `dnsStatus` this SDK does not know how to act
+on. `ErrFailed` means a create or delete reached `"ERROR"`. `ErrNotSettled`
+means a write was sent, and may have reached the server, but no confirming
+read followed; see [Waits](#waits) above for what to do next and for why
+the Output still holds the resource.
