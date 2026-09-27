@@ -1,2 +1,2 @@
-alarm-1	Log	{"InAlarm":["channel-1","channel-2"],"OK":["channel-1"]}		example-log-alarm	MEDIUM	OK
-alarm-2	Metric		metric-map-1	example-metric-alarm	HIGH	In-alarm
+	alarm-1	Log	{"AggField":"","AggType":"","Condition":"","Filter":[],"GroupByField":"","InAlarm":["channel-1","channel-2"],"LogProjectID":"","LogProjectName":"","OK":["channel-1"],"QueryString":"","Resend":{"Enabled":false,"Period":0,"Statuses":[],"Times":0},"ThresholdType":"","ThresholdValue":0,"TimeFrame":0}		example-log-alarm	MEDIUM	OK
+	alarm-2	Metric		metric-map-1	example-metric-alarm	HIGH	In-alarm
