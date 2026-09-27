@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.35.0 - Flavors and Create Quotes
+
+### Highlights
+
+- New `compute.ListFlavorZones`, `ListFlavors`, and `QuoteCreateServer`,
+  and `volume.ListVolumesByServer` and `QuoteCreateVolume`, with matching
+  commands. A quote orders nothing; prices are VND a month with VAT.
+- `pricing.GetQuoteInput` gains `Action` (`create` when empty, or
+  `resize`). `volume get-default-volume-type` gains `--zone-id`.
+- New `vngcloud.ErrPriceAboveMax`, CLI code `PriceAboveMax`, for paid
+  writes; `monitor.ErrPriceAboveMax` is the same value.
+- A list Input field now makes a repeatable flag, such as
+  `--security-group-id`.
+
+### Behavior changes
+
+`compute.GetServer`, `volume.GetVolume`, and `volume.ListSnapshots` refuse
+a malformed ID before any request.
+
 ## v0.34.0 - IAM Group Writes
 
 ### Highlights
