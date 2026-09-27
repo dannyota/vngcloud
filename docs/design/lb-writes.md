@@ -314,7 +314,7 @@ by amending this table.
 | Command | Kind | `--yes` | Release |
 |-|-|-|-|
 | `loadbalancer quote-create-load-balancer`, `quote-resize-load-balancer` | Read | No | L1 |
-| `loadbalancer create-load-balancer` | Write, paid | For `--scheme Internet` | L2 |
+| `loadbalancer create-load-balancer` | Write, paid | Unless `--scheme Internal` | L2 |
 | `loadbalancer delete-load-balancer` | Write, destructive | Yes | L2 |
 | `loadbalancer resize-load-balancer` | Write, paid | No | L3 |
 | `loadbalancer create-pool`, `update-pool` | Write | No | L4 |
