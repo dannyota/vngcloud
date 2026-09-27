@@ -1,6 +1,7 @@
 # vLB Certificates Design
 
-Status: Proposed.
+Status: Accepted (2026-09-27). The owner approved every recommendation
+under [Owner decisions](#owner-decisions).
 
 This design adds vLB certificate import and delete to `loadbalancer`, beside
 the existing `ListCertificates` and `GetCertificate`, with CLI commands. It

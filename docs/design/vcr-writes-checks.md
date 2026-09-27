@@ -1,6 +1,6 @@
 # vCR Writes: Checks
 
-Status: Proposed, with [vCR writes](vcr-writes.md).
+Status: Accepted (2026-09-27), with [vCR writes](vcr-writes.md).
 
 The unit tests, cost probe, and live checks for [vCR writes](vcr-writes.md).
 Terms and sentinels are defined there.

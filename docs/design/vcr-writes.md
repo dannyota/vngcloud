@@ -1,6 +1,7 @@
 # vCR Writes Design
 
-Status: Proposed.
+Status: Accepted (2026-09-27). The owner approved every recommendation
+under [Owner decisions](#owner-decisions).
 
 This design adds vContainer Registry (vCR) repository create and delete and
 repository user create and delete to `containerregistry`, beside the
