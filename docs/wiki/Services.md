@@ -12,7 +12,10 @@ required, returns `vngcloud.ErrInvalidInput` before any request.
 `billing` and `pricing` cover writes too: budgets can be created, changed,
 paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
 `dns` covers hosted zone and record writes too: zones and records can be
-created, changed, and deleted. See [DNS](DNS.md). `network` covers
+created, changed, and deleted. See [DNS](DNS.md). `loadbalancer` covers
+load balancer writes too: a load balancer can be created, resized, and
+deleted, with its pools, members, listeners, and L7 policies. See
+[Load Balancer](LoadBalancer.md). `network` covers
 security group and rule writes too: groups and rules can be created,
 changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
@@ -36,7 +39,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 | Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes a convenience method for walking snapshots. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
-| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes and create/resize price quotes | Typed | Requires IAM User permissions for the target load balancer resources. |
+| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates, plus certificate writes, create/resize price quotes, and load balancer, pool, listener, and policy writes | Typed | Requires IAM User permissions for the target load balancer resources; see [Load Balancer](LoadBalancer.md) for writes, the price guard, and waits. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
@@ -223,6 +226,11 @@ by name as the way to check what happened.
 `DeleteCertificate` reads the certificate first and returns
 `loadbalancer.ErrCertificateInUse`, sending nothing, when a listener still
 uses it.
+
+`loadbalancer` also creates, resizes, and deletes load balancers, and
+creates, updates, and deletes their pools (with health monitors and
+members), listeners, and L7 policies; see [Load Balancer](LoadBalancer.md)
+for the price guard, busy handling, waits, and errors.
 
 Global Load Balancer APIs are in `globalloadbalancer`.
 

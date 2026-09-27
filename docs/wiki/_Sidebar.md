@@ -12,6 +12,7 @@
 - [Compute](Compute.md)
 - [DNS](DNS.md)
 - [IAM](IAM.md)
+- [Load Balancer](LoadBalancer.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
 - [Network](Network.md)
