@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.25.0 - Server Group Writes
+
+### Highlights
+
+- New `compute.GetServerGroup`, `CreateServerGroup`, `UpdateServerGroup`,
+  and `DeleteServerGroup`, with matching `vngcloud compute` commands.
+- A group with servers is never deleted: the SDK refuses with
+  `compute.ErrServerGroupInUse`, CLI code `ServerGroupInUse`, and sends
+  nothing. `delete-server-group` needs `--yes`.
+- An update sends only the fields given and keeps the rest. If its
+  confirming read fails, it returns `compute.ErrNotSettled`, CLI code
+  `NotSettled`, and the update may be sent again.
+- A missing group reads as `NotFound`.
+
 ## v0.24.0 - SSH Key Writes
 
 ### Highlights
