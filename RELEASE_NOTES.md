@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.32.0 - IAM Service Account Writes
+
+### Highlights
+
+- New `iam.CreateServiceAccount`, `UpdateServiceAccount`,
+  `DeleteServiceAccount`, and `ResetServiceAccountSecret`, with matching
+  `vngcloud iam` commands.
+- The client secret is a `vngcloud.Secret`. `create-service-account` and
+  `reset-service-account-secret` need `--secret-file`; the secret goes only
+  to a new file at mode 0600. Create and reset are sent once.
+- Guards refuse, sending nothing, any change to the caller's own rights
+  (`SelfChange`) or to a service account that holds IAM write rights
+  (`PrivilegedChange`), and every write from a service account caller.
+  They fail closed on any unreadable or partial read.
+- If a reset returns no secret, the old one is probably revoked: reset
+  again. `delete-service-account` and `reset-service-account-secret` need
+  `--yes`.
+- IAM pages move to a new `IAM` wiki page.
+
 ## v0.31.0 - IAM Reads
 
 ### Highlights
