@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.30.0 - vCR User Writes
+
+### Highlights
+
+- New `containerregistry.ListPermissions`, `ListRepositoryUsers`,
+  `CreateUser`, and `DeleteUser`, with matching `vngcloud containerregistry`
+  commands. `list-users` now ships too.
+- `create-user` needs `--secret-file`: the registry secret goes only to a
+  new file at mode 0600 and prints as `[redacted]`. Permissions are given
+  by action name: `Pull Images`, `Push Images`, or `All`. An expiry in days
+  is optional.
+- The server requires a user name of 6 to 14 characters. A name another
+  user already has is refused before any create. The create is sent once.
+- If the new user cannot be found after the create, the secret is still
+  written and the command exits with `UserNotFound`. If the file write
+  fails, the CLI deletes the new user. `delete-user` needs `--yes`.
+
+### Behavior changes
+
+`containerregistry.User` is now a typed struct instead of a map. Breaking.
+
 ## v0.29.0 - vCR Repository Writes
 
 ### Highlights
