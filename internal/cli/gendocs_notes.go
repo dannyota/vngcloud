@@ -383,8 +383,10 @@ const loadbalancerImportCertificateNote = "Certificate, CertificateChain, Privat
 	"Passphrase outright, inline or file://, though Certificate and CertificateChain may still be set that " +
 	"way instead of by file. Each file is read whole, at most 64 KiB, and an empty file is refused; " +
 	"--passphrase-file additionally drops one trailing newline. PrivateKey is required for Type TLS/SSL; for " +
-	"any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key; " +
-	"no later read or error ever returns it, and the printed Certificate holds none either."
+	"any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key, " +
+	"and the printed Certificate holds no key field. A failing import withholds the server's own error " +
+	"message entirely, since it could otherwise quote the rejected key or passphrase back. Keep the private " +
+	"key file readable only by its owner (chmod 600)."
 
 // loadbalancerDeleteCertificateNote documents delete-certificate's
 // pre-delete guard and why it needs --yes: the flag table shows only
