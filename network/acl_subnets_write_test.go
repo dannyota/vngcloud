@@ -200,6 +200,37 @@ func TestAssociateNetworkACLSubnetPUTBusyMapsToErrBusy(t *testing.T) {
 	}
 }
 
+// TestAssociateNetworkACLSubnetPUTBusyBeingUpdatedMapsToErrBusy checks the
+// busy window confirmed live: a subnets PUT sent while the ACL is still busy
+// from an earlier subnets write returns 400 with a message naming the ACL
+// "is being updated" rather than "is busy doing something"; this SDK maps
+// that message to ErrBusy too.
+func TestAssociateNetworkACLSubnetPUTBusyBeingUpdatedMapsToErrBusy(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets/subnet-2":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1"}`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is being updated"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := c.AssociateNetworkACLSubnet(context.Background(), &AssociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-2"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %+v, want nil: nothing was changed", out)
+	}
+}
+
 // TestAssociateNetworkACLSubnetPUT5xxNotSettledSingleAttempt checks that
 // the subnets PUT is sent with Once true: a 502, 503, or 504 is never
 // retried by the transport, which could otherwise land a second attempt in

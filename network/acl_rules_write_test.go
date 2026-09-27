@@ -658,6 +658,36 @@ func TestAddNetworkACLRulePUTBusyMapsToErrBusy(t *testing.T) {
 	}
 }
 
+// TestAddNetworkACLRulePUTBusyBeingUpdatedMapsToErrBusy checks the busy
+// window confirmed live after a subnets PUT: a rules PUT sent while the ACL
+// is still busy from that write returns 400 with a message naming the ACL
+// "is being updated" rather than "is busy doing something"; this SDK maps
+// that message to ErrBusy too.
+func TestAddNetworkACLRulePUTBusyBeingUpdatedMapsToErrBusy(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is being updated"}`))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+		NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "tcp", CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+	})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %+v, want nil: nothing was changed", out)
+	}
+}
+
 // TestAddNetworkACLRulePUT5xxNotSettledSingleAttempt checks that the rules
 // PUT is sent with Once true: a 502, 503, or 504 is never retried by the
 // transport, which could otherwise land a second attempt in the ACL's own

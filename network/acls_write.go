@@ -28,14 +28,36 @@ func isACLServerError(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode >= 500 && apiErr.StatusCode < 600
 }
 
+// aclBusyMessages are the two message substrings, each matched
+// case-insensitively, that mark a 400 as the ACL refusing a write because it
+// is still busy settling an earlier one, rather than rejecting the request
+// outright. Both are confirmed live: a rules PUT leaves the ACL busy for
+// roughly 18 to 23 seconds, visible in Status leaving aclStatusActive during
+// that window, and a write sent into it gets "is busy doing something". A
+// subnets PUT (associate or disassociate) leaves the ACL busy for about 20
+// seconds too, but Status stays aclStatusActive throughout, so nothing in a
+// read marks the window; a write sent into it gets "is being updated"
+// instead. Both messages leave the ACL unchanged.
+var aclBusyMessages = []string{
+	"is busy doing something",
+	"is being updated",
+}
+
 // isACLBusyErr reports whether err is a *core.APIError whose message
-// contains "is busy doing something" (case-insensitive): confirmed live, a
-// rules or subnets PUT or a DELETE sent while the ACL is still busy
-// settling an earlier write, roughly an 18-second window, gets a 400 with
-// that message, and nothing changes.
+// contains one of aclBusyMessages: the trigger for wrapACLBusyErr and
+// wrapACLPutFailure, checked on a rules or subnets PUT and on a DELETE.
 func isACLBusyErr(err error) bool {
 	var apiErr *core.APIError
-	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "is busy doing something")
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	msg := strings.ToLower(apiErr.Message)
+	for _, phrase := range aclBusyMessages {
+		if strings.Contains(msg, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapACLBusyErr rewraps err with ErrBusy when isACLBusyErr(err) is true.
@@ -54,8 +76,8 @@ func wrapACLBusyErr(err error) error {
 // wrapACLPutFailure classifies a failure from the rules or subnets PUT,
 // each sent with Once true (never retried; see putACLRulesAndConfirm and
 // putACLSubnetsAndConfirm) so a transport-level retry landing in the ACL's
-// own roughly 18-second busy window after an earlier write can never
-// happen. A busy 400 (isACLBusyErr) is a clean refusal on that single
+// own busy window after an earlier write can never happen. A busy 400
+// (isACLBusyErr) is a clean refusal on that single
 // attempt: the server never acted, so it wraps ErrBusy. Any other 4xx
 // *core.APIError is returned unchanged: the server rejected the request
 // outright for some other reason, such as a malformed body or an unknown
@@ -259,15 +281,17 @@ type DeleteNetworkACLOutput struct{}
 // DisassociateNetworkACLSubnet first.
 //
 // The delete itself is taken as synchronous: a 204 confirms it, and there
-// is no wait. A DELETE sent into the ACL's own busy window, confirmed live
-// at roughly 18 seconds after an earlier write, gets a 400 naming the ACL
+// is no wait. A DELETE sent into the ACL's own busy window after an earlier
+// rules or subnets write (see aclBusyMessages) gets a 400 naming the ACL
 // busy; DeleteNetworkACL maps that to ErrBusy the same way the rules and
-// subnets PUT do. Confirmed live, a deleted ACL's get returns 500, not 404,
-// so a repeat delete would too; after any other 5xx on the DELETE,
-// DeleteNetworkACL calls ListNetworkACLs once, the same list confirm
-// GetNetworkACL uses: the ACL absent from that list means the delete
-// already took effect, and this call returns success; listed, or if the
-// list call itself fails, it returns the original 5xx.
+// subnets PUT do. Unlike those PUTs, the DELETE keeps the transport's normal
+// retries, since a retried DELETE that finds the ACL already gone is safe;
+// confirmed live, a deleted ACL's get returns 500, not 404, so a repeat
+// delete would too; after any other 5xx on the DELETE, DeleteNetworkACL
+// calls ListNetworkACLs once, the same list confirm GetNetworkACL uses: the
+// ACL absent from that list means the delete already took effect, and this
+// call returns success; listed, or if the list call itself fails, it
+// returns the original 5xx.
 func (c *Client) DeleteNetworkACL(ctx context.Context, in *DeleteNetworkACLInput) (*DeleteNetworkACLOutput, error) {
 	const op = "network.DeleteNetworkACL"
 	if err := core.CheckRequired(op, in); err != nil {

@@ -52,11 +52,15 @@ var (
 	// AssociateNetworkACLSubnet, and DisassociateNetworkACLSubnet
 	// (acl_rules_write.go, acl_subnets_write.go) return it the same way for
 	// an ACL, and DeleteNetworkACL too (acls_write.go); each of those also
-	// wraps ErrBusy when their own PUT or DELETE, sent once and never
-	// retried, gets the server's own 400 for an ACL still busy settling an
-	// earlier write. That single attempt reached the server and was
-	// refused outright, so nothing changed, even though a request did go
-	// out; every other case here sends nothing at all.
+	// wraps ErrBusy when the server's own 400 names the ACL still busy
+	// settling an earlier write (see aclBusyMessages in acls_write.go). The
+	// rules and subnets PUT are sent once and never retried, so that busy
+	// 400 is always a clean refusal on a single attempt that reached the
+	// server; DeleteNetworkACL's DELETE keeps the transport's normal
+	// retries instead, and wraps the same busy 400 whichever attempt gets
+	// it. Either way that single reply reached the server and was refused
+	// outright, so nothing changed, even though a request did go out; every
+	// other case here sends nothing at all.
 	ErrBusy = errors.New("network: resource busy")
 )
 

@@ -466,6 +466,31 @@ func TestDeleteNetworkACLBusyMapsToErrBusy(t *testing.T) {
 	}
 }
 
+// TestDeleteNetworkACLBusyBeingUpdatedMapsToErrBusy checks the busy window
+// confirmed live after a subnets PUT: a DELETE sent while the ACL is still
+// busy from that write returns 400 with a message naming the ACL "is being
+// updated" rather than "is busy doing something"; this SDK maps that
+// message to ErrBusy too.
+func TestDeleteNetworkACLBusyBeingUpdatedMapsToErrBusy(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is being updated"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
 func TestDeleteNetworkACL500ListIncompleteReturnsOriginal500(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
