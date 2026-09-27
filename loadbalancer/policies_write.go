@@ -308,8 +308,11 @@ func updatePolicyAnySet(in *UpdatePolicyInput) bool {
 //
 // The PUT keeps the transport's normal retries: resending the same full
 // body is safe. Without NoWait, UpdatePolicy waits exactly as CreatePolicy
-// does; its Output is a fresh read once settled, or, on a wait failure, the
-// fields the PUT itself sent.
+// does; its Output is a fresh read once settled. On a wait failure it is
+// instead the last read the wait itself completed, which may already show
+// the update applied even though the wait never confirmed the load balancer
+// settled, or, if no read ever completed, the policy as it read before the
+// update, not the fields this call sent.
 func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*UpdatePolicyOutput, error) {
 	const op = "loadbalancer.UpdatePolicy"
 	if err := core.CheckRequired(op, in); err != nil {

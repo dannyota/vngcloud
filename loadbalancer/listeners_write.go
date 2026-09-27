@@ -336,8 +336,11 @@ func updateListenerAnySet(in *UpdateListenerInput) bool {
 //
 // The PUT keeps the transport's normal retries: resending the same full
 // body is safe. Without NoWait, UpdateListener waits exactly as
-// CreateListener does; its Output is a fresh read once settled, or, on a
-// wait failure, the fields the PUT itself sent.
+// CreateListener does; its Output is a fresh read once settled. On a wait
+// failure it is instead the last read the wait itself completed, which may
+// already show the update applied even though the wait never confirmed the
+// load balancer settled, or, if no read ever completed, the listener as it
+// read before the update, not the fields this call sent.
 func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*UpdateListenerOutput, error) {
 	const op = "loadbalancer.UpdateListener"
 	if err := core.CheckRequired(op, in); err != nil {

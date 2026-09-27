@@ -290,6 +290,10 @@ with commas on the wire and splits them back on a read-merge update. A
 `TimeoutClient`, `TimeoutMember`, or `TimeoutConnection` of 0 sends the
 server's default (50, 50, and 5 seconds).
 
+`ProtocolHTTP` on a `SchemeInternet` load balancer carries every request in
+cleartext to whatever `AllowedCIDRs` allows to reach it; use `ProtocolHTTPS`
+with a certificate for anything that must not be visible on the path.
+
 `ProtocolHTTPS` requires `DefaultCertificateID`; any other `Protocol`
 refuses `CertificateIDs`, `DefaultCertificateID`, and `ClientCertificateID`
 all being set, with `vngcloud.ErrInvalidInput`, before any request. The SDK
@@ -302,9 +306,11 @@ applies every set field, and sends the full body with the read values for
 the rest; the merged certificate fields are checked against the listener's
 own unchangeable `Protocol` the same way `CreateListener` checks them. The
 read never returns `blockedCidrs`, `defaultAction`, `alpnProtocols`, or
-`tlsSecurityPolicy`, so `UpdateListener` never sends any of them: a value
-this SDK cannot read back would be silently wiped by the next update if it
-tried. The `PUT` keeps the transport's normal retries.
+`tlsSecurityPolicy`, so `UpdateListener` never sends any of them. Whether
+the server then wipes a value set for one of these fields, since the `PUT`
+is a full replace, or keeps it because the field was left out of the body
+entirely, is unverified until the live check: do not assume either one. The
+`PUT` keeps the transport's normal retries.
 
 Two updates from different processes can lose one; the API has no version
 field.

@@ -86,10 +86,12 @@ var (
 	// either name.
 	ErrPriceAboveMax = vngcloud.ErrPriceAboveMax
 
-	// ErrBusy means a write found the load balancer, or the child it
-	// targets, still busy past the pre-write wait's bound, or the server
-	// refused a resize because the load balancer was busy. Nothing was
-	// sent by this call, so the write is safe to try again.
+	// ErrBusy means either a write found the load balancer, or the child it
+	// targets, still busy past the pre-write wait's bound and sent nothing,
+	// or, only for a resize, that the PUT itself was sent and the server
+	// refused it because the load balancer was busy. Either way a rerun is
+	// safe: ResizeLoadBalancer always reads the load balancer first, so a
+	// resize that was refused this way never partly applied.
 	ErrBusy = errors.New("loadbalancer: resource busy")
 
 	// ErrInUse means DeletePool was refused because a listener still names
