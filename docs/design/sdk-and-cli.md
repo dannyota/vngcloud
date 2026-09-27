@@ -371,6 +371,7 @@ Each release ships when CI is green on its commit.
 | `v0.26.0` | VPC and subnet writes and Private DNS; see [vServer network writes](vserver-network-writes.md) |
 | `v0.27.0` | Route table and route writes; see [vServer network writes](vserver-network-writes.md) |
 | `v0.28.0` | vLB certificate import and delete; see [vLB certificates](lb-certificates.md) |
+| `v0.29.0` | vCR repository writes; typed `Repository`. Breaking; see [vCR writes](vcr-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

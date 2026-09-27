@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.29.0 - vCR Repository Writes
+
+### Highlights
+
+- New `containerregistry.GetRepository`, `CreateRepository`, and
+  `DeleteRepository`, with matching `vngcloud containerregistry` commands.
+- Repositories are always private; no flag makes one public.
+- The server keeps the name as given and requires 6 to 20 characters of
+  lowercase letters, digits, `_`, or `-`, starting with a letter or digit.
+- A repository holding images is never deleted: the SDK refuses with
+  `containerregistry.ErrRepositoryNotEmpty`, CLI code `RepositoryNotEmpty`,
+  and also refuses when the image count is unknown. `delete-repository`
+  needs `--yes`. A create is never resent; after a failure that may have
+  landed, list repositories by the exact name before trying again.
+
+### Behavior changes
+
+`containerregistry.Repository` is now a typed struct instead of a map.
+Breaking. A repository has no status field.
+
 ## v0.28.0 - vLB Certificate Writes
 
 ### Highlights
