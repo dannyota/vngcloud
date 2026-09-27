@@ -26,16 +26,20 @@ type createSecurityGroupRuleBody struct {
 	SecurityGroupID string `json:"securityGroupId"`
 }
 
-// createSecurityGroupRuleResponse is Create's response, which does not
-// match the SecurityGroupRule read model: the rule's own id comes back as
-// uuid, its group as secgroupUuid, and ruleId is an integer. Decoding
-// straight into SecurityGroupRule would fail on the integer ruleId, so
+// createSecurityGroupRuleResponse is Create's response, confirmed live:
+// the object is wrapped in a "data" field, and inside it does not match
+// the SecurityGroupRule read model: the rule's own id comes back as uuid,
+// its group as secgroupUuid, and ruleId is an integer. Decoding straight
+// into SecurityGroupRule would fail on the integer ruleId, so
 // CreateSecurityGroupRule decodes into this private type and maps it
-// instead.
+// instead. The rule is ACTIVE in this same response; CreateSecurityGroupRule
+// takes no post-create wait of its own.
 type createSecurityGroupRuleResponse struct {
-	UUID         string `json:"uuid"`
-	SecgroupUUID string `json:"secgroupUuid"`
-	RuleID       int    `json:"ruleId"`
+	Data struct {
+		UUID         string `json:"uuid"`
+		SecgroupUUID string `json:"secgroupUuid"`
+		RuleID       int    `json:"ruleId"`
+	} `json:"data"`
 }
 
 // CreateSecurityGroupRuleInput creates a rule in a security group.
@@ -73,6 +77,8 @@ type CreateSecurityGroupRuleOutput struct {
 
 // CreateSecurityGroupRule creates a rule in a security group. A duplicate
 // rule fails with the server's own SecurityGroupRuleExists message.
+// Confirmed live, the rule is already ACTIVE in the create response, so
+// CreateSecurityGroupRule takes no post-create wait.
 //
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError or
@@ -119,11 +125,11 @@ func (c *Client) CreateSecurityGroupRule(ctx context.Context, in *CreateSecurity
 	if err != nil {
 		return nil, wrapAmbiguousSecurityGroupRuleCreateErr(op, err)
 	}
-	if resp.UUID == "" {
+	if resp.Data.UUID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "create response had no id"}
 	}
 	return &CreateSecurityGroupRuleOutput{SecurityGroupRule: SecurityGroupRule{
-		ID:              resp.UUID,
+		ID:              resp.Data.UUID,
 		SecurityGroupID: in.SecurityGroupID,
 		Direction:       in.Direction,
 		EtherType:       etherType,

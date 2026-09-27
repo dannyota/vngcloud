@@ -63,7 +63,7 @@ func TestCreateSecurityGroupRuleRequestBody(t *testing.T) {
 					t.Fatalf("securityGroupId = %v, want secg-1", body["securityGroupId"])
 				}
 				w.WriteHeader(http.StatusCreated)
-				_, _ = w.Write([]byte(`{"uuid":"secr-1","secgroupUuid":"secg-1","ruleId":501}`))
+				_, _ = w.Write([]byte(`{"data":{"uuid":"secr-1","secgroupUuid":"secg-1","ruleId":501}}`))
 			}))
 
 			out, err := c.CreateSecurityGroupRule(context.Background(), tt.in)
@@ -173,7 +173,7 @@ func TestCreateSecurityGroupRuleDecodesFixture(t *testing.T) {
 func TestCreateSecurityGroupRuleNoIDFails(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"secgroupUuid":"secg-1","ruleId":501}`))
+		_, _ = w.Write([]byte(`{"data":{"secgroupUuid":"secg-1","ruleId":501}}`))
 	}))
 
 	_, err := c.CreateSecurityGroupRule(context.Background(), &CreateSecurityGroupRuleInput{

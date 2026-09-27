@@ -104,7 +104,7 @@ func TestCreateSecurityGroupRequestBody(t *testing.T) {
 					t.Fatalf("body = %+v, want %+v", body, tt.want)
 				}
 				w.WriteHeader(http.StatusCreated)
-				_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+				_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 			}))
 
 			out, err := c.CreateSecurityGroup(context.Background(), tt.in)
@@ -145,7 +145,7 @@ func TestCreateSecurityGroupDecodesFixture(t *testing.T) {
 func TestCreateSecurityGroupNoIDFails(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":101,"secgroupName":"web"}`))
+		_, _ = w.Write([]byte(`{"data":{"id":101,"secgroupName":"web"}}`))
 	}))
 
 	_, err := c.CreateSecurityGroup(context.Background(), &CreateSecurityGroupInput{Name: "web", NoWait: true})
@@ -199,7 +199,7 @@ func TestCreateSecurityGroupWaitSettlesToActive(t *testing.T) {
 		getCalls.Add(1)
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		}
 	})))
 
@@ -219,7 +219,7 @@ func TestCreateSecurityGroupWaitErrFailed(t *testing.T) {
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		}
 	})))
 
@@ -238,7 +238,7 @@ func TestCreateSecurityGroupWaitTolerates404(t *testing.T) {
 		switch r.Method {
 		case http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		case http.MethodGet:
 			n := getCalls.Add(1)
 			if n == 1 {
@@ -271,7 +271,7 @@ func TestCreateSecurityGroupWaitBoundErrNotSettled(t *testing.T) {
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		}
 	})))
 
@@ -293,7 +293,7 @@ func TestCreateSecurityGroupWaitPollSpacing(t *testing.T) {
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		}
 	}))
 	clock := time.Now()
@@ -325,7 +325,7 @@ func TestCreateSecurityGroupWaitCancelDuringSleep(t *testing.T) {
 		switch r.Method {
 		case http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+			_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(groupBody("web", "d", "CREATING", false)))
@@ -356,7 +356,7 @@ func TestCreateSecurityGroupNoWaitSkipsPoll(t *testing.T) {
 			t.Fatalf("unexpected method %s: NoWait must not poll", r.Method)
 		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":101,"uuid":"secg-1","secgroupName":"web"}`))
+		_, _ = w.Write([]byte(`{"data":{"id":101,"uuid":"secg-1","secgroupName":"web"}}`))
 	}))
 
 	out, err := c.CreateSecurityGroup(context.Background(), &CreateSecurityGroupInput{Name: "web", NoWait: true})

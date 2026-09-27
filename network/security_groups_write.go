@@ -50,24 +50,31 @@ type securityGroupWriteBody struct {
 	Description string `json:"description"`
 }
 
-// createSecurityGroupResponse is Create's response, which does not match
-// the SecurityGroup read model: id comes back as an integer, the group's
-// own id as uuid, and its name as secgroupName. Decoding straight into
+// createSecurityGroupResponse is Create's response, confirmed live: the
+// object is wrapped in a "data" field, and inside it does not match the
+// SecurityGroup read model: id comes back as an integer, the group's own
+// id as uuid, and its name as secgroupName. Decoding straight into
 // SecurityGroup would fail on the integer id, so CreateSecurityGroup
-// decodes into this private type and maps it instead.
+// decodes into this private type and maps it instead. The group is ACTIVE
+// in this same response, but CreateSecurityGroup still runs its wait below,
+// which settles on that wait's first read.
 type createSecurityGroupResponse struct {
-	ID           int    `json:"id"`
-	UUID         string `json:"uuid"`
-	SecgroupName string `json:"secgroupName"`
+	Data struct {
+		ID           int    `json:"id"`
+		UUID         string `json:"uuid"`
+		SecgroupName string `json:"secgroupName"`
+	} `json:"data"`
 }
 
 // CreateSecurityGroupInput creates a security group. The new group holds
 // the server's default egress rules (allow all outbound traffic) and no
 // ingress rule, so it admits no inbound traffic until a rule allows it.
+// Confirmed live, the group is already ACTIVE in the create response.
 //
-// Without NoWait, CreateSecurityGroup waits for the group to reach ACTIVE
-// before returning; see waitSecurityGroupActive. NoWait skips that wait and
-// returns the mapped create response instead.
+// Without NoWait, CreateSecurityGroup still waits for the group to reach
+// ACTIVE before returning, settling on that wait's first read; see
+// waitSecurityGroupActive. NoWait skips that wait and returns the mapped
+// create response instead.
 type CreateSecurityGroupInput struct {
 	Name string `vngcloud:"required"`
 
@@ -90,12 +97,13 @@ type CreateSecurityGroupOutput struct {
 // retrying blind.
 //
 // Without NoWait, CreateSecurityGroup then waits for the new group to
-// reach ACTIVE. If the group reaches ERROR instead, or the wait's bound
-// runs out, or a read or a sleep in that wait fails, such as from a
-// canceled ctx, the returned error wraps ErrFailed or ErrNotSettled and the
-// Output still holds the group: the last one a read returned, or, if none
-// did, the group the create response itself carried. Either way the Output
-// is never nil and the caller keeps the new group's id.
+// reach ACTIVE; confirmed live, the group is ACTIVE at once, so this wait
+// settles on its first read. If the group reaches ERROR instead, or the
+// wait's bound runs out, or a read or a sleep in that wait fails, such as
+// from a canceled ctx, the returned error wraps ErrFailed or ErrNotSettled
+// and the Output still holds the group: the last one a read returned, or,
+// if none did, the group the create response itself carried. Either way
+// the Output is never nil and the caller keeps the new group's id.
 func (c *Client) CreateSecurityGroup(ctx context.Context, in *CreateSecurityGroupInput) (*CreateSecurityGroupOutput, error) {
 	const op = "network.CreateSecurityGroup"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -119,15 +127,15 @@ func (c *Client) CreateSecurityGroup(ctx context.Context, in *CreateSecurityGrou
 	if err != nil {
 		return nil, wrapAmbiguousSecurityGroupCreateErr(op, err)
 	}
-	if resp.UUID == "" {
+	if resp.Data.UUID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "create response had no id"}
 	}
-	group := SecurityGroup{ID: resp.UUID, Name: resp.SecgroupName, Description: in.Description}
+	group := SecurityGroup{ID: resp.Data.UUID, Name: resp.Data.SecgroupName, Description: in.Description}
 	if in.NoWait {
 		return &CreateSecurityGroupOutput{SecurityGroup: group}, nil
 	}
 
-	settled, waitErr := c.waitSecurityGroupActive(ctx, op, resp.UUID)
+	settled, waitErr := c.waitSecurityGroupActive(ctx, op, resp.Data.UUID)
 	if settled == nil {
 		// The create already succeeded; no read after it ever came back, so
 		// fall back to the create response itself, which at least carries

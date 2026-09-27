@@ -194,11 +194,14 @@ gone returns the same not-found result.
 
 ## Waits
 
-`CreateSecurityGroup` is the only asynchronous write in this package.
-Without `NoWait`, it polls `GetSecurityGroup` every 2 seconds for up to 60
-seconds of elapsed time, tolerating a 404 (a group just created may not be
-readable at once), until the group reaches `"ACTIVE"`. `UpdateSecurityGroup`
-and `DeleteSecurityGroup` send no post-write wait of their own beyond one
+Confirmed live, both `CreateSecurityGroup` and `CreateSecurityGroupRule`
+return a group or rule that is already `"ACTIVE"`; neither write is
+actually asynchronous. `CreateSecurityGroup` still runs its post-create
+wait: without `NoWait`, it polls `GetSecurityGroup` every 2 seconds for up
+to 60 seconds of elapsed time, tolerating a 404 (a group just created may
+not be readable at once), until the group reaches `"ACTIVE"`, which in
+practice settles on that wait's first read. `UpdateSecurityGroup` and
+`DeleteSecurityGroup` send no post-write wait of their own beyond one
 confirm read; rule writes take no wait at all.
 
 If the group reaches `"ERROR"`, `CreateSecurityGroup` returns an error
