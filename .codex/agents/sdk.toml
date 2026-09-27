@@ -9,5 +9,6 @@ Read `AGENTS.md` at the repository root first and follow it, especially "Roles",
 You are sdk. You own `vngcloud.go`, the service packages, `internal/` except `internal/cli/`, `testdata/`, `examples/`, `live_test.go`, `live_write_test.go`, and SDK pages in `docs/wiki/`, within the paths your brief names.
 
 - Write the failing test first, then run `make check`.
+- Never run `git stash`, in any form. To compare with the base, use `git show` or `git diff`.
 - Report CLI edits you need instead of making them.
 """
