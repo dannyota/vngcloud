@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -331,6 +332,129 @@ func TestDecodeErrorObjectBody(t *testing.T) {
 	}
 	if apiErr.Code != "NOT_FOUND" || apiErr.Message != "missing" {
 		t.Fatalf("unexpected error fields: %+v", apiErr)
+	}
+}
+
+// fakePEMPrivateKey builds a placeholder PEM private key from separate
+// header, body, and footer literals, joined only here: a secret scanner
+// matches a private key's BEGIN/END markers as one contiguous string, so no
+// test literal ever writes that shape directly in source.
+func fakePEMPrivateKey(body string) string {
+	const header = "-----BEGIN PRIVATE KEY-----"
+	const footer = "-----END PRIVATE KEY-----"
+	return header + "\n" + body + "\n" + footer
+}
+
+// TestDecodeErrorRedactsWholeValue checks that a Redact value quoted whole in
+// the message is replaced.
+func TestDecodeErrorRedactsWholeValue(t *testing.T) {
+	key := fakePEMPrivateKey("FAKEKEYMATERIAL")
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{key}}
+	body, marshalErr := json.Marshal(map[string]string{"message": "rejected: " + key})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	err := decodeError(req, 400, body)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, key) {
+		t.Fatalf("Message = %q, still holds the redacted value", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorRedactsOneLine checks that a message quoting only one line
+// of a multi-line Redact value, at least 8 characters after trimming, still
+// gets that line redacted even though the whole value never appears.
+func TestDecodeErrorRedactsOneLine(t *testing.T) {
+	const quotedLine = "MIIFAKELINEOFKEYMATERIAL"
+	key := fakePEMPrivateKey(quotedLine)
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{key}}
+	err := decodeError(req, 400, []byte(`{"message":"invalid line: `+quotedLine+`"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, quotedLine) {
+		t.Fatalf("Message = %q, still holds the quoted line", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorRedactsJSONEscapedForm checks that a message embedding the
+// value's JSON-escaped form (its newlines as literal backslash-n, as a
+// server might when it dumps the received field's raw JSON text into an
+// error) is also redacted, not just the value's own unescaped form.
+func TestDecodeErrorRedactsJSONEscapedForm(t *testing.T) {
+	key := fakePEMPrivateKey("MIIFAKELINEOFKEYMATERIAL")
+	// escaped is key with its real newlines as literal backslash-n, the text
+	// a server produces when it echoes the value's own JSON encoding into a
+	// message rather than decoding it first.
+	escaped := strings.ReplaceAll(key, "\n", `\n`)
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{key}}
+	body, err := json.Marshal(map[string]string{"message": "invalid field value \"" + escaped + "\""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := decodeError(req, 400, body)
+	var apiErr *APIError
+	if !errors.As(decoded, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", decoded)
+	}
+	if strings.Contains(apiErr.Message, escaped) {
+		t.Fatalf("Message = %q, still holds the JSON-escaped value", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Fatalf("Message = %q, want it to contain [redacted]", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorRedactsCode checks that Redact also covers the envelope's
+// code field, not just its message.
+func TestDecodeErrorRedactsCode(t *testing.T) {
+	const passphrase = "correct-horse-battery"
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{passphrase}}
+	err := decodeError(req, 400, []byte(`{"code":"bad: `+passphrase+`","message":"m"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Code, passphrase) {
+		t.Fatalf("Code = %q, still holds the redacted value", apiErr.Code)
+	}
+}
+
+// TestDecodeErrorRedactSkipsEmptyValues checks that an empty Redact value,
+// such as an unset optional passphrase, is never matched: an empty string
+// would otherwise appear "in" every message and corrupt it.
+func TestDecodeErrorRedactSkipsEmptyValues(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{""}}
+	err := decodeError(req, 400, []byte(`{"message":"plain message"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "plain message" {
+		t.Fatalf("Message = %q, want it unchanged", apiErr.Message)
+	}
+}
+
+// TestDecodeErrorNoRedactByDefault checks that a Request with no Redact
+// value behaves exactly as before: a message is returned unchanged.
+func TestDecodeErrorNoRedactByDefault(t *testing.T) {
+	err := decodeError(Request{Operation: "Op", Method: http.MethodPost}, 400, []byte(`{"message":"plain message"}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "plain message" {
+		t.Fatalf("Message = %q, want it unchanged", apiErr.Message)
 	}
 }
 

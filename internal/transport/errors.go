@@ -99,8 +99,8 @@ func decodeError(req Request, status int, body []byte) error {
 	apiErr := &APIError{
 		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       codeString(eb.Code),
-		Message:    strings.TrimSpace(msg),
+		Code:       redact(codeString(eb.Code), req.Redact),
+		Message:    redact(strings.TrimSpace(msg), req.Redact),
 		Retryable:  req.retryable(status),
 	}
 	switch status {
@@ -114,4 +114,51 @@ func decodeError(req Request, status int, body []byte) error {
 		apiErr.Err = errors.New("rate limited")
 	}
 	return apiErr
+}
+
+// redactLineMinLen is the shortest trimmed line redact treats as worth
+// matching on its own. A shorter line, such as a bare "-----BEGIN" split
+// oddly, is common enough in ordinary text that redacting it would corrupt
+// unrelated messages; see Request.Redact.
+const redactLineMinLen = 8
+
+// redactedText replaces every match in s.
+const redactedText = "[redacted]"
+
+// redact returns s with every occurrence of each non-empty value in values
+// replaced by "[redacted]": the value itself, its JSON-escaped form (the
+// literal text a server produces when it echoes the value's own JSON
+// encoding into a message, escape sequences and all, rather than decoding it
+// first), and each of its lines that is still at least redactLineMinLen
+// characters after trimming surrounding whitespace. An empty value is
+// skipped, since it would otherwise match everywhere and corrupt s.
+func redact(s string, values []string) string {
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, v, redactedText)
+		if escaped := jsonEscapedForm(v); escaped != "" {
+			s = strings.ReplaceAll(s, escaped, redactedText)
+		}
+		for _, line := range strings.Split(v, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if len(trimmed) >= redactLineMinLen {
+				s = strings.ReplaceAll(s, trimmed, redactedText)
+			}
+		}
+	}
+	return s
+}
+
+// jsonEscapedForm returns the text between the quotes json.Marshal would
+// produce for v: v itself with its control characters, quotes, and
+// backslashes escaped the way encoding/json escapes them. It returns "" only
+// if json.Marshal itself fails, which a plain string value never does.
+func jsonEscapedForm(v string) string {
+	encoded, err := json.Marshal(v)
+	if err != nil || len(encoded) < 2 {
+		return ""
+	}
+	return string(encoded[1 : len(encoded)-1])
 }
