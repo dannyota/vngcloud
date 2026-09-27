@@ -56,14 +56,43 @@ var (
 	ErrUnexpectedStatus = errors.New("network: unexpected status")
 )
 
-// vpcWriteResponse is CreateVPC, UpdateVPC, and EnableVPCPrivateDNS's
-// response shape: the VPC wrapped in a "data" field, confirmed live. GetVPC
-// returns the same fields at the top level instead. Every write here
-// decodes into this private type rather than the bare VPC model, so a
-// field type that differs from the read model can never fail the decode
-// (see CreateSecurityGroup).
+// vpcWriteResponse is CreateVPC's response shape: the VPC wrapped in a
+// "data" field, confirmed live. GetVPC returns the same fields at the top
+// level instead. UpdateVPC and EnableVPCPrivateDNS decode no response body
+// of their own; both confirm their write with a follow-up GetVPC instead.
+// CreateVPC decodes into this private type and maps it with toVPC, rather
+// than the bare VPC model, so a field type that differs from the read model
+// can never fail the decode (see CreateSubnet's subnetResponse).
 type vpcWriteResponse struct {
-	Data VPC `json:"data"`
+	Data vpcWriteData `json:"data"`
+}
+
+// vpcWriteData mirrors VPC's fields for CreateVPC's response.
+type vpcWriteData struct {
+	UUID           string   `json:"id"`
+	Status         string   `json:"status"`
+	ElasticIPs     []string `json:"elasticIps"`
+	Name           string   `json:"displayName"`
+	CreatedAt      string   `json:"createdAt"`
+	CIDR           string   `json:"cidr"`
+	DHCPOptionName string   `json:"dhcpOptionName"`
+	DHCPOptionID   string   `json:"dhcpOptionId"`
+	RouteTableName string   `json:"routeTableName"`
+	RouteTableID   string   `json:"routeTableId"`
+	Zone           Zone     `json:"zone"`
+	DNSStatus      string   `json:"dnsStatus"`
+	DNSID          string   `json:"dnsId"`
+	MTU            int      `json:"mtu"`
+	ServerCount    int      `json:"serverCount"`
+	VolumeCount    int      `json:"volumeCount"`
+}
+
+// toVPC converts d to VPC. The two share an identical field layout today;
+// a future field that must diverge breaks this conversion at compile time,
+// forcing an explicit field-by-field mapping then, rather than a silent
+// decode mismatch now.
+func (d vpcWriteData) toVPC() VPC {
+	return VPC(d)
 }
 
 // checkIPv4NoHostBits returns an error wrapping core.ErrInvalidInput unless
@@ -171,7 +200,7 @@ func (c *Client) CreateVPC(ctx context.Context, in *CreateVPCInput) (*CreateVPCO
 		return nil, &core.APIError{Operation: op, StatusCode: status,
 			Message: "create response had no id; the VPC may exist, list vpcs and match the name exactly before creating it again"}
 	}
-	vpc := resp.Data
+	vpc := resp.Data.toVPC()
 	if in.NoWait {
 		return &CreateVPCOutput{VPC: vpc}, nil
 	}
@@ -453,8 +482,11 @@ type EnableVPCPrivateDNSOutput struct {
 //
 // Without NoWait, EnableVPCPrivateDNS then waits for dnsStatus ENABLED,
 // polling GetVPC every 10 seconds for up to 10 minutes of elapsed time: the
-// probe saw ENABLING take over 5 minutes. Once the wait proceeds this far,
-// Changed is true, whether this call sent the PATCH or an earlier one did.
+// probe saw ENABLING take over 5 minutes. If a later read during that wait
+// shows any dnsStatus other than ENABLING or ENABLED, the wait stops at
+// once with ErrUnexpectedStatus rather than polling toward the bound. Once
+// the wait proceeds this far, Changed is true, whether this call sent the
+// PATCH or an earlier one did.
 func (c *Client) EnableVPCPrivateDNS(ctx context.Context, in *EnableVPCPrivateDNSInput) (*EnableVPCPrivateDNSOutput, error) {
 	const op = "network.EnableVPCPrivateDNS"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -517,9 +549,12 @@ func (c *Client) sendEnableVPCPrivateDNS(ctx context.Context, op, vpcID string) 
 
 // waitVPCPrivateDNSEnabled is EnableVPCPrivateDNS's post-enable wait unless
 // NoWait is set: it reads vpcID with GetVPC until its DNSStatus reaches
-// vpcDNSStatusEnabled. There is no known failure status for this wait, so
-// any read error stops it and is returned as is; only the bound running out
-// or such a read failure produces ErrNotSettled.
+// vpcDNSStatusEnabled; vpcDNSStatusEnabling keeps it polling. Any other
+// DNSStatus stops the wait at once with an error wrapping
+// ErrUnexpectedStatus, rather than polling toward a bound timeout on a
+// status this SDK cannot interpret. Any other read error also stops the
+// wait and is returned as is; only the bound running out or such a read
+// failure produces ErrNotSettled.
 func (c *Client) waitVPCPrivateDNSEnabled(ctx context.Context, op, vpcID string) (*VPC, error) {
 	var vpc *VPC
 	err := poll(ctx, c.now, c.sleep, privateDNSPollInterval, privateDNSBound,
@@ -529,14 +564,21 @@ func (c *Client) waitVPCPrivateDNSEnabled(ctx context.Context, op, vpcID string)
 				return true, err
 			}
 			vpc = &out.VPC
-			return vpc.DNSStatus == vpcDNSStatusEnabled, nil
+			switch vpc.DNSStatus {
+			case vpcDNSStatusEnabled:
+				return true, nil
+			case vpcDNSStatusEnabling:
+				return false, nil
+			default:
+				return true, fmt.Errorf("%w: %s: VPC %s dnsStatus is %q", ErrUnexpectedStatus, op, vpcID, vpc.DNSStatus)
+			}
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: VPC %s dnsStatus did not reach ENABLED within %s; the enable was sent, rerun EnableVPCPrivateDNS to check again",
 				ErrNotSettled, op, vpcID, privateDNSBound)
 		},
 	)
-	if err != nil && !errors.Is(err, ErrNotSettled) {
+	if err != nil && !errors.Is(err, ErrNotSettled) && !errors.Is(err, ErrUnexpectedStatus) {
 		err = fmt.Errorf("%w: %s: VPC %s: %w", ErrNotSettled, op, vpcID, err)
 	}
 	return vpc, err

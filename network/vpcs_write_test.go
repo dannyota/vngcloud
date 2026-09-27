@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -185,6 +186,104 @@ func TestCreateVPCWaitBoundReached(t *testing.T) {
 	}
 }
 
+func TestCreateVPCNoIDFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{"displayName":"vpc1","cidr":"10.20.0.0/24"}}`))
+	}))
+
+	_, err := c.CreateVPC(context.Background(), &CreateVPCInput{Name: "vpc1", CIDR: "10.20.0.0/24", NoWait: true})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list vpcs") {
+		t.Fatalf("err = %v, want an APIError naming list vpcs before creating again", err)
+	}
+}
+
+func TestCreateVPCWaitTolerates404(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(vpcBody("CREATING")))
+			return
+		}
+		if getCalls.Add(1) == 1 {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(vpcGetBody("vpc1", "ACTIVE")))
+	})))
+
+	out, err := c.CreateVPC(context.Background(), &CreateVPCInput{Name: "vpc1", CIDR: "10.20.0.0/24"})
+	if err != nil {
+		t.Fatalf("CreateVPC() error = %v", err)
+	}
+	if out.VPC.Status != "ACTIVE" {
+		t.Fatalf("Status = %q, want ACTIVE", out.VPC.Status)
+	}
+	if getCalls.Load() < 2 {
+		t.Fatalf("GET calls = %d, want at least 2: a 404 during the wait must keep polling", getCalls.Load())
+	}
+}
+
+func TestCreateVPCNoWaitSkipsWait(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(vpcBody("CREATING")))
+			return
+		}
+		getCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(vpcGetBody("vpc1", "CREATING")))
+	})))
+
+	out, err := c.CreateVPC(context.Background(), &CreateVPCInput{Name: "vpc1", CIDR: "10.20.0.0/24", NoWait: true})
+	if err != nil {
+		t.Fatalf("CreateVPC() error = %v", err)
+	}
+	if out.VPC.Status != "CREATING" {
+		t.Fatalf("Status = %q, want CREATING: NoWait must return the create response unwaited", out.VPC.Status)
+	}
+	if getCalls.Load() != 0 {
+		t.Fatalf("GET calls = %d, want 0: NoWait must skip the post-create wait", getCalls.Load())
+	}
+}
+
+// TestWaitVPCActivePollParameters checks the literal interval and bound
+// waitVPCActive passes to poll, so that swapping the 2-second interval or
+// the 3-minute bound with another wait's values fails this test: the
+// handler never settles, so the wait always runs to its bound.
+func TestWaitVPCActivePollParameters(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(vpcGetBody("vpc1", "CREATING")))
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if _, err := c.waitVPCActive(context.Background(), "op", "vpc-1"); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if len(sleeps) != 90 {
+		t.Fatalf("sleep calls = %d, want 90 (a 2s interval over a 3-minute bound)", len(sleeps))
+	}
+	for _, d := range sleeps {
+		if d != 2*time.Second {
+			t.Fatalf("sleep duration = %s, want 2s", d)
+		}
+	}
+}
+
 // --- UpdateVPC ---
 
 func TestUpdateVPCRequestBody(t *testing.T) {
@@ -225,6 +324,17 @@ func TestUpdateVPCRequiredInput(t *testing.T) {
 	}))
 	if _, err := c.UpdateVPC(context.Background(), &UpdateVPCInput{VPCID: "vpc-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestUpdateVPCPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range []string{"..", ".", "a/b", "a?b", ""} {
+		if _, err := c.UpdateVPC(context.Background(), &UpdateVPCInput{VPCID: id, Name: "renamed"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
 	}
 }
 
@@ -372,6 +482,101 @@ func TestDeleteVPCWaitSettlesTo404(t *testing.T) {
 	}
 }
 
+func TestDeleteVPCWaitFailsOnError(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ERROR"}`))
+		}
+	})))
+
+	_, err := c.DeleteVPC(context.Background(), &DeleteVPCInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+}
+
+func TestDeleteVPCWaitBoundReached(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE"}`))
+		}
+	})))
+
+	_, err := c.DeleteVPC(context.Background(), &DeleteVPCInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
+func TestDeleteVPCNoWaitSkipsWait(t *testing.T) {
+	getCalls := 0
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet:
+			getCalls++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE"}`))
+		}
+	})))
+
+	if _, err := c.DeleteVPC(context.Background(), &DeleteVPCInput{VPCID: "vpc-1", NoWait: true}); err != nil {
+		t.Fatalf("DeleteVPC() error = %v", err)
+	}
+	if getCalls != 1 {
+		t.Fatalf("GET calls = %d, want 1 (the pre-delete read only): NoWait must skip the post-delete wait", getCalls)
+	}
+}
+
+// TestWaitVPCDeletedPollParameters checks the literal interval and bound
+// waitVPCDeleted passes to poll, so that swapping the 2-second interval or
+// the 3-minute bound with another wait's values fails this test: the
+// handler never returns 404, so the wait always runs to its bound.
+func TestWaitVPCDeletedPollParameters(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE"}`))
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if err := c.waitVPCDeleted(context.Background(), "op", "vpc-1"); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if len(sleeps) != 90 {
+		t.Fatalf("sleep calls = %d, want 90 (a 2s interval over a 3-minute bound)", len(sleeps))
+	}
+	for _, d := range sleeps {
+		if d != 2*time.Second {
+			t.Fatalf("sleep duration = %s, want 2s", d)
+		}
+	}
+}
+
 func TestDeleteVPCPathIDRejection(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
@@ -384,6 +589,17 @@ func TestDeleteVPCPathIDRejection(t *testing.T) {
 }
 
 // --- EnableVPCPrivateDNS ---
+
+func TestEnableVPCPrivateDNSPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range []string{"..", ".", "a/b", "a?b", ""} {
+		if _, err := c.EnableVPCPrivateDNS(context.Background(), &EnableVPCPrivateDNSInput{VPCID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
 
 func TestEnableVPCPrivateDNSAlreadyEnabledSendsNothing(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -544,6 +760,81 @@ func TestEnableVPCPrivateDNSNoWaitReturnsAtOnce(t *testing.T) {
 	}
 	if !out.Changed {
 		t.Fatal("Changed = false, want true")
+	}
+}
+
+func TestEnableVPCPrivateDNSWaitBoundReached(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE","dnsStatus":"ENABLING"}`))
+		}
+	})))
+
+	_, err := c.EnableVPCPrivateDNS(context.Background(), &EnableVPCPrivateDNSInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
+// TestWaitVPCPrivateDNSEnabledPollParameters checks the literal interval
+// and bound waitVPCPrivateDNSEnabled passes to poll, so that swapping its
+// 10-second interval or 10-minute bound with another wait's 2-second or
+// 3-minute values fails this test: the handler never reaches ENABLED, so
+// the wait always runs to its bound.
+func TestWaitVPCPrivateDNSEnabledPollParameters(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE","dnsStatus":"ENABLING"}`))
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if _, err := c.waitVPCPrivateDNSEnabled(context.Background(), "op", "vpc-1"); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if len(sleeps) != 60 {
+		t.Fatalf("sleep calls = %d, want 60 (a 10s interval over a 10-minute bound)", len(sleeps))
+	}
+	for _, d := range sleeps {
+		if d != 10*time.Second {
+			t.Fatalf("sleep duration = %s, want 10s", d)
+		}
+	}
+}
+
+func TestEnableVPCPrivateDNSStopsOnUnknownStatusMidWait(t *testing.T) {
+	getCalls := 0
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			t.Fatal("no PATCH expected: ENABLING already started")
+		case http.MethodGet:
+			getCalls++
+			status := "ENABLING"
+			if getCalls > 1 {
+				status = "SUSPENDED"
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ACTIVE","dnsStatus":"` + status + `"}`))
+		}
+	})))
+
+	_, err := c.EnableVPCPrivateDNS(context.Background(), &EnableVPCPrivateDNSInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrUnexpectedStatus) {
+		t.Fatalf("err = %v, want ErrUnexpectedStatus", err)
+	}
+	if getCalls != 2 {
+		t.Fatalf("GET calls = %d, want 2: the wait must stop at once on an unrecognized dnsStatus rather than poll toward the bound", getCalls)
 	}
 }
 

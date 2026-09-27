@@ -288,10 +288,12 @@ zone. `CIDR` follows the same rule as a VPC's; the SDK does not check that
 it lies inside the VPC's own CIDR, the server does.
 
 `CreateSubnet` is a `POST` and is never retried after an ambiguous
-failure. Subnets have no list filter by name, so list the VPC's subnets
-with `ListSubnetsByVPC` and match the name exactly before creating it
-again. Without `NoWait`, it then waits for `ACTIVE`; see [Waits](#waits)
-below.
+failure. Subnets have no list filter by name, and live, subnet names can
+repeat, so list the VPC's subnets with `ListSubnetsByVPC` and match by
+CIDR instead: an overlapping CIDR is refused with a 400, so a CIDR is
+unique within a VPC and rerunning this same create with the same CIDR
+cannot make a second subnet. Without `NoWait`, it then waits for `ACTIVE`;
+see [Waits](#waits) below.
 
 `UpdateSubnet` renames a subnet. It reads the subnet first and refuses one
 that has any `SecondarySubnets`, with `vngcloud.ErrInvalidInput`, sending
@@ -395,9 +397,10 @@ If a VPC or subnet reaches `"ERROR"` instead, the create or delete returns
 an error wrapping `network.ErrFailed`. Once any of these bounds runs out,
 or a read or a sleep fails, the error wraps `network.ErrNotSettled`: a
 create must not be repeated, while a delete or `EnableVPCPrivateDNS` reads
-first and so may be rerun. Either way the Output still holds the last
-resource a read returned, or, if none did, the one the write's own response
-carried.
+first and so may be rerun. A create's Output still holds the last resource
+a read returned, or, if none did, the one the write's own response carried.
+`DeleteVPC` and `DeleteSubnet`'s Output is always empty: neither returns
+the resource it deleted.
 
 ## Errors
 

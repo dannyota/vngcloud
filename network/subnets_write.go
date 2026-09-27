@@ -75,8 +75,10 @@ type subnetCreateBody struct {
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError or
 // core.ErrInvalidInput, the subnet may exist, and the caller lists the
-// VPC's subnets with ListSubnetsByVPC and matches Name exactly before
-// creating it again, rather than retrying blind.
+// VPC's subnets with ListSubnetsByVPC and matches CIDR, not Name: live,
+// subnet names can repeat, but an overlapping CIDR is refused with a 400,
+// so a CIDR is unique within a VPC and rerunning this same create with the
+// same CIDR cannot make a second subnet.
 //
 // Without NoWait, CreateSubnet then waits for the new subnet to reach
 // ACTIVE, polling GetSubnet every 2 seconds for up to 3 minutes of elapsed
@@ -116,7 +118,7 @@ func (c *Client) CreateSubnet(ctx context.Context, in *CreateSubnetInput) (*Crea
 	}
 	if resp.Data.UUID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status,
-			Message: "create response had no id; the subnet may exist, list the VPC's subnets and match the name exactly before creating it again"}
+			Message: "create response had no id; the subnet may exist, list the VPC's subnets and match by CIDR before creating it again"}
 	}
 	subnet := resp.Data.toSubnet()
 	if in.NoWait {
@@ -131,10 +133,12 @@ func (c *Client) CreateSubnet(ctx context.Context, in *CreateSubnetInput) (*Crea
 }
 
 // wrapAmbiguousSubnetCreateErr wraps err, from the create POST op just
-// sent, with a hint to list the VPC's subnets before creating again, unless
-// err is already a 4xx *core.APIError. Unlike VPCs and security groups,
-// subnets have no list filter by name; the caller scans ListSubnetsByVPC's
-// full result instead.
+// sent, with a hint to list the VPC's subnets and match by CIDR before
+// creating again, unless err is already a 4xx *core.APIError. Unlike VPCs
+// and security groups, subnets have no list filter by name, and live,
+// subnet names can repeat; a CIDR is unique within a VPC instead, since an
+// overlapping one is refused with a 400, so matching by CIDR, and rerunning
+// this same create with the same CIDR, is always safe.
 func wrapAmbiguousSubnetCreateErr(op string, err error) error {
 	if err == nil {
 		return nil
@@ -142,7 +146,7 @@ func wrapAmbiguousSubnetCreateErr(op string, err error) error {
 	if is4xxAPIError(err) {
 		return err
 	}
-	return fmt.Errorf("%s: create may have already reached the server; list the VPC's subnets and match the name exactly before creating it again: %w", op, err)
+	return fmt.Errorf("%s: create may have already reached the server; list the VPC's subnets and match by CIDR before creating it again: %w", op, err)
 }
 
 // UpdateSubnetInput renames a subnet.
@@ -287,7 +291,10 @@ func (c *Client) DeleteSubnet(ctx context.Context, in *DeleteSubnetInput) (*Dele
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, c.confirmSubnetDeleteOn5xx(ctx, in.VPCID, in.SubnetID, err)
+		if confirmErr := c.confirmSubnetDeleteOn5xx(ctx, in.VPCID, in.SubnetID, err); confirmErr != nil {
+			return nil, confirmErr
+		}
+		return &DeleteSubnetOutput{}, nil
 	}
 	if in.NoWait {
 		return &DeleteSubnetOutput{}, nil

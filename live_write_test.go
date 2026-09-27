@@ -3341,7 +3341,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	deadline := start.Add(20 * time.Minute)
 	for {
 		_, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{VPCID: vpcID})
-		if err == nil {
+		if err == nil || vngcloud.IsNotFound(err) {
 			break
 		}
 		if !errors.Is(err, network.ErrInUse) && !errors.Is(err, network.ErrNotSettled) {

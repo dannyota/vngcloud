@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/testutil"
@@ -134,8 +135,22 @@ func TestCreateSubnetNoRetryAfter502(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("POST calls = %d, want 1: a create must never be retried after a 5xx", calls.Load())
 	}
-	if !strings.Contains(err.Error(), "subnets") {
-		t.Fatalf("err = %v, want a hint to list the VPC's subnets before creating again", err)
+	if !strings.Contains(err.Error(), "match by CIDR") {
+		t.Fatalf("err = %v, want a hint to list the VPC's subnets and match by CIDR before creating again", err)
+	}
+}
+
+func TestCreateSubnetNoIDFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{"name":"sub1","cidr":"10.20.0.0/24"}}`))
+	}))
+
+	_, err := c.CreateSubnet(context.Background(), &CreateSubnetInput{
+		VPCID: "vpc-1", ZoneID: "zone-a", Name: "sub1", CIDR: "10.20.0.0/24", NoWait: true,
+	})
+	if !strings.Contains(err.Error(), "match by CIDR") {
+		t.Fatalf("err = %v, want a hint to list the VPC's subnets and match by CIDR", err)
 	}
 }
 
@@ -180,6 +195,114 @@ func TestCreateSubnetWaitFailsOnError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrFailed) {
 		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+}
+
+func TestCreateSubnetWaitTolerates404(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(subnetBody("CREATING")))
+			return
+		}
+		if getCalls.Add(1) == 1 {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subnetGetBody("sub1", "ACTIVE")))
+	})))
+
+	out, err := c.CreateSubnet(context.Background(), &CreateSubnetInput{
+		VPCID: "vpc-1", ZoneID: "zone-a", Name: "sub1", CIDR: "10.20.0.0/24",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubnet() error = %v", err)
+	}
+	if out.Subnet.Status != "ACTIVE" {
+		t.Fatalf("Status = %q, want ACTIVE", out.Subnet.Status)
+	}
+	if getCalls.Load() < 2 {
+		t.Fatalf("GET calls = %d, want at least 2: a 404 during the wait must keep polling", getCalls.Load())
+	}
+}
+
+func TestCreateSubnetWaitBoundReached(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(subnetBody("CREATING")))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subnetGetBody("sub1", "CREATING")))
+	})))
+
+	_, err := c.CreateSubnet(context.Background(), &CreateSubnetInput{
+		VPCID: "vpc-1", ZoneID: "zone-a", Name: "sub1", CIDR: "10.20.0.0/24",
+	})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
+func TestCreateSubnetNoWaitSkipsWait(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(subnetBody("CREATING")))
+			return
+		}
+		getCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subnetGetBody("sub1", "CREATING")))
+	})))
+
+	out, err := c.CreateSubnet(context.Background(), &CreateSubnetInput{
+		VPCID: "vpc-1", ZoneID: "zone-a", Name: "sub1", CIDR: "10.20.0.0/24", NoWait: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubnet() error = %v", err)
+	}
+	if out.Subnet.Status != "CREATING" {
+		t.Fatalf("Status = %q, want CREATING: NoWait must return the create response unwaited", out.Subnet.Status)
+	}
+	if getCalls.Load() != 0 {
+		t.Fatalf("GET calls = %d, want 0: NoWait must skip the post-create wait", getCalls.Load())
+	}
+}
+
+// TestWaitSubnetActivePollParameters checks the literal interval and bound
+// waitSubnetActive passes to poll, so that swapping the 2-second interval
+// or the 3-minute bound with another wait's values fails this test: the
+// handler never settles, so the wait always runs to its bound.
+func TestWaitSubnetActivePollParameters(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subnetGetBody("sub1", "CREATING")))
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if _, err := c.waitSubnetActive(context.Background(), "op", "vpc-1", "subnet-1"); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if len(sleeps) != 90 {
+		t.Fatalf("sleep calls = %d, want 90 (a 2s interval over a 3-minute bound)", len(sleeps))
+	}
+	for _, d := range sleeps {
+		if d != 2*time.Second {
+			t.Fatalf("sleep duration = %s, want 2s", d)
+		}
 	}
 }
 
@@ -245,6 +368,20 @@ func TestUpdateSubnetRequiredInput(t *testing.T) {
 	}
 }
 
+func TestUpdateSubnetPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range []string{"..", ".", "a/b", "a?b", ""} {
+		if _, err := c.UpdateSubnet(context.Background(), &UpdateSubnetInput{VPCID: id, SubnetID: "subnet-1", Name: "renamed"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.UpdateSubnet(context.Background(), &UpdateSubnetInput{VPCID: "vpc-1", SubnetID: id, Name: "renamed"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("SubnetID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
 // --- DeleteSubnet ---
 
 func TestDeleteSubnetDeletedStatusIsNotFound(t *testing.T) {
@@ -259,6 +396,20 @@ func TestDeleteSubnetDeletedStatusIsNotFound(t *testing.T) {
 	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
 	if !vngcloud.IsNotFound(err) {
 		t.Fatalf("err = %v, want NotFound", err)
+	}
+}
+
+func TestDeleteSubnetPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range []string{"..", ".", "a/b", "a?b", ""} {
+		if _, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: id, SubnetID: "subnet-1"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("SubnetID %q: err = %v, want ErrInvalidInput", id, err)
+		}
 	}
 }
 
@@ -357,8 +508,12 @@ func TestDeleteSubnet5xxConfirmedByListAbsence(t *testing.T) {
 		}
 	}))
 
-	if _, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1", NoWait: true}); err != nil {
+	out, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1", NoWait: true})
+	if err != nil {
 		t.Fatalf("DeleteSubnet() error = %v, want success since the subnet is absent from the list", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want a non-nil &DeleteSubnetOutput{}")
 	}
 }
 
@@ -425,6 +580,129 @@ func TestDeleteSubnetWaitSettlesByListAbsence(t *testing.T) {
 
 	if _, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"}); err != nil {
 		t.Fatalf("DeleteSubnet() error = %v", err)
+	}
+}
+
+func TestDeleteSubnetWaitFailsOnError(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ERROR"}]`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		}
+	})))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+}
+
+func TestDeleteSubnetWaitBoundReached(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		}
+	})))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
+func TestDeleteSubnetNoWaitSkipsWait(t *testing.T) {
+	listCalls := 0
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "/subnets"):
+			listCalls++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		}
+	})))
+
+	if _, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1", NoWait: true}); err != nil {
+		t.Fatalf("DeleteSubnet() error = %v", err)
+	}
+	if listCalls != 0 {
+		t.Fatalf("ListSubnetsByVPC calls = %d, want 0: NoWait must skip the post-delete wait", listCalls)
+	}
+}
+
+// TestWaitSubnetDeletedPollParameters checks the literal interval and
+// bound waitSubnetDeleted passes to poll, so that swapping the 2-second
+// interval or the 3-minute bound with another wait's values fails this
+// test: the handler always lists the subnet as still present, so the wait
+// always runs to its bound.
+func TestWaitSubnetDeletedPollParameters(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if err := c.waitSubnetDeleted(context.Background(), "op", "vpc-1", "subnet-1"); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if len(sleeps) != 90 {
+		t.Fatalf("sleep calls = %d, want 90 (a 2s interval over a 3-minute bound)", len(sleeps))
+	}
+	for _, d := range sleeps {
+		if d != 2*time.Second {
+			t.Fatalf("sleep duration = %s, want 2s", d)
+		}
 	}
 }
 
