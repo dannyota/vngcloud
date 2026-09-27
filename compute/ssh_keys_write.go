@@ -154,7 +154,9 @@ type CreateSSHKeyOutput struct {
 
 // CreateSSHKey has GreenNode generate a key pair and return the private
 // key once; ImportSSHKey is the alternative that keeps a private key made
-// elsewhere off GreenNode entirely, and is the one the wiki recommends.
+// elsewhere off GreenNode entirely, and is the one the wiki recommends. The
+// returned private key is an OpenSSH private key, PEM-encoded starting
+// "-----BEGIN OPENSSH PRIVATE KEY-----", not a PKCS#1 or PKCS#8 key.
 //
 // The request sets transport.Request.Sensitive, so the response never
 // reaches the configured response-capture hook, and a decode failure never
@@ -206,6 +208,33 @@ func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (*Crea
 	}, nil
 }
 
+// sshKeyDeleteNotFoundPhrase is the lowercased text GreenNode's delete
+// endpoint sends in a 400 body for a key that no longer exists ("Cannot get
+// ssh key with id <id>"), unlike every other unknown-id response in this
+// package, which is a 404. mapSSHKeyDeleteNotFound requires this phrase
+// together with the key's own ID, so an unrelated 400 (a different reason,
+// or a different key ID from a stale retry) is not misreported as this
+// key's not-found.
+const sshKeyDeleteNotFoundPhrase = "cannot get ssh key with id"
+
+// mapSSHKeyDeleteNotFound rewraps a 400 APIError from DeleteSSHKey, whose
+// message contains both sshKeyDeleteNotFoundPhrase and sshKeyID, into the
+// SDK's ordinary not-found sentinel, the same one GetSSHKey returns for an
+// unknown id. The original *core.APIError stays in the returned error's
+// chain, so errors.As against it still works alongside errors.Is against
+// core.ErrNotFound. Any other error, including a 400 for a different
+// reason or naming a different key, passes through unchanged.
+func mapSSHKeyDeleteNotFound(op, sshKeyID string, err error) error {
+	var apiErr *core.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
+		lower := strings.ToLower(apiErr.Message)
+		if strings.Contains(lower, sshKeyDeleteNotFoundPhrase) && strings.Contains(lower, strings.ToLower(sshKeyID)) {
+			return fmt.Errorf("%w: %s: ssh key %s: %w", core.ErrNotFound, op, sshKeyID, apiErr)
+		}
+	}
+	return err
+}
+
 type DeleteSSHKeyInput struct {
 	SSHKeyID string `vngcloud:"required"`
 }
@@ -213,9 +242,12 @@ type DeleteSSHKeyInput struct {
 type DeleteSSHKeyOutput struct{}
 
 // DeleteSSHKey deletes a key. DELETE is idempotent and keeps the
-// transport's own retries; a retry that finds the key already gone returns
-// NotFound, which is not an error DeleteSSHKey itself needs to handle
-// specially.
+// transport's own retries. A retry that finds the key already gone comes
+// back as a 400 "Cannot get ssh key with id <id>", not a 404;
+// DeleteSSHKey recognizes that specific message and returns the SDK's
+// ordinary not-found sentinel for it, the same one core.ErrNotFound wraps
+// everywhere else, so a caller checks vngcloud.IsNotFound(err) rather than
+// matching the message itself.
 func (c *Client) DeleteSSHKey(ctx context.Context, in *DeleteSSHKeyInput) (*DeleteSSHKeyOutput, error) {
 	const op = "compute.DeleteSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -237,7 +269,7 @@ func (c *Client) DeleteSSHKey(ctx context.Context, in *DeleteSSHKeyInput) (*Dele
 		OK:        []int{204},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+		return nil, mapSSHKeyDeleteNotFound(op, in.SSHKeyID, err)
 	}
 	return &DeleteSSHKeyOutput{}, nil
 }

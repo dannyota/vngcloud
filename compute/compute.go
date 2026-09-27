@@ -4,6 +4,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -132,6 +133,10 @@ type GetSSHKeyOutput struct {
 	SSHKey SSHKey
 }
 
+// GetSSHKey reads one key by id. An unknown id gets a 200 with an empty
+// object, not a 404, so GetSSHKey treats an empty SSHKey.ID in the response
+// as not-found itself, returning the SDK's ordinary not-found sentinel
+// rather than an empty SSHKey with no error.
 func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyOutput, error) {
 	const op = "compute.GetSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -154,6 +159,9 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
+	}
+	if resp.Data.ID == "" {
+		return nil, fmt.Errorf("%w: %s: ssh key %s", core.ErrNotFound, op, in.SSHKeyID)
 	}
 	return &GetSSHKeyOutput{SSHKey: resp.Data}, nil
 }

@@ -87,7 +87,7 @@ if err != nil {
 	log.Fatal(err)
 }
 log.Println(created.SSHKey.ID)
-privateKeyPEM := created.PrivateKey.Reveal() // the only way to read it
+privateKeyPEM := created.PrivateKey.Reveal() // an OpenSSH private key, PEM-encoded
 
 if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{
 	SSHKeyID: created.SSHKey.ID,
@@ -105,6 +105,8 @@ decides what it accepts, and currently accepts RSA keys only.
 `SSHKey` has no field for a private key, on any call: a read can never
 carry one back, matching what GreenNode's API itself returns. Only
 `CreateSSHKeyOutput` carries one, as `PrivateKey`, separate from `SSHKey`.
+It is an OpenSSH private key, PEM-encoded starting
+`-----BEGIN OPENSSH PRIVATE KEY-----`, not a PKCS#1 or PKCS#8 key.
 
 Both `ImportSSHKey` and `CreateSSHKey` are `POST` and are never retried
 after a failure that may have already reached the server: after any error
@@ -113,8 +115,13 @@ that is not a 4xx `*vngcloud.APIError`, the key may exist. Call
 rather than retrying blind; a key found that way after a failed
 `CreateSSHKey` has already lost its private key and should be deleted.
 
-`DeleteSSHKey` is idempotent; a retry that finds the key already gone
-returns `vngcloud.IsNotFound(err) == true`.
+`DeleteSSHKey` is idempotent. A retry that finds the key already gone gets
+a 400 "Cannot get ssh key with id \<id\>" from the server, not a 404;
+`DeleteSSHKey` recognizes that message and returns
+`vngcloud.IsNotFound(err) == true` for it, same as any other unknown-id
+response. `GetSSHKey` on an unknown id gets a 200 with an empty object
+rather than a 404 or 400; `GetSSHKey` treats that the same way, returning
+`vngcloud.IsNotFound(err) == true` instead of an empty `SSHKey`.
 
 ### The private key is a Secret
 

@@ -363,3 +363,66 @@ func TestComputeDeleteSSHKeyNotFound(t *testing.T) {
 		t.Fatalf("DeleteSSHKey() err = %v, want NotFound", err)
 	}
 }
+
+// TestComputeDeleteSSHKeyGoneReturnsNotFound checks that a second delete of
+// the same key, which the server reports as a 400 rather than a 404, maps
+// to the SDK's ordinary not-found sentinel, the same as a 404 would.
+func TestComputeDeleteSSHKeyGoneReturnsNotFound(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"Cannot get ssh key with id key-1"}`))
+	}))
+
+	_, err := c.DeleteSSHKey(context.Background(), &DeleteSSHKeyInput{SSHKeyID: "key-1"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteSSHKey() err = %v, want NotFound", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want *vngcloud.APIError in its chain", err)
+	}
+}
+
+// TestComputeDeleteSSHKeyOtherBadRequestUnchanged checks that a 400 for a
+// different reason, or naming a different key, is not misreported as
+// not-found.
+func TestComputeDeleteSSHKeyOtherBadRequestUnchanged(t *testing.T) {
+	bodies := []string{
+		`{"message":"something else went wrong"}`,
+		`{"message":"Cannot get ssh key with id key-2"}`,
+	}
+	for _, body := range bodies {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(body))
+		}))
+
+		_, err := c.DeleteSSHKey(context.Background(), &DeleteSSHKeyInput{SSHKeyID: "key-1"})
+		if vngcloud.IsNotFound(err) {
+			t.Fatalf("body %s: DeleteSSHKey() err = %v, want not NotFound", body, err)
+		}
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("body %s: err = %v, want *vngcloud.APIError", body, err)
+		}
+	}
+}
+
+// TestComputeGetSSHKeyEmptyReturnsNotFound checks that a 200 response with
+// an empty object, which the server sends for an unknown id instead of a
+// 404, maps to the SDK's ordinary not-found sentinel rather than an empty
+// SSHKey with no error.
+func TestComputeGetSSHKeyEmptyReturnsNotFound(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+
+	out, err := c.GetSSHKey(context.Background(), &GetSSHKeyInput{SSHKeyID: "key-1"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("GetSSHKey() err = %v, want NotFound", err)
+	}
+	if out != nil {
+		t.Fatalf("GetSSHKey() out = %+v, want nil", out)
+	}
+}
