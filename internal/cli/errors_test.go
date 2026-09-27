@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
@@ -192,6 +193,21 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{
+			"containerregistry repository not empty",
+			fmt.Errorf("%w: repository repo-1 has 1 image(s); delete them first", containerregistry.ErrRepositoryNotEmpty),
+			1,
+		},
+		{"containerregistry not settled", fmt.Errorf("%w: repository repo-1 was accepted", containerregistry.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during a vCR repository create's or delete's
+			// post-write wait must exit the same way (1), checked ahead of
+			// the context-canceled rule above, the same rule the vDNS,
+			// network, and compute cases above follow.
+			"containerregistry not settled after a canceled context",
+			fmt.Errorf("%w: %w", containerregistry.ErrNotSettled, context.Canceled),
+			1,
+		},
+		{
 			"monitor log project price above max",
 			fmt.Errorf("%w: monitor.CreateLogProject: quote 917000 VND exceeds MaxPrice 0 VND", monitor.ErrPriceAboveMax),
 			1,
@@ -364,6 +380,16 @@ func TestClassify(t *testing.T) {
 		{
 			"compute not settled",
 			fmt.Errorf("%w: server group sg-1 was accepted", compute.ErrNotSettled),
+			"NotSettled", 0, "",
+		},
+		{
+			"containerregistry repository not empty",
+			fmt.Errorf("%w: repository repo-1 has 1 image(s); delete them first", containerregistry.ErrRepositoryNotEmpty),
+			"RepositoryNotEmpty", 0, "",
+		},
+		{
+			"containerregistry not settled",
+			fmt.Errorf("%w: repository repo-1 was accepted", containerregistry.ErrNotSettled),
 			"NotSettled", 0, "",
 		},
 		{

@@ -364,16 +364,21 @@ func renderCLIPage(services []docService) string {
 		"main route table while a subnet names no route table of its own and so relies on it; the server " +
 		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +
 		"remove-route read a route table that was not ACTIVE and stayed that way past the wait before the " +
-		"write, so nothing was sent), `SecretFileFailed` (create-ssh-key's own " +
+		"write, so nothing was sent), " +
+		"`RepositoryNotEmpty` (a containerregistry delete-repository was refused because a pre-delete read " +
+		"showed the repository still holds images; see " +
+		"[ContainerRegistry](CLI-ContainerRegistry.md#delete-repository)), " +
+		"`SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
-		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits) and " +
-		"[Network](Network.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
+		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
+		"[Network](Network.md#waits), and [ContainerRegistry](CLI-ContainerRegistry.md#create-repository). " +
+		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
-		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, and `SecretFileFailed` " +
-		"all exit 1.\n\n")
+		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
+		"and `SecretFileFailed` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

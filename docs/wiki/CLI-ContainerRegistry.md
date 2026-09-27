@@ -2,17 +2,61 @@
 
 # CLI: ContainerRegistry
 
+## create-repository
+
+Kind: Write.
+
+Always creates a private repository; there is no --public flag. The server prefixes the account id onto --name, so the output's Name differs from it; match a name that ends with --name's value. Never retried after a failure that may have already reached the server: run list-repositories --name <name> and match that way before creating again, rather than repeating this command blindly. Without --no-wait, waits up to 60 seconds for the new repository to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the repository exists, so the create must not be sent again.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--quota-limit-gb` | `int` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud containerregistry create-repository --name <name> --quota-limit-gb <quota-limit-gb>
+```
+
+## delete-repository
+
+Kind: Write, destructive.
+
+Refuses, before any request, a repository that still holds images (error code RepositoryNotEmpty); delete the images with docker or the console first. Attached users are not a guard: they keep existing and lose access to the deleted repository. Without --no-wait, waits up to 60 seconds for the repository to leave the list; a timeout, or any other failure during that wait, is NotSettled, but this command always reads first, so a rerun is safe either way.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--repository-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud containerregistry delete-repository --repository-id <repository-id> --yes
+```
+
+## get-repository
+
+Kind: Read.
+
+How a missing repository reads is unconfirmed: the API reference documents only a 500 status for this call besides 401, never 404. After any other 5xx, this command lists repositories once to check whether the id is still there before deciding NotFound.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--repository-id` | `string` | yes |
+
+```sh
+vngcloud containerregistry get-repository --repository-id <repository-id> --query Repository
+```
+
 ## list-repositories
 
 Kind: Read.
 
-Unverified live: the test account has no repository, so the live call returns an empty list. Each row prints the API's own keys unchanged, and those keys have not been seen.
-
-Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+The server prefixes every repository's Name with the account id, so a row's Name is never exactly the value given to --name; match by a name that ends with it, as create-repository's own retry advice does.
 
 | Flag | Type | Required |
 |-|-|-|
 | `--access-level` | `string` |  |
+| `--name` | `string` |  |
 
 ```sh
 vngcloud containerregistry list-repositories

@@ -178,16 +178,41 @@ var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
 // against a real response.
 var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
 
-// containerRegistryRepositoryUnverifiedNote flags list-repositories' output
-// shape: the test account holds no repository, so the live call returns an
-// empty list and nothing exercises Repository's map-backed decoding against
-// a real row.
-var containerRegistryRepositoryUnverifiedNote = "Unverified live: the test account has no repository, so the live call returns an empty list. Each row prints the API's own keys unchanged, and those keys have not been seen."
+// containerRegistryListRepositoriesNote documents the account id prefix
+// every repository row carries, since the flag table shows --name and
+// --access-level as plain filters with no hint that a row's own Name never
+// matches --name exactly.
+const containerRegistryListRepositoriesNote = "The server prefixes every repository's Name with the account id, " +
+	"so a row's Name is never exactly the value given to --name; match by a name that ends with it, as " +
+	"create-repository's own retry advice does."
 
-// containerRegistryRepositoryNote combines the unverified-live note above
-// with the shared map redaction rule, since containerregistry.Repository is
-// map-backed like portal's models.
-var containerRegistryRepositoryNote = containerRegistryRepositoryUnverifiedNote + "\n\n" + portalMapRedactionNote
+// containerRegistryGetRepositoryNote documents get-repository's own
+// unconfirmed not-found status, since the flag table shows only
+// --repository-id with no hint of it.
+const containerRegistryGetRepositoryNote = "How a missing repository reads is unconfirmed: the API reference " +
+	"documents only a 500 status for this call besides 401, never 404. After any other 5xx, this command lists " +
+	"repositories once to check whether the id is still there before deciding NotFound."
+
+// containerRegistryCreateRepositoryNote documents create-repository's always-
+// private, never-retried, and waiting behavior, and the account id prefix, for
+// guidance the flag table cannot show: it lists only --name,
+// --quota-limit-gb, and --no-wait, as plain fields.
+const containerRegistryCreateRepositoryNote = "Always creates a private repository; there is no --public flag. " +
+	"The server prefixes the account id onto --name, so the output's Name differs from it; match a name that " +
+	"ends with --name's value. Never retried after a failure that may have already reached the server: run " +
+	"list-repositories --name <name> and match that way before creating again, rather than repeating this " +
+	"command blindly. Without --no-wait, waits up to 60 seconds for the new repository to reach ACTIVE; a " +
+	"timeout, or any other failure during that wait, is NotSettled, and the repository exists, so the create " +
+	"must not be sent again."
+
+// containerRegistryDeleteRepositoryNote documents delete-repository's
+// pre-delete image guard and its post-delete wait, since the flag table
+// shows only --repository-id and --no-wait.
+const containerRegistryDeleteRepositoryNote = "Refuses, before any request, a repository that still holds " +
+	"images (error code RepositoryNotEmpty); delete the images with docker or the console first. Attached " +
+	"users are not a guard: they keep existing and lose access to the deleted repository. Without --no-wait, " +
+	"waits up to 60 seconds for the repository to leave the list; a timeout, or any other failure during that " +
+	"wait, is NotSettled, but this command always reads first, so a rerun is safe either way."
 
 // globalLoadBalancerShapeUnverifiedNote flags an output shape the live
 // checks cannot confirm: the test account holds no global load balancer, so
@@ -453,7 +478,10 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
 	"loadbalancer import-certificate":         loadbalancerImportCertificateNote,
 	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
-	"containerregistry list-repositories":     containerRegistryRepositoryNote,
+	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
+	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
+	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
+	"containerregistry delete-repository":     containerRegistryDeleteRepositoryNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,

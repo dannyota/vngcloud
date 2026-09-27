@@ -10,6 +10,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
@@ -92,7 +93,13 @@ type errorEnvelope struct {
 // again, since its PUT always resends the whole resolved group rather than
 // making a new one, or a compute update-server-group's confirm read after a
 // successful PUT failed to come back, whose update may be sent again the
-// same way), OTPRejected (a channel OTP create-channel or update-channel
+// same way, or a containerregistry create-repository's or
+// delete-repository's wait ran out of time: a create must not be sent
+// again, since the repository exists, but a delete already reads first, so
+// a rerun is safe), RepositoryNotEmpty (a containerregistry
+// delete-repository was refused because a pre-delete read showed the
+// repository still holds images), OTPRejected (a channel OTP create-channel
+// or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (create-log-project's quote
 // priced its order above --max-price, so no order was sent),
@@ -148,12 +155,22 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
-	// compute.ErrNotSettled joins dns.ErrNotSettled and network.ErrNotSettled
-	// here for the same reason both already do: UpdateServerGroup's confirm
-	// read can wrap an inner *core.APIError, and this check must win over the
-	// generic *APIError branch below.
-	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) {
+	// compute.ErrNotSettled and containerregistry.ErrNotSettled join
+	// dns.ErrNotSettled and network.ErrNotSettled here for the same reason
+	// both already do: UpdateServerGroup's confirm read, and GetRepository's
+	// own 5xx-confirm path inside the containerregistry wait, can each wrap
+	// an inner *core.APIError, and this check must win over the generic
+	// *APIError branch below.
+	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
+		errors.Is(err, containerregistry.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
+	// delete-repository's own pre-delete image count check, never wrapping a
+	// server response; it is still checked this early, alongside the other
+	// pre-write and pre-delete guards below, for the same grouping reason.
+	if errors.Is(err, containerregistry.ErrRepositoryNotEmpty) {
+		return errorEnvelope{Code: "RepositoryNotEmpty", Message: err.Error()}
 	}
 	// network.ErrSystemGroup, network.ErrSecurityGroupInUse, and
 	// network.ErrInUse join this same early group for the same reason
@@ -285,16 +302,18 @@ func exitCode(err error) int {
 	// every other unconfirmed toggle, per monitor's design, rather than
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
-	// network.ErrUnexpectedStatus, compute.ErrNotSettled, and
-	// monitor.ErrOTPRejected join the same early return for the same reason:
-	// per the vDNS and network designs, a not-settled write specifically must
-	// exit the same way even after a canceled context, because its write may
-	// have landed, and the others join it for consistency.
+	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
+	// containerregistry.ErrNotSettled, and monitor.ErrOTPRejected join the
+	// same early return for the same reason: per the vDNS, network, and vCR
+	// writes designs, a not-settled write specifically must exit the same way
+	// even after a canceled context, because its write may have landed, and
+	// the others join it for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
-		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) {
+		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
+		errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

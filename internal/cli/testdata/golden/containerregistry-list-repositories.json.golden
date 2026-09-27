@@ -1,8 +1,17 @@
 {
   "Items": [
     {
-      "name": "repo-1",
-      "visibility": "PRIVATE"
+      "ID": "repo-1",
+      "Name": "\u003caccount\u003e-app",
+      "BackendName": "\u003caccount\u003e-app",
+      "AccessLevel": "PRIVATE",
+      "RegistryURL": "\u003chostname\u003e/\u003caccount\u003e-app",
+      "QuotaLimitGB": 1,
+      "QuotaUsed": 0,
+      "ImageCount": 0,
+      "AttachedUsers": 0,
+      "Status": "ACTIVE",
+      "CreatedAt": "2026-01-01T00:00:00Z"
     }
   ],
   "Page": 1,
