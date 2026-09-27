@@ -1,6 +1,6 @@
 # vServer Free Writes: Checks
 
-Status: Proposed.
+Status: Accepted (2026-09-27), with [vServer free writes](vserver-writes.md).
 
 The tests and live checks for [vServer free writes](vserver-writes.md).
 Terms and sentinels are defined there.
