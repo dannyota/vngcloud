@@ -3,8 +3,12 @@
 package vngcloud_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +26,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/monitor"
@@ -2215,4 +2220,273 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 		t.Fatalf("step 8 QuoteCreateLogProject: %s", safeErr(err))
 	}
 	t.Logf("step 8: a second Basic quote after purge prices at %.0f VND", secondQuote.OptimumPrice)
+}
+
+// sshEd25519PublicKeyLine returns pub encoded as an OpenSSH public key line
+// ("ssh-ed25519 <base64> <comment>"), built directly from the SSH wire
+// format (RFC 4253 section 6.6): a length-prefixed "ssh-ed25519" string
+// followed by a length-prefixed raw key, both base64-encoded together. This
+// is a test-only helper, built from the standard library alone rather than
+// adding a dependency for one key type.
+func sshEd25519PublicKeyLine(pub ed25519.PublicKey, comment string) string {
+	var buf bytes.Buffer
+	for _, field := range [][]byte{[]byte("ssh-ed25519"), pub} {
+		var length [4]byte
+		binary.BigEndian.PutUint32(length[:], uint32(len(field))) //nolint:gosec // G115: field is "ssh-ed25519" or one ed25519 public key, at most 32 bytes
+		buf.Write(length[:])
+		buf.Write(field)
+	}
+	return "ssh-ed25519 " + base64.StdEncoding.EncodeToString(buf.Bytes()) + " " + comment
+}
+
+// firstPEMLine returns key's first line when it looks like a PEM boundary
+// ("-----BEGIN ..."), which names a private key's type without revealing
+// any of its material, or "" for anything else. It never returns any other
+// part of key, so a caller logging its result never risks printing key
+// content by mistake.
+func firstPEMLine(key string) string {
+	line, _, _ := strings.Cut(key, "\n")
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "-----BEGIN ") {
+		return line
+	}
+	return ""
+}
+
+// isLiveSSHKeyName reports whether name is one this test's own runs create.
+func isLiveSSHKeyName(name string) bool {
+	return strings.HasPrefix(name, "vngcloud-live-")
+}
+
+// listAllSSHKeys pages through every SSH key the account has, since a
+// leftover cleanup or a remaining-key check must not miss one that landed
+// past the first page.
+func listAllSSHKeys(ctx context.Context, client *compute.Client) ([]compute.SSHKey, error) {
+	var all []compute.SSHKey
+	for page := 1; ; page++ {
+		out, err := client.ListSSHKeys(ctx, &compute.ListSSHKeysInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// deleteLiveSSHKeys deletes every SSH key whose name isLiveSSHKeyName
+// reports true for, and returns how many it deleted. It is used to sweep up
+// a previous run's leftovers before this test creates its own keys.
+func deleteLiveSSHKeys(ctx context.Context, t *testing.T, client *compute.Client) int {
+	t.Helper()
+	keys, err := listAllSSHKeys(ctx, client)
+	if err != nil {
+		t.Errorf("delete live ssh keys: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, key := range keys {
+		if !isLiveSSHKeyName(key.Name) {
+			continue
+		}
+		if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{SSHKeyID: key.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live ssh keys: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// deleteSSHKeyByName lists keys by the exact name and deletes any match. It
+// is used after an ImportSSHKey or CreateSSHKey failure, since a POST that
+// returned an error may still have reached the server; the live-only name
+// filter is confirmed to match exactly, but this still checks for an exact
+// match itself rather than trust that. It runs on its own timeout, not the
+// calling step's context, so it can still clean up after that step's
+// context is the reason the step failed.
+func deleteSSHKeyByName(t *testing.T, client *compute.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := client.ListSSHKeys(ctx, &compute.ListSSHKeysInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: list ssh keys by name: %s", safeErr(err))
+		return
+	}
+	for _, key := range list.Items {
+		if key.Name != name {
+			continue
+		}
+		if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{SSHKeyID: key.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete ssh key by name: %s", safeErr(err))
+		}
+	}
+}
+
+// VNGCLOUD_LIVE_SSH_KEY must be set to "1" in addition to VNGCLOUD_LIVE_WRITE,
+// since the create step below has GreenNode generate and see a private key,
+// even though every SSH key write costs nothing.
+//
+// It deletes every leftover vngcloud-live-* SSH key from a previous run
+// first (step 1); imports a throwaway ED25519 public key generated in this
+// test, so its matching private key never leaves this process (step 2);
+// registers its cleanup, and the final remaining-key check, as soon as its
+// id is known (step 3); reads it back (step 4); deletes it explicitly
+// (step 5); has GreenNode generate a key pair with CreateSSHKey, registering
+// its cleanup as soon as its id is known (step 6); reads it back (step 7);
+// and deletes it explicitly (step 8). The private key CreateSSHKey returns
+// is held only as its vngcloud.Secret value: it is never written to disk or
+// logged, only whether it is present and its PEM header line are. Every
+// step logs only statuses, counts, that boolean and header line, and
+// timings, never a key's own id, name, or public or private material.
+func TestLiveWriteSSHKey(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live ssh key write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_SSH_KEY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_SSH_KEY=1 to run the live ssh key write test; " +
+			"the create step has GreenNode generate and see a private key")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := compute.New(cfg)
+
+	// Step 1: sweep up leftovers from an earlier run.
+	leftovers := deleteLiveSSHKeys(ctx, t, client)
+	t.Logf("step 1: deleted %d leftover ssh key(s)", leftovers)
+
+	// Step 2: import a throwaway ED25519 public key made for this run. The
+	// matching private key is generated here and discarded; it is never
+	// sent anywhere.
+	importSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	importName := "vngcloud-live-" + importSuffix
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("step 2 generate ed25519 key: %v", err)
+	}
+	publicKey := sshEd25519PublicKeyLine(pub, importName)
+
+	start := time.Now()
+	imported, err := client.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: importName, PublicKey: publicKey})
+	if err != nil {
+		deleteSSHKeyByName(t, client, importName)
+		t.Fatalf("step 2 ImportSSHKey: %s", safeErr(err))
+	}
+	importedID := imported.SSHKey.ID
+	if importedID == "" {
+		deleteSSHKeyByName(t, client, importName)
+		t.Fatal("step 2: ImportSSHKey returned an empty id; the design requires one")
+	}
+	t.Logf("step 2: imported ssh key, status %s, wait %s", imported.SSHKey.Status, time.Since(start))
+
+	// Step 3: register the fallback cleanup, and the final remaining-key
+	// check, as soon as importedID is known, before any later step can fail
+	// and skip the explicit deletes below. This runs after the created
+	// key's own cleanup (step 6), since t.Cleanup runs in last-registered,
+	// first-run order, so the count below reflects both keys.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: importedID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete imported key: %s", safeErr(err))
+		}
+		final, err := listAllSSHKeys(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListSSHKeys: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, key := range final {
+			if isLiveSSHKeyName(key.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live ssh key(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live ssh keys, found %d", remaining)
+		}
+	})
+
+	// Step 4: read it back.
+	gotImported, err := client.GetSSHKey(ctx, &compute.GetSSHKeyInput{SSHKeyID: importedID})
+	if err != nil {
+		t.Fatalf("step 4 GetSSHKey: %s", safeErr(err))
+	}
+	t.Logf("step 4: read imported key, status %s", gotImported.SSHKey.Status)
+
+	// Step 5: delete it explicitly.
+	if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{SSHKeyID: importedID}); err != nil {
+		t.Fatalf("step 5 DeleteSSHKey: %s", safeErr(err))
+	}
+	t.Log("step 5: deleted imported key")
+
+	// Step 6: have GreenNode generate a key pair. The private key is held
+	// only in memory as a vngcloud.Secret; only whether it is present and
+	// its PEM header line are recorded, never the key itself, and nothing
+	// is written to disk.
+	createSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 6 generate name suffix: %v", err)
+	}
+	createName := "vngcloud-live-" + createSuffix
+
+	start = time.Now()
+	created, err := client.CreateSSHKey(ctx, &compute.CreateSSHKeyInput{Name: createName})
+	if err != nil {
+		deleteSSHKeyByName(t, client, createName)
+		t.Fatalf("step 6 CreateSSHKey: %s", safeErr(err))
+	}
+	createdID := created.SSHKey.ID
+	if createdID == "" {
+		deleteSSHKeyByName(t, client, createName)
+		t.Fatal("step 6: CreateSSHKey returned an empty id; the design requires one")
+	}
+	privateKey := created.PrivateKey.Reveal()
+	t.Logf("step 6: created ssh key, status %s, private key present=%v type=%q, wait %s",
+		created.SSHKey.Status, privateKey != "", firstPEMLine(privateKey), time.Since(start))
+
+	// Register the created key's cleanup as soon as createdID is known; it
+	// runs before step 3's cleanup above, per t.Cleanup's ordering.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: createdID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete created key: %s", safeErr(err))
+		}
+	})
+
+	// Step 7: read it back.
+	gotCreated, err := client.GetSSHKey(ctx, &compute.GetSSHKeyInput{SSHKeyID: createdID})
+	if err != nil {
+		t.Fatalf("step 7 GetSSHKey: %s", safeErr(err))
+	}
+	t.Logf("step 7: read created key, status %s", gotCreated.SSHKey.Status)
+
+	// Step 8: delete it explicitly.
+	if _, err := client.DeleteSSHKey(ctx, &compute.DeleteSSHKeyInput{SSHKeyID: createdID}); err != nil {
+		t.Fatalf("step 8 DeleteSSHKey: %s", safeErr(err))
+	}
+	t.Log("step 8: deleted created key")
 }

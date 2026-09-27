@@ -1,0 +1,9 @@
+{
+  "data": {
+    "id": "key-1",
+    "name": "<name>",
+    "pubKey": "<public-key>",
+    "status": "ACTIVE",
+    "createdAt": "2026-01-01T00:00:00Z"
+  }
+}

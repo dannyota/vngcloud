@@ -124,6 +124,40 @@ func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSS
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+type GetSSHKeyInput struct {
+	SSHKeyID string `vngcloud:"required"`
+}
+
+type GetSSHKeyOutput struct {
+	SSHKey SSHKey
+}
+
+func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyOutput, error) {
+	const op = "compute.GetSSHKey"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "SSHKeyID", in.SSHKeyID); err != nil {
+		return nil, err
+	}
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data SSHKey `json:"data"`
+	}
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: op,
+		Method:    "GET",
+		URL:       c.computeURL("v2", []string{projectID, "sshKeys", in.SSHKeyID}, nil),
+		OK:        []int{200},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &GetSSHKeyOutput{SSHKey: resp.Data}, nil
+}
+
 type ListServerGroupsInput struct {
 	Name string
 	Page int
@@ -472,13 +506,16 @@ type ServerSecgroup struct {
 	UUID string `json:"uuid"`
 }
 
+// SSHKey has no PrivateKey field: the API never returns one on a read, and
+// even if it did, this model would drop it rather than hold it. CreateSSHKey
+// is the only call that returns a private key, and it returns it separately
+// as a vngcloud.Secret, never on this type.
 type SSHKey struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	CreatedAt  string `json:"createdAt"`
-	PublicKey  string `json:"pubKey"`
-	PrivateKey string `json:"privateKey"`
-	Status     string `json:"status"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	PublicKey string `json:"pubKey"`
+	Status    string `json:"status"`
 }
 
 type ServerGroup struct {

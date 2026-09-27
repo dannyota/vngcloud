@@ -16,6 +16,8 @@ rename; the module keeps the `vngcloud` name.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
+- [Compute](Compute.md): vServer instances, images, and SSH keys, including
+  importing and creating them.
 - [Monitor](Monitor.md): vMonitor synthetic checks, and pausing and resuming
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,

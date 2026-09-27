@@ -124,6 +124,105 @@ func TestDoJSONCapturesResponse(t *testing.T) {
 	}
 }
 
+// TestDoJSONSensitiveSkipsCapture checks that Sensitive suppresses the
+// capture hook for its own request only: a later, non-Sensitive request on
+// the same Client is still captured, proving Sensitive is a per-request
+// flag rather than something that disables capture globally.
+func TestDoJSONSensitiveSkipsCapture(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"secret":"top-secret-value"}`))
+	}))
+	defer server.Close()
+
+	var captures []Capture
+	client := New(Config{
+		HTTPClient: server.Client(),
+		Capture: func(c Capture) {
+			captures = append(captures, c)
+		},
+	})
+
+	var out struct {
+		Secret string `json:"secret"`
+	}
+	if err := client.DoJSON(context.Background(), Request{
+		Operation: "test.Sensitive",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		OK:        []int{200},
+		SkipAuth:  true,
+		Sensitive: true,
+	}, &out); err != nil {
+		t.Fatalf("DoJSON() error = %v", err)
+	}
+	if len(captures) != 0 {
+		t.Fatalf("capture called %d time(s) for a Sensitive request, want 0", len(captures))
+	}
+
+	if err := client.DoJSON(context.Background(), Request{
+		Operation: "test.NotSensitive",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		OK:        []int{200},
+		SkipAuth:  true,
+	}, &out); err != nil {
+		t.Fatalf("DoJSON() error = %v", err)
+	}
+	if len(captures) != 1 {
+		t.Fatalf("capture called %d time(s) after a non-Sensitive request, want 1", len(captures))
+	}
+}
+
+// TestDoJSONSensitiveDecodeErrorOmitsBody checks that a Sensitive request
+// whose response fails to decode into the caller's out returns a fixed,
+// generic error, never one built from the underlying json error (which, for
+// a plain request, ends up in the returned error's chain and so its
+// Error() text). This proves the Sensitive branch in DoJSONStatus actually
+// runs, rather than relying only on json.Unmarshal never quoting a body on
+// its own.
+func TestDoJSONSensitiveDecodeErrorOmitsBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`"unexpected-string-body"`))
+	}))
+	defer server.Close()
+
+	client := New(Config{HTTPClient: server.Client()})
+
+	var out struct {
+		Secret string `json:"secret"`
+	}
+	sensitiveErr := client.DoJSON(context.Background(), Request{
+		Operation: "test.SensitiveDecode",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		OK:        []int{200},
+		SkipAuth:  true,
+		Sensitive: true,
+	}, &out)
+	if sensitiveErr == nil {
+		t.Fatal("DoJSON() error = nil, want a decode error")
+	}
+	if strings.Contains(sensitiveErr.Error(), "unexpected-string-body") {
+		t.Fatalf("sensitive decode error holds the response body: %q", sensitiveErr.Error())
+	}
+
+	plainErr := client.DoJSON(context.Background(), Request{
+		Operation: "test.PlainDecode",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		OK:        []int{200},
+		SkipAuth:  true,
+	}, &out)
+	if plainErr == nil {
+		t.Fatal("DoJSON() error = nil, want a decode error")
+	}
+	if sensitiveErr.Error() == plainErr.Error() {
+		t.Fatalf("Sensitive decode error is identical to the plain one: %q", sensitiveErr.Error())
+	}
+}
+
 func TestDoJSONContextCancelDuringRetryWait(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
