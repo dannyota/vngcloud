@@ -32,9 +32,10 @@ var (
 	ErrSystemGroup = errors.New("network: system security group")
 
 	// ErrNotSettled means a write was sent, and may have reached the
-	// server, but no read confirmed its result. The write must not be
-	// repeated; the returned Output still holds the resource the SDK last
-	// read, so the caller keeps its id to check again later.
+	// server, but no read confirmed its result. A create must not be sent
+	// again with the same input; an update's PUT is idempotent and may be
+	// repeated safely. The returned Output still holds the resource the
+	// SDK last read, so the caller keeps its id to check again later.
 	ErrNotSettled = errors.New("network: write accepted but not settled")
 
 	// ErrFailed means a created security group reached ERROR. The returned
@@ -128,7 +129,8 @@ func (c *Client) CreateSecurityGroup(ctx context.Context, in *CreateSecurityGrou
 		return nil, wrapAmbiguousSecurityGroupCreateErr(op, err)
 	}
 	if resp.Data.UUID == "" {
-		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "create response had no id"}
+		return nil, &core.APIError{Operation: op, StatusCode: status,
+			Message: "create response had no id; the group may exist, list security groups and match the name exactly before creating it again"}
 	}
 	group := SecurityGroup{ID: resp.Data.UUID, Name: resp.Data.SecgroupName, Description: in.Description}
 	if in.NoWait {
@@ -181,9 +183,9 @@ type UpdateSecurityGroupOutput struct {
 
 // UpdateSecurityGroup changes a group's name, description, or both. It
 // reads the group first with GetSecurityGroup and refuses one whose read
-// shows System, with ErrSystemGroup, before sending anything: renaming or
-// redescribing a project's system group is never intended. It then resends
-// every field the caller left nil unchanged.
+// shows System or IsSystem, with ErrSystemGroup, before sending anything:
+// renaming or redescribing a project's system group is never intended. It
+// then resends every field the caller left nil unchanged.
 //
 // The PUT's own response shape is not verified, so UpdateSecurityGroup
 // reads the group once more afterward and returns that read as the Output.
@@ -206,7 +208,7 @@ func (c *Client) UpdateSecurityGroup(ctx context.Context, in *UpdateSecurityGrou
 	if err != nil {
 		return nil, err
 	}
-	if current.SecurityGroup.System {
+	if current.SecurityGroup.System || current.SecurityGroup.IsSystem {
 		return nil, fmt.Errorf("%w: %s: security group %s is a system group", ErrSystemGroup, op, in.SecurityGroupID)
 	}
 
@@ -255,8 +257,8 @@ type DeleteSecurityGroupOutput struct{}
 
 // DeleteSecurityGroup deletes a security group. It reads the group first
 // with GetSecurityGroup and sends nothing when that read shows the group is
-// a system group (ErrSystemGroup) or has any server attached, checked with
-// ListServersBySecurityGroup (ErrSecurityGroupInUse).
+// a system group, System or IsSystem (ErrSystemGroup), or has any server
+// attached, checked with ListServersBySecurityGroup (ErrSecurityGroupInUse).
 //
 // A group can be in use by more than servers, so the server's own refusal
 // is the final guard: an error whose message contains
@@ -280,7 +282,7 @@ func (c *Client) DeleteSecurityGroup(ctx context.Context, in *DeleteSecurityGrou
 	if err != nil {
 		return nil, err
 	}
-	if group.SecurityGroup.System {
+	if group.SecurityGroup.System || group.SecurityGroup.IsSystem {
 		return nil, fmt.Errorf("%w: %s: security group %s is a system group", ErrSystemGroup, op, in.SecurityGroupID)
 	}
 	servers, err := c.ListServersBySecurityGroup(ctx, &ListServersBySecurityGroupInput{SecurityGroupID: in.SecurityGroupID})

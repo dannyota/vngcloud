@@ -150,8 +150,8 @@ func TestCreateSecurityGroupNoIDFails(t *testing.T) {
 
 	_, err := c.CreateSecurityGroup(context.Background(), &CreateSecurityGroupInput{Name: "web", NoWait: true})
 	var apiErr *core.APIError
-	if !errors.As(err, &apiErr) || apiErr.Message != "create response had no id" {
-		t.Fatalf("err = %v, want an APIError saying the create response had no id", err)
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list security groups") {
+		t.Fatalf("err = %v, want an APIError naming list security groups before creating again", err)
 	}
 }
 
@@ -479,6 +479,24 @@ func TestUpdateSecurityGroupSystemGroupRefused(t *testing.T) {
 	}
 }
 
+func TestUpdateSecurityGroupIsSystemOnlyRefused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method %s: an isSystem-only group update must send no PUT", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"id":"secg-1","name":"default","description":"d","status":"ACTIVE","isSystem":true,"system":false}}`))
+	}))
+
+	_, err := c.UpdateSecurityGroup(context.Background(), &UpdateSecurityGroupInput{
+		SecurityGroupID: "secg-1",
+		Name:            vngcloud.Ptr("renamed"),
+	})
+	if !errors.Is(err, ErrSystemGroup) {
+		t.Fatalf("err = %v, want ErrSystemGroup", err)
+	}
+}
+
 func TestUpdateSecurityGroupReReadFailureWrapsNotSettled(t *testing.T) {
 	var getCalls atomic.Int64
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +538,21 @@ func TestDeleteSecurityGroupSystemGroupRefused(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(groupBody("default", "d", "ACTIVE", true)))
+	}))
+
+	_, err := c.DeleteSecurityGroup(context.Background(), &DeleteSecurityGroupInput{SecurityGroupID: "secg-1"})
+	if !errors.Is(err, ErrSystemGroup) {
+		t.Fatalf("err = %v, want ErrSystemGroup", err)
+	}
+}
+
+func TestDeleteSecurityGroupIsSystemOnlyRefused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method %s: an isSystem-only group delete must send no DELETE", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"id":"secg-1","name":"default","description":"d","status":"ACTIVE","isSystem":true,"system":false}}`))
 	}))
 
 	_, err := c.DeleteSecurityGroup(context.Background(), &DeleteSecurityGroupInput{SecurityGroupID: "secg-1"})

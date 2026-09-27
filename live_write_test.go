@@ -2304,15 +2304,15 @@ func deleteSecurityGroupByName(t *testing.T, client *network.Client, name string
 // creates vngcloud-live-<8 hex> (step 2); registers the fallback cleanup as
 // soon as the created group's id is known (step 3); creates the same name
 // again and logs the server's refusal (step 4); updates the group three
-// ways -- a new description, an explicit empty description, and a
-// description left out -- confirming each leaves Name unchanged (step 5);
+// ways, a new description, an explicit empty description, and a
+// description left out, confirming each leaves Name unchanged (step 5);
 // creates a tcp/22 rule from 203.0.113.0/24 (step 6); creates the identical
 // rule again and logs the duplicate refusal (step 7); creates a second rule
 // from a host prefix, 203.0.113.5/24, and logs whether the server stored it
 // as sent or masked it to the network address (step 8); creates an icmp
 // rule (step 9); deletes the tcp/22 rule right after its own create and
 // logs the delete's timing (step 10); attempts to delete that same rule
-// again, but through a second, unrelated group's id -- the SDK lists the
+// again, but through a second, unrelated group's id: the SDK lists the
 // named group's own rules first and refuses a rule not found there, so this
 // sends no request, and whether the server itself would also ignore the
 // group named in the path stays an open question this test cannot answer
@@ -2558,10 +2558,14 @@ func TestLiveWriteNetworkSecurityGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 11 generate name suffix: %v", err)
 	}
+	otherName := "vngcloud-live-" + otherSuffix
 	otherGroup, err := client.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{
-		Name: "vngcloud-live-" + otherSuffix, NoWait: true,
+		Name: otherName, NoWait: true,
 	})
 	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the group may
+		// still have reached the server. Find and delete it by its exact name.
+		deleteSecurityGroupByName(t, client, otherName)
 		t.Fatalf("step 11 CreateSecurityGroup (other group): %s", safeErr(err))
 	}
 	otherGroupID := otherGroup.SecurityGroup.ID

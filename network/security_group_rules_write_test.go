@@ -133,6 +133,41 @@ func TestCreateSecurityGroupRuleShapeRefusals(t *testing.T) {
 				RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 0,
 			},
 		},
+		{
+			name: "icmp with nonzero PortRangeMin",
+			in: &CreateSecurityGroupRuleInput{
+				SecurityGroupID: "secg-1", Direction: "ingress", Protocol: "icmp",
+				RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 8,
+			},
+		},
+		{
+			name: "ICMP (any case) with nonzero PortRangeMax",
+			in: &CreateSecurityGroupRuleInput{
+				SecurityGroupID: "secg-1", Direction: "ingress", Protocol: "ICMP",
+				RemoteIPPrefix: "203.0.113.0/24", PortRangeMax: 1,
+			},
+		},
+		{
+			name: "direction with a leading space",
+			in: &CreateSecurityGroupRuleInput{
+				SecurityGroupID: "secg-1", Direction: " ingress", Protocol: "tcp",
+				RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 22,
+			},
+		},
+		{
+			name: "direction uppercase",
+			in: &CreateSecurityGroupRuleInput{
+				SecurityGroupID: "secg-1", Direction: "INGRESS", Protocol: "tcp",
+				RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 22,
+			},
+		},
+		{
+			name: "direction with a trailing newline",
+			in: &CreateSecurityGroupRuleInput{
+				SecurityGroupID: "secg-1", Direction: "ingress\n", Protocol: "tcp",
+				RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 22,
+			},
+		},
 	}
 
 	for _, tt := range cases {
@@ -181,8 +216,8 @@ func TestCreateSecurityGroupRuleNoIDFails(t *testing.T) {
 		RemoteIPPrefix: "203.0.113.0/24", PortRangeMin: 22,
 	})
 	var apiErr *core.APIError
-	if !errors.As(err, &apiErr) || apiErr.Message != "create response had no id" {
-		t.Fatalf("err = %v, want an APIError saying the create response had no id", err)
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list the group's rules") {
+		t.Fatalf("err = %v, want an APIError naming list the group's rules before creating again", err)
 	}
 }
 

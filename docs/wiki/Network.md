@@ -158,7 +158,10 @@ value as `PortRangeMin`, so a single port needs only `PortRangeMin`, and
 `PortRangeMin` must not be above `PortRangeMax`. For `Protocol` `"tcp"` or
 `"udp"` (in any case), `PortRangeMin` must be at least 1: 0 is not a valid
 tcp or udp port, and "all ports" is written `PortRangeMin: 1,
-PortRangeMax: 65535`.
+PortRangeMax: 65535`. For `Protocol` `"icmp"` (in any case), `PortRangeMin`
+and `PortRangeMax` must both stay 0: a live check showed icmp stored with
+a port range of 0/0 and its type/code encoding is not confirmed, so the
+SDK fails closed and an icmp rule covers all ICMP types and codes.
 
 The SDK never defaults `Protocol` or `RemoteIPPrefix`; both must be set,
 and `RemoteIPPrefix` is never defaulted to `0.0.0.0/0`. Opening a port to
@@ -175,10 +178,13 @@ client.CreateSecurityGroupRule(ctx, &network.CreateSecurityGroupRuleInput{
 })
 ```
 
-`Direction` and `Protocol` are sent to the server exactly as given and
-checked only for shape, not against a fixed value set, so a protocol the
-server adds later never needs an SDK release. A duplicate rule fails with
-the server's own `SecurityGroupRuleExists` message.
+`Direction` must be exactly `"ingress"` or `"egress"`, the lowercase
+strings the API itself stores; anything else, including different case or
+surrounding whitespace, is refused with `vngcloud.ErrInvalidInput` before
+any request. `Protocol` is sent to the server exactly as given and checked
+only for shape, not against a fixed value set, so a protocol the server
+adds later never needs an SDK release. A duplicate rule fails with the
+server's own `SecurityGroupRuleExists` message.
 
 `CreateSecurityGroupRule` is a `POST` and is never retried after an
 ambiguous failure, for the same reason `CreateSecurityGroup` is not; list
@@ -200,9 +206,9 @@ actually asynchronous. `CreateSecurityGroup` still runs its post-create
 wait: without `NoWait`, it polls `GetSecurityGroup` every 2 seconds for up
 to 60 seconds of elapsed time, tolerating a 404 (a group just created may
 not be readable at once), until the group reaches `"ACTIVE"`, which in
-practice settles on that wait's first read. `UpdateSecurityGroup` and
-`DeleteSecurityGroup` send no post-write wait of their own beyond one
-confirm read; rule writes take no wait at all.
+practice settles on that wait's first read. `UpdateSecurityGroup` sends one
+confirm read after its `PUT`; `DeleteSecurityGroup` sends no read after its
+`DELETE`; rule writes take no wait at all.
 
 If the group reaches `"ERROR"`, `CreateSecurityGroup` returns an error
 wrapping `network.ErrFailed`. Once the bound runs out, or a read or the
@@ -246,6 +252,9 @@ var ErrFailed             = errors.New("network: write failed on the server")
 `ErrSystemGroup` and `ErrSecurityGroupInUse` mean a delete or update sent
 nothing, or that a delete's own `DELETE` request was refused by the
 server; see [Creating, updating, and deleting groups](#creating-updating-and-deleting-groups)
-above. `ErrFailed` and `ErrNotSettled` mean `CreateSecurityGroup` itself
-was sent; see [Waits](#waits) above for what each means and why the Output
-still holds the group.
+above. `ErrFailed` means `CreateSecurityGroup` reached `"ERROR"`.
+`ErrNotSettled` means `CreateSecurityGroup` or `UpdateSecurityGroup` was
+sent and may have reached the server, but no confirming read followed; a
+create must not be sent again with the same input, while an update's `PUT`
+is idempotent and may be repeated. See [Waits](#waits) above for why the
+Output still holds the group.

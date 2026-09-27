@@ -44,6 +44,11 @@ type createSecurityGroupRuleResponse struct {
 
 // CreateSecurityGroupRuleInput creates a rule in a security group.
 //
+// Direction must be exactly "ingress" or "egress", the lowercase strings
+// the API itself stores; anything else, including different case or
+// surrounding whitespace, is refused with core.ErrInvalidInput before any
+// request.
+//
 // RemoteIPPrefix is required and must parse with netip.ParsePrefix: a bare
 // address with no prefix length is refused, so a single host is written
 // "/32" or "/128". EtherType left empty is derived from RemoteIPPrefix's
@@ -53,12 +58,16 @@ type createSecurityGroupRuleResponse struct {
 // port needs only PortRangeMin, and PortRangeMin must not be above
 // PortRangeMax. For Protocol tcp or udp (in any case), PortRangeMin must be
 // at least 1: 0 is not a valid tcp or udp port, and "all ports" is written
-// PortRangeMin 1, PortRangeMax 65535.
+// PortRangeMin 1, PortRangeMax 65535. For Protocol icmp (in any case),
+// PortRangeMin and PortRangeMax must both stay 0: a live check showed icmp
+// stored with a port range of 0/0 and its type/code encoding is not
+// confirmed, so the SDK fails closed and an icmp rule covers all ICMP
+// types and codes.
 //
 // The SDK never defaults Protocol or RemoteIPPrefix; both must be set.
-// Protocol and Direction are sent to the server as given and are checked
-// only for shape, not against a fixed value set, so a protocol or
-// direction the server adds later never needs an SDK release.
+// Protocol is sent to the server as given and is checked only for shape,
+// not against a fixed value set, so a protocol the server adds later never
+// needs an SDK release.
 type CreateSecurityGroupRuleInput struct {
 	SecurityGroupID string `vngcloud:"required"`
 	Direction       string `vngcloud:"required"`
@@ -126,7 +135,8 @@ func (c *Client) CreateSecurityGroupRule(ctx context.Context, in *CreateSecurity
 		return nil, wrapAmbiguousSecurityGroupRuleCreateErr(op, err)
 	}
 	if resp.Data.UUID == "" {
-		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "create response had no id"}
+		return nil, &core.APIError{Operation: op, StatusCode: status,
+			Message: "create response had no id; the rule may exist, list the group's rules before creating it again"}
 	}
 	return &CreateSecurityGroupRuleOutput{SecurityGroupRule: SecurityGroupRule{
 		ID:              resp.Data.UUID,
@@ -147,6 +157,11 @@ func (c *Client) CreateSecurityGroupRule(ctx context.Context, in *CreateSecurity
 // RemoteIPPrefix's family when in.EtherType is empty, and PortRangeMax
 // defaulted to PortRangeMin when in.PortRangeMax is 0.
 func checkSecurityGroupRuleShape(op string, in *CreateSecurityGroupRuleInput) (etherType string, portMax int, err error) {
+	if in.Direction != "ingress" && in.Direction != "egress" {
+		return "", 0, fmt.Errorf("%w: %s: Direction must be exactly \"ingress\" or \"egress\", got %q",
+			core.ErrInvalidInput, op, in.Direction)
+	}
+
 	prefix, err := netip.ParsePrefix(in.RemoteIPPrefix)
 	if err != nil {
 		return "", 0, fmt.Errorf("%w: %s: RemoteIPPrefix must be a CIDR prefix such as 203.0.113.0/24 or 2001:db8::/32, got %q",
@@ -178,6 +193,10 @@ func checkSecurityGroupRuleShape(op string, in *CreateSecurityGroupRuleInput) (e
 	if in.PortRangeMin > portMax {
 		return "", 0, fmt.Errorf("%w: %s: PortRangeMin %d is above PortRangeMax %d", core.ErrInvalidInput, op, in.PortRangeMin, portMax)
 	}
+	if isICMP(in.Protocol) && (in.PortRangeMin != 0 || in.PortRangeMax != 0) {
+		return "", 0, fmt.Errorf("%w: %s: Protocol icmp takes no port range; leave PortRangeMin and PortRangeMax at 0, an icmp rule covers all ICMP types and codes",
+			core.ErrInvalidInput, op)
+	}
 	if isTCPOrUDP(in.Protocol) && in.PortRangeMin < 1 {
 		return "", 0, fmt.Errorf("%w: %s: Protocol %s requires PortRangeMin at least 1; write \"all ports\" as PortRangeMin 1, PortRangeMax 65535",
 			core.ErrInvalidInput, op, in.Protocol)
@@ -188,6 +207,11 @@ func checkSecurityGroupRuleShape(op string, in *CreateSecurityGroupRuleInput) (e
 // isTCPOrUDP reports whether protocol is "tcp" or "udp" in any case.
 func isTCPOrUDP(protocol string) bool {
 	return strings.EqualFold(protocol, "tcp") || strings.EqualFold(protocol, "udp")
+}
+
+// isICMP reports whether protocol is "icmp" in any case.
+func isICMP(protocol string) bool {
+	return strings.EqualFold(protocol, "icmp")
 }
 
 // wrapAmbiguousSecurityGroupRuleCreateErr wraps err, from the create POST op
