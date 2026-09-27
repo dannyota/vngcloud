@@ -468,6 +468,24 @@ func TestGenDocsCreateCheckExampleIncludesLocations(t *testing.T) {
 	}
 }
 
+// TestGenDocsUpdateServerGroupExampleSetsAField checks that
+// update-server-group's example is runnable as printed: UpdateServerGroup
+// requires Name or Description beyond the required ServerGroupID.
+func TestGenDocsUpdateServerGroupExampleSetsAField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Compute.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Compute.md: %v", err)
+	}
+	want := "vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("update-server-group example is missing %q:\n%s", want, data)
+	}
+}
+
 // TestGenDocsUpdateHostedZoneExampleSetsAField checks that update-hosted-zone's
 // example command line is runnable as printed. HostedZoneID is its only
 // required Input field, but UpdateHostedZone itself also rejects a call that

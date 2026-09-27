@@ -226,8 +226,6 @@ vngcloud compute list-user-images
 
 Kind: Write.
 
-vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>
-
 | Flag | Type | Required |
 |-|-|-|
 | `--server-group-id` | `string` | yes |
@@ -235,6 +233,6 @@ vngcloud compute update-server-group --server-group-id <server-group-id> --name 
 | `--description` | `*string` |  |
 
 ```sh
-vngcloud compute update-server-group --server-group-id <server-group-id>
+vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>
 ```
 

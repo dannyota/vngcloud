@@ -310,7 +310,6 @@ var docOpNotes = map[string]string{
 	"network delete-security-group-rule":      networkDeleteSecurityGroupRuleNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
-	"compute update-server-group":             "vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>",
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
 	"monitor create-channel":                  monitorCreateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
 	"monitor update-channel":                  monitorUpdateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
@@ -373,14 +372,16 @@ var docJSONPlaceholders = map[string]string{
 // required fields, but UpdateRecord also requires at least one other field
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
-// field to change. compute create-ssh-key does not need an entry here even
+// field to change. compute update-server-group is the same shape: it also
+// requires Name or Description. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
 // required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
-	"dns update-hosted-zone": "description",
-	"dns update-record":      "ttl",
-	"monitor update-check":   "name",
+	"compute update-server-group": "name",
+	"dns update-hosted-zone":      "description",
+	"dns update-record":           "ttl",
+	"monitor update-check":        "name",
 }
 
 // docExampleOverride gives a full example command line for "service
