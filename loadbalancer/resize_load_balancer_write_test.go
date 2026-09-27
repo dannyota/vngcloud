@@ -1,0 +1,312 @@
+package loadbalancer
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/testutil"
+)
+
+// resizeLoadBalancerID and resizeLoadBalancerNewPackage are the id and
+// target package every resizeLoadBalancerHandler test fixture in this file
+// uses.
+const (
+	resizeLoadBalancerID         = "lb-1"
+	resizeLoadBalancerOldPackage = "pkg-1"
+	resizeLoadBalancerNewPackage = "pkg-2"
+)
+
+// resizeLoadBalancerHandler serves the price quote, GetLoadBalancer reads
+// (before the PUT and during the post-resize wait), and the resize PUT
+// itself. getStatuses and getPackages are read together in order, one pair
+// per GET; the last pair repeats once exhausted. putStatus, when non-zero,
+// is the PUT's response status; a zero putStatus sends 202 with an empty
+// body.
+func resizeLoadBalancerHandler(getStatuses, getPackages []string, putCalls *atomic.Int32, putStatus int, putBody string) http.HandlerFunc {
+	var getCalls int
+	lbPath := "/v2/project-1/loadBalancers/" + resizeLoadBalancerID
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"optimumPrice":800000,"originalPrice":800000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case r.Method == http.MethodGet && r.URL.Path == lbPath:
+			i := getCalls
+			if i >= len(getStatuses) {
+				i = len(getStatuses) - 1
+			}
+			status, pkg := getStatuses[i], getPackages[i]
+			getCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"packageId":%q,"progressStatus":%q}}`, resizeLoadBalancerID, pkg, status)
+		case r.Method == http.MethodPut && r.URL.Path == lbPath+"/resize":
+			if putCalls != nil {
+				putCalls.Add(1)
+			}
+			status := putStatus
+			if status == 0 {
+				status = http.StatusAccepted
+			}
+			w.WriteHeader(status)
+			if putBody != "" {
+				_, _ = w.Write([]byte(putBody))
+			}
+		default:
+			panic("unexpected request: " + r.Method + " " + r.URL.Path)
+		}
+	}
+}
+
+func validResizeInput() *ResizeLoadBalancerInput {
+	return &ResizeLoadBalancerInput{LoadBalancerID: resizeLoadBalancerID, PackageID: resizeLoadBalancerNewPackage, MaxPrice: 800000}
+}
+
+func TestResizeLoadBalancerRequestBody(t *testing.T) {
+	var body map[string]any
+	inner := resizeLoadBalancerHandler(
+		[]string{lbStatusCreated, lbStatusCreated},
+		[]string{resizeLoadBalancerOldPackage, resizeLoadBalancerNewPackage},
+		nil, 0, "",
+	)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if err := json.Unmarshal(data, &body); err != nil {
+				t.Fatalf("decode body: %v, raw = %s", err, data)
+			}
+		}
+		inner(w, r)
+	}))
+	withInstantSleep(c)
+
+	if _, err := c.ResizeLoadBalancer(context.Background(), validResizeInput()); err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v", err)
+	}
+	if len(body) != 1 || body["packageId"] != resizeLoadBalancerNewPackage {
+		t.Fatalf("body = %+v, want exactly {packageId: %q}", body, resizeLoadBalancerNewPackage)
+	}
+}
+
+// fixedStatusPackage returns a single-element (status, resizeLoadBalancerOldPackage) pair for
+// resizeLoadBalancerHandler's getStatuses and getPackages, repeated for every
+// GET the handler serves.
+func fixedStatusPackage(status string) ([]string, []string) {
+	return []string{status}, []string{resizeLoadBalancerOldPackage}
+}
+
+func TestResizeLoadBalancerSuccess(t *testing.T) {
+	// The first read (before the PUT) shows the old package; the second
+	// (mid-wait) still UPDATING; the third settles on the new package.
+	statuses := []string{lbStatusCreated, lbStatusUpdating, lbStatusCreated}
+	packages := []string{resizeLoadBalancerOldPackage, resizeLoadBalancerNewPackage, resizeLoadBalancerNewPackage}
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, nil, 0, ""))
+	withInstantSleep(c)
+
+	out, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v", err)
+	}
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	if out.LoadBalancer.PackageID != resizeLoadBalancerNewPackage {
+		t.Fatalf("PackageID = %q, want %q", out.LoadBalancer.PackageID, resizeLoadBalancerNewPackage)
+	}
+	if out.QuotedPrice != 800000 {
+		t.Fatalf("QuotedPrice = %v, want 800000", out.QuotedPrice)
+	}
+}
+
+func TestResizeLoadBalancerSamePackageSendsNothing(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/price" {
+			t.Fatal("same-package resize must not quote")
+		}
+		resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, "")(w, r)
+	}))
+
+	in := validResizeInput()
+	in.PackageID = resizeLoadBalancerOldPackage
+	out, err := c.ResizeLoadBalancer(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v", err)
+	}
+	if out.Changed {
+		t.Fatal("Changed = true, want false for the same package")
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
+	}
+}
+
+func TestResizeLoadBalancerPriceAboveMaxSendsNothing(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, ""))
+
+	in := validResizeInput()
+	in.MaxPrice = 100000
+	_, err := c.ResizeLoadBalancer(context.Background(), in)
+	if !errors.Is(err, ErrPriceAboveMax) {
+		t.Fatalf("err = %v, want ErrPriceAboveMax", err)
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
+	}
+}
+
+func TestResizeLoadBalancerRejectsBadMaxPriceSendsNothing(t *testing.T) {
+	for _, bad := range []float64{-1} {
+		c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("handler should not be called")
+		}))
+		in := validResizeInput()
+		in.MaxPrice = bad
+		if _, err := c.ResizeLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("MaxPrice=%v err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}
+
+func TestResizeLoadBalancerNoResendAfter5xx(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := New(testutil.NewRetryConfig(t, resizeLoadBalancerHandler(statuses, packages, &putCalls, http.StatusBadGateway, `{"message":"upstream"}`)))
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if err == nil {
+		t.Fatal("ResizeLoadBalancer() error = nil, want an error")
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want exactly 1 (Once)", putCalls.Load())
+	}
+}
+
+func TestResizeLoadBalancerBusyRefusalReturnsErrBusy(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, &putCalls, http.StatusBadRequest, `{"message":"load balancer id lb-1 is not ready"}`))
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want exactly 1", putCalls.Load())
+	}
+}
+
+func TestResizeLoadBalancerPreWriteBusyBoundExceeded(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusUpdating)
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, ""))
+	withInstantSleep(c)
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
+	}
+}
+
+func TestResizeLoadBalancerNoWaitSkipsPolling(t *testing.T) {
+	// Two GETs happen before the PUT regardless of NoWait: the same-package
+	// check and the pre-write busy check. NoWait's own job is to skip the
+	// post-write wait, so no GET may follow the PUT.
+	var putDone atomic.Bool
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":800000,"originalPrice":800000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case r.Method == http.MethodGet:
+			if putDone.Load() {
+				t.Fatal("NoWait must not poll after the PUT")
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"packageId":%q,"progressStatus":%q}}`, resizeLoadBalancerID, resizeLoadBalancerOldPackage, lbStatusCreated)
+		case r.Method == http.MethodPut:
+			putDone.Store(true)
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := validResizeInput()
+	in.NoWait = true
+	out, err := c.ResizeLoadBalancer(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v", err)
+	}
+	if out.LoadBalancer.PackageID != resizeLoadBalancerNewPackage {
+		t.Fatalf("PackageID = %q, want %q", out.LoadBalancer.PackageID, resizeLoadBalancerNewPackage)
+	}
+}
+
+func TestResizeLoadBalancerWaitFailedStatus(t *testing.T) {
+	statuses := []string{lbStatusCreated, lbStatusError}
+	packages := []string{resizeLoadBalancerOldPackage, resizeLoadBalancerOldPackage}
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, nil, 0, ""))
+	withInstantSleep(c)
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+}
+
+func TestResizeLoadBalancerWaitBoundExceeded(t *testing.T) {
+	// index 0: the same-package check read; index 1: the pre-write busy
+	// check read (not busy, so the PUT is sent); index 2+: the post-write
+	// wait, stuck UPDATING forever.
+	statuses := []string{lbStatusCreated, lbStatusCreated, lbStatusUpdating}
+	packages := []string{resizeLoadBalancerOldPackage, resizeLoadBalancerOldPackage, resizeLoadBalancerOldPackage}
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, nil, 0, ""))
+	withInstantSleep(c)
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if !strings.Contains(err.Error(), "must not be repeated") {
+		t.Fatalf("err = %v, want a message saying not to repeat the resize", err)
+	}
+}
+
+func TestResizeLoadBalancerRejectsMissingFields(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	in := validResizeInput()
+	in.LoadBalancerID = ""
+	if _, err := c.ResizeLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestResizeLoadBalancerRejectsBadPathIDs(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"..", ".", "/", "?"} {
+		in := validResizeInput()
+		in.LoadBalancerID = bad
+		if _, err := c.ResizeLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("LoadBalancerID=%q err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}

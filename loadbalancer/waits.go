@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud"
@@ -107,6 +108,71 @@ const (
 	lbStatusCreated         = "CREATED"
 	lbStatusError           = "ERROR"
 )
+
+// isLoadBalancerBusy reports whether a load balancer with this
+// progressStatus refuses a write to it or one of its children, per the
+// design: CREATING, CREATING-BILLING, UPDATING, or DELETING.
+func isLoadBalancerBusy(status string) bool {
+	switch status {
+	case lbStatusCreating, lbStatusCreatingBilling, lbStatusUpdating, lbStatusDeleting:
+		return true
+	default:
+		return false
+	}
+}
+
+// isBusyRefusal reports whether err is a *core.APIError whose message
+// matches one of the server's busy refusals (case-insensitive), whatever
+// its status: "... is not ready" (load balancer or listener), "... is
+// updating" (load balancer or pool), "... is creating", or "... is
+// deleting" (load balancer). It is the trigger for the one busy resend a
+// free write gets, and for ResizeLoadBalancer's immediate ErrBusy.
+func isBusyRefusal(err error) bool {
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	msg := strings.ToLower(apiErr.Message)
+	for _, sub := range [...]string{"is not ready", "is updating", "is creating", "is deleting"} {
+		if strings.Contains(msg, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// preWritePollInterval and preWriteBound time the wait every write except a
+// load balancer create or delete runs first: until neither the load
+// balancer nor the child it targets is busy. Past the bound: ErrBusy,
+// nothing sent.
+const (
+	preWritePollInterval = 5 * time.Second
+	preWriteBound        = 10 * time.Minute
+)
+
+// waitLoadBalancerPreWriteReady waits, within the pre-write bound, until
+// GetLoadBalancer(lbID) reports a progressStatus isLoadBalancerBusy does not
+// consider busy. It is ResizeLoadBalancer's own pre-write wait, which has no
+// child to also check; a write with a child wraps this with its own child
+// check. Past the bound it returns ErrBusy, and the last load balancer a
+// read returned.
+func (c *Client) waitLoadBalancerPreWriteReady(ctx context.Context, op, lbID string) (*LoadBalancer, error) {
+	var lb *LoadBalancer
+	err := poll(ctx, c.now, c.sleep, preWritePollInterval, preWriteBound,
+		func(ctx context.Context) (bool, error) {
+			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: lbID})
+			if err != nil {
+				return true, err
+			}
+			lb = &out.LoadBalancer
+			return !isLoadBalancerBusy(lb.ProgressStatus), nil
+		},
+		func() error {
+			return fmt.Errorf("%w: %s: load balancer %s is not ready within %s; nothing sent", ErrBusy, op, lbID, preWriteBound)
+		},
+	)
+	return lb, err
+}
 
 // lockLoadBalancer acquires the per-ID write lock for loadBalancerID,
 // honoring ctx: if ctx ends before the lock is free, it returns ctx.Err()
