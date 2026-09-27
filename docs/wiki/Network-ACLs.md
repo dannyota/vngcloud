@@ -128,14 +128,30 @@ between. This narrows the race between the read and the write, but does
 not close it: a writer that changes the ACL between that final read and
 the moment the `PUT` reaches the server can still be overwritten by it.
 
-Confirmed live, an ACL stays busy for roughly 18 seconds after a rules or
-subnets write settles, and a write sent into that window gets a `400` with
-a message naming the ACL busy. The rules and subnets `PUT` are each sent
-once and never retried by the transport, so a retry can never land in that
-window: a busy `400` on that single attempt maps to `network.ErrBusy`,
-since it was rejected outright and changed nothing, while a `5xx`, a
-network error, or a timeout maps to `network.ErrNotSettled` instead, since
-that attempt may already have reached the server.
+Confirmed live, an ACL stays busy for a while after a rules or subnets write
+settles, and a write sent into that window gets a `400` this SDK maps to
+`network.ErrBusy`. A rules write's window is roughly 18 to 23 seconds and
+shows in `Status`, which leaves `"ACTIVE"` for that stretch; the busy `400`
+then names the ACL `"is busy doing something"`. A subnets write
+(`AssociateNetworkACLSubnet` or `DisassociateNetworkACLSubnet`) leaves the
+ACL busy for about 20 seconds too, but `Status` reads `"ACTIVE"` throughout,
+so nothing in a read marks the window; the busy `400` instead says the ACL
+`"is being updated"`. Either message maps to `network.ErrBusy`. The rules
+and subnets `PUT` are each sent once and never retried by the transport, so
+a retry can never land in that window: a busy `400` on that single attempt
+maps to `network.ErrBusy`, since it was rejected outright and changed
+nothing, while a `5xx`, a network error, or a timeout maps to
+`network.ErrNotSettled` instead, since that attempt may already have
+reached the server. `DeleteNetworkACL`'s own `DELETE` keeps the transport's
+normal retries and maps the same busy `400` to `network.ErrBusy` too.
+
+Because a subnets write's busy window never shows in `Status`, a call that
+already reported success can still leave the very next write to that ACL,
+of any kind, returning `network.ErrBusy` for about 20 seconds afterward.
+`network.ErrBusy` always means nothing was sent, so waiting a few seconds
+and calling again is safe; this SDK never retries such a call
+automatically, since only the caller knows whether that next write is
+itself safe to repeat.
 
 A rule is keyed by `Direction` (case-insensitive) and `Priority`.
 `AddNetworkACLRule` of a rule already present with every other field equal

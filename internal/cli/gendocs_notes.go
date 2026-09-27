@@ -459,13 +459,15 @@ func networkChangeACLSubnetNote(command, extra string) string {
 		"Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its subnet " +
 		"list changed since that first read; a write that lands in the moment between this re-read and the " +
 		"send can still be overwritten. The subnets PUT itself is sent once and never retried: landing in " +
-		"the ACL's own busy window (confirmed live, roughly 18 seconds after an earlier write) gets the " +
-		"server's own busy 400 back, mapped to ResourceBusy, and changes nothing, so it can be run again; " +
-		"any other failure that may already have reached the server, a 5xx, a network error, or a timeout, " +
-		"is NotSettled instead, and is not resent automatically, so read the ACL first before trying again. " +
-		"Without --no-wait, a successful send waits once more and confirms that a fresh read names exactly " +
-		"the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, " +
-		"is also NotSettled."
+		"the ACL's own busy window gets the server's own busy 400 back, mapped to ResourceBusy, and changes " +
+		"nothing, so it can be run again; any other failure that may already have reached the server, a 5xx, " +
+		"a network error, or a timeout, is NotSettled instead, and is not resent automatically, so read the " +
+		"ACL first before trying again. Without --no-wait, a successful send waits once more and confirms " +
+		"that a fresh read names exactly the subnets just sent; a mismatch, such as from another writer " +
+		"changing the ACL at the same time, is also NotSettled. Confirmed live, a successful call still " +
+		"leaves the ACL busy for about 20 more seconds, and, unlike after a rules write, the ACL's own " +
+		"status reads ACTIVE throughout, so nothing in a read marks the window: the very next write to this " +
+		"ACL, of any kind, can still get ResourceBusy during that time, which is safe to wait out and retry."
 }
 
 // networkAssociateNetworkACLSubnetNote documents associate-network-acl-subnet's

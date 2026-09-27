@@ -156,7 +156,11 @@ exception: its live response matches the read model, so it decodes into
   names can repeat. Whether a deny rule takes effect beside the priority-0
   pass-all rules is not verified.
 - A subnet belongs to at most one ACL. Associating it with another ACL
-  moves it. An ACL with subnets cannot be deleted.
+  moves it. An ACL with subnets cannot be deleted. Live: a subnets PUT
+  (associate or disassociate) leaves the ACL busy for about 20 s too, but,
+  unlike a rules PUT, `status` stays `ACTIVE` for that whole window; a write
+  sent into it gets 400 "... is being updated" instead of the rules PUT's
+  message, with no status change to mark the window at all.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK

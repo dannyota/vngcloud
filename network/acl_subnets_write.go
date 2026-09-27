@@ -54,6 +54,14 @@ type AssociateNetworkACLSubnetOutput struct {
 // A failure at any of these points returns an error wrapping ErrFailed,
 // ErrBusy, or ErrNotSettled, as AddNetworkACLRule's doc comment describes;
 // the PUT itself is not resent on a rerun.
+//
+// Confirmed live, a successful call here leaves the ACL busy for about 20
+// more seconds, unlike after a rules write: Status reads ACTIVE at once and
+// stays there, so nothing this call returns marks the window. The very next
+// write to this ACL, of any kind, can still get ErrBusy during that time.
+// ErrBusy always means nothing was sent, so it is safe to wait a few seconds
+// and call again; this SDK never retries automatically, since the caller,
+// not the SDK, must decide whether that next write is itself idempotent.
 func (c *Client) AssociateNetworkACLSubnet(ctx context.Context, in *AssociateNetworkACLSubnetInput) (*AssociateNetworkACLSubnetOutput, error) {
 	const op = "network.AssociateNetworkACLSubnet"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -119,7 +127,10 @@ type DisassociateNetworkACLSubnetOutput struct {
 // to once disassociated is not yet confirmed live.
 //
 // Without NoWait, it waits and confirms exactly as AssociateNetworkACLSubnet
-// does; see its doc comment for the wait, the confirm, and rerun safety.
+// does; see its doc comment for the wait, the confirm, rerun safety, and the
+// roughly 20-second busy window a successful call here leaves behind, which
+// Status does not show and which can make the very next write to this ACL
+// return ErrBusy.
 func (c *Client) DisassociateNetworkACLSubnet(ctx context.Context, in *DisassociateNetworkACLSubnetInput) (*DisassociateNetworkACLSubnetOutput, error) {
 	const op = "network.DisassociateNetworkACLSubnet"
 	if err := core.CheckRequired(op, in); err != nil {
