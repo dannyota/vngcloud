@@ -20,3 +20,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vServer network writes](vserver-network-writes.md) | Accepted |
 | [vLB certificates](lb-certificates.md) | Accepted |
 | [vCR writes](vcr-writes.md) | Accepted |
+| [vLB writes](lb-writes.md) | Proposed |
