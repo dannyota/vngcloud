@@ -471,6 +471,22 @@ const loadbalancerDeleteLoadBalancerNote = "Reads the load balancer first: an un
 	"ERROR during that wait is WriteFailed, and a timeout is NotSettled, but a rerun is always safe: this " +
 	"command reads first."
 
+// loadbalancerResizeLoadBalancerNote documents resize-load-balancer's
+// no-op-on-same-package shortcut, its price guard, its immediate busy
+// refusal, and its post-resize wait bound: the flag table shows only
+// --load-balancer-id, --package-id, --max-price, and --no-wait, with no
+// hint of any of this.
+const loadbalancerResizeLoadBalancerNote = "Reads the load balancer first: --package-id equal to its current " +
+	"package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above " +
+	"--max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A " +
+	"downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The " +
+	"resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize " +
+	"itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend " +
+	"does, since a rerun is safe only because this command always reads the load balancer first. Without " +
+	"--no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR " +
+	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
+	"balancer printed alongside the error, and the write must not be repeated."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -555,6 +571,7 @@ var docOpNotes = map[string]string{
 	"loadbalancer quote-resize-load-balancer": loadbalancerQuoteResizeLoadBalancerNote,
 	"loadbalancer create-load-balancer":       loadbalancerCreateLoadBalancerNote,
 	"loadbalancer delete-load-balancer":       loadbalancerDeleteLoadBalancerNote,
+	"loadbalancer resize-load-balancer":       loadbalancerResizeLoadBalancerNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,

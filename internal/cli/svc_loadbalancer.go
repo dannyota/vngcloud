@@ -33,6 +33,10 @@ import (
 // design's own --yes rule applies only once the caller actually names
 // Internet. delete-load-balancer is Destructive: a deleted load balancer
 // loses its address and its prepaid time for good.
+//
+// resize-load-balancer is the design's L3 release: Write, no Guard, since
+// the CLI table gives it no --yes rule of its own; --max-price governs the
+// order the same way create-load-balancer's does.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -76,6 +80,8 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 		Guard(requireYesForInternetLoadBalancer)),
 	Write[loadbalancer.Client, loadbalancer.DeleteLoadBalancerInput, loadbalancer.DeleteLoadBalancerOutput](
 		kebab("DeleteLoadBalancer"), (*loadbalancer.Client).DeleteLoadBalancer, Destructive()),
+	Write[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, loadbalancer.ResizeLoadBalancerOutput](
+		kebab("ResizeLoadBalancer"), (*loadbalancer.Client).ResizeLoadBalancer),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

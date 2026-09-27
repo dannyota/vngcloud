@@ -312,3 +312,20 @@ Never orders anything: prices the package change ResizeLoadBalancerInput describ
 vngcloud loadbalancer quote-resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
 ```
 
+## resize-load-balancer
+
+Kind: Write.
+
+Reads the load balancer first: --package-id equal to its current package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above --max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend does, since a rerun is safe only because this command always reads the load balancer first. Without --no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
+```
+
