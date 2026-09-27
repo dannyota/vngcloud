@@ -13,8 +13,9 @@ import (
 // flag-name derivation (an Input field name) and the operation-name check
 // (an SDK method name); any name absent from it uses kebab(name) unchanged.
 var renameTable = map[string]string{
-	"VPCID": "vpc-id",
-	"Query": "search",
+	"VPCID":        "vpc-id",
+	"NetworkACLID": "network-acl-id",
+	"Query":        "search",
 }
 
 // flagNameFor returns the flag name for an Input field's Go name.

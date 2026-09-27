@@ -96,14 +96,16 @@ type errorEnvelope struct {
 // because the group has servers attached, found by a pre-delete read, or
 // because the server's own refusal named the group in use for some other
 // reason), ResourceInUse (a network delete-route-table was refused because a
-// subnet still names the table, found by a pre-delete read), DefaultResource
+// subnet still names the table, or a delete-network-acl because a subnet is
+// still associated with it, found by a pre-delete read), DefaultResource
 // (a network write targeted a resource the server manages and never lets a
 // caller change or delete, such as a VPC's main route table while a subnet
-// still relies on it), ResourceBusy (a network add-route or remove-route
-// read a route table that was not ACTIVE and stayed that way past the wait
-// before the write), or SecretFileFailed (create-ssh-key's own create
-// succeeded but writing --secret-file failed afterward, so the CLI deleted
-// the new key).
+// still relies on it, a project's default network ACL, or one of an ACL's
+// own default rules), ResourceBusy (a network add-route, remove-route, or a
+// network ACL rule or subnet write read a table or ACL that was not ACTIVE
+// and stayed that way past the wait before the write), or SecretFileFailed
+// (create-ssh-key's own create succeeded but writing --secret-file failed
+// afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
