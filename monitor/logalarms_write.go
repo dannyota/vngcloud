@@ -84,6 +84,9 @@ func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
+	if err := checkLogAlarmThresholdValue(op, *in.ThresholdValue); err != nil {
+		return nil, err
+	}
 	if err := core.CheckPathID(op, "LogProjectID", in.LogProjectID); err != nil {
 		return nil, err
 	}
@@ -149,7 +152,12 @@ func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*
 		Body:      body,
 		OK:        []int{200, 201},
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	// DoJSONStatus, not DoJSON: a status in req.OK with a non-nil error means
+	// the body itself did not parse as JSON at all (logAlarmWriteResponse's
+	// own UnmarshalJSON otherwise never fails). The console ignores this
+	// response anyway, so that failure is not treated as the create having
+	// failed; resp.ID stays empty and the wait below falls back to name.
+	if status, err := c.c.DoJSONStatus(ctx, req, &resp); err != nil && !isLogAlarmCreateOKStatus(status) {
 		return nil, wrapAmbiguousLogAlarmCreateErr(op, err)
 	}
 
@@ -170,15 +178,23 @@ func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*
 	return &CreateLogAlarmOutput{AlarmID: alarm.ID, Alarm: *alarm}, waitErr
 }
 
+// isLogAlarmCreateOKStatus reports whether status is one of the create
+// POST's own accepted statuses (200 or 201).
+func isLogAlarmCreateOKStatus(status int) bool {
+	return status == http.StatusOK || status == http.StatusCreated
+}
+
 // UpdateLogAlarmInput changes a log alarm identified by AlarmID. Every
 // other field left nil keeps the alarm's current value. LogProjectID, when
 // set, is re-read with GetLogProject for a fresh ProjectName, even when it
 // names the same project the alarm already has. InAlarm and OK, when set
 // to a non-nil empty slice, clear that channel list. QueryString and
-// Filter, once merged with the read, must both be empty or both set, the
-// same pairing rule CreateLogAlarm checks; leaving both nil skips that
-// check and resends the read's exact pairing unchanged, even if it was
-// never valid to create.
+// Filter must both be set or both left nil: setting only one would pair a
+// new value for one with the read's stale value for the other, which the
+// SDK refuses rather than guess is intended. A set pair follows
+// CreateLogAlarm's own pairing rule (a JSON object Filter, or both empty
+// for a match-all query); leaving both nil resends the read's exact
+// pairing unchanged, even if it was never valid to create.
 type UpdateLogAlarmInput struct {
 	AlarmID string `vngcloud:"required"`
 	NoWait  bool
@@ -208,10 +224,17 @@ type UpdateLogAlarmOutput struct {
 	Alarm Alarm
 }
 
-// UpdateLogAlarm changes a log alarm. It checks AlarmID and any new
-// LogProjectID, InAlarm, or OK channel ID with core.CheckPathID, reads the
-// alarm with GetAlarm, and refuses with core.ErrInvalidInput, sending no
-// PUT, when the read's Kind is not AlarmKindLog.
+// UpdateLogAlarm changes a log alarm. Before any request, it checks
+// AlarmID and any new LogProjectID, InAlarm, or OK channel ID with
+// core.CheckPathID, a set ThresholdValue for NaN or infinity the same way
+// CreateLogAlarm does, and the QueryString/Filter pairing rule above. It
+// then reads the alarm with GetAlarm and refuses with core.ErrInvalidInput,
+// sending no PUT, when the read's Kind is not AlarmKindLog; when its
+// Status is CREATING or UPDATING, the same rule the console's own edit
+// page enforces; or when its Log is nil, or missing LogProjectID,
+// ThresholdType, Condition, or a nonzero TimeFrame, any of which the create
+// body always sends and a full-replace PUT built from an incomplete read
+// would otherwise send blank.
 //
 // It applies every set field onto the read, sends the merged body with
 // buildLogAlarmBody (the same builder CreateLogAlarm uses, per ADR 0002
@@ -234,6 +257,11 @@ func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
+	if in.ThresholdValue != nil {
+		if err := checkLogAlarmThresholdValue(op, *in.ThresholdValue); err != nil {
+			return nil, err
+		}
+	}
 	if err := core.CheckPathID(op, "AlarmID", in.AlarmID); err != nil {
 		return nil, err
 	}
@@ -252,6 +280,14 @@ func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*
 			return nil, err
 		}
 	}
+	if (in.QueryString != nil) != (in.Filter != nil) {
+		return nil, fmt.Errorf("%w: %s: QueryString and Filter must both be set or both left nil", core.ErrInvalidInput, op)
+	}
+	if in.QueryString != nil {
+		if err := checkLogAlarmQueryFilterPairing(op, *in.QueryString, *in.Filter); err != nil {
+			return nil, err
+		}
+	}
 
 	current, err := c.getAlarm(ctx, op, in.AlarmID)
 	if err != nil {
@@ -260,12 +296,14 @@ func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*
 	if current.Kind != AlarmKindLog {
 		return nil, fmt.Errorf("%w: %s: alarm %s is not a log alarm", core.ErrInvalidInput, op, in.AlarmID)
 	}
-	logDetail := LogAlarmDetail{}
-	if current.Log != nil {
-		logDetail = *current.Log
+	if !logAlarmSettled(current.Status) {
+		return nil, fmt.Errorf("%w: %s: alarm %s's status is %s; the console blocks edits until it settles", core.ErrInvalidInput, op, in.AlarmID, current.Status)
+	}
+	if err := checkLogAlarmUpdatable(op, in.AlarmID, current); err != nil {
+		return nil, err
 	}
 
-	fields, err := c.mergeLogAlarmFields(ctx, op, in, current, logDetail)
+	fields, err := c.mergeLogAlarmFields(ctx, op, in, current, *current.Log)
 	if err != nil {
 		return nil, err
 	}
@@ -294,9 +332,10 @@ func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*
 
 // mergeLogAlarmFields applies in's set fields onto current and logDetail,
 // the alarm UpdateLogAlarm just read, and returns the merged
-// logAlarmFields buildLogAlarmBody turns into a body. A new LogProjectID is
-// re-read with GetLogProject for its ProjectName; otherwise logDetail's own
-// LogProjectName is kept.
+// logAlarmFields buildLogAlarmBody turns into a body. logDetail is always
+// *current.Log: UpdateLogAlarm already refused the call when that was nil
+// or incomplete. A new LogProjectID is re-read with GetLogProject for its
+// ProjectName; otherwise logDetail's own LogProjectName is kept.
 func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateLogAlarmInput, current *Alarm, logDetail LogAlarmDetail) (logAlarmFields, error) {
 	name := current.Name
 	if in.Name != nil {
@@ -322,21 +361,16 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 		projectName = project.ProjectName
 	}
 
+	// UpdateLogAlarm already refused a QueryString/Filter pair that was not
+	// both set or both nil, and checked a set pair's own pairing, before
+	// this merge ever ran; a nil pair here resends logDetail's exact
+	// pairing unchanged, whatever it was.
 	queryString := logDetail.QueryString
-	if in.QueryString != nil {
-		queryString = *in.QueryString
-	}
 	filter := logDetail.Filter
-	if in.Filter != nil {
-		filter = *in.Filter
-	}
-	if in.QueryString != nil || in.Filter != nil {
-		if err := checkLogAlarmQueryFilterPairing(op, queryString, filter); err != nil {
-			return logAlarmFields{}, err
-		}
-	}
 	logSearchQuery := logDetail.rawLogSearchQuery
 	if in.QueryString != nil {
+		queryString = *in.QueryString
+		filter = *in.Filter
 		logSearchQuery = "[]"
 	}
 	if logSearchQuery == "" {
@@ -413,11 +447,18 @@ type DeleteLogAlarmInput struct {
 
 type DeleteLogAlarmOutput struct{}
 
-// DeleteLogAlarm deletes a log alarm and its history. There is no read
-// first and no wait: the console treats a successful delete as done at
-// once. DELETE is idempotent and keeps the transport's normal retries; a
-// retry that finds the alarm already gone returns the SDK's not-found
-// sentinel, the same as a genuine second delete.
+// DeleteLogAlarm reads the alarm first with GetAlarm and refuses with
+// core.ErrInvalidInput, deleting nothing, when its Kind is not
+// AlarmKindLog: nothing shows the server refuses a metric alarm's ID on
+// this DELETE path, so the SDK checks itself rather than risk deleting the
+// wrong kind of alarm by ID. A 404 on that read returns the SDK's
+// not-found sentinel directly.
+//
+// Past that read, DeleteLogAlarm deletes the alarm and its history at
+// once; there is no wait, since the console treats a successful delete as
+// done immediately. DELETE is idempotent and keeps the transport's normal
+// retries; a retry that finds the alarm already gone returns the SDK's
+// not-found sentinel, the same as a genuine second delete.
 func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*DeleteLogAlarmOutput, error) {
 	const op = "monitor.DeleteLogAlarm"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -425,6 +466,14 @@ func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*
 	}
 	if err := core.CheckPathID(op, "AlarmID", in.AlarmID); err != nil {
 		return nil, err
+	}
+
+	current, err := c.getAlarm(ctx, op, in.AlarmID)
+	if err != nil {
+		return nil, err
+	}
+	if current.Kind != AlarmKindLog {
+		return nil, fmt.Errorf("%w: %s: alarm %s is not a log alarm", core.ErrInvalidInput, op, in.AlarmID)
 	}
 
 	req := transport.Request{

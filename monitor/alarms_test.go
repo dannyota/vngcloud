@@ -358,6 +358,94 @@ func TestLogAlarmDetailDecodesStringThresholdValueAndTimeFrame(t *testing.T) {
 	}
 }
 
+// TestLogAlarmDetailDecodesOddNumericAndGroupByFieldShapes covers fields
+// that used to fail LogAlarmDetail's whole decode: an empty thresholdValue,
+// a string resendPeriod/resendTimes, and a non-string groupByField. None of
+// them fail the decode now; each falls back to its zero value instead.
+func TestLogAlarmDetailDecodesOddNumericAndGroupByFieldShapes(t *testing.T) {
+	const raw = `{"thresholdValue":"","resendPeriod":"15","resendTimes":"abc","groupByField":true}`
+	var d LogAlarmDetail
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("Unmarshal() error = %v, want no error", err)
+	}
+	if d.ThresholdValue != 0 {
+		t.Fatalf("ThresholdValue = %v, want 0", d.ThresholdValue)
+	}
+	if d.Resend.Period != 15 {
+		t.Fatalf("Resend.Period = %v, want 15", d.Resend.Period)
+	}
+	if d.Resend.Times != 0 {
+		t.Fatalf("Resend.Times = %v, want 0", d.Resend.Times)
+	}
+	if d.GroupByField != "" {
+		t.Fatalf("GroupByField = %q, want empty", d.GroupByField)
+	}
+}
+
+// TestGetAlarmDecodesOddNumericFieldsWithoutFailing covers the same odd
+// shapes at the GetAlarm level: a single alarm with a blank thresholdValue,
+// a string resendPeriod, a non-numeric resendTimes, and a numeric
+// groupByField must not fail the read.
+func TestGetAlarmDecodesOddNumericFieldsWithoutFailing(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-5","name":"odd-alarm","type":"LOG","status":"OK","severity":"LOW",
+		"alarmLog":{"logProject":"proj-1","logProjectName":"p","thresholdType":"frequency","condition":"gt",
+		"thresholdValue":"","timeFrame":5,"groupByField":123,"resendPeriod":"","resendTimes":"n/a","inAlarm":"","ok":""}}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(raw))
+	}))
+	out, err := client.GetAlarm(context.Background(), &GetAlarmInput{AlarmID: "alarm-5"})
+	if err != nil {
+		t.Fatalf("GetAlarm() error = %v, want no error for odd numeric fields", err)
+	}
+	if out.Alarm.Log.ThresholdValue != 0 {
+		t.Fatalf("ThresholdValue = %v, want 0", out.Alarm.Log.ThresholdValue)
+	}
+	if out.Alarm.Log.Resend.Period != 0 || out.Alarm.Log.Resend.Times != 0 {
+		t.Fatalf("Resend = %+v, want zero", out.Alarm.Log.Resend)
+	}
+	// groupByField:123 is a JSON number, which flexibleString keeps as its
+	// exact digit string rather than treating it as empty.
+	if out.Alarm.Log.GroupByField != "123" {
+		t.Fatalf("GroupByField = %q, want %q", out.Alarm.Log.GroupByField, "123")
+	}
+}
+
+// TestListAlarmsDecodesLogNestedFixture covers a list item whose Log field
+// nests under alarmLog, the shape GetAlarm's own fixture uses, rather than
+// the top-level inAlarm/ok fallback TestListAlarmsDecodesLogFixture covers.
+// The fixture is synthetic, for the same reason that one is.
+func TestListAlarmsDecodesLogNestedFixture(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/monitor/ListAlarmsLogNested.json")
+	}))
+
+	out, err := client.ListAlarms(context.Background(), &ListAlarmsInput{Kind: AlarmKindLog})
+	if err != nil {
+		t.Fatalf("ListAlarms() error = %v", err)
+	}
+	if len(out.Items) != 1 {
+		t.Fatalf("unexpected items: %+v", out.Items)
+	}
+	got := out.Items[0]
+	if got.Log == nil {
+		t.Fatal("Log = nil, want non-nil for a Log alarm")
+	}
+	if got.Log.LogProjectID != "proj-1" || got.Log.LogProjectName != "example-project" {
+		t.Fatalf("unexpected project reference: %+v", got.Log)
+	}
+	if got.Log.ThresholdType != "frequency" || got.Log.Condition != "gt" ||
+		got.Log.ThresholdValue != 100 || got.Log.TimeFrame != 5 {
+		t.Fatalf("unexpected threshold fields: %+v", got.Log)
+	}
+	if len(got.Log.Filter) == 0 {
+		t.Fatalf("Filter = %v, want present", got.Log.Filter)
+	}
+	if want := []string{"channel-1", "channel-2"}; !slices.Equal(got.Log.InAlarm, want) {
+		t.Fatalf("Log.InAlarm = %v, want %v", got.Log.InAlarm, want)
+	}
+}
+
 // TestAlarmIDDecodesStringOrNumber checks Alarm.ID accepts either shape a
 // guessed-type field might arrive in: the design has not confirmed whether
 // the API sends it as a string or a number, and a numeric ID must not fail

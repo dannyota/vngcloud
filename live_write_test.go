@@ -2239,6 +2239,61 @@ func listAllLogAlarms(ctx context.Context, client *monitor.Client) ([]monitor.Al
 	return all, nil
 }
 
+// liveLogAlarmPollInterval and liveLogAlarmPollBound are
+// TestLiveWriteMonitorLogAlarm's own cadence and bound for
+// pollLogAlarmSettled, matching CreateLogAlarm's own wait so the test's
+// direct poll and the SDK's wait describe the same real-world timing.
+const (
+	liveLogAlarmPollInterval = 2 * time.Second
+	liveLogAlarmPollBound    = 60 * time.Second
+)
+
+// pollLogAlarmSettled polls for a Log alarm's Status to settle (anything
+// but CREATING or UPDATING), by id when id is not empty, else by exact
+// name, up to liveLogAlarmPollBound. It exists because CreateLogAlarm's own
+// NoWait skips that wait entirely, and the test needs to look at the create
+// response's own id separately from whichever alarm the poll eventually
+// finds. It returns the last alarm read, whether it settled within the
+// bound, and any read error.
+func pollLogAlarmSettled(ctx context.Context, client *monitor.Client, id, name string) (monitor.Alarm, bool, error) {
+	deadline := time.Now().Add(liveLogAlarmPollBound)
+	for {
+		var found *monitor.Alarm
+		if id != "" {
+			out, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: id})
+			if err != nil {
+				return monitor.Alarm{}, false, err
+			}
+			found = &out.Alarm
+		} else {
+			list, err := listAllLogAlarms(ctx, client)
+			if err != nil {
+				return monitor.Alarm{}, false, err
+			}
+			for i := range list {
+				if list[i].Name == name {
+					found = &list[i]
+					break
+				}
+			}
+		}
+		if found != nil && found.Status != monitor.LogAlarmStatusCreating && found.Status != monitor.LogAlarmStatusUpdating {
+			return *found, true, nil
+		}
+		if !time.Now().Before(deadline) {
+			if found != nil {
+				return *found, false, nil
+			}
+			return monitor.Alarm{}, false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return monitor.Alarm{}, false, ctx.Err()
+		case <-time.After(liveLogAlarmPollInterval):
+		}
+	}
+}
+
 // liveLogAlarmNamePattern is TestLiveWriteMonitorLogAlarm's own naming
 // scheme: vngcloud-live-<8 lowercase hex>, exactly, matching the pattern
 // every other live monitor write test uses for its own leftovers.
@@ -2279,11 +2334,12 @@ func deleteLogAlarmByName(t *testing.T, client *monitor.Client, name string) {
 // in .env.
 //
 // Unlike the design's own live check, this test never orders a log
-// project: the Basic class's monthly order limit was exhausted while this
-// design was reviewed, so VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID must name an
-// existing ACTIVE log project instead. The test creates, reads, updates,
-// and deletes a log alarm and a webhook channel on that project; it never
-// creates, deletes, or purges the project itself.
+// project: the account's Basic class allows only a few log project orders
+// or recoveries a month (see monitor-log-alarms.md), so
+// VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID must name an existing ACTIVE log
+// project instead. The test creates, reads, updates, and deletes a log
+// alarm and a webhook channel on that project; it never creates, deletes,
+// or purges the project itself.
 //
 // VNGCLOUD_LIVE_MONITOR_LOG_ALARM must be set to "1" in addition to
 // VNGCLOUD_LIVE_WRITE, so this test never runs alongside the account's
@@ -2293,11 +2349,10 @@ func deleteLogAlarmByName(t *testing.T, client *monitor.Client, name string) {
 // It deletes every leftover vngcloud-live-* log alarm and channel first
 // (step 1); creates a webhook channel (step 2); creates a frequency log
 // alarm named vngcloud-live-<8 hex> with the match-all query, threshold
-// 1000, and that channel in InAlarm (step 3), recording the settled
-// AlarmID's presence and how long the post-create wait took (the SDK does
-// not expose whether the create response itself carried an id, separately
-// from the id the wait may have found by name; only the final, settled
-// AlarmID is observable here); reads it back and records the alarmLog
+// 1000, and that channel in InAlarm, with NoWait so the test can see the
+// create response's own AlarmID before any wait, then polls and settles it
+// itself with pollLogAlarmSettled, recording both that presence and how
+// long the poll took (step 3); reads it back and records the alarmLog
 // shape: whether Log is set, whether Filter is present, and the threshold
 // fields (step 4); lists it back to confirm ListAlarms decodes the same
 // alarmLog shape a Get does (step 5); updates ThresholdValue and Name,
@@ -2409,27 +2464,40 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 
 	// Step 3: create the log alarm: frequency (the default), match-all
 	// query (QueryString and Filter both left empty), threshold 1000, this
-	// channel in InAlarm.
+	// channel in InAlarm, with NoWait, then poll and settle it here, so
+	// created.AlarmID reflects only what the create response itself
+	// carried.
 	alarmSuffix, err := randomHex(4)
 	if err != nil {
 		t.Fatalf("step 3 generate alarm name suffix: %v", err)
 	}
 	alarmName := "vngcloud-live-" + alarmSuffix
-	createStart := time.Now()
 	created, err := client.CreateLogAlarm(ctx, &monitor.CreateLogAlarmInput{
 		Name: alarmName, LogProjectID: projectID, ThresholdValue: vngcloud.Ptr(1000.0),
-		InAlarm: []string{channelID},
+		InAlarm: []string{channelID}, NoWait: true,
 	})
-	createElapsed := time.Since(createStart)
 	if err != nil {
 		deleteLogAlarmByName(t, client, alarmName)
 		t.Fatalf("step 3 CreateLogAlarm: %s", safeErr(err))
 	}
-	if created.AlarmID == "" {
+	t.Logf("step 3: create response carried an id: %v", created.AlarmID != "")
+
+	pollStart := time.Now()
+	settled, ok, err := pollLogAlarmSettled(ctx, client, created.AlarmID, alarmName)
+	pollElapsed := time.Since(pollStart)
+	if err != nil {
 		deleteLogAlarmByName(t, client, alarmName)
-		t.Fatal("step 3: CreateLogAlarm settled with no id")
+		t.Fatalf("step 3 poll for settle: %s", safeErr(err))
 	}
-	alarmID := created.AlarmID
+	if !ok {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3: alarm did not settle within %s", liveLogAlarmPollBound)
+	}
+	if settled.ID == "" {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatal("step 3: settled alarm has no id")
+	}
+	alarmID := settled.ID
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -2437,7 +2505,7 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 			t.Errorf("cleanup: delete log alarm: %s", safeErr(err))
 		}
 	})
-	t.Logf("step 3: settled after %s, status %s", createElapsed, created.Alarm.Status)
+	t.Logf("step 3: settled after %s, status %s", pollElapsed, settled.Status)
 
 	// Step 4: read the alarm back and record its shape.
 	read, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: alarmID})

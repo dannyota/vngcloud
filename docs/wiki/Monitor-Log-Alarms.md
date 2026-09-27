@@ -117,21 +117,28 @@ log.Println(updated.Alarm.Status)
 Every field but `AlarmID` is a pointer; a field left `nil` keeps the
 alarm's current value. `UpdateLogAlarm` reads the alarm first with
 `GetAlarm` and refuses with `vngcloud.ErrInvalidInput`, sending no `PUT`,
-when its `Kind` is not `monitor.AlarmKindLog`. `LogProjectID`, when set, is
-re-read with `GetLogProject` for a fresh `ProjectName`, even when it names
-the same project the alarm already has. `InAlarm` and `OK` are `*[]string`;
-setting either to a non-nil empty slice clears that channel list, the same
+when its `Kind` is not `monitor.AlarmKindLog`; when its `Status` is
+`CREATING` or `UPDATING`, the same rule the console's own edit page
+enforces; or when the read carries no log alarm detail at all, or one
+missing `LogProjectID`, `ThresholdType`, `Condition`, or a nonzero
+`TimeFrame`, since a full-replace `PUT` built from that read would send
+those fields blank. `LogProjectID`, when set, is re-read with
+`GetLogProject` for a fresh `ProjectName`, even when it names the same
+project the alarm already has. `InAlarm` and `OK` are `*[]string`; setting
+either to a non-nil empty slice clears that channel list, the same
 convention `UpdateChannel` uses for `Headers`.
 
-`QueryString` and `Filter`, once merged with the read, follow
-`CreateLogAlarm`'s own pairing rule, but only when at least one of the two
-is actually set: leaving both `nil` skips that check and resends the
-read's exact pairing unchanged, even if it was never valid to create in
-the first place, rather than the SDK inventing a fix for state it was not
-asked to touch. Leaving `QueryString` unset also resends the read's own
-internal query-editor value unchanged, in case the alarm was built through
-the console's own token-based search box rather than this SDK; setting
-`QueryString` switches that value to the SDK's own plain-text convention.
+`QueryString` and `Filter` must both be set or both left `nil`: setting
+only one would pair a new value for it with the read's stale value for the
+other, so `UpdateLogAlarm` refuses that before any request rather than
+guess which value should win. A set pair follows `CreateLogAlarm`'s own
+pairing rule; leaving both `nil` resends the read's exact pairing
+unchanged, even if it was never valid to create in the first place, rather
+than the SDK inventing a fix for state it was not asked to touch. Leaving
+`QueryString` unset also resends the read's own internal query-editor
+value unchanged, in case the alarm was built through the console's own
+token-based search box rather than this SDK; setting `QueryString`
+switches that value to the SDK's own plain-text convention.
 
 The `PUT` is a full replace and keeps the transport's normal retries,
 since resending it is safe. `UpdateLogAlarm` waits the same way
@@ -147,12 +154,16 @@ if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: cr
 }
 ```
 
-There is no read first and no wait: the console treats a successful
-delete as done at once, and the alarm's history is lost with it. `DELETE`
-is idempotent and keeps the transport's normal retries; a retry whose
-first attempt already reached the server sees the alarm gone and returns
-`vngcloud.IsNotFound(err) == true`, which a caller treats as done, the
-same as a genuine second delete.
+`DeleteLogAlarm` reads the alarm first with `GetAlarm` and refuses with
+`vngcloud.ErrInvalidInput`, deleting nothing, when its `Kind` is not
+`monitor.AlarmKindLog`: this keeps the call from ever deleting a Metric
+alarm by id. A 404 on that read returns `vngcloud.IsNotFound(err) == true`
+directly. Past that read, there is no further wait: the console treats a
+successful delete as done at once, and the alarm's history is lost with
+it. `DELETE` is idempotent and keeps the transport's normal retries; a
+retry whose first attempt already reached the server sees the alarm gone
+and returns `vngcloud.IsNotFound(err) == true`, which a caller treats as
+done, the same as a genuine second delete.
 
 ## What is unverified
 

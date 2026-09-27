@@ -212,6 +212,38 @@ func jsonString(s string) string {
 	return string(data)
 }
 
+// TestFlexibleNumberDecode covers every shape a log alarm's numeric fields
+// (thresholdValue, timeFrame, resendPeriod, resendTimes) can arrive in: a
+// JSON number, a numeric string, and every other shape, which must decode
+// to 0 without an error rather than failing the alarm's whole decode.
+func TestFlexibleNumberDecode(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want float64
+	}{
+		{"number", `12.5`, 12.5},
+		{"numeric string", `"12.5"`, 12.5},
+		{"empty string", `""`, 0},
+		{"non-numeric string", `"n/a"`, 0},
+		{"bool", `true`, 0},
+		{"null", `null`, 0},
+		{"array", `[1,2]`, 0},
+		{"object", `{}`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var n flexibleNumber
+			if err := json.Unmarshal([]byte(tc.raw), &n); err != nil {
+				t.Fatalf("Unmarshal(%s) error = %v, want no error", tc.raw, err)
+			}
+			if float64(n) != tc.want {
+				t.Fatalf("Unmarshal(%s) = %v, want %v", tc.raw, float64(n), tc.want)
+			}
+		})
+	}
+}
+
 func TestCheckOptionsDecode(t *testing.T) {
 	t.Run("integral decimals", func(t *testing.T) {
 		var o CheckOptions

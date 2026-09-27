@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -243,6 +244,34 @@ func checkLogAlarmQueryFilterPairing(op, queryString string, filter json.RawMess
 	return nil
 }
 
+// checkLogAlarmThresholdValue refuses a NaN or infinite value, before any
+// request: the create body's reason text and the console's own threshold
+// comparison make no sense for either, the same guard CreateLogProject
+// runs on MaxPrice before ordering.
+func checkLogAlarmThresholdValue(op string, value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("%w: %s: ThresholdValue must be a finite number, got %v", core.ErrInvalidInput, op, value)
+	}
+	return nil
+}
+
+// checkLogAlarmUpdatable refuses UpdateLogAlarm's full-replace PUT when
+// current cannot supply every field the create body always sends:
+// current.Log nil (no alarmLog and no top-level inAlarm/ok at all in the
+// read), or a Log missing LogProjectID, ThresholdType, Condition, or a
+// nonzero TimeFrame. Sending the PUT anyway would replace those fields
+// with the wire's own zero values instead of leaving them alone.
+func checkLogAlarmUpdatable(op, alarmID string, current *Alarm) error {
+	if current.Log == nil {
+		return fmt.Errorf("%w: %s: alarm %s's read carries no log alarm detail to update from", core.ErrInvalidInput, op, alarmID)
+	}
+	d := current.Log
+	if d.LogProjectID == "" || d.ThresholdType == "" || d.Condition == "" || d.TimeFrame == 0 {
+		return fmt.Errorf("%w: %s: alarm %s's read is missing a field the create body always sends; refusing a full-replace update", core.ErrInvalidInput, op, alarmID)
+	}
+	return nil
+}
+
 // defaultLogAlarmCondition returns condition unchanged when set, else
 // LogAlarmConditionLT for a flatline threshold or LogAlarmConditionGT for
 // every other threshold type, per the create body's own default.
@@ -377,25 +406,40 @@ func (c *Client) waitLogAlarmByName(ctx context.Context, op, name string) (*Alar
 // logAlarmWriteResponse decodes a write's id from either data.id or a
 // top-level id, whichever the response carries: the console ignores every
 // create, update, and delete response, so their shapes are unseen.
+// UnmarshalJSON never returns an error: a shape with no usable id, such as
+// {"data":"success"} or {"data":true}, leaves ID empty rather than failing
+// the create, which falls back to its own wait by name.
 type logAlarmWriteResponse struct {
 	ID string
 }
 
 func (r *logAlarmWriteResponse) UnmarshalJSON(data []byte) error {
-	var envelope struct {
-		Data struct {
-			ID flexibleString `json:"id"`
-		} `json:"data"`
-		ID flexibleString `json:"id"`
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil //nolint:nilerr // a shape this type cannot read carries no id; see the type's own doc comment
 	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return err
+	if id := decodeLogAlarmWriteID(top["id"]); id != "" {
+		r.ID = id
+		return nil
 	}
-	r.ID = string(envelope.Data.ID)
-	if r.ID == "" {
-		r.ID = string(envelope.ID)
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(top["data"], &nested); err == nil {
+		r.ID = decodeLogAlarmWriteID(nested["id"])
 	}
 	return nil
+}
+
+// decodeLogAlarmWriteID decodes raw as a flexibleString, returning "" for
+// a missing, nil, or non-string, non-numeric raw.
+func decodeLogAlarmWriteID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var id flexibleString
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return ""
+	}
+	return string(id)
 }
 
 // wrapAmbiguousLogAlarmCreateErr wraps err, from the create POST just sent,

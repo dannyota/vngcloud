@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -416,6 +417,78 @@ func TestCreateLogAlarmIDFromResponse(t *testing.T) {
 	}
 }
 
+// TestCreateLogAlarmIgnoresUnseenResponseShapes covers a create response
+// the console ignores and never confirmed a shape for: a data field holding
+// a plain string or bool, and a body that is not JSON at all. None of them
+// fail the create; NoWait shows the decode found no id in any of the three.
+func TestCreateLogAlarmIgnoresUnseenResponseShapes(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		contentType string
+	}{
+		{"data is a success string", `{"data":"success"}`, "application/json"},
+		{"data is a bool", `{"data":true}`, "application/json"},
+		{"a non-JSON body", "OK", "text/plain"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/vmonitor-api/api/v1/alarms/list":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(noExistingLogAlarmsPage))
+				case "/log-api/v1/projects/proj-1":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(exampleLogProjectBody("proj-1", "example-project")))
+				case "/vmonitor-api/api/v1/alarms/logs":
+					w.Header().Set("Content-Type", tc.contentType)
+					_, _ = w.Write([]byte(tc.body))
+				default:
+					t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
+				Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1), NoWait: true,
+			})
+			if err != nil {
+				t.Fatalf("CreateLogAlarm() error = %v, want no error for an unseen response shape", err)
+			}
+			if out.AlarmID != "" {
+				t.Fatalf("AlarmID = %q, want empty: this response shape carries no id", out.AlarmID)
+			}
+		})
+	}
+}
+
+// TestCreateLogAlarm502WithNonJSONBodyStillErrors checks that swallowing a
+// decode failure on an accepted status does not also swallow a real
+// server error: a 502 must still fail the create even though its body is
+// not JSON either.
+func TestCreateLogAlarm502WithNonJSONBodyStillErrors(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/vmonitor-api/api/v1/alarms/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(noExistingLogAlarmsPage))
+		case "/log-api/v1/projects/proj-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(exampleLogProjectBody("proj-1", "example-project")))
+		case "/vmonitor-api/api/v1/alarms/logs":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte("upstream error"))
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	_, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
+		Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
+	})
+	if err == nil {
+		t.Fatal("CreateLogAlarm() error = nil, want an error for a 502")
+	}
+}
+
 // --- CreateLogAlarm: waits ---
 
 func TestCreateLogAlarmWaitByIDSettles(t *testing.T) {
@@ -612,6 +685,24 @@ func TestCreateLogAlarmZeroThresholdValueIsValid(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateLogAlarm() error = %v", err)
+	}
+}
+
+// TestCreateLogAlarmRejectsNaNOrInfThresholdValue covers the same guard
+// CreateLogProject runs for MaxPrice: a NaN or infinite ThresholdValue
+// would make the create body's reason and comparison meaningless, so it is
+// refused before any request rather than sent to the server.
+func TestCreateLogAlarmRejectsNaNOrInfThresholdValue(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request for a NaN/Inf ThresholdValue: %s %s", r.Method, r.URL.Path)
+	}))
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		_, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
+			Name: "a", LogProjectID: "proj-1", ThresholdValue: ptrFloat(v),
+		})
+		if !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatalf("CreateLogAlarm(%v) error = %v, want ErrInvalidInput", v, err)
+		}
 	}
 }
 
@@ -827,26 +918,65 @@ func TestUpdateLogAlarmRefusesMetricAlarm(t *testing.T) {
 	}
 }
 
+// TestUpdateLogAlarmQueryFilterPairing covers the update pairing rule:
+// QueryString and Filter must both be set or both left nil in the input
+// itself, checked before any request, so a new value can never end up
+// paired with the read's stale one for the other field.
 func TestUpdateLogAlarmQueryFilterPairing(t *testing.T) {
-	t.Run("touched mismatch refused", func(t *testing.T) {
+	t.Run("one set alone is refused before any request", func(t *testing.T) {
+		cases := []struct {
+			name string
+			in   *UpdateLogAlarmInput
+		}{
+			{"QueryString without Filter", &UpdateLogAlarmInput{AlarmID: "alarm-1", QueryString: ptrStr("new query")}},
+			{"Filter without QueryString", &UpdateLogAlarmInput{AlarmID: "alarm-1", Filter: ptrRaw(`{"a":1}`)}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					t.Fatalf("unexpected request for a one-sided QueryString/Filter update: %s %s", r.Method, r.URL.Path)
+				}))
+				_, err := client.UpdateLogAlarm(context.Background(), tc.in)
+				if !errors.Is(err, core.ErrInvalidInput) {
+					t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+				}
+			})
+		}
+	})
+
+	t.Run("both set together sends the new pair, not the old one", func(t *testing.T) {
 		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(existingLogAlarmNoFilterRaw))
+				_, _ = w.Write([]byte(existingLogAlarmRaw))
+			case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
+				body := decodeLogProjectBody(t, r)
+				if body["queryString"] != "new query" {
+					t.Fatalf("queryString = %v, want new query", body["queryString"])
+				}
+				filterJSON, err := json.Marshal(body["filter"])
+				if err != nil {
+					t.Fatalf("marshal filter: %v", err)
+				}
+				if string(filterJSON) != `{"b":2}` {
+					t.Fatalf("filter = %s, want the new value, not the read's old one", filterJSON)
+				}
+				w.WriteHeader(http.StatusOK)
 			default:
 				t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
 			}
 		}))
 		_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
-			AlarmID: "alarm-1", QueryString: ptrStr("new query"),
+			AlarmID: "alarm-1", NoWait: true,
+			QueryString: ptrStr("new query"), Filter: ptrRaw(`{"b":2}`),
 		})
-		if !errors.Is(err, core.ErrInvalidInput) {
-			t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+		if err != nil {
+			t.Fatalf("UpdateLogAlarm() error = %v", err)
 		}
 	})
 
-	t.Run("untouched mismatch sends filter as none", func(t *testing.T) {
+	t.Run("both left nil resends the read's own pairing unchanged", func(t *testing.T) {
 		client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -872,6 +1002,130 @@ func TestUpdateLogAlarmQueryFilterPairing(t *testing.T) {
 			t.Fatalf("UpdateLogAlarm() error = %v", err)
 		}
 	})
+}
+
+// TestUpdateLogAlarmRejectsNaNOrInfThresholdValue mirrors
+// TestCreateLogAlarmRejectsNaNOrInfThresholdValue for the update path; the
+// check runs before the pre-update GetAlarm read, so no request is made.
+func TestUpdateLogAlarmRejectsNaNOrInfThresholdValue(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request for a NaN/Inf ThresholdValue: %s %s", r.Method, r.URL.Path)
+	}))
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+			AlarmID: "alarm-1", ThresholdValue: ptrFloat(v),
+		})
+		if !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatalf("UpdateLogAlarm(%v) error = %v, want ErrInvalidInput", v, err)
+		}
+	}
+}
+
+// TestUpdateLogAlarmRefusesWhenLogAlarmDetailNil covers a read with Kind
+// AlarmKindLog but no alarmLog and no top-level inAlarm/ok either, so
+// current.Log stays nil: there is nothing to merge the update onto, and
+// sending the body anyway would replace the alarm with mostly blank
+// fields.
+func TestUpdateLogAlarmRefusesWhenLogAlarmDetailNil(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-1","name":"legacy-alarm","type":"LOG","status":"OK","severity":"LOW"}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(raw))
+		default:
+			t.Fatalf("unexpected request to %s %s after a log-detail-less read", r.Method, r.URL.Path)
+		}
+	}))
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestUpdateLogAlarmRefusesIncompleteLogDetail covers a read whose alarmLog
+// is present but missing a field the create body always sends: LogProjectID,
+// ThresholdType, Condition, or a nonzero TimeFrame. Each is refused before
+// the PUT, one at a time, rather than sending a body with that field blank.
+func TestUpdateLogAlarmRefusesIncompleteLogDetail(t *testing.T) {
+	base := map[string]any{
+		"logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
+		"logSearchQuery": "[]", "thresholdType": "frequency", "condition": "gt",
+		"thresholdValue": 100, "timeFrame": 5, "inAlarm": "", "ok": "",
+	}
+	cases := []struct {
+		name  string
+		strip string
+	}{
+		{"missing LogProjectID", "logProject"},
+		{"missing ThresholdType", "thresholdType"},
+		{"missing Condition", "condition"},
+		{"zero TimeFrame", "timeFrame"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			alarmLog := make(map[string]any, len(base))
+			for k, v := range base {
+				alarmLog[k] = v
+			}
+			if tc.strip == "timeFrame" {
+				alarmLog["timeFrame"] = 0
+			} else {
+				delete(alarmLog, tc.strip)
+			}
+			raw, err := json.Marshal(map[string]any{"data": map[string]any{
+				"id": "alarm-1", "name": "partial-alarm", "type": "LOG", "status": "OK", "severity": "LOW",
+				"alarmLog": alarmLog,
+			}})
+			if err != nil {
+				t.Fatalf("marshal fixture: %v", err)
+			}
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write(raw)
+				default:
+					t.Fatalf("unexpected request to %s %s after an incomplete read", r.Method, r.URL.Path)
+				}
+			}))
+			_, err = client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+				AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
+			})
+			if !errors.Is(err, core.ErrInvalidInput) {
+				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+// TestUpdateLogAlarmRefusesWhileCreatingOrUpdating covers the console's own
+// rule: it blocks edits while an alarm's Status is CREATING or UPDATING.
+func TestUpdateLogAlarmRefusesWhileCreatingOrUpdating(t *testing.T) {
+	for _, status := range []string{LogAlarmStatusCreating, LogAlarmStatusUpdating} {
+		t.Run(status, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"data":{"id":"alarm-1","name":"existing-alarm","type":"LOG","status":%q,"severity":"LOW",
+				"alarmLog":{"logProject":"proj-1","logProjectName":"old-project","thresholdType":"frequency",
+				"condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`, status)
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(raw))
+				default:
+					t.Fatalf("unexpected request to %s %s while status is %s", r.Method, r.URL.Path, status)
+				}
+			}))
+			_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+				AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
+			})
+			if !errors.Is(err, core.ErrInvalidInput) {
+				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
 }
 
 func TestUpdateLogAlarmClearsChannelListWithEmptySlice(t *testing.T) {
@@ -1027,17 +1281,29 @@ func TestUpdateLogAlarmPathIDRejection(t *testing.T) {
 // ptrStr is a local *string helper so tests do not need vngcloud.Ptr.
 func ptrStr(v string) *string { return &v }
 
+// ptrRaw is a local *json.RawMessage helper so tests do not need
+// vngcloud.Ptr.
+func ptrRaw(v string) *json.RawMessage {
+	raw := json.RawMessage(v)
+	return &raw
+}
+
 // --- DeleteLogAlarm ---
 
+// TestDeleteLogAlarmSuccess covers the safety guard: DeleteLogAlarm reads
+// the alarm first and only sends the DELETE once that read confirms Kind
+// is AlarmKindLog.
 func TestDeleteLogAlarmSuccess(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			t.Fatalf("method = %s", r.Method)
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"id":"alarm-1","type":"LOG","status":"OK"}}`))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
 		}
-		if r.URL.Path != "/vmonitor-api/api/v1/alarms/logs/alarm-1" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		w.WriteHeader(http.StatusNoContent)
 	}))
 	out, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
 	if err != nil {
@@ -1048,6 +1314,29 @@ func TestDeleteLogAlarmSuccess(t *testing.T) {
 	}
 }
 
+// TestDeleteLogAlarmRefusesMetricAlarm is the safety guard's main case: an
+// id that reads back as a Metric alarm must never reach the log alarm
+// DELETE path. No DELETE request is expected; the handler fatals if one is
+// sent.
+func TestDeleteLogAlarmRefusesMetricAlarm(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"id":"alarm-1","type":"METRIC","status":"OK","metricMappingId":"map-1"}}`))
+		default:
+			t.Fatalf("unexpected request to %s %s after a metric alarm refusal", r.Method, r.URL.Path)
+		}
+	}))
+	_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("DeleteLogAlarm() error = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestDeleteLogAlarmNotFound covers a 404 on the pre-delete GetAlarm read:
+// it returns the SDK's not-found sentinel directly, the same as a 404 on
+// the DELETE itself would.
 func TestDeleteLogAlarmNotFound(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

@@ -181,8 +181,8 @@ type Alarm struct {
 	// It decodes from the alarmLog object a Log alarm's response nests every
 	// log field under; a response with no alarmLog at all still decodes
 	// InAlarm and OK from the top-level inAlarm and ok keys, so a caller
-	// reading an older capture, or a shape this design has not yet seen, is
-	// not left with a nil Log purely because alarmLog is missing.
+	// whose response takes that shape, or one this design has not yet seen,
+	// is not left with a nil Log purely because alarmLog is missing.
 	Log *LogAlarmDetail `json:"log,omitempty"`
 }
 
@@ -192,11 +192,14 @@ type Alarm struct {
 // value). LogProjectID and LogProjectName are alarmLog's own logProject and
 // logProjectName keys, which name the project differently than the create
 // body's logProjectId and projectName. Filter is nil when alarmLog carries
-// no filter key at all, rather than an empty JSON value. ThresholdValue and
-// TimeFrame accept a JSON number or a numeric string, through
-// flexibleNumber. InAlarm and OK are the channel IDs that alert on entering
-// and leaving the alarm state, decoded from the wire's comma-joined
-// inAlarm and ok strings.
+// no filter key at all, rather than an empty JSON value. ThresholdValue,
+// TimeFrame, Resend.Period, and Resend.Times accept a JSON number or a
+// numeric string through flexibleNumber; any other shape, including an
+// empty string, decodes as 0 rather than failing the read. GroupByField
+// accepts any JSON scalar through flexibleString, for the same reason.
+// InAlarm and OK are the channel IDs that alert on entering and leaving
+// the alarm state, decoded from the wire's comma-joined inAlarm and ok
+// strings.
 type LogAlarmDetail struct {
 	LogProjectID   string
 	LogProjectName string
@@ -252,14 +255,14 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 		Condition      string          `json:"condition"`
 		ThresholdValue flexibleNumber  `json:"thresholdValue"`
 		TimeFrame      flexibleNumber  `json:"timeFrame"`
-		GroupByField   string          `json:"groupByField"`
+		GroupByField   flexibleString  `json:"groupByField"`
 		AggField       string          `json:"metricAggKey"`
 		AggType        string          `json:"metricAggType"`
 		InAlarm        *string         `json:"inAlarm"`
 		OK             *string         `json:"ok"`
 		ResendEnabled  bool            `json:"resendEnabled"`
-		ResendPeriod   int             `json:"resendPeriod"`
-		ResendTimes    int             `json:"resendTimes"`
+		ResendPeriod   flexibleNumber  `json:"resendPeriod"`
+		ResendTimes    flexibleNumber  `json:"resendTimes"`
 		ResendStatus   string          `json:"resendStatus"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -274,7 +277,7 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 	d.Condition = aux.Condition
 	d.ThresholdValue = float64(aux.ThresholdValue)
 	d.TimeFrame = int(aux.TimeFrame)
-	d.GroupByField = aux.GroupByField
+	d.GroupByField = string(aux.GroupByField)
 	d.AggField = aux.AggField
 	d.AggType = aux.AggType
 	d.InAlarm = splitChannelIDs(aux.InAlarm)
@@ -282,8 +285,8 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 	d.Resend = LogAlarmResend{
 		Enabled:  aux.ResendEnabled,
 		Statuses: splitCommaList(&aux.ResendStatus),
-		Period:   aux.ResendPeriod,
-		Times:    aux.ResendTimes,
+		Period:   int(aux.ResendPeriod),
+		Times:    int(aux.ResendTimes),
 	}
 	return nil
 }
@@ -307,13 +310,13 @@ func alarmKindFromType(wireType string) string {
 // UnmarshalJSON decodes Alarm's top-level fields, Kind from type, and Log
 // from an alarmLog object when present. A response with no alarmLog at all
 // still decodes Log from the top-level inAlarm and ok keys alone, the
-// fallback shape older captures showed before alarmLog was confirmed;
-// every other LogAlarmDetail field then stays zero. ListAlarms overwrites
-// Kind, and clears whichever of Log or MetricMappingID does not belong to
-// its own Kind filter, from that filter rather than from this decode; a
-// GetAlarm read keeps whatever this decode found. ID routes through
-// flexibleString: an unconfirmed field that could arrive as a number
-// instead of the string every capture so far has shown.
+// fallback shape the console's own code falls back to when alarmLog is
+// absent; every other LogAlarmDetail field then stays zero. ListAlarms
+// overwrites Kind, and clears whichever of Log or MetricMappingID does not
+// belong to its own Kind filter, from that filter rather than from this
+// decode; a GetAlarm read keeps whatever this decode found. ID routes
+// through flexibleString: no alarm has been read live, so the design does
+// not know whether the server sends it as a string or a number.
 func (a *Alarm) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		ID              flexibleString  `json:"id"`
