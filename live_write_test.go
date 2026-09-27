@@ -5452,8 +5452,11 @@ func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client
 	deleted := 0
 	for _, p := range live {
 		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
-		if err != nil {
+		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("delete live iam policies: list attachments: %s", safeErr(err))
+			continue
+		}
+		if err != nil {
 			continue
 		}
 		for _, saID := range attachments.ServiceAccountIDs {
@@ -5493,8 +5496,11 @@ func deleteLiveIAMPolicyByExactName(ctx context.Context, t *testing.T, client *i
 			continue
 		}
 		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
-		if err != nil {
+		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: list attachments for policy: %s", safeErr(err))
+			continue
+		}
+		if err != nil {
 			continue
 		}
 		for _, saID := range attachments.ServiceAccountIDs {
@@ -5759,8 +5765,11 @@ func listAllLiveIAMGroups(ctx context.Context, client *iam.Client) ([]iam.GroupS
 func detachLiveIAMGroupMembers(ctx context.Context, t *testing.T, client *iam.Client, id string) {
 	t.Helper()
 	got, err := client.GetGroup(ctx, &iam.GetGroupInput{GroupID: id})
-	if err != nil {
+	if err != nil && !vngcloud.IsNotFound(err) {
 		t.Errorf("delete live iam group: get: %s", safeErr(err))
+		return
+	}
+	if err != nil {
 		return
 	}
 	for _, policyID := range got.Group.PolicyIDs {

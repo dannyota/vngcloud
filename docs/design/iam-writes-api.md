@@ -197,6 +197,8 @@ the first page, and `Size` defaults to `DefaultPageSize`.
 
 Every write except the two service account creates runs the
 [guards](iam-writes.md#guards) first and sends nothing when one refuses.
+AddUserToGroup and RemoveUserFromGroup return 500 ServerError when given a
+nonexistent UserID.
 
 ### Models
 
