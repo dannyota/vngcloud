@@ -36,7 +36,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 | Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes a convenience method for walking snapshots. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
-| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes | Typed | Requires IAM User permissions for the target load balancer resources. |
+| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes and create/resize price quotes | Typed | Requires IAM User permissions for the target load balancer resources. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
@@ -195,7 +195,17 @@ lbClient.ListCertificates(ctx, in)          // Name, Page, Size
 lbClient.GetCertificate(ctx, in)            // CertificateID (required)
 lbClient.ImportCertificate(ctx, in)         // Name, Type, Certificate (all required); CertificateChain, PrivateKey, Passphrase
 lbClient.DeleteCertificate(ctx, in)         // CertificateID (required)
+lbClient.QuoteCreateLoadBalancer(ctx, in)   // *loadbalancer.CreateLoadBalancerInput
+lbClient.QuoteResizeLoadBalancer(ctx, in)   // *loadbalancer.ResizeLoadBalancerInput
 ```
+
+`QuoteCreateLoadBalancer` prices a load balancer `loadbalancer.CreateLoadBalancerInput`
+would create, and `QuoteResizeLoadBalancer` prices a package change
+`loadbalancer.ResizeLoadBalancerInput` describes, neither ordering anything;
+see [Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+Every path ID above, including one carried in a body such as `PackageID` or
+`SubnetID`, is checked before any request; a malformed one, `..` or `/` for
+example, returns `vngcloud.ErrInvalidInput`.
 
 `ImportCertificate` sends `PrivateKey` and `Passphrase` to GreenNode, which
 stores the certificate and never returns the key back; both fields are

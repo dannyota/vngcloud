@@ -265,3 +265,98 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 
 	return New(testutil.NewConfig(t, handler))
 }
+
+// TestLoadBalancerRejectsBadPathIDs checks that every read operation with an
+// ID in its request path refuses "..", ".", "/", and "?" before sending any
+// request, the same guard GetCertificate already has. routes.URL escapes "/"
+// in a path segment but not "..", so this is what stops a caller-supplied ID
+// from reaching a different path than the one it named.
+func TestLoadBalancerRejectsBadPathIDs(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	cases := []struct {
+		name string
+		call func(bad string) error
+	}{
+		{"GetLoadBalancer.LoadBalancerID", func(bad string) error {
+			_, err := c.GetLoadBalancer(context.Background(), &GetLoadBalancerInput{LoadBalancerID: bad})
+			return err
+		}},
+		{"ListListeners.LoadBalancerID", func(bad string) error {
+			_, err := c.ListListeners(context.Background(), &ListListenersInput{LoadBalancerID: bad})
+			return err
+		}},
+		{"GetListener.LoadBalancerID", func(bad string) error {
+			_, err := c.GetListener(context.Background(), &GetListenerInput{LoadBalancerID: bad, ListenerID: "listener-1"})
+			return err
+		}},
+		{"GetListener.ListenerID", func(bad string) error {
+			_, err := c.GetListener(context.Background(), &GetListenerInput{LoadBalancerID: "lb-1", ListenerID: bad})
+			return err
+		}},
+		{"ListPools.LoadBalancerID", func(bad string) error {
+			_, err := c.ListPools(context.Background(), &ListPoolsInput{LoadBalancerID: bad})
+			return err
+		}},
+		{"GetPool.LoadBalancerID", func(bad string) error {
+			_, err := c.GetPool(context.Background(), &GetPoolInput{LoadBalancerID: bad, PoolID: "pool-1"})
+			return err
+		}},
+		{"GetPool.PoolID", func(bad string) error {
+			_, err := c.GetPool(context.Background(), &GetPoolInput{LoadBalancerID: "lb-1", PoolID: bad})
+			return err
+		}},
+		{"GetPoolHealthMonitor.LoadBalancerID", func(bad string) error {
+			_, err := c.GetPoolHealthMonitor(context.Background(), &GetPoolHealthMonitorInput{LoadBalancerID: bad, PoolID: "pool-1"})
+			return err
+		}},
+		{"GetPoolHealthMonitor.PoolID", func(bad string) error {
+			_, err := c.GetPoolHealthMonitor(context.Background(), &GetPoolHealthMonitorInput{LoadBalancerID: "lb-1", PoolID: bad})
+			return err
+		}},
+		{"ListPoolMembers.LoadBalancerID", func(bad string) error {
+			_, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: bad, PoolID: "pool-1"})
+			return err
+		}},
+		{"ListPoolMembers.PoolID", func(bad string) error {
+			_, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: "lb-1", PoolID: bad})
+			return err
+		}},
+		{"ListPolicies.LoadBalancerID", func(bad string) error {
+			_, err := c.ListPolicies(context.Background(), &ListPoliciesInput{LoadBalancerID: bad, ListenerID: "listener-1"})
+			return err
+		}},
+		{"ListPolicies.ListenerID", func(bad string) error {
+			_, err := c.ListPolicies(context.Background(), &ListPoliciesInput{LoadBalancerID: "lb-1", ListenerID: bad})
+			return err
+		}},
+		{"GetPolicy.LoadBalancerID", func(bad string) error {
+			_, err := c.GetPolicy(context.Background(), &GetPolicyInput{LoadBalancerID: bad, ListenerID: "listener-1", PolicyID: "policy-1"})
+			return err
+		}},
+		{"GetPolicy.ListenerID", func(bad string) error {
+			_, err := c.GetPolicy(context.Background(), &GetPolicyInput{LoadBalancerID: "lb-1", ListenerID: bad, PolicyID: "policy-1"})
+			return err
+		}},
+		{"GetPolicy.PolicyID", func(bad string) error {
+			_, err := c.GetPolicy(context.Background(), &GetPolicyInput{LoadBalancerID: "lb-1", ListenerID: "listener-1", PolicyID: bad})
+			return err
+		}},
+		{"ListTags.LoadBalancerID", func(bad string) error {
+			_, err := c.ListTags(context.Background(), &ListTagsInput{LoadBalancerID: bad})
+			return err
+		}},
+	}
+
+	for _, tc := range cases {
+		for _, bad := range []string{"..", ".", "/", "?"} {
+			t.Run(tc.name+"/"+bad, func(t *testing.T) {
+				if err := tc.call(bad); !errors.Is(err, vngcloud.ErrInvalidInput) {
+					t.Fatalf("err = %v, want ErrInvalidInput", err)
+				}
+			})
+		}
+	}
+}

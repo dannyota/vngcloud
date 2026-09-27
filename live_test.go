@@ -761,6 +761,98 @@ func testLiveLoadBalancerPool(ctx context.Context, t *testing.T, client *loadbal
 	t.Logf("pool members: %d", len(members.Items))
 }
 
+// testLiveLoadBalancerPaidWritesL1 runs the vLB writes design's L1 free
+// checks: packages in every hcm-3 zone, a create quote for the smallest
+// package in each layer, a resize quote for a missing load balancer, and the
+// not-found reads on a load balancer, listener, and pool that do not exist.
+// It sends no write. It runs only in hcm-3, since the zone ids and package
+// names it checks are specific to that region's catalog.
+func testLiveLoadBalancerPaidWritesL1(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	if cfg.Region() != "hcm-3" {
+		t.Skip("vLB writes L1 checks run only in hcm-3")
+	}
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+	client := loadbalancer.New(cfg)
+
+	t.Run("packages-per-zone", func(t *testing.T) {
+		for _, zone := range []string{"HCM03-1A", "HCM03-1B", "HCM03-1C", "HCM03-BKK-01"} {
+			res, err := client.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: zone})
+			if err != nil {
+				t.Fatalf("ListPackages(%s): %v", zone, err)
+			}
+			t.Logf("packages in %s: %d", zone, len(res.Items))
+		}
+	})
+
+	packages, err := client.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("ListPackages(%s): %v", zoneID, err)
+	}
+	packageIDByName := make(map[string]string)
+	for _, pkg := range packages.Items {
+		packageIDByName[pkg.Name] = pkg.UUID
+	}
+
+	for _, name := range []string{"NLB_Small", "ALB_Small"} {
+		packageID, ok := packageIDByName[name]
+		if !ok {
+			t.Fatalf("package %s not found in %s", name, zoneID)
+		}
+		lbType := loadbalancer.TypeLayer4
+		if strings.HasPrefix(name, "ALB") {
+			lbType = loadbalancer.TypeLayer7
+		}
+		t.Run("quote-create-load-balancer-"+name, func(t *testing.T) {
+			quote, err := client.QuoteCreateLoadBalancer(ctx, &loadbalancer.CreateLoadBalancerInput{
+				Name: "vngcloud-live-quote", PackageID: packageID, Type: lbType,
+				Scheme: loadbalancer.SchemeInternal, SubnetID: "quote-only", ZoneID: zoneID,
+			})
+			if err != nil {
+				t.Fatalf("QuoteCreateLoadBalancer(%s): %v", name, err)
+			}
+			t.Logf("quote-create-load-balancer(%s) optimumPrice=%.0f", name, quote.OptimumPrice)
+			if quote.OptimumPrice <= 0 {
+				t.Fatal("expected a positive price")
+			}
+			var hasLine bool
+			for _, p := range quote.Properties {
+				if p.Name == "LOAD BALANCER" {
+					hasLine = true
+				}
+			}
+			if !hasLine {
+				t.Fatalf("missing LOAD BALANCER price line: %+v", quote.Properties)
+			}
+		})
+	}
+
+	t.Run("quote-resize-missing-load-balancer", func(t *testing.T) {
+		_, err := client.QuoteResizeLoadBalancer(ctx, &loadbalancer.ResizeLoadBalancerInput{
+			LoadBalancerID: "vngcloud-live-missing", PackageID: packageIDByName["NLB_Small"],
+		})
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+			t.Fatalf("QuoteResizeLoadBalancer(missing): %v, want *vngcloud.APIError with status 400", err)
+		}
+	})
+
+	t.Run("not-found", func(t *testing.T) {
+		const missingID = "vngcloud-live-missing"
+		if _, err := client.GetLoadBalancer(ctx, &loadbalancer.GetLoadBalancerInput{LoadBalancerID: missingID}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("GetLoadBalancer(missing): %v, want IsNotFound", err)
+		}
+		if _, err := client.GetListener(ctx, &loadbalancer.GetListenerInput{LoadBalancerID: missingID, ListenerID: missingID}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("GetListener(missing): %v, want IsNotFound", err)
+		}
+		if _, err := client.GetPool(ctx, &loadbalancer.GetPoolInput{LoadBalancerID: missingID, PoolID: missingID}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("GetPool(missing): %v, want IsNotFound", err)
+		}
+		if _, err := client.ListPools(ctx, &loadbalancer.ListPoolsInput{LoadBalancerID: missingID}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("ListPools(missing): %v, want IsNotFound", err)
+		}
+	})
+}
+
 // nonZeroFieldCount reports how many top-level fields of the struct v hold a
 // non-zero value, out of the total field count. A live Get test uses it to
 // confirm decoding filled in real fields without logging any of their
@@ -1097,6 +1189,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		t.Logf("vpcs: %d of %d", len(res.Items), res.TotalItem)
 	})
 	t.Run("loadbalancer", func(t *testing.T) { testLiveLoadBalancer(ctx, t, cfg) })
+	t.Run("loadbalancer-paid-writes-l1", func(t *testing.T) { testLiveLoadBalancerPaidWritesL1(ctx, t, cfg) })
 	t.Run("dns-zones", func(t *testing.T) {
 		dnsClient := dns.New(cfg)
 		res, err := dnsClient.ListHostedZones(ctx, &dns.ListHostedZonesInput{})
