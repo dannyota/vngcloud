@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. A member already present at --address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present with any different field exits 1 (InvalidUsage) naming update-pool-member instead.
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. A member already present at --address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present with any different field exits 2 (InvalidUsage) naming update-pool-member instead.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -28,7 +28,7 @@ vngcloud loadbalancer add-pool-member --load-balancer-id <load-balancer-id> --po
 
 Kind: Write.
 
---allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG Cloud's own SDK, which sends 0.0.0.0/0. Any entry with prefix length 0 needs --yes: it opens every port this listener names to the entire internet, more so on a load balancer created with Scheme Internet. --protocol HTTPS requires --default-certificate-id; any other protocol refuses --certificate-ids, --default-certificate-id, and --client-certificate-id all being set. --certificate-ids comes only through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on an Internet load balancer serves cleartext: nothing encrypts traffic between the client and the load balancer.
+--allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG Cloud's own SDK, which sends 0.0.0.0/0. Any entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) needs --yes: it may open the ports this listener names to outside the account's own network, more so on a load balancer created with a Scheme other than Internal. --protocol HTTPS requires --default-certificate-id; any other protocol refuses --default-certificate-id, --client-certificate-id, and a --cli-input-json CertificateIDs alike, refusing the command the moment any single one of them is set. CertificateIDs comes only through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on a load balancer reachable from outside the account's own network serves cleartext: nothing encrypts traffic between the client and the load balancer.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -36,7 +36,6 @@ Kind: Write.
 | `--name` | `string` | yes |
 | `--protocol` | `string` | yes |
 | `--port` | `int` | yes |
-| `AllowedCIDRs` (via `--cli-input-json` only) | `[]string` | yes |
 | `--default-pool-id` | `string` |  |
 | `--timeout-client` | `int` |  |
 | `--timeout-member` | `int` |  |
@@ -46,7 +45,7 @@ Kind: Write.
 | `--client-certificate-id` | `string` |  |
 | `InsertHeaders` (via `--cli-input-json` only) | `[]loadbalancer.ListenerInsertHeader` |  |
 | `--no-wait` | `bool` |  |
-| `--allowed-cidrs` | `string` |  |
+| `--allowed-cidrs` | `string` | yes |
 
 ```sh
 vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> --name <name> --protocol HTTP --port <port> --allowed-cidrs 10.0.0.0/24
@@ -56,7 +55,7 @@ vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> --na
 
 Kind: Write.
 
-Orders nothing above --max-price, default 0: a bare create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same fields, so the order always prices what was just quoted. The order itself is never retried after a failure that may have already reached the server; list load balancers by name (list-load-balancers --name) and match it exactly before ordering again rather than repeating this command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated. Scheme Internet needs --yes, matched case-insensitively: an Internet load balancer gets a public address reachable from the entire internet for as long as it exists.
+Run quote-create-load-balancer first, and set a billing budget with an alert before any paid create: this command orders nothing above --max-price, default 0, so a bare create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same fields, so the order always prices what was just quoted. The order itself is never retried after a failure that may have already reached the server; list load balancers by name (list-load-balancers --name) and match it exactly before ordering again rather than repeating this command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated. Every Scheme except Internal, trimmed of surrounding space and matched case-insensitively, needs --yes: only a load balancer created with Scheme Internal is confirmed to stay off the public internet.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -70,7 +69,7 @@ Orders nothing above --max-price, default 0: a bare create-load-balancer only or
 | `--no-wait` | `bool` |  |
 
 ```sh
-vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme <scheme> --subnet-id <subnet-id> --zone-id <zone-id>
+vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme Internal --subnet-id <subnet-id> --zone-id <zone-id> --max-price 400000
 ```
 
 ## create-policy
@@ -486,7 +485,7 @@ vngcloud loadbalancer remove-pool-member --load-balancer-id <load-balancer-id> -
 
 Kind: Write.
 
-Reads the load balancer first: --package-id equal to its current package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above --max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend does, since a rerun is safe only because this command always reads the load balancer first. Without --no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated.
+Reads the load balancer first: --package-id equal to its current package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above --max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend does. After any failure, read the load balancer with get-load-balancer and compare its package to the one just requested before running this command again, rather than rerunning it blind: a resize failure does not say whether the order reached the server. Without --no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -503,7 +502,7 @@ vngcloud loadbalancer resize-load-balancer --load-balancer-id <load-balancer-id>
 
 Kind: Write.
 
-At least one field must be set, checked before any request (InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; leaving it unset keeps the listener's own value, and a set one needs --yes for a /0 prefix the same way. If the listener's own AllowedCIDRs somehow reads back empty and --allowed-cidrs is not given, this exits 2 (InvalidUsage) rather than send an empty list, which would open or close the listener to everyone depending on the server's own interpretation. The merged certificate fields are checked against the listener's own, unchangeable Protocol exactly as create-listener checks them; --certificate-ids comes only through --cli-input-json.
+At least one field must be set, checked before any request (InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; leaving it unset keeps the listener's own value, and a set one needs --yes for an entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) the same way. An explicitly empty --allowed-cidrs reaches the SDK as a non-nil, empty list, which it refuses (InvalidUsage) rather than send, since an empty list would open or close the listener to everyone depending on the server's own interpretation. The merged certificate fields are checked against the listener's own, unchangeable Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -513,7 +512,6 @@ At least one field must be set, checked before any request (InvalidUsage). Reads
 | `--timeout-client` | `*int` |  |
 | `--timeout-member` | `*int` |  |
 | `--timeout-connection` | `*int` |  |
-| `AllowedCIDRs` (via `--cli-input-json` only) | `*[]string` |  |
 | `CertificateIDs` (via `--cli-input-json` only) | `*[]string` |  |
 | `--default-certificate-id` | `*string` |  |
 | `--client-certificate-id` | `*string` |  |

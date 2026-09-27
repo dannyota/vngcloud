@@ -47,19 +47,20 @@ const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices t
 
 // loadbalancerCreateLoadBalancerNote documents create-load-balancer's price
 // guard default, its MaxPrice guard, the unretried order, the post-order
-// wait bound, and the Internet Scheme guard: the flag table shows Scheme as
-// a plain, unconditional string, with no hint that one value needs --yes.
-const loadbalancerCreateLoadBalancerNote = "Orders nothing above --max-price, default 0: a bare " +
-	"create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, " +
-	"or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same " +
+// wait bound, and the Scheme guard: the flag table shows Scheme as a plain,
+// unconditional string, with no hint that only one value skips --yes.
+const loadbalancerCreateLoadBalancerNote = "Run quote-create-load-balancer first, and set a billing budget " +
+	"with an alert before any paid create: this command orders nothing above --max-price, default 0, so a " +
+	"bare create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, " +
+	"Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same " +
 	"fields, so the order always prices what was just quoted. The order itself is never retried after a " +
 	"failure that may have already reached the server; list load balancers by name " +
 	"(list-load-balancers --name) and match it exactly before ordering again rather than repeating this " +
 	"command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR " +
 	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
-	"balancer printed alongside the error, and the write must not be repeated. Scheme Internet needs --yes, " +
-	"matched case-insensitively: an Internet load balancer gets a public address reachable from the entire " +
-	"internet for as long as it exists."
+	"balancer printed alongside the error, and the write must not be repeated. Every Scheme except Internal, " +
+	"trimmed of surrounding space and matched case-insensitively, needs --yes: only a load balancer created " +
+	"with Scheme Internal is confirmed to stay off the public internet."
 
 // loadbalancerDeleteLoadBalancerNote documents delete-load-balancer's
 // read-first behavior, its post-delete wait, and that what happens to its
@@ -83,8 +84,10 @@ const loadbalancerResizeLoadBalancerNote = "Reads the load balancer first: --pac
 	"downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The " +
 	"resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize " +
 	"itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend " +
-	"does, since a rerun is safe only because this command always reads the load balancer first. Without " +
-	"--no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR " +
+	"does. After any failure, read the load balancer with get-load-balancer and compare its package to the " +
+	"one just requested before running this command again, rather than rerunning it blind: a resize failure " +
+	"does not say whether the order reached the server. Without --no-wait, waits up to 45 minutes for the " +
+	"load balancer to reach CREATED with the new package; ERROR " +
 	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
 	"balancer printed alongside the error, and the write must not be repeated."
 
@@ -134,7 +137,7 @@ const loadbalancerPoolMemberNote = "The members write replaces the whole list: t
 // add-pool-member's own no-op and conflict rules.
 const loadbalancerAddPoolMemberNote = loadbalancerPoolMemberNote + " A member already present at " +
 	"--address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present " +
-	"with any different field exits 1 (InvalidUsage) naming update-pool-member instead."
+	"with any different field exits 2 (InvalidUsage) naming update-pool-member instead."
 
 // loadbalancerUpdatePoolMemberNote extends loadbalancerPoolMemberNote with
 // update-pool-member's own required-field and not-found rules.
@@ -151,36 +154,37 @@ const loadbalancerRemovePoolMemberNote = loadbalancerPoolMemberNote + " No membe
 	"immediately, though add-pool-member can restore it."
 
 // loadbalancerCreateListenerNote documents create-listener's own
-// --allowed-cidrs flag, its /0 guard, its HTTPS certificate rule, and its
-// cleartext warning: the flag table shows AllowedCIDRs as
-// "via --cli-input-json only" (createListenerOp NoFlags it so its own flag
-// can take a comma-separated value instead of flags.go's default repeatable
-// one) and shows every certificate field as an independent, unconditional
-// flag.
+// --allowed-cidrs flag, its private-range guard, its HTTPS certificate rule,
+// and its cleartext warning: the flag table shows every certificate field
+// as an independent, unconditional flag, with no hint that any one of them
+// set with the wrong Protocol is refused.
 const loadbalancerCreateListenerNote = "--allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with " +
 	"no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG " +
-	"Cloud's own SDK, which sends 0.0.0.0/0. Any entry with prefix length 0 needs --yes: it opens every port " +
-	"this listener names to the entire internet, more so on a load balancer created with Scheme Internet. " +
-	"--protocol HTTPS requires --default-certificate-id; any other protocol refuses --certificate-ids, " +
-	"--default-certificate-id, and --client-certificate-id all being set. --certificate-ids comes only " +
-	"through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A " +
-	"0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, " +
-	"and 5 seconds). An HTTP listener on an Internet load balancer serves cleartext: nothing encrypts traffic " +
-	"between the client and the load balancer."
+	"Cloud's own SDK, which sends 0.0.0.0/0. Any entry outside every private range (10.0.0.0/8, " +
+	"172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) needs --yes: it may open the ports this listener names to " +
+	"outside the account's own network, more so on a load balancer created with a Scheme other than Internal. " +
+	"--protocol HTTPS requires --default-certificate-id; any other protocol refuses --default-certificate-id, " +
+	"--client-certificate-id, and a --cli-input-json CertificateIDs alike, refusing the command the moment " +
+	"any single one of them is set. CertificateIDs comes only through --cli-input-json, per the design's " +
+	"nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or " +
+	"--timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on a " +
+	"load balancer reachable from outside the " +
+	"account's own network serves cleartext: nothing encrypts traffic between the client and the load " +
+	"balancer."
 
 // loadbalancerUpdateListenerNote documents update-listener's read-merge,
-// its own --allowed-cidrs flag and /0 guard, and its empty-AllowedCIDRs
-// refusal: the flag table shows every field as independently optional, with
-// no hint of any of this.
+// its own --allowed-cidrs flag and private-range guard, and its
+// empty-AllowedCIDRs refusal: the flag table shows every field as
+// independently optional, with no hint of any of this.
 const loadbalancerUpdateListenerNote = "At least one field must be set, checked before any request " +
 	"(InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read " +
 	"values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; " +
-	"leaving it unset keeps the listener's own value, and a set one needs --yes for a /0 prefix the same way. " +
-	"If the listener's own AllowedCIDRs somehow reads back empty and --allowed-cidrs is not given, this exits " +
-	"2 (InvalidUsage) rather than send an empty list, which would open or close the listener to everyone " +
-	"depending on the server's own interpretation. The merged certificate fields are checked against the " +
-	"listener's own, unchangeable Protocol exactly as create-listener checks them; --certificate-ids comes " +
-	"only through --cli-input-json."
+	"leaving it unset keeps the listener's own value, and a set one needs --yes for an entry outside every " +
+	"private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) the same way. An explicitly " +
+	"empty --allowed-cidrs reaches the SDK as a non-nil, empty list, which it refuses (InvalidUsage) rather " +
+	"than send, since an empty list would open or close the listener to everyone depending on the server's " +
+	"own interpretation. The merged certificate fields are checked against the listener's own, unchangeable " +
+	"Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json."
 
 // loadbalancerDeleteListenerNote documents delete-listener's pre-write
 // wait, which the flag table cannot show at all: it shows only

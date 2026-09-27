@@ -587,13 +587,24 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
-// loadbalancer create-listener needs it for the same reason as
-// import-certificate: its required AllowedCIDRs field is NoFlag'd
-// (createListenerOp, svc_loadbalancer_listeners.go) so its own
-// comma-separated --allowed-cidrs flag can replace flags.go's default
-// repeatable one, and buildExample's loop would otherwise need a
-// docJSONPlaceholders entry for it and print a command that sets
-// AllowedCIDRs two contradictory ways at once.
+// loadbalancer create-load-balancer needs one because MaxPrice is not a
+// required field, so buildExample's own loop would otherwise leave
+// --max-price out of the example entirely, even though a bare create orders
+// nothing until it is given (loadbalancerCreateLoadBalancerNote,
+// gendocs_notes_loadbalancer.go); the override also picks Scheme Internal,
+// the one value requireYesUnlessSchemeInternal (svc_loadbalancer_create.go)
+// needs no --yes for, so the example stays runnable without one.
+// loadbalancer create-listener gets one for a friendlier reason: Protocol
+// has no fixed value buildExample could guess, and the generic derivation
+// would print the unhelpful placeholders --protocol <protocol> and
+// --allowed-cidrs <allowed-cidrs>; the override shows a real protocol and a
+// real private CIDR instead. AllowedCIDRs itself needs no override to stay
+// runnable: it is NoFlag'd only so its own comma-separated --allowed-cidrs
+// flag (createListenerOp, svc_loadbalancer_listeners.go) can replace
+// flags.go's default repeatable one, and docFieldsFor (gendocs.go) leaves it
+// out of the field table entirely once it sees that flag, so buildExample's
+// loop reaches --allowed-cidrs through extraDocFields like any other
+// flag-settable required field, never through docJSONPlaceholders.
 var docExampleOverride = map[string]string{
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
@@ -602,8 +613,10 @@ var docExampleOverride = map[string]string{
 	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
 	"monitor list-alarms":              "vngcloud monitor list-alarms --kind Log",
 	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
-	"network add-route":                "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
-	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
+	"loadbalancer create-load-balancer": "vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> " +
+		"--type <type> --scheme Internal --subnet-id <subnet-id> --zone-id <zone-id> --max-price 400000",
+	"network add-route":    "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
+	"network remove-route": "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
 		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
 	"loadbalancer create-listener": "vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> " +

@@ -66,10 +66,15 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 				kind = "Write, destructive"
 			}
 		}
+		extra := extraDocFields(op.extraFlags)
+		extraNames := make(map[string]bool, len(extra))
+		for _, f := range extra {
+			extraNames[f.name] = true
+		}
 		svc.ops[i] = docOp{
 			name:       op.name,
 			kind:       kind,
-			fields:     append(docFieldsFor(op.newInput(), op.noFlag), extraDocFields(op.extraFlags)...),
+			fields:     append(docFieldsFor(op.newInput(), op.noFlag, extraNames), extra...),
 			queryField: wrappedResourceField(op.methodName, op.newOutput),
 		}
 	}
@@ -85,7 +90,16 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // it), so viaJSON would misdocument it as settable that way. The operation's
 // own extraFlags and docOpNotes document how such a field is actually set,
 // such as import-certificate's --private-key-file.
-func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
+//
+// extraFlagNames holds the flag names the same operation's own extraFlags
+// registers (buildDocService computes it from extraDocFields before calling
+// this). A NoFlag'd field whose mechanical flag name (flagNameFor) is one of
+// them, such as create-listener's and update-listener's AllowedCIDRs and
+// their own --allowed-cidrs, is left out here too: extraDocFields already
+// documents its real flag, and a viaJSON entry alongside it would tell the
+// reader it takes no flag at all, when it does, just not the one flags.go
+// would have derived.
+func docFieldsFor(inputPtr any, noFlag, extraFlagNames map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
 	for i := range t.NumField() {
@@ -95,6 +109,9 @@ func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 		}
 		required := f.Tag.Get("vngcloud") == "required"
 		if noFlag[f.Name] {
+			if extraFlagNames[flagNameFor(f.Name)] {
+				continue
+			}
 			fields = append(fields, docField{name: f.Name, goType: readableGoType(f.Type), required: required, viaJSON: true})
 			continue
 		}
