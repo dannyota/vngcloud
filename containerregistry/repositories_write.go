@@ -11,13 +11,6 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-// repositoryStatusActive is the Status value CreateRepository's wait polls
-// for. The reference names no other status, including a failure one; any
-// status other than repositoryStatusActive keeps the wait polling rather
-// than failing early, until the design names a failure status from a live
-// capture.
-const repositoryStatusActive = "ACTIVE"
-
 // repoNamePattern is the server's own rule for a repository Name, confirmed
 // by a live 400 on a name outside it: 6 to 20 characters, only a-z, 0-9,
 // '_', and '-', starting with a letter or digit (not '_' or '-').
@@ -172,19 +165,21 @@ type createRepositoryBody struct {
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError, the
 // repository may exist, and the caller runs list-repositories --name
-// <name> and matches a name that ends with the input name (the server
-// prefixes every name with the account id) before creating it again, rather
+// <name> and matches the exact name (the server applies no account prefix;
+// Repository.Name equals the Input's Name) before creating it again, rather
 // than retrying blind.
 //
-// Without NoWait, CreateRepository then waits for the new repository to
-// reach ACTIVE, polling GetRepository every 2 seconds for up to 60 seconds
-// of elapsed time, tolerating a 404 (a repository just created may not be
-// readable at once). If the wait's bound runs out, or a read or a sleep in
-// that wait fails, such as from a canceled ctx, the returned error wraps
-// ErrNotSettled and the Output still holds the repository: the last one a
-// read returned, or, if none did, the one the create response itself
-// carried. Either way the Output is never nil and the caller keeps the new
-// repository's id.
+// The create response carries no status to wait on: a live create has been
+// observed to complete in about 4 seconds, with the repository already
+// readable through GetRepository by the time the POST returns. Without
+// NoWait, CreateRepository confirms the new repository with one such read,
+// tolerating a 404 by polling every 2 seconds for up to 60 seconds of
+// elapsed time in case that visibility ever lags. If the wait's bound runs
+// out, or a read or a sleep in that wait fails, such as from a canceled
+// ctx, the returned error wraps ErrNotSettled and the Output still holds
+// the repository: the last one a read returned, or, if none did, the one
+// the create response itself carried. Either way the Output is never nil
+// and the caller keeps the new repository's id.
 func (c *Client) CreateRepository(ctx context.Context, in *CreateRepositoryInput) (*CreateRepositoryOutput, error) {
 	const op = "containerregistry.CreateRepository"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -210,17 +205,17 @@ func (c *Client) CreateRepository(ctx context.Context, in *CreateRepositoryInput
 	}
 	if repo.ID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: http.StatusAccepted,
-			Message: "create response had no id; list-repositories --name <name> and match a name that ends with it before creating again"}
+			Message: "create response had no id; list-repositories --name <name> and match the exact name before creating again"}
 	}
 	if in.NoWait {
 		return &CreateRepositoryOutput{Repository: repo}, nil
 	}
 
-	settled, waitErr := c.waitRepositoryActive(ctx, op, repo.ID)
-	if settled == nil {
-		settled = &repo
+	confirmed, waitErr := c.waitRepositoryConfirmed(ctx, op, repo.ID)
+	if confirmed == nil {
+		confirmed = &repo
 	}
-	return &CreateRepositoryOutput{Repository: *settled}, waitErr
+	return &CreateRepositoryOutput{Repository: *confirmed}, waitErr
 }
 
 // wrapAmbiguousRepositoryCreateErr wraps err, from the create POST op just
@@ -236,22 +231,22 @@ func wrapAmbiguousRepositoryCreateErr(op string, err error) error {
 	if is4xxAPIError(err) {
 		return err
 	}
-	return fmt.Errorf("%s: create may have already reached the server; list-repositories --name <name> and match a name that ends with it before creating again: %w", op, err)
+	return fmt.Errorf("%s: create may have already reached the server; list-repositories --name <name> and match the exact name before creating again: %w", op, err)
 }
 
-// waitRepositoryActive is CreateRepository's post-create wait unless NoWait
-// is set: it reads repositoryID with GetRepository until its Status reaches
-// repositoryStatusActive; any other status keeps it polling. A 404 during
-// the wait also keeps polling rather than failing at once, since a
-// repository just created may not be readable yet; any other read failure
-// stops the wait and is returned as is.
+// waitRepositoryConfirmed is CreateRepository's post-create confirm unless
+// NoWait is set. The create response carries no status field, so this reads
+// repositoryID with GetRepository until the read succeeds, tolerating a 404
+// by polling rather than failing at once, since a repository just created
+// may not be readable for a moment; any other read failure stops the wait
+// and is returned as is.
 //
 // It returns the last repository a read returned alongside the outcome: nil
-// error once ACTIVE, or an error wrapping ErrNotSettled once the bound runs
-// out or a read or a sleep fails. The returned repository is nil only when
-// no read ever succeeded, in which case the caller falls back to whatever
-// the create response itself produced.
-func (c *Client) waitRepositoryActive(ctx context.Context, op, repositoryID string) (*Repository, error) {
+// error once a read succeeds, or an error wrapping ErrNotSettled once the
+// bound runs out or a read or a sleep fails. The returned repository is nil
+// only when no read ever succeeded, in which case the caller falls back to
+// whatever the create response itself produced.
+func (c *Client) waitRepositoryConfirmed(ctx context.Context, op, repositoryID string) (*Repository, error) {
 	var repo *Repository
 	err := poll(ctx, c.now, c.sleep, repoPollInterval, repoPollBound,
 		func(ctx context.Context) (bool, error) {
@@ -263,10 +258,10 @@ func (c *Client) waitRepositoryActive(ctx context.Context, op, repositoryID stri
 				return true, err
 			}
 			repo = &out.Repository
-			return repo.Status == repositoryStatusActive, nil
+			return true, nil
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: repository %s did not reach ACTIVE within %s; the repository exists and this create must not be repeated",
+			return fmt.Errorf("%w: %s: repository %s was not confirmed by a read within %s; the repository exists and this create must not be repeated",
 				ErrNotSettled, op, repositoryID, repoPollBound)
 		},
 	)
@@ -294,11 +289,13 @@ type DeleteRepositoryOutput struct{}
 // including on a retried delete.
 //
 // DELETE is idempotent and keeps the transport's normal retries. Without
-// NoWait, DeleteRepository then waits for the repository to leave
-// ListRepositories, polling every 2 seconds for up to 60 seconds of elapsed
-// time. If the bound runs out, or a read or sleep fails, the returned error
-// wraps ErrNotSettled; a rerun is safe either way, since DeleteRepository
-// always reads first.
+// NoWait, DeleteRepository then waits for the repository to become
+// unreadable, polling GetRepository every 2 seconds for up to 60 seconds of
+// elapsed time: a plain 404, or, on an ambiguous 5xx, absence from
+// ListRepositories, both through GetRepository's own not-found handling. If
+// the bound runs out, or a read or sleep fails, the returned error wraps
+// ErrNotSettled; a rerun is safe either way, since DeleteRepository always
+// reads first.
 func (c *Client) DeleteRepository(ctx context.Context, in *DeleteRepositoryInput) (*DeleteRepositoryOutput, error) {
 	const op = "containerregistry.DeleteRepository"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -337,25 +334,25 @@ func (c *Client) DeleteRepository(ctx context.Context, in *DeleteRepositoryInput
 }
 
 // waitRepositoryAbsent is DeleteRepository's post-delete wait unless NoWait
-// is set: it lists repositories with ListRepositories until repositoryID no
-// longer appears, per the design, rather than reading it directly, since
-// how a missing repository's own read answers is unconfirmed.
+// is set: it reads repositoryID with GetRepository until the read reports
+// core.ErrNotFound. GetRepository itself resolves that from either a plain
+// 404 or, on an ambiguous 5xx, absence from ListRepositories, so this single
+// check covers both signals. Any other read failure stops the wait and is
+// returned as is.
 func (c *Client) waitRepositoryAbsent(ctx context.Context, op, repositoryID string) error {
 	err := poll(ctx, c.now, c.sleep, repoPollInterval, repoPollBound,
 		func(ctx context.Context) (bool, error) {
-			out, err := c.ListRepositories(ctx, nil)
-			if err != nil {
-				return true, err
+			_, err := c.GetRepository(ctx, &GetRepositoryInput{RepositoryID: repositoryID})
+			if err == nil {
+				return false, nil
 			}
-			for _, r := range out.Items {
-				if r.ID == repositoryID {
-					return false, nil
-				}
+			if core.IsNotFound(err) {
+				return true, nil
 			}
-			return true, nil
+			return true, err
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: repository %s did not leave the list within %s; delete was sent and a rerun is safe",
+			return fmt.Errorf("%w: %s: repository %s did not become unreadable within %s; delete was sent and a rerun is safe",
 				ErrNotSettled, op, repositoryID, repoPollBound)
 		},
 	)

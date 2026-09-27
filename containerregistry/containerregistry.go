@@ -19,7 +19,7 @@ type Client struct {
 	c *core.Client
 
 	// sleep and now back CreateRepository and DeleteRepository's post-write
-	// waits; see waitRepositoryActive and waitRepositoryAbsent. Tests
+	// waits; see waitRepositoryConfirmed and waitRepositoryAbsent. Tests
 	// replace both with fakes so the real 2-second interval and 60-second
 	// bound never really elapse.
 	sleep sleepFunc
@@ -158,10 +158,12 @@ func (r *listUsersResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Repository is a vCR repository. Fields follow the API reference's
-// RepositoryDto, confirmed by the cost probe before release; a field the
-// reference does not document is dropped rather than kept, unlike the
-// still map-backed User.
+// Repository is a vCR repository. Fields follow a live GET repository/{id}
+// body, which is bare (no envelope) and carries exactly these keys; create,
+// delete, and list responses share the same shape. There is no status
+// field: the API never reports one, so CreateRepository and
+// DeleteRepository confirm by reading the repository rather than waiting on
+// a status value.
 type Repository struct {
 	ID            string  `json:"uuid"`
 	Name          string  `json:"name"`
@@ -172,7 +174,6 @@ type Repository struct {
 	QuotaUsed     float64 `json:"quotaUsed"`
 	ImageCount    int     `json:"imageCount"`
 	AttachedUsers int     `json:"attachedUser"`
-	Status        string  `json:"status"`
 	CreatedAt     string  `json:"createdAt"`
 }
 

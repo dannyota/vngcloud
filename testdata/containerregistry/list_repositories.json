@@ -2,15 +2,14 @@
   "data": [
     {
       "uuid": "repo-1",
-      "name": "<account>-<name>",
-      "backendName": "<account>-<name>",
+      "name": "app",
+      "backendName": "app",
       "accessLevel": "PRIVATE",
-      "registryUrl": "<hostname>/<account>-<name>",
+      "registryUrl": "<hostname>/app",
       "quotaLimit": 1,
       "quotaUsed": 0,
       "imageCount": 0,
       "attachedUser": 0,
-      "status": "ACTIVE",
       "createdAt": "2026-01-01T00:00:00Z"
     }
   ],

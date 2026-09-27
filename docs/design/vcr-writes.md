@@ -55,12 +55,15 @@ The reference documents only 200 or 202, 401, and 500 for each call.
   required). `quotaLimit` is an integer in GB. The console says a name the
   caller leaves out is generated, and every name gets the account ID as a
   prefix.
-- Repository responses (create, get, delete, and list rows) are
-  `RepositoryDto`: `uuid`, `name`, `backendName`, `accessLevel`,
+- Repository responses (create, get, delete, and list rows) share one bare
+  shape (`RepositoryDto`): `uuid`, `name`, `backendName`, `accessLevel`,
   `registryUrl`, `quotaLimit`, `quotaUsed`, `imageCount`, `attachedUser`,
-  and `createdAt`. The existing list fixture also has `status`, which the
-  reference omits. The reference names the list key `listData`; the
-  fixture has `data`, and `core.DecodeFlexibleList` reads both.
+  and `createdAt`. A live capture confirms these are the only keys: there
+  is no `status` field on any of the four responses, so `CreateRepository`
+  and `DeleteRepository` confirm by reading the repository rather than
+  waiting on a status (see [Waits](#waits)). The reference names the list
+  key `listData`; the fixture has `data`, and `core.DecodeFlexibleList`
+  reads both.
 - User create: `name` and `permissionRequestList` (required),
   `description`, and `duration` in days. Each permission is `repoId` and
   `policyIdList`. The response is only `{"secretKey": "..."}`: no user ID.
@@ -157,9 +160,10 @@ var (
 
 `Repository` and `User` change from `map[string]any` to structs with the
 reference's fields, Go-named (`ID` for `uuid`, `QuotaLimitGB`,
-`QuotaUsed`, `ImageCount`, `AttachedUsers`, `RegistryURL`, `Status`;
-`User.Disabled`, `ExpiredAt`, `Repositories []RepositoryPermission`). The
-cost probe's captures confirm names and types before the fixtures are
+`QuotaUsed`, `ImageCount`, `AttachedUsers`, `RegistryURL`; `User.Disabled`,
+`ExpiredAt`, `Repositories []RepositoryPermission`). A live capture
+confirms `Repository`'s fields and drops `Status`, which no response
+carries. `User`'s fields still await a live capture before its fixtures are
 written; a field the probe does not see stays out. `User` has no secret
 field, so no read can print one. This lifts the hold on `list-users` in
 [CLI reads](cli-reads.md#secrets).
@@ -175,11 +179,12 @@ The change breaks callers that index the maps. The release notes say so.
 - A live 400 confirmed `repoName`'s own rule: 6 to 20 characters, only
   `a-z`, `0-9`, `_`, and `-`, starting with a letter or digit. `Name` is
   checked against this rule before any request (`ErrInvalidInput`).
-- The server prefixes the name, so the Output's `Name` differs from the
-  Input's. The wiki says so.
+- A live capture shows the server applies no account prefix: the Output's
+  `Name` equals the Input's `Name` exactly. `BackendName`'s own relation to
+  the account is unconfirmed. The wiki says so.
 - Create is `POST` and is never resent after a 5xx or network error (ADR
   0002 rule 2). The error names `list-repositories --name <name>` and says
-  to match a name that ends with the input name.
+  to match the exact name.
 - `CreateRepository` waits unless `NoWait` (see [Waits](#waits)).
 - `DeleteRepository` reads first and returns `ErrRepositoryNotEmpty`,
   sending nothing, when `ImageCount` is above 0. Emptying a repository is
@@ -225,19 +230,29 @@ The change breaks callers that index the maps. The release notes say so.
 ### Waits
 
 Per ADR 0002 rule 7, the 202 writes wait unless `NoWait` is set. They poll
-every 2 seconds, honour `ctx`, and use an injected clock.
+every 2 seconds, honour `ctx`, and use an injected clock. A live capture
+confirms create, get, delete, and list responses carry no `status` field,
+so neither wait polls one:
 
 | Write | Settled | Bound |
 |-|-|-|
-| Repository create | `GetRepository` `Status` `ACTIVE` | 60 s |
-| Repository delete | Absent from `ListRepositories` | 60 s |
+| Repository create | `GetRepository` succeeds (finds the uuid) | 60 s |
+| Repository delete | `GetRepository` reports `NotFound` | 60 s |
 
-A 404 during the create wait keeps polling. The bound returns the Output
-and an error wrapping `ErrNotSettled`: for a create, the repository exists
-and the create must not be repeated; for a delete, a rerun is safe. The
-status values, including a failure value, and the times are probe items;
-a failure status found there becomes `ErrFailed` by amending this table.
-User writes answer 200 and have no wait unless the probe shows one.
+A 404 during the create wait keeps polling, tolerating a repository that is
+not yet readable. A live create completed in about 4 seconds, with the
+repository already visible through `GetRepository` by the time the `POST`
+returned, so the confirm read normally succeeds on its first try; the poll
+exists only as a bound against that not holding every time. A live delete
+settled within the 60-second bound, confirmed at the time through the
+SDK's prior list-based wait; whether a deleted repository's own `GET`
+answers a plain 404 or an ambiguous 5xx needing the `ListRepositories`
+fallback (see [Repositories](#repositories)) is unconfirmed, so
+`DeleteRepository` relies on `GetRepository`'s own handling of both. The
+bound returns the Output and an error wrapping `ErrNotSettled`: for a
+create, the repository exists and the create must not be repeated; for a
+delete, a rerun is safe. User writes answer 200 and have no wait unless the
+probe shows one.
 
 ### Identifiers and retries
 
@@ -253,7 +268,7 @@ User writes answer 200 and have no wait unless the probe shows one.
 | `--secret-file` exists or its directory is missing; missing `--yes` | No request | `InvalidUsage`, 2 |
 | Unknown repository or user | `NotFound` | `NotFound`, 4 |
 | Delete of a repository with images | `ErrRepositoryNotEmpty`, no request | `RepositoryNotEmpty`, 1 |
-| Repository not `ACTIVE` or not gone within the wait | `ErrNotSettled`, with Output | `NotSettled`, 1 |
+| Repository not confirmed or not gone within the wait | `ErrNotSettled`, with Output | `NotSettled`, 1 |
 | User created but not found by list | `ErrUserNotFound`, with Output | `UserNotFound`, 1 |
 | Secret file write failed after create | User deleted | `SecretFileFailed`, 1 |
 | Duplicate name, quota, a refusal for no credit | The server's `*APIError` | 1 |
@@ -383,9 +398,10 @@ requires. Nothing is tagged on an unverified write.
 
 - Whether a repository costs money, and on what (quota or use).
 - Whether the IAM vCR endpoint accepts the writes.
-- Repository `status` values and create and delete times.
-- How a missing repository or user reads (the reference lists only 500).
+- How a missing repository or user reads (the reference lists only 500):
+  unconfirmed whether a deleted repository's own `GET` answers a plain 404
+  or an ambiguous 5xx.
 - The permission action strings.
-- Whether names are unique, and how the prefix appears in `name` and
-  `backendName`.
+- Whether names are unique, and whether `BackendName` carries an account
+  prefix; a live capture shows `Name` does not.
 - Which name `docker login` takes.

@@ -4653,12 +4653,12 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 }
 
 // vcrLiveNameSuffixPattern is the live vCR write test's own repository
-// naming scheme, matched at the end rather than the start: the server
-// prefixes every repository name with the account id, so a leftover sweep
-// and the cleanup's remaining-count check both look for a name ending with
-// vcrlive-<8 lowercase hex>, exactly, rather than one starting with it. The
-// short vcrlive- prefix, rather than vngcloud-live-, keeps the generated
-// name within the server's 20-character limit for repoName.
+// naming scheme: a leftover sweep and the cleanup's remaining-count check
+// both look for a name ending with vcrlive-<8 lowercase hex>, exactly. The
+// server applies no account prefix, so a plain equality check would also
+// work; the suffix match costs nothing and stays correct if that changes.
+// The short vcrlive- prefix, rather than vngcloud-live-, keeps the
+// generated name within the server's 20-character limit for repoName.
 var vcrLiveNameSuffixPattern = regexp.MustCompile(`vcrlive-[0-9a-f]{8}$`)
 
 // isLiveVCRRepositoryName reports whether name ends with
@@ -4688,12 +4688,13 @@ func isVCRPaymentRefusal(err error) bool {
 }
 
 // deleteVCRRepositoryByName lists repositories and deletes any whose name
-// ends with name and holds no images. It is used after a CreateRepository
-// failure, since a POST that returned an error may still have reached the
-// server, and the server prefixes every repository name with the account
-// id, so an exact match on name never applies. It runs on its own timeout,
-// not the calling test step's context, so it can still clean up after that
-// step's context is the reason the step failed.
+// exactly matches name and holds no images. It is used after a
+// CreateRepository call returns an error or an empty id, since a POST that
+// returned an error may still have reached the server, and the server
+// applies no account prefix: a created repository's name equals the input
+// name exactly. It runs on its own timeout, not the calling test step's
+// context, so it can still clean up after that step's context is the reason
+// the step failed.
 func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, name string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -4705,7 +4706,7 @@ func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, n
 		return
 	}
 	for _, r := range list.Items {
-		if !strings.HasSuffix(r.Name, name) || r.ImageCount > 0 {
+		if r.Name != name || r.ImageCount > 0 {
 			continue
 		}
 		if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: r.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -4726,12 +4727,14 @@ func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, n
 // exercised.
 //
 // It deletes every leftover vcrlive-* repository holding no images first
-// (step 1); creates vcrlive-<8 hex> with QuotaLimitGB 1 (step 2); registers
-// the fallback delete as soon as the created repository's id is known
-// (step 3); reads it back and confirms the id matches (step 4);
-// creates the same name again and logs the server's response either way,
-// cleaning up an unexpected second repository by name (step 5); and deletes
-// the repository, confirming a repeat delete returns NotFound (step 6).
+// (step 1); creates vcrlive-<8 hex> with QuotaLimitGB 1, registering a
+// by-name fallback cleanup at once if the create returns an error or an
+// empty id (step 2); registers the fallback delete by id as soon as the
+// created repository's id is known (step 3); reads it back and confirms the
+// id matches (step 4); creates the same name again and logs the server's
+// response either way, cleaning up an unexpected second repository by name
+// (step 5); and deletes the repository, confirming a repeat delete returns
+// NotFound (step 6).
 func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
@@ -4797,23 +4800,31 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 		Name:         name,
 		QuotaLimitGB: 1,
 	})
+	var repositoryID string
+	if err == nil {
+		repositoryID = created.Repository.ID
+	}
+	if err != nil || repositoryID == "" {
+		// A POST is not retried after an ambiguous failure, so the create may
+		// still have reached the server despite the error, or with a response
+		// that carried no id. Register a fallback that finds it by its exact
+		// name (the server applies no account prefix) and deletes it, so this
+		// runs during test cleanup regardless of which branch below exits the
+		// test.
+		t.Cleanup(func() { deleteVCRRepositoryByName(t, client, name) })
+	}
 	if isVCRPaymentRefusal(err) {
 		var apiErr *vngcloud.APIError
 		errors.As(err, &apiErr)
 		t.Skipf("step 2: server refused the create for payment, status=%d code=%s; a repository is paid, never retrying", apiErr.StatusCode, apiErr.Code)
 	}
 	if err != nil {
-		// A POST is not retried after an ambiguous failure, so the create may
-		// still have reached the server. Find and delete it by its exact name.
-		deleteVCRRepositoryByName(t, client, name)
 		t.Fatalf("step 2 CreateRepository: %s", safeErr(err))
 	}
-	repositoryID := created.Repository.ID
 	if repositoryID == "" {
-		deleteVCRRepositoryByName(t, client, name)
 		t.Fatal("step 2: CreateRepository returned an empty id; the design requires one")
 	}
-	t.Logf("step 2: created repository, status %s", created.Repository.Status)
+	t.Logf("step 2: created repository, quotaLimitGB %d", created.Repository.QuotaLimitGB)
 
 	// Step 3: register the fallback delete as soon as repositoryID is
 	// known, before any later step can fail and skip the explicit delete in
@@ -4850,7 +4861,7 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if fetched.Repository.ID != repositoryID {
 		t.Fatal("step 4: GetRepository returned a different id")
 	}
-	t.Logf("step 4: read repository back, status %s", fetched.Repository.Status)
+	t.Logf("step 4: read repository back, imageCount %d", fetched.Repository.ImageCount)
 
 	// Step 5: create the same name again and log the server's response,
 	// without failing the test either way: whether names collide is an

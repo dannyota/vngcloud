@@ -50,17 +50,17 @@ func decodeBody(t *testing.T, r *http.Request) map[string]any {
 }
 
 // repoBody builds a bare RepositoryDto JSON object for "repo-1", with
-// status and imageCount as given: GetRepository, CreateRepository, and
-// DeleteRepository all decode this same shape directly, with no envelope.
-func repoBody(status string, imageCount int) string {
+// imageCount as given: GetRepository, CreateRepository, and
+// DeleteRepository all decode this same shape directly, with no envelope
+// and no status field, matching the live API.
+func repoBody(imageCount int) string {
 	b, err := json.Marshal(map[string]any{
 		"uuid":         "repo-1",
-		"name":         "<account>-app",
+		"name":         "app-test",
 		"accessLevel":  "PRIVATE",
 		"quotaLimit":   1,
 		"imageCount":   imageCount,
 		"attachedUser": 0,
-		"status":       status,
 	})
 	if err != nil {
 		panic(err)
@@ -83,8 +83,8 @@ func TestGetRepositoryDecodesFixture(t *testing.T) {
 		t.Fatalf("GetRepository() error = %v", err)
 	}
 	repo := out.Repository
-	if repo.ID != "repo-1" || repo.Name != "<account>-app" || repo.AccessLevel != "PRIVATE" ||
-		repo.QuotaLimitGB != 1 || repo.ImageCount != 0 || repo.Status != "ACTIVE" {
+	if repo.ID != "repo-1" || repo.Name != "app-test" || repo.AccessLevel != "PRIVATE" ||
+		repo.QuotaLimitGB != 1 || repo.ImageCount != 0 {
 		t.Fatalf("unexpected repository: %+v", repo)
 	}
 }
@@ -233,7 +233,7 @@ func TestCreateRepositoryRequestBody(t *testing.T) {
 			t.Fatalf("body = %+v, want repoName=app-test quotaLimit=3 isPublic=false", body)
 		}
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		_, _ = w.Write([]byte(repoBody(0)))
 	}))
 
 	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 3, NoWait: true})
@@ -255,7 +255,7 @@ func TestCreateRepositoryDecodesFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
-	if out.Repository.ID != "repo-1" || out.Repository.Name != "<account>-app" || out.Repository.Status != "CREATING" {
+	if out.Repository.ID != "repo-1" || out.Repository.Name != "app-test" {
 		t.Fatalf("unexpected repository: %+v", out.Repository)
 	}
 }
@@ -304,7 +304,7 @@ func TestCreateRepositoryNameRuleAllowedEdgeCases(t *testing.T) {
 	for _, name := range allowed {
 		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		}))
 		if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: name, QuotaLimitGB: 1, NoWait: true}); err != nil {
 			t.Errorf("Name %q: err = %v, want nil", name, err)
@@ -370,34 +370,37 @@ func TestCreateRepositoryNoIDFails(t *testing.T) {
 	}
 }
 
-func TestCreateRepositoryWaitSettlesToActive(t *testing.T) {
-	c := withInstantSleep(newTestClient(t, scriptedResponses(t, []string{
-		repoBody("CREATING", 0),
-		repoBody("ACTIVE", 0),
-	}, func(w http.ResponseWriter, r *http.Request) bool {
+func TestCreateRepositoryConfirmSucceedsAtOnce(t *testing.T) {
+	var getCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
-			return true
+			_, _ = w.Write([]byte(repoBody(0)))
+			return
 		}
-		return false
+		getCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(repoBody(0)))
 	})))
 
 	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
-	if out.Repository.Status != "ACTIVE" {
-		t.Fatalf("Status = %q, want ACTIVE", out.Repository.Status)
+	if out.Repository.ID != "repo-1" {
+		t.Fatalf("ID = %q, want repo-1", out.Repository.ID)
+	}
+	if getCalls.Load() != 1 {
+		t.Fatalf("GET calls = %d, want 1: the confirm read succeeds at once when the repository is already visible", getCalls.Load())
 	}
 }
 
-func TestCreateRepositoryWaitTolerates404(t *testing.T) {
+func TestCreateRepositoryConfirmTolerates404(t *testing.T) {
 	var getCalls atomic.Int64
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 			return
 		}
 		if getCalls.Add(1) == 1 {
@@ -406,30 +409,30 @@ func TestCreateRepositoryWaitTolerates404(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+		_, _ = w.Write([]byte(repoBody(0)))
 	})))
 
 	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
-	if out.Repository.Status != "ACTIVE" {
-		t.Fatalf("Status = %q, want ACTIVE", out.Repository.Status)
+	if out.Repository.ID != "repo-1" {
+		t.Fatalf("ID = %q, want repo-1", out.Repository.ID)
 	}
 	if getCalls.Load() < 2 {
-		t.Fatalf("GET calls = %d, want at least 2: a 404 during the wait must keep polling", getCalls.Load())
+		t.Fatalf("GET calls = %d, want at least 2: a 404 during the confirm must keep polling", getCalls.Load())
 	}
 }
 
-func TestCreateRepositoryWaitBoundReached(t *testing.T) {
+func TestCreateRepositoryConfirmBoundReached(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
 	})))
 
 	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
@@ -438,58 +441,59 @@ func TestCreateRepositoryWaitBoundReached(t *testing.T) {
 	}
 }
 
-func TestCreateRepositoryNoWaitSkipsWait(t *testing.T) {
+func TestCreateRepositoryNoWaitSkipsConfirm(t *testing.T) {
 	var getCalls atomic.Int64
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 			return
 		}
 		getCalls.Add(1)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		_, _ = w.Write([]byte(repoBody(0)))
 	})))
 
 	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
-	if out.Repository.Status != "CREATING" {
-		t.Fatalf("Status = %q, want CREATING: NoWait must return the create response unwaited", out.Repository.Status)
+	if out.Repository.ID != "repo-1" {
+		t.Fatalf("ID = %q, want repo-1: NoWait must return the create response unconfirmed", out.Repository.ID)
 	}
 	if getCalls.Load() != 0 {
-		t.Fatalf("GET calls = %d, want 0: NoWait must skip the post-create wait", getCalls.Load())
+		t.Fatalf("GET calls = %d, want 0: NoWait must skip the post-create confirm", getCalls.Load())
 	}
 }
 
-func TestCreateRepositoryWaitCanceledContext(t *testing.T) {
+func TestCreateRepositoryConfirmCanceledContext(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
 	})))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := c.CreateRepository(ctx, &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err == nil {
-		t.Fatal("err = nil, want an error from the canceled wait")
+		t.Fatal("err = nil, want an error from the canceled confirm")
 	}
 }
 
-// TestWaitRepositoryActivePollParameters checks the literal interval and
-// bound waitRepositoryActive passes to poll, so that swapping the 2-second
-// interval or the 60-second bound with another value fails this test: the
-// handler never settles, so the wait always runs to its bound.
-func TestWaitRepositoryActivePollParameters(t *testing.T) {
+// TestWaitRepositoryConfirmedPollParameters checks the literal interval and
+// bound waitRepositoryConfirmed passes to poll, so that swapping the
+// 2-second interval or the 60-second bound with another value fails this
+// test: the handler never confirms the repository, so the wait always runs
+// to its bound.
+func TestWaitRepositoryConfirmedPollParameters(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
 	}))
 	var sleeps []time.Duration
 	clock := time.Now()
@@ -500,7 +504,7 @@ func TestWaitRepositoryActivePollParameters(t *testing.T) {
 		return ctx.Err()
 	}
 
-	if _, err := c.waitRepositoryActive(context.Background(), "op", "repo-1"); !errors.Is(err, ErrNotSettled) {
+	if _, err := c.waitRepositoryConfirmed(context.Background(), "op", "repo-1"); !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled", err)
 	}
 	if len(sleeps) != 30 {
@@ -521,7 +525,7 @@ func TestDeleteRepositoryGuardImageCount(t *testing.T) {
 			t.Fatal("no write expected")
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(repoBody("ACTIVE", 3)))
+		_, _ = w.Write([]byte(repoBody(3)))
 	}))
 
 	_, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"})
@@ -536,12 +540,12 @@ func TestDeleteRepositoryAttachedUsersDoNotBlock(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			w.WriteHeader(http.StatusOK)
-			b, _ := json.Marshal(map[string]any{"uuid": "repo-1", "imageCount": 0, "attachedUser": 5, "status": "ACTIVE"})
+			b, _ := json.Marshal(map[string]any{"uuid": "repo-1", "imageCount": 0, "attachedUser": 5})
 			_, _ = w.Write(b)
 		case http.MethodDelete:
 			deleteCalled.Store(true)
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		}
 	}))
 
@@ -591,7 +595,7 @@ func TestDeleteRepositoryDecodesFixture(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/delete_repository.json")
@@ -603,29 +607,34 @@ func TestDeleteRepositoryDecodesFixture(t *testing.T) {
 	}
 }
 
+// TestDeleteRepositoryWaitSettlesAbsent covers the wait's two-source
+// confirm: the guard read (call 1) and the first poll (call 2) find the
+// repository still present, and the second poll (call 3) gets a plain 404,
+// which GetRepository maps to core.ErrNotFound with no list call.
 func TestDeleteRepositoryWaitSettlesAbsent(t *testing.T) {
 	getCalls := 0
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		case r.URL.Path == "/v1/repository/repo-1":
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
-		case r.URL.Path == "/v1/repository":
 			getCalls++
-			w.Header().Set("Content-Type", "application/json")
-			if getCalls <= 1 {
-				_, _ = w.Write([]byte(`{"data":[{"uuid":"repo-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+			if getCalls <= 2 {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(repoBody(0)))
 				return
 			}
-			_, _ = w.Write([]byte(`{"data":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
 		}
 	})))
 
 	if _, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1"}); err != nil {
 		t.Fatalf("DeleteRepository() error = %v", err)
+	}
+	if getCalls < 3 {
+		t.Fatalf("GET calls = %d, want at least 3: the guard read, then polls until the repository 404s", getCalls)
 	}
 }
 
@@ -634,13 +643,10 @@ func TestDeleteRepositoryWaitBoundReached(t *testing.T) {
 		switch {
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		case r.URL.Path == "/v1/repository/repo-1":
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
-		case r.URL.Path == "/v1/repository":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"uuid":"repo-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+			_, _ = w.Write([]byte(repoBody(0)))
 		}
 	})))
 
@@ -651,39 +657,36 @@ func TestDeleteRepositoryWaitBoundReached(t *testing.T) {
 }
 
 func TestDeleteRepositoryNoWaitSkipsWait(t *testing.T) {
-	listCalls := 0
+	getCalls := 0
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
+			_, _ = w.Write([]byte(repoBody(0)))
 		case r.URL.Path == "/v1/repository/repo-1":
+			getCalls++
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
-		case r.URL.Path == "/v1/repository":
-			listCalls++
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"uuid":"repo-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+			_, _ = w.Write([]byte(repoBody(0)))
 		}
 	})))
 
 	if _, err := c.DeleteRepository(context.Background(), &DeleteRepositoryInput{RepositoryID: "repo-1", NoWait: true}); err != nil {
 		t.Fatalf("DeleteRepository() error = %v", err)
 	}
-	if listCalls != 0 {
-		t.Fatalf("ListRepositories calls = %d, want 0: NoWait must skip the post-delete wait", listCalls)
+	if getCalls != 1 {
+		t.Fatalf("GET calls = %d, want 1: NoWait must skip the post-delete wait, leaving only the guard read", getCalls)
 	}
 }
 
 // TestWaitRepositoryAbsentPollParameters checks the literal interval and
 // bound waitRepositoryAbsent passes to poll, so that swapping the 2-second
 // interval or the 60-second bound with another value fails this test: the
-// handler never reports the repository absent, so the wait always runs to
+// handler always reports the repository present, so the wait always runs to
 // its bound.
 func TestWaitRepositoryAbsentPollParameters(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"uuid":"repo-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(repoBody(0)))
 	}))
 	var sleeps []time.Duration
 	clock := time.Now()
@@ -704,26 +707,5 @@ func TestWaitRepositoryAbsentPollParameters(t *testing.T) {
 		if d != 2*time.Second {
 			t.Fatalf("sleep duration = %s, want 2s", d)
 		}
-	}
-}
-
-// scriptedResponses serves each body in bodies in order to successive GET
-// requests, and delegates any other request (a POST, say) to onOther, which
-// reports whether it fully handled the request. Once bodies is exhausted,
-// the last body keeps being served, so a test does not need to size the
-// script exactly to the number of poll iterations the wait bound allows.
-func scriptedResponses(t *testing.T, bodies []string, onOther func(w http.ResponseWriter, r *http.Request) bool) http.HandlerFunc {
-	t.Helper()
-	var calls atomic.Int64
-	return func(w http.ResponseWriter, r *http.Request) {
-		if onOther != nil && onOther(w, r) {
-			return
-		}
-		i := int(calls.Add(1)) - 1
-		if i >= len(bodies) {
-			i = len(bodies) - 1
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(bodies[i]))
 	}
 }

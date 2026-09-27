@@ -817,9 +817,9 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 
 // testLiveContainerRegistry reads repositories and users, per the CLI reads
 // design's live-checks table for containerregistry. Repository is typed
-// from the API reference, so a list row can carry no undocumented field and
+// from the live GET body, so a list row can carry no undocumented field and
 // this logs only its count and, when at least one row comes back, its
-// Status: neither is account data. User stays map-backed, so its own
+// ImageCount: neither is account data. User stays map-backed, so its own
 // sub-test instead logs a returned row's key count only, never a key name
 // or value: list-users is held from the CLI until the SDK types User from a
 // live capture, and a registry user row may carry a password or robot
@@ -836,7 +836,7 @@ func testLiveContainerRegistry(ctx context.Context, t *testing.T, cfg vngcloud.C
 		if len(res.Items) == 0 {
 			return
 		}
-		t.Logf("first repository status: %s", res.Items[0].Status)
+		t.Logf("first repository imageCount: %d", res.Items[0].ImageCount)
 	})
 
 	t.Run("users", func(t *testing.T) {

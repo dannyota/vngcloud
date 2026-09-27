@@ -237,35 +237,39 @@ vcrClient.DeleteRepository(ctx, in)  // RepositoryID (required), NoWait
 vcrClient.ListUsers(ctx, in)         // Name, Page, Size
 ```
 
-`Repository` is a typed struct, matching the vCR API reference's fields
-(`ID`, `Name`, `BackendName`, `AccessLevel`, `RegistryURL`, `QuotaLimitGB`,
-`QuotaUsed`, `ImageCount`, `AttachedUsers`, `Status`, `CreatedAt`); a field
-the reference does not document is dropped rather than kept. This breaks
-code that indexed `Repository` as a map. `User` stays map-backed, so the SDK
+`Repository` is a typed struct, matching a live GET repository/{id} body's
+fields (`ID`, `Name`, `BackendName`, `AccessLevel`, `RegistryURL`,
+`QuotaLimitGB`, `QuotaUsed`, `ImageCount`, `AttachedUsers`, `CreatedAt`);
+there is no `Status` field, since no response carries one. A field the
+reference does not document is dropped rather than kept. This breaks code
+that indexed `Repository` as a map. `User` stays map-backed, so the SDK
 keeps every field the API returns for it.
 
 `CreateRepository` always creates a private repository; there is no
 `Public` option, since a public repository accepts anonymous push. The
-server prefixes every name with the account id, so the created
-`Repository.Name` differs from the Input's `Name`. `Name` must be 6 to 20
-characters, only `a-z`, `0-9`, `_`, and `-`, starting with a letter or
-digit; a `Name` outside that shape fails with `ErrInvalidInput` before any
-request. `CreateRepository` is a `POST` and is never retried after a
-failure that may have already reached the server: after such a failure,
-list repositories with `Name` set and match a row whose name ends with the
-input name before creating again.
+server applies no account prefix, so the created `Repository.Name` equals
+the Input's `Name` exactly. `Name` must be 6 to 20 characters, only
+`a-z`, `0-9`, `_`, and `-`, starting with a letter or digit; a `Name`
+outside that shape fails with `ErrInvalidInput` before any request.
+`CreateRepository` is a `POST` and is never retried after a failure that
+may have already reached the server: after such a failure, list
+repositories with `Name` set and match a row whose name equals the input
+exactly before creating again.
 
 `DeleteRepository` reads the repository first and returns
 `ErrRepositoryNotEmpty`, sending nothing, when it still holds images;
 delete the images with `docker` or the console first. A repository user
 attached to it is not affected by the delete.
 
-Without `NoWait`, `CreateRepository` waits for the repository to reach
-`ACTIVE` and `DeleteRepository` waits for it to leave the list, each
-polling every 2 seconds for up to 60 seconds. Past that bound, or on a
-canceled context, the returned error wraps `ErrNotSettled`: for a create,
-the repository exists and must not be created again; for a delete, the
-delete was sent and a rerun is safe.
+The create and delete responses carry no status to wait on. Without
+`NoWait`, `CreateRepository` confirms the new repository with
+`GetRepository`, and `DeleteRepository` waits for `GetRepository` to
+report it gone, each polling every 2 seconds for up to 60 seconds. A live
+create was visible through `GetRepository` at once, so the confirm read
+usually succeeds on its first try. Past the bound, or on a canceled
+context, the returned error wraps `ErrNotSettled`: for a create, the
+repository exists and must not be created again; for a delete, the delete
+was sent and a rerun is safe.
 
 Repository users, their secrets, and the `docker login` steps are not
 covered yet.

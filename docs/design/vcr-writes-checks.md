@@ -25,8 +25,9 @@ Unit tests use `httptest` and an injected clock.
 - User create lookup: one match fills `User`; none and two matches return
   the Output with `SecretKey` and `ErrUserNotFound`; a name that only
   contains the input as a substring is not a match.
-- Waits: create to `ACTIVE`, a 404 then `ACTIVE`, delete until absent, the
-  bound, `NoWait`, poll spacing, and a cancelled context.
+- Waits: create confirmed at once, a 404 then confirmed, delete until
+  `GetRepository` reports `NotFound`, the bound, `NoWait`, poll spacing,
+  and a cancelled context.
 - Statuses 200, 202, 400, 404, 409, and 5xx; no create resend after a
   502; a user create 200 with an empty `secretKey` fails; the not-found
   mapping the probe chooses.
