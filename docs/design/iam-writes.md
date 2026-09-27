@@ -128,7 +128,8 @@ no statements at all is privileged, and any statement effect other than
 `deny` counts as a grant, including one the API has not defined yet. A group
 whose `mode` is not exactly `iam`, missing included, or whose own response
 carries a member-holding field besides `iamUsers`, is unprovable the same
-way: every guard that reads a group refuses it outright, since the design
+way: every guard that reads a group object refuses it outright (the
+user-groups list only feeds the privilege check), since the design
 excludes idp groups entirely (see [Non-goals](#non-goals)) and a member list
 under a name the guard does not recognize could otherwise hide a protected
 member.
