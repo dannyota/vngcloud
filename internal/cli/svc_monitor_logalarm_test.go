@@ -194,6 +194,43 @@ func TestMonitorCreateLogAlarmCLIInputJSONRejectsUnknownField(t *testing.T) {
 	}
 }
 
+// TestMonitorCreateLogAlarmThresholdValueNaNExitsWithZeroRequests checks
+// the SDK's own NaN/infinite ThresholdValue refusal at the CLI level:
+// --threshold-value NaN is refused with InvalidUsage before any request,
+// including the duplicate-name check create-log-alarm otherwise runs
+// first.
+func TestMonitorCreateLogAlarmThresholdValueNaNExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/list": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/log-api/v1/projects/proj-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/vmonitor-api/api/v1/alarms/logs": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "create-log-alarm",
+		"--name", "my-alarm", "--log-project-id", "proj-1", "--threshold-value", "NaN",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for a NaN --threshold-value")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
 // TestMonitorCreateLogAlarmDebugLogsStartAndFinishWithOnlyOperationName
 // mirrors TestMonitorCreateLogProjectDebugLogsStartAndFinishWithOnlyOperationName
 // for create-log-alarm: --debug logs only the operation name around the
@@ -373,6 +410,41 @@ func TestMonitorUpdateLogAlarmRefusesMetricAlarm(t *testing.T) {
 	}
 }
 
+// TestMonitorUpdateLogAlarmQueryStringWithoutFilterExitsWithZeroRequests
+// checks the SDK's own pairing rule at the CLI level: --query-string alone,
+// with no Filter set through --cli-input-json, is refused with InvalidUsage
+// before any request, including the pre-update GetAlarm read, since setting
+// only one would otherwise pair a new value for one with the read's stale
+// value for the other.
+func TestMonitorUpdateLogAlarmQueryStringWithoutFilterExitsWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/alarm-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+		"/vmonitor-api/api/v1/alarms/logs/alarm-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-log-alarm",
+		"--alarm-id", "alarm-1", "--query-string", "status:500", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for --query-string without a Filter")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
 // TestMonitorUpdateLogAlarmReadOnlyRefusedWithZeroRequests checks that a
 // read-only profile refuses update-log-alarm before any request, including
 // its own pre-update GetAlarm read.
@@ -473,10 +545,12 @@ func TestMonitorDeleteLogAlarmWithoutYesExitsWithZeroRequests(t *testing.T) {
 }
 
 // TestMonitorDeleteLogAlarmWithYesSendsDelete checks that --yes lets
-// delete-log-alarm send exactly one DELETE and succeed, with no baseline
-// read and no wait.
+// delete-log-alarm read the alarm first to confirm it is a log alarm, then
+// send exactly one DELETE and succeed, with no wait.
 func TestMonitorDeleteLogAlarmWithYesSendsDelete(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/alarm-1": jsonHandler(http.StatusOK,
+			`{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","status":"OK","severity":"LOW"}}`),
 		"/vmonitor-api/api/v1/alarms/logs/alarm-1": jsonHandler(http.StatusNoContent, ""),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -489,14 +563,47 @@ func TestMonitorDeleteLogAlarmWithYesSendsDelete(t *testing.T) {
 	if got, ok := fixture.methodFor("/vmonitor-api/api/v1/alarms/logs/alarm-1"); !ok || got != http.MethodDelete {
 		t.Fatalf("delete-log-alarm method = %q, ok=%v, want DELETE", got, ok)
 	}
-	if n := fixture.requestCount(); n != 1 {
-		t.Fatalf("requestCount = %d, want 1 (no baseline read, no wait)", n)
+	if n := fixture.requestCount(); n != 2 {
+		t.Fatalf("requestCount = %d, want 2 (the pre-delete GetAlarm read, then the DELETE, no wait)", n)
 	}
 }
 
-// TestMonitorDeleteLogAlarmNotFound checks that a 404 from the DELETE
-// classifies as NotFound and exits 4, the generic *APIError mapping
-// classify and exitCode already give every not-found result.
+// TestMonitorDeleteLogAlarmRefusesMetricAlarm checks the design's own
+// refusal: delete-log-alarm reads the alarm first and refuses with
+// InvalidUsage, sending no DELETE, when it is a metric alarm.
+func TestMonitorDeleteLogAlarmRefusesMetricAlarm(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/alarm-1": jsonHandler(http.StatusOK,
+			`{"data":{"id":"alarm-1","name":"m","type":"METRIC","status":"OK","severity":"LOW","metricMappingId":"map-1"}}`),
+		"/vmonitor-api/api/v1/alarms/logs/alarm-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--yes", "monitor", "delete-log-alarm", "--alarm-id", "alarm-1",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for a metric alarm")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1 (the pre-delete GetAlarm read, no DELETE)", n)
+	}
+}
+
+// TestMonitorDeleteLogAlarmNotFound checks that a 404 from the pre-delete
+// GetAlarm read classifies as NotFound and exits 4, the generic *APIError
+// mapping classify and exitCode already give every not-found result. The
+// fixture stubs only the DELETE path, so the unstubbed GET the read makes
+// falls through to the mux's own default 404, which decodes into the same
+// NotFound sentinel a real 404 body would.
 func TestMonitorDeleteLogAlarmNotFound(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/vmonitor-api/api/v1/alarms/logs/alarm-1": jsonHandler(http.StatusNotFound, `{"message":"not found"}`),
