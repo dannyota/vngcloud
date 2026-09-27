@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.33.0 - IAM Policy Writes
+
+### Highlights
+
+- New `iam.CreatePolicy`, `UpdatePolicy`, `DeletePolicy`, and
+  `AttachServiceAccountPolicy` and `DetachServiceAccountPolicy`, with
+  matching `vngcloud iam` commands.
+- A policy document comes only from `--document-file` or
+  `--cli-input-json`. It is checked for shape: known keys only, an effect
+  of `allow` or `deny`, and non-empty actions and resources. An AWS-style
+  document exits 2 before any request.
+- Guards refuse, sending nothing, any policy that grants IAM write rights
+  (including wildcards and any action pattern of unusual shape), any
+  change to the caller's own rights, and any change to a principal that
+  holds IAM write rights. A GreenNode-managed policy is never changed
+  (`ManagedPolicy`); an attached policy is never deleted (`ResourceInUse`).
+- A create is sent once. If a create or update landed but its confirming
+  read failed, the CLI prints the policy ID and exits `NotSettled`.
+- Every write except `create-policy` needs `--yes`.
+
 ## v0.32.0 - IAM Service Account Writes
 
 ### Highlights
@@ -17,7 +37,7 @@
 - If a reset returns no secret, the old one is probably revoked: reset
   again. `delete-service-account` and `reset-service-account-secret` need
   `--yes`.
-- IAM pages move to a new `IAM` wiki page.
+- The IAM write docs are on a new `IAM` wiki page.
 
 ## v0.31.0 - IAM Reads
 
