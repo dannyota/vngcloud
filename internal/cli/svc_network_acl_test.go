@@ -33,22 +33,33 @@ func aclJSON(name string, defaultACL bool, subnetIDs []string, rules []map[strin
 
 // ruleJSON builds one entry of aclPolicyRules, the shape a GetNetworkACL
 // read (and so a rules PUT's own post-write confirm read) returns for one
-// rule: uuid, type, seqNumber, protocol, port, source, and action.
-func ruleJSON(uuid, direction string, priority int, protocol, port, cidr, action string) map[string]any {
+// rule: uuid, type, seqNumber, protocol, port, source, and action. Every
+// rule this file builds is inbound, the only direction any test here needs,
+// so type is always "inbound" rather than a parameter.
+func ruleJSON(uuid string, priority int, protocol, port, cidr, action string) map[string]any {
 	return map[string]any{
-		"uuid": uuid, "type": direction, "seqNumber": priority,
+		"uuid": uuid, "type": "inbound", "seqNumber": priority,
 		"protocol": protocol, "port": port, "source": cidr, "action": action,
 	}
 }
 
-// defaultInboundPassAllRuleJSON is the one default rule every test in this
-// file that needs one uses: an inbound rule at priority 0 that passes every
-// port from every source, the shape confirmed live for a new ACL's own
-// default rule.
+// defaultInboundPassAllRuleJSON is one default rule most tests in this file
+// use: an inbound rule at priority 0 that passes every port from every
+// source, the shape confirmed live for a new ACL's own pass-all rule.
+// Confirmed live, this rule carries no "system" field: it is an ordinary
+// rule a caller may remove, unlike the deny-all rule at priority 2000 (see
+// defaultInboundDenyAllRuleJSON), which is default by priority alone.
 func defaultInboundPassAllRuleJSON() map[string]any {
-	rule := ruleJSON("aclr-default", "inbound", 0, "ANY", "0-65535", "0.0.0.0/0", "pass")
-	rule["system"] = true
-	return rule
+	return ruleJSON("aclr-default", 0, "ANY", "0-65535", "0.0.0.0/0", "pass")
+}
+
+// defaultInboundDenyAllRuleJSON is a new ACL's other default rule: an
+// inbound rule at priority 2000 that denies every port from every source,
+// the shape confirmed live for a new ACL's own deny-all rule. It carries no
+// "system" field either; its priority alone marks it default
+// (isDefaultACLRule).
+func defaultInboundDenyAllRuleJSON() map[string]any {
+	return ruleJSON("aclr-deny", 2000, "ANY", "0-65535", "0.0.0.0/0", "deny")
 }
 
 // scriptedACLGetHandler answers each successive GET with the next body of
@@ -302,7 +313,7 @@ func TestNetworkAddNetworkACLRuleRequiresYesWithZeroRequests(t *testing.T) {
 // with Changed true.
 func TestNetworkAddNetworkACLRuleEndToEndSendsDefaultPlusNewRule(t *testing.T) {
 	var putBody []byte
-	newRule := ruleJSON("aclr-2", "inbound", 100, "tcp", "443", "203.0.113.0/24", "pass")
+	newRule := ruleJSON("aclr-2", 100, "tcp", "443", "203.0.113.0/24", "pass")
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()}),
@@ -351,8 +362,8 @@ func TestNetworkAddNetworkACLRuleEndToEndSendsDefaultPlusNewRule(t *testing.T) {
 		switch r.SeqNumber {
 		case 0:
 			sawDefault = true
-			if !r.System {
-				t.Fatalf("default rule entry = %+v, want System true", r)
+			if r.System {
+				t.Fatalf("default rule entry = %+v, want System false: confirmed live, the priority-0 pass-all rule carries no system field", r)
 			}
 		case 100:
 			sawNew = true
@@ -426,7 +437,7 @@ func TestNetworkRemoveNetworkACLRuleRequiresYesWithZeroRequests(t *testing.T) {
 // comes back with Changed true.
 func TestNetworkRemoveNetworkACLRuleEndToEndSendsRemainingRules(t *testing.T) {
 	var putBody []byte
-	userRule := ruleJSON("aclr-2", "inbound", 100, "tcp", "443", "203.0.113.0/24", "pass")
+	userRule := ruleJSON("aclr-2", 100, "tcp", "443", "203.0.113.0/24", "pass")
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
 			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), userRule}),
@@ -468,25 +479,73 @@ func TestNetworkRemoveNetworkACLRuleEndToEndSendsRemainingRules(t *testing.T) {
 	}
 }
 
-// TestNetworkRemoveNetworkACLRulePriorityZeroExitsDefaultResourceWithNoPUT
+// TestNetworkRemoveNetworkACLRulePriorityZeroSendsPUTWithoutTheRemovedRule
 // checks that the CLI lets --priority 0 through to the SDK, rather than
-// mistaking it for "the flag was not given": the fixture's priority-0 rule
-// carries system true, so the SDK's default-rule guard answers, and
-// reaching DefaultResource here (rather than a generic missing-flag error)
-// is the
-// point of requireYesAndPriorityToRemoveACLRule checking Changed instead of
-// the merged value.
-func TestNetworkRemoveNetworkACLRulePriorityZeroExitsDefaultResourceWithNoPUT(t *testing.T) {
+// mistaking it for "the flag was not given" (requireYesAndPriorityToRemoveACLRule
+// checks cobra's Changed instead of the merged value for that reason), and
+// that removal succeeds: confirmed live, a new ACL's own priority-0
+// pass-all rule carries no "system" field and is an ordinary rule a caller
+// may remove, unlike the priority-2000 deny-all rule (see the test below).
+// The PUT resends the deny-all rule unchanged and drops the pass-all one.
+func TestNetworkRemoveNetworkACLRulePriorityZeroSendsPUTWithoutTheRemovedRule(t *testing.T) {
+	var putBody []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/network-acl/acl-1": scriptedACLGetHandler(
+			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), defaultInboundDenyAllRuleJSON()}),
+			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), defaultInboundDenyAllRuleJSON()}),
+			aclJSON("web", false, nil, []map[string]any{defaultInboundDenyAllRuleJSON()}),
+		),
+		"/v2/proj-1/network-acl/acl-1/rules": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut {
+				t.Fatalf("method = %s, want PUT", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			putBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "remove-network-acl-rule", "--network-acl-id", "acl-1",
+		"--direction", "inbound", "--priority", "0",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("remove-network-acl-rule: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded struct {
+		DetailACLRuleList []struct {
+			SeqNumber int `json:"seqNumber"`
+		} `json:"detailAclRuleList"`
+	}
+	if err := json.Unmarshal(putBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, putBody)
+	}
+	if len(decoded.DetailACLRuleList) != 1 || decoded.DetailACLRuleList[0].SeqNumber != 2000 {
+		t.Fatalf("rules in body = %+v, want only the deny-all rule (seqNumber 2000)", decoded.DetailACLRuleList)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": true`) {
+		t.Fatalf("stdout = %s, want Changed true", got)
+	}
+}
+
+// TestNetworkRemoveNetworkACLRulePriorityTwoThousandExitsDefaultResourceWithNoPUT
+// checks the other side of the test above: a priority-2000 rule, the
+// server's own deny-all default, is refused with DefaultResource and no
+// PUT, even though --priority 0 is allowed. isDefaultACLRule treats any
+// priority of 2000 or above as default regardless of its "system" field.
+func TestNetworkRemoveNetworkACLRulePriorityTwoThousandExitsDefaultResourceWithNoPUT(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/network-acl/acl-1": jsonHandler(http.StatusOK,
-			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON()})),
+			aclJSON("web", false, nil, []map[string]any{defaultInboundPassAllRuleJSON(), defaultInboundDenyAllRuleJSON()})),
 		"/v2/proj-1/network-acl/acl-1/rules": unexpectedRequestHandler(t),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
 		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
 		"network", "remove-network-acl-rule", "--network-acl-id", "acl-1",
-		"--direction", "inbound", "--priority", "0",
+		"--direction", "inbound", "--priority", "2000",
 	})
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
