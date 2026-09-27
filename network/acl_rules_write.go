@@ -95,11 +95,11 @@ func checkACLRuleCIDR(op, cidr string) error {
 // must not be above the resulting portMax. Confirmed live, "ANY" carries
 // no ports of its own and requires the full range, portMin 0 and portMax
 // 65535; "icmp" accepts that same full range, or portMin 0 and portMax 0
-// together, the server's own "every ICMP" port value. "tcp" and "udp"
-// accept any pair in range, including 0 and 0 together: unlike an earlier
-// version of this check, a pair of zeros is sent as given, not refused as
-// ambiguous, since "every port" for tcp and udp is always the explicit
-// range 0 to 65535.
+// together, the server's own "every ICMP" port value. "tcp" and "udp" need
+// an explicit port or range: portMin and portMax left at 0 and 0 together
+// is refused, since that pair is never live-verified to mean a single port
+// rather than every port, unlike "ANY" and "icmp"'s own explicit full-range
+// encodings above.
 //
 // The returned string is portMin itself when portMin equals portMax
 // (confirmed live: a single port sends "22"), or "portMin-portMax"
@@ -127,6 +127,11 @@ func checkACLRulePorts(op, protocol string, portMin, portMax int) (string, error
 		if portMin != 0 || (portMax != 65535 && portMax != 0) {
 			return "", fmt.Errorf("%w: %s: protocol icmp requires PortRangeMin 0 and PortRangeMax 65535, or both 0, got %d-%d",
 				core.ErrInvalidInput, op, portMin, portMax)
+		}
+	case aclProtocolTCP, aclProtocolUDP:
+		if portMin == 0 && portMax == 0 {
+			return "", fmt.Errorf("%w: %s: protocol %s needs an explicit PortRangeMin (and, for a range, PortRangeMax); leaving both at 0 may mean every port",
+				core.ErrInvalidInput, op, protocol)
 		}
 	}
 	if portMin == portMax {
@@ -260,9 +265,10 @@ func aclRulesEqual(rules []ACLRule, entries []aclRuleEntry) bool {
 // the resulting PortRangeMax. Protocol "ANY" requires the full range,
 // PortRangeMin 0 and PortRangeMax 65535; "icmp" accepts that same full
 // range, or PortRangeMin 0 and PortRangeMax 0 together; either other
-// pairing for these two protocols is refused. "tcp" and "udp" accept any
-// pair in range, including 0 and 0 together, sent to the server exactly as
-// given.
+// pairing for these two protocols is refused. "tcp" and "udp" need an
+// explicit port or range: PortRangeMin and PortRangeMax left at 0 and 0
+// together is refused, since that pairing is never live-verified to mean a
+// single port rather than every port.
 type AddNetworkACLRuleInput struct {
 	NetworkACLID string `vngcloud:"required"`
 	Direction    string `vngcloud:"required"`
@@ -296,17 +302,26 @@ type AddNetworkACLRuleOutput struct {
 //
 // A rule already present for the same key (Direction, Priority) with every
 // other field equal makes AddNetworkACLRule a no-op: Changed is false and
-// nothing is sent. The same key with any other field different fails with
-// core.ErrInvalidInput, nothing sent.
+// nothing is sent. CIDR is compared as a parsed prefix (so equivalent
+// spellings, such as an IPv6 address in upper and lower case, match) and
+// Action is compared case-folded; every other field is compared as given.
+// The same key with any other field different fails with
+// core.ErrInvalidInput, nothing sent. CIDR is sent to the server in its
+// canonical parsed form, so a rerun and the post-write confirm compare
+// like for like.
 //
-// Without NoWait, AddNetworkACLRule waits for the ACL to return to ACTIVE
-// after its PUT, then confirms that a fresh read names exactly the rules
+// The PUT itself is sent with Once true (see putACLRulesAndConfirm): never
+// retried by the transport, so a retry can never land in the ACL's own busy
+// window. Without NoWait, AddNetworkACLRule then waits for the ACL to
+// return to ACTIVE, and confirms that a fresh read names exactly the rules
 // just sent. A failure at any of these points returns an error wrapping
-// ErrFailed (the ACL reached ERROR), ErrBusy (the pre-write wait or the
-// pre-PUT re-read above), or ErrNotSettled (the post-write bound ran out,
-// the confirm read did not match, or a read or sleep failed); once the PUT
-// itself is sent, it is not resent on a rerun; AddNetworkACLRule simply
-// reads the ACL again from the start.
+// ErrFailed (the ACL reached ERROR), ErrBusy (the pre-write wait, the
+// pre-PUT re-read, or a busy 400 on the PUT's own single attempt), or
+// ErrNotSettled (a 5xx, a network error, or a timeout on the PUT that may
+// have reached the server; the post-write bound ran out; the confirm read
+// did not match; or a read or sleep failed); once the PUT itself is sent,
+// it is not resent on a rerun; AddNetworkACLRule simply reads the ACL again
+// from the start.
 func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInput) (*AddNetworkACLRuleOutput, error) {
 	const op = "network.AddNetworkACLRule"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -335,12 +350,13 @@ func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInp
 		return nil, err
 	}
 
+	wantCIDR := canonicalCIDR(in.CIDR)
 	entries := aclRuleEntriesOf(in.NetworkACLID, acl.Rules)
 	for _, e := range entries {
 		if !strings.EqualFold(e.Type, in.Direction) || e.SeqNumber != in.Priority {
 			continue
 		}
-		if e.Protocol == protocol && e.Port == port && e.Source == in.CIDR && e.Action == in.Action {
+		if e.Protocol == protocol && e.Port == port && canonicalCIDR(e.Source) == wantCIDR && strings.EqualFold(e.Action, in.Action) {
 			return &AddNetworkACLRuleOutput{ACL: *acl, Changed: false}, nil
 		}
 		return nil, fmt.Errorf("%w: %s: network ACL %s already has a %s rule at priority %d with different fields; remove it first",
@@ -348,7 +364,7 @@ func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInp
 	}
 	entries = append(entries, aclRuleEntry{
 		Type: in.Direction, SeqNumber: in.Priority, Protocol: protocol,
-		Port: port, Source: in.CIDR, Action: in.Action,
+		Port: port, Source: wantCIDR, Action: in.Action,
 		System: false, InterfaceACLPolicyUUID: in.NetworkACLID,
 	})
 
@@ -461,10 +477,14 @@ func (c *Client) RemoveNetworkACLRule(ctx context.Context, in *RemoveNetworkACLR
 // changes the ACL between this re-read and the PUT actually reaching the
 // server can still be overwritten by it.
 //
-// The PUT itself can still land in the ACL's own busy window, confirmed
-// live at roughly 18 seconds after an earlier write: the server answers
-// with 400 and a message naming the ACL busy. wrapACLBusyErr maps that to
-// ErrBusy too, since the PUT was rejected outright and nothing changed.
+// The PUT is sent with Once true: never retried by the transport after a
+// 5xx or a network error, so a retry can never land in the ACL's own busy
+// window, confirmed live at roughly 18 seconds after an earlier write.
+// wrapACLPutFailure classifies the PUT's own failure: a busy 400 there (the
+// server naming the ACL busy) wraps ErrBusy, since that single attempt was
+// rejected outright and nothing changed; any other 4xx is returned as is; a
+// 5xx, a network error, or a timeout may have reached the server, so it
+// wraps ErrNotSettled instead, since whether the ACL changed is unknown.
 func (c *Client) putACLRulesAndConfirm(ctx context.Context, op, networkACLID string, entries []aclRuleEntry, base *ACL, noWait bool) (*ACL, error) {
 	recheck, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: networkACLID})
 	if err != nil {
@@ -485,9 +505,10 @@ func (c *Client) putACLRulesAndConfirm(ctx context.Context, op, networkACLID str
 		URL:       c.networkURL([]string{projectID, "network-acl", networkACLID, "rules"}, nil),
 		Body:      aclRulesReplaceBody{ACLID: networkACLID, DetailACLRuleList: entries},
 		OK:        []int{200},
+		Once:      true,
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, wrapACLBusyErr(err)
+		return nil, wrapACLPutFailure(op, networkACLID, err)
 	}
 	if noWait {
 		fallback := *base

@@ -108,7 +108,10 @@ may already exist for a reason having nothing to do with that failed call.
 `DeleteNetworkACL` reads the ACL first and sends nothing when it is a
 project's default ACL (`network.ErrDefaultResource`) or still has an
 associated subnet (`network.ErrInUse`); disassociate every subnet first. A
-`204` confirms the delete; there is no wait either.
+`204` confirms the delete; there is no wait either. A `DELETE` sent into
+the ACL's own busy window (see [Rules](#rules)) gets a `400` naming the ACL
+busy, which this SDK maps to `network.ErrBusy` the same way the rules and
+subnets `PUT` do.
 
 ## Rules
 
@@ -127,8 +130,12 @@ the moment the `PUT` reaches the server can still be overwritten by it.
 
 Confirmed live, an ACL stays busy for roughly 18 seconds after a rules or
 subnets write settles, and a write sent into that window gets a `400` with
-a message naming the ACL busy; this SDK maps that to `network.ErrBusy` too,
-since the write was rejected outright and changed nothing.
+a message naming the ACL busy. The rules and subnets `PUT` are each sent
+once and never retried by the transport, so a retry can never land in that
+window: a busy `400` on that single attempt maps to `network.ErrBusy`,
+since it was rejected outright and changed nothing, while a `5xx`, a
+network error, or a timeout maps to `network.ErrNotSettled` instead, since
+that attempt may already have reached the server.
 
 A rule is keyed by `Direction` (case-insensitive) and `Priority`.
 `AddNetworkACLRule` of a rule already present with every other field equal
@@ -175,12 +182,13 @@ otherwise (a range sends `"53-54"`, every port `"0-65535"`).
 with `vngcloud.ErrInvalidInput`. `"icmp"` accepts that same full range, or
 `PortRangeMin` `0` and `PortRangeMax` `0` together, the server's own "every
 ICMP" port value (sent as `"0"`); any other pair is refused the same way.
-`"tcp"` and `"udp"` accept any pair in range, including `0` and `0`
-together, sent to the server exactly as given: for these two protocols
-there is no "every port" pairing to require, so a caller wanting every tcp
-or udp port sends `PortRangeMin` `0` and `PortRangeMax` `65535` explicitly.
-`CIDR` must be a CIDR prefix with no host bits set. The SDK never defaults
-`Action`, `Protocol`, or `CIDR`.
+`"tcp"` and `"udp"` need an explicit port or range: `PortRangeMin` and
+`PortRangeMax` left at `0` and `0` together is refused with
+`vngcloud.ErrInvalidInput` before any request, since that pairing is never
+live-verified to mean a single port rather than every port. A caller
+wanting every tcp or udp port sends `PortRangeMin` `0` and `PortRangeMax`
+`65535` explicitly. `CIDR` must be a CIDR prefix with no host bits set. The
+SDK never defaults `Action`, `Protocol`, or `CIDR`.
 
 ## Subnet associations
 

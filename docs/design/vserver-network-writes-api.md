@@ -75,11 +75,12 @@ neither, except `zoneId` on subnet create.
 - Route table create (live): `name`, `networkId` (the VPC), and optional
   `routes`, which the SDK leaves out. Route replace (inferred): `routes`,
   the whole list, each `destinationCidrBlock` and `target`.
-- ACL create (live): `name`, `vpc`. Rules replace (inferred): `aclId` and
+- ACL create (live): `name`, `vpc`. Rules replace (live): `aclId` and
   `detailAclRuleList`, the whole list, each `type`, `seqNumber`,
   `protocol`, `port` (a string), `source`, `action`, `system`, and
-  `interfaceAclPolicyUuid`. Subnets replace (inferred): `aclId` and
-  `subnetUuids`, the whole list.
+  `interfaceAclPolicyUuid`; the probes exercised this shape directly (see
+  the live facts under [Server rules](#server-rules-from-the-product-docs)).
+  Subnets replace (inferred): `aclId` and `subnetUuids`, the whole list.
 
 ## Responses
 

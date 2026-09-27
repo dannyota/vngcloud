@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -129,7 +130,6 @@ func TestAddNetworkACLRuleProtocolAndPortEncoding(t *testing.T) {
 	}{
 		{"tcp single port", "TCP", 22, 22, "tcp", "22"},
 		{"udp port range", "Udp", 53, 54, "udp", "53-54"},
-		{"tcp both ports zero sends explicit 0", "tcp", 0, 0, "tcp", "0"},
 		{"icmp zero", "ICMP", 0, 0, "icmp", "0"},
 		{"icmp full range", "icmp", 0, 65535, "icmp", "0-65535"},
 		{"any lowercase input sends uppercase ANY", "any", 0, 65535, "ANY", "0-65535"},
@@ -190,9 +190,11 @@ func TestAddNetworkACLRuleBadProtocol(t *testing.T) {
 }
 
 // TestAddNetworkACLRuleProtocolPortRestrictionsRefused checks the port
-// range each protocol requires: "ANY" must be the full range, and "icmp"
-// must be the full range or 0 and 0 together; any other pair is refused
-// before any request.
+// range each protocol requires: "ANY" must be the full range, "icmp" must
+// be the full range or 0 and 0 together, and "tcp" and "udp" must not
+// leave both PortRangeMin and PortRangeMax at 0, which sends a literal
+// port "0" that may mean every port; any other pair is refused before any
+// request.
 func TestAddNetworkACLRuleProtocolPortRestrictionsRefused(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -203,6 +205,8 @@ func TestAddNetworkACLRuleProtocolPortRestrictionsRefused(t *testing.T) {
 		{"any zero-zero refused", "any", 0, 0},
 		{"icmp arbitrary port refused", "icmp", 22, 22},
 		{"icmp partial range refused", "ICMP", 0, 100},
+		{"tcp zero-zero refused", "tcp", 0, 0},
+		{"udp zero-zero refused", "UDP", 0, 0},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -651,5 +655,140 @@ func TestAddNetworkACLRulePUTBusyMapsToErrBusy(t *testing.T) {
 	}
 	if out != nil {
 		t.Fatalf("out = %+v, want nil: nothing was changed", out)
+	}
+}
+
+// TestAddNetworkACLRulePUT5xxNotSettledSingleAttempt checks that the rules
+// PUT is sent with Once true: a 502, 503, or 504 is never retried by the
+// transport, which could otherwise land a second attempt in the ACL's own
+// roughly 18-second busy window and be misread as ErrBusy when the first
+// attempt may already have reached the server. Such a failure wraps
+// ErrNotSettled instead, never ErrBusy.
+func TestAddNetworkACLRulePUT5xxNotSettledSingleAttempt(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var putCalls atomic.Int64
+			c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+				case http.MethodPut:
+					putCalls.Add(1)
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(`{"message":"upstream error"}`))
+				default:
+					t.Fatalf("unexpected method %s", r.Method)
+				}
+			})))
+
+			out, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+				NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "tcp", CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+			})
+			if !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("err = %v, want ErrNotSettled", err)
+			}
+			if errors.Is(err, ErrBusy) {
+				t.Fatalf("err = %v, must not also be ErrBusy: the PUT may have reached the server", err)
+			}
+			if out != nil {
+				t.Fatalf("out = %+v, want nil: whether the write landed is unknown", out)
+			}
+			if putCalls.Load() != 1 {
+				t.Fatalf("PUT calls = %d, want exactly 1: Once must stop the transport from retrying a %d", putCalls.Load(), status)
+			}
+		})
+	}
+}
+
+// TestAddNetworkACLRulePUT404SurfacesNotFound checks that a plain 404 on
+// the rules PUT, unlike a busy 400 or a 5xx, is returned as is: it is a 4xx
+// the server rejected outright, so it is not wrapped in ErrBusy or
+// ErrNotSettled.
+func TestAddNetworkACLRulePUT404SurfacesNotFound(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+		NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "tcp", CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+	})
+	if !core.IsNotFound(err) {
+		t.Fatalf("err = %v, want core.ErrNotFound", err)
+	}
+	if errors.Is(err, ErrBusy) || errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, must not be ErrBusy or ErrNotSettled: a plain 404 is a clean rejection", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %+v, want nil", out)
+	}
+}
+
+// TestAddNetworkACLRuleNoOpComparesParsedCIDRAndFoldedAction checks that an
+// existing rule's CIDR and Action are compared to the caller's own as a
+// parsed prefix and a case-folded value, not as raw strings, so an
+// equivalent but differently spelled CIDR or Action is still a no-op
+// instead of a false ErrInvalidInput conflict.
+func TestAddNetworkACLRuleNoOpComparesParsedCIDRAndFoldedAction(t *testing.T) {
+	existing := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "ANY", Port: "0-65535", Source: "2001:db8::/32", Action: "pass"}
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{existing}, nil)))
+		default:
+			t.Fatalf("unexpected method %s: an equivalent CIDR and Action must be a no-op, no PUT", r.Method)
+		}
+	}))
+
+	out, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+		NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "any",
+		CIDR: "2001:DB8::/32", Action: "PASS", PortRangeMin: 0, PortRangeMax: 65535,
+	})
+	if err != nil {
+		t.Fatalf("AddNetworkACLRule() error = %v", err)
+	}
+	if out.Changed {
+		t.Fatal("Changed = true, want false: an equivalent CIDR and Action must be a no-op")
+	}
+}
+
+// TestAddNetworkACLRuleSendsCanonicalCIDR checks that a new rule's CIDR is
+// sent in its canonical net/netip.Prefix form, not the caller's own
+// spelling, so a rerun and the post-write confirm compare like for like.
+func TestAddNetworkACLRuleSendsCanonicalCIDR(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case http.MethodPut:
+			body := decodeBody(t, r)
+			rules, _ := body["detailAclRuleList"].([]any)
+			entry, _ := rules[0].(map[string]any)
+			if entry["source"] != "2001:db8::/32" {
+				t.Fatalf("source in body = %v, want the canonical 2001:db8::/32", entry["source"])
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	_, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+		NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "ANY",
+		CIDR: "2001:DB8::/32", Action: "pass", PortRangeMin: 0, PortRangeMax: 65535, NoWait: true,
+	})
+	if err != nil {
+		t.Fatalf("AddNetworkACLRule() error = %v", err)
 	}
 }

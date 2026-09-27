@@ -38,9 +38,31 @@
         "interfaceAclPolicyUuid": "acl-1",
         "protocol": "tcp",
         "type": "inbound",
-        "port": "443-443",
+        "port": "443",
         "source": "<cidr>",
         "action": "pass"
+      },
+      {
+        "uuid": "aclr-4",
+        "seqNumber": 2000,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "interfaceAclPolicyUuid": "acl-1",
+        "protocol": "ANY",
+        "type": "inbound",
+        "port": "0-65535",
+        "source": "0.0.0.0/0",
+        "action": "deny"
+      },
+      {
+        "uuid": "aclr-5",
+        "seqNumber": 2000,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "interfaceAclPolicyUuid": "acl-1",
+        "protocol": "ANY",
+        "type": "outbound",
+        "port": "0-65535",
+        "source": "0.0.0.0/0",
+        "action": "deny"
       }
     ]
   }

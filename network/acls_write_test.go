@@ -99,14 +99,23 @@ func TestGetNetworkACLDecodesFixture(t *testing.T) {
 	if len(acl.SubnetIDs) != 2 || acl.SubnetIDs[0] != "subnet-1" || acl.SubnetIDs[1] != "subnet-2" {
 		t.Fatalf("SubnetIDs = %+v, want [subnet-1 subnet-2]", acl.SubnetIDs)
 	}
-	if len(acl.Rules) != 3 {
-		t.Fatalf("Rules = %+v, want 3 entries", acl.Rules)
+	if len(acl.Rules) != 5 {
+		t.Fatalf("Rules = %+v, want 5 entries (pass-all in/out, the user rule, deny-all in/out)", acl.Rules)
 	}
 	if acl.Rules[0].Priority != 0 || acl.Rules[0].Direction != "inbound" || acl.Rules[0].Action != "pass" {
-		t.Fatalf("default rule = %+v, unexpected", acl.Rules[0])
+		t.Fatalf("default pass-all rule = %+v, unexpected", acl.Rules[0])
 	}
-	if acl.Rules[2].Priority != 100 || acl.Rules[2].Protocol != "tcp" || acl.Rules[2].Port != "443-443" {
+	if acl.Rules[2].Priority != 100 || acl.Rules[2].Protocol != "tcp" || acl.Rules[2].Port != "443" {
 		t.Fatalf("user rule = %+v, unexpected", acl.Rules[2])
+	}
+	for _, i := range []int{3, 4} {
+		if acl.Rules[i].Priority != 2000 || acl.Rules[i].Protocol != "ANY" || acl.Rules[i].Port != "0-65535" ||
+			acl.Rules[i].CIDR != "0.0.0.0/0" || acl.Rules[i].Action != "deny" {
+			t.Fatalf("default deny-all rule = %+v, unexpected", acl.Rules[i])
+		}
+	}
+	if acl.Rules[3].Direction != "inbound" || acl.Rules[4].Direction != "outbound" {
+		t.Fatalf("deny-all rules directions = %q, %q, want inbound, outbound", acl.Rules[3].Direction, acl.Rules[4].Direction)
 	}
 }
 
@@ -430,6 +439,30 @@ func TestDeleteNetworkACL500ListFailureReturnsOriginal500(t *testing.T) {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
 		t.Fatalf("err = %v, want the original 500 *core.APIError: the list call itself failed", err)
+	}
+}
+
+// TestDeleteNetworkACLBusyMapsToErrBusy checks the busy window confirmed
+// live: a DELETE sent while the ACL is still busy from a previous write
+// returns 400 with a message naming the ACL busy; this SDK maps that to
+// ErrBusy, the same way the rules and subnets PUT do.
+func TestDeleteNetworkACLBusyMapsToErrBusy(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is busy doing something"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
 	}
 }
 

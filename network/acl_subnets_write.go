@@ -173,8 +173,11 @@ type aclSubnetsReplaceBody struct {
 // those subnets to base.SubnetIDs; see putACLRulesAndConfirm's doc comment
 // for why a mismatch sends nothing and returns an error wrapping ErrBusy
 // instead, for the narrower race that remains after the PUT itself is
-// sent, and for wrapACLBusyErr, which maps the PUT's own busy-window
-// refusal to ErrBusy the same way here as there.
+// sent, and for wrapACLPutFailure, which classifies the PUT's own failure
+// the same way here as there: Once true so a retry can never land in the
+// busy window, a busy 400 on that single attempt wraps ErrBusy, any other
+// 4xx is returned as is, and a 5xx, a network error, or a timeout wraps
+// ErrNotSettled instead.
 func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID string, subnetIDs []string, base *ACL, noWait bool) (*ACL, error) {
 	recheck, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: networkACLID})
 	if err != nil {
@@ -195,9 +198,10 @@ func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID s
 		URL:       c.networkURL([]string{projectID, "network-acl", networkACLID, "subnets"}, nil),
 		Body:      aclSubnetsReplaceBody{ACLID: networkACLID, SubnetUUIDs: subnetIDs},
 		OK:        []int{200},
+		Once:      true,
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, wrapACLBusyErr(err)
+		return nil, wrapACLPutFailure(op, networkACLID, err)
 	}
 	if noWait {
 		fallback := *base

@@ -32,18 +32,31 @@ const routeTableWaitBound = 3 * time.Minute
 var (
 	// ErrDefaultResource means a write targeted a resource the SDK itself
 	// refuses to change or delete while some other part of the account
-	// still relies on it, such as a VPC's main route table while a subnet
-	// names no route table of its own. The server itself allows deleting a
-	// main route table once no subnet depends on it; this refusal is the
-	// SDK's own guard, not a limit the server enforces. Nothing was sent.
+	// still relies on it: a VPC's main route table while a subnet names no
+	// route table of its own, a network ACL that is a project's default ACL
+	// (acls_write.go), or one of an ACL's own default rules, priority 2000
+	// or above or decoded System true (acl_rules_write.go). The server
+	// itself allows deleting a main route table once no subnet depends on
+	// it, and does not protect a new ACL's priority-0 pass-all rules the
+	// same way it protects the priority-2000 ones; these refusals are the
+	// SDK's own guard, not a limit the server enforces everywhere. Nothing
+	// was sent.
 	ErrDefaultResource = errors.New("network: default resource")
 
-	// ErrBusy means AddRoute or RemoveRoute stopped before sending
-	// anything: either the table was not ACTIVE and did not reach ACTIVE
-	// within the pre-write bound, or a re-read taken immediately before
-	// the write found the table's routes had already changed since the
-	// call's own earlier read. Nothing was sent; the caller may run the
-	// same call again.
+	// ErrBusy means a route table or network ACL write found the resource
+	// not ready, or refused to send a stale merge. For AddRoute and
+	// RemoveRoute it means the table was not ACTIVE within the pre-write
+	// bound, or a re-read taken immediately before the write found the
+	// table's routes had already changed since the call's own earlier
+	// read; both send nothing. AddNetworkACLRule, RemoveNetworkACLRule,
+	// AssociateNetworkACLSubnet, and DisassociateNetworkACLSubnet
+	// (acl_rules_write.go, acl_subnets_write.go) return it the same way for
+	// an ACL, and DeleteNetworkACL too (acls_write.go); each of those also
+	// wraps ErrBusy when their own PUT or DELETE, sent once and never
+	// retried, gets the server's own 400 for an ACL still busy settling an
+	// earlier write. That single attempt reached the server and was
+	// refused outright, so nothing changed, even though a request did go
+	// out; every other case here sends nothing at all.
 	ErrBusy = errors.New("network: resource busy")
 )
 

@@ -225,8 +225,8 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
 
 ### Rules replace
 
-`PUT .../rules` replaces the whole list. Add and remove follow the steps of
-[Routes replace](#routes-replace), with these differences:
+`PUT .../rules` replaces the whole list, sent `Once` unlike a routes
+replace. Add and remove otherwise follow [Routes replace](#routes-replace):
 
 - A rule is keyed by direction (case-insensitive) and priority. Add with
   the same key and the same fields: `Changed` false. Same key, other
@@ -306,9 +306,10 @@ writes, have no wait: their responses are final.
   are not (live), so a subnet is matched by CIDR, which the server keeps
   unique within a VPC; a rerun with the same CIDR cannot make a second one.
 - Updates, replaces, and deletes keep the transport's retries, except the
-  Private DNS `PATCH` (`Once`). A retried delete that finds the resource
-  gone returns `NotFound`; subnet and ACL deletes confirm by list instead,
-  as above.
+  Private DNS `PATCH` and the ACL rules and subnets `PUT`s (`Once`): an ACL
+  PUT's own busy 400 is `ErrBusy`, any other failure `ErrNotSettled`. A
+  retried delete that finds the resource gone returns `NotFound`; subnet
+  and ACL deletes confirm by list instead, as above.
 - The CLI never retries a write.
 
 ## CLI

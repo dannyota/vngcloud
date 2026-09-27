@@ -136,6 +136,54 @@ func TestAddRouteAlreadyPresentCanonicalDestinationNoOp(t *testing.T) {
 	}
 }
 
+func TestAddRouteAlreadyPresentCanonicalTargetNoOp(t *testing.T) {
+	// "2001:DB8::10" and "2001:db8::10" name the same address, so this must
+	// be treated the same as an exact-text match: a no-op, no PUT.
+	existing := routeEntry{DestinationCIDRBlock: "2001:db8::/32", Target: "2001:DB8::10"}
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(routeTableJSON("rt-2", "custom", "ACTIVE", []routeEntry{existing})))
+		default:
+			t.Fatalf("unexpected method %s: an equivalent target must send no PUT", r.Method)
+		}
+	}))
+
+	out, err := c.AddRoute(context.Background(), &AddRouteInput{RouteTableID: "rt-2", DestinationCIDR: "2001:db8::/32", Target: "2001:db8::10"})
+	if err != nil {
+		t.Fatalf("AddRoute() error = %v", err)
+	}
+	if out.Changed {
+		t.Fatal("Changed = true, want false")
+	}
+}
+
+func TestAddRouteSendsCanonicalDestinationAndTarget(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(routeTableJSON("rt-2", "custom", "ACTIVE", nil)))
+		case http.MethodPut:
+			body := decodeBody(t, r)
+			routes, _ := body["routes"].([]any)
+			entry, _ := routes[0].(map[string]any)
+			if entry["destinationCidrBlock"] != "2001:db8::/32" || entry["target"] != "2001:db8::10" {
+				t.Fatalf("route in body = %+v, want the canonical destination and target", entry)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	_, err := c.AddRoute(context.Background(), &AddRouteInput{RouteTableID: "rt-2", DestinationCIDR: "2001:DB8::/32", Target: "2001:DB8::10", NoWait: true})
+	if err != nil {
+		t.Fatalf("AddRoute() error = %v", err)
+	}
+}
+
 func TestAddRouteConflictingTargetErrInvalidInput(t *testing.T) {
 	existing := routeEntry{DestinationCIDRBlock: "10.251.200.0/24", Target: "10.251.200.10"}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

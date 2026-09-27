@@ -64,11 +64,26 @@ func canonicalCIDR(cidr string) string {
 	return prefix.String()
 }
 
-// canonicalRouteEntry returns e with its destination passed through
-// canonicalCIDR, for comparisons that must treat equivalent spellings of
-// the same prefix as the same route.
+// canonicalTarget returns target's canonical net/netip.Addr string, so
+// spellings that name the same address, such as an IPv6 address in upper
+// and lower case, compare equal. A value that does not parse as an address
+// is returned unchanged, so a comparison against it falls back to a raw
+// string match.
+func canonicalTarget(target string) string {
+	addr, err := netip.ParseAddr(target)
+	if err != nil {
+		return target
+	}
+	return addr.String()
+}
+
+// canonicalRouteEntry returns e with its destination and target passed
+// through canonicalCIDR and canonicalTarget, for comparisons that must
+// treat equivalent spellings of the same prefix or address as the same
+// route.
 func canonicalRouteEntry(e routeEntry) routeEntry {
 	e.DestinationCIDRBlock = canonicalCIDR(e.DestinationCIDRBlock)
+	e.Target = canonicalTarget(e.Target)
 	return e
 }
 
@@ -156,10 +171,13 @@ type AddRouteOutput struct {
 // match the read this merge started from; see putRoutesAndConfirm.
 //
 // A route already present for DestinationCIDR (compared as a parsed CIDR
-// prefix, so equivalent spellings match) with the same Target makes
-// AddRoute a no-op: Changed is false and nothing is sent. One present with
-// a different Target fails with core.ErrInvalidInput naming that target,
-// nothing sent; RemoveRoute the old route first.
+// prefix, so equivalent spellings match) with the same Target (compared as
+// a parsed address the same way) makes AddRoute a no-op: Changed is false
+// and nothing is sent. One present with a different Target fails with
+// core.ErrInvalidInput naming that target, nothing sent; RemoveRoute the
+// old route first. AddRoute sends DestinationCIDR and Target in their
+// canonical parsed form, so a rerun and the post-write confirm compare like
+// for like.
 //
 // Without NoWait, AddRoute waits for the table to return to ACTIVE after
 // its PUT, then confirms that a fresh read names exactly the routes just
@@ -191,17 +209,18 @@ func (c *Client) AddRoute(ctx context.Context, in *AddRouteInput) (*AddRouteOutp
 
 	entries := routeEntriesOf(table.Routes)
 	wantCIDR := canonicalCIDR(in.DestinationCIDR)
+	wantTarget := canonicalTarget(in.Target)
 	for _, e := range entries {
 		if canonicalCIDR(e.DestinationCIDRBlock) != wantCIDR {
 			continue
 		}
-		if e.Target == in.Target {
+		if canonicalTarget(e.Target) == wantTarget {
 			return &AddRouteOutput{RouteTable: *table, Changed: false}, nil
 		}
 		return nil, fmt.Errorf("%w: %s: route table %s already has a route to %s with target %s; remove it first",
 			core.ErrInvalidInput, op, in.RouteTableID, in.DestinationCIDR, e.Target)
 	}
-	entries = append(entries, routeEntry{DestinationCIDRBlock: in.DestinationCIDR, Target: in.Target})
+	entries = append(entries, routeEntry{DestinationCIDRBlock: wantCIDR, Target: wantTarget})
 
 	updated, err := c.putRoutesAndConfirm(ctx, op, in.RouteTableID, entries, table, in.NoWait)
 	if updated == nil {
