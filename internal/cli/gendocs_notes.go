@@ -488,6 +488,8 @@ var docOpNotes = map[string]string{
 	"volume list-snapshots":                   volumeShapeUnverifiedNote,
 	"volume get-default-volume-type":          volumeGetDefaultVolumeTypeNote,
 	"volume quote-create-volume":              volumeQuoteCreateVolumeNote,
+	"volume create-volume":                    volumeCreateVolumeNote,
+	"volume delete-volume":                    volumeDeleteVolumeNote,
 	"loadbalancer get-load-balancer":          loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-certificate":            certificateShapeUnverifiedNote,
 	"loadbalancer list-listeners":             loadBalancerShapeUnverifiedNote,

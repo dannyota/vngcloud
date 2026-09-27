@@ -45,11 +45,12 @@ func TestGoldenVolumeGetVolume(t *testing.T) {
 }
 
 // TestVolumeCommandsMatchDesignTable checks the CLI reads design's "volume"
-// table plus the vServer paid writes design's P1 additions
-// (list-volumes-by-server, get-default-volume-type, and quote-create-volume),
-// each with the flags actually visible on its command line: NoFlag'd fields
-// (MaxPrice and NoWait on quote-create-volume) are filtered out here the
-// same way newOpCmd filters them for the real command.
+// table plus the vServer paid writes design's additions
+// (list-volumes-by-server, get-default-volume-type, quote-create-volume,
+// create-volume, and delete-volume), each with the flags actually visible on
+// its command line: NoFlag'd fields (MaxPrice and NoWait on
+// quote-create-volume) are filtered out here the same way newOpCmd filters
+// them for the real command.
 func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
 		"list-volumes":            {"name", "page", "size"},
@@ -64,6 +65,8 @@ func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 		"list-snapshots":          {"volume-id", "page", "size"},
 		"list-all-snapshots":      nil,
 		"quote-create-volume":     {"name", "zone-id", "size", "volume-type-id", "auto-renew"},
+		"create-volume":           {"name", "zone-id", "size", "volume-type-id", "auto-renew", "max-price", "no-wait"},
+		"delete-volume":           {"volume-id", "no-wait"},
 	}
 	if got := opNames(volumeOps); len(got) != len(wantFlags) {
 		t.Fatalf("volume ops = %v, want %d commands", got, len(wantFlags))

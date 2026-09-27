@@ -348,8 +348,10 @@ func renderCLIPage(services []docService) string {
 		"dnsStatus it does not know how to act on, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
-		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
-		"create wait saw the group reach `ERROR`; see [Network](Network.md#waits)), `NotSettled` (a vDNS " +
+		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
+		"create wait saw the group reach `ERROR`, or a volume create-volume's or delete-volume's own " +
+		"post-write wait saw the volume reach `ERROR`; see [Network](Network.md#waits) and " +
+		"[Volume](CLI-Volume.md#create-volume)), `NotSettled` (a vDNS " +
 		"write was accepted but did not settle within the wait, a network create-security-group's or " +
 		"update-security-group's wait ran out of time: a create must not be sent again, since a repeat " +
 		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
@@ -363,10 +365,15 @@ func renderCLIPage(services []docService) string {
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
+		"or a volume create-volume or delete-volume whose wait ran out of time or otherwise " +
+		"failed to read back: create-volume must not be sent again, since the volume exists, but " +
+		"delete-volume already reads first and is safe to run again; see " +
+		"[Volume](CLI-Volume.md#create-volume)), `VolumeInUse` (a volume delete-volume was refused " +
+		"because a pre-delete read showed the volume attached to a server, before any request), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
-		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
-		"order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
+		"sent), `PriceAboveMax` (create-log-project's or volume create-volume's own quote priced its " +
+		"order above --max-price, so no order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
 		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemSecurityGroup` " +
@@ -408,7 +415,7 @@ func renderCLIPage(services []docService) string {
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, and `SecretFileFailed` all exit 1.\n\n")
+		"`UserNotFound`, `SecretFileFailed`, and `VolumeInUse` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

@@ -2,6 +2,45 @@
 
 # CLI: Volume
 
+## create-volume
+
+Kind: Write.
+
+Orders nothing above --max-price, default 0: a bare create-volume orders only a free volume, and the smallest real SSD volume already prices above that, so it always refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, a volume already named --name exactly. The order itself is never retried after a failure that may have already reached the server; list volumes by name before ordering again rather than repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `--volume-type-id` | `string` | yes |
+| `--auto-renew` | `bool` |  |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
+```
+
+## delete-volume
+
+Kind: Write, destructive.
+
+Destroys the volume's data; there is no undo. Refuses, before any request, with error code VolumeInUse when a pre-delete read shows the volume attached to a server; detach it first. Without --no-wait, waits up to 5 minutes for the volume to reach 404 or DELETED; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command reads the volume first every time.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume delete-volume --volume-id <volume-id> --yes
+```
+
 ## get-default-volume-type
 
 Kind: Read.

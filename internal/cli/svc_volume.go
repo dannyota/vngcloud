@@ -41,6 +41,13 @@ var volumeOps = []Op[volume.Client]{
 	Read[volume.Client, volume.CreateVolumeInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateVolume"), (*volume.Client).QuoteCreateVolume,
 		NoFlag("MaxPrice", "NoWait")),
+	// CreateVolume is Write but not Destructive: per the paid writes design,
+	// --max-price is its own consent, and the default of 0 already orders
+	// nothing since the quote guard refuses any priced order above it.
+	Write[volume.Client, volume.CreateVolumeInput, volume.CreateVolumeOutput](
+		kebab("CreateVolume"), (*volume.Client).CreateVolume),
+	Write[volume.Client, volume.DeleteVolumeInput, volume.DeleteVolumeOutput](
+		kebab("DeleteVolume"), (*volume.Client).DeleteVolume, Destructive()),
 }
 
 func newVolumeCmd(e *env) *cobra.Command {

@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/volume"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -85,8 +86,10 @@ type errorEnvelope struct {
 // on), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
-// sent), WriteFailed (a vDNS write reached status ERROR, or a network
-// security group create's post-create wait saw the group reach ERROR),
+// sent), WriteFailed (a vDNS write reached status ERROR, a network
+// security group create's post-create wait saw the group reach ERROR, or
+// a vServer volume write's post-write wait, such as create-volume's or
+// delete-volume's, saw the volume reach ERROR),
 // NotSettled (a vDNS write was accepted but did not settle within the
 // post-write wait, or a network create-security-group's or
 // update-security-group's wait ran out of time: a create must not be sent
@@ -100,7 +103,13 @@ type errorEnvelope struct {
 // a rerun is safe, or an iam create-policy or update-policy whose write
 // reached the server but its own confirm read failed: create-policy must
 // not be sent again, since a repeat risks a second policy, but
-// update-policy may be sent again the same way), RepositoryNotEmpty (a
+// update-policy may be sent again the same way, or a volume create-volume
+// or delete-volume whose wait ran out of time or otherwise failed to read
+// back: create-volume must not be sent again, since the volume exists, but
+// delete-volume already reads first and is safe to run again),
+// VolumeInUse (a volume delete-volume was refused because a pre-delete
+// read showed the volume attached to a server, before any request),
+// RepositoryNotEmpty (a
 // containerregistry delete-repository was refused because a pre-delete
 // read showed the repository still holds images), UserNotFound (a
 // containerregistry create-user's own create succeeded but a follow-up
@@ -109,8 +118,8 @@ type errorEnvelope struct {
 // create-channel or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (a paid write's own quote priced
-// the order above --max-price, so nothing was sent; today only
-// create-log-project reaches this),
+// the order above --max-price, so nothing was sent; create-log-project and
+// volume create-volume both reach this),
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
 // because its target holds, or would gain, an IAM write right, before any
@@ -167,7 +176,10 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
-	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) {
+	// volume.ErrFailed joins dns.ErrFailed and network.ErrFailed here: a
+	// vServer paid write's own post-write wait (create, delete, resize,
+	// attach, or detach) reaching ERROR reports the same WriteFailed class.
+	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled, and
@@ -177,10 +189,19 @@ func classify(err error) errorEnvelope {
 	// containerregistry wait, and CreatePolicy's and UpdatePolicy's own
 	// confirm GetPolicy read, can each wrap an inner *core.APIError or a
 	// canceled context, and this check must win over the generic *APIError
-	// branch below.
+	// branch below. volume.ErrNotSettled joins them for the same vServer
+	// paid write wait bound reason ErrFailed does above.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) {
+		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, volume.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	// volume.ErrVolumeInUse is always returned bare, from DeleteVolume's own
+	// pre-delete read, never wrapping a server response; it joins this early
+	// group anyway for the same reason containerregistry.ErrRepositoryNotEmpty
+	// does just below: consistent placement ahead of the generic *APIError
+	// branch.
+	if errors.Is(err, volume.ErrVolumeInUse) {
+		return errorEnvelope{Code: "VolumeInUse", Message: err.Error()}
 	}
 	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
 	// delete-repository's own pre-delete image count check, never wrapping a
@@ -372,7 +393,8 @@ func exitCode(err error) int {
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
-		errors.Is(err, monitor.ErrOTPRejected) {
+		errors.Is(err, monitor.ErrOTPRejected) ||
+		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
