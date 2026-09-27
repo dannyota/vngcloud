@@ -49,6 +49,9 @@ func buildCreateVolumeBody(op string, in *CreateVolumeInput) (createVolumeBody, 
 	if err := core.CheckRequired(op, in); err != nil {
 		return createVolumeBody{}, err
 	}
+	if in.Size <= 0 {
+		return createVolumeBody{}, fmt.Errorf("%w: %s: Size must be greater than 0, got %d", core.ErrInvalidInput, op, in.Size)
+	}
 	if err := core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID); err != nil {
 		return createVolumeBody{}, err
 	}
@@ -118,10 +121,14 @@ type createVolumeResponse struct {
 // 0). A quote response missing optimumPrice is itself an error from
 // pricing.GetQuote, never a silent price of 0.
 //
-// The order is a POST and is never retried after a failure that may have
-// already reached the server: after any error that is not a 4xx
-// *core.APIError, the volume may exist, and the caller lists volumes by
-// Name and matches it exactly before ordering again.
+// The order is sent with transport.Request.Once (ADR 0003) and is never
+// retried after a failure that may have already reached the server: Once
+// also stops a 401 from being retried with a refreshed token and stops
+// net/http from replaying a 307 or 308 redirect's method and body at the
+// Location it names, either of which would otherwise resend this create.
+// After any error that is not a 4xx *core.APIError, the volume may exist,
+// and the caller lists volumes by Name and matches it exactly before
+// ordering again.
 //
 // Without NoWait, CreateVolume waits up to 5 minutes, polling GetVolume
 // every 2 seconds, for the new volume to reach AVAILABLE. A 404 during that
@@ -176,6 +183,11 @@ func (c *Client) CreateVolume(ctx context.Context, in *CreateVolumeInput) (*Crea
 		URL:       c.volumeURL("v2", []string{projectID, "volumes"}, nil),
 		Body:      body,
 		OK:        []int{202},
+		// Once (ADR 0003): without it, a 401 would be retried once with a
+		// refreshed token, and net/http would replay a 307 or 308 redirect's
+		// method and body at the Location it names, either sending this
+		// create a second time. A create must never be resent.
+		Once: true,
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
@@ -214,34 +226,19 @@ func wrapAmbiguousVolumeCreateErr(op string, err error) error {
 }
 
 // refuseIfVolumeNameExists refuses to order a volume named name when one
-// already exists on the account, before any pricing or order request.
+// already exists on the account, before any pricing or order request. It
+// sends name as the list's own filter, which lowers how many pages a walk
+// needs but is not trusted for the match itself, since that filter's
+// matching behavior (exact vs. substring) is unconfirmed; every item is
+// still checked for an exact Name match. It fails closed, refusing the
+// create, when the filtered list's own page metadata cannot prove the walk
+// saw every matching volume.
 func (c *Client) refuseIfVolumeNameExists(ctx context.Context, op, name string) error {
-	existing, err := c.findVolumeByName(ctx, name)
-	if err != nil {
-		return err
-	}
-	if existing != nil {
-		return fmt.Errorf("%w: %s: a volume named %q already exists", core.ErrInvalidInput, op, name)
-	}
-	return nil
-}
-
-// findVolumeByName returns the volume named exactly name from one
-// ListVolumes read, or nil if none matches. It scans every returned item for
-// an exact Name match rather than trusting the list's own name filter to
-// match exactly, since that filter's matching behavior (exact vs.
-// substring) is unconfirmed.
-func (c *Client) findVolumeByName(ctx context.Context, name string) (*Volume, error) {
-	out, err := c.ListVolumes(ctx, &ListVolumesInput{Name: name})
-	if err != nil {
-		return nil, err
-	}
-	for i := range out.Items {
-		if out.Items[i].Name == name {
-			return &out.Items[i], nil
-		}
-	}
-	return nil, nil
+	return core.CheckNoDuplicateName(op, "volume", name,
+		func(v Volume) string { return v.Name },
+		func(page int) (*core.PagedList[Volume], error) {
+			return c.ListVolumes(ctx, &ListVolumesInput{Name: name, Page: page, Size: core.DefaultPageSize})
+		})
 }
 
 // waitVolumeAvailable is CreateVolume's post-create wait unless NoWait is

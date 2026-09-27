@@ -79,6 +79,24 @@ func TestQuoteCreateVolumeRequiresFields(t *testing.T) {
 	}
 }
 
+// TestQuoteCreateVolumeRejectsNonPositiveSize checks that a zero or
+// negative Size refuses before any request: CheckRequired already catches
+// 0 through the vngcloud:"required" tag, so this exercises the explicit
+// check that also catches a negative value, which CheckRequired's
+// zero-value test cannot.
+func TestQuoteCreateVolumeRejectsNonPositiveSize(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, size := range []int{0, -1, -10} {
+		if _, err := c.QuoteCreateVolume(context.Background(), &CreateVolumeInput{
+			Name: "vol-1", ZoneID: "zone-1", Size: size, VolumeTypeID: "voltype-1",
+		}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("Size=%d: err = %v, want ErrInvalidInput", size, err)
+		}
+	}
+}
+
 func TestQuoteCreateVolumeRejectsBadVolumeTypeID(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
