@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md", "CLI-GlobalLoadBalancer.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-IAM.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md", "CLI-GlobalLoadBalancer.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -69,6 +69,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Billing.md", opNames(billingOps))
 	check("CLI-Pricing.md", opNames(pricingOps))
 	check("CLI-Compute.md", opNames(computeOps))
+	check("CLI-IAM.md", opNames(iamOps))
 	check("CLI-Network.md", opNames(networkOps))
 	check("CLI-DNS.md", opNames(dnsOps))
 	check("CLI-CDN.md", opNames(cdnOps))

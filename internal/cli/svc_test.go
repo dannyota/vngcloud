@@ -42,6 +42,7 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "billing", billingOps)
 	assertKindMatchesMethodName(t, "pricing", pricingOps)
 	assertKindMatchesMethodName(t, "compute", computeOps)
+	assertKindMatchesMethodName(t, "iam", iamOps)
 	assertKindMatchesMethodName(t, "network", networkOps)
 	assertKindMatchesMethodName(t, "dns", dnsOps)
 	assertKindMatchesMethodName(t, "cdn", cdnOps)
@@ -98,6 +99,7 @@ func TestServiceHelpListsEveryOp(t *testing.T) {
 		{"billing", opNames(billingOps)},
 		{"pricing", opNames(pricingOps)},
 		{"compute", opNames(computeOps)},
+		{"iam", opNames(iamOps)},
 		{"network", opNames(networkOps)},
 		{"dns", opNames(dnsOps)},
 		{"cdn", opNames(cdnOps)},
@@ -299,7 +301,7 @@ func TestBillingUpdateBudgetSendsOnlyTheChangedField(t *testing.T) {
 func TestEveryServiceCommandHasAShortDescription(t *testing.T) {
 	withCleanEnv(t)
 	root := newRootCmd(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	for _, name := range []string{"billing", "pricing", "compute", "network", "dns", "cdn", "monitor", "project", "portal", "volume", "globalloadbalancer"} {
+	for _, name := range []string{"billing", "pricing", "compute", "iam", "network", "dns", "cdn", "monitor", "project", "portal", "volume", "globalloadbalancer"} {
 		cmd, _, err := root.Find([]string{name})
 		if err != nil {
 			t.Fatalf("Find(%s): %v", name, err)

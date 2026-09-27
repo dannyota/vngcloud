@@ -12,6 +12,7 @@
 - [ContainerRegistry](CLI-ContainerRegistry.md)
 - [DNS](CLI-DNS.md)
 - [GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
+- [IAM](CLI-IAM.md)
 - [LoadBalancer](CLI-LoadBalancer.md)
 - [Monitor](CLI-Monitor.md)
 - [Network](CLI-Network.md)
