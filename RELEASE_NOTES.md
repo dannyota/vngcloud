@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.28.0 - vLB Certificate Writes
+
+### Highlights
+
+- New `loadbalancer.ImportCertificate` and `DeleteCertificate`, with
+  `vngcloud loadbalancer import-certificate` and `delete-certificate`.
+- The private key and passphrase are `vngcloud.Secret` values. The CLI
+  reads the certificate, chain, key, and passphrase only from files
+  (`--certificate-file`, `--certificate-chain-file`, `--private-key-file`,
+  `--passphrase-file`), refuses non-regular files such as a FIFO, and never
+  prints the key. Keep the key file at mode 0600.
+- A failing import never shows the server's message, since it may quote
+  the key: the error keeps only the status and code.
+- A certificate used by a listener is never deleted: the SDK refuses with
+  `loadbalancer.ErrCertificateInUse`, CLI code `ResourceInUse`.
+  `delete-certificate` needs `--yes`. The import is never resent.
+- The server accepts RSA keys; ECDSA, encrypted keys, and CA imports were
+  refused in live checks.
+
+### Behavior changes
+
+- `GetCertificate` refuses a malformed ID before any request.
+- The CLI no longer makes a flag for any `vngcloud.Secret` Input field and
+  refuses such a field in `--cli-input-json`.
+
 ## v0.27.0 - Route Table Writes
 
 ### Highlights
