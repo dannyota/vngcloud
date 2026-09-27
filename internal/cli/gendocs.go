@@ -306,15 +306,21 @@ func renderCLIPage(services []docService) string {
 		"the SDK does not know, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
-		"`WriteFailed` (a vDNS write went to status `ERROR`), `NotSettled` (a vDNS write was accepted " +
-		"but did not settle within the wait; do not repeat it), `OTPRejected` (create-channel's or " +
+		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
+		"create wait saw the group reach `ERROR`; see [Network](Network.md#waits)), `NotSettled` (a vDNS " +
+		"write was accepted but did not settle within the wait, or a network create-security-group's wait " +
+		"ran out of time; do not repeat it), `OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
-		"order was sent), or `NotFound` (a not-found result that " +
+		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +
+		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
+		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
+		"attached or the server itself refused it as in use), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
-		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits). `UnexpectedStatus`, " +
-		"`StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, `NotSettled`, `OTPRejected`, and `PriceAboveMax` " +
+		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits) and " +
+		"[Network](Network.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, and `SecurityGroupInUse` " +
 		"all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")

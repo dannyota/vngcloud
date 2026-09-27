@@ -199,12 +199,48 @@ const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its bi
 	"each either succeed or 404. --purge in one call has not run live; a purge sent right after a " +
 	"delete returned 409 Conflict once.\n\n" + logProjectDeleteResponseUnverifiedNote
 
+// networkCreateSecurityGroupNote documents create-security-group's
+// confirmed-live wait behavior and its duplicate-name status: the flag
+// table shows only --name and --description, with no hint that the wait
+// this command runs afterward never really polls in practice.
+const networkCreateSecurityGroupNote = "Confirmed live: the new group is already ACTIVE in the create " +
+	"response itself, so the wait this command runs afterward settles on its first read. A duplicate " +
+	"--name fails with the server's own message at status 400."
+
+// networkCreateSecurityGroupRuleNote documents create-security-group-rule's
+// confirmed-live no-wait behavior, its duplicate and overlap statuses, and
+// that a prefix with host bits set is stored exactly as given rather than
+// masked to its network address.
+const networkCreateSecurityGroupRuleNote = "Confirmed live: the new rule is already ACTIVE in the create " +
+	"response, so this command takes no wait. A rule that exactly duplicates an existing one fails with " +
+	"status 409; a rule that overlaps an existing one without duplicating it fails with status 400. " +
+	"--remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to " +
+	"203.0.113.0/24."
+
+// networkDeleteSecurityGroupNote documents delete-security-group's pre-read
+// guards and its unverified in-use status: the flag table shows only
+// --security-group-id, with no hint of the reads this command makes before
+// its own DELETE.
+const networkDeleteSecurityGroupNote = "Refuses, before any request, a system group or a group with any " +
+	"server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete " +
+	"the server itself refuses as in use for some other reason has not been confirmed live."
+
+// networkDeleteSecurityGroupRuleNote documents delete-security-group-rule's
+// pre-read guard and repeat-delete status: the flag table shows only the
+// two IDs, with no hint that this command lists the group's rules first.
+const networkDeleteSecurityGroupRuleNote = "Refuses, before any request, a rule that does not belong to " +
+	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"network create-security-group":           networkCreateSecurityGroupNote,
+	"network create-security-group-rule":      networkCreateSecurityGroupRuleNote,
+	"network delete-security-group":           networkDeleteSecurityGroupNote,
+	"network delete-security-group-rule":      networkDeleteSecurityGroupRuleNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,

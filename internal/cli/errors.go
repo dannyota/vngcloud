@@ -11,6 +11,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
+	"danny.vn/vngcloud/network"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -78,12 +79,19 @@ type errorEnvelope struct {
 // PauseCheck or ResumeCheck does not recognize), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
-// sent), WriteFailed (a vDNS write reached status ERROR), NotSettled (a
-// vDNS write was accepted but did not settle within the post-write wait),
-// OTPRejected (a channel OTP create-channel or update-channel sent to
+// sent), WriteFailed (a vDNS write reached status ERROR, or a network
+// security group create's post-create wait saw the group reach ERROR),
+// NotSettled (a vDNS write was accepted but did not settle within the
+// post-write wait, or a network security group create's wait ran out of
+// time), OTPRejected (a channel OTP create-channel or update-channel sent to
 // SendChannelOTP's Validate OTP step was wrong or expired, so no create or
-// update was sent), or PriceAboveMax (create-log-project's quote priced its
-// order above --max-price, so no order was sent).
+// update was sent), PriceAboveMax (create-log-project's quote priced its
+// order above --max-price, so no order was sent), SystemSecurityGroup (a
+// network update-security-group or delete-security-group targeted a
+// project's system group, so nothing was sent), or SecurityGroupInUse (a
+// network delete-security-group was refused because the group has servers
+// attached, found by a pre-delete read, or because the server's own refusal
+// named the group in use for some other reason).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -109,11 +117,24 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
-	if errors.Is(err, dns.ErrFailed) {
+	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
-	if errors.Is(err, dns.ErrNotSettled) {
+	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	// network.ErrSystemGroup and network.ErrSecurityGroupInUse join this same
+	// early group for the same reason monitor.ErrOTPRejected's comment above
+	// gives: ErrSecurityGroupInUse can wrap an inner *core.APIError (see
+	// wrapSecurityGroupInUse in network/security_groups_write.go), and this
+	// check must win over the generic *APIError branch below rather than let
+	// errors.As find that inner error first and report its own status-derived
+	// code instead.
+	if errors.Is(err, network.ErrSystemGroup) {
+		return errorEnvelope{Code: "SystemSecurityGroup", Message: err.Error()}
+	}
+	if errors.Is(err, network.ErrSecurityGroupInUse) {
+		return errorEnvelope{Code: "SecurityGroupInUse", Message: err.Error()}
 	}
 	if errors.Is(err, monitor.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
@@ -201,13 +222,15 @@ func exitCode(err error) int {
 	// toggle PUT or a confirm read still reports the same exit code (1) as
 	// every other unconfirmed toggle, per monitor's design, rather than
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
-	// dns.ErrFailed, dns.ErrNotSettled, and monitor.ErrOTPRejected join the
-	// same early return for the same reason: per the vDNS design,
-	// dns.ErrNotSettled specifically must exit the same way even after a
-	// canceled context, because its write may have landed, and the others
-	// join it for consistency.
+	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
+	// and monitor.ErrOTPRejected join the same early return for the same
+	// reason: per the vDNS and network designs, a not-settled write
+	// specifically must exit the same way even after a canceled context,
+	// because its write may have landed, and the others join it for
+	// consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
+		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}

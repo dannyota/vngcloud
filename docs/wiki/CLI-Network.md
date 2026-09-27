@@ -2,6 +2,72 @@
 
 # CLI: Network
 
+## create-security-group
+
+Kind: Write.
+
+Confirmed live: the new group is already ACTIVE in the create response itself, so the wait this command runs afterward settles on its first read. A duplicate --name fails with the server's own message at status 400.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud network create-security-group --name <name>
+```
+
+## create-security-group-rule
+
+Kind: Write.
+
+Confirmed live: the new rule is already ACTIVE in the create response, so this command takes no wait. A rule that exactly duplicates an existing one fails with status 409; a rule that overlaps an existing one without duplicating it fails with status 400. --remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to 203.0.113.0/24.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--security-group-id` | `string` | yes |
+| `--direction` | `string` | yes |
+| `--protocol` | `string` | yes |
+| `--remote-ip-prefix` | `string` | yes |
+| `--ether-type` | `string` |  |
+| `--port-range-min` | `int` |  |
+| `--port-range-max` | `int` |  |
+| `--description` | `string` |  |
+
+```sh
+vngcloud network create-security-group-rule --security-group-id <security-group-id> --direction <direction> --protocol <protocol> --remote-ip-prefix <remote-ip-prefix>
+```
+
+## delete-security-group
+
+Kind: Write, destructive.
+
+Refuses, before any request, a system group or a group with any server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete the server itself refuses as in use for some other reason has not been confirmed live.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--security-group-id` | `string` | yes |
+
+```sh
+vngcloud network delete-security-group --security-group-id <security-group-id> --yes
+```
+
+## delete-security-group-rule
+
+Kind: Write, destructive.
+
+Refuses, before any request, a rule that does not belong to the named group. A repeat delete of an already-deleted rule also returns NotFound.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--security-group-id` | `string` | yes |
+| `--security-group-rule-id` | `string` | yes |
+
+```sh
+vngcloud network delete-security-group-rule --security-group-id <security-group-id> --security-group-rule-id <security-group-rule-id> --yes
+```
+
 ## get-endpoint
 
 Kind: Read.
@@ -325,5 +391,19 @@ Kind: Read.
 
 ```sh
 vngcloud network list-wanips
+```
+
+## update-security-group
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--security-group-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+
+```sh
+vngcloud network update-security-group --security-group-id <security-group-id>
 ```
 
