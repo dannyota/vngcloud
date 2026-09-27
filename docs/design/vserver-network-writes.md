@@ -10,20 +10,16 @@ groups first.
 
 It follows [vServer free writes](vserver-writes.md) for the gateway,
 create retries, delete guards, and waits, and
-[ADR 0002](../adr/0002-write-api-conventions.md) for every write. Tests,
-cost probes, and live checks are in
+[ADR 0002](../adr/0002-write-api-conventions.md) for every write. The
+calls, server rules, and cost evidence are in
+[vServer network writes: API](vserver-network-writes-api.md); the cost
+probes confirmed every create, get, delete, and rename live. Tests, live
+checks, and the security review are in
 [vServer network writes: checks](vserver-network-writes-checks.md).
-
-## Source
-
-The calls, bodies, responses, server rules, and cost evidence are in
-[vServer network writes: API](vserver-network-writes-api.md). They come
-from public sources only, and every shape is inferred until its live
-check passes.
 
 ## Non-goals
 
-- Tags and `zoneId` on writes other than VPC create.
+- Tags, and `zoneId` on writes other than subnet create.
 - Secondary subnets, DHCP options sets, virtual IPs, peering, and
   interconnects.
 - Disabling Private DNS: the API has no call for it.
@@ -46,13 +42,16 @@ All methods live in `compute`, next to the existing server group reads.
 
 "(r)" marks `vngcloud:"required"`.
 
+- `GetServerGroup` wraps `core.ErrNotFound` when the server answers 200
+  with `data` null, which is how it reports a missing group.
 - Create sends `name`, `policyId`, and `description`. The SDK checks only
   that `PolicyID` is present and a path-safe ID; the server checks it
   exists. The wiki points to `list-server-group-policies`.
 - Update is the read-merge of security group update: an update with no
   non-nil field is `ErrInvalidInput` with nothing sent; otherwise the SDK
-  reads the group, applies the non-nil fields, and sends `name` and
-  `description`. The Output is a read after the write.
+  reads the group, applies the non-nil fields, and sends `name`,
+  `description`, and `serverGroupId` set to the path ID, which the server
+  requires. The Output is a read after the write.
 - Delete lists server groups, finds the ID, and returns
   `ErrServerGroupInUse`, sending nothing, when it has servers. The get
   response has no `servers`, so the list is the only source. An API error
@@ -70,11 +69,11 @@ All methods live in `network`.
 
 | Operation | Input | Output |
 |-|-|-|
-| `CreateVPC` | `Name` (r), `CIDR` (r), `ZoneID`, `NoWait` | `{VPC}` |
+| `CreateVPC` | `Name` (r), `CIDR` (r), `NoWait` | `{VPC}` |
 | `UpdateVPC` | `VPCID` (r), `Name` (r) | `{VPC}` |
 | `DeleteVPC` | `VPCID` (r), `NoWait` | `{}` |
 | `EnableVPCPrivateDNS` | `VPCID` (r), `NoWait` | `{VPC; Changed bool}` |
-| `CreateSubnet` | `VPCID` (r), `Name` (r), `CIDR` (r), `NoWait` | `{Subnet}` |
+| `CreateSubnet` | `VPCID` (r), `ZoneID` (r), `Name` (r), `CIDR` (r), `NoWait` | `{Subnet}` |
 | `UpdateSubnet` | `VPCID` (r), `SubnetID` (r), `Name` (r) | `{Subnet}` |
 | `DeleteSubnet` | `VPCID` (r), `SubnetID` (r), `NoWait` | `{}` |
 | `ListServersBySubnet` | `SubnetID` (r) | `Items []compute.Server` |
@@ -83,8 +82,12 @@ All methods live in `network`.
   bits (`10.20.1.0/16` is refused). Prefix length and the private blocks
   stay on the server (ADR 0002 rule 5). The SDK does not check that a
   subnet lies inside its VPC; the server does.
-- `ZoneID` is sent only when set; without it the server picks the zone,
-  which the live check records.
+- `CreateVPC` sends no `zoneId`, which the server ignores. This is the
+  recommendation of [decision A](#owner-decisions-after-the-probes).
+- `CreateSubnet` sends `ZoneID` as `zoneId`; the server refuses a create
+  without an enabled zone. The SDK picks no default, since a guess places
+  the subnet and its servers in a zone the caller did not choose. The CLI
+  help and wiki point to `portal list-zones`.
 - `UpdateVPC` and `UpdateSubnet` send only `name`, so they need no
   pointer. Each `PATCH` is marked idempotent: sending the same name twice
   is harmless. The Output is a read after the write.
@@ -98,15 +101,18 @@ All methods live in `network`.
 `DeleteVPC` reads first and sends nothing when:
 
 - `GetVPC` shows `ServerCount` or `VolumeCount` above 0, or
-  `ListSubnetsByVPC` returns any subnet a user made: `ErrInUse`. The
-  message names the count and says to delete subnets first. Subnets that
-  Private DNS reserved do not count, if the live check shows they appear
-  in the list and can be told apart; otherwise the design is amended.
+  `ListSubnetsByVPC` returns any subnet: `ErrInUse`. The message names the
+  count and says to delete subnets first. Subnets that Private DNS
+  reserves do not appear in the list.
 - The live read shows a default or system marker on the VPC:
   `ErrDefaultResource`.
 
 The VPC's ACLs and route tables go with it; the wiki and the `--yes`
-help say so. The server's refusal is the final guard.
+help say so. The server's refusal is the final guard: 400 `Cannot delete
+this VPC because it contains the subnet.`, sent while a subnet is listed
+and for minutes after the last one leaves the list (11 in the probe). The
+SDK does not retry it; it wraps `ErrInUse`, with a message that a subnet
+deleted in the last 15 minutes can block the delete and a rerun is safe.
 
 ### Subnet delete guard
 
@@ -114,6 +120,13 @@ help say so. The server's refusal is the final guard.
 `ListServersBySubnet`, `ListNetworkInterfaces`, or `ListVirtualIPAddresses`
 shows any item in the subnet. The last two filter by subnet ID in the SDK.
 The server's refusal is the final guard.
+
+`GetSubnet` keeps returning a deleted subnet with status `DELETED` for
+minutes; `ListSubnetsByVPC` drops it. So `DeleteSubnet` returns `NotFound`,
+sending nothing, for a subnet read as `DELETED`. A repeat `DELETE` returns
+500, so after a 5xx or network error on the `DELETE` the SDK lists the
+VPC's subnets: an absent subnet means the delete took effect; otherwise
+the error returns.
 
 ### Private DNS enable
 
@@ -133,8 +146,9 @@ changes the VPC's DHCP options; servers pick up the new resolver only
 after a DHCP renew, which the wiki says. The SDK never enables Private DNS
 as a side effect.
 
-This replaces decision 8 of [vDNS](dns.md#owner-decisions) once this
-design is accepted; vDNS then links here instead of naming a console step.
+The probe confirmed the call and its timing, and that the VPC's subnet
+list stays empty after enable. This replaces decision 8 of
+[vDNS](dns.md#owner-decisions).
 
 ## Route tables and routes
 
@@ -153,7 +167,8 @@ All methods live in `network`.
   the server needs the target to be a live interface is a live check.
 - `DeleteRouteTable` sends nothing and returns `ErrDefaultResource` for
   the VPC's main route table (`VPC.RouteTableID`), and `ErrInUse` when any
-  subnet of the VPC names the table.
+  subnet of the VPC names the table (`routeTableUuid`).
+- A new route table has no routes.
 
 ### Routes replace
 
@@ -204,7 +219,8 @@ prefix with no host bits; `Priority` is at least 1; ports are 0 to 65535
 with `PortRangeMax` 0 meaning equal to `PortRangeMin`, and min not above
 max. `Direction`, `Protocol`, and `Action` go to the server as given
 (ADR 0002 rule 5). The SDK never defaults `Action`, `Protocol`, or `CIDR`.
-How `port` encodes a range, all ports, and ICMP is a live check; until
+The default rule seen live stores all ports as `"0-65535"`, so a range is
+sent as `"<min>-<max>"`; a single port and ICMP are live checks. Until
 then the wiki shows `TCP` and `UDP` rules with explicit ports.
 
 ### Rules replace
@@ -219,8 +235,9 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
   returns `ErrDefaultResource`, nothing sent. The list sent leaves default
   rules out when the live check shows the server keeps them; otherwise it
   resends each exactly as read. The marker that identifies a default rule
-  (a `system` field or a fixed priority) comes from the live check, and
-  the design is amended with it before code.
+  comes from the live check; the rule seen live has `seqNumber` 0, below
+  any priority a user can send. The design is amended with the marker
+  before code.
 - The confirm read checks the user rules and that every default rule is
   unchanged.
 
@@ -235,14 +252,21 @@ list, or disassociate of one not in it, returns `Changed` false and sends
 nothing.
 
 Association is the call that can cut traffic: the ACL's rules apply to the
-subnet at once, and a new ACL denies everything its rules do not allow.
-Associating moves a subnet away from its current ACL; the wiki says so.
-What a subnet falls back to after disassociate is a live check.
+subnet at once. A new ACL has at least one default rule that passes all
+inbound traffic; its full default list is a live check. Associating moves
+a subnet away from its current ACL; the wiki says so. What a subnet falls
+back to after disassociate is a live check.
 
 ### ACL delete
 
 `DeleteNetworkACL` reads first and sends nothing when the ACL has subnets
-(`ErrInUse`) or is a default ACL (`ErrDefaultResource`).
+(`ErrInUse`) or is a default ACL (`ErrDefaultResource`). A 204 confirms
+the delete; there is no wait.
+
+The ACL get returns 500, not 404, for a deleted ACL, and the SDK never
+maps a 500 to `NotFound` alone. After a 5xx on `GetNetworkACL` or the ACL
+`DELETE`, it calls `ListNetworkACLs` once: an absent ID is `NotFound` for
+the get and success for the delete; otherwise the original error returns.
 
 ## Waits
 
@@ -255,7 +279,8 @@ honours `ctx`.
 |-|-|-|-|-|
 | VPC, subnet, route table create | `ACTIVE` | `ERROR` | 2 s | 3 min |
 | Routes, ACL rules, ACL subnets replace | `ACTIVE` and the confirm read | `ERROR` | 2 s | 60 s |
-| VPC, subnet, route table delete | 404, or status `DELETED` | `ERROR` | 2 s | 3 min |
+| VPC, route table delete | 404 | `ERROR` | 2 s | 3 min |
+| Subnet delete | Absent from `ListSubnetsByVPC` | `ERROR` | 2 s | 3 min |
 | Private DNS enable | `dnsStatus` `ENABLED` | none known | 10 s | 10 min |
 | Pre-write, before a replace | `ACTIVE` | none | 2 s | 60 s |
 
@@ -263,9 +288,9 @@ A 404 during a create wait keeps polling. `ERROR` returns the Output and
 an error wrapping `ErrFailed`. The bound returns the Output and an error
 wrapping `ErrNotSettled`, whose message says the write was accepted and
 must not be repeated (a create) or can be rerun (the read-first writes).
-The live checks record real times; a bound changes only by amending this
-table. ACL create and delete, and server group writes, have no wait
-unless the live checks show one is needed.
+The probe times are in the API doc and fit these bounds; a bound changes
+only by amending this table. ACL create and delete, and server group
+writes, have no wait: their responses are final.
 
 ## Identifiers and retries
 
@@ -278,11 +303,13 @@ unless the live checks show one is needed.
   exactly, because list filters may match substrings as security groups
   do: `list-server-groups --name`, `list-vpcs --name`,
   `list-subnets-by-vpc`, `list-route-tables --name`, or
-  `list-network-acls --name`. Whether each name is unique is a live check;
-  where it is not, the message also says a rerun can make a second one.
+  `list-network-acls --name`. Server group names are unique; whether the
+  others are is a live check, and where one is not, the message also says
+  a rerun can make a second one.
 - Updates, replaces, and deletes keep the transport's retries, except the
   Private DNS `PATCH` (`Once`). A retried delete that finds the resource
-  gone returns `NotFound`.
+  gone returns `NotFound`; subnet and ACL deletes confirm by list instead,
+  as above.
 - The CLI never retries a write.
 
 ## CLI
@@ -313,6 +340,7 @@ unless the live checks show one is needed.
   tell cheaply whether the table or ACL is in use.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request.
+- `create-subnet` requires `--zone-id`.
 - Every field is a scalar flag. The rename table gains
   `NetworkACLID` as `network-acl-id`, since `kebab` would give
   `network-aclid`.
@@ -323,9 +351,10 @@ unless the live checks show one is needed.
 |-|-|-|
 | Missing field, bad ID, bad CIDR, address, port, or priority, empty update, conflicting route or rule, subnet with secondary subnets | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
 | Missing `--yes` | No request | `InvalidUsage`, 2 |
-| Unknown resource; route, rule, or subnet not found | `NotFound` | `NotFound`, 4 |
+| Unknown resource; route, rule, or subnet not found; server group `data` null; ACL absent from the list after a 5xx | `NotFound` | `NotFound`, 4 |
+| Subnet create with an unknown or disabled zone | The server's 404 `Cannot get zone with id <zone>` | `NotFound`, 4 |
 | Server group with servers | `compute.ErrServerGroupInUse` | `ServerGroupInUse`, 1 |
-| VPC, subnet, route table, or ACL in use | `ErrInUse` | `ResourceInUse`, 1 |
+| VPC, subnet, route table, or ACL in use; VPC delete refused with `contains the subnet` | `ErrInUse` | `ResourceInUse`, 1 |
 | Main route table, default ACL, default rule, default VPC | `ErrDefaultResource`, no request | `DefaultResource`, 1 |
 | Not `ACTIVE` within the pre-write bound | `ErrBusy`, no request | `ResourceBusy`, 1 |
 | Unknown `dnsStatus` before enable | `ErrUnexpectedStatus`, no request | `UnexpectedStatus`, 1 |
@@ -341,26 +370,12 @@ keep their meaning. The CLI list in
 `ResourceInUse`, `DefaultResource`, and `ResourceBusy`; `UnexpectedStatus`,
 `WriteFailed`, and `NotSettled` keep their meaning.
 
-## Security
-
-- Every write gets an adversarial review before its release. The review
-  checks: no create resend after a 5xx; the Private DNS `PATCH` sent at
-  most once; path ID checks on every call, reads included; each guard
-  sends nothing; read-merge never drops a route, rule, or subnet the
-  caller did not name; default rules are never sent changed; associate
-  never sends a subnet outside the ACL's VPC; `--yes` on every command the
-  table marks; read-only refusal of every write.
-- Route, rule, and association writes change who can reach what. The wiki
-  shows them on a test VPC first, and explains each `--yes`.
-- VPC names, CIDRs, targets, and IDs are account data. Fixtures use
-  `<id>`, `<name>`, `<cidr>`, and `<ip>`.
-
 ## Releases
 
 | Release | Content |
 |-|-|
 | N1 | `compute` `GetServerGroup`, `CreateServerGroup`, `UpdateServerGroup`, `DeleteServerGroup`, `ErrServerGroupInUse`; CLI commands |
-| N2 | `network` VPC and subnet writes, `EnableVPCPrivateDNS`, `ListServersBySubnet`, the per-wait poll bounds, `ErrInUse`, `ErrDefaultResource`, `ErrUnexpectedStatus`, path ID checks on `GetVPC`, `GetSubnet`, and `ListSubnetsByVPC`; CLI commands |
+| N2 | `network` VPC and subnet writes (subnet create takes a zone), `EnableVPCPrivateDNS`, `ListServersBySubnet`, the per-wait poll bounds, `ErrInUse`, `ErrDefaultResource`, `ErrUnexpectedStatus`, path ID checks on `GetVPC`, `GetSubnet`, and `ListSubnetsByVPC`; CLI commands |
 | N3 | `network` `GetRouteTable`, route table create and delete, `AddRoute`, `RemoveRoute`, `ErrBusy`; CLI commands |
 | N4 | `network` `GetNetworkACL`, ACL create and delete, rule add and remove, subnet associate and disassociate, the `ACL` fields and `ACLRule`; CLI commands |
 
@@ -369,12 +384,14 @@ their live tests. No release breaks callers; the reads above only start
 rejecting a malformed ID. `network.go` is near the 700-line limit, so each
 release adds its own files. The `Compute` and `Network` wiki pages gain
 the writes, the retry advice, the `--yes` reasons, and the OpenTofu drift
-warning. Each release's cost probe and live checks pass before its code
-merges.
+warning. The next-day bill check and each release's live checks pass
+before its code merges.
 
 ## Owner decisions
 
-The owner approved every recommendation below on 2026-09-27.
+The owner approved every recommendation below on 2026-09-27. The cost
+probes contradict decision 7; see
+[decision A](#owner-decisions-after-the-probes).
 
 1. Release split. Options: four releases N1 to N4 in the order above; one
    release. Recommend four, as the survey approved.
@@ -408,13 +425,25 @@ The owner approved every recommendation below on 2026-09-27.
     session, since three picks need a VPC, with the next-day bill read per
     service line.
 
+## Owner decisions after the probes
+
+The owner approved decision A on 2026-09-27.
+
+A. `ZoneID` on VPC create, replacing decision 7. The server ignores
+   `zoneId` in the VPC body and places every VPC in the region's first
+   zone, which can be disabled for the account; the zone that matters is
+   the subnet's. Options: drop the input and never send `zoneId`; keep it
+   optional as approved. Approved: drop. An input the server ignores
+   tells the caller it chose a zone when it did not.
+
 ## Open questions
 
-- Whether the IAM gateway accepts each write.
+- The next day's bill after the probes.
 - The default or system markers on VPCs, route tables, routes, ACLs, and
-  ACL rules, and whether Private DNS subnets appear in the subnet list.
+  ACL rules, and a new ACL's full default rule list.
 - Which routes and rules the replace calls must resend.
-- The `port` encoding for ACL rules, and the `type` and `action` values.
+- The `port` encoding for one port and ICMP, and the rule `type` and
+  `action` values a user may send.
 - What a subnet uses after ACL disassociate.
-- Whether names and VPC CIDRs must be unique, and each create's status.
-- Real wait times.
+- Whether VPC, subnet, route table, and ACL names and VPC CIDRs must be
+  unique.
