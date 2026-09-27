@@ -816,14 +816,11 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 }
 
 // testLiveContainerRegistry reads repositories and users, per the CLI reads
-// design's live-checks table for containerregistry. Repository is typed
-// from the live GET body, so a list row can carry no undocumented field and
-// this logs only its count and, when at least one row comes back, its
-// ImageCount: neither is account data. User stays map-backed, so its own
-// sub-test instead logs a returned row's key count only, never a key name
-// or value: list-users is held from the CLI until the SDK types User from a
-// live capture, and a registry user row may carry a password or robot
-// token. It skips the key-count log for an empty list.
+// design's live-checks table for containerregistry. Both Repository and
+// User are typed from their live bodies, so a list row can carry no
+// undocumented field; this logs only counts and non-identifying fields
+// (ImageCount, Disabled, and a repository-permission count), never a name,
+// id, or other account data.
 func testLiveContainerRegistry(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := containerregistry.New(cfg)
 
@@ -846,10 +843,9 @@ func testLiveContainerRegistry(ctx context.Context, t *testing.T, cfg vngcloud.C
 		}
 		t.Logf("users: %d of %d", len(res.Items), res.TotalItem)
 		if len(res.Items) == 0 {
-			t.Log("skipped key count: none")
 			return
 		}
-		t.Logf("first user keys: %d", len(res.Items[0]))
+		t.Logf("first user disabled=%v repositoryPermissions=%d", res.Items[0].Disabled, len(res.Items[0].Repositories))
 	})
 }
 

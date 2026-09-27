@@ -1,0 +1,4 @@
+[
+  {"uuid": "policy-1", "action": "PULL"},
+  {"uuid": "policy-2", "action": "PUSH_PULL"}
+]

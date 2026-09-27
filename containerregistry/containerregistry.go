@@ -1,5 +1,5 @@
 // Package containerregistry lists, creates, and deletes vContainer Registry
-// repositories, and lists users.
+// repositories, and lists, creates, and deletes repository users.
 package containerregistry
 
 import (
@@ -74,7 +74,11 @@ type ListUsersInput struct {
 type ListUsersOutput = core.PagedList[User]
 
 func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersOutput, error) {
-	q := listUsersQuery(in)
+	name, page, size := "", 0, 0
+	if in != nil {
+		name, page, size = in.Name, in.Page, in.Size
+	}
+	q := listUsersQuery(name, page, size)
 	var resp listUsersResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "containerregistry.ListUsers",
@@ -85,6 +89,63 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 		return nil, err
 	}
 	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+}
+
+// ListRepositoryUsersInput identifies the repository whose users are listed.
+type ListRepositoryUsersInput struct {
+	RepositoryID string `vngcloud:"required"`
+	Name         string
+	Page         int
+	Size         int
+}
+
+type ListRepositoryUsersOutput = core.PagedList[User]
+
+// ListRepositoryUsers lists the users attached to a repository.
+func (c *Client) ListRepositoryUsers(ctx context.Context, in *ListRepositoryUsersInput) (*ListRepositoryUsersOutput, error) {
+	const op = "containerregistry.ListRepositoryUsers"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "RepositoryID", in.RepositoryID); err != nil {
+		return nil, err
+	}
+
+	q := listUsersQuery(in.Name, in.Page, in.Size)
+	var resp listUsersResponse
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: op,
+		Method:    "GET",
+		URL:       c.vcrURL([]string{"repository", in.RepositoryID, "user"}, q),
+		OK:        []int{200},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+}
+
+// ListPermissionsInput takes no fields: the permission list is not scoped by
+// repository or user.
+type ListPermissionsInput struct{}
+
+type ListPermissionsOutput = core.List[Permission]
+
+// ListPermissions reads every action the server accepts in a user's
+// permission list, each paired with the policy id CreateUser sends for it.
+// The response is a bare JSON array, not the "listData"/"data" envelope
+// ListRepositories and ListUsers share, so it decodes straight into
+// []Permission.
+func (c *Client) ListPermissions(ctx context.Context, _ *ListPermissionsInput) (*ListPermissionsOutput, error) {
+	var items []Permission
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: "containerregistry.ListPermissions",
+		Method:    "GET",
+		URL:       c.vcrURL([]string{"user", "permissions"}, nil),
+		OK:        []int{200},
+	}, &items); err != nil {
+		return nil, err
+	}
+	return &ListPermissionsOutput{Items: items}, nil
 }
 
 // vcrURL builds a vCR route. Every call in this package is against v1: the
@@ -98,17 +159,15 @@ func (c *Client) vcrURL(parts []string, q url.Values) string {
 	})
 }
 
-func listUsersQuery(in *ListUsersInput) url.Values {
-	page, size := core.DefaultPage, core.DefaultPageSize
-	name := ""
-	if in != nil {
-		name = in.Name
-		if in.Page > 0 {
-			page = in.Page
-		}
-		if in.Size > 0 {
-			size = in.Size
-		}
+// listUsersQuery builds the name/page/size query ListUsers and
+// ListRepositoryUsers share, defaulting page and size the way every other
+// paged list in this package does when the caller leaves them at 0.
+func listUsersQuery(name string, page, size int) url.Values {
+	if page <= 0 {
+		page = core.DefaultPage
+	}
+	if size <= 0 {
+		size = core.DefaultPageSize
 	}
 	q := url.Values{}
 	q.Set("name", name)
@@ -213,6 +272,41 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// User is map-backed until live rows are available to type the model
-// without dropping fields.
-type User map[string]any
+// User is a vCR repository user (a "robot account" in the reference).
+// Fields follow a live GET user/{id} list row (RobotAccountDto), the shape
+// ListUsers and ListRepositoryUsers rows and CreateUser's own lookup read
+// share. UserID (the "userId" key) is a separate value from ID: ID is the
+// robot account's own id, the one DeleteUserInput.UserID and a repository
+// permission's own RepositoryID pattern of use take, formatted "ra-<uuid>"
+// per the reference; UserID's own relation to the account has not been
+// confirmed by a live capture.
+type User struct {
+	ID                   string                 `json:"uuid"`
+	Name                 string                 `json:"name"`
+	BackendName          string                 `json:"backendName"`
+	Description          string                 `json:"description"`
+	Disabled             bool                   `json:"disable"`
+	ExpiredAt            string                 `json:"expiredAt"`
+	CreatedAt            string                 `json:"createdAt"`
+	NumberOfRepositories int                    `json:"numberOfRepo"`
+	UserID               string                 `json:"userId"`
+	Repositories         []RepositoryPermission `json:"repoPermissionList"`
+}
+
+// RepositoryPermission is one repository a User can act on, and the
+// policies it grants there.
+type RepositoryPermission struct {
+	RepositoryID          string       `json:"repoId"`
+	RepositoryName        string       `json:"repoName"`
+	BackendRepositoryName string       `json:"backendRepoName"`
+	Policies              []Permission `json:"policyDtoList"`
+}
+
+// Permission is one action a repository user can be granted, and the
+// policy id CreateUser sends for it. ListPermissions returns the server's
+// whole list; a RepositoryPermission's own Policies field reuses the same
+// shape for the policies a particular user already holds.
+type Permission struct {
+	ID     string `json:"uuid"`
+	Action string `json:"action"`
+}

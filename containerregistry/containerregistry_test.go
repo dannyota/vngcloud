@@ -52,8 +52,73 @@ func TestContainerRegistryListUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListUsers() error = %v", err)
 	}
-	if len(out.Items) != 1 || out.Items[0]["username"] != "<account>" || out.TotalPage != 3 {
+	if len(out.Items) != 1 || out.TotalPage != 3 {
 		t.Fatalf("unexpected users: %+v", out)
+	}
+	u := out.Items[0]
+	if u.ID != "ra-1" || u.Name != "app-ci" || u.UserID != "<account>" || u.Disabled || u.NumberOfRepositories != 2 {
+		t.Fatalf("unexpected user: %+v", u)
+	}
+	if len(u.Repositories) != 2 {
+		t.Fatalf("Repositories = %d, want 2", len(u.Repositories))
+	}
+	first := u.Repositories[0]
+	if first.RepositoryID != "repo-1" || first.RepositoryName != "app" || len(first.Policies) != 1 || first.Policies[0].Action != "PULL" {
+		t.Fatalf("unexpected first repository permission: %+v", first)
+	}
+}
+
+func TestContainerRegistryListRepositoryUsers(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/repository/repo-1/user" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/containerregistry/list_users.json")
+	}))
+
+	out, err := c.ListRepositoryUsers(context.Background(), &ListRepositoryUsersInput{RepositoryID: "repo-1"})
+	if err != nil {
+		t.Fatalf("ListRepositoryUsers() error = %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].ID != "ra-1" {
+		t.Fatalf("unexpected users: %+v", out)
+	}
+}
+
+func TestContainerRegistryListRepositoryUsersRequiredInput(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	if _, err := c.ListRepositoryUsers(context.Background(), &ListRepositoryUsersInput{}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestContainerRegistryListRepositoryUsersPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range []string{"..", ".", "a/b", "a?b", ""} {
+		if _, err := c.ListRepositoryUsers(context.Background(), &ListRepositoryUsersInput{RepositoryID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("RepositoryID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
+func TestContainerRegistryListPermissions(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/user/permissions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+	}))
+
+	out, err := c.ListPermissions(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListPermissions() error = %v", err)
+	}
+	if len(out.Items) != 2 || out.Items[0].ID != "policy-1" || out.Items[0].Action != "PULL" || out.Items[1].Action != "PUSH_PULL" {
+		t.Fatalf("unexpected permissions: %+v", out.Items)
 	}
 }
 

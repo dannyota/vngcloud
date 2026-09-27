@@ -16,9 +16,9 @@ created, changed, and deleted. See [DNS](DNS.md). `network` covers
 security group and rule writes too: groups and rules can be created,
 changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
-[Compute](Compute.md). `containerregistry` covers repository writes too: a
-repository can be created and deleted. See [Container
-Registry](#container-registry) below.
+[Compute](Compute.md). `containerregistry` covers repository and repository
+user writes too: a repository or a user can be created and deleted. See
+[Container Registry](#container-registry) below.
 
 ## Coverage
 
@@ -32,7 +32,7 @@ Registry](#container-registry) below.
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes | Typed | Requires IAM User permissions for the target load balancer resources. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
-| Container Registry | `containerregistry` | Repositories, plus repository create and delete; users | Repository typed; User map-backed | User stays map-backed until it is typed in a later release; see [Container Registry](#container-registry) below for repository writes and waits. |
+| Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 
 ## Project
 
@@ -230,20 +230,30 @@ waits are on the [DNS](DNS.md) page.
 
 ```go
 vcrClient := containerregistry.New(cfg)
-vcrClient.ListRepositories(ctx, in)  // AccessLevel, Name
-vcrClient.GetRepository(ctx, in)     // RepositoryID (required)
-vcrClient.CreateRepository(ctx, in)  // Name, QuotaLimitGB (both required), NoWait
-vcrClient.DeleteRepository(ctx, in)  // RepositoryID (required), NoWait
-vcrClient.ListUsers(ctx, in)         // Name, Page, Size
+vcrClient.ListRepositories(ctx, in)     // AccessLevel, Name
+vcrClient.GetRepository(ctx, in)        // RepositoryID (required)
+vcrClient.CreateRepository(ctx, in)     // Name, QuotaLimitGB (both required), NoWait
+vcrClient.DeleteRepository(ctx, in)     // RepositoryID (required), NoWait
+vcrClient.ListUsers(ctx, in)            // Name, Page, Size
+vcrClient.ListRepositoryUsers(ctx, in)  // RepositoryID (required), Name, Page, Size
+vcrClient.ListPermissions(ctx, nil)
+vcrClient.CreateUser(ctx, in)           // Name, Permissions (both required), Description, DurationDays
+vcrClient.DeleteUser(ctx, in)           // UserID (required)
 ```
 
-`Repository` is a typed struct, matching a live GET repository/{id} body's
-fields (`ID`, `Name`, `BackendName`, `AccessLevel`, `RegistryURL`,
-`QuotaLimitGB`, `QuotaUsed`, `ImageCount`, `AttachedUsers`, `CreatedAt`);
-there is no `Status` field, since no response carries one. A field the
-reference does not document is dropped rather than kept. This breaks code
-that indexed `Repository` as a map. `User` stays map-backed, so the SDK
-keeps every field the API returns for it.
+`Repository` and `User` are both typed structs, matching their live bodies.
+`Repository`'s fields are `ID`, `Name`, `BackendName`, `AccessLevel`,
+`RegistryURL`, `QuotaLimitGB`, `QuotaUsed`, `ImageCount`, `AttachedUsers`,
+and `CreatedAt`; there is no `Status` field, since no response carries one.
+`User`'s fields are `ID`, `Name`, `BackendName`, `Description`, `Disabled`,
+`ExpiredAt`, `CreatedAt`, `NumberOfRepositories`, `UserID`, and
+`Repositories` (each a `RepositoryPermission` of `RepositoryID`,
+`RepositoryName`, `BackendRepositoryName`, and `Policies`, each a
+`Permission` of `ID` and `Action`). `User.ID` is the id `DeleteUserInput`
+and a `RepositoryPermission.RepositoryID` take; `User.UserID` is a
+separate, unconfirmed field. A field the reference does not document is
+dropped rather than kept for either type. This breaks code that indexed
+`Repository` or `User` as a map.
 
 `CreateRepository` always creates a private repository; there is no
 `Public` option, since a public repository accepts anonymous push. The
@@ -274,5 +284,27 @@ context, the returned error wraps `ErrNotSettled`: for a create, the
 repository exists and must not be created again; for a delete, the delete
 was sent and a rerun is safe.
 
-Repository users, their secrets, and the `docker login` steps are not
-covered yet.
+`CreateUser` takes a permission's actions as names, such as `"pull"`, not
+raw policy ids: it reads `ListPermissions` and maps each name to its policy
+id, matching the server's own list exactly, so an unknown action fails
+before any create is sent. The response carries only a secret key, no user
+id, so `CreateUser` finds the new user by listing users with `Name` and
+keeping a row whose name equals it exactly or ends with it (an account
+prefix the reference does not confirm). One match fills `User`; zero or
+more than one returns an error wrapping `ErrUserNotFound`, naming
+`list-users --name <name>` to check by hand, while `SecretKey` on the
+Output is still set either way, since the create itself already succeeded.
+`SecretKey` is a `vngcloud.Secret`: printing, logging, or JSON-encoding the
+Output gives `[redacted]`, and `Reveal()` is the only way to read it back.
+`CreateUser` is a `POST` and is never retried after a failure that may
+have already reached the server; a user found afterward by `list-users
+--name <name>` has already lost its secret and should be deleted before
+creating again. `DurationDays` left nil creates a user with no
+expiration; the wiki recommends setting one for a pull user meant to be
+temporary.
+
+`DeleteUser` sends the delete directly: a user holds no data of its own,
+so there is no pre-delete guard.
+
+Repository and user names, registry URLs, and ids are account data. The
+`docker login` steps and which name it takes are not covered yet.

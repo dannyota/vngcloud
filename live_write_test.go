@@ -4898,3 +4898,277 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 		t.Fatalf("step 6: repeat delete = %v, want NotFound", secondErr)
 	}
 }
+
+// deleteVCRUserByName lists users and deletes any whose name exactly
+// matches name or ends with it (an account prefix the reference does not
+// confirm or rule out). It is used after a CreateUser call returns an error
+// or fails to resolve the created user's own id by list, since a POST that
+// returned an error may still have reached the server, and the id-lookup
+// itself, not only the create, can be the thing that failed. It runs on its
+// own timeout, not the calling test step's context, so it can still clean
+// up after that step's context is the reason the step failed.
+func deleteVCRUserByName(t *testing.T, client *containerregistry.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := client.ListUsers(ctx, &containerregistry.ListUsersInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: list users by name: %s", safeErr(err))
+		return
+	}
+	for _, u := range list.Items {
+		if u.Name != name && !strings.HasSuffix(u.Name, name) {
+			continue
+		}
+		if _, err := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: u.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete user by name: %s", safeErr(err))
+		}
+	}
+}
+
+// TestLiveWriteContainerRegistryUser exercises ListPermissions, CreateUser,
+// ListRepositoryUsers, and DeleteUser against the account named in .env, on
+// a repository the test creates for itself.
+//
+// Whether a vCR repository costs money is unknown until the design's cost
+// probe runs; like TestLiveWriteContainerRegistryRepository, this test
+// stops at the repository create if the server refuses it for payment (a
+// 4xx naming balance, credit, payment, or order), logs the status and code,
+// and skips rather than fails. Repository users are assumed free once
+// repositories are.
+//
+// It deletes every leftover vcrlive-* user, then every leftover vcrlive-*
+// repository holding no images, from a previous run, users first even
+// though an attached user does not itself block a repository delete (step
+// 1); creates a vcrlive-<8 hex> repository (step 2); reads ListPermissions
+// and picks whichever action names "pull" but not "push", since the exact
+// action strings are unconfirmed (step 3); creates a vcrlive-<8 hex> user
+// with that one pull-only permission and no expiration, registering a
+// by-name fallback cleanup at once if the create returns an error or never
+// resolves the user's own id, and logging only a boolean for a non-empty
+// secret and its length, never the secret itself (step 4); registers the
+// fallback delete by id as soon as the created user's id is known (step 5);
+// confirms the user appears in ListRepositoryUsers on the repository (step
+// 6); deletes the user, confirming a repeat delete returns NotFound (step
+// 7); and deletes the repository, confirming a repeat delete returns
+// NotFound (step 8). docker login is never run: it would put the secret in
+// a credential store, and the login name is an open question until the
+// owner tries it by hand.
+func TestLiveWriteContainerRegistryUser(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := containerregistry.New(cfg)
+
+	// Step 1: delete every leftover vcrlive-* user, then every leftover
+	// vcrlive-* repository holding no images, from a previous run.
+	leftoverUsers, err := client.ListUsers(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListUsers: %s", safeErr(err))
+	}
+	deletedUsers := 0
+	for _, leftover := range leftoverUsers.Items {
+		if !isLiveVCRRepositoryName(leftover.Name) {
+			continue
+		}
+		if _, err := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover user: %s", safeErr(err))
+		}
+		deletedUsers++
+	}
+	leftoverRepos, err := client.ListRepositories(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListRepositories: %s", safeErr(err))
+	}
+	deletedRepos := 0
+	for _, leftover := range leftoverRepos.Items {
+		if !isLiveVCRRepositoryName(leftover.Name) || leftover.ImageCount > 0 {
+			continue
+		}
+		if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover repository: %s", safeErr(err))
+		}
+		deletedRepos++
+	}
+	t.Logf("step 1: deleted %d leftover user(s) and %d leftover repository(ies)", deletedUsers, deletedRepos)
+
+	// Step 2: create the repository this user is attached to. Whether this
+	// is free is the open question the design's cost probe answers; this
+	// test stops here, skipping rather than failing, if the server refuses
+	// for payment.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	repoName := "vcrlive-" + suffix
+
+	createdRepo, err := client.CreateRepository(ctx, &containerregistry.CreateRepositoryInput{
+		Name:         repoName,
+		QuotaLimitGB: 1,
+	})
+	var repositoryID string
+	if err == nil {
+		repositoryID = createdRepo.Repository.ID
+	}
+	if err != nil || repositoryID == "" {
+		t.Cleanup(func() { deleteVCRRepositoryByName(t, client, repoName) })
+	}
+	if isVCRPaymentRefusal(err) {
+		var apiErr *vngcloud.APIError
+		errors.As(err, &apiErr)
+		t.Skipf("step 2: server refused the create for payment, status=%d code=%s; a repository is paid, never retrying", apiErr.StatusCode, apiErr.Code)
+	}
+	if err != nil {
+		t.Fatalf("step 2 CreateRepository: %s", safeErr(err))
+	}
+	if repositoryID == "" {
+		t.Fatal("step 2: CreateRepository returned an empty id; the design requires one")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteRepository(cleanupCtx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete repository: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created repository")
+
+	// Step 3: read the known permissions and pick a pull-only action. The
+	// design leaves the exact action strings unconfirmed, so this matches by
+	// name rather than a hardcoded guess, preferring an action naming "pull"
+	// but not "push" over one that grants both.
+	perms, err := client.ListPermissions(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 3 ListPermissions: %s", safeErr(err))
+	}
+	if len(perms.Items) == 0 {
+		t.Fatal("step 3: ListPermissions returned no actions")
+	}
+	pullAction := ""
+	for _, p := range perms.Items {
+		lower := strings.ToLower(p.Action)
+		if strings.Contains(lower, "pull") && !strings.Contains(lower, "push") {
+			pullAction = p.Action
+			break
+		}
+	}
+	if pullAction == "" {
+		t.Fatalf("step 3: no pull-only action found among %d permission(s)", len(perms.Items))
+	}
+	t.Logf("step 3: read %d permission(s), picked a pull-only action", len(perms.Items))
+
+	// Step 4: create a pull-only user on the repository, with no
+	// expiration. A POST is not retried after an ambiguous failure, and the
+	// user's own id is resolved by a list lookup rather than the create
+	// response, so either one failing still means the user may exist;
+	// register the by-name fallback before checking either.
+	userName := "vcrlive-" + suffix
+	createdUser, err := client.CreateUser(ctx, &containerregistry.CreateUserInput{
+		Name: userName,
+		Permissions: []containerregistry.UserPermission{
+			{RepositoryID: repositoryID, Actions: []string{pullAction}},
+		},
+	})
+	var userID string
+	var hasSecret bool
+	var secretLen int
+	if createdUser != nil {
+		userID = createdUser.User.ID
+		secret := createdUser.SecretKey.Reveal()
+		hasSecret = secret != ""
+		secretLen = len(secret)
+	}
+	if err != nil || userID == "" {
+		t.Cleanup(func() { deleteVCRUserByName(t, client, userName) })
+	}
+	if createdUser != nil {
+		t.Logf("step 4: create response secret present=%v length=%d", hasSecret, secretLen)
+	}
+	if err != nil {
+		t.Fatalf("step 4 CreateUser: %s", safeErr(err))
+	}
+	if userID == "" {
+		t.Fatal("step 4: CreateUser did not resolve the created user's id by list; check list-users and delete it directly")
+	}
+	if !hasSecret {
+		t.Fatal("step 4: CreateUser returned an empty secret")
+	}
+
+	// Step 5: register the fallback delete as soon as userID is known,
+	// before any later step can fail and skip the explicit delete in step 7.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteUser(cleanupCtx, &containerregistry.DeleteUserInput{UserID: userID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete user: %s", safeErr(err))
+		}
+	})
+
+	// Step 6: list the repository's users and confirm the created user
+	// appears.
+	repoUsers, err := client.ListRepositoryUsers(ctx, &containerregistry.ListRepositoryUsersInput{RepositoryID: repositoryID})
+	if err != nil {
+		t.Fatalf("step 6 ListRepositoryUsers: %s", safeErr(err))
+	}
+	found := false
+	for _, u := range repoUsers.Items {
+		if u.ID == userID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("step 6: ListRepositoryUsers did not include the created user")
+	}
+	t.Log("step 6: confirmed the user appears on the repository")
+
+	// Step 7: delete the user and confirm a repeat delete returns NotFound.
+	// docker login is never run: it would put the secret in a credential
+	// store.
+	if _, err := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: userID}); err != nil {
+		t.Fatalf("step 7 DeleteUser: %s", safeErr(err))
+	}
+	_, secondUserErr := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: userID})
+	if !vngcloud.IsNotFound(secondUserErr) {
+		t.Fatalf("step 7: repeat delete = %v, want NotFound", secondUserErr)
+	}
+
+	// Step 8: delete the repository and confirm a repeat delete returns
+	// NotFound.
+	if _, err := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID}); err != nil {
+		t.Fatalf("step 8 DeleteRepository: %s", safeErr(err))
+	}
+	_, secondRepoErr := client.DeleteRepository(ctx, &containerregistry.DeleteRepositoryInput{RepositoryID: repositoryID})
+	if !vngcloud.IsNotFound(secondRepoErr) {
+		t.Fatalf("step 8: repeat delete = %v, want NotFound", secondRepoErr)
+	}
+}
