@@ -219,9 +219,10 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now ten, with
-// the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
-// network's SystemSecurityGroup and SecurityGroupInUse, and compute's own
+// closing the error-classes list names every exit-1 code (now thirteen,
+// with the three vDNS wait codes, monitor's own OTPRejected and
+// PriceAboveMax, network's SystemSecurityGroup, SecurityGroupInUse,
+// ResourceInUse, DefaultResource, and ResourceBusy, and compute's own
 // SecretFileFailed) rather than a vague "exit 1", which would read as
 // ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
@@ -231,7 +232,8 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, and " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`ResourceInUse`, `DefaultResource`, `ResourceBusy`, and " +
 		"`SecretFileFailed` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
@@ -396,6 +398,63 @@ func TestGenDocsCreateSecurityGroupRuleNoteDocumentsWorldOpenGuard(t *testing.T)
 	for _, want := range []string{"--yes", "0.0.0.0/0", "::/0"} {
 		if !strings.Contains(section, want) {
 			t.Errorf("create-security-group-rule section is missing %q:\n%s", want, section)
+		}
+	}
+}
+
+// TestGenDocsRouteTableNotesDocumentTheYesGuardsAndLiveFacts checks that
+// each route table op's own section states the facts the flag table cannot
+// show: which commands need --yes and why, the create and delete timing,
+// the duplicate-name status, and the no-op and NotFound cases for
+// add-route and remove-route.
+func TestGenDocsRouteTableNotesDocumentTheYesGuardsAndLiveFacts(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Network.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Network.md: %v", err)
+	}
+	cases := []struct {
+		op   string
+		want []string
+	}{
+		{"create-route-table", []string{"ACTIVE about 5 seconds", "status 400", "main route table"}},
+		{"delete-route-table", []string{"ResourceInUse", "DefaultResource", "404 read about 5 seconds"}},
+		{"add-route", []string{"--yes", "ResourceBusy", "no-op", "InvalidUsage"}},
+		{"remove-route", []string{"--yes", "ResourceBusy", "NotFound"}},
+	}
+	for _, tc := range cases {
+		section := genDocsSection(t, string(data), tc.op)
+		for _, want := range tc.want {
+			if !strings.Contains(section, want) {
+				t.Errorf("%s section is missing %q:\n%s", tc.op, want, section)
+			}
+		}
+	}
+}
+
+// TestGenDocsAddRouteAndRemoveRouteExamplesIncludeYes checks that
+// add-route's and remove-route's own example command lines include --yes:
+// buildExample's own destructive-only rule never appends it, since neither
+// op is Destructive, so a runnable example needs the docExampleOverride
+// entry that does.
+func TestGenDocsAddRouteAndRemoveRouteExamplesIncludeYes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Network.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Network.md: %v", err)
+	}
+	for _, want := range []string{
+		"vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
+		"vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("CLI-Network.md is missing the runnable example %q:\n%s", want, data)
 		}
 	}
 }
@@ -634,6 +693,7 @@ func TestGenDocsGetExamplesQueryTheWrappedResourceField(t *testing.T) {
 		{"CLI-Billing.md", "vngcloud billing get-budget --budget-uuid <budget-uuid> --query Budget"},
 		{"CLI-Compute.md", "vngcloud compute get-server --server-id <server-id> --query Server"},
 		{"CLI-Network.md", "vngcloud network get-vpc --vpc-id <vpc-id> --query VPC"},
+		{"CLI-Network.md", "vngcloud network get-route-table --route-table-id <route-table-id> --query RouteTable"},
 		{"CLI-DNS.md", "vngcloud dns get-hosted-zone --hosted-zone-id <hosted-zone-id> --query HostedZone"},
 		{"CLI-Monitor.md", "vngcloud monitor get-check --check-id <check-id> --query Check"},
 		{"CLI-Portal.md", "vngcloud portal get-quota --name <name> --query Quota"},

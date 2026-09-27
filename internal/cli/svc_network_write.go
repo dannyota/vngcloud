@@ -55,3 +55,22 @@ func refuseWorldOpenIngressWithoutYes(cmd *cobra.Command, in any) error {
 		"create-security-group-rule: a rule that is not egress, from %s, is open to the entire internet; pass --yes to confirm",
 		create.RemoteIPPrefix)
 }
+
+// requireYesToChangeRoutes returns add-route's or remove-route's Guard
+// (command names the one registering it, for its message): it refuses the
+// command outright unless --yes is given, whatever the merged Input holds.
+// Per the design, both need --yes on every call, since either can redirect
+// or cut traffic for every server behind the route table and the CLI has no
+// cheap way to tell whether that table is in use. Unlike delete-route-table,
+// neither op carries Destructive: ADR 0002 rule 6 defines destructive as not
+// undoable by one more command, and running the other of this pair (a
+// RemoveRoute after an AddRoute, or the reverse) does undo it.
+func requireYesToChangeRoutes(command string) func(cmd *cobra.Command, in any) error {
+	return func(cmd *cobra.Command, _ any) error {
+		if yes, _ := cmd.Flags().GetBool("yes"); yes {
+			return nil
+		}
+		return newUsageError(
+			"network %s changes routing for every server behind this table; pass --yes to confirm", command)
+	}
+}
