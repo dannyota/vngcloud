@@ -1,8 +1,8 @@
 # Compute
 
 `compute` is `danny.vn/vngcloud/compute`, with its own `New(cfg)`. It reads
-vServer instances, server groups, images, and SSH keys, and reads, imports,
-creates, and deletes SSH keys.
+vServer instances and images; reads, creates, updates, and deletes server
+groups; and reads, imports, creates, and deletes SSH keys.
 
 ## Setup
 
@@ -49,6 +49,7 @@ server, err := client.GetServer(ctx, in)        // ServerID (required)
 keys, err := client.ListSSHKeys(ctx, in)        // Name, Page, Size
 key, err := client.GetSSHKey(ctx, in)           // SSHKeyID (required)
 groups, err := client.ListServerGroups(ctx, in) // Name, Page, Size
+group, err := client.GetServerGroup(ctx, in)    // ServerGroupID (required)
 osImages, err := client.ListOSImages(ctx, in)   // ZoneID
 gpuImages, err := client.ListGPUImages(ctx, nil)
 userImages, err := client.ListUserImages(ctx, in) // Page, Size
@@ -57,6 +58,86 @@ userImages, err := client.ListUserImages(ctx, in) // Page, Size
 `ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
 already returned by `ListServers` and `ListServerGroups`; see
 [Services](Services.md#compute) for the full read method list.
+`ListServerGroups`' own `Name` filter matches by substring, not exactly: a
+search for `"web"` also finds `"webhook"`. Any code that must find one
+group by name lists and scans for an exact match itself.
+
+## Creating, updating, and deleting server groups
+
+```go
+policies, err := client.ListServerGroupPolicies(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+
+created, err := client.CreateServerGroup(ctx, &compute.CreateServerGroupInput{
+	Name:     "web-tier",
+	PolicyID: policies.Items[0].UUID,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.ServerGroup.UUID)
+
+updated, err := client.UpdateServerGroup(ctx, &compute.UpdateServerGroupInput{
+	ServerGroupID: created.ServerGroup.UUID,
+	Description:   vngcloud.Ptr("web tier, edge servers"),
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(updated.ServerGroup.Description)
+
+if _, err := client.DeleteServerGroup(ctx, &compute.DeleteServerGroupInput{
+	ServerGroupID: created.ServerGroup.UUID,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+A group's policy is set at create and cannot change; `ListServerGroupPolicies`
+lists the choices. Server group names are unique per project; a repeat name
+fails with the server's own message.
+
+`CreateServerGroup` is a `POST` and is never retried after a failure that
+may already have reached the server: after any error that is not a 4xx
+`*vngcloud.APIError`, the group may exist. List server groups and match the
+name exactly before creating it again, rather than retrying blind. A create
+is synchronous: the response already carries the finished group, so there
+is no wait.
+
+`UpdateServerGroup` changes `Name`, `Description`, or both; at least one
+must be set, and a `Name` that is set must not be the empty string, or the
+call fails with `vngcloud.ErrInvalidInput` and sends nothing. The API takes
+a full replacement body, so the SDK reads the group first and resends
+whichever field the caller left `nil` unchanged, plus a `serverGroupId`
+field set to the same id as the path (the `PUT` fails without it), then
+reads the group once more after the `PUT` to build the Output from a shape
+the SDK trusts rather than the `PUT` response itself. If that confirm read
+fails, the write has already succeeded: the error wraps
+`compute.ErrNotSettled`. Unlike `CreateServerGroup`'s `POST`, this update is
+a read-merge `PUT` and is safe to run again after `ErrNotSettled`; it will
+just resend the same Name and Description. The Output falls back to the
+fields the `PUT` itself sent. There is no `PolicyID` field on the update; a
+group's policy cannot change after create.
+
+`DeleteServerGroup` lists server groups first, since `GetServerGroup` never
+returns a group's members, and sends nothing when that list shows the group
+has any server attached (`compute.ErrServerGroupInUse`). A group can be in
+use by more than servers, so the server's own refusal is the final guard:
+an error whose message contains `"server group is in use"` also wraps
+`compute.ErrServerGroupInUse`, whatever its HTTP status. `DELETE` keeps the
+transport's normal retries; a retry sent after the first response was lost
+can find the group already gone and get back a 404, which
+`vngcloud.IsNotFound(err) == true` reports the same as any other unknown
+id. That 404 means the group is gone, not that the delete failed.
+
+`GetServerGroup` on an unknown id gets a 200 with `"data"` null rather than
+a 404; `GetServerGroup` treats that the same way, returning
+`vngcloud.IsNotFound(err) == true` instead of an empty `ServerGroup`.
+
+If a group is managed by OpenTofu or Terraform, a write made here drifts
+from that state; keep such a group's writes in its own tool.
 
 ## SSH keys
 
@@ -155,9 +236,26 @@ you (`0600` on Unix), and never print or log it once read.
 
 ## Errors
 
-A malformed `SSHKeyID`, an empty required field, or an `ImportSSHKey` shape
-refusal fails with `vngcloud.ErrInvalidInput` before any request. An
-unknown key fails with `vngcloud.IsNotFound(err) == true`. A duplicate
-name, a quota, or a rejected key shape from the server itself comes back as
-the server's own `*vngcloud.APIError`; see [Errors](Errors.md) for the
-general error model.
+A malformed `SSHKeyID`, `ServerGroupID`, or `PolicyID`, an empty required
+field, an empty `UpdateServerGroup` input, an `UpdateServerGroup` `Name` set
+to the empty string, or an `ImportSSHKey` shape refusal fails with
+`vngcloud.ErrInvalidInput` before any request. An unknown key or server
+group fails with `vngcloud.IsNotFound(err) == true`.
+
+```go
+var ErrServerGroupInUse = errors.New("compute: server group in use")
+var ErrNotSettled       = errors.New("compute: write accepted but not settled")
+```
+
+`ErrServerGroupInUse` means `DeleteServerGroup` sent nothing because the
+group has servers attached, or that its `DELETE` request was refused by
+the server; see [Creating, updating, and deleting server
+groups](#creating-updating-and-deleting-server-groups) above.
+`ErrNotSettled` means `UpdateServerGroup`'s confirm read after a successful
+`PUT` failed to come back; the write already reached the server, but the
+update is safe to run again, since it is a read-merge `PUT` that resends
+both fields either way.
+
+A duplicate name, a quota, or a rejected key or policy shape from the
+server itself comes back as the server's own `*vngcloud.APIError`; see
+[Errors](Errors.md) for the general error model.

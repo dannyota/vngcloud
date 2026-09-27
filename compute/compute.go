@@ -168,6 +168,8 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 
 type ListServerGroupsInput struct {
 	Name string
+	// Page is an offset, not a page number: it starts at 0, and each
+	// value names the index of the first item to return.
 	Page int
 	Size int
 }
@@ -203,6 +205,49 @@ func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput
 		return nil, err
 	}
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+}
+
+type GetServerGroupInput struct {
+	ServerGroupID string `vngcloud:"required"`
+}
+
+type GetServerGroupOutput struct {
+	ServerGroup ServerGroup
+}
+
+// GetServerGroup reads one group by id. An unknown id gets a 200 with "data"
+// null, not a 404, confirmed live for a group just deleted, so GetServerGroup
+// treats an empty ServerGroup.UUID in the response as not-found itself,
+// returning the SDK's ordinary not-found sentinel rather than an empty
+// ServerGroup with no error. The response carries no servers field;
+// ListServerGroups is the only source for a group's members.
+func (c *Client) GetServerGroup(ctx context.Context, in *GetServerGroupInput) (*GetServerGroupOutput, error) {
+	const op = "compute.GetServerGroup"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "ServerGroupID", in.ServerGroupID); err != nil {
+		return nil, err
+	}
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data ServerGroup `json:"data"`
+	}
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: op,
+		Method:    "GET",
+		URL:       c.computeURL("v2", []string{projectID, "serverGroups", in.ServerGroupID}, nil),
+		OK:        []int{200},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Data.UUID == "" {
+		return nil, fmt.Errorf("%w: %s: server group %s", core.ErrNotFound, op, in.ServerGroupID)
+	}
+	return &GetServerGroupOutput{ServerGroup: resp.Data}, nil
 }
 
 type ListServerSecurityGroupsInput struct{}

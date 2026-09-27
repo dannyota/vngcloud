@@ -39,6 +39,14 @@ var computeOps = []Op[compute.Client]{
 		kebab("DeleteSSHKey"), (*compute.Client).DeleteSSHKey, Destructive()),
 	Read[compute.Client, compute.ListServerGroupsInput, compute.ListServerGroupsOutput](
 		kebab("ListServerGroups"), (*compute.Client).ListServerGroups),
+	Read[compute.Client, compute.GetServerGroupInput, compute.GetServerGroupOutput](
+		kebab("GetServerGroup"), (*compute.Client).GetServerGroup),
+	Write[compute.Client, compute.CreateServerGroupInput, compute.CreateServerGroupOutput](
+		kebab("CreateServerGroup"), (*compute.Client).CreateServerGroup),
+	Write[compute.Client, compute.UpdateServerGroupInput, compute.UpdateServerGroupOutput](
+		kebab("UpdateServerGroup"), (*compute.Client).UpdateServerGroup),
+	Write[compute.Client, compute.DeleteServerGroupInput, compute.DeleteServerGroupOutput](
+		kebab("DeleteServerGroup"), (*compute.Client).DeleteServerGroup, Destructive()),
 	Read[compute.Client, compute.ListServerSecurityGroupsInput, compute.ListServerSecurityGroupsOutput](
 		kebab("ListServerSecurityGroups"), (*compute.Client).ListServerSecurityGroups),
 	Read[compute.Client, compute.ListServerGroupMembersInput, compute.ListServerGroupMembersOutput](

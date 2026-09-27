@@ -407,6 +407,7 @@ Releases planned in other designs get a version number only when they
 ship, so the table above reserves no rows for them. Not yet shipped:
 vMonitor Alerts M8 (log alarm writes) and vStorage S1 to S6.
 
-Security groups, rules, and SSH keys are the only compute and network
-writes shipped. Other compute, volume, and network writes come later;
-OpenTofu covers them for aboutme.
+Server groups, VPCs and subnets, route tables, and network ACLs ship as
+releases N1 to N4 in [vServer network writes](vserver-network-writes.md).
+Other compute, volume, and network writes come later; OpenTofu covers them
+for aboutme.

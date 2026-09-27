@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
@@ -150,6 +151,20 @@ func TestExitCode(t *testing.T) {
 		{
 			"network security group in use",
 			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
+			1,
+		},
+		{
+			"compute server group in use",
+			fmt.Errorf("%w: server group sg-1 has 1 server(s) attached", compute.ErrServerGroupInUse),
+			1,
+		},
+		{"compute not settled", fmt.Errorf("%w: server group sg-1 was accepted", compute.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during UpdateServerGroup's confirm read must exit the
+			// same way (1), checked ahead of the context-canceled rule above,
+			// the same rule the vDNS and network cases above follow.
+			"compute not settled after a canceled context",
+			fmt.Errorf("%w: %w", compute.ErrNotSettled, context.Canceled),
 			1,
 		},
 		{
@@ -305,6 +320,27 @@ func TestClassify(t *testing.T) {
 			fmt.Errorf("%w: %w", network.ErrSecurityGroupInUse,
 				&vngcloud.APIError{Operation: "network.DeleteSecurityGroup", StatusCode: 409, Code: "Conflict", Message: "SecurityGroupInUse"}),
 			"SecurityGroupInUse", 0, "",
+		},
+		{
+			"compute server group in use",
+			fmt.Errorf("%w: server group sg-1 has 1 server(s) attached", compute.ErrServerGroupInUse),
+			"ServerGroupInUse", 0, "",
+		},
+		{
+			// wrapServerGroupInUse (compute/server_groups_write.go) rewraps
+			// the server's own refusal, an *APIError, alongside
+			// ErrServerGroupInUse; Code must still be ServerGroupInUse, not
+			// that inner APIError's own status-derived code, the same way
+			// network.ErrSecurityGroupInUse's equivalent case above does.
+			"compute server group in use wrapping an inner APIError",
+			fmt.Errorf("%w: %w", compute.ErrServerGroupInUse,
+				&vngcloud.APIError{Operation: "compute.DeleteServerGroup", StatusCode: 409, Code: "Conflict", Message: "server group is in use"}),
+			"ServerGroupInUse", 0, "",
+		},
+		{
+			"compute not settled",
+			fmt.Errorf("%w: server group sg-1 was accepted", compute.ErrNotSettled),
+			"NotSettled", 0, "",
 		},
 		{
 			"monitor log project price above max",

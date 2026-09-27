@@ -1,0 +1,10 @@
+{
+  "data": {
+    "uuid": "server-group-1",
+    "serverGroupId": 1,
+    "name": "<name>",
+    "description": "<description>",
+    "policyId": "policy-1",
+    "createdAt": "2026-01-01T00:00:00Z"
+  }
+}

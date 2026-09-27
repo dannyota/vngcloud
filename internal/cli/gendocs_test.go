@@ -219,11 +219,11 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now ten, with
+// closing the error-classes list names every exit-1 code (now eleven, with
 // the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
-// network's SystemSecurityGroup and SecurityGroupInUse, and compute's own
-// SecretFileFailed) rather than a vague "exit 1", which would read as
-// ambiguous after a list of classes.
+// network's SystemSecurityGroup and SecurityGroupInUse, compute's own
+// ServerGroupInUse, and SecretFileFailed) rather than a vague "exit 1",
+// which would read as ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -231,8 +231,8 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, and " +
-		"`SecretFileFailed` all exit 1"
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`ServerGroupInUse`, and `SecretFileFailed` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}
@@ -465,6 +465,24 @@ func TestGenDocsCreateCheckExampleIncludesLocations(t *testing.T) {
 	want := `--cli-input-json '{"Locations":["<location-id>"]}'`
 	if !strings.Contains(string(data), want) {
 		t.Errorf("create-check example is missing %q:\n%s", want, data)
+	}
+}
+
+// TestGenDocsUpdateServerGroupExampleSetsAField checks that
+// update-server-group's example is runnable as printed: UpdateServerGroup
+// requires Name or Description beyond the required ServerGroupID.
+func TestGenDocsUpdateServerGroupExampleSetsAField(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Compute.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Compute.md: %v", err)
+	}
+	want := "vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("update-server-group example is missing %q:\n%s", want, data)
 	}
 }
 
