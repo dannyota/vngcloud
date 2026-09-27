@@ -16,8 +16,8 @@
 - A certificate used by a listener is never deleted: the SDK refuses with
   `loadbalancer.ErrCertificateInUse`, CLI code `ResourceInUse`.
   `delete-certificate` needs `--yes`. The import is never resent.
-- The server accepts RSA keys; ECDSA, encrypted keys, and CA imports were
-  refused in live checks.
+- Live checks imported RSA, ECDSA P-256, and passphrase-encrypted keys,
+  and a `CA` certificate.
 
 ### Behavior changes
 
