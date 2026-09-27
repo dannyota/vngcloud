@@ -22,11 +22,13 @@ func iamUserInfoJSON(userID, userType string) string {
 	return fmt.Sprintf(`{"userId":%q,"userType":%q,"username":"<account>","accountId":1}`, userID, userType)
 }
 
-// iamNoPoliciesJSON is an empty paged policy list, the shape
-// ListServiceAccountPolicies returns for a service account with nothing
-// attached: guardServiceAccountWrite's own protected check then reports
-// false without ever calling GetPolicy.
-const iamNoPoliciesJSON = `{"data":[]}`
+// iamNoPoliciesJSON is an empty paged policy list, the shape the guard's own
+// attachment read (guardServiceAccountPolicySummaries) needs for a service
+// account with nothing attached: totalItems must match len(data) or the
+// guard refuses rather than treat the page as complete.
+// guardServiceAccountWrite's own protected check then reports false without
+// ever calling GetPolicy.
+const iamNoPoliciesJSON = `{"data":[],"totalItems":0,"totalPages":0}`
 
 // iamWriteActionsJSON is a one-action IAM action list whose label is
 // "Write", the shape guardWriteActionNames needs to build its own write
@@ -37,8 +39,9 @@ const iamWriteActionsJSON = `[{"action":"CreatePolicy","label":"Write","resource
 // give a service account one attached policy whose only statement allows
 // "iam:CreatePolicy", the exact write action iamWriteActionsJSON names:
 // serviceAccountIsProtected reads the attachment list, then this policy, and
-// reports the account protected.
-const iamPrivilegedPolicyAttachmentJSON = `{"data":[{"id":"policy-1","name":"p","createdAt":1700000000000}]}`
+// reports the account protected. totalItems and totalPages match the one
+// row in data, the shape guardServiceAccountPolicySummaries requires.
+const iamPrivilegedPolicyAttachmentJSON = `{"data":[{"id":"policy-1","name":"p","createdAt":1700000000000}],"totalItems":1,"totalPages":1}`
 const iamPrivilegedPolicyJSON = `{"id":"policy-1","name":"p","description":"","manager":"user","scope":"account","root":"1","statements":[{"effect":"allow","actions":["iam:CreatePolicy"],"resources":["*"]}],"createdAt":1700000000000}`
 
 // serviceAccountJSON builds one bare ServiceAccount object, the shape
@@ -643,6 +646,120 @@ func TestIAMCreateServiceAccountCleansUpOnUnwritableSecretFile(t *testing.T) {
 	}
 }
 
+// TestIAMCreateServiceAccountUnconfirmedWritesSecretFileAndReportsError
+// checks the design's iam.ErrCreateUnconfirmed case: when the create lands
+// but the read-back that confirms it fails, the CLI still writes the
+// create response's own secret to --secret-file (never dropping a secret
+// the server issued), sends no delete since the write succeeded, and
+// reports an error naming the account and list-service-accounts, with the
+// secret appearing in neither stdout nor stderr even under --debug.
+func TestIAMCreateServiceAccountUnconfirmedWritesSecretFileAndReportsError(t *testing.T) {
+	const clientSecret = "s3cr3t-material"
+	path := filepath.Join(t.TempDir(), "secret")
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/accounts-api/v1/service-accounts": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"id":"sa-5","clientSecret":%q}`, clientSecret)
+		},
+		"/accounts-api/v1/service-accounts/sa-5": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete {
+				t.Fatal("the service account must not be deleted when the secret file write succeeded")
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "--debug", "iam", "create-service-account", "--name", "app", "--secret-file", path})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when the read-back after create fails")
+	}
+	if got := classify(err).Code; got != "RequestFailed" {
+		t.Fatalf("Code = %q, want RequestFailed (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	for _, want := range []string{"sa-5", "list-service-accounts"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("ReadFile: %v", readErr)
+	}
+	if string(data) != clientSecret+"\n" {
+		t.Fatalf("secret file content = %q, want %q", data, clientSecret+"\n")
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatalf("Stat: %v", statErr)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 0600", got)
+	}
+
+	if strings.Contains(stdout.String(), clientSecret) || strings.Contains(stderr.String(), clientSecret) {
+		t.Fatalf("the client secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestIAMCreateServiceAccountUnconfirmedCleansUpOnUnwritableSecretFile
+// checks that, when the read-back after create also fails, a --secret-file
+// write failure still deletes the new service account through the SDK, by
+// the create response's own ID since no read-back ID exists, and reports
+// SecretFileFailed the same way a confirmed create's write failure does.
+func TestIAMCreateServiceAccountUnconfirmedCleansUpOnUnwritableSecretFile(t *testing.T) {
+	const clientSecret = "s3cr3t-material"
+	path := filepath.Join(unwritableSecretFileDir(t), "secret")
+
+	deleted := false
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		// The cleanup delete runs through DeleteServiceAccount, which is
+		// itself guarded: these three reads must succeed and report sa-6
+		// unprotected before the DELETE below is ever reached.
+		"/accounts-api/v1/auth/userinfo":                                   jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
+		"/policies-api/v1/actions":                                         jsonHandler(http.StatusOK, iamWriteActionsJSON),
+		"/policies-api/v1/user-attachments/service-accounts/sa-6/policies": jsonHandler(http.StatusOK, iamNoPoliciesJSON),
+		"/accounts-api/v1/service-accounts": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"id":"sa-6","clientSecret":%q}`, clientSecret)
+		},
+		"/accounts-api/v1/service-accounts/sa-6": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				w.WriteHeader(http.StatusInternalServerError)
+			case http.MethodDelete:
+				deleted = true
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "iam", "create-service-account", "--name", "app", "--secret-file", path})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a SecretFileFailed error")
+	}
+	if got := classify(err).Code; got != "SecretFileFailed" {
+		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", got, stderr.String())
+	}
+	if !deleted {
+		t.Fatal("the orphaned service account was never deleted")
+	}
+	if strings.Contains(stdout.String(), clientSecret) || strings.Contains(stderr.String(), clientSecret) {
+		t.Fatalf("the client secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
 // TestIAMResetServiceAccountSecretRequiresYesWithZeroRequests checks that
 // reset-service-account-secret, Write and Destructive, refuses before any
 // request when --yes is missing, even with a valid --secret-file.
@@ -777,5 +894,50 @@ func TestIAMResetServiceAccountSecretWriteFailureCannotUndo(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), newSecret) || strings.Contains(stderr.String(), newSecret) {
 		t.Fatalf("the new secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestIAMResetServiceAccountSecretNoSecretWritesNoFile checks the design's
+// own rule for iam.ErrNoSecret on a reset: the response held no client
+// secret at all, so the command writes no file and exits 1 with
+// SecretFileFailed, naming reset-service-account-secret again rather than
+// any other command, since the reset itself likely already rotated the
+// secret.
+func TestIAMResetServiceAccountSecretNoSecretWritesNoFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/accounts-api/v1/auth/userinfo":                                   jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
+		"/policies-api/v1/actions":                                         jsonHandler(http.StatusOK, iamWriteActionsJSON),
+		"/policies-api/v1/user-attachments/service-accounts/sa-1/policies": jsonHandler(http.StatusOK, iamNoPoliciesJSON),
+		"/accounts-api/v1/service-accounts/sa-1/reset-secret": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "--yes", "--debug", "iam", "reset-service-account-secret", "--service-account-id", "sa-1", "--secret-file", path})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected a SecretFileFailed error")
+	}
+	if got := classify(err).Code; got != "SecretFileFailed" {
+		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	for _, want := range []string{"sa-1", "reset-service-account-secret again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Fatalf("a secret file was written at %s even though the response held no secret", path)
+	}
+	if !strings.Contains(stderr.String(), "write started") || !strings.Contains(stderr.String(), "write finished") {
+		t.Fatalf("stderr = %s, want --debug's write started/write finished lines", stderr.String())
 	}
 }

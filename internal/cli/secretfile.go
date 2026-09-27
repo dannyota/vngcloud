@@ -135,6 +135,18 @@ func newSecretFileNoSecret(resourceKind, resourceID, retryCommand string) error 
 		resourceKind, resourceID, retryCommand)}
 }
 
+// newSecretFileNoSecretRotated reports the IAM writes design's own case for
+// a reset whose response held no client secret at all: unlike a create,
+// there is no way to tell whether the resource itself still changed, so the
+// message tells the caller to treat the previous secret as gone and reset
+// again, rather than pointing at any other command the way
+// newSecretFileNoSecret does for a create.
+func newSecretFileNoSecretRotated(resourceKind, resourceID, retryCommand string) error {
+	return secretFileFailedError{msg: fmt.Sprintf(
+		"%s %s secret was probably rotated by this call but not returned; no file was written; run %s again to get a usable value",
+		resourceKind, resourceID, retryCommand)}
+}
+
 // newSecretFileResetFailed reports a --secret-file write failure after a
 // reset that cannot be undone: unlike a create, there is no new resource to
 // delete, and the old secret already stopped working, so the message tells

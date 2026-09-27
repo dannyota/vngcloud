@@ -692,6 +692,30 @@ func TestGenDocsChannelWritesDocumentTheAddressGuard(t *testing.T) {
 	}
 }
 
+// TestGenDocsIAMPageRecommendsReadOnlyProfileAndDocumentsServiceAccountCallerGuard
+// checks the IAM writes design's Security section reaches the wiki: the
+// page tells the owner to give agent profiles an IAM user without IAM write
+// rights and turn on read_only, and states that a service-account caller is
+// refused on every write that targets an existing service account, both
+// facts no single operation's flag table can show.
+func TestGenDocsIAMPageRecommendsReadOnlyProfileAndDocumentsServiceAccountCallerGuard(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-IAM.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-IAM.md: %v", err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "give agent profiles an IAM user without IAM write rights, and turn on read_only") {
+		t.Errorf("CLI-IAM.md is missing the read-only profile recommendation:\n%s", page)
+	}
+	if !strings.Contains(page, "refused on every write that targets an existing service account") {
+		t.Errorf("CLI-IAM.md is missing the service-account caller guard note:\n%s", page)
+	}
+}
+
 // TestGenDocsNoFlagFieldIsJSONOnlyNotAFlag checks the CLI reads design's
 // NoFlag rule end to end through gen-docs: project's list-projects page must
 // document Region as settable only through --cli-input-json, and must never

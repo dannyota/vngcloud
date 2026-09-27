@@ -2,11 +2,13 @@
 
 # CLI: IAM
 
+The guards documented below stop mistakes, not a caller that already holds IAM write rights: give agent profiles an IAM user without IAM write rights, and turn on read_only where they only read, so the server itself refuses what a guard would. A caller whose own type is a service account is refused on every write that targets an existing service account (update-service-account, delete-service-account, and reset-service-account-secret), since its own identity cannot be confirmed against a target's ID or ClientID.
+
 ## create-service-account
 
 Kind: Write.
 
-Needs --secret-file <path>: the client secret is returned once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed ClientSecret field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. If the create response holds no client secret at all, the new service account is kept, no file is written, and the command exits 1 with error code SecretFileFailed naming reset-service-account-secret. If writing --secret-file itself fails after a secret was returned, the new service account is deleted through the SDK and the command exits 1 with SecretFileFailed; if that delete also fails, the message names the service account only by its ID. Never retried after a failure that may have already reached the server: list service accounts by --name before creating it again rather than repeating this command; a service account found that way has already lost its client secret and needs reset-service-account-secret.
+Needs --secret-file <path>: the client secret is returned once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed ClientSecret field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. If the create response holds no client secret at all, the new service account is kept, no file is written, and the command exits 1 with error code SecretFileFailed naming reset-service-account-secret. If the read the SDK makes after the create to confirm the new account fails, --secret-file is still written from the create response's own secret and the account is kept, but the command exits 1 naming list-service-accounts, since the account's other fields could not be confirmed. If writing --secret-file itself fails after a secret was returned, the new service account is deleted through the SDK and the command exits 1 with SecretFileFailed; if that delete also fails, the message names the service account only by its ID. Never retried after a failure that may have already reached the server: list service accounts by --name before creating it again rather than repeating this command; a service account found that way has already lost its client secret and needs reset-service-account-secret.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -22,7 +24,7 @@ vngcloud iam create-service-account --name <name> --secret-file <secret-file>
 
 Kind: Write, destructive.
 
-Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, or the caller's own type is a service account (every service account target is refused then, not only the caller's own ID), and PrivilegedChange when the target holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -209,9 +211,9 @@ vngcloud iam list-users
 
 Kind: Write, destructive.
 
-Needs --secret-file <path>, checked the same way as create-service-account: must not already exist, symlink included, checked before any request. The previous secret stops working the moment the reset request lands; if writing --secret-file then fails, there is no way to get it back, so the command exits 1 with error code SecretFileFailed naming the service account and telling the caller to run reset-service-account-secret again, rather than deleting anything. Never retried after a failure that may have already reached the server: no read shows whether the secret changed, so treat the previous secret as revoked and reset again if it still works.
+Needs --secret-file <path>, checked the same way as create-service-account: must not already exist, symlink included, checked before any request. The previous secret stops working the moment the reset request lands; if the response then holds no client secret at all, or if writing --secret-file fails, there is no way to get it back, so the command exits 1 with error code SecretFileFailed naming the service account and telling the caller to run reset-service-account-secret again, rather than deleting anything. Never retried after a failure that may have already reached the server: no read shows whether the secret changed, so treat the previous secret as revoked and reset again if it still works.
 
-Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, or the caller's own type is a service account (every service account target is refused then, not only the caller's own ID), and PrivilegedChange when the target holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -226,7 +228,7 @@ vngcloud iam reset-service-account-secret --service-account-id <service-account-
 
 Kind: Write.
 
-Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, or the caller's own type is a service account (every service account target is refused then, not only the caller's own ID), and PrivilegedChange when the target holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
 
 | Flag | Type | Required |
 |-|-|-|
