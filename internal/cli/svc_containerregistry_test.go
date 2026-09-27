@@ -16,8 +16,8 @@ import (
 // exampleRepository builds the same sanitized RepositoryDto shape the SDK's
 // own fixtures decode (testdata/containerregistry), reused here so the
 // golden files below exercise a realistic Repository rather than an empty
-// struct.
-func exampleRepository(status string) containerregistry.Repository {
+// struct. There is no status field: no repository response carries one.
+func exampleRepository() containerregistry.Repository {
 	return containerregistry.Repository{
 		ID:            "repo-1",
 		Name:          "<account>-app",
@@ -28,7 +28,6 @@ func exampleRepository(status string) containerregistry.Repository {
 		QuotaUsed:     0,
 		ImageCount:    0,
 		AttachedUsers: 0,
-		Status:        status,
 		CreatedAt:     "2026-01-01T00:00:00Z",
 	}
 }
@@ -39,7 +38,7 @@ func exampleRepository(status string) containerregistry.Repository {
 // spelling.
 func TestGoldenContainerRegistryListRepositories(t *testing.T) {
 	v := &containerregistry.ListRepositoriesOutput{
-		Items: []containerregistry.Repository{exampleRepository("ACTIVE")},
+		Items: []containerregistry.Repository{exampleRepository()},
 		Page:  1, PageSize: 25, TotalPage: 1, TotalItem: 1,
 	}
 	checkGolden(t, "containerregistry-list-repositories.json.golden", "json", "", v)
@@ -49,7 +48,7 @@ func TestGoldenContainerRegistryListRepositories(t *testing.T) {
 // TestGoldenContainerRegistryGetRepository checks get-repository's exact
 // output shape, {"Repository": {...}}.
 func TestGoldenContainerRegistryGetRepository(t *testing.T) {
-	v := &containerregistry.GetRepositoryOutput{Repository: exampleRepository("ACTIVE")}
+	v := &containerregistry.GetRepositoryOutput{Repository: exampleRepository()}
 	checkGolden(t, "containerregistry-get-repository.json.golden", "json", "", v)
 	checkGolden(t, "containerregistry-get-repository.table.golden", "table", "", v)
 }
@@ -58,7 +57,7 @@ func TestGoldenContainerRegistryGetRepository(t *testing.T) {
 // exact output shape, the same {"Repository": {...}} shape get-repository
 // uses.
 func TestGoldenContainerRegistryCreateRepository(t *testing.T) {
-	v := &containerregistry.CreateRepositoryOutput{Repository: exampleRepository("ACTIVE")}
+	v := &containerregistry.CreateRepositoryOutput{Repository: exampleRepository()}
 	checkGolden(t, "containerregistry-create-repository.json.golden", "json", "", v)
 	checkGolden(t, "containerregistry-create-repository.table.golden", "table", "", v)
 }
@@ -176,11 +175,12 @@ func TestContainerRegistryListRepositoriesDropsUnknownKeys(t *testing.T) {
 	}
 }
 
-// repoJSON builds a flat RepositoryDto JSON object with no images, the shape
+// repoJSON builds a flat RepositoryDto JSON object with no images and no
+// status field (no repository response carries one), the shape
 // GetRepository, CreateRepository, and DeleteRepository all decode directly,
 // with no "data" envelope, unlike list-repositories; always under id
 // "repo-1", the only id every test below uses.
-func repoJSON(status string) string {
+func repoJSON() string {
 	body := map[string]any{
 		"uuid":         "repo-1",
 		"name":         "<account>-app",
@@ -191,7 +191,6 @@ func repoJSON(status string) string {
 		"quotaUsed":    0,
 		"imageCount":   0,
 		"attachedUser": 0,
-		"status":       status,
 		"createdAt":    "2026-01-01T00:00:00Z",
 	}
 	b, err := json.Marshal(body)
@@ -205,7 +204,7 @@ func repoJSON(status string) string {
 // command against a fixture vCR server.
 func TestContainerRegistryGetRepositoryEndToEnd(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v1/repository/repo-1": jsonHandler(http.StatusOK, repoJSON("ACTIVE")),
+		"/v1/repository/repo-1": jsonHandler(http.StatusOK, repoJSON()),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "containerregistry", "get-repository", "--repository-id", "repo-1"})
@@ -215,17 +214,17 @@ func TestContainerRegistryGetRepositoryEndToEnd(t *testing.T) {
 	if got, ok := fixture.methodFor("/v1/repository/repo-1"); !ok || got != http.MethodGet {
 		t.Fatalf("method = %q, ok=%v, want GET", got, ok)
 	}
-	if !strings.Contains(stdout.String(), `"Status": "ACTIVE"`) {
+	if !strings.Contains(stdout.String(), `"ID": "repo-1"`) {
 		t.Fatalf("stdout = %s, want the decoded repository", stdout.String())
 	}
 }
 
 // TestContainerRegistryCreateRepositoryEndToEnd drives the real
 // create-repository command against a fixture vCR server whose very first
-// confirm read already shows the repository ACTIVE, so the SDK's post-write
-// wait settles at once and this test never really sleeps: it checks the
-// POST body (repoName, quotaLimit, and isPublic always false) and that the
-// settled repository comes back on stdout.
+// confirm read already shows the repository, so the SDK's post-write wait
+// (there is no status to wait on) settles at once and this test never really
+// sleeps: it checks the POST body (repoName, quotaLimit, and isPublic always
+// false) and that the confirmed repository comes back on stdout.
 func TestContainerRegistryCreateRepositoryEndToEnd(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -237,9 +236,9 @@ func TestContainerRegistryCreateRepositoryEndToEnd(t *testing.T) {
 			body, _ = io.ReadAll(r.Body)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoJSON("CREATING")))
+			_, _ = w.Write([]byte(repoJSON()))
 		},
-		"/v1/repository/repo-1": jsonHandler(http.StatusOK, repoJSON("ACTIVE")),
+		"/v1/repository/repo-1": jsonHandler(http.StatusOK, repoJSON()),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
@@ -258,18 +257,21 @@ func TestContainerRegistryCreateRepositoryEndToEnd(t *testing.T) {
 		t.Fatalf("body = %s, want repoName=app-test quotaLimit=1 isPublic=false", body)
 	}
 
-	if !strings.Contains(stdout.String(), `"Status": "ACTIVE"`) {
-		t.Fatalf("stdout = %s, want the settled repository", stdout.String())
+	if !strings.Contains(stdout.String(), `"ID": "repo-1"`) {
+		t.Fatalf("stdout = %s, want the confirmed repository", stdout.String())
 	}
 }
 
 // TestContainerRegistryCreateRepositoryNotSettledOnCanceledContext drives a
-// real create-repository call whose POST succeeds and whose settle GET is
-// interrupted by canceling the command's own context, mirroring a Ctrl-C
-// during the post-write wait. Per the vCR writes design, that failure must
-// still surface as an error wrapping containerregistry.ErrNotSettled with
-// the last repository the SDK read as a non-nil Output, not as the plain
-// canceled-context path the CLI otherwise falls back to.
+// real create-repository call whose POST succeeds but whose confirm read
+// never succeeds: it answers 404 (tolerated, so the wait keeps polling) and
+// cancels the command's own context as it does, mirroring a Ctrl-C during
+// the post-write wait. The next poll iteration's sleep then returns the
+// canceled context's own error at once, with no real delay. Per the vCR
+// writes design, that failure must still surface as an error wrapping
+// containerregistry.ErrNotSettled with the repository the create response
+// itself carried as a non-nil Output, not as the plain canceled-context path
+// the CLI otherwise falls back to.
 func TestContainerRegistryCreateRepositoryNotSettledOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -278,11 +280,11 @@ func TestContainerRegistryCreateRepositoryNotSettledOnCanceledContext(t *testing
 		"/v1/repository": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(repoJSON("CREATING")))
+			_, _ = w.Write([]byte(repoJSON()))
 		},
 		"/v1/repository/repo-1": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(repoJSON("CREATING")))
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
 			cancel()
 		},
 	})
@@ -342,12 +344,12 @@ func TestContainerRegistryDeleteRepositoryWithYesAndNoWait(t *testing.T) {
 					t.Fatal("unexpected GET after DELETE: --no-wait must send no confirm read")
 				}
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(repoJSON("ACTIVE")))
+				_, _ = w.Write([]byte(repoJSON()))
 			case http.MethodDelete:
 				deleted = true
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusAccepted)
-				_, _ = w.Write([]byte(repoJSON("ACTIVE")))
+				_, _ = w.Write([]byte(repoJSON()))
 			default:
 				t.Fatalf("unexpected method %s", r.Method)
 			}

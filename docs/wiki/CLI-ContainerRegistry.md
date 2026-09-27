@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-Always creates a private repository; there is no --public flag. The server prefixes the account id onto --name, so the output's Name differs from it; match a name that ends with --name's value. Never retried after a failure that may have already reached the server: run list-repositories --name <name> and match that way before creating again, rather than repeating this command blindly. Without --no-wait, waits up to 60 seconds for the new repository to reach ACTIVE; a timeout, or any other failure during that wait, is NotSettled, and the repository exists, so the create must not be sent again. --name must be 6 to 20 characters of lowercase letters, digits, '_' or '-', starting with a letter or digit; any other name exits InvalidUsage before any request.
+Always creates a private repository; there is no --public flag. The server applies no account prefix, so the output's Name matches --name exactly. Never retried after a failure that may have already reached the server: run list-repositories --name <name> and match the exact name before creating again, rather than repeating this command blindly. The create response carries no status to wait on; without --no-wait, this command confirms the new repository with a read, polling for up to 60 seconds. A timeout, or any other failure during that confirm, is NotSettled, and the repository exists, so the create must not be sent again. --name must be 6 to 20 characters of lowercase letters, digits, '_' or '-', starting with a letter or digit; any other name exits InvalidUsage before any request.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -22,7 +22,7 @@ vngcloud containerregistry create-repository --name <name> --quota-limit-gb <quo
 
 Kind: Write, destructive.
 
-Refuses, before any request, a repository that still holds images (error code RepositoryNotEmpty); delete the images with docker or the console first. Attached users are not a guard: they keep existing and lose access to the deleted repository. Without --no-wait, waits up to 60 seconds for the repository to leave the list; a timeout, or any other failure during that wait, is NotSettled, but this command always reads first, so a rerun is safe either way.
+Refuses, before any request, a repository that still holds images (error code RepositoryNotEmpty); delete the images with docker or the console first. Attached users are not a guard: they keep existing and lose access to the deleted repository. Without --no-wait, waits up to 60 seconds for a read of the repository to report it gone; a timeout, or any other failure during that wait, is NotSettled, but this command always reads first, so a rerun is safe either way.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -51,7 +51,7 @@ vngcloud containerregistry get-repository --repository-id <repository-id> --quer
 
 Kind: Read.
 
-The server prefixes every repository's Name with the account id, so a row's Name is never exactly the value given to --name; match by a name that ends with it, as create-repository's own retry advice does.
+The server applies no account prefix: a row's Name is exactly the value given to create-repository's own --name.
 
 | Flag | Type | Required |
 |-|-|-|
