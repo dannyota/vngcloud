@@ -1,6 +1,6 @@
 # vLB Writes: Checks
 
-Status: Proposed, with [vLB writes](lb-writes.md).
+Status: Accepted (2026-09-28), with [vLB writes](lb-writes.md).
 
 The unit tests, free probes, live checks, and security review for
 [vLB writes](lb-writes.md). Terms and sentinels are defined there.

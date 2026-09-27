@@ -1,6 +1,7 @@
 # vLB Writes Design
 
-Status: Proposed (2026-09-28), for owner approval.
+Status: Accepted (2026-09-28). The owner approved every recommendation
+under [Owner decisions](#owner-decisions).
 
 This design adds paid vLB writes to `loadbalancer`: load balancer create,
 package change, and delete; listeners (HTTP, HTTPS, TCP, UDP); pools with

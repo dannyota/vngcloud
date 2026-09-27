@@ -1,6 +1,6 @@
 # vLB Writes: API
 
-Status: Proposed, with [vLB writes](lb-writes.md).
+Status: Accepted (2026-09-28), with [vLB writes](lb-writes.md).
 
 The calls, bodies, server rules, and price evidence behind
 [vLB writes](lb-writes.md). A shape marked "live" was seen on the test
