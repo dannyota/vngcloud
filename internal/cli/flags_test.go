@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,7 +148,7 @@ func TestRegisterFlagsBindsARepeatableStringSliceFlag(t *testing.T) {
 	}
 	applyChangedFlags(cmd, in, bound)
 	want := []string{"sg-1", "sg-2,not-split"}
-	if !equalStringSlices(in.Tags, want) {
+	if !slices.Equal(in.Tags, want) {
 		t.Fatalf("Tags = %v, want %v", in.Tags, want)
 	}
 }
@@ -167,7 +168,7 @@ func TestApplyChangedFlagsLeavesStringSliceUntouchedWhenNotGiven(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 	applyChangedFlags(cmd, in, bound)
-	if !equalStringSlices(in.Tags, []string{"from-json"}) {
+	if !slices.Equal(in.Tags, []string{"from-json"}) {
 		t.Fatalf("Tags = %v, want the JSON value left untouched", in.Tags)
 	}
 }
