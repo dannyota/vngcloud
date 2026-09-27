@@ -1,0 +1,20 @@
+{
+  "listData": [
+    {
+      "uuid": "ra-2",
+      "name": "vcu-live",
+      "backendName": "vcu-live",
+      "description": null,
+      "disable": false,
+      "expiredAt": "2026-06-01T00:00:00Z",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "numberOfRepo": 1,
+      "repoPermissionList": [],
+      "userId": 20260101
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

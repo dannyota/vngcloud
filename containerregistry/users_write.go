@@ -86,21 +86,24 @@ type CreateUserOutput struct {
 //
 // The response carries only a secret key, no user id, so CreateUser finds
 // the new user by calling ListUsers with Name and keeping rows whose Name
-// equals the input exactly or ends with it (an account prefix the
-// reference does not confirm or rule out). Exactly one match fills User;
-// zero or more than one leaves User unfilled and returns an error wrapping
+// equals the input exactly: a live capture confirms the server applies no
+// account prefix to a user's name. Exactly one match fills User; zero or
+// more than one leaves User unfilled and returns an error wrapping
 // ErrUserNotFound, naming list-users --name <name> to check by hand. Either
 // way SecretKey is already set on the returned Output, since the create
 // itself succeeded and the secret is shown once: a lookup failure never
 // drops it.
 //
-// The create is a POST and is never retried after a failure that may have
-// already reached the server: after any error isClientRejectionError does
-// not accept as an outright rejection, the user may exist, and the caller
-// runs list-users --name <name> and deletes a match, since it has already
-// lost its secret, before creating again rather than retrying blind. A 200
-// response with an empty secretKey is treated the same way, through a
-// *core.APIError naming the same check.
+// The create is a POST, sent with Once (transport.Request.Once, ADR 0003
+// rule 3): besides never retrying after a failure that may have already
+// reached the server, it is never resent after a 401 or a followed
+// redirect, either of which would otherwise create a second user with a
+// second secret. After any error isClientRejectionError does not accept as
+// an outright rejection, the user may exist, and the caller runs list-users
+// --name <name> and deletes a match, since it has already lost its secret,
+// before creating again rather than retrying blind. A 200 response with an
+// empty secretKey is treated the same way, through a *core.APIError naming
+// the same check.
 func (c *Client) CreateUser(ctx context.Context, in *CreateUserInput) (*CreateUserOutput, error) {
 	const op = "containerregistry.CreateUser"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -152,6 +155,7 @@ func (c *Client) CreateUser(ctx context.Context, in *CreateUserInput) (*CreateUs
 		Body:      body,
 		OK:        []int{200},
 		Sensitive: true,
+		Once:      true,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousUserCreateErr(op, in.Name, err)
@@ -188,9 +192,10 @@ func knownActions(items []Permission) []string {
 // wrapAmbiguousUserCreateErr wraps err from the create POST op just sent,
 // unless err is a *core.APIError isClientRejectionError accepts: a
 // rejection outright, so nothing was created and the exact same call is
-// safe to retry. Any other error leaves whether the user reached the
-// server unknown, and a user found by list afterward has already lost its
-// secret and should be deleted rather than kept.
+// safe to retry. Any other error, including a 401 or a redirect status the
+// create's Once request refused to follow, leaves whether the user reached
+// the server unknown, and a user found by list afterward has already lost
+// its secret and should be deleted rather than kept.
 func wrapAmbiguousUserCreateErr(op, name string, err error) error {
 	if err == nil {
 		return nil
@@ -203,11 +208,12 @@ func wrapAmbiguousUserCreateErr(op, name string, err error) error {
 }
 
 // findCreatedUser lists users by name and keeps rows whose Name equals name
-// exactly or ends with it, for CreateUser's post-create lookup. Exactly one
-// match is returned; zero or more than one, or the list call itself
-// failing, returns an error wrapping ErrUserNotFound, since the secret has
-// already been issued either way and must not be treated as lost just
-// because the lookup could not settle it.
+// exactly, for CreateUser's post-create lookup: a live capture confirms the
+// server applies no account prefix to a user's name, so an exact match is
+// the only correct one. Exactly one match is returned; zero or more than
+// one, or the list call itself failing, returns an error wrapping
+// ErrUserNotFound, since the secret has already been issued either way and
+// must not be treated as lost just because the lookup could not settle it.
 func (c *Client) findCreatedUser(ctx context.Context, op, name string) (*User, error) {
 	list, err := c.ListUsers(ctx, &ListUsersInput{Name: name})
 	if err != nil {
@@ -215,7 +221,7 @@ func (c *Client) findCreatedUser(ctx context.Context, op, name string) (*User, e
 	}
 	var matches []User
 	for _, u := range list.Items {
-		if u.Name == name || strings.HasSuffix(u.Name, name) {
+		if u.Name == name {
 			matches = append(matches, u)
 		}
 	}

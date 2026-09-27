@@ -278,8 +278,10 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 // share. UserID (the "userId" key) is a separate value from ID: ID is the
 // robot account's own id, the one DeleteUserInput.UserID and a repository
 // permission's own RepositoryID pattern of use take, formatted "ra-<uuid>"
-// per the reference; UserID's own relation to the account has not been
-// confirmed by a live capture.
+// per the reference; a live delete confirms this uuid, not UserID, is what
+// the server expects. UserID's own relation to the account has not been
+// confirmed by a live capture; UnmarshalJSON below handles a live capture
+// showing the server sends it as a JSON number, not a string.
 type User struct {
 	ID                   string                 `json:"uuid"`
 	Name                 string                 `json:"name"`
@@ -291,6 +293,39 @@ type User struct {
 	NumberOfRepositories int                    `json:"numberOfRepo"`
 	UserID               string                 `json:"userId"`
 	Repositories         []RepositoryPermission `json:"repoPermissionList"`
+}
+
+// UnmarshalJSON decodes a bare RobotAccountDto body, the shape every
+// CreateUser lookup row, ListUsers row, and ListRepositoryUsers row shares
+// (see User). It reads userId as raw JSON first: a live capture shows the
+// server sending it as a number, which a plain string field fails to
+// decode, unlike every other id in this package. A quoted string is also
+// accepted. Either shape, or the key being absent or null, leaves UserID a
+// string. description arriving JSON null needs no such handling:
+// encoding/json already leaves a plain string field at its zero value for a
+// null.
+func (u *User) UnmarshalJSON(data []byte) error {
+	type userAlias User
+	aux := struct {
+		UserID json.RawMessage `json:"userId"`
+		*userAlias
+	}{userAlias: (*userAlias)(u)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	switch {
+	case len(aux.UserID) == 0 || string(aux.UserID) == "null":
+		u.UserID = ""
+	case aux.UserID[0] == '"':
+		var s string
+		if err := json.Unmarshal(aux.UserID, &s); err != nil {
+			return err
+		}
+		u.UserID = s
+	default:
+		u.UserID = string(aux.UserID)
+	}
+	return nil
 }
 
 // RepositoryPermission is one repository a User can act on, and the

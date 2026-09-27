@@ -71,9 +71,12 @@ The reference documents only 200 or 202, 401, and 500 for each call.
   `description`, `disable`, `expiredAt`, `createdAt`, `numberOfRepo`,
   `userId`, and `repoPermissionList` (each `repoId`, `repoName`,
   `backendRepoName`, and `policyDtoList` of `uuid` and `action`). No field
-  holds a secret.
-- The permission list is `[{uuid, action}]`. The console offers "Push &
-  Pull" and "Pull Only"; the action strings are a probe item.
+  holds a secret. A live capture confirms `name` carries no account prefix,
+  `description` can be `null`, and `userId` is a JSON number, which `User`
+  decodes to a string.
+- The permission list is `[{uuid, action}]`. A live capture confirms three
+  rows, each id a 36-character uuid, with `action` exactly "Pull Images",
+  "Push Images", or "All".
 - ID examples in the reference are `repo-<uuid>` and `ra-<uuid>`, which
   `core.CheckPathID` allows.
 
@@ -163,10 +166,10 @@ reference's fields, Go-named (`ID` for `uuid`, `QuotaLimitGB`,
 `QuotaUsed`, `ImageCount`, `AttachedUsers`, `RegistryURL`; `User.Disabled`,
 `ExpiredAt`, `Repositories []RepositoryPermission`). A live capture
 confirms `Repository`'s fields and drops `Status`, which no response
-carries. `User`'s fields still await a live capture before its fixtures are
-written; a field the probe does not see stays out. `User` has no secret
-field, so no read can print one. This lifts the hold on `list-users` in
-[CLI reads](cli-reads.md#secrets).
+carries. A live capture also confirms `User`'s fields, with `userId`
+arriving as a JSON number and `description` sometimes `null`; `User`
+decodes both. `User` has no secret field, so no read can print one. This
+lifts the hold on `list-users` in [CLI reads](cli-reads.md#secrets).
 
 The change breaks callers that index the maps. The release notes say so.
 
@@ -219,19 +222,28 @@ The change breaks callers that index the maps. The release notes say so.
    straight into `vngcloud.Secret`. A 200 with an empty `secretKey` is an
    `*APIError` whose message says a user may exist and names
    `list-users --name <name>`.
-4. Find the user: `ListUsers` with the name filter, then keep rows whose
-   `name` equals the input or ends with it after the account prefix. One
-   row fills `User`. None or several: the Output still holds `SecretKey`,
-   and the error wraps `ErrUserNotFound`, whose message names the list to
-   check. The secret is never dropped because a lookup failed.
+4. Find the user: `ListUsers` with the name filter, then keep the row whose
+   `name` equals the input exactly. A live capture confirms the server
+   applies no account prefix to a user's name. One row fills `User`. None
+   or several: the Output still holds `SecretKey`, and the error wraps
+   `ErrUserNotFound`, whose message names the list to check. The secret is
+   never dropped because a lookup failed.
 
-- The create is `POST`, never resent after a 5xx or network error. A user
-  found by list after such an error has lost its secret: delete it.
+- A live 400 confirmed `name`'s own rule: 6 to 14 characters, only `a-z`,
+  `A-Z`, `0-9`, `_`, and `-`, starting with a letter or digit. This is a
+  server value rule (ADR 0002 rule 5): the SDK does not check it.
+- The create is `POST`, sent with `Once` (`transport.Request.Once`, ADR
+  0003 rule 3): a resend after a 401 or a followed redirect, not only a
+  5xx or network error, would create a second user with a second secret. A
+  user found by list after any such failure has lost its secret: delete
+  it.
 - `DurationDays` nil sends no `duration`, which the console calls "no
   expiration". The wiki recommends an expiry.
-- `DeleteUser` sends the `DELETE`. A user holds no data, so it has no
-  guard. A retried delete that finds the user gone returns `NotFound`,
-  mapped as for repositories.
+- `DeleteUser` sends the `DELETE` to the user's uuid (`User.ID`); a live
+  delete confirms this, not `UserID`, the numeric `userId`, is the id the
+  server expects. A user holds no data, so it has no guard. A retried
+  delete that finds the user gone returns `NotFound`, mapped as for
+  repositories.
 
 ### Waits
 
@@ -307,13 +319,10 @@ the create succeeded.
 ```sh
 vngcloud containerregistry create-repository --name app --quota-limit-gb 1
 vngcloud containerregistry create-user --name app-ci --duration-days 90 \
-  --cli-input-json '{"Permissions":[{"RepositoryID":"<id>","Actions":["pull"]}]}' \
+  --cli-input-json '{"Permissions":[{"RepositoryID":"<id>","Actions":["Pull Images"]}]}' \
   --secret-file ./vcr-secret
 docker login vcr.vngcloud.vn -u <login name> --password-stdin < ./vcr-secret
 ```
-
-The action strings in the example are placeholders until the probe names
-them.
 
 ### create-user
 
@@ -407,7 +416,6 @@ requires. Nothing is tagged on an unverified write.
 - How a missing repository or user reads (the reference lists only 500):
   unconfirmed whether a deleted repository's own `GET` answers a plain 404
   or an ambiguous 5xx.
-- The permission action strings.
 - Whether names are unique, and whether `BackendName` carries an account
   prefix; a live capture shows `Name` does not.
 - Which name `docker login` takes.

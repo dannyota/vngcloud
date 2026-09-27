@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -77,6 +80,65 @@ func TestCreateUserRequestBodyAndLookup(t *testing.T) {
 	}
 	if permissionsCalls != 1 || createCalls != 1 || listCalls != 1 {
 		t.Fatalf("calls: permissions=%d create=%d list=%d, want 1 each", permissionsCalls, createCalls, listCalls)
+	}
+}
+
+// TestCreateUserLookupNumericUserID checks that the post-create lookup
+// decodes a live-shaped row, whose userId arrives as a JSON number, without
+// error, and finds it by its exact name.
+func TestCreateUserLookupNumericUserID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			w.WriteHeader(http.StatusOK)
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			if r.URL.Query().Get("name") != "app-ci" {
+				t.Fatalf("list name query = %q, want app-ci", r.URL.Query().Get("name"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci","userId":20260101}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		}
+	}))
+
+	out, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if out.User.UserID != "20260101" {
+		t.Fatalf("User.UserID = %q, want %q", out.User.UserID, "20260101")
+	}
+}
+
+// TestCreateUserLookupSuffixIsNotAMatch checks that a row whose name only
+// ends with the input is not treated as a match: a live capture confirms
+// the server applies no account prefix to a user's name, so only an exact
+// name identifies the created user.
+func TestCreateUserLookupSuffixIsNotAMatch(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			w.WriteHeader(http.StatusOK)
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"prefix-app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		}
+	}))
+
+	_, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+	})
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("err = %v, want ErrUserNotFound: prefix-app-ci only ends with app-ci, and the server applies no account prefix, so it is not a match", err)
 	}
 }
 
@@ -197,7 +259,7 @@ func TestCreateUserLookupTwoMatchesReturnsUserNotFound(t *testing.T) {
 			testutil.WriteFixture(t, w, "../testdata/containerregistry/create_user.json")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/user":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"},{"uuid":"ra-2","name":"prefix-app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":2}`))
+			_, _ = w.Write([]byte(`{"data":[{"uuid":"ra-1","name":"app-ci"},{"uuid":"ra-2","name":"app-ci"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":2}`))
 		}
 	}))
 
@@ -214,8 +276,8 @@ func TestCreateUserLookupTwoMatchesReturnsUserNotFound(t *testing.T) {
 }
 
 // TestCreateUserLookupSubstringOnlyIsNotAMatch covers a row whose name
-// contains the input only in the middle, not as a suffix: only an exact
-// name or one ending with the input (an account prefix) counts as a match.
+// contains the input only in the middle: only an exact name counts as a
+// match.
 func TestCreateUserLookupSubstringOnlyIsNotAMatch(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -441,6 +503,89 @@ func TestCreateUserNeverCaptured(t *testing.T) {
 		if strings.Contains(string(call.Body), "<secret>") {
 			t.Fatalf("a captured response held the fixture secret: %+v", call)
 		}
+	}
+}
+
+// fakeUserTokenSource issues sequential tokens. Every other test in this
+// file wires its Client through newTestClient, whose transport has no
+// TokenSource at all, so transport.doAuthenticated's 401 branch never runs:
+// EnsureToken is a no-op. This type lets TestCreateUserOnceNoResendAfter401
+// build a Client with a real one, so a 401 on the create POST actually
+// reaches that branch.
+type fakeUserTokenSource struct {
+	count atomic.Int64
+}
+
+func (s *fakeUserTokenSource) Token(context.Context) (transport.Token, error) {
+	n := s.count.Add(1)
+	return transport.Token{AccessToken: fmt.Sprintf("token-%d", n), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (s *fakeUserTokenSource) Invalidate(string) {}
+
+// TestCreateUserOnceNoResendAfter401 checks that the create POST carries
+// Once (transport.Request.Once): with a real TokenSource, a 401 reaches
+// transport's own invalidate-and-resend branch, but Once must still leave
+// the POST sent exactly once, unlike an ordinary request.
+func TestCreateUserOnceNoResendAfter401(t *testing.T) {
+	var createCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			createCalls.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &fakeUserTokenSource{}})
+	cfg := core.NewTestConfig("hcm-3", "", endpoints.Set{VCR: server.URL + "/"}, tc)
+	c := New(cfg)
+
+	_, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+	})
+	if !errors.Is(err, core.ErrAuth) {
+		t.Fatalf("err = %v, want core.ErrAuth", err)
+	}
+	if createCalls.Load() != 1 {
+		t.Fatalf("POST calls = %d, want 1: a Once request must never resend after a 401", createCalls.Load())
+	}
+}
+
+// TestCreateUserOnceRefusesRedirect checks that the create POST carries
+// Once (transport.Request.Once): net/http would otherwise replay a
+// redirected POST's method and body at the Location it names, sending the
+// create, and its secret, a second time.
+func TestCreateUserOnceRefusesRedirect(t *testing.T) {
+	var createCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/user/permissions":
+			testutil.WriteFixture(t, w, "../testdata/containerregistry/list_permissions.json")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/user":
+			createCalls.Add(1)
+			w.Header().Set("Location", "/v1/user/moved")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		default:
+			t.Fatalf("unexpected request: %s %s: a Once request must never follow the redirect", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.CreateUser(context.Background(), &CreateUserInput{
+		Name:        "app-ci",
+		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"PULL"}}},
+	})
+	if err == nil {
+		t.Fatal("err = nil, want an error for the 307")
+	}
+	if createCalls.Load() != 1 {
+		t.Fatalf("POST calls = %d, want 1: a Once request must never follow a redirect", createCalls.Load())
 	}
 }
 

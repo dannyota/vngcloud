@@ -250,9 +250,11 @@ and `CreatedAt`; there is no `Status` field, since no response carries one.
 `Repositories` (each a `RepositoryPermission` of `RepositoryID`,
 `RepositoryName`, `BackendRepositoryName`, and `Policies`, each a
 `Permission` of `ID` and `Action`). `User.ID` is the id `DeleteUserInput`
-and a `RepositoryPermission.RepositoryID` take; `User.UserID` is a
-separate, unconfirmed field. A field the reference does not document is
-dropped rather than kept for either type. This breaks code that indexed
+and a `RepositoryPermission.RepositoryID` take; a live delete confirms
+this, not `UserID`, is what the server expects. `User.UserID` decodes the
+server's numeric `userId` to a string and is otherwise a separate,
+unconfirmed field. A field the reference does not document is dropped
+rather than kept for either type. This breaks code that indexed
 `Repository` or `User` as a map.
 
 `CreateRepository` always creates a private repository; there is no
@@ -284,24 +286,28 @@ context, the returned error wraps `ErrNotSettled`: for a create, the
 repository exists and must not be created again; for a delete, the delete
 was sent and a rerun is safe.
 
-`CreateUser` takes a permission's actions as names, such as `"pull"`, not
-raw policy ids: it reads `ListPermissions` and maps each name to its policy
-id, matching the server's own list exactly, so an unknown action fails
-before any create is sent. The response carries only a secret key, no user
-id, so `CreateUser` finds the new user by listing users with `Name` and
-keeping a row whose name equals it exactly or ends with it (an account
-prefix the reference does not confirm). One match fills `User`; zero or
-more than one returns an error wrapping `ErrUserNotFound`, naming
-`list-users --name <name>` to check by hand, while `SecretKey` on the
-Output is still set either way, since the create itself already succeeded.
-`SecretKey` is a `vngcloud.Secret`: printing, logging, or JSON-encoding the
-Output gives `[redacted]`, and `Reveal()` is the only way to read it back.
-`CreateUser` is a `POST` and is never retried after a failure that may
-have already reached the server; a user found afterward by `list-users
+`CreateUser` takes a permission's actions as names, such as `"Pull
+Images"`, not raw policy ids: it reads `ListPermissions` and maps each name
+to its policy id, matching the server's own list exactly (a live capture
+shows the three actions "Pull Images", "Push Images", and "All"), so an
+unknown action fails before any create is sent. The server's own name rule
+for a user is 6 to 14 characters, only `a-z`, `A-Z`, `0-9`, `_`, and `-`,
+starting with a letter or digit; the SDK sends `Name` as given and does not
+check this. The response carries only a secret key, no user id, so
+`CreateUser` finds the new user by listing users with `Name` and keeping
+the row whose name equals it exactly: a live capture shows the server
+applies no account prefix. One match fills `User`; zero or more than one
+returns an error wrapping `ErrUserNotFound`, naming `list-users --name
+<name>` to check by hand, while `SecretKey` on the Output is still set
+either way, since the create itself already succeeded. `SecretKey` is a
+`vngcloud.Secret`: printing, logging, or JSON-encoding the Output gives
+`[redacted]`, and `Reveal()` is the only way to read it back. `CreateUser`
+sends the create with `Once`: it is never resent after a 5xx, a network
+error, a 401, or a followed redirect, since any of these could still create
+a second user with a second secret; a user found afterward by `list-users
 --name <name>` has already lost its secret and should be deleted before
-creating again. `DurationDays` left nil creates a user with no
-expiration; the wiki recommends setting one for a pull user meant to be
-temporary.
+creating again. `DurationDays` left nil creates a user with no expiration;
+the wiki recommends setting one for a pull user meant to be temporary.
 
 `DeleteUser` sends the delete directly: a user holds no data of its own,
 so there is no pre-delete guard.

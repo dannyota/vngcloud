@@ -68,6 +68,33 @@ func TestContainerRegistryListUsers(t *testing.T) {
 	}
 }
 
+// TestContainerRegistryListUsersNumericUserID checks that ListUsers decodes
+// a live-shaped row: a live capture shows userId arriving as a JSON number,
+// which User exposes as a string, and description arriving null.
+func TestContainerRegistryListUsersNumericUserID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/containerregistry/list_users_numeric_userid.json")
+	}))
+
+	out, err := c.ListUsers(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListUsers() error = %v", err)
+	}
+	if len(out.Items) != 1 {
+		t.Fatalf("Items = %d, want 1", len(out.Items))
+	}
+	u := out.Items[0]
+	if u.UserID != "20260101" {
+		t.Fatalf("UserID = %q, want %q", u.UserID, "20260101")
+	}
+	if u.Description != "" {
+		t.Fatalf("Description = %q, want empty for a null value", u.Description)
+	}
+	if u.ID != "ra-2" || u.Name != "vcu-live" {
+		t.Fatalf("unexpected user: %+v", u)
+	}
+}
+
 func TestContainerRegistryListRepositoryUsers(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/repository/repo-1/user" {

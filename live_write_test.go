@@ -4667,6 +4667,18 @@ func isLiveVCRRepositoryName(name string) bool {
 	return vcrLiveNameSuffixPattern.MatchString(name)
 }
 
+// vcrLiveUserNameSuffixPattern is the live vCR write test's own repository
+// user naming scheme. A live 400 confirms a user's own name rule is 6 to 14
+// characters, too short for vcrlive- (let alone vngcloud-live-) plus 8 hex
+// digits, so users get their own vcu- prefix instead.
+var vcrLiveUserNameSuffixPattern = regexp.MustCompile(`vcu-[0-9a-f]{8}$`)
+
+// isLiveVCRUserName reports whether name ends with
+// vcrLiveUserNameSuffixPattern.
+func isLiveVCRUserName(name string) bool {
+	return vcrLiveUserNameSuffixPattern.MatchString(name)
+}
+
 // isVCRPaymentRefusal reports whether err is a *vngcloud.APIError with a 4xx
 // status whose message mentions balance, credit, payment, or order: the
 // cost probe's own signal that a vCR repository is paid and the account has
@@ -4899,14 +4911,15 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	}
 }
 
-// deleteVCRUserByName lists users and deletes any whose name exactly
-// matches name or ends with it (an account prefix the reference does not
-// confirm or rule out). It is used after a CreateUser call returns an error
-// or fails to resolve the created user's own id by list, since a POST that
-// returned an error may still have reached the server, and the id-lookup
-// itself, not only the create, can be the thing that failed. It runs on its
-// own timeout, not the calling test step's context, so it can still clean
-// up after that step's context is the reason the step failed.
+// deleteVCRUserByName lists users and deletes any whose name equals name
+// exactly, matching CreateUser's own lookup: a live capture confirms the
+// server applies no account prefix to a user's name. It is used after a
+// CreateUser call returns an error or fails to resolve the created user's
+// own id by list, since a POST that returned an error may still have
+// reached the server, and the id-lookup itself, not only the create, can be
+// the thing that failed. It runs on its own timeout, not the calling test
+// step's context, so it can still clean up after that step's context is
+// the reason the step failed.
 func deleteVCRUserByName(t *testing.T, client *containerregistry.Client, name string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -4918,7 +4931,7 @@ func deleteVCRUserByName(t *testing.T, client *containerregistry.Client, name st
 		return
 	}
 	for _, u := range list.Items {
-		if u.Name != name && !strings.HasSuffix(u.Name, name) {
+		if u.Name != name {
 			continue
 		}
 		if _, err := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: u.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -4938,23 +4951,21 @@ func deleteVCRUserByName(t *testing.T, client *containerregistry.Client, name st
 // and skips rather than fails. Repository users are assumed free once
 // repositories are.
 //
-// It deletes every leftover vcrlive-* user, then every leftover vcrlive-*
+// It deletes every leftover vcu-* user, then every leftover vcrlive-*
 // repository holding no images, from a previous run, users first even
 // though an attached user does not itself block a repository delete (step
 // 1); creates a vcrlive-<8 hex> repository (step 2); reads ListPermissions
-// and picks whichever action names "pull" but not "push", since the exact
-// action strings are unconfirmed (step 3); creates a vcrlive-<8 hex> user
-// with that one pull-only permission and no expiration, registering a
-// by-name fallback cleanup at once if the create returns an error or never
-// resolves the user's own id, and logging only a boolean for a non-empty
-// secret and its length, never the secret itself (step 4); registers the
-// fallback delete by id as soon as the created user's id is known (step 5);
-// confirms the user appears in ListRepositoryUsers on the repository (step
-// 6); deletes the user, confirming a repeat delete returns NotFound (step
-// 7); and deletes the repository, confirming a repeat delete returns
-// NotFound (step 8). docker login is never run: it would put the secret in
-// a credential store, and the login name is an open question until the
-// owner tries it by hand.
+// and picks the action named exactly "Pull Images" (step 3); registers a
+// by-exact-name fallback cleanup for a vcu-<8 hex> user before creating it
+// with that one pull-only permission and a 1-day duration, logging only a
+// boolean for a non-empty secret and its length, never the secret itself
+// (step 4); registers the fallback delete by id as soon as the created
+// user's id is known (step 5); confirms the user appears in
+// ListRepositoryUsers on the repository (step 6); deletes the user,
+// confirming a repeat delete returns NotFound (step 7); and deletes the
+// repository, confirming a repeat delete returns NotFound (step 8). docker
+// login is never run: it would put the secret in a credential store, and
+// the login name is an open question until the owner tries it by hand.
 func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
@@ -4997,7 +5008,7 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	}
 	deletedUsers := 0
 	for _, leftover := range leftoverUsers.Items {
-		if !isLiveVCRRepositoryName(leftover.Name) {
+		if !isLiveVCRUserName(leftover.Name) {
 			continue
 		}
 		if _, err := client.DeleteUser(ctx, &containerregistry.DeleteUserInput{UserID: leftover.ID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -5062,10 +5073,9 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	})
 	t.Log("step 2: created repository")
 
-	// Step 3: read the known permissions and pick a pull-only action. The
-	// design leaves the exact action strings unconfirmed, so this matches by
-	// name rather than a hardcoded guess, preferring an action naming "pull"
-	// but not "push" over one that grants both.
+	// Step 3: read the known permissions and pick the action named exactly
+	// "Pull Images".
+	const pullAction = "Pull Images"
 	perms, err := client.ListPermissions(ctx, nil)
 	if err != nil {
 		t.Fatalf("step 3 ListPermissions: %s", safeErr(err))
@@ -5073,27 +5083,30 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	if len(perms.Items) == 0 {
 		t.Fatal("step 3: ListPermissions returned no actions")
 	}
-	pullAction := ""
+	foundPullAction := false
 	for _, p := range perms.Items {
-		lower := strings.ToLower(p.Action)
-		if strings.Contains(lower, "pull") && !strings.Contains(lower, "push") {
-			pullAction = p.Action
+		if p.Action == pullAction {
+			foundPullAction = true
 			break
 		}
 	}
-	if pullAction == "" {
-		t.Fatalf("step 3: no pull-only action found among %d permission(s)", len(perms.Items))
+	if !foundPullAction {
+		t.Fatalf("step 3: no %q action found among %d permission(s)", pullAction, len(perms.Items))
 	}
-	t.Logf("step 3: read %d permission(s), picked a pull-only action", len(perms.Items))
+	t.Logf("step 3: read %d permission(s), found %q", len(perms.Items), pullAction)
 
-	// Step 4: create a pull-only user on the repository, with no
-	// expiration. A POST is not retried after an ambiguous failure, and the
+	// Step 4: create a pull-only user on the repository, with a 1-day
+	// duration. A POST is not retried after an ambiguous failure, and the
 	// user's own id is resolved by a list lookup rather than the create
 	// response, so either one failing still means the user may exist;
-	// register the by-name fallback before checking either.
-	userName := "vcrlive-" + suffix
+	// register the by-exact-name fallback before the create itself, not
+	// only after it fails, so a create whose response never reaches this
+	// process still gets cleaned up.
+	userName := "vcu-" + suffix
+	t.Cleanup(func() { deleteVCRUserByName(t, client, userName) })
 	createdUser, err := client.CreateUser(ctx, &containerregistry.CreateUserInput{
-		Name: userName,
+		Name:         userName,
+		DurationDays: vngcloud.Ptr(1),
 		Permissions: []containerregistry.UserPermission{
 			{RepositoryID: repositoryID, Actions: []string{pullAction}},
 		},
@@ -5106,11 +5119,6 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 		secret := createdUser.SecretKey.Reveal()
 		hasSecret = secret != ""
 		secretLen = len(secret)
-	}
-	if err != nil || userID == "" {
-		t.Cleanup(func() { deleteVCRUserByName(t, client, userName) })
-	}
-	if createdUser != nil {
 		t.Logf("step 4: create response secret present=%v length=%d", hasSecret, secretLen)
 	}
 	if err != nil {
