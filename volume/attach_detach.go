@@ -107,14 +107,22 @@ type DetachVolumeOutput struct {
 
 // DetachVolume detaches a volume from a server. It reads the volume first:
 // not attached to Input.ServerID returns at once with Changed false,
-// sending nothing. Attached, but Volume.Bootable (the server's boot
-// volume), refuses with ErrBootVolume, sending nothing: detaching the disk
-// a server boots from is never allowed here.
+// sending nothing.
 //
-// Unless AllowRunning is set, DetachVolume then reads the server's own
-// Status; ACTIVE refuses with ErrServerRunning, sending nothing, since the
-// volume may be mounted there. AllowRunning skips that read entirely,
-// since it is the caller's own consent.
+// Attached, DetachVolume always reads the server next, whether or not
+// AllowRunning is set, and refuses with ErrBootVolume, sending nothing,
+// when Input.VolumeID equals the server's own BootVolumeID, when
+// Volume.Bootable says so, or when the server's read carries no
+// BootVolumeID at all: a missing id cannot rule out this being the boot
+// volume, so it fails closed the same as a confirmed match. Detaching the
+// disk a server boots from is never allowed here.
+//
+// Unless AllowRunning is set, that same read's Status must be STOPPED;
+// any other status, including one this SDK does not recognize or an empty
+// string, refuses with ErrServerRunning, sending nothing, since the volume
+// may be mounted on a server that is not fully stopped. AllowRunning skips
+// only this status check, not the read itself, which the boot-volume guard
+// above still needs.
 //
 // The PUT keeps the transport's normal retries: a repeat is refused as
 // already available, never a second charge.
@@ -144,17 +152,20 @@ func (c *Client) DetachVolume(ctx context.Context, in *DetachVolumeInput) (*Deta
 	if !current.Volume.AttachedToServer(in.ServerID) {
 		return &DetachVolumeOutput{Volume: current.Volume, Changed: false}, nil
 	}
-	if current.Volume.Bootable {
+
+	status, bootVolumeID, err := c.readServer(ctx, op, in.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	if bootVolumeID == "" {
+		return nil, fmt.Errorf("%w: %s: server %s reported no boot volume id; refusing to detach volume %s until this is confirmed safe",
+			ErrBootVolume, op, in.ServerID, in.VolumeID)
+	}
+	if current.Volume.Bootable || in.VolumeID == bootVolumeID {
 		return nil, fmt.Errorf("%w: %s: volume %s is server %s's boot volume", ErrBootVolume, op, in.VolumeID, in.ServerID)
 	}
-	if !in.AllowRunning {
-		status, err := c.readServerStatus(ctx, op, in.ServerID)
-		if err != nil {
-			return nil, err
-		}
-		if strings.EqualFold(status, "ACTIVE") {
-			return nil, fmt.Errorf("%w: %s: server %s is ACTIVE; stop it first, or unmount and pass AllowRunning", ErrServerRunning, op, in.ServerID)
-		}
+	if !in.AllowRunning && !strings.EqualFold(status, "STOPPED") {
+		return nil, fmt.Errorf("%w: %s: server %s is %q, not STOPPED; stop it first, or unmount and pass AllowRunning", ErrServerRunning, op, in.ServerID, status)
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -181,20 +192,21 @@ func (c *Client) DetachVolume(ctx context.Context, in *DetachVolumeInput) (*Deta
 	return &DetachVolumeOutput{Volume: *settled, Changed: true}, waitErr
 }
 
-// readServerStatus reads serverID's own Status field from the vServer
-// gateway's server endpoint, the same route compute.GetServer uses,
+// readServer reads serverID's own Status and BootVolumeID fields from the
+// vServer gateway's server endpoint, the same route compute.GetServer uses,
 // without importing the compute package: compute already imports volume
 // for DeleteServer's own reads, and an import back would cycle. Every
 // other field of the response is left undecoded, since DetachVolume's
-// guard needs only Status.
-func (c *Client) readServerStatus(ctx context.Context, op, serverID string) (string, error) {
+// guards need only these two.
+func (c *Client) readServer(ctx context.Context, op, serverID string) (status, bootVolumeID string, err error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var resp struct {
 		Data struct {
-			Status string `json:"status"`
+			Status       string `json:"status"`
+			BootVolumeID string `json:"bootVolumeId"`
 		} `json:"data"`
 	}
 	req := transport.Request{
@@ -204,7 +216,7 @@ func (c *Client) readServerStatus(ctx context.Context, op, serverID string) (str
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return resp.Data.Status, nil
+	return resp.Data.Status, resp.Data.BootVolumeID, nil
 }

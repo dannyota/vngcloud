@@ -210,7 +210,7 @@ func TestDetachVolumeRunningServerRefusedWithoutAllowRunning(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
 			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE","bootVolumeId":"boot-volume-1"}}`))
 		default:
 			t.Fatal("no write expected")
 		}
@@ -222,7 +222,38 @@ func TestDetachVolumeRunningServerRefusedWithoutAllowRunning(t *testing.T) {
 	}
 }
 
-func TestDetachVolumeAllowRunningSkipsServerRead(t *testing.T) {
+// TestDetachVolumeRefusesEveryNonStoppedStatusWithoutAllowRunning checks
+// that a status other than STOPPED refuses with ErrServerRunning, not only
+// ACTIVE: a transitional status such as REBOOTING or STARTING, or an empty
+// one, may still have the volume mounted, so only STOPPED is accepted.
+func TestDetachVolumeRefusesEveryNonStoppedStatusWithoutAllowRunning(t *testing.T) {
+	for _, status := range []string{"REBOOTING", "STARTING", ""} {
+		t.Run(status, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
+					_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+					_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"` + status + `","bootVolumeId":"boot-volume-1"}}`))
+				default:
+					t.Fatal("no write expected")
+				}
+			}))
+
+			_, err := c.DetachVolume(context.Background(), &DetachVolumeInput{VolumeID: "volume-1", ServerID: "server-1"})
+			if !errors.Is(err, ErrServerRunning) {
+				t.Fatalf("status %q: err = %v, want ErrServerRunning", status, err)
+			}
+		})
+	}
+}
+
+// TestDetachVolumeAllowRunningStillReadsServerForBootCheck checks that
+// AllowRunning skips only the running-server status refusal, not the
+// server read itself: DetachVolume always reads the server to cross-check
+// the boot volume id, even when the caller has consented to detaching from
+// a running server.
+func TestDetachVolumeAllowRunningStillReadsServerForBootCheck(t *testing.T) {
 	var serverReadCalled atomic.Bool
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -230,7 +261,7 @@ func TestDetachVolumeAllowRunningSkipsServerRead(t *testing.T) {
 			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
 			serverReadCalled.Store(true)
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE","bootVolumeId":"boot-volume-1"}}`))
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusAccepted)
 		}
@@ -241,8 +272,53 @@ func TestDetachVolumeAllowRunningSkipsServerRead(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("DetachVolume() error = %v", err)
 	}
-	if serverReadCalled.Load() {
-		t.Fatal("server status was read even though AllowRunning was set")
+	if !serverReadCalled.Load() {
+		t.Fatal("server was never read: the boot volume cross-check needs it even with AllowRunning")
+	}
+}
+
+// TestDetachVolumeMissingBootVolumeIDFailsClosed checks that a server read
+// carrying no BootVolumeID at all refuses with ErrBootVolume, even though
+// the volume itself is not marked Bootable: a missing id cannot rule out
+// this being the boot volume.
+func TestDetachVolumeMissingBootVolumeIDFailsClosed(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
+			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED"}}`))
+		default:
+			t.Fatal("no write expected")
+		}
+	}))
+
+	_, err := c.DetachVolume(context.Background(), &DetachVolumeInput{VolumeID: "volume-1", ServerID: "server-1"})
+	if !errors.Is(err, ErrBootVolume) {
+		t.Fatalf("err = %v, want ErrBootVolume", err)
+	}
+}
+
+// TestDetachVolumeIDMatchesServerBootVolumeIDRefused checks that a volume
+// id equal to the server's own BootVolumeID refuses with ErrBootVolume even
+// when the volume's own Bootable field says false, and even with
+// AllowRunning set: the server's own record is a second, independent
+// signal that neither AllowRunning nor a wrong Bootable value overrides.
+func TestDetachVolumeIDMatchesServerBootVolumeIDRefused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
+			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE","bootVolumeId":"volume-1"}}`))
+		default:
+			t.Fatal("no write expected")
+		}
+	}))
+
+	_, err := c.DetachVolume(context.Background(), &DetachVolumeInput{VolumeID: "volume-1", ServerID: "server-1", AllowRunning: true})
+	if !errors.Is(err, ErrBootVolume) {
+		t.Fatalf("err = %v, want ErrBootVolume", err)
 	}
 }
 
@@ -259,7 +335,7 @@ func TestDetachVolumeSendsPutAndWaits(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(volumeBody("AVAILABLE", "")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
 		case r.Method == http.MethodPut:
 			if r.URL.Path != "/v2/project-1/volumes/volume-1/servers/server-1/detach" {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -313,7 +389,7 @@ func TestDetachVolumeWaitFailsOnError(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
 			_, _ = w.Write([]byte(volumeBody("ERROR", "server-1")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusAccepted)
 		}
@@ -331,7 +407,7 @@ func TestDetachVolumeWaitBoundReached(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
 			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusAccepted)
 		}
@@ -351,7 +427,7 @@ func TestDetachVolumeNoWaitReturnsAtOnce(t *testing.T) {
 			getCalls++
 			_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
-			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusAccepted)
 		}
