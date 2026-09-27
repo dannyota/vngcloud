@@ -399,7 +399,9 @@ const networkDeleteNetworkACLNote = "Refuses, before any request, with error cod
 	"project's default ACL, and ResourceInUse when any subnet is still associated; disassociate every subnet " +
 	"first. Confirmed live: a deleted ACL's own GET returns 500, not 404, so this command, and a repeat " +
 	"delete, confirm through the ACL list instead of trusting that status alone; a plain 404 for an id that " +
-	"was never valid still returns NotFound directly."
+	"was never valid still returns NotFound directly. A DELETE sent while the ACL is still settling an " +
+	"earlier write gets the server's own busy 400 back, mapped to error code ResourceBusy rather than a " +
+	"plain API error; nothing changed, so the command can be run again."
 
 // networkChangeACLRuleNote builds the shared shape of add-network-acl-rule's
 // and remove-network-acl-rule's --yes requirement, pre-write wait, and
@@ -413,17 +415,24 @@ func networkChangeACLRuleNote(command, extra string) string {
 		"read, including the server's own default rules (priority 2000 or above, or a rule marked System), " +
 		"which are never sent changed. " + extra + " Reads the ACL again right before " +
 		"sending and refuses with ResourceBusy, nothing sent, if its rules changed since that first read; a " +
-		"write that lands in the moment between this re-read and the send can still be overwritten. Without " +
-		"--no-wait, waits again after sending and confirms that a fresh read names exactly the rules just " +
-		"sent; a mismatch, such as from another writer changing the ACL at the same time, is NotSettled."
+		"write that lands in the moment between this re-read and the send can still be overwritten. The " +
+		"rules PUT itself is sent once and never retried: landing in the ACL's own busy window (confirmed " +
+		"live, roughly 18 seconds after an earlier write) gets the server's own busy 400 back, mapped to " +
+		"ResourceBusy, and changes nothing, so it can be run again; any other failure that may already have " +
+		"reached the server, a 5xx, a network error, or a timeout, is NotSettled instead, and is not resent " +
+		"automatically, so read the ACL first before trying again. Without --no-wait, a successful send waits " +
+		"once more and confirms that a fresh read names exactly the rules just sent; a mismatch, such as from " +
+		"another writer changing the ACL at the same time, is also NotSettled."
 }
 
 // networkAddNetworkACLRuleNote documents add-network-acl-rule's own no-op
 // and conflict cases, which networkChangeACLRuleNote's shared text does not
 // cover.
 var networkAddNetworkACLRuleNote = networkChangeACLRuleNote("add-network-acl-rule",
-	"Needs an explicit port range: --port-range-min and --port-range-max must not both be left at 0; for "+
-		"every port pass --port-range-min 0 --port-range-max 65535. Adding a rule already present at the "+
+	"For --protocol tcp or udp, needs an explicit port or range: --port-range-min and --port-range-max must "+
+		"not both be left at 0, refused with InvalidUsage before any request; for every port pass "+
+		"--port-range-min 0 --port-range-max 65535. Protocol ANY always requires that same full range; icmp "+
+		"accepts it or 0 and 0 together, for every ICMP type. Adding a rule already present at the "+
 		"same --direction and --priority with every other field equal is a no-op: Changed is false and "+
 		"nothing is sent. The same --direction and --priority already there with a different field is "+
 		"refused with InvalidUsage; remove-network-acl-rule the old one first.")
@@ -449,9 +458,14 @@ func networkChangeACLSubnetNote(command, extra string) string {
 		"to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. " + extra + " " +
 		"Reads the ACL again right before sending and refuses with ResourceBusy, nothing sent, if its subnet " +
 		"list changed since that first read; a write that lands in the moment between this re-read and the " +
-		"send can still be overwritten. Without --no-wait, waits again after sending and confirms that a " +
-		"fresh read names exactly the subnets just sent; a mismatch, such as from another writer changing " +
-		"the ACL at the same time, is NotSettled."
+		"send can still be overwritten. The subnets PUT itself is sent once and never retried: landing in " +
+		"the ACL's own busy window (confirmed live, roughly 18 seconds after an earlier write) gets the " +
+		"server's own busy 400 back, mapped to ResourceBusy, and changes nothing, so it can be run again; " +
+		"any other failure that may already have reached the server, a 5xx, a network error, or a timeout, " +
+		"is NotSettled instead, and is not resent automatically, so read the ACL first before trying again. " +
+		"Without --no-wait, a successful send waits once more and confirms that a fresh read names exactly " +
+		"the subnets just sent; a mismatch, such as from another writer changing the ACL at the same time, " +
+		"is also NotSettled."
 }
 
 // networkAssociateNetworkACLSubnetNote documents associate-network-acl-subnet's
@@ -608,8 +622,9 @@ var docExampleExtraFlag = map[string]string{
 // override also supplies --port-range-min and --port-range-max: neither is
 // a required Input field, so buildExample's required-fields loop would
 // otherwise leave both out, defaulting to port 0, which checkACLRulePorts
-// accepts for tcp but which names no real port; the override gives a single
-// real port, 22 and 22, matching checkACLRulePorts' own single-port format.
+// refuses for tcp since it names no port at all; the override gives a
+// single real port, 22 and 22, matching checkACLRulePorts' own single-port
+// format.
 // remove-network-acl-rule needs it for both reasons at once: it also is not
 // Destructive, and its override additionally supplies --priority, since
 // Priority carries no vngcloud:"required" tag on RemoveNetworkACLRuleInput

@@ -341,7 +341,10 @@ func renderCLIPage(services []docService) string {
 		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
 		"resolved group rather than making a new one, or a compute update-server-group's confirm read " +
 		"after its PUT succeeded failed to come back: the update itself already landed and may be sent " +
-		"again the same way; see [Compute](CLI-Compute.md#update-server-group)), `OTPRejected` (create-channel's or " +
+		"again the same way; see [Compute](CLI-Compute.md#update-server-group)), or a network ACL rules or " +
+		"subnets PUT, sent once with no retry, failed in a way that may already have reached the server, a " +
+		"5xx, a network error, or a timeout: the write is not resent automatically, so read the ACL first " +
+		"before trying the command again; see [Network](Network.md#waits)), `OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
 		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +
@@ -361,7 +364,10 @@ func renderCLIPage(services []docService) string {
 		"table once nothing relies on it; or a write targeted a project's default network ACL or one of " +
 		"an ACL's own default rules), `ResourceBusy` (a network add-route, remove-route, or a network ACL " +
 		"rule or subnet write read a table or ACL that was not ACTIVE and stayed that way past the wait " +
-		"before the write, or saw it change before the send, so nothing was sent), " +
+		"before the write, or saw it change before the send, so nothing was sent; or a network ACL rules " +
+		"or subnets PUT, or a delete-network-acl DELETE, sent once with no retry landed in the ACL's own " +
+		"busy window and got the server's own busy 400 back, which changed nothing, so the command can be " +
+		"run again; see [Network](Network.md#waits)), " +
 		"`SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
