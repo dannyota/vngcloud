@@ -2,6 +2,8 @@ package volume
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -44,16 +46,14 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every interval, until step reports
-// stop true or bound has elapsed, by now, since poll's first call to step.
-// Elapsed time is read from now rather than counted in interval steps, so a
-// step that itself takes real time counts against the bound instead of only
-// the sleeps between steps. This is the same shape as vDNS's and network's
-// own unexported poll, duplicated here rather than shared, since neither
-// package imports this one and each service's writes need their own
-// interval and bound per operation.
-func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
-	deadline := now().Add(bound)
+// poll runs step at once, then again every volumePollInterval, until step
+// reports stop true or volumeWaitBound has elapsed, by now, since poll's
+// first call to step. Every volume wait in the design's wait table uses
+// this same 2-second interval and 5-minute bound, so neither is a
+// parameter here, unlike vDNS's, network's, and compute's own unexported
+// poll, whose shape this otherwise copies.
+func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	deadline := now().Add(volumeWaitBound)
 	for {
 		stop, err := step(ctx)
 		if stop {
@@ -62,7 +62,7 @@ func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound t
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, interval); err != nil {
+		if err := sleep(ctx, volumePollInterval); err != nil {
 			return err
 		}
 	}
@@ -71,6 +71,71 @@ func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound t
 // Poll timing per the design's wait table.
 const (
 	volumePollInterval = 2 * time.Second
-	volumeCreateBound  = 5 * time.Minute
-	volumeDeleteBound  = 5 * time.Minute
+	volumeWaitBound    = 5 * time.Minute
 )
+
+// waitVolumeAttached is AttachVolume's post-attach wait unless NoWait is
+// set: it reads volumeID with GetVolume until its Status is IN-USE with
+// serverID among its attached servers (settled) or ERROR (failed); any
+// other outcome, including IN-USE without serverID yet listed, keeps it
+// polling.
+func (c *Client) waitVolumeAttached(ctx context.Context, op, volumeID, serverID string) (*Volume, error) {
+	var vol *Volume
+	err := poll(ctx, c.now, c.sleep,
+		func(ctx context.Context) (bool, error) {
+			out, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: volumeID})
+			if err != nil {
+				return true, err
+			}
+			vol = &out.Volume
+			switch {
+			case vol.IsInUse() && vol.AttachedToServer(serverID):
+				return true, nil
+			case isVolumeError(vol.Status):
+				return true, fmt.Errorf("%w: %s: volume %s is ERROR", ErrFailed, op, volumeID)
+			default:
+				return false, nil
+			}
+		},
+		func() error {
+			return fmt.Errorf("%w: %s: volume %s did not confirm attach to server %s within %s; run this operation again to check",
+				ErrNotSettled, op, volumeID, serverID, volumeWaitBound)
+		},
+	)
+	if err != nil && !errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled) {
+		err = fmt.Errorf("%w: %s: volume %s: %w", ErrNotSettled, op, volumeID, err)
+	}
+	return vol, err
+}
+
+// waitVolumeDetached is DetachVolume's post-detach wait unless NoWait is
+// set: it reads volumeID with GetVolume until its Status reaches AVAILABLE
+// or ERROR; any other status keeps it polling.
+func (c *Client) waitVolumeDetached(ctx context.Context, op, volumeID string) (*Volume, error) {
+	var vol *Volume
+	err := poll(ctx, c.now, c.sleep,
+		func(ctx context.Context) (bool, error) {
+			out, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: volumeID})
+			if err != nil {
+				return true, err
+			}
+			vol = &out.Volume
+			switch {
+			case vol.IsAvailable():
+				return true, nil
+			case isVolumeError(vol.Status):
+				return true, fmt.Errorf("%w: %s: volume %s is ERROR", ErrFailed, op, volumeID)
+			default:
+				return false, nil
+			}
+		},
+		func() error {
+			return fmt.Errorf("%w: %s: volume %s did not confirm detach within %s; run this operation again to check",
+				ErrNotSettled, op, volumeID, volumeWaitBound)
+		},
+	)
+	if err != nil && !errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled) {
+		err = fmt.Errorf("%w: %s: volume %s: %w", ErrNotSettled, op, volumeID, err)
+	}
+	return vol, err
+}

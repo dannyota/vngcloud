@@ -120,8 +120,9 @@ volumeClient.ListAllSnapshots(ctx, nil)
 volumeClient.QuoteCreateVolume(ctx, in)    // *volume.CreateVolumeInput
 ```
 
-Volume writes (`CreateVolume`, `DeleteVolume`) and their price guard, waits,
-and errors are on the [Volume](Volume.md) page.
+Volume writes (`CreateVolume`, `DeleteVolume`, `AttachVolume`,
+`DetachVolume`) and their price guard, waits, and errors are on the
+[Volume](Volume.md) page.
 
 `ProjectID` is optional in `Config`. Volume methods discover the project for
 the configured region when needed.

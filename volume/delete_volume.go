@@ -79,7 +79,7 @@ func (c *Client) DeleteVolume(ctx context.Context, in *DeleteVolumeInput) (*Dele
 // Status DELETED (settled), or ERROR (failed); any other status keeps it
 // polling.
 func (c *Client) waitVolumeDeleted(ctx context.Context, op, volumeID string) error {
-	err := poll(ctx, c.now, c.sleep, volumePollInterval, volumeDeleteBound,
+	err := poll(ctx, c.now, c.sleep,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: volumeID})
 			if err != nil {
@@ -99,7 +99,7 @@ func (c *Client) waitVolumeDeleted(ctx context.Context, op, volumeID string) err
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: volume %s did not reach 404 or DELETED within %s; delete was sent and a rerun is safe",
-				ErrNotSettled, op, volumeID, volumeDeleteBound)
+				ErrNotSettled, op, volumeID, volumeWaitBound)
 		},
 	)
 	if err != nil && !errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled) {

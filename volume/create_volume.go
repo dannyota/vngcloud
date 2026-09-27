@@ -250,7 +250,7 @@ func (c *Client) findVolumeByName(ctx context.Context, name string) (*Volume, er
 // not be readable at once), keeps it polling.
 func (c *Client) waitVolumeAvailable(ctx context.Context, op, volumeID string) (*Volume, error) {
 	var vol *Volume
-	err := poll(ctx, c.now, c.sleep, volumePollInterval, volumeCreateBound,
+	err := poll(ctx, c.now, c.sleep,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: volumeID})
 			if err != nil {
@@ -271,7 +271,7 @@ func (c *Client) waitVolumeAvailable(ctx context.Context, op, volumeID string) (
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: volume %s did not reach AVAILABLE within %s; the volume exists and this create must not be repeated",
-				ErrNotSettled, op, volumeID, volumeCreateBound)
+				ErrNotSettled, op, volumeID, volumeWaitBound)
 		},
 	)
 	if err != nil && !errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled) {

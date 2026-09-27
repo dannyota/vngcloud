@@ -128,20 +128,67 @@ showing `Status` `DELETED`; `ERROR` wraps `volume.ErrFailed`, and the bound
 running out, or a read or a sleep failing, wraps `volume.ErrNotSettled`. A
 rerun after either is always safe, since `DeleteVolume` reads first.
 
+## Attaching and detaching
+
+```go
+attached, err := client.AttachVolume(ctx, &volume.AttachVolumeInput{
+	VolumeID: created.Volume.UUID, ServerID: "<server-id>",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(attached.Changed, attached.Volume.Status)
+
+detached, err := client.DetachVolume(ctx, &volume.DetachVolumeInput{
+	VolumeID: created.Volume.UUID, ServerID: "<server-id>",
+})
+switch {
+case errors.Is(err, volume.ErrServerRunning):
+	log.Fatal("server is ACTIVE; stop it first, or pass AllowRunning")
+case err != nil:
+	log.Fatal(err)
+}
+log.Println(detached.Changed, detached.Volume.Status)
+```
+
+`AttachVolume` reads the volume first: already attached to `ServerID`
+returns at once with `Changed` false, sending nothing; attached elsewhere,
+the `PUT` reaches the server, which refuses it with its own error. The
+`PUT` keeps the transport's normal retries: a repeat is refused as already
+attached, never a second charge. Unless `NoWait` is set, it then waits up
+to 5 minutes, polling every 2 seconds, for the volume to read `IN-USE`
+with `ServerID` among its attached servers.
+
+`DetachVolume` reads the volume first: not attached to `ServerID` returns
+at once with `Changed` false, sending nothing. Attached, but it is the
+server's boot volume (`Volume.Bootable`), refuses with
+`volume.ErrBootVolume`, sending nothing: detaching the disk a server boots
+from is never allowed. Unless `AllowRunning` is set, `DetachVolume` also
+reads the server's own status and refuses with `volume.ErrServerRunning`,
+sending nothing, when it is `ACTIVE`: the volume may be mounted there, and
+detaching an in-use filesystem can lose unwritten data. Stop the server
+first, or unmount it yourself and pass `AllowRunning`, the same role the
+CLI's `--allow-running` flag plays for `vngcloud volume detach-volume`.
+The `PUT` keeps the transport's normal retries. Unless `NoWait` is set, it
+then waits up to 5 minutes, polling every 2 seconds, for the volume to
+read `AVAILABLE`.
+
 If a volume is managed by OpenTofu or Terraform, a write made here drifts
 from that state; keep such a volume's writes in its own tool.
 
 ## Errors
 
 ```go
-var ErrNotSettled   = errors.New("volume: write accepted but not settled")
-var ErrFailed       = errors.New("volume: resource reached ERROR")
-var ErrVolumeInUse  = errors.New("volume: volume in use")
+var ErrNotSettled     = errors.New("volume: write accepted but not settled")
+var ErrFailed         = errors.New("volume: resource reached ERROR")
+var ErrVolumeInUse    = errors.New("volume: volume in use")
+var ErrBootVolume     = errors.New("volume: cannot detach the boot volume")
+var ErrServerRunning  = errors.New("volume: server is running")
 ```
 
-A malformed `VolumeID` or `VolumeTypeID`, an empty required field, or an
-invalid `MaxPrice` fails with `vngcloud.ErrInvalidInput` before any
-request. An unknown volume fails with `vngcloud.IsNotFound(err) == true`. A
-quota, billing refusal, or a rejected shape from the server itself comes
-back as the server's own `*vngcloud.APIError`; see [Errors](Errors.md) for
-the general error model.
+A malformed `VolumeID`, `VolumeTypeID`, or `ServerID`, an empty required
+field, or an invalid `MaxPrice` fails with `vngcloud.ErrInvalidInput`
+before any request. An unknown volume fails with
+`vngcloud.IsNotFound(err) == true`. A quota, billing refusal, or a
+rejected shape from the server itself comes back as the server's own
+`*vngcloud.APIError`; see [Errors](Errors.md) for the general error model.

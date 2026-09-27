@@ -6581,3 +6581,255 @@ func TestLiveWritePaidServer(t *testing.T) {
 	}
 	t.Log("step 11: confirmed the server is gone")
 }
+
+// TestLiveWritePaidAttach is the design's L2 live run's attach and detach
+// portion, gating the P4 release: volume.AttachVolume and DetachVolume. It
+// creates its own VPC, subnet, security group, SSH key, server, and
+// volume, attaches the volume, exercises the guards, detaches it, and
+// deletes everything.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends real, billed
+// CreateServer and CreateVolume orders. It is gated by
+// VNGCLOUD_LIVE_WRITE=1, VNGCLOUD_LIVE_PAID_ATTACH=1, and
+// VNGCLOUD_LIVE_MAX_VND (this run's VND cap, checked against both quotes
+// together before either order); it refuses to order anything once their
+// sum exceeds the cap. It runs only in hcm-3, since its flavor name and
+// zone id are specific to that region's catalog.
+func TestLiveWritePaidAttach(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_ATTACH") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_ATTACH=1 to run the live paid attach and detach test; " +
+			"it orders a real, billed server and volume and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+	networkClient := network.New(cfg)
+
+	sweptServers := deleteLiveServers(ctx, t, computeClient)
+	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	vpc, err := networkClient.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: "10.252.0.0/16"})
+	if err != nil {
+		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
+	}
+	vpcID := vpc.VPC.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteVPC(cleanupCtx, &network.DeleteVPCInput{VPCID: vpcID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteVPC: %s", safeErr(err))
+		}
+	})
+	subnet, err := networkClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: name, CIDR: "10.252.1.0/24"})
+	if err != nil {
+		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
+	}
+	subnetID := subnet.Subnet.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteSubnet(cleanupCtx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSubnet: %s", safeErr(err))
+		}
+	})
+	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live attach/detach test"})
+	if err != nil {
+		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
+	}
+	groupID := group.SecurityGroup.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteSecurityGroup(cleanupCtx, &network.DeleteSecurityGroupInput{SecurityGroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSecurityGroup: %s", safeErr(err))
+		}
+	})
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatalf("step 2 generate rsa key: %v", err)
+	}
+	sshKey, err := computeClient.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: name, PublicKey: sshRSAPublicKeyLine(&rsaKey.PublicKey, name)})
+	if err != nil {
+		t.Fatalf("step 2 ImportSSHKey: %s", safeErr(err))
+	}
+	sshKeyID := sshKey.SSHKey.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := computeClient.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: sshKeyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSSHKey: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created VPC, subnet, security group, and SSH key")
+
+	flavorZones, err := computeClient.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListFlavorZones: %s", safeErr(err))
+	}
+	var flavorID string
+	for _, fz := range flavorZones.Items {
+		flavors, err := computeClient.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
+		if err != nil {
+			t.Fatalf("step 3 ListFlavors: %s", safeErr(err))
+		}
+		for _, f := range flavors.Items {
+			if f.Name == "s2-general-1x2" {
+				flavorID = f.FlavorID
+			}
+		}
+	}
+	if flavorID == "" {
+		t.Fatal("step 3: flavor s2-general-1x2 not found")
+	}
+	images, err := computeClient.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListOSImages: %s", safeErr(err))
+	}
+	var imageID string
+	for _, img := range images.Items {
+		if strings.Contains(img.ImageVersion, "24.04") {
+			imageID = img.ID
+			break
+		}
+	}
+	if imageID == "" {
+		t.Fatal("step 3: Ubuntu 24.04 image not found")
+	}
+	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 GetDefaultVolumeType: %s", safeErr(err))
+	}
+
+	serverInput := &compute.CreateServerInput{
+		Name: name, ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+		VPCID: vpcID, SubnetID: subnetID, SecurityGroupIDs: []string{groupID},
+		SSHKeyID: sshKeyID, RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+	}
+	volumeInput := &volume.CreateVolumeInput{Name: name + "-data", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID}
+
+	// Step 4: quote both, and refuse to order either once their sum exceeds
+	// this run's cap, before any write.
+	serverQuote, err := computeClient.QuoteCreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
+	}
+	volumeQuote, err := volumeClient.QuoteCreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateVolume: %s", safeErr(err))
+	}
+	total := serverQuote.OptimumPrice + volumeQuote.OptimumPrice
+	t.Logf("step 4: server quote %.0f VND, volume quote %.0f VND, total %.0f VND", serverQuote.OptimumPrice, volumeQuote.OptimumPrice, total)
+	if total > budgetCap {
+		t.Fatalf("step 4: total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", total, budgetCap)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		swept := deleteLiveServers(cleanupCtx, t, computeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
+		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+	})
+
+	// Step 5: order the server and the volume, each at its own quote.
+	serverInput.MaxPrice = serverQuote.OptimumPrice
+	server, err := computeClient.CreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateServer: %s", safeErr(err))
+	}
+	serverID := server.Server.UUID
+	t.Logf("step 5: server %s at status %s", serverID, server.Server.Status)
+
+	volumeInput.MaxPrice = volumeQuote.OptimumPrice
+	createdVolume, err := volumeClient.CreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
+	}
+	volumeID := createdVolume.Volume.UUID
+	t.Logf("step 5: volume %s at status %s", volumeID, createdVolume.Volume.Status)
+
+	// Step 6: attach, confirm IN-USE; attach again confirms Changed false.
+	attachStart := time.Now()
+	attached, err := volumeClient.AttachVolume(ctx, &volume.AttachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 6 AttachVolume: %s", safeErr(err))
+	}
+	t.Logf("step 6: attached after %s, status %s", time.Since(attachStart), attached.Volume.Status)
+	againAttached, err := volumeClient.AttachVolume(ctx, &volume.AttachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 6 AttachVolume (repeat): %s", safeErr(err))
+	}
+	if againAttached.Changed {
+		t.Fatal("step 6: repeat AttachVolume reported Changed true, want false")
+	}
+
+	// Step 7: guards. DetachVolume without AllowRunning on an ACTIVE server
+	// refuses; DeleteVolume on the attached volume refuses.
+	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID}); !errors.Is(err, volume.ErrServerRunning) {
+		t.Fatalf("step 7 DetachVolume (running, no AllowRunning) = %s, want ErrServerRunning", safeErr(err))
+	}
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); !errors.Is(err, volume.ErrVolumeInUse) {
+		t.Fatalf("step 7 DeleteVolume (attached) = %s, want ErrVolumeInUse", safeErr(err))
+	}
+	t.Log("step 7: both guards refused as expected")
+
+	// Step 8: stop the server, then detach.
+	if _, err := computeClient.StopServer(ctx, &compute.StopServerInput{ServerID: serverID}); err != nil {
+		t.Fatalf("step 8 StopServer: %s", safeErr(err))
+	}
+	detachStart := time.Now()
+	detached, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 8 DetachVolume: %s", safeErr(err))
+	}
+	t.Logf("step 8: detached after %s, status %s", time.Since(detachStart), detached.Volume.Status)
+
+	// Step 9: delete the volume, then the server with DeleteVolumes true
+	// for its own root volume, and confirm both are gone.
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); err != nil {
+		t.Fatalf("step 9 DeleteVolume: %s", safeErr(err))
+	}
+	if _, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID, DeleteVolumes: true}); err != nil {
+		t.Fatalf("step 9 DeleteServer: %s", safeErr(err))
+	}
+	if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: volumeID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 9: GetVolume after delete = %s, want NotFound", safeErr(err))
+	}
+	if _, err := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: serverID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 9: GetServer after delete = %s, want NotFound", safeErr(err))
+	}
+	t.Log("step 9: confirmed the volume and the server are gone")
+}

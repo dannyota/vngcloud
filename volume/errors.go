@@ -20,4 +20,14 @@ var (
 	// reason. In the first case nothing was sent; in the second, the
 	// request reached the server.
 	ErrVolumeInUse = errors.New("volume: volume in use")
+
+	// ErrBootVolume means DetachVolume was refused because the volume is
+	// the target server's boot volume. Nothing was sent.
+	ErrBootVolume = errors.New("volume: cannot detach the boot volume")
+
+	// ErrServerRunning means DetachVolume was refused because the target
+	// server is ACTIVE and Input.AllowRunning was not set: the volume may
+	// be mounted, and detaching it under a mounted filesystem can lose
+	// unwritten data. Nothing was sent.
+	ErrServerRunning = errors.New("volume: server is running")
 )
