@@ -172,6 +172,9 @@ The change breaks callers that index the maps. The release notes say so.
   false. `Name` is required even though the API would generate one: after
   a 5xx a generated name cannot be found. `QuotaLimitGB` must be at least
   1 (`ErrInvalidInput`); the upper bound stays on the server.
+- A live 400 confirmed `repoName`'s own rule: 6 to 20 characters, only
+  `a-z`, `0-9`, `_`, and `-`, starting with a letter or digit. `Name` is
+  checked against this rule before any request (`ErrInvalidInput`).
 - The server prefixes the name, so the Output's `Name` differs from the
   Input's. The wiki says so.
 - Create is `POST` and is never resent after a 5xx or network error (ADR

@@ -4656,9 +4656,10 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 // naming scheme, matched at the end rather than the start: the server
 // prefixes every repository name with the account id, so a leftover sweep
 // and the cleanup's remaining-count check both look for a name ending with
-// vngcloud-live-<8 lowercase hex>, exactly, rather than one starting with
-// it.
-var vcrLiveNameSuffixPattern = regexp.MustCompile(`vngcloud-live-[0-9a-f]{8}$`)
+// vcrlive-<8 lowercase hex>, exactly, rather than one starting with it. The
+// short vcrlive- prefix, rather than vngcloud-live-, keeps the generated
+// name within the server's 20-character limit for repoName.
+var vcrLiveNameSuffixPattern = regexp.MustCompile(`vcrlive-[0-9a-f]{8}$`)
 
 // isLiveVCRRepositoryName reports whether name ends with
 // vcrLiveNameSuffixPattern.
@@ -4724,10 +4725,10 @@ func deleteVCRRepositoryByName(t *testing.T, client *containerregistry.Client, n
 // image, so DeleteRepository's guard against a non-empty repository is not
 // exercised.
 //
-// It deletes every leftover vngcloud-live-* repository holding no images
-// first (step 1); creates vngcloud-live-<8 hex> with QuotaLimitGB 1 (step
-// 2); registers the fallback delete as soon as the created repository's id
-// is known (step 3); reads it back and confirms the id matches (step 4);
+// It deletes every leftover vcrlive-* repository holding no images first
+// (step 1); creates vcrlive-<8 hex> with QuotaLimitGB 1 (step 2); registers
+// the fallback delete as soon as the created repository's id is known
+// (step 3); reads it back and confirms the id matches (step 4);
 // creates the same name again and logs the server's response either way,
 // cleaning up an unexpected second repository by name (step 5); and deletes
 // the repository, confirming a repeat delete returns NotFound (step 6).
@@ -4765,8 +4766,8 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	}
 	client := containerregistry.New(cfg)
 
-	// Step 1: delete every leftover vngcloud-live-* repository holding no
-	// images from a previous run.
+	// Step 1: delete every leftover vcrlive-* repository holding no images
+	// from a previous run.
 	leftovers, err := client.ListRepositories(ctx, nil)
 	if err != nil {
 		t.Fatalf("step 1 ListRepositories: %s", safeErr(err))
@@ -4790,7 +4791,7 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
-	name := "vngcloud-live-" + suffix
+	name := "vcrlive-" + suffix
 
 	created, err := client.CreateRepository(ctx, &containerregistry.CreateRepositoryInput{
 		Name:         name,
@@ -4834,9 +4835,9 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 				remaining++
 			}
 		}
-		t.Logf("cleanup: vngcloud-live repository(ies) remaining: %d", remaining)
+		t.Logf("cleanup: vcrlive repository(ies) remaining: %d", remaining)
 		if remaining != 0 {
-			t.Errorf("cleanup: expected 0 vngcloud-live repositories, found %d", remaining)
+			t.Errorf("cleanup: expected 0 vcrlive repositories, found %d", remaining)
 		}
 	})
 

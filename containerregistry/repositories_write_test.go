@@ -229,14 +229,14 @@ func TestCreateRepositoryRequestBody(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		body := decodeBody(t, r)
-		if body["repoName"] != "app" || body["quotaLimit"] != float64(3) || body["isPublic"] != false {
-			t.Fatalf("body = %+v, want repoName=app quotaLimit=3 isPublic=false", body)
+		if body["repoName"] != "app-test" || body["quotaLimit"] != float64(3) || body["isPublic"] != false {
+			t.Fatalf("body = %+v, want repoName=app-test quotaLimit=3 isPublic=false", body)
 		}
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
 	}))
 
-	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 3, NoWait: true})
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 3, NoWait: true})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
@@ -251,7 +251,7 @@ func TestCreateRepositoryDecodesFixture(t *testing.T) {
 		testutil.WriteFixture(t, w, "../testdata/containerregistry/create_repository.json")
 	}))
 
-	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1, NoWait: true})
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
@@ -272,11 +272,51 @@ func TestCreateRepositoryRequiredInput(t *testing.T) {
 	}
 }
 
+func TestCreateRepositoryNameRule(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	rejected := []string{
+		"abcd",                  // 4 chars: too short
+		"abcde",                 // 5 chars: too short
+		strings.Repeat("a", 21), // 21 chars: too long
+		"ABCdef",                // uppercase not allowed
+		"-abcdef",               // leading '-' not allowed
+		"_abcdef",               // leading '_' not allowed
+		"abc def",               // space not allowed
+		"abc.def",               // '.' not allowed
+	}
+	for _, name := range rejected {
+		if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: name, QuotaLimitGB: 1}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("Name %q: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+}
+
+func TestCreateRepositoryNameRuleAllowedEdgeCases(t *testing.T) {
+	allowed := []string{
+		"abcdef",                // 6 chars: the shortest allowed
+		strings.Repeat("a", 20), // 20 chars: the longest allowed
+		"0abcde",                // starts with a digit
+		"abc_de",                // contains '_'
+		"abc-de",                // contains '-', not leading
+	}
+	for _, name := range allowed {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(repoBody("CREATING", 0)))
+		}))
+		if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: name, QuotaLimitGB: 1, NoWait: true}); err != nil {
+			t.Errorf("Name %q: err = %v, want nil", name, err)
+		}
+	}
+}
+
 func TestCreateRepositoryQuotaLimitBelowOne(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
 	}))
-	if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: -1}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+	if _, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: -1}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
@@ -289,7 +329,7 @@ func TestCreateRepositoryNoRetryAfter502(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"upstream error"}`))
 	}))
 
-	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1, NoWait: true})
+	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	if err == nil {
 		t.Fatal("err = nil, want an error")
 	}
@@ -307,7 +347,7 @@ func TestCreateRepositoryConflictReturnsAPIError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"repository already exists"}`))
 	}))
 
-	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1, NoWait: true})
+	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 409 {
 		t.Fatalf("err = %v, want a 409 *core.APIError", err)
@@ -323,7 +363,7 @@ func TestCreateRepositoryNoIDFails(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"app"}`))
 	}))
 
-	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1, NoWait: true})
+	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list-repositories") {
 		t.Fatalf("err = %v, want an APIError naming list-repositories before creating again", err)
@@ -343,7 +383,7 @@ func TestCreateRepositoryWaitSettlesToActive(t *testing.T) {
 		return false
 	})))
 
-	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1})
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
@@ -369,7 +409,7 @@ func TestCreateRepositoryWaitTolerates404(t *testing.T) {
 		_, _ = w.Write([]byte(repoBody("ACTIVE", 0)))
 	})))
 
-	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1})
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
@@ -392,7 +432,7 @@ func TestCreateRepositoryWaitBoundReached(t *testing.T) {
 		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
 	})))
 
-	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1})
+	_, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled", err)
 	}
@@ -411,7 +451,7 @@ func TestCreateRepositoryNoWaitSkipsWait(t *testing.T) {
 		_, _ = w.Write([]byte(repoBody("CREATING", 0)))
 	})))
 
-	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1, NoWait: true})
+	out, err := c.CreateRepository(context.Background(), &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1, NoWait: true})
 	if err != nil {
 		t.Fatalf("CreateRepository() error = %v", err)
 	}
@@ -436,7 +476,7 @@ func TestCreateRepositoryWaitCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := c.CreateRepository(ctx, &CreateRepositoryInput{Name: "app", QuotaLimitGB: 1})
+	_, err := c.CreateRepository(ctx, &CreateRepositoryInput{Name: "app-test", QuotaLimitGB: 1})
 	if err == nil {
 		t.Fatal("err = nil, want an error from the canceled wait")
 	}

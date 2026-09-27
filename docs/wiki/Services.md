@@ -247,10 +247,13 @@ keeps every field the API returns for it.
 `CreateRepository` always creates a private repository; there is no
 `Public` option, since a public repository accepts anonymous push. The
 server prefixes every name with the account id, so the created
-`Repository.Name` differs from the Input's `Name`. `CreateRepository` is a
-`POST` and is never retried after a failure that may have already reached
-the server: after such a failure, list repositories with `Name` set and
-match a row whose name ends with the input name before creating again.
+`Repository.Name` differs from the Input's `Name`. `Name` must be 6 to 20
+characters, only `a-z`, `0-9`, `_`, and `-`, starting with a letter or
+digit; a `Name` outside that shape fails with `ErrInvalidInput` before any
+request. `CreateRepository` is a `POST` and is never retried after a
+failure that may have already reached the server: after such a failure,
+list repositories with `Name` set and match a row whose name ends with the
+input name before creating again.
 
 `DeleteRepository` reads the repository first and returns
 `ErrRepositoryNotEmpty`, sending nothing, when it still holds images;

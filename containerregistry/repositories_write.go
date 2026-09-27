@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -16,6 +17,23 @@ import (
 // than failing early, until the design names a failure status from a live
 // capture.
 const repositoryStatusActive = "ACTIVE"
+
+// repoNamePattern is the server's own rule for a repository Name, confirmed
+// by a live 400 on a name outside it: 6 to 20 characters, only a-z, 0-9,
+// '_', and '-', starting with a letter or digit (not '_' or '-').
+// CreateRepository checks it before any request, since the server's only
+// feedback otherwise is that same 400 after a round trip.
+var repoNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{5,19}$`)
+
+// checkRepositoryName returns an error wrapping core.ErrInvalidInput when
+// name does not match repoNamePattern.
+func checkRepositoryName(op, name string) error {
+	if repoNamePattern.MatchString(name) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s requires Name to be 6 to 20 characters, only a-z, 0-9, '_', and '-', and to start with a letter or digit, got %q",
+		core.ErrInvalidInput, op, name)
+}
 
 var (
 	// ErrRepositoryNotEmpty means DeleteRepository refused because the
@@ -127,6 +145,9 @@ func (c *Client) GetRepository(ctx context.Context, in *GetRepositoryInput) (*Ge
 // field: per the design, every repository this SDK creates is private,
 // since a public one accepts anonymous push, letting anyone store images on
 // the account's quota under the account's name.
+//
+// Name must be 6 to 20 characters, only a-z, 0-9, '_', and '-', starting
+// with a letter or digit; see repoNamePattern.
 type CreateRepositoryInput struct {
 	Name         string `vngcloud:"required"`
 	QuotaLimitGB int    `vngcloud:"required"`
@@ -167,6 +188,9 @@ type createRepositoryBody struct {
 func (c *Client) CreateRepository(ctx context.Context, in *CreateRepositoryInput) (*CreateRepositoryOutput, error) {
 	const op = "containerregistry.CreateRepository"
 	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := checkRepositoryName(op, in.Name); err != nil {
 		return nil, err
 	}
 	if in.QuotaLimitGB < 1 {
