@@ -399,94 +399,6 @@ var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a 
 	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
 	"parsed prefix is refused, nothing sent.")
 
-// loadbalancerImportCertificateNote documents import-certificate's file
-// flags and their rules, none of which the flag table can show on its own:
-// --name and --type still take ordinary flags, but every field that can
-// hold PEM or key text comes from a file instead.
-const loadbalancerImportCertificateNote = "Certificate, CertificateChain, PrivateKey, and Passphrase all come " +
-	"from a file: --certificate-file (required), --certificate-chain-file, --private-key-file, and " +
-	"--passphrase-file; none of the four has a plain string flag, and --cli-input-json refuses PrivateKey and " +
-	"Passphrase outright, inline or file://, though Certificate and CertificateChain may still be set that " +
-	"way instead of by file. Each file is read whole, at most 64 KiB, and an empty file is refused; " +
-	"--passphrase-file additionally drops one trailing newline. PrivateKey is required for Type TLS/SSL; for " +
-	"any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key, " +
-	"and the printed Certificate holds no key field. A failing import withholds the server's own error " +
-	"message entirely, since it could otherwise quote the rejected key or passphrase back. Keep the private " +
-	"key file readable only by its owner (chmod 600)."
-
-// loadbalancerDeleteCertificateNote documents delete-certificate's
-// pre-delete guard and why it needs --yes: the flag table shows only
-// --certificate-id.
-const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certificate a listener still uses " +
-	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
-	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
-
-// loadbalancerQuoteCreateLoadBalancerNote documents quote-create-load-balancer's
-// own price guard exemptions and unit, and that the billing gateway prices
-// only PackageID and ZoneID: the flag table shows every
-// CreateLoadBalancerInput field the same way create-load-balancer itself
-// will, with no hint that this command never orders anything or that most
-// of those fields do nothing here.
-const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices the load balancer " +
-	"CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND " +
-	"a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets " +
-	"them: both govern only an actual create. The billing gateway also ignores every key it does not price, " +
-	"such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price."
-
-// loadbalancerQuoteResizeLoadBalancerNote documents quote-resize-load-balancer's
-// own price guard exemptions, unit, and its not-found status, which differs
-// from every other load-balancer command's: the flag table shows only
-// --load-balancer-id and --package-id, with no hint of any of this.
-const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices the package change " +
-	"ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND " +
-	"a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
-	"only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the " +
-	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
-	"checks this request's shape before it checks the ID."
-
-// loadbalancerCreateLoadBalancerNote documents create-load-balancer's price
-// guard default, its MaxPrice guard, the unretried order, the post-order
-// wait bound, and the Internet Scheme guard: the flag table shows Scheme as
-// a plain, unconditional string, with no hint that one value needs --yes.
-const loadbalancerCreateLoadBalancerNote = "Orders nothing above --max-price, default 0: a bare " +
-	"create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, " +
-	"or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same " +
-	"fields, so the order always prices what was just quoted. The order itself is never retried after a " +
-	"failure that may have already reached the server; list load balancers by name " +
-	"(list-load-balancers --name) and match it exactly before ordering again rather than repeating this " +
-	"command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR " +
-	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
-	"balancer printed alongside the error, and the write must not be repeated. Scheme Internet needs --yes, " +
-	"matched case-insensitively: an Internet load balancer gets a public address reachable from the entire " +
-	"internet for as long as it exists."
-
-// loadbalancerDeleteLoadBalancerNote documents delete-load-balancer's
-// read-first behavior, its post-delete wait, and that what happens to its
-// listeners and pools is unverified live: the flag table shows only
-// --load-balancer-id, with no hint of any of this.
-const loadbalancerDeleteLoadBalancerNote = "Reads the load balancer first: an unknown --load-balancer-id is " +
-	"NotFound, and one already DELETING is waited on rather than sent a second DELETE. Deleting a load " +
-	"balancer loses its address and its prepaid time for good; what happens to its listeners and pools, if " +
-	"any exist, is unverified live. Without --no-wait, waits up to 15 minutes for the load balancer to 404; " +
-	"ERROR during that wait is WriteFailed, and a timeout is NotSettled, but a rerun is always safe: this " +
-	"command reads first."
-
-// loadbalancerResizeLoadBalancerNote documents resize-load-balancer's
-// no-op-on-same-package shortcut, its price guard, its immediate busy
-// refusal, and its post-resize wait bound: the flag table shows only
-// --load-balancer-id, --package-id, --max-price, and --no-wait, with no
-// hint of any of this.
-const loadbalancerResizeLoadBalancerNote = "Reads the load balancer first: --package-id equal to its current " +
-	"package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above " +
-	"--max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A " +
-	"downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The " +
-	"resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize " +
-	"itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend " +
-	"does, since a rerun is safe only because this command always reads the load balancer first. Without " +
-	"--no-wait, waits up to 45 minutes for the load balancer to reach CREATED with the new package; ERROR " +
-	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
-	"balancer printed alongside the error, and the write must not be repeated."
-
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -572,6 +484,12 @@ var docOpNotes = map[string]string{
 	"loadbalancer create-load-balancer":       loadbalancerCreateLoadBalancerNote,
 	"loadbalancer delete-load-balancer":       loadbalancerDeleteLoadBalancerNote,
 	"loadbalancer resize-load-balancer":       loadbalancerResizeLoadBalancerNote,
+	"loadbalancer create-pool":                loadbalancerCreatePoolNote,
+	"loadbalancer update-pool":                loadbalancerUpdatePoolNote,
+	"loadbalancer delete-pool":                loadbalancerDeletePoolNote,
+	"loadbalancer add-pool-member":            loadbalancerAddPoolMemberNote,
+	"loadbalancer update-pool-member":         loadbalancerUpdatePoolMemberNote,
+	"loadbalancer remove-pool-member":         loadbalancerRemovePoolMemberNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
@@ -617,12 +535,16 @@ var docJSONPlaceholders = map[string]string{
 // requires Name or Description. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
-// required-fields loop below picks up.
+// required-fields loop below picks up. loadbalancer's update-pool,
+// update-pool-member, update-listener, and update-policy are the same shape
+// again: each requires at least one field to change beyond its path IDs.
 var docExampleExtraFlag = map[string]string{
-	"compute update-server-group": "name",
-	"dns update-hosted-zone":      "description",
-	"dns update-record":           "ttl",
-	"monitor update-check":        "name",
+	"compute update-server-group":     "name",
+	"dns update-hosted-zone":          "description",
+	"dns update-record":               "ttl",
+	"monitor update-check":            "name",
+	"loadbalancer update-pool":        "algorithm",
+	"loadbalancer update-pool-member": "weight",
 }
 
 // docExampleOverride gives a full example command line for "service

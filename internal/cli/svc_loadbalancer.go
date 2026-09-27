@@ -37,6 +37,16 @@ import (
 // resize-load-balancer is the design's L3 release: Write, no Guard, since
 // the CLI table gives it no --yes rule of its own; --max-price governs the
 // order the same way create-load-balancer's does.
+//
+// create-pool, update-pool, delete-pool, add-pool-member, update-pool-member,
+// and remove-pool-member are the design's L4 release. delete-pool is
+// Destructive. remove-pool-member is not: add-pool-member can restore a
+// removed member, so it is not undoable by one more command per ADR 0002
+// rule 6, but the CLI table still requires --yes on every call since it
+// changes which servers take traffic at once; requireYesToChangePoolMembership
+// (svc_loadbalancer_pool_members.go) is its Guard, matching
+// requireYesToChangeRoutes' own shape for network's add-route and
+// remove-route.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -82,6 +92,19 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 		kebab("DeleteLoadBalancer"), (*loadbalancer.Client).DeleteLoadBalancer, Destructive()),
 	Write[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, loadbalancer.ResizeLoadBalancerOutput](
 		kebab("ResizeLoadBalancer"), (*loadbalancer.Client).ResizeLoadBalancer),
+	Write[loadbalancer.Client, loadbalancer.CreatePoolInput, loadbalancer.CreatePoolOutput](
+		kebab("CreatePool"), (*loadbalancer.Client).CreatePool),
+	Write[loadbalancer.Client, loadbalancer.UpdatePoolInput, loadbalancer.UpdatePoolOutput](
+		kebab("UpdatePool"), (*loadbalancer.Client).UpdatePool),
+	Write[loadbalancer.Client, loadbalancer.DeletePoolInput, loadbalancer.DeletePoolOutput](
+		kebab("DeletePool"), (*loadbalancer.Client).DeletePool, Destructive()),
+	Write[loadbalancer.Client, loadbalancer.AddPoolMemberInput, loadbalancer.AddPoolMemberOutput](
+		kebab("AddPoolMember"), (*loadbalancer.Client).AddPoolMember),
+	Write[loadbalancer.Client, loadbalancer.UpdatePoolMemberInput, loadbalancer.UpdatePoolMemberOutput](
+		kebab("UpdatePoolMember"), (*loadbalancer.Client).UpdatePoolMember),
+	Write[loadbalancer.Client, loadbalancer.RemovePoolMemberInput, loadbalancer.RemovePoolMemberOutput](
+		kebab("RemovePoolMember"), (*loadbalancer.Client).RemovePoolMember,
+		Guard(requireYesToChangePoolMembership)),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

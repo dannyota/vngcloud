@@ -2,6 +2,28 @@
 
 # CLI: LoadBalancer
 
+## add-pool-member
+
+Kind: Write.
+
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. A member already present at --address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present with any different field exits 1 (InvalidUsage) naming update-pool-member instead.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--address` | `string` | yes |
+| `--port` | `int` | yes |
+| `--name` | `string` |  |
+| `--weight` | `int` |  |
+| `--monitor-port` | `int` |  |
+| `--backup` | `bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer add-pool-member --load-balancer-id <load-balancer-id> --pool-id <pool-id> --address <address> --port <port>
+```
+
 ## create-load-balancer
 
 Kind: Write.
@@ -21,6 +43,36 @@ Orders nothing above --max-price, default 0: a bare create-load-balancer only or
 
 ```sh
 vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme <scheme> --subnet-id <subnet-id> --zone-id <zone-id>
+```
+
+## create-pool
+
+Kind: Write.
+
+Empty --algorithm sends ROUND_ROBIN; 0 --healthy-threshold, --unhealthy-threshold, --health-check-interval, or --health-check-timeout sends the server's own default (3, 3, 30, and 5). --stickiness and --tls-encryption are sent only when given, since a Layer 4 pool has no use for either. --health-check-path, --health-check-method, --health-check-http-version, --health-check-domain-name, and --health-check-success-code are only valid when --health-check-protocol is HTTP or HTTPS; giving one with any other check protocol exits 2 (InvalidUsage) before any request. No domain name is invented for HTTP/1.1: an HTTP check with none reaches the server empty, which then refuses it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--protocol` | `string` | yes |
+| `--algorithm` | `string` |  |
+| `--stickiness` | `*bool` |  |
+| `--tls-encryption` | `*bool` |  |
+| `--health-check-protocol` | `string` | yes |
+| `--health-check-path` | `string` |  |
+| `--health-check-method` | `string` |  |
+| `--health-check-http-version` | `string` |  |
+| `--health-check-domain-name` | `string` |  |
+| `--health-check-success-code` | `string` |  |
+| `--healthy-threshold` | `int` |  |
+| `--unhealthy-threshold` | `int` |  |
+| `--health-check-interval` | `int` |  |
+| `--health-check-timeout` | `int` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer create-pool --load-balancer-id <load-balancer-id> --name <name> --protocol <protocol> --health-check-protocol <health-check-protocol>
 ```
 
 ## delete-certificate
@@ -50,6 +102,22 @@ Reads the load balancer first: an unknown --load-balancer-id is NotFound, and on
 
 ```sh
 vngcloud loadbalancer delete-load-balancer --load-balancer-id <load-balancer-id> --yes
+```
+
+## delete-pool
+
+Kind: Write, destructive.
+
+Refuses, before any request, a pool a listener still names as its default pool (error code ResourceInUse), found by listing the load balancer's listeners; a policy that redirects to the pool is left to the server's own refusal, which this command maps the same way.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer delete-pool --load-balancer-id <load-balancer-id> --pool-id <pool-id> --yes
 ```
 
 ## get-certificate
@@ -312,6 +380,24 @@ Never orders anything: prices the package change ResizeLoadBalancerInput describ
 vngcloud loadbalancer quote-resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
 ```
 
+## remove-pool-member
+
+Kind: Write.
+
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. No member at --address and --port is NotFound, nothing sent. Needs --yes on every call: removing a member stops it taking traffic immediately, though add-pool-member can restore it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--address` | `string` | yes |
+| `--port` | `int` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer remove-pool-member --load-balancer-id <load-balancer-id> --pool-id <pool-id> --address <address> --port <port>
+```
+
 ## resize-load-balancer
 
 Kind: Write.
@@ -327,5 +413,55 @@ Reads the load balancer first: --package-id equal to its current package makes t
 
 ```sh
 vngcloud loadbalancer resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
+```
+
+## update-pool
+
+Kind: Write.
+
+At least one field must be set, checked before any request (InvalidUsage). Reads the pool and its health monitor, applies every set field, and sends the full body with the read values for the rest, so a call that sets only --algorithm still resends the health monitor exactly as read. The health check protocol cannot change after create, so there is no flag for it here; the HTTP fields are refused when the pool's own check protocol is not HTTP or HTTPS, the same guard create-pool runs.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--algorithm` | `*string` |  |
+| `--stickiness` | `*bool` |  |
+| `--tls-encryption` | `*bool` |  |
+| `--health-check-path` | `*string` |  |
+| `--health-check-method` | `*string` |  |
+| `--health-check-http-version` | `*string` |  |
+| `--health-check-domain-name` | `*string` |  |
+| `--health-check-success-code` | `*string` |  |
+| `--healthy-threshold` | `*int` |  |
+| `--unhealthy-threshold` | `*int` |  |
+| `--health-check-interval` | `*int` |  |
+| `--health-check-timeout` | `*int` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer update-pool --load-balancer-id <load-balancer-id> --pool-id <pool-id> --algorithm <algorithm>
+```
+
+## update-pool-member
+
+Kind: Write.
+
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. At least one of --name, --weight, --monitor-port, or --backup must be set, checked before any request (InvalidUsage). No member at --address and --port is NotFound, nothing sent; a change that leaves every field equal to what was read is Changed false, nothing sent.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--address` | `string` | yes |
+| `--port` | `int` | yes |
+| `--name` | `*string` |  |
+| `--weight` | `*int` |  |
+| `--monitor-port` | `*int` |  |
+| `--backup` | `*bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer update-pool-member --load-balancer-id <load-balancer-id> --pool-id <pool-id> --address <address> --port <port> --weight <weight>
 ```
 

@@ -1,0 +1,15 @@
+{
+  "Pool": {
+    "UUID": "pool-1",
+    "Name": "pool-1",
+    "Protocol": "HTTP",
+    "Description": "",
+    "LoadBalanceMethod": "ROUND_ROBIN",
+    "DisplayStatus": "ACTIVE",
+    "ProgressStatus": "CREATED",
+    "Stickiness": false,
+    "TLSEncryption": false,
+    "Members": [],
+    "HealthMonitor": null
+  }
+}
