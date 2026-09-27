@@ -13,6 +13,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
@@ -215,6 +216,16 @@ func TestExitCode(t *testing.T) {
 		{
 			"monitor otp rejected",
 			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
+			1,
+		},
+		{
+			"iam self change",
+			fmt.Errorf("%w: iam.DeleteServiceAccount: the service account is the caller", iam.ErrSelfChange),
+			1,
+		},
+		{
+			"iam privileged change",
+			fmt.Errorf("%w: iam.UpdateServiceAccount: the service account has a privileged policy attached", iam.ErrPrivilegedChange),
 			1,
 		},
 	}
@@ -460,6 +471,26 @@ func TestClassify(t *testing.T) {
 			"monitor otp rejected",
 			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
 			"OTPRejected", 0, "",
+		},
+		{
+			"iam self change",
+			fmt.Errorf("%w: iam.DeleteServiceAccount: the service account is the caller", iam.ErrSelfChange),
+			"SelfChange", 0, "",
+		},
+		{
+			"iam privileged change",
+			fmt.Errorf("%w: iam.UpdateServiceAccount: the service account has a privileged policy attached", iam.ErrPrivilegedChange),
+			"PrivilegedChange", 0, "",
+		},
+		{
+			// iam.ErrSelfChange must win over its own error text ever
+			// mentioning a privileged policy too: guardServiceAccountWrite
+			// (iam/guard.go) checks self-change first and returns it alone,
+			// but classify's own check order must still put SelfChange ahead
+			// of PrivilegedChange in case that ever changes.
+			"iam self change wins when both sentinels are chained",
+			fmt.Errorf("%w: %w", iam.ErrSelfChange, iam.ErrPrivilegedChange),
+			"SelfChange", 0, "",
 		},
 	}
 	for _, tt := range tests {

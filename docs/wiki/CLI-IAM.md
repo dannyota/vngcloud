@@ -2,6 +2,36 @@
 
 # CLI: IAM
 
+## create-service-account
+
+Kind: Write.
+
+Needs --secret-file <path>: the client secret is returned once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed ClientSecret field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. If the create response holds no client secret at all, the new service account is kept, no file is written, and the command exits 1 with error code SecretFileFailed naming reset-service-account-secret. If writing --secret-file itself fails after a secret was returned, the new service account is deleted through the SDK and the command exits 1 with SecretFileFailed; if that delete also fails, the message names the service account only by its ID. Never retried after a failure that may have already reached the server: list service accounts by --name before creating it again rather than repeating this command; a service account found that way has already lost its client secret and needs reset-service-account-secret.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `--secret-file` | `string` | yes |
+
+```sh
+vngcloud iam create-service-account --name <name> --secret-file <secret-file>
+```
+
+## delete-service-account
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--service-account-id` | `string` | yes |
+
+```sh
+vngcloud iam delete-service-account --service-account-id <service-account-id> --yes
+```
+
 ## get-caller-identity
 
 Kind: Read.
@@ -173,5 +203,38 @@ Kind: Read.
 
 ```sh
 vngcloud iam list-users
+```
+
+## reset-service-account-secret
+
+Kind: Write, destructive.
+
+Needs --secret-file <path>, checked the same way as create-service-account: must not already exist, symlink included, checked before any request. The previous secret stops working the moment the reset request lands; if writing --secret-file then fails, there is no way to get it back, so the command exits 1 with error code SecretFileFailed naming the service account and telling the caller to run reset-service-account-secret again, rather than deleting anything. Never retried after a failure that may have already reached the server: no read shows whether the secret changed, so treat the previous secret as revoked and reset again if it still works.
+
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--service-account-id` | `string` | yes |
+| `--secret-file` | `string` | yes |
+
+```sh
+vngcloud iam reset-service-account-secret --service-account-id <service-account-id> --secret-file <secret-file> --yes
+```
+
+## update-service-account
+
+Kind: Write.
+
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--service-account-id` | `string` | yes |
+| `--description` | `*string` |  |
+| `--access-token-life-span` | `*int` |  |
+
+```sh
+vngcloud iam update-service-account --service-account-id <service-account-id>
 ```
 

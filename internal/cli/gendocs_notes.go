@@ -388,12 +388,59 @@ const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certif
 	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
 	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
 
+// iamServiceAccountGuardNote documents the guard every service account
+// write but create runs before any request: the flag table shows only IDs
+// and plain fields, with no hint that the target's own rights can refuse
+// the command outright.
+const iamServiceAccountGuardNote = "Refuses, before any request, with error code SelfChange when the service " +
+	"account is the caller's own token, and PrivilegedChange when it holds a policy that grants an IAM write " +
+	"right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off."
+
+// iamCreateServiceAccountNote documents create-service-account's
+// --secret-file requirement, its cleanup and no-secret cases, and its retry
+// advice: the flag table shows no --secret-file at all, since it backs no
+// Input field, and gives no hint of any of this.
+const iamCreateServiceAccountNote = "Needs --secret-file <path>: the client secret is returned once, and this " +
+	"command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; " +
+	"the printed ClientSecret field always reads \"[redacted]\", and a SecretFile field names the path. " +
+	"--secret-file must not already exist, symlink included, checked before any request. If the create response " +
+	"holds no client secret at all, the new service account is kept, no file is written, and the command exits " +
+	"1 with error code SecretFileFailed naming reset-service-account-secret. If writing --secret-file itself " +
+	"fails after a secret was returned, the new service account is deleted through the SDK and the command " +
+	"exits 1 with SecretFileFailed; if that delete also fails, the message names the service account only by " +
+	"its ID. Never retried after a failure that may have already reached the server: list service accounts by " +
+	"--name before creating it again rather than repeating this command; a service account found that way has " +
+	"already lost its client secret and needs reset-service-account-secret."
+
+// iamResetServiceAccountSecretNote documents reset-service-account-secret's
+// --secret-file requirement, its own guard, and its retry advice: the flag
+// table shows no --secret-file at all, since it backs no Input field, and
+// gives no hint that the old secret stops working immediately.
+const iamResetServiceAccountSecretNote = "Needs --secret-file <path>, checked the same way as " +
+	"create-service-account: must not already exist, symlink included, checked before any request. The " +
+	"previous secret stops working the moment the reset request lands; if writing --secret-file then fails, " +
+	"there is no way to get it back, so the command exits 1 with error code SecretFileFailed naming the " +
+	"service account and telling the caller to run reset-service-account-secret again, rather than deleting " +
+	"anything. Never retried after a failure that may have already reached the server: no read shows whether " +
+	"the secret changed, so treat the previous secret as revoked and reset again if it still works.\n\n" +
+	iamServiceAccountGuardNote
+
+// iamUpdateServiceAccountNote and iamDeleteServiceAccountNote document
+// update-service-account's and delete-service-account's own guard, which the
+// flag table cannot show at all.
+var iamUpdateServiceAccountNote = iamServiceAccountGuardNote
+var iamDeleteServiceAccountNote = iamServiceAccountGuardNote
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"iam create-service-account":              iamCreateServiceAccountNote,
+	"iam update-service-account":              iamUpdateServiceAccountNote,
+	"iam reset-service-account-secret":        iamResetServiceAccountSecretNote,
+	"iam delete-service-account":              iamDeleteServiceAccountNote,
 	"compute get-ssh-key":                     computeGetSSHKeyNote,
 	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
 	"compute create-ssh-key":                  computeCreateSSHKeyNote,

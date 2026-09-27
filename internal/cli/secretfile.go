@@ -124,3 +124,23 @@ func newSecretFileCleanupFailed(resourceKind, resourceID string) error {
 	return secretFileFailedError{msg: fmt.Sprintf(
 		"%s %s exists and could not be deleted; delete it manually", resourceKind, resourceID)}
 }
+
+// newSecretFileNoSecret reports the IAM writes design's own case: a create
+// succeeded but its response held no secret at all, so no file was written
+// and the resource is kept; the message points the caller at
+// retryCommand, the only way left to obtain one.
+func newSecretFileNoSecret(resourceKind, resourceID, retryCommand string) error {
+	return secretFileFailedError{msg: fmt.Sprintf(
+		"%s %s was created but the response held no client secret; no file was written; run %s to get one",
+		resourceKind, resourceID, retryCommand)}
+}
+
+// newSecretFileResetFailed reports a --secret-file write failure after a
+// reset that cannot be undone: unlike a create, there is no new resource to
+// delete, and the old secret already stopped working, so the message tells
+// the caller to run retryCommand again for a fresh file instead.
+func newSecretFileResetFailed(resourceKind, resourceID, retryCommand string, writeErr error) error {
+	return secretFileFailedError{msg: fmt.Sprintf(
+		"could not write --%s: %s; the %s %s secret was already reset and cannot be recovered here; run %s again",
+		secretFileFlagName, writeErr, resourceKind, resourceID, retryCommand)}
+}
