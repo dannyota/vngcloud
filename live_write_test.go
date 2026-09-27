@@ -3252,3 +3252,347 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		t.Log("step 11: repeat delete returned NotFound as expected")
 	}
 }
+
+// isLiveNetworkACLName reports whether name is one this test's own runs
+// create.
+func isLiveNetworkACLName(name string) bool {
+	return strings.HasPrefix(name, "vngcloud-live-")
+}
+
+// listAllNetworkACLs pages through every network ACL the account has.
+func listAllNetworkACLs(ctx context.Context, client *network.Client) ([]network.ACL, error) {
+	var all []network.ACL
+	for page := 1; ; page++ {
+		out, err := client.ListNetworkACLs(ctx, &network.ListNetworkACLsInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// disassociateAllNetworkACLSubnets removes every subnet aclID's own read
+// still lists, so a later delete's ErrInUse guard never blocks cleanup. It
+// logs but does not fail the test on a disassociate error, and does nothing
+// when the ACL is already gone, since cleanup still attempts the delete
+// afterward either way.
+func disassociateAllNetworkACLSubnets(ctx context.Context, t *testing.T, client *network.Client, aclID string) {
+	t.Helper()
+	acl, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: get network ACL before disassociate: %s", safeErr(err))
+		}
+		return
+	}
+	for _, subnetID := range acl.ACL.SubnetIDs {
+		if _, err := client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID}); err != nil {
+			t.Errorf("cleanup: disassociate subnet: %s", safeErr(err))
+		}
+	}
+}
+
+// deleteNetworkACLLeftover disassociates every subnet a leftover
+// vngcloud-live-* network ACL still holds, then deletes it, and reports
+// whether it deleted one. It ignores ErrDefaultResource and NotFound: a
+// default ACL, or one already gone, is left alone.
+func deleteNetworkACLLeftover(ctx context.Context, t *testing.T, client *network.Client, aclID string) bool {
+	t.Helper()
+	disassociateAllNetworkACLSubnets(ctx, t, client, aclID)
+	_, err := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, network.ErrDefaultResource), vngcloud.IsNotFound(err):
+		return false
+	default:
+		t.Errorf("cleanup: delete leftover network ACL: %s", safeErr(err))
+		return false
+	}
+}
+
+// deleteNetworkACLByName finds a network ACL by its exact name and deletes
+// it, disassociating any subnet it still holds first: the recovery
+// TestLiveWriteNetworkACL takes after a create whose own response never
+// arrived, since the POST is not resent and the ACL may still exist under
+// the name it was given.
+func deleteNetworkACLByName(t *testing.T, client *network.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	list, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		t.Errorf("cleanup: list network ACLs by name: %s", safeErr(err))
+		return
+	}
+	for _, acl := range list {
+		if acl.Name != name {
+			continue
+		}
+		disassociateAllNetworkACLSubnets(ctx, t, client, acl.UUID)
+		if _, err := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: acl.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete network ACL by name: %s", safeErr(err))
+		}
+	}
+}
+
+// TestLiveWriteNetworkACL exercises network ACL and rule writes against the
+// real account named in .env: CreateNetworkACL, GetNetworkACL,
+// AddNetworkACLRule, RemoveNetworkACLRule, and DeleteNetworkACL. It targets
+// an existing VPC named by VNGCLOUD_LIVE_NETWORK_VPC_ID, which some other
+// step of the same live run must create; this test never creates or
+// deletes a VPC itself, and every rule it adds sources traffic only from
+// 203.0.113.0/24. It never leaves a network ACL behind.
+//
+// AssociateNetworkACLSubnet and DisassociateNetworkACLSubnet have no live
+// coverage here: associating a subnet can cut that subnet's traffic at
+// once, so this test must never associate one that already exists in
+// vpcID, only a subnet the run creates itself, and this SDK does not yet
+// have a CreateSubnet to provide one. Step 12 below logs that gap instead
+// of silently skipping it.
+func TestLiveWriteNetworkACL(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network ACL write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_ACL") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_ACL=1 to run the live network ACL write test")
+	}
+	vpcID := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_NETWORK_VPC_ID"))
+	if vpcID == "" {
+		t.Fatal("set VNGCLOUD_LIVE_NETWORK_VPC_ID to an existing VPC's id; this test never creates or deletes a VPC")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* network ACL from a
+	// previous run, disassociating any subnet it still holds first.
+	leftovers, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListNetworkACLs: %s", safeErr(err))
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftovers {
+		if !isLiveNetworkACLName(leftover.Name) {
+			continue
+		}
+		if deleteNetworkACLLeftover(ctx, t, client, leftover.UUID) {
+			deletedLeftovers++
+		}
+	}
+	t.Logf("step 1: deleted %d leftover network ACL(s)", deletedLeftovers)
+
+	// Step 2: create the ACL.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	start := time.Now()
+	created, err := client.CreateNetworkACL(ctx, &network.CreateNetworkACLInput{VPCID: vpcID, Name: name})
+	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the ACL may
+		// still have reached the server. Find and delete it by its exact
+		// name.
+		deleteNetworkACLByName(t, client, name)
+		t.Fatalf("step 2 CreateNetworkACL: %s", safeErr(err))
+	}
+	aclID := created.ACL.UUID
+	if aclID == "" {
+		deleteNetworkACLByName(t, client, name)
+		t.Fatal("step 2: CreateNetworkACL returned an empty id; the design requires one")
+	}
+	t.Logf("step 2: created network ACL, status %s, default %v, wait %s",
+		created.ACL.Status, created.ACL.DefaultACL, time.Since(start))
+
+	// Step 3: register the fallback cleanup as soon as aclID is known,
+	// before any later step can fail and skip the explicit delete below.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		disassociateAllNetworkACLSubnets(cleanupCtx, t, client, aclID)
+		if _, err := client.DeleteNetworkACL(cleanupCtx, &network.DeleteNetworkACLInput{NetworkACLID: aclID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete network ACL: %s", safeErr(err))
+		}
+		final, err := listAllNetworkACLs(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListNetworkACLs: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, acl := range final {
+			if isLiveNetworkACLName(acl.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live network ACL(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live network ACLs, found %d", remaining)
+		}
+	})
+
+	// Step 4: read the ACL back. The full default rule list, and the marker
+	// beyond seqNumber 0 this SDK infers for a default rule, are still a
+	// live check; this step is the observation for it.
+	afterCreate, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
+	if err != nil {
+		t.Fatalf("step 4 GetNetworkACL: %s", safeErr(err))
+	}
+	defaultRuleCount := 0
+	for _, rule := range afterCreate.ACL.Rules {
+		if rule.Priority == 0 {
+			defaultRuleCount++
+		}
+	}
+	t.Logf("step 4: read network ACL, total rules %d, priority-0 rules %d, associated subnets %d",
+		len(afterCreate.ACL.Rules), defaultRuleCount, len(afterCreate.ACL.SubnetIDs))
+
+	// Step 5: create the same name again. Whether ACL names are unique per
+	// VPC or per project is not yet confirmed live, so either a refusal or
+	// a second ACL is possible; an unexpected success is cleaned up too,
+	// since it would otherwise leak a second ACL.
+	dup, dupErr := client.CreateNetworkACL(ctx, &network.CreateNetworkACLInput{VPCID: vpcID, Name: name})
+	if dupErr == nil {
+		t.Log("step 5: creating a duplicate name succeeded")
+		if dup.ACL.UUID != "" {
+			if _, err := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: dup.ACL.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("step 5: delete duplicate ACL: %s", safeErr(err))
+			}
+		}
+	} else {
+		t.Logf("step 5: duplicate name refused, %s", safeErr(dupErr))
+	}
+
+	// Step 6: add an inbound TCP rule for port 443 from 203.0.113.0/24.
+	start = time.Now()
+	tcpRule, err := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+		NetworkACLID: aclID, Direction: "inbound", Priority: 100, Protocol: "TCP",
+		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+	})
+	if err != nil {
+		t.Fatalf("step 6 AddNetworkACLRule (TCP): %s", safeErr(err))
+	}
+	t.Logf("step 6: added TCP rule, changed %v, status %s, total rules %d, wait %s",
+		tcpRule.Changed, tcpRule.ACL.Status, len(tcpRule.ACL.Rules), time.Since(start))
+
+	// Step 7: add an ANY rule and an ICMP rule, to observe how each stores
+	// port.
+	anyRule, err := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+		NetworkACLID: aclID, Direction: "inbound", Priority: 101, Protocol: "ANY",
+		CIDR: "203.0.113.0/24", Action: "pass",
+	})
+	if err != nil {
+		t.Fatalf("step 7 AddNetworkACLRule (ANY): %s", safeErr(err))
+	}
+	t.Logf("step 7: added ANY rule, changed %v, total rules %d", anyRule.Changed, len(anyRule.ACL.Rules))
+
+	icmpRule, err := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+		NetworkACLID: aclID, Direction: "inbound", Priority: 102, Protocol: "ICMP",
+		CIDR: "203.0.113.0/24", Action: "pass",
+	})
+	if err != nil {
+		t.Fatalf("step 7 AddNetworkACLRule (ICMP): %s", safeErr(err))
+	}
+	t.Logf("step 7: added ICMP rule, changed %v, total rules %d", icmpRule.Changed, len(icmpRule.ACL.Rules))
+
+	// Step 8: add a rule at a priority already used, with a different
+	// protocol; the design expects a refusal, nothing sent.
+	_, conflictErr := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+		NetworkACLID: aclID, Direction: "inbound", Priority: 100, Protocol: "UDP",
+		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443, NoWait: true,
+	})
+	if !errors.Is(conflictErr, vngcloud.ErrInvalidInput) {
+		t.Errorf("step 8: conflicting priority err = %s, want ErrInvalidInput", safeErr(conflictErr))
+	} else {
+		t.Log("step 8: conflicting priority refused as expected")
+	}
+
+	// Step 9: remove the three rules just added.
+	for _, priority := range []int{100, 101, 102} {
+		start = time.Now()
+		removed, err := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: priority})
+		if err != nil {
+			t.Fatalf("step 9 RemoveNetworkACLRule (priority %d): %s", priority, safeErr(err))
+		}
+		t.Logf("step 9: removed rule at priority %d, changed %v, total rules %d, wait %s",
+			priority, removed.Changed, len(removed.ACL.Rules), time.Since(start))
+	}
+
+	// Step 10: remove one again; the design expects NotFound.
+	_, removedAgainErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: 100, NoWait: true})
+	if !vngcloud.IsNotFound(removedAgainErr) {
+		t.Errorf("step 10: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
+	} else {
+		t.Log("step 10: repeat remove returned NotFound as expected")
+	}
+
+	// Step 11: try to remove a default rule (priority 0); the design
+	// expects ErrDefaultResource, nothing sent. The direction used is read
+	// back from step 4's ACL rather than assumed.
+	defaultDirection := ""
+	for _, rule := range afterCreate.ACL.Rules {
+		if rule.Priority == 0 {
+			defaultDirection = rule.Direction
+			break
+		}
+	}
+	if defaultDirection == "" {
+		t.Log("step 11: no priority-0 rule observed; skipping the default-rule refusal check")
+	} else {
+		_, defaultErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: defaultDirection, Priority: 0, NoWait: true})
+		if !errors.Is(defaultErr, network.ErrDefaultResource) {
+			t.Errorf("step 11: default rule remove err = %s, want ErrDefaultResource", safeErr(defaultErr))
+		} else {
+			t.Log("step 11: default rule remove refused as expected")
+		}
+	}
+
+	// Step 12: subnet association has no live coverage here; see this
+	// function's doc comment for why.
+	t.Log("step 12: subnet association skipped; this SDK has no CreateSubnet to safely provide a subnet the run made itself")
+
+	// Step 13: delete the ACL explicitly.
+	start = time.Now()
+	if _, err := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID}); err != nil {
+		t.Fatalf("step 13 DeleteNetworkACL: %s", safeErr(err))
+	}
+	t.Logf("step 13: deleted network ACL, wait %s", time.Since(start))
+
+	// Step 14: repeat delete; the design expects NotFound, through the list
+	// confirm after the server's 500, since the delete's own guard reads
+	// run first.
+	_, repeatErr := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+	if !vngcloud.IsNotFound(repeatErr) {
+		t.Errorf("step 14: repeat delete err = %s, want NotFound", safeErr(repeatErr))
+	} else {
+		t.Log("step 14: repeat delete returned NotFound as expected")
+	}
+}

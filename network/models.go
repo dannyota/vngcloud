@@ -230,6 +230,10 @@ type Peering struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// ACL is a network ACL. NetworkID and SubnetID come from ListNetworkACLs,
+// which the DefaultACL, VPCID, Rules, and SubnetIDs fields' live source,
+// GetNetworkACL and CreateNetworkACL, does not return; a value read either
+// way leaves the other set's fields at their zero value.
 type ACL struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -239,6 +243,26 @@ type ACL struct {
 	NetworkID   string `json:"networkId"`
 	SubnetID    string `json:"subnetId"`
 	CreatedAt   string `json:"createdAt"`
+
+	DefaultACL bool      `json:"defaultAcl"`
+	VPCID      string    `json:"interfaceNetworkUuid"`
+	Rules      []ACLRule `json:"aclPolicyRules"`
+	SubnetIDs  []string  `json:"subnetAssociationList"`
+}
+
+// ACLRule is one rule of a network ACL's list. Priority orders rules,
+// lowest first; a live-observed default rule holds Priority 0, one lower
+// than AddNetworkACLRule ever accepts (its shape check requires at least
+// 1), which the SDK uses as the marker for a rule the server owns and a
+// caller may never remove; see isDefaultACLRule.
+type ACLRule struct {
+	UUID      string `json:"uuid"`
+	Direction string `json:"type"`
+	Priority  int    `json:"seqNumber"`
+	Protocol  string `json:"protocol"`
+	Port      string `json:"port"`
+	CIDR      string `json:"source"`
+	Action    string `json:"action"`
 }
 
 type Subnet struct {
