@@ -165,9 +165,9 @@ All methods live in `network`.
 - `DestinationCIDR` must parse as a prefix with no host bits. `Target`
   must parse with `netip.ParseAddr`; the docs show an address. Whether
   the server needs the target to be a live interface is a live check.
-- `DeleteRouteTable` sends nothing and returns `ErrDefaultResource` for
-  the VPC's main route table (`VPC.RouteTableID`), and `ErrInUse` when any
-  subnet of the VPC names the table (`routeTableUuid`).
+- `DeleteRouteTable` sends nothing and returns `ErrInUse` when a subnet
+  names the table, and `ErrDefaultResource` for the main table
+  (`VPC.RouteTableID`) while a subnet names no table and so uses it.
 - A new route table has no routes.
 
 ### Routes replace

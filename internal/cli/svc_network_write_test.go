@@ -827,3 +827,527 @@ func TestNetworkCreateSecurityGroupCLIInputJSONUnknownKeyIsUsageErrorWithZeroReq
 		t.Fatalf("requestCount = %d, want 0", n)
 	}
 }
+
+// --- route tables and routes ---
+
+// routeTableGetJSON builds GetRouteTable's own response envelope: data.uuid,
+// name, networkId, and routes, each holding only destinationCidrBlock and
+// target, the two fields AddRoute's and RemoveRoute's read-merge reads back
+// and resends. Every table it builds is ACTIVE and belongs to "vpc-1", the
+// only VPC and the only status every test in this file needs, matching
+// routeTableJSON in network's own test file.
+func routeTableGetJSON(uuid, name string, routes ...[2]string) string {
+	type routeJSON struct {
+		DestinationCIDRBlock string `json:"destinationCidrBlock"`
+		Target               string `json:"target"`
+		Status               string `json:"status"`
+	}
+	rs := make([]routeJSON, len(routes))
+	for i, r := range routes {
+		rs[i] = routeJSON{DestinationCIDRBlock: r[0], Target: r[1], Status: "ACTIVE"}
+	}
+	body := map[string]any{"uuid": uuid, "name": name, "status": "ACTIVE", "networkId": "vpc-1", "routes": rs}
+	b, err := json.Marshal(map[string]any{"data": body})
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// scriptedRouteTableGetHandler answers each successive GET with the next
+// body of bodies, holding on the last one once the script runs out, so a
+// pre-write read and a post-write confirm read can each see a different
+// snapshot of the same table.
+func scriptedRouteTableGetHandler(bodies ...string) func(http.ResponseWriter, *http.Request) {
+	i := 0
+	return func(w http.ResponseWriter, _ *http.Request) {
+		body := bodies[i]
+		if i < len(bodies)-1 {
+			i++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+func TestNetworkGetRouteTableEndToEnd(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": jsonHandler(http.StatusOK,
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.200.0/24", "10.0.0.10"})),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "get-route-table", "--route-table-id", "rt-1",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("get-route-table: %v (stderr=%s)", err, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, `"UUID": "rt-1"`) || !strings.Contains(got, `"Name": "rt-web"`) ||
+		!strings.Contains(got, `"DestinationCIDRBlock": "10.251.200.0/24"`) {
+		t.Fatalf("stdout = %s, want the route table with its route", got)
+	}
+}
+
+// TestNetworkCreateRouteTableEndToEnd checks the flag-to-body mapping
+// (--vpc-id and --name become networkId and name) and that the settled,
+// already-ACTIVE table comes back on stdout.
+func TestNetworkCreateRouteTableEndToEnd(t *testing.T) {
+	var body []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			body, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"uuid":"rt-1"}`))
+		},
+		"/v2/proj-1/route-table/rt-1": jsonHandler(http.StatusOK, routeTableGetJSON("rt-1", "rt-web")),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "create-route-table", "--vpc-id", "vpc-1", "--name", "rt-web",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("create-route-table: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, body)
+	}
+	if decoded["name"] != "rt-web" || decoded["networkId"] != "vpc-1" {
+		t.Fatalf("body = %s, want name=rt-web and networkId=vpc-1", body)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, `"UUID": "rt-1"`) || !strings.Contains(got, `"Status": "ACTIVE"`) {
+		t.Fatalf("stdout = %s, want the settled ACTIVE table", got)
+	}
+}
+
+// TestNetworkCreateRouteTableCLIInputJSONUnknownKeyIsUsageErrorWithZeroRequests
+// checks --cli-input-json's strictness: a key that names no Input field is
+// refused before any request.
+func TestNetworkCreateRouteTableCLIInputJSONUnknownKeyIsUsageErrorWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "create-route-table", "--vpc-id", "vpc-1", "--name", "rt-web",
+		"--cli-input-json", `{"Bogus":"x"}`,
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestNetworkDeleteRouteTableRequiresYesWithZeroRequests checks the
+// destructive --yes guard: without it, nothing is sent, not even the
+// pre-delete read.
+func TestNetworkDeleteRouteTableRequiresYesWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "delete-route-table", "--route-table-id", "rt-1",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestNetworkDeleteRouteTableWithYesSendsGetVPCSubnetsDeleteThenConfirms
+// checks the success path's exact request sequence: the table read, the
+// VPC read, the subnets read, the DELETE, then the confirm read that finds
+// the table gone.
+func TestNetworkDeleteRouteTableWithYesSendsGetVPCSubnetsDeleteThenConfirms(t *testing.T) {
+	deleted := false
+	confirmed := false
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				if !deleted {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(routeTableGetJSON("rt-1", "custom")))
+					return
+				}
+				confirmed = true
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message":"not found"}`))
+			case http.MethodDelete:
+				deleted = true
+				w.WriteHeader(http.StatusAccepted)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+		"/v2/proj-1/networks/vpc-1":         jsonHandler(http.StatusOK, `{"id":"vpc-1","routeTableId":"rt-main"}`),
+		"/v2/proj-1/networks/vpc-1/subnets": jsonHandler(http.StatusOK, `[]`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "delete-route-table", "--route-table-id", "rt-1",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("delete-route-table: %v (stderr=%s)", err, stderr.String())
+	}
+	if !deleted {
+		t.Fatal("the DELETE was never sent")
+	}
+	if !confirmed {
+		t.Fatal("the post-delete confirm read never ran")
+	}
+	if n := fixture.requestCount(); n != 5 {
+		t.Fatalf("requestCount = %d, want 5 (table read, vpc read, subnets read, delete, confirm read)", n)
+	}
+}
+
+// TestNetworkDeleteRouteTableNamedBySubnetExitsResourceInUseWithNoDelete
+// checks the ErrInUse guard end to end: a subnet naming this table as its
+// own stops the delete before any DELETE, with the ResourceInUse code.
+func TestNetworkDeleteRouteTableNamedBySubnetExitsResourceInUseWithNoDelete(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-2":       jsonHandler(http.StatusOK, routeTableGetJSON("rt-2", "custom")),
+		"/v2/proj-1/networks/vpc-1":         jsonHandler(http.StatusOK, `{"id":"vpc-1","routeTableId":"rt-1"}`),
+		"/v2/proj-1/networks/vpc-1/subnets": jsonHandler(http.StatusOK, `[{"uuid":"sub-1","routeTableUuid":"rt-2"}]`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "delete-route-table", "--route-table-id", "rt-2",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "ResourceInUse" {
+		t.Fatalf("Code = %q, want ResourceInUse (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if n := fixture.requestCount(); n != 3 {
+		t.Fatalf("requestCount = %d, want 3 (table read, vpc read, subnets read, no delete)", n)
+	}
+}
+
+// TestNetworkDeleteRouteTableMainTableWithDependentSubnetExitsDefaultResourceWithNoDelete
+// checks the ErrDefaultResource guard end to end: a VPC's main route table,
+// with a subnet that names no table of its own and so relies on it, stops
+// the delete before any DELETE, with the DefaultResource code.
+func TestNetworkDeleteRouteTableMainTableWithDependentSubnetExitsDefaultResourceWithNoDelete(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1":       jsonHandler(http.StatusOK, routeTableGetJSON("rt-1", "main")),
+		"/v2/proj-1/networks/vpc-1":         jsonHandler(http.StatusOK, `{"id":"vpc-1","routeTableId":"rt-1"}`),
+		"/v2/proj-1/networks/vpc-1/subnets": jsonHandler(http.StatusOK, `[{"uuid":"sub-1","routeTableUuid":""}]`),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "delete-route-table", "--route-table-id", "rt-1",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "DefaultResource" {
+		t.Fatalf("Code = %q, want DefaultResource (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if n := fixture.requestCount(); n != 3 {
+		t.Fatalf("requestCount = %d, want 3 (table read, vpc read, subnets read, no delete)", n)
+	}
+}
+
+// TestNetworkAddRouteRequiresYesWithZeroRequests checks
+// requireYesToChangeRoutes: without --yes, add-route sends nothing, not
+// even the pre-write read.
+func TestNetworkAddRouteRequiresYesWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "add-route", "--route-table-id", "rt-1",
+		"--destination-cidr", "10.251.200.0/24", "--target", "10.0.0.10",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestNetworkAddRouteEndToEndSendsExistingPlusNewRoute checks the read-merge
+// body: the PUT holds the route the pre-write read found plus the one
+// --target names, and the settled table (from the post-write confirm read)
+// comes back with Changed true.
+func TestNetworkAddRouteEndToEndSendsExistingPlusNewRoute(t *testing.T) {
+	var putBody []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": scriptedRouteTableGetHandler(
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),
+			routeTableGetJSON("rt-1", "rt-web",
+				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
+		),
+		"/v2/proj-1/route-table/rt-1/routes": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut {
+				t.Fatalf("method = %s, want PUT", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			putBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "add-route", "--route-table-id", "rt-1",
+		"--destination-cidr", "10.251.200.0/24", "--target", "10.0.0.10",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("add-route: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded struct {
+		Routes []struct {
+			DestinationCIDRBlock string `json:"destinationCidrBlock"`
+			Target               string `json:"target"`
+		} `json:"routes"`
+	}
+	if err := json.Unmarshal(putBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, putBody)
+	}
+	if len(decoded.Routes) != 2 {
+		t.Fatalf("routes in body = %+v, want 2 entries (the existing route plus the new one)", decoded.Routes)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": true`) {
+		t.Fatalf("stdout = %s, want Changed true", got)
+	}
+}
+
+// TestNetworkAddRouteNoOpWhenAlreadyPresentSendsNoPUT checks the design's
+// no-op rule: adding a route that already exists with the same target sends
+// no PUT and reports Changed false.
+func TestNetworkAddRouteNoOpWhenAlreadyPresentSendsNoPUT(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": jsonHandler(http.StatusOK,
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.200.0/24", "10.0.0.10"})),
+		"/v2/proj-1/route-table/rt-1/routes": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s (a no-op add must send no PUT)", r.Method, r.URL.Path)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "add-route", "--route-table-id", "rt-1",
+		"--destination-cidr", "10.251.200.0/24", "--target", "10.0.0.10",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("add-route: %v (stderr=%s)", err, stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": false`) {
+		t.Fatalf("stdout = %s, want Changed false", got)
+	}
+}
+
+// TestNetworkRemoveRouteRequiresYesWithZeroRequests checks
+// requireYesToChangeRoutes for remove-route: without --yes, nothing is
+// sent, not even the pre-write read.
+func TestNetworkRemoveRouteRequiresYesWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "remove-route", "--route-table-id", "rt-1", "--destination-cidr", "10.251.200.0/24",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestNetworkRemoveRouteEndToEndSendsRemainingRoutes checks the read-merge
+// body: the PUT holds every route the pre-write read found except the one
+// named, and the settled table comes back with Changed true.
+func TestNetworkRemoveRouteEndToEndSendsRemainingRoutes(t *testing.T) {
+	var putBody []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": scriptedRouteTableGetHandler(
+			routeTableGetJSON("rt-1", "rt-web",
+				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
+			routeTableGetJSON("rt-1", "rt-web",
+				[2]string{"10.251.100.0/24", "10.0.0.5"}, [2]string{"10.251.200.0/24", "10.0.0.10"}),
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"}),
+		),
+		"/v2/proj-1/route-table/rt-1/routes": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut {
+				t.Fatalf("method = %s, want PUT", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			putBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "remove-route", "--route-table-id", "rt-1", "--destination-cidr", "10.251.200.0/24",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("remove-route: %v (stderr=%s)", err, stderr.String())
+	}
+
+	var decoded struct {
+		Routes []struct {
+			DestinationCIDRBlock string `json:"destinationCidrBlock"`
+		} `json:"routes"`
+	}
+	if err := json.Unmarshal(putBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%s)", err, putBody)
+	}
+	if len(decoded.Routes) != 1 || decoded.Routes[0].DestinationCIDRBlock != "10.251.100.0/24" {
+		t.Fatalf("routes in body = %+v, want only 10.251.100.0/24", decoded.Routes)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": true`) {
+		t.Fatalf("stdout = %s, want Changed true", got)
+	}
+}
+
+// TestNetworkRemoveRouteNotFoundWhenMissingSendsNoPUT checks the design's
+// missing-route rule: removing a destination the table does not have sends
+// no PUT and returns NotFound.
+func TestNetworkRemoveRouteNotFoundWhenMissingSendsNoPUT(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/route-table/rt-1": jsonHandler(http.StatusOK,
+			routeTableGetJSON("rt-1", "rt-web", [2]string{"10.251.100.0/24", "10.0.0.5"})),
+		"/v2/proj-1/route-table/rt-1/routes": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s (a missing route must send no PUT)", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "remove-route", "--route-table-id", "rt-1", "--destination-cidr", "10.251.200.0/24",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "NotFound" {
+		t.Fatalf("Code = %q, want NotFound (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 4 {
+		t.Fatalf("exitCode = %d, want 4", got)
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1 (the pre-write read only)", n)
+	}
+}
+
+// TestNetworkRouteTableWritesReadOnlyRefusedWithZeroRequests checks that a
+// profile's own read_only setting refuses create-route-table,
+// delete-route-table, add-route, and remove-route, before any request. The
+// destructive and --yes-guarded commands also pass --yes, so the read-only
+// refusal is unambiguously the reason in every case.
+func TestNetworkRouteTableWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
+	tests := []struct {
+		op   string
+		args []string
+	}{
+		{"create-route-table", []string{"create-route-table", "--vpc-id", "vpc-1", "--name", "rt-web"}},
+		{"delete-route-table", []string{"delete-route-table", "--route-table-id", "rt-1", "--yes"}},
+		{"add-route", []string{"add-route", "--route-table-id", "rt-1",
+			"--destination-cidr", "10.251.200.0/24", "--target", "10.0.0.10", "--yes"}},
+		{"remove-route", []string{"remove-route", "--route-table-id", "rt-1",
+			"--destination-cidr", "10.251.200.0/24", "--yes"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.op, func(t *testing.T) {
+			home := withCleanEnv(t)
+			writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nproject_id = proj-1\nread_only = true\n")
+			writeCredentialsFile(t, home, "[agent]\nusername = u\npassword = p\nroot_email = e@example.com\n")
+
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/v2/proj-1/route-table": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+				"/v2/proj-1/route-table/rt-1": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+				"/v2/proj-1/route-table/rt-1/routes": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			opts := newFakeServer(t, fixture.mux)
+			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			root := newRootCmd(strings.NewReader(""), stdout, stderr)
+			root.SetArgs(append([]string{"--profile", "agent", "network"}, tc.args...))
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatalf("expected a read-only refusal")
+			}
+			if got := classify(err).Code; got != "ReadOnly" {
+				t.Fatalf("Code = %q, want ReadOnly (stderr=%s)", got, stderr.String())
+			}
+			if got := exitCode(err); got != 2 {
+				t.Fatalf("exitCode = %d, want 2", got)
+			}
+			if n := fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
+	}
+}

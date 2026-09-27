@@ -14,6 +14,7 @@
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
 - [Network](Network.md)
+- [Network Route Tables](Network-RouteTables.md)
 - [Security](Security.md)
 
 **CLI**

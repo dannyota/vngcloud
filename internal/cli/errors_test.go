@@ -153,7 +153,10 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
 			1,
 		},
-		{"network resource in use", fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse), 1},
+		{"network resource in use (VPC)", fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse), 1},
+		{"network resource in use (route table)", fmt.Errorf("%w: route table rt-1 is named by a subnet", network.ErrInUse), 1},
+		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
+		{"network resource busy", fmt.Errorf("%w: route table rt-1 is not ACTIVE", network.ErrBusy), 1},
 		{
 			"network unexpected status",
 			fmt.Errorf("%w: VPC vpc-1 dnsStatus is %q", network.ErrUnexpectedStatus, "UNKNOWN"),
@@ -358,7 +361,7 @@ func TestClassify(t *testing.T) {
 			"NotSettled", 0, "",
 		},
 		{
-			"network resource in use",
+			"network resource in use (VPC)",
 			fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse),
 			"ResourceInUse", 0, "",
 		},
@@ -372,6 +375,27 @@ func TestClassify(t *testing.T) {
 			fmt.Errorf("%w: %w", network.ErrInUse,
 				&vngcloud.APIError{Operation: "network.DeleteVPC", StatusCode: 400, Code: "BadRequest", Message: "Cannot delete this VPC because it contains the subnet."}),
 			"ResourceInUse", 0, "",
+		},
+		{
+			// A route table delete's ErrInUse is only ever returned bare
+			// today (network/route_tables_write.go sends nothing before
+			// building it), but the sentinel is shared, and the wrapping
+			// case just above already confirms Code stays ResourceInUse
+			// ahead of the generic *APIError branch regardless of which
+			// resource produced the wrap.
+			"network resource in use (route table)",
+			fmt.Errorf("%w: route table rt-1 is named by a subnet of its VPC", network.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"network default resource",
+			fmt.Errorf("%w: route table rt-1 is the VPC's main route table and a subnet relies on it", network.ErrDefaultResource),
+			"DefaultResource", 0, "",
+		},
+		{
+			"network resource busy",
+			fmt.Errorf("%w: route table rt-1 is not ACTIVE within 1m0s; nothing sent", network.ErrBusy),
+			"ResourceBusy", 0, "",
 		},
 		{
 			"network unexpected status",
