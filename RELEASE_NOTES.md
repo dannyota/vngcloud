@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.34.0 - IAM Group Writes
+
+### Highlights
+
+- New `iam.CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
+  `RemoveUserFromGroup`, and `AttachGroupPolicy`, `DetachGroupPolicy`,
+  `AttachUserPolicy`, and `DetachUserPolicy`, with matching `vngcloud iam`
+  commands.
+- Guards refuse, sending nothing, any change to the caller's own rights,
+  including a group the caller belongs to; any change to a group or user
+  that holds IAM write rights; and any privileged policy. Only `iam` mode
+  groups are changed: an identity provider group is refused.
+- A group with members or policies is never deleted (`ResourceInUse`).
+- A group create is sent once. Every write except `create-group` and
+  `update-group` needs `--yes`.
+
 ## v0.33.0 - IAM Policy Writes
 
 ### Highlights
