@@ -42,4 +42,8 @@ var (
 	// be mounted, and detaching it under a mounted filesystem can lose
 	// unwritten data. Nothing was sent.
 	ErrServerRunning = errors.New("volume: server is running")
+
+	// ErrUnexpectedStatus means ResizeVolume read a volume Status other
+	// than AVAILABLE or IN-USE. Nothing was sent.
+	ErrUnexpectedStatus = errors.New("volume: unexpected status")
 )

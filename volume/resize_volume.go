@@ -94,9 +94,11 @@ type ResizeVolumeOutput struct {
 	MonthlyPrice float64
 }
 
-// ResizeVolume grows a volume. It reads the volume first; Input.Size at or
+// ResizeVolume grows a volume. It reads the volume first: Input.Size at or
 // below the current size is core.ErrInvalidInput, sending nothing, since a
-// shrink would cut off the end of the data.
+// shrink would cut off the end of the data, and a Status other than
+// AVAILABLE or IN-USE is ErrUnexpectedStatus, sending nothing, since any
+// other status means the volume is already changing.
 //
 // Before any request, ResizeVolume also rejects a NaN, +Inf, -Inf, or
 // negative Input.MaxPrice with core.ErrInvalidInput. It then builds one
@@ -111,16 +113,18 @@ type ResizeVolumeOutput struct {
 // 0003: a resend would act on the size read this call already took, which
 // only grows staler. A 4xx response proves the server never acted and is
 // returned as is; any other failure returns an error wrapping
-// ErrNotSettled, and the recovery is to run ResizeVolume again, since it
-// always reads first.
+// ErrNotSettled naming GetVolume as the read that confirms what actually
+// happened, since ResizeVolume itself, a paid write, must never be the
+// suggested recovery for an ambiguous failure.
 //
 // Without NoWait, ResizeVolume then waits up to 5 minutes, polling
 // GetVolume every 2 seconds, for a read showing the new size with Status
 // AVAILABLE or IN-USE. ERROR wraps ErrFailed; the bound running out, or a
-// read or a sleep failing, wraps ErrNotSettled. NoWait returns at once
-// instead, with Output.Volume holding the pre-resize read. The filesystem
-// inside a server that has this volume attached must still be grown
-// separately; ResizeVolume only grows the block device.
+// read or a sleep failing, wraps ErrNotSettled, again naming GetVolume as
+// the read to run. NoWait returns at once instead, with Output.Volume
+// holding the pre-resize read. The filesystem inside a server that has this
+// volume attached must still be grown separately; ResizeVolume only grows
+// the block device.
 func (c *Client) ResizeVolume(ctx context.Context, in *ResizeVolumeInput) (*ResizeVolumeOutput, error) {
 	const op = "volume.ResizeVolume"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -132,6 +136,9 @@ func (c *Client) ResizeVolume(ctx context.Context, in *ResizeVolumeInput) (*Resi
 	current, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: in.VolumeID})
 	if err != nil {
 		return nil, err
+	}
+	if !current.Volume.IsAvailable() && !current.Volume.IsInUse() {
+		return nil, fmt.Errorf("%w: %s: volume %s is %q", ErrUnexpectedStatus, op, in.VolumeID, current.Volume.Status)
 	}
 	body, err := buildResizeVolumeBody(op, in, current.Volume)
 	if err != nil {
@@ -171,7 +178,7 @@ func (c *Client) ResizeVolume(ctx context.Context, in *ResizeVolumeInput) (*Resi
 		if is4xxAPIError(err) {
 			return nil, err
 		}
-		return &ResizeVolumeOutput{Volume: current.Volume}, fmt.Errorf("%w: %s: volume %s: %w", ErrNotSettled, op, in.VolumeID, err)
+		return &ResizeVolumeOutput{Volume: current.Volume}, fmt.Errorf("%w: %s: volume %s: call GetVolume to check its status: %w", ErrNotSettled, op, in.VolumeID, err)
 	}
 
 	if in.NoWait {
@@ -207,7 +214,7 @@ func (c *Client) waitVolumeResized(ctx context.Context, op, volumeID string, wan
 			}
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: volume %s did not confirm resize to %d GB within %s; run this operation again to check",
+			return fmt.Errorf("%w: %s: volume %s did not confirm resize to %d GB within %s; call GetVolume to check its status",
 				ErrNotSettled, op, volumeID, wantSize, volumeWaitBound)
 		},
 	)

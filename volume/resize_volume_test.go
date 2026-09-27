@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -152,6 +153,88 @@ func TestResizeVolumeShrinkOrEqualRefused(t *testing.T) {
 	}
 }
 
+// TestResizeVolumeRefusesUnexpectedStatus checks that ResizeVolume refuses
+// with ErrUnexpectedStatus, sending nothing, when the pre-resize read shows
+// a status other than AVAILABLE or IN-USE: a volume mid-create, mid-resize,
+// or in ERROR is already changing, and resizing it again would be sent
+// against a state the SDK never confirmed.
+func TestResizeVolumeRefusesUnexpectedStatus(t *testing.T) {
+	for _, status := range []string{"CREATING", "RESIZING", "ERROR", "DELETING", ""} {
+		t.Run(status, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					_, _ = w.Write([]byte(volumeBodyWithSize(status, 10)))
+				default:
+					t.Fatal("no request expected for an unexpected status")
+				}
+			}))
+			_, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 32000})
+			if !errors.Is(err, ErrUnexpectedStatus) {
+				t.Fatalf("status %q: err = %v, want ErrUnexpectedStatus", status, err)
+			}
+		})
+	}
+}
+
+// TestResizeVolumeAllowsAvailableAndInUse checks that ResizeVolume accepts
+// both statuses the design allows: AVAILABLE (unattached) and IN-USE
+// (attached).
+func TestResizeVolumeAllowsAvailableAndInUse(t *testing.T) {
+	for _, status := range []string{"AVAILABLE", "IN-USE"} {
+		t.Run(status, func(t *testing.T) {
+			getCalls := 0
+			c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeVolumeRequest(t, w, r,
+					func(w http.ResponseWriter, r *http.Request) {
+						getCalls++
+						size := 10
+						if getCalls > 1 {
+							size = 20
+						}
+						_, _ = w.Write([]byte(volumeBodyWithSize(status, size)))
+					}, nil,
+					func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusAccepted)
+					},
+				)
+			})))
+			if _, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 32000}); err != nil {
+				t.Fatalf("status %q: ResizeVolume() error = %v", status, err)
+			}
+		})
+	}
+}
+
+// TestResizeVolumeAmbiguousFailureNamesGetVolume checks that an ambiguous
+// resize failure's error names GetVolume as the read to run, never
+// suggesting the resize itself be sent again: ResizeVolume is a paid
+// write, and only a read can safely confirm what happened.
+func TestResizeVolumeAmbiguousFailureNamesGetVolume(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeVolumeRequest(t, w, r,
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+			}, nil,
+			func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`{"message":"upstream error"}`))
+			},
+		)
+	}))
+
+	_, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 32000})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if !strings.Contains(err.Error(), "GetVolume") {
+		t.Fatalf("err = %v, want it to name GetVolume as the read to run", err)
+	}
+	if strings.Contains(err.Error(), "run this operation again") {
+		t.Fatalf("err = %v, must not suggest running ResizeVolume itself again", err)
+	}
+}
+
 func TestResizeVolumeDefaultMaxPriceRefusesAndSendsNoResize(t *testing.T) {
 	var resizeCalls atomic.Int64
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -218,6 +301,46 @@ func TestResizeVolumeQuoteFailureSendsNoResize(t *testing.T) {
 	}
 	if resizeCalls.Load() != 0 {
 		t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
+	}
+}
+
+// TestResizeVolumeInvalidQuotePriceSendsNoResize checks that a quote
+// response carrying a price the guard cannot safely compare, null,
+// negative, or a bare NaN literal, refuses the resize with nothing sent.
+func TestResizeVolumeInvalidQuotePriceSendsNoResize(t *testing.T) {
+	cases := []struct {
+		name      string
+		quoteBody string
+	}{
+		{"null price", `{"optimumPrice":null}`},
+		{"negative price", `{"optimumPrice":-100}`},
+		{"NaN literal", `{"optimumPrice":NaN}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var resizeCalls atomic.Int64
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeVolumeRequest(t, w, r,
+					func(w http.ResponseWriter, r *http.Request) {
+						_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+					},
+					func(w http.ResponseWriter, r *http.Request) {
+						_, _ = w.Write([]byte(tc.quoteBody))
+					},
+					func(w http.ResponseWriter, r *http.Request) {
+						resizeCalls.Add(1)
+						t.Fatal("no resize expected for an invalid quote price")
+					},
+				)
+			}))
+
+			if _, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000}); err == nil {
+				t.Fatal("err = nil, want an error for an invalid quote price")
+			}
+			if resizeCalls.Load() != 0 {
+				t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
+			}
+		})
 	}
 }
 
