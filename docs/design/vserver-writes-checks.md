@@ -71,7 +71,7 @@ Writes on the test account, names `vngcloud-live-<8 hex>`:
    Delete one rule at once after its create: busy or 204. Delete a rule
    through a second test group's ID: whether the server ignores the group
    in the path. Repeat delete: status.
-6. SSH key: import a throwaway ED25519 public key made for the run;
+6. SSH key: import a throwaway RSA public key made for the run;
    response shape. Import the same name again. Create a key: response
    shape, `privateKey` present (boolean) and its first line's key type
    only; `GET` after create: `privateKey` present (boolean). Delete both;
