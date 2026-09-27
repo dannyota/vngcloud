@@ -13,12 +13,12 @@ import (
 	"danny.vn/vngcloud/volume"
 )
 
-// volumeJSON renders one GetVolume response for a volume matching the given
+// volumeJSON renders one GetVolume response for volume-1 matching the given
 // fields, wrapped the way DetachVolume's and AttachVolume's own pre-write
 // read decodes it.
-func volumeJSON(uuid, status, serverID string, bootable bool) string {
-	return fmt.Sprintf(`{"data":{"uuid":%q,"name":"data","status":%q,"serverId":%q,"bootable":%t}}`,
-		uuid, status, serverID, bootable)
+func volumeJSON(status, serverID string, bootable bool) string {
+	return fmt.Sprintf(`{"data":{"uuid":"volume-1","name":"data","status":%q,"serverId":%q,"bootable":%t}}`,
+		status, serverID, bootable)
 }
 
 // TestGoldenVolumeAttachVolume checks attach-volume's exact output shape.
@@ -42,7 +42,7 @@ func TestGoldenVolumeDetachVolume(t *testing.T) {
 // one read and reports Changed: false.
 func TestVolumeAttachVolumeAlreadyAttachedSendsNoToggle(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("volume-1", "IN-USE", "server-1", false)),
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("IN-USE", "server-1", false)),
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
@@ -70,7 +70,7 @@ func TestVolumeAttachVolumeTogglesAndConfirms(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/volumes/volume-1": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(volumeJSON("volume-1", status, serverID, false)))
+			_, _ = w.Write([]byte(volumeJSON(status, serverID, false)))
 		},
 		"/v2/proj-1/volumes/volume-1/servers/server-1/attach": func(w http.ResponseWriter, _ *http.Request) {
 			status, serverID = "IN-USE", "server-1"
@@ -160,7 +160,7 @@ func TestVolumeDetachVolumeWithoutYesExitsWithZeroRequests(t *testing.T) {
 // reports Changed: false.
 func TestVolumeDetachVolumeNotAttachedSendsNoToggle(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("volume-1", "AVAILABLE", "", false)),
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("AVAILABLE", "", false)),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
@@ -183,7 +183,7 @@ func TestVolumeDetachVolumeNotAttachedSendsNoToggle(t *testing.T) {
 // Volume.Bootable already says so.
 func TestVolumeDetachVolumeRefusesBootVolumeWithZeroDetachRequests(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("volume-1", "IN-USE", "server-1", true)),
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("IN-USE", "server-1", true)),
 		"/v2/proj-1/servers/server-1": jsonHandler(http.StatusOK, `{"data":{"status":"STOPPED","bootVolumeId":"volume-1"}}`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -209,7 +209,7 @@ func TestVolumeDetachVolumeRefusesBootVolumeWithZeroDetachRequests(t *testing.T)
 // missing id cannot rule out this being the boot volume.
 func TestVolumeDetachVolumeRefusesUnconfirmedBootVolumeWithZeroDetachRequests(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("volume-1", "IN-USE", "server-1", false)),
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("IN-USE", "server-1", false)),
 		"/v2/proj-1/servers/server-1": jsonHandler(http.StatusOK, `{"data":{"status":"STOPPED"}}`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -236,7 +236,7 @@ func TestVolumeDetachVolumeRefusesUnconfirmedBootVolumeWithZeroDetachRequests(t 
 // boot-volume guard passes and this test reaches the status guard.
 func TestVolumeDetachVolumeRefusesRunningServerWithoutAllowRunning(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("volume-1", "IN-USE", "server-1", false)),
+		"/v2/proj-1/volumes/volume-1": jsonHandler(http.StatusOK, volumeJSON("IN-USE", "server-1", false)),
 		"/v2/proj-1/servers/server-1": jsonHandler(http.StatusOK, `{"data":{"status":"ACTIVE","bootVolumeId":"volume-boot"}}`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -269,7 +269,7 @@ func TestVolumeDetachVolumeAllowRunningSkipsOnlyTheStatusCheck(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/volumes/volume-1": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(volumeJSON("volume-1", status, "server-1", false)))
+			_, _ = w.Write([]byte(volumeJSON(status, "server-1", false)))
 		},
 		"/v2/proj-1/volumes/volume-1/servers/server-1/detach": func(w http.ResponseWriter, _ *http.Request) {
 			status = "AVAILABLE"
