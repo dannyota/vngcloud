@@ -58,6 +58,8 @@ Security comes before features and convenience, as in the AWS CLI. When a choice
 - **Local checks, CI gate.** Run `make check` before each commit; it takes seconds. GitHub CI runs the same checks plus a full-history gitleaks scan and, on pushes that change code, a connected Semgrep Pro scan (Code, Supply Chain, Secrets). A red run is fixed forward at once. A tag needs green CI on that exact commit.
 - **Merge to `master` locally and push; no pull requests.** Use a branch for multi-commit work and delete it after merging.
 - **Parallel work:** at most three workers, on disjoint file sets. Do not spawn workers to repeat verification.
+- **Worktrees** live under `.claude/worktrees/<branch>`. Symlink the main checkout's `.env` into one before a live run. Editor diagnostics can come from other worktrees; trust `make check`.
+- **Dependent branches** that conflict merge in release order on one integration branch; each merge commit is a release point that `master` fast-forwards to.
 - Match review depth to risk. Do not invent extra gates.
 
 ## Briefs and reports
@@ -70,7 +72,7 @@ A report gives the exact file set (new, changed, deleted), checks run with resul
 
 ## Git
 
-Only the manager touches Git. Workers never add, commit, stash, reset, checkout, or switch branches unless the brief says so.
+Only the manager touches Git. Workers never add, commit, stash, reset, checkout, or switch branches unless the brief says so. Workers never run `git stash`, even with a tag; a brief that allows commits allows a temporary commit instead.
 
 - Stage exact paths with `git add -- <paths>`. Never use `git add .`, `git add -A`, `git commit -a`, or force-add. Never stage `.env` or `examples/basic/config.*.json`.
 - Amend or reorder only commits that are not pushed.

@@ -18,4 +18,4 @@ Code rules and the checks each change needs. Implementers, the reviewer, and the
 | Dependency or Go version change | `make vuln` |
 | Release | Green GitHub CI on the exact commit |
 
-`make live` runs against the real API and needs `.env`. Run it only when a brief asks for live verification.
+`make live` runs against the real API and needs `.env`. Run it only when a brief asks for live verification. Live write tests follow [live-data](live-data.md).
