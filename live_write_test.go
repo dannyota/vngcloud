@@ -19,6 +19,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -6165,7 +6166,11 @@ func listAllLoadBalancers(ctx context.Context, client *loadbalancer.Client) ([]l
 			return all, err
 		}
 		all = append(all, out.Items...)
-		if page >= out.TotalPage {
+		// page >= out.TotalPage already stops after page 1 when an empty
+		// account reports TotalPage 0: 1 >= 0 is true. The empty-page check
+		// is a second stopping condition, in case TotalPage is ever wrong
+		// the other way and never counts down to the current page.
+		if len(out.Items) == 0 || page >= out.TotalPage {
 			return all, nil
 		}
 	}
@@ -6191,9 +6196,12 @@ func findKeptLoadBalancer(ctx context.Context, client *loadbalancer.Client) (*lo
 // liveMaxVND reads VNGCLOUD_LIVE_MAX_VND, the run's own budget ceiling in
 // VND that every paid vLB write in these tests must quote at or under
 // before it is sent. ok is false when the variable is unset or does not
-// parse as a non-negative number, in which case the caller must skip
-// rather than guess a default: these tests must never send a paid write
-// without an explicit budget the owner named for this run.
+// parse as a non-negative, finite number, in which case the caller must
+// skip rather than guess a default: these tests must never send a paid
+// write without an explicit budget the owner named for this run. NaN or
+// +Inf must be refused explicitly here: strconv.ParseFloat accepts both
+// with no error, and a quote compared against either with > is always
+// false, which would silently accept every quote regardless of price.
 func liveMaxVND(t *testing.T) (float64, bool) {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
@@ -6201,26 +6209,97 @@ func liveMaxVND(t *testing.T) (float64, bool) {
 		return 0, false
 	}
 	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil || v < 0 {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 		return 0, false
 	}
 	return v, true
 }
 
-// findSmallestPackageID returns the uuid of the package named "NLB_Small"
-// (Layer 4) in zoneID, the cheapest package per the design's recorded live
-// prices, or an error naming what it saw if none is offered there.
-func findSmallestPackageID(ctx context.Context, client *loadbalancer.Client, zoneID string) (string, error) {
+// liveSpend tracks one live test's running total of accepted quotes against
+// its own VNGCLOUD_LIVE_MAX_VND cap: a test that sends more than one paid
+// write, such as a resize up followed by a resize down, must refuse the
+// next one once the sum would pass the cap, not just check each quote
+// against the whole cap on its own.
+type liveSpend struct {
+	cap   float64
+	spent float64
+}
+
+func newLiveSpend(cap float64) *liveSpend {
+	return &liveSpend{cap: cap}
+}
+
+// checkAndAdd refuses quote when spent so far plus quote would pass the
+// cap, naming both amounts; a negative quote (a resize-down refund) is
+// never refused, and is added as given, so a refund can only lower the
+// running total. On success it records quote against the running total and
+// returns it, so a caller can pass the result straight to MaxPrice.
+func (s *liveSpend) checkAndAdd(t *testing.T, step string, quote float64) (float64, bool) {
+	t.Helper()
+	if quote > 0 && s.spent+quote > s.cap {
+		t.Errorf("%s: quote %.0f VND plus %.0f VND already spent would exceed this run's budget %.0f VND; refusing", step, quote, s.spent, s.cap)
+		return 0, false
+	}
+	s.spent += quote
+	return quote, true
+}
+
+// liveResizeMaxPrice returns the MaxPrice a live resize should send for
+// quote: quote itself when it is at or above 0, or 0 for a negative quote (a
+// downsize refund), since ResizeLoadBalancer's own guard refuses a negative
+// MaxPrice outright but allows a negative quote through when MaxPrice is at
+// least 0.
+func liveResizeMaxPrice(quote float64) float64 {
+	return max(0, quote)
+}
+
+// findPackageIDByName returns the uuid of the package named name in zoneID,
+// or an error naming what it saw if none is offered there.
+func findPackageIDByName(ctx context.Context, client *loadbalancer.Client, zoneID, name string) (string, error) {
 	packages, err := client.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: zoneID})
 	if err != nil {
 		return "", err
 	}
 	for _, p := range packages.Items {
-		if p.Name == "NLB_Small" {
+		if p.Name == name {
 			return p.UUID, nil
 		}
 	}
-	return "", fmt.Errorf("no NLB_Small package among %d offered in this zone", len(packages.Items))
+	return "", fmt.Errorf("no %s package among %d offered in this zone", name, len(packages.Items))
+}
+
+// findSmallestLayer7PackageID returns the uuid of "ALB_Small" in zoneID, the
+// cheapest Layer 7 package per the design's recorded live prices. The kept
+// load balancer these tests share must be Layer 7, per the design, so that
+// TestLiveWriteLoadBalancerListeners can create an HTTPS listener and
+// TestLiveWriteLoadBalancerPolicies can attach L7 policies to it; an NLB
+// (Layer 4) package would leave both skipping instead of running.
+func findSmallestLayer7PackageID(ctx context.Context, client *loadbalancer.Client, zoneID string) (string, error) {
+	return findPackageIDByName(ctx, client, zoneID, "ALB_Small")
+}
+
+// deleteLoadBalancerByExactName lists load balancers by exact name and
+// deletes any match, deleting each one's children first. It is used before
+// a create that names a load balancer this run has not looked up yet, and
+// after a create failure, since a POST that returned an error may still
+// have reached the server: either way, a load balancer under this name
+// would otherwise never be found again once this run moves on.
+func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *loadbalancer.Client, name string) {
+	t.Helper()
+	list, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: list load balancers by name: %s", safeErr(err))
+		return
+	}
+	for _, lb := range list.Items {
+		if lb.Name != name {
+			continue
+		}
+		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
+		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete load balancer by name: %s", safeErr(err))
+		}
+	}
 }
 
 // deleteLoadBalancerChildren deletes every policy, listener, and pool of
@@ -6295,10 +6374,16 @@ func deleteLiveLoadBalancers(ctx context.Context, t *testing.T, client *loadbala
 // TestLiveWriteLoadBalancer exercises QuoteCreateLoadBalancer and
 // CreateLoadBalancer: L2 of the design. It creates its own VPC and /24
 // subnet (per vServer network writes' own live-check convention), then
-// orders the account's cheapest package (NLB_Small, Internal) as the kept
-// load balancer these tests reuse; see the section doc comment above. It
-// never deletes the kept load balancer or its VPC; that is
-// TestLiveWriteLoadBalancerTeardown's job.
+// orders the account's cheapest Layer 7 package (ALB_Small, Internal) as
+// the kept load balancer these tests reuse; see the section doc comment
+// above. Layer 7 lets TestLiveWriteLoadBalancerListeners create an HTTPS
+// listener and TestLiveWriteLoadBalancerPolicies attach L7 policies to the
+// same load balancer, rather than skipping either. On success it never
+// deletes the kept load balancer or its VPC; that is
+// TestLiveWriteLoadBalancerTeardown's job. On any other outcome, cleanup
+// registered before each step that can fail removes the VPC, subnet, and
+// any load balancer this run's own name matches, so a failure here never
+// leaves a paid resource behind under a name this run stops looking for.
 //
 // This must never run without credit on the account and the owner's
 // explicit approval for this run, naming the account, region, and the
@@ -6347,7 +6432,13 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 	leftovers := deleteLiveLoadBalancers(ctx, t, lbClient)
 	t.Logf("step 1: deleted %d leftover load balancer(s)", leftovers)
 
-	// Step 2: this run's own VPC and /24 subnet.
+	// created is set true only once CreateLoadBalancer itself has settled;
+	// every cleanup below checks it, so the kept load balancer's VPC,
+	// subnet, and name all survive a successful run but never a failed one.
+	var created bool
+
+	// Step 2: this run's own VPC and /24 subnet, with cleanup registered
+	// right after each is made, before the next step that can fail.
 	zoneID, err := pickEnabledZoneID(ctx, portalClient)
 	if err != nil {
 		t.Fatalf("step 2 pick enabled zone: %s", safeErr(err))
@@ -6363,34 +6454,53 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
 	}
 	vpcID := vpc.VPC.UUID
+	t.Cleanup(func() {
+		if created {
+			// The kept load balancer needs this VPC and subnet to outlive
+			// this test; only TestLiveWriteLoadBalancerTeardown removes them.
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		deleteVPCAndSubnets(cleanupCtx, t, netClient, vpcID)
+	})
 	subnet, err := netClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: vpcName + "-a", CIDR: liveSubnet24CIDR})
 	if err != nil {
-		deleteVPCAndSubnets(ctx, t, netClient, vpcID)
 		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
 	}
 	subnetID := subnet.Subnet.UUID
 	t.Log("step 2: created this run's VPC and subnet")
-	// This VPC and subnet are deliberately left in place: the kept load
-	// balancer's subnet must outlive this test. Only
-	// TestLiveWriteLoadBalancerTeardown removes them.
 
-	// Step 3: find the cheapest package.
-	packageID, err := findSmallestPackageID(ctx, lbClient, zoneID)
+	// Step 3: find the cheapest Layer 7 package.
+	packageID, err := findSmallestLayer7PackageID(ctx, lbClient, zoneID)
 	if err != nil {
-		t.Fatalf("step 3 find smallest package: %s", safeErr(err))
+		t.Fatalf("step 3 find smallest Layer 7 package: %s", safeErr(err))
 	}
-	t.Log("step 3: found the smallest package")
+	t.Log("step 3: found the smallest Layer 7 package")
 
-	// Step 4: quote, check the run's budget, and order.
+	// Step 4: quote, check the run's budget, and order. The by-exact-name
+	// sweep is registered before the create itself: if the POST reaches the
+	// server but this process never learns it, from a network failure or a
+	// context deadline, the load balancer would otherwise never be found
+	// again once this run stops looking for it by name.
 	keepSuffix, err := randomHex(4)
 	if err != nil {
 		t.Fatalf("step 4 generate name suffix: %v", err)
 	}
 	name := liveKeptLoadBalancerPrefix + keepSuffix
 	createInput := &loadbalancer.CreateLoadBalancerInput{
-		Name: name, PackageID: packageID, Type: loadbalancer.TypeLayer4,
+		Name: name, PackageID: packageID, Type: loadbalancer.TypeLayer7,
 		Scheme: loadbalancer.SchemeInternal, SubnetID: subnetID, ZoneID: zoneID,
 	}
+	t.Cleanup(func() {
+		if created {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLoadBalancerByExactName(cleanupCtx, t, lbClient, name)
+	})
+
 	quote, err := lbClient.QuoteCreateLoadBalancer(ctx, createInput)
 	if err != nil {
 		t.Fatalf("step 4 QuoteCreateLoadBalancer: %s", safeErr(err))
@@ -6400,15 +6510,16 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 	}
 	createInput.MaxPrice = quote.OptimumPrice
 	start := time.Now()
-	created, err := lbClient.CreateLoadBalancer(ctx, createInput)
+	createdOut, err := lbClient.CreateLoadBalancer(ctx, createInput)
 	if err != nil {
 		t.Fatalf("step 4 CreateLoadBalancer: %s", safeErr(err))
 	}
-	if created.LoadBalancer.UUID == "" {
+	if createdOut.LoadBalancer.UUID == "" {
 		t.Fatal("step 4: CreateLoadBalancer settled with no id")
 	}
+	created = true
 	t.Logf("step 4: created the kept load balancer, status %s, quoted %.0f VND, wait %s",
-		created.LoadBalancer.ProgressStatus, created.QuotedPrice, time.Since(start))
+		createdOut.LoadBalancer.ProgressStatus, createdOut.QuotedPrice, time.Since(start))
 
 	// Step 5: a same-name, MaxPrice-0 create is refused by the guard alone,
 	// sending nothing, since the quote is already known to be above 0.
@@ -6423,8 +6534,10 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 
 // TestLiveWriteLoadBalancerResize exercises QuoteResizeLoadBalancer and
 // ResizeLoadBalancer on the kept load balancer: L3 of the design. It
-// resizes up to NLB_Medium, then back down to NLB_Small, each time
-// checking the quote against VNGCLOUD_LIVE_MAX_VND first.
+// resizes up to ALB_Medium, then back down to the kept load balancer's
+// original package, tracking both quotes against one running total so the
+// two together, not just each on its own, stay within
+// VNGCLOUD_LIVE_MAX_VND.
 func TestLiveWriteLoadBalancerResize(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
@@ -6461,22 +6574,12 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
 	}
 
-	mediumID, err := func() (string, error) {
-		packages, err := lbClient.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: kept.ZoneID})
-		if err != nil {
-			return "", err
-		}
-		for _, p := range packages.Items {
-			if p.Name == "NLB_Medium" {
-				return p.UUID, nil
-			}
-		}
-		return "", fmt.Errorf("no NLB_Medium package among %d offered in this zone", len(packages.Items))
-	}()
+	mediumID, err := findPackageIDByName(ctx, lbClient, kept.ZoneID, "ALB_Medium")
 	if err != nil {
-		t.Fatalf("step 1 find NLB_Medium package: %s", safeErr(err))
+		t.Fatalf("step 1 find ALB_Medium package: %s", safeErr(err))
 	}
 	smallID := kept.PackageID
+	spend := newLiveSpend(maxVND)
 
 	// Step 2: resize up.
 	upInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: mediumID}
@@ -6484,10 +6587,11 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2 QuoteResizeLoadBalancer (up): %s", safeErr(err))
 	}
-	if upQuote.OptimumPrice > maxVND {
-		t.Fatalf("step 2: resize-up quote %.0f VND exceeds this run's budget %.0f VND; refusing to resize", upQuote.OptimumPrice, maxVND)
+	upQuotePrice, ok := spend.checkAndAdd(t, "step 2", upQuote.OptimumPrice)
+	if !ok {
+		t.Fatal("step 2: resize-up refused by this run's budget; see the error above")
 	}
-	upInput.MaxPrice = upQuote.OptimumPrice
+	upInput.MaxPrice = liveResizeMaxPrice(upQuotePrice)
 	start := time.Now()
 	up, err := lbClient.ResizeLoadBalancer(ctx, upInput)
 	if err != nil {
@@ -6505,16 +6609,20 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 		t.Log("step 3: resize to the same package was a no-op")
 	}
 
-	// Step 4: resize back down to the original package.
+	// Step 4: resize back down to the original package. A downsize quote
+	// may legitimately be negative, a refund; liveResizeMaxPrice floors
+	// MaxPrice at 0 rather than passing a negative one, which
+	// ResizeLoadBalancer's own guard would otherwise refuse outright.
 	downInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: smallID}
 	downQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, downInput)
 	if err != nil {
 		t.Fatalf("step 4 QuoteResizeLoadBalancer (down): %s", safeErr(err))
 	}
-	if downQuote.OptimumPrice > maxVND {
-		t.Fatalf("step 4: resize-down quote %.0f VND exceeds this run's budget %.0f VND; refusing to resize", downQuote.OptimumPrice, maxVND)
+	downQuotePrice, ok := spend.checkAndAdd(t, "step 4", downQuote.OptimumPrice)
+	if !ok {
+		t.Fatal("step 4: resize-down refused by this run's budget; see the error above")
 	}
-	downInput.MaxPrice = downQuote.OptimumPrice
+	downInput.MaxPrice = liveResizeMaxPrice(downQuotePrice)
 	start = time.Now()
 	down, err := lbClient.ResizeLoadBalancer(ctx, downInput)
 	if err != nil {
@@ -6721,6 +6829,18 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 		t.Fatalf("step 3 ImportCertificate: %s", safeErr(err))
 	}
 	certID := imported.Certificate.UUID
+	// Registered right after the import succeeds, before the HTTPS listener
+	// create that follows can fail: DeleteCertificate refuses while a
+	// listener still names it, so this alone would fail while that listener
+	// exists, but t.Cleanup runs in reverse order, and the HTTPS listener's
+	// own cleanup, registered below, runs first.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteCertificate(cleanupCtx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete certificate: %s", safeErr(err))
+		}
+	})
 	t.Log("step 3: imported a throwaway certificate")
 
 	httpsListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
@@ -6735,10 +6855,6 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 		defer cancel()
 		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete HTTPS listener: %s", safeErr(err))
-			return
-		}
-		if _, err := lbClient.DeleteCertificate(cleanupCtx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete certificate: %s", safeErr(err))
 		}
 	})
 	t.Logf("step 3: created an HTTPS listener, certificate inUse=%v", imported.Certificate.InUse)
@@ -6760,10 +6876,10 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 
 // TestLiveWriteLoadBalancerPolicies exercises CreatePolicy, UpdatePolicy,
 // and DeletePolicy on a Layer 7 listener of the kept load balancer: L6 of
-// the design. It requires the kept load balancer's Type to be Layer 7,
-// which TestLiveWriteLoadBalancer (L2) may not have created if it ordered
-// an NLB (Layer 4) package; this test skips with a clear message rather
-// than guessing when that is so. These writes are free.
+// the design. TestLiveWriteLoadBalancer (L2) always orders a Layer 7
+// package, so the Type check below is a safety net against a kept load
+// balancer some other path left behind, rather than an expected skip.
+// These writes are free.
 func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
@@ -6800,7 +6916,12 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	}
 	lbID := kept.UUID
 
-	// Step 1: an HTTP listener and two pools for the redirect targets.
+	// Step 1: an HTTP listener and a pool for the redirect target. Cleanup
+	// for each is registered as soon as its own create succeeds, in reverse
+	// of the order they must be deleted in: t.Cleanup runs last-registered
+	// first, so registering the pool's cleanup before the listener's makes
+	// the listener delete run first, matching deleteLoadBalancerChildren's
+	// own listeners-before-pools order.
 	listener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
 		LoadBalancerID: lbID, Name: "vngcloud-live-policy-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8081,
 		AllowedCIDRs: []string{liveSubnet24CIDR},
@@ -6808,13 +6929,6 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 1 CreateListener: %s", safeErr(err))
 	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete listener: %s", safeErr(err))
-		}
-	})
 	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
 		LoadBalancerID: lbID, Name: "vngcloud-live-policy-pool", Protocol: loadbalancer.PoolProtocolHTTP,
 		HealthCheckProtocol: loadbalancer.HealthCheckProtocolHTTP, HealthCheckPath: "/", HealthCheckDomainName: "example.com",
@@ -6829,10 +6943,34 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 			t.Errorf("cleanup: delete pool: %s", safeErr(err))
 		}
 	})
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete listener: %s", safeErr(err))
+		}
+	})
 	t.Log("step 1: created a listener and a pool")
 
 	// Step 2: a REDIRECT_TO_POOL policy with a PATH STARTS_WITH rule, and a
-	// REDIRECT_TO_URL policy.
+	// REDIRECT_TO_URL policy. Each policy's cleanup is registered as soon as
+	// it exists, so a failure in a later step still deletes it; registered
+	// after the listener and pool cleanups above, both run first, deleting
+	// every policy before the listener or pool it depends on.
+	var policyIDs []string
+	registerPolicyCleanup := func(policyID string) {
+		policyIDs = append(policyIDs, policyID)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		for _, id := range policyIDs {
+			if _, err := lbClient.DeletePolicy(cleanupCtx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: id}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete policy %s: %s", id, safeErr(err))
+			}
+		}
+	})
+
 	poolPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
 		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-pool",
 		Action: loadbalancer.ActionRedirectToPool, RedirectPoolID: pool.Pool.UUID,
@@ -6841,6 +6979,7 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2a CreatePolicy (pool): %s", safeErr(err))
 	}
+	registerPolicyCleanup(poolPolicy.Policy.UUID)
 	t.Logf("step 2a: created a redirect-to-pool policy, position %d", poolPolicy.Policy.Position)
 
 	urlPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
@@ -6850,6 +6989,7 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2b CreatePolicy (url): %s", safeErr(err))
 	}
+	registerPolicyCleanup(urlPolicy.Policy.UUID)
 	t.Log("step 2b: created a redirect-to-url policy")
 
 	// Step 3: update the pool policy's rules only.
@@ -6885,11 +7025,19 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	t.Log("step 5: deleted both policies, the listener, and the pool")
 }
 
-// TestLiveWriteLoadBalancerTeardown deletes the kept load balancer (see the
-// section doc comment above) and its VPC, once the L2 to L6 live checks are
-// done or the load balancer's paid month has passed. It is gated
+// TestLiveWriteLoadBalancerTeardown deletes every kept load balancer (see
+// the section doc comment above) and its VPC, once the L2 to L6 live checks
+// are done or a load balancer's paid month has passed. It is gated
 // separately from every other test here so a run of L2 through L6 never
-// deletes the kept load balancer by accident.
+// deletes a kept load balancer by accident.
+//
+// Each kept load balancer, the paid resource, is deleted before this test
+// ever does a free read that could fail and abort it, such as reading its
+// subnet for the VPC to delete next: a read failing must never leave a paid
+// load balancer behind. If more than one kept load balancer somehow exists,
+// every one matching the name pattern is deleted, not just the first found.
+// Deletion is confirmed by checking the load balancers a fresh list
+// actually returns, not merely that the list call itself succeeded.
 func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
@@ -6915,30 +7063,55 @@ func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
 	lbClient := loadbalancer.New(cfg)
 	netClient := network.New(cfg)
 
-	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	all, err := listAllLoadBalancers(ctx, lbClient)
 	if err != nil {
-		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+		t.Fatalf("list load balancers: %s", safeErr(err))
 	}
-	if kept == nil {
+	var kept []loadbalancer.LoadBalancer
+	for _, lb := range all {
+		if isKeptLoadBalancerName(lb.Name) {
+			kept = append(kept, lb)
+		}
+	}
+	if len(kept) == 0 {
 		t.Skip("no kept load balancer found; nothing to tear down")
 	}
 
-	subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: kept.PrivateSubnetID})
+	var vpcIDs []string
+	for _, lb := range kept {
+		// Delete the paid resource itself first, before the free subnet
+		// read below, which could fail and abort the test with the load
+		// balancer still undeleted.
+		deleteLoadBalancerChildren(ctx, t, lbClient, lb.UUID)
+		if _, err := lbClient.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete kept load balancer %s: %s", lb.Name, safeErr(err))
+			continue
+		}
+		t.Logf("deleted kept load balancer %s", lb.Name)
+
+		subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: lb.PrivateSubnetID})
+		if err != nil {
+			t.Errorf("read subnet for kept load balancer %s: %s", lb.Name, safeErr(err))
+			continue
+		}
+		vpcIDs = append(vpcIDs, subnetOut.Subnet.NetworkUUID)
+	}
+
+	// Confirm every kept load balancer is actually gone by checking what a
+	// fresh list returns, not just that the list call itself did not error.
+	remaining, err := listAllLoadBalancers(ctx, lbClient)
 	if err != nil {
-		t.Fatalf("read the kept load balancer's subnet: %s", safeErr(err))
-	}
-	vpcID := subnetOut.Subnet.NetworkUUID
-
-	deleteLoadBalancerChildren(ctx, t, lbClient, kept.UUID)
-	if _, err := lbClient.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: kept.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-		t.Fatalf("delete the kept load balancer: %s", safeErr(err))
-	}
-	t.Log("deleted the kept load balancer")
-
-	if _, err := findKeptLoadBalancer(ctx, lbClient); err != nil {
-		t.Errorf("confirm the kept load balancer is gone: %s", safeErr(err))
+		t.Errorf("confirm kept load balancers are gone: %s", safeErr(err))
+	} else {
+		for _, lb := range remaining {
+			if isKeptLoadBalancerName(lb.Name) {
+				t.Errorf("kept load balancer %s still reads after delete", lb.Name)
+			}
+		}
 	}
 
-	deleteVPCAndSubnets(ctx, t, netClient, vpcID)
-	t.Log("deleted the kept load balancer's VPC and subnet")
+	for _, vpcID := range vpcIDs {
+		deleteVPCAndSubnets(ctx, t, netClient, vpcID)
+	}
+	t.Log("deleted every kept load balancer's VPC and subnet")
 }
