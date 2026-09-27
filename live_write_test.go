@@ -3063,6 +3063,26 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	}
 	client := network.New(cfg)
 
+	// This test needs a VPC with no main route table and no subnets: the
+	// first route table it creates becomes the VPC's main table (confirmed
+	// live), and step 10's delete assumes no subnet relies on that main
+	// table. Skip rather than run against a VPC some other step already
+	// populated.
+	vpcState, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("check VPC state: GetVPC: %s", safeErr(err))
+	}
+	if vpcState.VPC.RouteTableID != "" {
+		t.Skipf("VPC %s already has a main route table; this test needs an empty VPC the run created", vpcID)
+	}
+	existingSubnets, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("check VPC state: ListSubnetsByVPC: %s", safeErr(err))
+	}
+	if len(existingSubnets.Items) != 0 {
+		t.Skipf("VPC %s already has %d subnet(s); this test needs an empty VPC the run created", vpcID, len(existingSubnets.Items))
+	}
+
 	// Step 1: delete every leftover vngcloud-live-* route table from a
 	// previous run. A table that is a VPC's main table, or is still named
 	// by a subnet, is left alone.
@@ -3104,6 +3124,13 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	}
 	t.Logf("step 2: created route table, status %s, routes %d, wait %s",
 		created.RouteTable.Status, len(created.RouteTable.Routes), time.Since(start))
+
+	vpcAfterCreate, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("step 2 GetVPC (check main table): %s", safeErr(err))
+	}
+	becameMain := vpcAfterCreate.VPC.RouteTableID == routeTableID
+	t.Logf("step 2: new route table became the VPC's main route table: %v", becameMain)
 
 	// Step 3: register the fallback cleanup as soon as routeTableID is
 	// known, before any later step can fail and skip the explicit delete

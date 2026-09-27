@@ -377,7 +377,40 @@ func TestCreateRouteTableNoWaitSkipsPoll(t *testing.T) {
 
 // --- DeleteRouteTable ---
 
-func TestDeleteRouteTableMainTableRefused(t *testing.T) {
+func TestDeleteRouteTableMainTableNoSubnetsDeletes(t *testing.T) {
+	var getTableCalls atomic.Int64
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/route-table/rt-1":
+			n := getTableCalls.Add(1)
+			if n == 1 {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(routeTableJSON("rt-1", "main", "ACTIVE", nil)))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"vpc-1","routeTableId":"rt-1"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/route-table/rt-1":
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	// A main route table with no subnets in the VPC deletes normally: no
+	// subnet relies on it, so ErrDefaultResource does not apply.
+	if _, err := c.DeleteRouteTable(context.Background(), &DeleteRouteTableInput{RouteTableID: "rt-1"}); err != nil {
+		t.Fatalf("DeleteRouteTable() error = %v", err)
+	}
+}
+
+func TestDeleteRouteTableMainTableWithDependentSubnetRefused(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/route-table/rt-1":
@@ -386,6 +419,11 @@ func TestDeleteRouteTableMainTableRefused(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"vpc-1","routeTableId":"rt-1"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets":
+			w.Header().Set("Content-Type", "application/json")
+			// An empty routeTableUuid means the subnet names no route table
+			// of its own and so relies on the VPC's main one.
+			_, _ = w.Write([]byte(`[{"uuid":"sub-1","routeTableUuid":""}]`))
 		default:
 			t.Fatalf("unexpected request: %s %s (delete must send no DELETE)", r.Method, r.URL.Path)
 		}

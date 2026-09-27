@@ -302,11 +302,20 @@ and is never retried after an ambiguous failure, for the reason
 before creating it again. Without `NoWait`, it waits for the table to reach
 `"ACTIVE"`, confirmed live at about 5 seconds.
 
-`DeleteRouteTable` reads the table first and sends nothing when it is its
-VPC's main route table (`network.ErrDefaultResource`) or a subnet of that
-VPC still names it (`network.ErrInUse`, found by reading the VPC's
-subnets). Deleting a VPC deletes its route tables too; there is no command
-to delete a VPC's main table on its own. `DELETE` is asynchronous,
+A VPC created with no main route table gets one assigned automatically: the
+first route table ever created in it becomes its main table
+(`network.GetVPCOutput.VPC.RouteTableID`), confirmed live. A subnet with no
+route table of its own (an empty `routeTableUuid`) relies on that main
+table.
+
+`DeleteRouteTable` reads the table, its VPC, and the VPC's subnets first.
+It sends nothing and returns `network.ErrInUse` when a subnet still names
+the table, and it sends nothing and returns `network.ErrDefaultResource`
+when the table is the VPC's main table and some subnet relies on it, since
+deleting it would leave that subnet with no route table at all. A main
+table with no subnet relying on it, including one with no subnets in its
+VPC, deletes normally: the server clears `VPC.RouteTableID` back to `""`.
+Deleting a VPC deletes its route tables too. `DELETE` is asynchronous,
 confirmed live at 202 then a 404 about 5 seconds later; without `NoWait`,
 `DeleteRouteTable` waits for that 404.
 

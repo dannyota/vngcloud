@@ -194,12 +194,20 @@ type DeleteRouteTableInput struct {
 type DeleteRouteTableOutput struct{}
 
 // DeleteRouteTable deletes a route table. It reads the table first with
-// GetRouteTable to find its VPC, then reads that VPC with GetVPC and sends
-// nothing, returning ErrDefaultResource, when the table is that VPC's main
-// route table (VPC.RouteTableID). It then lists the VPC's subnets with
-// ListSubnetsByVPC and sends nothing, returning ErrInUse, when any subnet
-// names the table (its RouteTableID, read from the subnet's own
-// routeTableUuid).
+// GetRouteTable to find its VPC, then reads that VPC with GetVPC and lists
+// the VPC's subnets with ListSubnetsByVPC.
+//
+// It sends nothing and returns ErrInUse when any subnet names the table
+// (its RouteTableID, read from the subnet's own routeTableUuid), whether or
+// not the table is the VPC's main route table.
+//
+// Otherwise, when the table is the VPC's main route table (VPC.RouteTableID)
+// and some subnet of the VPC names no route table at all (an empty
+// RouteTableID, so that subnet relies on the main one), DeleteRouteTable
+// sends nothing and returns ErrDefaultResource. A main table with no subnet
+// in that state, including one with no subnets at all, deletes normally: a
+// live probe confirmed the server itself allows deleting a VPC's main route
+// table once no subnet depends on it, clearing VPC.RouteTableID back to "".
 //
 // The DELETE itself is asynchronous, confirmed live at 202 then a 404 on
 // GetRouteTable about 5 seconds later. Without NoWait, DeleteRouteTable
@@ -224,17 +232,22 @@ func (c *Client) DeleteRouteTable(ctx context.Context, in *DeleteRouteTableInput
 	if err != nil {
 		return nil, err
 	}
-	if vpc.VPC.RouteTableID == in.RouteTableID {
-		return nil, fmt.Errorf("%w: %s: route table %s is the VPC's main route table", ErrDefaultResource, op, in.RouteTableID)
-	}
 	subnets, err := c.ListSubnetsByVPC(ctx, &ListSubnetsByVPCInput{VPCID: table.RouteTable.NetworkID})
 	if err != nil {
 		return nil, err
 	}
+	var reliesOnMain bool
 	for _, subnet := range subnets.Items {
 		if subnet.RouteTableID == in.RouteTableID {
 			return nil, fmt.Errorf("%w: %s: route table %s is named by a subnet of its VPC", ErrInUse, op, in.RouteTableID)
 		}
+		if subnet.RouteTableID == "" {
+			reliesOnMain = true
+		}
+	}
+	if vpc.VPC.RouteTableID == in.RouteTableID && reliesOnMain {
+		return nil, fmt.Errorf("%w: %s: route table %s is the VPC's main route table and a subnet names no route table, so it relies on this one",
+			ErrDefaultResource, op, in.RouteTableID)
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
