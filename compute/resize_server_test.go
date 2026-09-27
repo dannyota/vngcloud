@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -226,6 +227,48 @@ func TestResizeServerQuoteFailureSendsNoResize(t *testing.T) {
 	}
 }
 
+// TestResizeServerInvalidQuotePriceSendsNoResize checks that a quote
+// response carrying a price the guard cannot safely compare, null,
+// negative, or a bare NaN literal, refuses the resize with nothing sent.
+func TestResizeServerInvalidQuotePriceSendsNoResize(t *testing.T) {
+	cases := []struct {
+		name      string
+		quoteBody string
+	}{
+		{"null price", `{"optimumPrice":null}`},
+		{"negative price", `{"optimumPrice":-100}`},
+		{"NaN literal", `{"optimumPrice":NaN}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var resizeCalls atomic.Int64
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeServerRequest(t, w, r,
+					func(w http.ResponseWriter, r *http.Request) {
+						_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+					},
+					func(w http.ResponseWriter, r *http.Request) {
+						_, _ = w.Write([]byte(tc.quoteBody))
+					},
+					func(w http.ResponseWriter, r *http.Request) {
+						resizeCalls.Add(1)
+						t.Fatal("no resize expected for an invalid quote price")
+					},
+				)
+			}))
+
+			in := validResizeServerInput()
+			in.MaxPrice = 1000000
+			if _, err := c.ResizeServer(context.Background(), in); err == nil {
+				t.Fatal("err = nil, want an error for an invalid quote price")
+			}
+			if resizeCalls.Load() != 0 {
+				t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
+			}
+		})
+	}
+}
+
 func TestResizeServerNotRetriedAfter502(t *testing.T) {
 	var resizeCalls atomic.Int64
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +292,12 @@ func TestResizeServerNotRetriedAfter502(t *testing.T) {
 	}
 	if resizeCalls.Load() != 1 {
 		t.Fatalf("resize calls = %d, want 1: Once must never be retried", resizeCalls.Load())
+	}
+	if !strings.Contains(err.Error(), "GetServer") {
+		t.Fatalf("err = %v, want it to name GetServer as the read to run", err)
+	}
+	if strings.Contains(err.Error(), "run this operation again") {
+		t.Fatalf("err = %v, must not suggest running ResizeServer itself again", err)
 	}
 }
 
@@ -351,6 +400,12 @@ func TestResizeServerWaitBoundReached(t *testing.T) {
 	_, err := c.ResizeServer(context.Background(), in)
 	if !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if !strings.Contains(err.Error(), "GetServer") {
+		t.Fatalf("err = %v, want it to name GetServer as the read to run", err)
+	}
+	if strings.Contains(err.Error(), "run this operation again") {
+		t.Fatalf("err = %v, must not suggest running ResizeServer itself again", err)
 	}
 }
 

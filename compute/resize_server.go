@@ -94,14 +94,16 @@ type ResizeServerOutput struct {
 // 0003: a resend would act on the flavor read this call already took,
 // which only grows staler. A 4xx response proves the server never acted
 // and is returned as is; any other failure returns an error wrapping
-// ErrNotSettled, and the recovery is to run ResizeServer again, since it
-// always reads first.
+// ErrNotSettled naming GetServer as the read that confirms what actually
+// happened, since ResizeServer itself, a paid write, must never be the
+// suggested recovery for an ambiguous failure.
 //
 // Without NoWait, ResizeServer then waits up to 15 minutes, polling
 // GetServer every 5 seconds, for a read showing the new flavor and Status
 // ACTIVE or STOPPED. ERROR wraps ErrFailed; the bound running out, or a
-// read or a sleep failing, wraps ErrNotSettled. NoWait returns at once
-// instead, with Output.Server holding the pre-resize read.
+// read or a sleep failing, wraps ErrNotSettled, again naming GetServer as
+// the read to run. NoWait returns at once instead, with Output.Server
+// holding the pre-resize read.
 func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*ResizeServerOutput, error) {
 	const op = "compute.ResizeServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -158,7 +160,7 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 		if is4xxAPIError(err) {
 			return nil, err
 		}
-		return &ResizeServerOutput{Server: current.Server}, fmt.Errorf("%w: %s: server %s: %w", ErrNotSettled, op, in.ServerID, err)
+		return &ResizeServerOutput{Server: current.Server}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)
 	}
 
 	if in.NoWait {
@@ -195,7 +197,7 @@ func (c *Client) waitServerResized(ctx context.Context, op, serverID, wantFlavor
 			}
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: server %s did not confirm resize to flavor %s within %s; run this operation again to check",
+			return fmt.Errorf("%w: %s: server %s did not confirm resize to flavor %s within %s; call GetServer to check its status",
 				ErrNotSettled, op, serverID, wantFlavorID, serverResizeBound)
 		},
 	)
