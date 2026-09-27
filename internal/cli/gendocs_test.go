@@ -219,11 +219,11 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now ten, with
+// closing the error-classes list names every exit-1 code (now eleven, with
 // the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
-// network's SystemSecurityGroup and SecurityGroupInUse, and compute's own
-// SecretFileFailed) rather than a vague "exit 1", which would read as
-// ambiguous after a list of classes.
+// network's SystemSecurityGroup and SecurityGroupInUse, compute's own
+// ServerGroupInUse, and SecretFileFailed) rather than a vague "exit 1",
+// which would read as ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -231,8 +231,8 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, and " +
-		"`SecretFileFailed` all exit 1"
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`ServerGroupInUse`, and `SecretFileFailed` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}

@@ -102,6 +102,29 @@ const computeCreateSSHKeyNote = "Prefer import-ssh-key instead: it never has Gre
 const computeDeleteSSHKeyNote = "Deleting a key a server still uses has not been checked live: whether the " +
 	"API refuses it, and what happens to the server if it does not, are both unknown."
 
+// computeCreateServerGroupNote documents create-server-group's own
+// duplicate-name status and its policy's permanence: the flag table shows
+// --policy-id as a plain, required string, with no hint that
+// update-server-group carries no such field at all.
+const computeCreateServerGroupNote = "A duplicate --name fails with the server's own message at status 400. " +
+	"The group's policy cannot change after create; update-server-group has no --policy-id flag."
+
+// computeGetServerGroupNote documents get-server-group's own not-found
+// status: the server answers a deleted or otherwise unknown group with
+// status 200 and no data, not 404, and this command still reports the same
+// NotFound error either way.
+const computeGetServerGroupNote = "A deleted, or otherwise unknown, group ID reads as NotFound: the server " +
+	"answers with status 200 and no data rather than 404, and this command reports the same NotFound error " +
+	"either way."
+
+// computeDeleteServerGroupNote documents delete-server-group's pre-delete
+// guard and its unverified in-use status: the flag table shows only
+// --server-group-id, with no hint of the list scan this command runs before
+// its own DELETE.
+const computeDeleteServerGroupNote = "Refuses, before any request, a group with any server attached, found " +
+	"by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, " +
+	"and what status that refusal carries, has not been confirmed live."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation (portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
@@ -278,6 +301,9 @@ var docOpNotes = map[string]string{
 	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
 	"compute create-ssh-key":                  computeCreateSSHKeyNote,
 	"compute delete-ssh-key":                  computeDeleteSSHKeyNote,
+	"compute get-server-group":                computeGetServerGroupNote,
+	"compute create-server-group":             computeCreateServerGroupNote,
+	"compute delete-server-group":             computeDeleteServerGroupNote,
 	"network create-security-group":           networkCreateSecurityGroupNote,
 	"network create-security-group-rule":      networkCreateSecurityGroupRuleNote,
 	"network delete-security-group":           networkDeleteSecurityGroupNote,
