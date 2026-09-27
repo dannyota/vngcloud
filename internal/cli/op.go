@@ -34,7 +34,12 @@ type Op[C any] struct {
 	noFlag      map[string]bool
 	newInput    func() any
 	newOutput   func() any
-	call        func(client *C, ctx context.Context, in any) (any, error)
+	call        func(cmd *cobra.Command, client *C, ctx context.Context, in any) (any, error)
+	// extraFlags registers a flag beyond those flagSpecsFor derives from the
+	// Input struct, for an op whose command needs one its Input carries no
+	// field for. compute's create-ssh-key is the only op that sets this
+	// today, for --secret-file; see internal/cli/secretfile.go.
+	extraFlags func(cmd *cobra.Command)
 }
 
 // writeOption configures a Write operation. Destructive, Guard, and
@@ -133,7 +138,7 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 		noFlag:     noFlag,
 		newInput:   func() any { return new(In) },
 		newOutput:  func() any { return new(Out) },
-		call: func(client *C, ctx context.Context, in any) (any, error) {
+		call: func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {
 			out, err := method(client, ctx, in.(*In))
 			if err != nil {
 				return nil, err
@@ -170,7 +175,7 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 			redact = o.redact
 		}
 	}
-	op.call = func(client *C, ctx context.Context, in any) (any, error) {
+	op.call = func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {
 		out, err := method(client, ctx, in.(*In))
 		// redact runs whenever out is non-nil, whether or not err is also
 		// set: a write whose design defines a failed or unsettled wait, such
@@ -274,6 +279,9 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 	}
 	bound := registerFlags(cmd, specs)
 	cmd.Flags().String("cli-input-json", "", "a JSON object ('<json>' or file://path) supplying Input fields by their Go name")
+	if op.extraFlags != nil {
+		op.extraFlags(cmd)
+	}
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runOp(cmd.Context(), e, cmd, serviceName, newClient, op, input, bound)
@@ -357,7 +365,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	}
 
 	client := newClient(cfg)
-	out, callErr := op.call(client, ctx, input)
+	out, callErr := op.call(cmd, client, ctx, input)
 
 	if op.kind == kindWrite && logger != nil {
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)

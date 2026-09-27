@@ -12,7 +12,9 @@ required, returns `vngcloud.ErrInvalidInput` before any request.
 `billing` and `pricing` cover writes too: budgets can be created, changed,
 paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
 `dns` covers hosted zone and record writes too: zones and records can be
-created, changed, and deleted. See [DNS](DNS.md).
+created, changed, and deleted. See [DNS](DNS.md). `compute` covers SSH key
+writes too: a key can be imported, created, or deleted. See
+[Compute](Compute.md).
 
 ## Coverage
 
@@ -20,7 +22,7 @@ created, changed, and deleted. See [DNS](DNS.md).
 |---|---|---|---|---|
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
-| Compute | `compute` | Servers, server detail, SSH keys, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs. |
+| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes a convenience method for walking snapshots. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints | Typed | Some methods discover VNetwork region metadata before reading resources. |
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates | Typed | Requires IAM User permissions for the target load balancer resources. |
@@ -71,6 +73,9 @@ computeClient.ListUserImages(ctx, in)           // Page, Size
 `ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
 already returned by server and server-group list APIs. They do not require
 extra API calls.
+
+SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
+`vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
 
 ## Volume
 

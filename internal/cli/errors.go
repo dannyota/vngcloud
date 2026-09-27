@@ -82,8 +82,10 @@ type errorEnvelope struct {
 // vDNS write was accepted but did not settle within the post-write wait),
 // OTPRejected (a channel OTP create-channel or update-channel sent to
 // SendChannelOTP's Validate OTP step was wrong or expired, so no create or
-// update was sent), or PriceAboveMax (create-log-project's quote priced its
-// order above --max-price, so no order was sent).
+// update was sent), PriceAboveMax (create-log-project's quote priced its
+// order above --max-price, so no order was sent), or SecretFileFailed
+// (create-ssh-key's own create succeeded but writing --secret-file failed
+// afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -145,6 +147,10 @@ func classify(err error) errorEnvelope {
 	var roErr readOnlyError
 	if errors.As(err, &roErr) {
 		return errorEnvelope{Code: "ReadOnly", Message: err.Error()}
+	}
+	var sfErr secretFileFailedError
+	if errors.As(err, &sfErr) {
+		return errorEnvelope{Code: "SecretFileFailed", Message: err.Error()}
 	}
 	var queryErr *queryFailedError
 	if errors.As(err, &queryErr) {

@@ -68,6 +68,36 @@ const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up,
 	"other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); " +
 	"an unrecognized key is refused with exit code 2 before any request."
 
+// computeGetSSHKeyNote documents that SSHKey never carries a private key,
+// since the flag table gives no hint that one exists at all: only
+// import-ssh-key and create-ssh-key ever see one, and only once.
+const computeGetSSHKeyNote = "SSHKey never includes a private key; see import-ssh-key and create-ssh-key."
+
+// computeImportSSHKeyPreferredNote documents the wiki's own recommendation
+// for import-ssh-key: the flag table cannot show why it is preferred.
+const computeImportSSHKeyPreferredNote = "Preferred over create-ssh-key: PublicKey is made elsewhere, for " +
+	"example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans " +
+	"more than one line, or that contains the text \"PRIVATE KEY\", before any request; neither error ever " +
+	"quotes the value."
+
+// computeCreateSSHKeyNote documents create-ssh-key's --secret-file
+// requirement and its cleanup-on-failure rule: the flag table shows no
+// --secret-file at all, since it backs no Input field, and shows PrivateKey
+// only as a plain field with no hint that it is redacted or written
+// anywhere.
+const computeCreateSSHKeyNote = "Prefer import-ssh-key instead: it never has GreenNode see the private key " +
+	"at all. Needs --secret-file <path>: GreenNode generates the key pair here and returns the private key " +
+	"once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or " +
+	"an error message; the printed PrivateKey field always reads \"[redacted]\", and a SecretFile field names " +
+	"the path. --secret-file must not already exist, symlink included, checked before any request. If " +
+	"writing it fails after the create, the new key is deleted through the SDK and the command exits 1 with " +
+	"error code SecretFileFailed; if that delete also fails, the message names the key only by its ID."
+
+// computeDeleteSSHKeyNote documents delete-ssh-key's own unverified case:
+// the flag table cannot show that a server might still reference the key.
+const computeDeleteSSHKeyNote = "Deleting a key a server still uses has not been checked live: whether the " +
+	"API refuses it, and what happens to the server if it does not, are both unknown."
+
 // portalMapRedactionNote documents the CLI's key redaction rule for
 // map-backed Outputs, shared by every portal operation (portal.UserInfo,
 // Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
@@ -205,6 +235,10 @@ const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its bi
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"compute get-ssh-key":                     computeGetSSHKeyNote,
+	"compute import-ssh-key":                  computeImportSSHKeyPreferredNote,
+	"compute create-ssh-key":                  computeCreateSSHKeyNote,
+	"compute delete-ssh-key":                  computeDeleteSSHKeyNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -271,6 +305,7 @@ var docJSONPlaceholders = map[string]string{
 // only required field, but UpdateCheck also requires at least one other
 // field to change.
 var docExampleExtraFlag = map[string]string{
+	"compute create-ssh-key": "secret-file",
 	"dns update-hosted-zone": "description",
 	"dns update-record":      "ttl",
 	"monitor update-check":   "name",
