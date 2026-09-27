@@ -32,6 +32,7 @@ import (
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/portal"
 )
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
@@ -2952,4 +2953,413 @@ func TestLiveWriteSSHKey(t *testing.T) {
 		t.Fatalf("step 8 DeleteSSHKey: %s", safeErr(err))
 	}
 	t.Log("step 8: deleted created key")
+}
+
+// liveVPCCIDR, liveSubnet24CIDR, and liveSubnet28CIDR are the ranges
+// TestLiveWriteNetworkVPC creates: a VPC is one /16 from 10.0.0.0/8, and a
+// subnet is a /24 or /28 inside it.
+const (
+	liveVPCCIDR      = "10.250.0.0/16"
+	liveSubnet24CIDR = "10.250.1.0/24"
+	liveSubnet28CIDR = "10.250.2.0/28"
+)
+
+// listAllVPCs pages through every VPC the account has, since a leftover
+// cleanup or a remaining-VPC check must not miss one that landed past the
+// first page.
+func listAllVPCs(ctx context.Context, client *network.Client) ([]network.VPC, error) {
+	var all []network.VPC
+	for page := 1; ; page++ {
+		out, err := client.ListVPCs(ctx, &network.ListVPCsInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// pickEnabledZoneID returns the uuid of the first zone portal.ListZones
+// reports enabled. The test account's default zone is disabled, so a
+// subnet create needs this rather than any zone the account has.
+func pickEnabledZoneID(ctx context.Context, client *portal.Client) (string, error) {
+	zones, err := client.ListZones(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	for _, zone := range zones.Items {
+		enabled, _ := zone["isEnabled"].(bool)
+		uuid, _ := zone["uuid"].(string)
+		if enabled && uuid != "" {
+			return uuid, nil
+		}
+	}
+	return "", fmt.Errorf("no enabled zone among %d zone(s)", len(zones.Items))
+}
+
+// deleteVPCAndSubnets deletes every subnet of vpcID with NoWait, then
+// retries DeleteVPC every 30 seconds for up to 20 minutes: the server keeps
+// refusing a VPC delete for minutes after its last subnet's delete leaves
+// the VPC's subnet list (see the design). ErrInUse and ErrNotSettled both
+// mean try again; NotFound at any step means the VPC is already gone. It is
+// used both for a leftover VPC from a previous run and from t.Cleanup, so
+// it never fails the test merely because the VPC or a subnet is already
+// gone, and it runs on its own context rather than the calling step's, so
+// it can still clean up after that step's context is the reason it failed.
+func deleteVPCAndSubnets(ctx context.Context, t *testing.T, client *network.Client, vpcID string) {
+	t.Helper()
+
+	subnets, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
+	switch {
+	case err == nil:
+		for _, subnet := range subnets.Items {
+			if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{
+				VPCID: vpcID, SubnetID: subnet.UUID, NoWait: true,
+			}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("delete VPC: delete subnet: %s", safeErr(err))
+			}
+		}
+	case vngcloud.IsNotFound(err):
+		return
+	default:
+		t.Errorf("delete VPC: list subnets: %s", safeErr(err))
+		return
+	}
+
+	deadline := time.Now().Add(20 * time.Minute)
+	for {
+		_, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{VPCID: vpcID})
+		switch {
+		case err == nil, vngcloud.IsNotFound(err):
+			return
+		case errors.Is(err, network.ErrInUse), errors.Is(err, network.ErrNotSettled):
+			// The server may still be holding a just-deleted subnet against
+			// this VPC; retry until the deadline.
+		default:
+			t.Errorf("delete VPC: %s", safeErr(err))
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("delete VPC: still not deleted after 20 minutes")
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Errorf("delete VPC: context ended before delete settled: %s", safeErr(ctx.Err()))
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
+}
+
+// deleteVPCByName lists VPCs and deletes any exact match for name. It is
+// used after a CreateVPC failure, since a POST that returned an error may
+// still have reached the server.
+func deleteVPCByName(t *testing.T, client *network.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	defer cancel()
+
+	list, err := listAllVPCs(ctx, client)
+	if err != nil {
+		t.Errorf("cleanup: list vpcs by name: %s", safeErr(err))
+		return
+	}
+	for _, v := range list {
+		if v.Name != name {
+			continue
+		}
+		deleteVPCAndSubnets(ctx, t, client, v.UUID)
+	}
+}
+
+// TestLiveWriteNetworkVPC exercises CreateVPC, UpdateVPC, DeleteVPC,
+// CreateSubnet, UpdateSubnet, DeleteSubnet, and ListServersBySubnet against
+// the account named in .env, in hcm-3. Neither a VPC nor a subnet appears
+// on any pricing page (see the design), so both are treated as free.
+//
+// The account's VPC quota leaves one free VPC, so this test creates at
+// most one. It deletes every leftover vngcloud-live-* VPC first, deleting
+// each one's subnets before the VPC itself (step 1); picks the account's
+// enabled zone, since the default zone is disabled for the test account
+// (step 2); creates vngcloud-live-<8 hex> (step 3); registers the fallback
+// cleanup as soon as the created VPC's id is known (step 4); renames it to
+// a new vngcloud-live-<8 hex> name and then to that same name again (step
+// 5); creates a /24 and a /28 subnet in the enabled zone (step 6); creates
+// an overlapping subnet and one with the /24 subnet's name and logs the
+// refusals (step 7); renames the /24 subnet (step 8); lists servers on it,
+// expecting none (step 9); optionally enables Private DNS, behind its own
+// VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS gate, since it takes about 6 minutes
+// (step 10); deletes the /28 subnet and waits for it to leave the VPC's
+// subnet list (step 11); repeats that delete and logs its status (step
+// 12); deletes the VPC while the /24 subnet remains, expecting ErrInUse
+// (step 13); deletes the /24 subnet, then retries the VPC delete every 30
+// seconds until the server stops refusing it and confirms a 404 (step 14);
+// and repeats the VPC delete, logging its status (step 15). Every step logs
+// only statuses, counts, field names, and timings, never a VPC or subnet's
+// own id, name, or CIDR.
+func TestLiveWriteNetworkVPC(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network VPC write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_VPC") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_VPC=1 to run the live network VPC write test")
+	}
+	privateDNS := os.Getenv("VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS") == "1"
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	timeout := 30 * time.Minute
+	if privateDNS {
+		timeout = 40 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run.
+	leftovers, err := listAllVPCs(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftovers {
+		if !isLiveSecurityGroupName(leftover.Name) {
+			continue
+		}
+		deleteVPCAndSubnets(ctx, t, client, leftover.UUID)
+		deletedLeftovers++
+	}
+	t.Logf("step 1: deleted %d leftover VPC(s)", deletedLeftovers)
+
+	// Step 2: pick the account's enabled zone.
+	zoneID, err := pickEnabledZoneID(ctx, portalClient)
+	if err != nil {
+		t.Fatalf("step 2 pick enabled zone: %s", safeErr(err))
+	}
+	t.Log("step 2: picked an enabled zone")
+
+	// Step 3: create the VPC.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	start := time.Now()
+	created, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: liveVPCCIDR})
+	if err != nil {
+		deleteVPCByName(t, client, name)
+		t.Fatalf("step 3 CreateVPC: %s", safeErr(err))
+	}
+	vpcID := created.VPC.UUID
+	if vpcID == "" {
+		deleteVPCByName(t, client, name)
+		t.Fatal("step 3: CreateVPC returned an empty id; the design requires one")
+	}
+	t.Logf("step 3: created VPC, status %s, wait %s", created.VPC.Status, time.Since(start))
+
+	// Step 4: register the fallback cleanup as soon as vpcID is known,
+	// before any later step can fail and skip the explicit deletes below.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		defer cancel()
+		deleteVPCAndSubnets(cleanupCtx, t, client, vpcID)
+		final, err := listAllVPCs(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListVPCs: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, v := range final {
+			if isLiveSecurityGroupName(v.Name) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: vngcloud-live VPC(s) remaining: %d", remaining)
+		if remaining != 0 {
+			t.Errorf("cleanup: expected 0 vngcloud-live VPCs, found %d", remaining)
+		}
+	})
+
+	// Step 5: rename to a new live-pattern name, then rename to that same
+	// name again.
+	renameSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 5 generate name suffix: %v", err)
+	}
+	name = "vngcloud-live-" + renameSuffix
+	if _, err := client.UpdateVPC(ctx, &network.UpdateVPCInput{VPCID: vpcID, Name: name}); err != nil {
+		t.Fatalf("step 5a UpdateVPC: %s", safeErr(err))
+	}
+	sameName, err := client.UpdateVPC(ctx, &network.UpdateVPCInput{VPCID: vpcID, Name: name})
+	if err != nil {
+		t.Fatalf("step 5b UpdateVPC (same name): %s", safeErr(err))
+	}
+	t.Logf("step 5: renamed VPC twice, final status %s", sameName.VPC.Status)
+
+	// Step 6: create a /24 and a /28 subnet in the enabled zone.
+	start = time.Now()
+	sub24, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: liveSubnet24CIDR,
+	})
+	if err != nil {
+		t.Fatalf("step 6a CreateSubnet (/24): %s", safeErr(err))
+	}
+	subnet24ID := sub24.Subnet.UUID
+	if subnet24ID == "" {
+		t.Fatal("step 6a: CreateSubnet returned an empty id; the design requires one")
+	}
+	t.Logf("step 6a: created /24 subnet, status %s, wait %s", sub24.Subnet.Status, time.Since(start))
+
+	start = time.Now()
+	sub28, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-b", CIDR: liveSubnet28CIDR,
+	})
+	if err != nil {
+		t.Fatalf("step 6b CreateSubnet (/28): %s", safeErr(err))
+	}
+	subnet28ID := sub28.Subnet.UUID
+	if subnet28ID == "" {
+		t.Fatal("step 6b: CreateSubnet returned an empty id; the design requires one")
+	}
+	t.Logf("step 6b: created /28 subnet, status %s, wait %s", sub28.Subnet.Status, time.Since(start))
+
+	// Step 7: an overlapping subnet, and one with the /24 subnet's name,
+	// both expected to be refused. An unexpected success is left for
+	// t.Cleanup's subnet sweep to remove along with every other subnet.
+	_, overlapErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-c", CIDR: liveSubnet24CIDR, NoWait: true,
+	})
+	if overlapErr == nil {
+		t.Error("step 7a: creating an overlapping subnet succeeded; the design expects a refusal")
+	} else {
+		t.Logf("step 7a: overlapping subnet refused, %s", safeErr(overlapErr))
+	}
+	_, dupNameErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: "10.250.3.0/24", NoWait: true,
+	})
+	if dupNameErr == nil {
+		t.Error("step 7b: creating a duplicate-named subnet succeeded; whether names must be unique was an open question")
+	} else {
+		t.Logf("step 7b: duplicate-named subnet refused, %s", safeErr(dupNameErr))
+	}
+
+	// Step 8: rename the /24 subnet.
+	renamed, err := client.UpdateSubnet(ctx, &network.UpdateSubnetInput{
+		VPCID: vpcID, SubnetID: subnet24ID, Name: name + "-a-renamed",
+	})
+	if err != nil {
+		t.Fatalf("step 8 UpdateSubnet: %s", safeErr(err))
+	}
+	t.Logf("step 8: renamed /24 subnet, status %s", renamed.Subnet.Status)
+
+	// Step 9: list servers on the /24 subnet; the design expects none.
+	servers, err := client.ListServersBySubnet(ctx, &network.ListServersBySubnetInput{SubnetID: subnet24ID})
+	if err != nil {
+		t.Fatalf("step 9 ListServersBySubnet: %s", safeErr(err))
+	}
+	t.Logf("step 9: servers on /24 subnet: %d", len(servers.Items))
+
+	// Step 10: optionally enable Private DNS on this run's own VPC. It
+	// takes about 6 minutes to settle, so it stays behind its own gate.
+	if privateDNS {
+		start = time.Now()
+		dnsOut, err := client.EnableVPCPrivateDNS(ctx, &network.EnableVPCPrivateDNSInput{VPCID: vpcID})
+		if err != nil {
+			t.Errorf("step 10 EnableVPCPrivateDNS: %s", safeErr(err))
+		} else {
+			t.Logf("step 10: Private DNS enable, changed=%v, wait %s", dnsOut.Changed, time.Since(start))
+		}
+	} else {
+		t.Log("step 10: skipped (set VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS=1 to run it; takes about 6 minutes)")
+	}
+
+	// Step 11: delete the /28 subnet and wait for it to leave the VPC's
+	// subnet list.
+	start = time.Now()
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnet28ID}); err != nil {
+		t.Fatalf("step 11 DeleteSubnet (/28): %s", safeErr(err))
+	}
+	t.Logf("step 11: deleted /28 subnet, wait %s", time.Since(start))
+
+	// Step 12: repeat that delete and log its status.
+	_, secondSubnetDeleteErr := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnet28ID})
+	switch {
+	case secondSubnetDeleteErr == nil:
+		t.Log("step 12: second subnet delete succeeded without error")
+	case vngcloud.IsNotFound(secondSubnetDeleteErr):
+		t.Log("step 12: second subnet delete returned NotFound")
+	default:
+		t.Logf("step 12: second subnet delete: %s", safeErr(secondSubnetDeleteErr))
+	}
+
+	// Step 13: delete the VPC while the /24 subnet remains; the design
+	// expects ErrInUse, sending nothing.
+	_, inUseErr := client.DeleteVPC(ctx, &network.DeleteVPCInput{VPCID: vpcID, NoWait: true})
+	if !errors.Is(inUseErr, network.ErrInUse) {
+		t.Errorf("step 13: err = %s, want ErrInUse", safeErr(inUseErr))
+	} else {
+		t.Log("step 13: VPC delete refused with ErrInUse while a subnet remains")
+	}
+
+	// Step 14: delete the /24 subnet, then retry the VPC delete every 30
+	// seconds until the server stops refusing it, and confirm a 404.
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnet24ID}); err != nil {
+		t.Fatalf("step 14 DeleteSubnet (/24): %s", safeErr(err))
+	}
+	start = time.Now()
+	deadline := start.Add(20 * time.Minute)
+	for {
+		_, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{VPCID: vpcID})
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, network.ErrInUse) && !errors.Is(err, network.ErrNotSettled) {
+			t.Fatalf("step 14 DeleteVPC: %s", safeErr(err))
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("step 14: VPC delete still refused after 20 minutes")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("step 14: context ended before delete settled: %s", safeErr(ctx.Err()))
+		case <-time.After(30 * time.Second):
+		}
+	}
+	t.Logf("step 14: deleted VPC, wait %s", time.Since(start))
+
+	// Step 15: repeat the VPC delete and log its status.
+	_, secondVPCDeleteErr := client.DeleteVPC(ctx, &network.DeleteVPCInput{VPCID: vpcID, NoWait: true})
+	switch {
+	case secondVPCDeleteErr == nil:
+		t.Log("step 15: second VPC delete succeeded without error")
+	case vngcloud.IsNotFound(secondVPCDeleteErr):
+		t.Log("step 15: second VPC delete returned NotFound")
+	default:
+		t.Logf("step 15: second VPC delete: %s", safeErr(secondVPCDeleteErr))
+	}
 }

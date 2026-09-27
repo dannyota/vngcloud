@@ -4,8 +4,13 @@
 VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
 ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
-security groups and their rules, the only network resources this SDK
-writes. Servers, volumes, and floating IPs stay read-only.
+security groups and their rules, VPCs, subnets, and Private DNS, the
+network resources this SDK writes. Servers, volumes, floating IPs, route
+tables, and ACLs stay read-only.
+
+If a VPC, subnet, or security group is managed by OpenTofu or Terraform, a
+write made here drifts from that state; keep such a resource's writes in
+its own tool.
 
 ## Setup
 
@@ -119,9 +124,6 @@ also wraps `network.ErrSecurityGroupInUse`, whatever its HTTP status.
 `DELETE` is idempotent; a retry that finds the group already gone returns
 `vngcloud.IsNotFound(err) == true`.
 
-If a group is managed by OpenTofu or Terraform, a write made here drifts
-from that state; keep such a group's writes in its own tool.
-
 ## Creating and deleting rules
 
 ```go
@@ -198,6 +200,147 @@ in this path and silently ignore it, so without this check a wrong
 `DELETE` is otherwise idempotent, and a retry that finds the rule already
 gone returns the same not-found result.
 
+## Creating, renaming, and deleting VPCs
+
+```go
+created, err := client.CreateVPC(ctx, &network.CreateVPCInput{
+	Name: "prod",
+	CIDR: "10.20.0.0/16",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.VPC.UUID)
+
+renamed, err := client.UpdateVPC(ctx, &network.UpdateVPCInput{
+	VPCID: created.VPC.UUID,
+	Name:  "prod-vpc",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(renamed.VPC.Name)
+
+if _, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{
+	VPCID: created.VPC.UUID,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`CIDR` must parse with `net/netip.ParsePrefix`, be IPv4, and have no host
+bits: `10.20.1.0/16` is refused because bits beyond the prefix length are
+set. The exact prefix length and which blocks are private stay on the
+server. `CreateVPC` never sends `zoneId`: live, the server ignores it and
+places every VPC in the region's first zone, even one disabled for the
+account, so an input the server ignores would tell the caller it chose a
+zone when it did not. A subnet's own `ZoneID` is what matters.
+
+`CreateVPC` is a `POST` and is never retried after an ambiguous failure,
+for the same reason `CreateSecurityGroup` is not; list VPCs and match the
+name exactly before creating it again. Without `NoWait`, it then waits for
+`ACTIVE`; see [Waits](#waits) below.
+
+`UpdateVPC` sends only `Name`; the API replaces the whole name on every
+`PATCH`, which is marked idempotent and keeps the transport's normal
+retries.
+
+`DeleteVPC` deletes a VPC and its ACLs and route tables. It reads the VPC
+and its subnets first and sends nothing when any server, volume, or subnet
+is still attached (`network.ErrInUse`): subnets carry workloads and must be
+deleted first, and ACLs and route tables hold no traffic once the subnets
+are gone, so the server removes them along with the VPC. The server's own
+refusal is the final guard: it keeps refusing for minutes after a subnet's
+delete leaves the VPC's subnet list, so a `network.ErrInUse` here also
+means "a rerun once that window passes is safe". `DELETE` is idempotent.
+Without `NoWait`, it then waits for a 404; see [Waits](#waits) below.
+
+## Creating, renaming, and deleting subnets
+
+```go
+created, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+	VPCID:  vpcID,
+	ZoneID: zoneID,
+	Name:   "web",
+	CIDR:   "10.20.1.0/24",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.Subnet.UUID)
+
+if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{
+	VPCID:    vpcID,
+	SubnetID: created.Subnet.UUID,
+}); err != nil {
+	log.Fatal(err)
+}
+
+servers, err := client.ListServersBySubnet(ctx, &network.ListServersBySubnetInput{
+	SubnetID: created.Subnet.UUID,
+})
+```
+
+`ZoneID` names a zone enabled for the account; the SDK picks no default,
+since a guess would place the subnet, and any server later created in it,
+in a zone the caller did not choose. `portal.ListZones` finds an enabled
+zone. `CIDR` follows the same rule as a VPC's; the SDK does not check that
+it lies inside the VPC's own CIDR, the server does.
+
+`CreateSubnet` is a `POST` and is never retried after an ambiguous
+failure. Subnets have no list filter by name, so list the VPC's subnets
+with `ListSubnetsByVPC` and match the name exactly before creating it
+again. Without `NoWait`, it then waits for `ACTIVE`; see [Waits](#waits)
+below.
+
+`UpdateSubnet` renames a subnet. It reads the subnet first and refuses one
+that has any `SecondarySubnets`, with `vngcloud.ErrInvalidInput`, sending
+nothing: the rename body has no field for them, and whether omitting it
+would drop them is not yet confirmed live.
+
+`DeleteSubnet` returns `vngcloud.IsNotFound(err) == true`, sending nothing,
+for a subnet read with status `"DELETED"`: `GetSubnet` keeps returning a
+deleted subnet for minutes after `ListSubnetsByVPC` has already dropped it.
+It also sends nothing and returns `network.ErrInUse` when
+`ListServersBySubnet`, `ListNetworkInterfaces`, or `ListVirtualIPAddresses`
+shows any item in the subnet. A repeat `DELETE` on an already-deleted
+subnet returns a 500, so after a 5xx or network error on the `DELETE`,
+`DeleteSubnet` lists the VPC's subnets: an absent subnet means the delete
+took effect. Without `NoWait`, it then waits for the subnet to leave that
+list; see [Waits](#waits) below.
+
+## Enabling Private DNS
+
+```go
+enabled, err := client.EnableVPCPrivateDNS(ctx, &network.EnableVPCPrivateDNSInput{
+	VPCID: vpcID,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(enabled.Changed)
+```
+
+`EnableVPCPrivateDNS` drives a VPC's Private DNS to `ENABLED`. There is no
+matching disable call: the API has no call for it, and the SDK never
+enables Private DNS as a side effect of any other write. Enabling changes
+the VPC's DHCP options; a server already running only picks up the new
+resolver after a DHCP renew.
+
+It reads the VPC first. `dnsStatus` `"ENABLED"` returns at once with
+`Changed` false, sending nothing. `"ENABLING"` sends nothing and waits, since
+an earlier call already started it. `"DISABLED"` sends the enable `PATCH`
+at most once: a resend would act on a status read that only grows staler.
+Any other `dnsStatus` fails closed with `network.ErrUnexpectedStatus`,
+sending nothing.
+
+A `PATCH` failure that is a 4xx `*vngcloud.APIError` proves the server
+never acted and is returned as is. Any other failure wraps
+`network.ErrNotSettled` instead; the recovery is to call
+`EnableVPCPrivateDNS` again, since it always reads first. Without `NoWait`,
+it then waits for `dnsStatus` `"ENABLED"`, which took over 5 minutes in the
+probe; see [Waits](#waits) below.
+
 ## Waits
 
 Confirmed live, both `CreateSecurityGroup` and `CreateSecurityGroupRule`
@@ -240,21 +383,45 @@ response itself. If that confirm read fails, the write has already
 succeeded: the error wraps `network.ErrNotSettled`, and the Output falls
 back to the fields the `PUT` itself sent.
 
+`CreateVPC` and `CreateSubnet` poll every 2 seconds for up to 3 minutes of
+elapsed time, tolerating a 404, until the resource reaches `"ACTIVE"`.
+`DeleteVPC` polls every 2 seconds for up to 3 minutes for a 404.
+`DeleteSubnet` polls every 2 seconds for up to 3 minutes for the subnet's
+absence from `ListSubnetsByVPC`, not for a 404 from `GetSubnet`, which
+stays stale for minutes after the delete. `EnableVPCPrivateDNS` polls every
+10 seconds for up to 10 minutes for `dnsStatus` `"ENABLED"`.
+
+If a VPC or subnet reaches `"ERROR"` instead, the create or delete returns
+an error wrapping `network.ErrFailed`. Once any of these bounds runs out,
+or a read or a sleep fails, the error wraps `network.ErrNotSettled`: a
+create must not be repeated, while a delete or `EnableVPCPrivateDNS` reads
+first and so may be rerun. Either way the Output still holds the last
+resource a read returned, or, if none did, the one the write's own response
+carried.
+
 ## Errors
 
 ```go
 var ErrSecurityGroupInUse = errors.New("network: security group in use")
 var ErrSystemGroup        = errors.New("network: system security group")
+var ErrInUse              = errors.New("network: resource in use")
+var ErrUnexpectedStatus   = errors.New("network: unexpected status")
 var ErrNotSettled         = errors.New("network: write accepted but not settled")
 var ErrFailed             = errors.New("network: write failed on the server")
 ```
 
 `ErrSystemGroup` and `ErrSecurityGroupInUse` mean a delete or update sent
-nothing, or that a delete's own `DELETE` request was refused by the
-server; see [Creating, updating, and deleting groups](#creating-updating-and-deleting-groups)
-above. `ErrFailed` means `CreateSecurityGroup` reached `"ERROR"`.
-`ErrNotSettled` means `CreateSecurityGroup` or `UpdateSecurityGroup` was
-sent and may have reached the server, but no confirming read followed; a
-create must not be sent again with the same input, while an update's `PUT`
-is idempotent and may be repeated. See [Waits](#waits) above for why the
-Output still holds the group.
+nothing, or that a delete's own `DELETE` request was refused by the server;
+see [Creating, updating, and deleting
+groups](#creating-updating-and-deleting-groups) above. `ErrInUse` means
+`DeleteVPC` or `DeleteSubnet` sent nothing because a pre-write read showed
+the resource still holds something, or that the server's own refusal named
+it in use; see [Creating, renaming, and deleting
+VPCs](#creating-renaming-and-deleting-vpcs) and [Creating, renaming, and
+deleting subnets](#creating-renaming-and-deleting-subnets) above.
+`ErrUnexpectedStatus` means `EnableVPCPrivateDNS` read a `dnsStatus` this
+SDK does not know how to act on. `ErrFailed` means a create or delete
+reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
+reached the server, but no confirming read followed; see
+[Waits](#waits) above for what to do next and for why the Output still
+holds the resource.
