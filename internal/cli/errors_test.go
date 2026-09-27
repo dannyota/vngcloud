@@ -228,6 +228,16 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: iam.UpdateServiceAccount: the service account has a privileged policy attached", iam.ErrPrivilegedChange),
 			1,
 		},
+		{
+			"iam managed policy",
+			fmt.Errorf("%w: iam.UpdatePolicy: the policy is managed", iam.ErrManagedPolicy),
+			1,
+		},
+		{
+			"iam policy in use",
+			fmt.Errorf("%w: iam.DeletePolicy: the policy is attached", iam.ErrInUse),
+			1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -491,6 +501,16 @@ func TestClassify(t *testing.T) {
 			"iam self change wins when both sentinels are chained",
 			fmt.Errorf("%w: %w", iam.ErrSelfChange, iam.ErrPrivilegedChange),
 			"SelfChange", 0, "",
+		},
+		{
+			"iam managed policy",
+			fmt.Errorf("%w: iam.UpdatePolicy: the policy is managed", iam.ErrManagedPolicy),
+			"ManagedPolicy", 0, "",
+		},
+		{
+			"iam policy in use",
+			fmt.Errorf("%w: iam.DeletePolicy: the policy is attached", iam.ErrInUse),
+			"ResourceInUse", 0, "",
 		},
 	}
 	for _, tt := range tests {

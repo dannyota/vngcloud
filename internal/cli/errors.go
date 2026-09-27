@@ -110,7 +110,9 @@ type errorEnvelope struct {
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
 // because its target holds, or would gain, an IAM write right, before any
-// request), SystemSecurityGroup (a network update-security-group or
+// request), ManagedPolicy (an iam update-policy or delete-policy targeted a
+// GreenNode-managed policy, before any request), SystemSecurityGroup (a
+// network update-security-group or
 // delete-security-group targeted a project's system group, so nothing was
 // sent), SecurityGroupInUse (a network delete-security-group was refused
 // because the group has servers attached, found by a pre-delete read, or
@@ -118,7 +120,7 @@ type errorEnvelope struct {
 // reason), ServerGroupInUse (a compute delete-server-group was refused
 // because the group has servers attached, found by a pre-delete list scan,
 // or because the server's own refusal named the group in use for some other
-// reason), ResourceInUse (a network VPC, subnet, route table, or ACL write
+// reason), ResourceInUse (a network VPC, subnet, or route table write
 // was refused because a pre-write read showed it still in use, such as a
 // VPC with subnets, a subnet with servers, or a route table a subnet still
 // names, or because the server's own refusal named it in use, including a
@@ -126,7 +128,9 @@ type errorEnvelope struct {
 // several minutes after that subnet's own delete, or a loadbalancer
 // delete-certificate refused because a pre-delete read showed the
 // certificate still in use by a listener, or because the server's own
-// refusal named it in use), DefaultResource (a network delete-route-table
+// refusal named it in use; or an iam delete-policy targeted a policy still
+// attached to a group, an IAM user, or a service account, before any
+// request), DefaultResource (a network delete-route-table
 // targeted a VPC's main route table while a subnet names no route table of
 // its own and so relies on it; the server itself deletes a main table once
 // no subnet relies on it), ResourceBusy (a network add-route or
@@ -241,6 +245,20 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, iam.ErrPrivilegedChange) {
 		return errorEnvelope{Code: "PrivilegedChange", Message: err.Error()}
+	}
+	// iam.ErrManagedPolicy and iam.ErrInUse join the same early group, for the
+	// same reason: update-policy, delete-policy, and the guard.go sentinels
+	// above are always returned bare, never wrapping an inner *APIError, so
+	// placement relative to the generic *APIError branch below does not
+	// matter for correctness, but consistent placement keeps every iam
+	// sentinel in one place. ErrInUse reuses network.ErrInUse's own
+	// ResourceInUse code, since both mean the same thing: a delete was
+	// refused because something else still depends on the target.
+	if errors.Is(err, iam.ErrManagedPolicy) {
+		return errorEnvelope{Code: "ManagedPolicy", Message: err.Error()}
+	}
+	if errors.Is(err, iam.ErrInUse) {
+		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 
 	if vngcloud.IsNotFound(err) {

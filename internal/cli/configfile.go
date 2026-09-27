@@ -103,7 +103,7 @@ func loadForEdit(path string) (writeTarget, error) {
 		renamePath = resolved
 	}
 
-	f, err := openConfigureFile(renamePath)
+	f, err := openRegularFileNonBlocking(renamePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return writeTarget{renamePath: renamePath, dir: filepath.Dir(renamePath)}, nil
 	}

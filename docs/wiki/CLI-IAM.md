@@ -4,6 +4,44 @@
 
 The guards documented below stop mistakes, not a caller that already holds IAM write rights: give agent profiles an IAM user without IAM write rights, and turn on read_only where they only read, so the server itself refuses what a guard would. A caller whose own type is a service account is refused on every write that targets an existing service account (update-service-account, delete-service-account, and reset-service-account-secret), since its own identity cannot be confirmed against a target's ID or ClientID.
 
+## attach-service-account-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the caller's own type is a service account, and PrivilegedChange when the policy grants an IAM write action or the target service account already holds one; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--service-account-id` | `string` | yes |
+
+```sh
+vngcloud iam attach-service-account-policy --policy-id <policy-id> --service-account-id <service-account-id> --yes
+```
+
+## create-policy
+
+Kind: Write.
+
+Refuses, before any request, with error code PrivilegedChange when the statements grant an IAM write action; see the IAM design's guard rules. Never retried after a failure that may have already reached the server: list policies by --name before creating it again rather than repeating this command.
+
+Statements has no flag of its own; set it with --document-file <path>, a JSON object in the console's own form, or --cli-input-json (Statements, its exact Go field name). --document-file wins when both are given. The file must be a regular file of at most 64 KiB, opened without following a FIFO or other special file, and is decoded with unknown fields refused: an AWS-style document (top-level Version and Statement, or a statement's own Action and Resource) exits 2 before any request instead of reaching the server as an empty policy. Keys match without regard to case, so get-policy's own Go field names (Statements, Effect, Actions, Resources) decode the same way as the console's lower-case ones. Example, granting a read-only vServer action:
+
+```json
+{"statements": [{"effect": "allow", "actions": ["vserver:ListServers"], "resources": ["*"]}]}
+```
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--description` | `string` |  |
+| `Statements` (via `--cli-input-json` only) | `[]iam.Statement` | yes |
+| `--document-file` | `string` |  |
+
+```sh
+vngcloud iam create-policy --name <name> --document-file policy.json
+```
+
 ## create-service-account
 
 Kind: Write.
@@ -20,6 +58,20 @@ Needs --secret-file <path>: the client secret is returned once, and this command
 vngcloud iam create-service-account --name <name> --secret-file <secret-file>
 ```
 
+## delete-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code ManagedPolicy when the policy is managed, and ResourceInUse when it is attached to a group, an IAM user, or a service account; see the IAM design's guard rules.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+
+```sh
+vngcloud iam delete-policy --policy-id <policy-id> --yes
+```
+
 ## delete-service-account
 
 Kind: Write, destructive.
@@ -32,6 +84,21 @@ Refuses, before any request, with error code SelfChange when the service account
 
 ```sh
 vngcloud iam delete-service-account --service-account-id <service-account-id> --yes
+```
+
+## detach-service-account-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code SelfChange when the caller's own type is a service account, and PrivilegedChange when the policy grants an IAM write action or the target service account already holds one; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--service-account-id` | `string` | yes |
+
+```sh
+vngcloud iam detach-service-account-policy --policy-id <policy-id> --service-account-id <service-account-id> --yes
 ```
 
 ## get-caller-identity
@@ -222,6 +289,30 @@ Refuses, before any request, with error code SelfChange when the service account
 
 ```sh
 vngcloud iam reset-service-account-secret --service-account-id <service-account-id> --secret-file <secret-file> --yes
+```
+
+## update-policy
+
+Kind: Write, destructive.
+
+Refuses, before any request, with error code ManagedPolicy when the policy is managed, and PrivilegedChange when its current or proposed statements grant an IAM write action, or it is attached to a protected principal or group; see the IAM design's guard rules. Sends a full PUT, filling any field left unset (Name, Description, Statements) from the policy's own current state first, so leaving out --document-file keeps the current statements rather than clearing them.
+
+Statements has no flag of its own; set it with --document-file <path>, a JSON object in the console's own form, or --cli-input-json (Statements, its exact Go field name). --document-file wins when both are given. The file must be a regular file of at most 64 KiB, opened without following a FIFO or other special file, and is decoded with unknown fields refused: an AWS-style document (top-level Version and Statement, or a statement's own Action and Resource) exits 2 before any request instead of reaching the server as an empty policy. Keys match without regard to case, so get-policy's own Go field names (Statements, Effect, Actions, Resources) decode the same way as the console's lower-case ones. Example, granting a read-only vServer action:
+
+```json
+{"statements": [{"effect": "allow", "actions": ["vserver:ListServers"], "resources": ["*"]}]}
+```
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+| `Statements` (via `--cli-input-json` only) | `*[]iam.Statement` |  |
+| `--document-file` | `string` |  |
+
+```sh
+vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes
 ```
 
 ## update-service-account
