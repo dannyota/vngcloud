@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -45,6 +46,15 @@ func NewConfigWithCapture(t testing.TB, handler http.Handler, capture transport.
 	t.Helper()
 
 	return newConfig(t, handler, transport.Config{Capture: capture})
+}
+
+// NewConfigWithLogger is NewConfig but also wires logger as the transport's
+// debug logger, for a test proving what a request attempt does or does not
+// log.
+func NewConfigWithLogger(t testing.TB, handler http.Handler, logger *slog.Logger) core.Config {
+	t.Helper()
+
+	return newConfig(t, handler, transport.Config{Logger: logger})
 }
 
 func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.Config {

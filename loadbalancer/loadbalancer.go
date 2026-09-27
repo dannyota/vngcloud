@@ -338,6 +338,9 @@ func (c *Client) GetCertificate(ctx context.Context, in *GetCertificateInput) (*
 	if err := core.CheckRequired("loadbalancer.GetCertificate", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.GetCertificate", "CertificateID", in.CertificateID); err != nil {
+		return nil, err
+	}
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -477,6 +480,11 @@ type Certificate struct {
 	Issuer             string `json:"issuer"`
 	SignatureAlgorithm string `json:"signatureAlgorithm"`
 	NotBefore          int64  `json:"notBefore"`
+
+	// SubjectAlternativeNames is empty on a GetCertificate response: the
+	// server's own get endpoint does not return this field, unlike list and
+	// import.
+	SubjectAlternativeNames []string `json:"subjectAlternativeNames"`
 }
 
 type Tag struct {
