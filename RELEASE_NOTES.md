@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.23.0 - Security Group Writes
+
+### Highlights
+
+- New `network.CreateSecurityGroup`, `UpdateSecurityGroup`, and
+  `DeleteSecurityGroup`, and `CreateSecurityGroupRule` and
+  `DeleteSecurityGroupRule`, with matching `vngcloud network` commands.
+- An ingress rule from `0.0.0.0/0` or `::/0` needs `--yes`, and so does
+  every delete.
+- A system group, or a group with servers, is never updated or deleted.
+  A rule is deleted only when it belongs to the named group.
+- Rules are checked before any request: direction, protocol, prefix,
+  ports, and ether type. An `icmp` rule covers all ICMP and takes no
+  ports.
+- New CLI codes `SystemSecurityGroup` and `SecurityGroupInUse`.
+
+### Behavior changes
+
+`GetSecurityGroup`, `ListSecurityGroupRules`, and
+`ListServersBySecurityGroup` refuse a malformed ID before any request.
+
 ## v0.22.0 - vMonitor Log Project Orders
 
 ### Highlights
