@@ -40,6 +40,16 @@ func TestFlagNameForUsesRenameTable(t *testing.T) {
 	if got := flagNameFor("ServerID"); got != "server-id" {
 		t.Fatalf("flagNameFor(ServerID) = %q, want server-id", got)
 	}
+	// SecurityGroupIDs is []string and repeats, one ID per --security-group-id
+	// occurrence, so it reads as singular even though the Go field is plural;
+	// the mechanical conversion alone would give it the plural "security-
+	// group-ids" instead (checked below).
+	if got := flagNameFor("SecurityGroupIDs"); got != "security-group-id" {
+		t.Fatalf("flagNameFor(SecurityGroupIDs) = %q, want security-group-id", got)
+	}
+	if got := kebab("SecurityGroupIDs"); got != "security-group-ids" {
+		t.Fatalf("kebab(SecurityGroupIDs) = %q, want security-group-ids (the mechanical form the table overrides)", got)
+	}
 }
 
 func TestCheckOpName(t *testing.T) {

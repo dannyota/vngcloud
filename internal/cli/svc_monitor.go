@@ -15,10 +15,14 @@ import (
 // but not Destructive either. DeleteCheck is Write and Destructive: a
 // deleted check and its history cannot be restored by one more command, so
 // it needs --yes. A read-only profile refuses every Write op, all five,
-// before any request. CreateCheckInput's Locations, Headers, Query, and
-// Assertions fields have no flag-settable type, so they reach the command
-// only through --cli-input-json; every other CreateCheckInput field gets a
-// flag from flags.go's reflection. UpdateCheckInput's Name, URL, Method,
+// before any request. CreateCheckInput's Headers, Query, and Assertions
+// fields have no flag-settable type, so they reach the command only through
+// --cli-input-json; Locations is []string, a type flags.go can bind a
+// repeatable flag to (compute's CreateServerInput.SecurityGroupIDs needs
+// it), but WriteNoFlag keeps it JSON-only here too, since giving
+// create-check a new flag is outside the design that added []string
+// support. Every other CreateCheckInput field gets a flag from flags.go's
+// reflection. UpdateCheckInput's Name, URL, Method,
 // Body, Timeout, TestFrequency, Tests, and FailedLocations are pointers to a
 // flag-settable type, so each still gets a flag the same way; its Headers,
 // Query, Locations, Assertions, and Notifications are pointers to a map,
@@ -93,7 +97,7 @@ var monitorOps = []Op[monitor.Client]{
 	Write[monitor.Client, monitor.ResumeCheckInput, monitor.ResumeCheckOutput](
 		kebab("ResumeCheck"), (*monitor.Client).ResumeCheck),
 	Write[monitor.Client, monitor.CreateCheckInput, monitor.CreateCheckOutput](
-		kebab("CreateCheck"), (*monitor.Client).CreateCheck),
+		kebab("CreateCheck"), (*monitor.Client).CreateCheck, WriteNoFlag("Locations")),
 	Write[monitor.Client, monitor.UpdateCheckInput, monitor.UpdateCheckOutput](
 		kebab("UpdateCheck"), (*monitor.Client).UpdateCheck),
 	Write[monitor.Client, monitor.DeleteCheckInput, monitor.DeleteCheckOutput](

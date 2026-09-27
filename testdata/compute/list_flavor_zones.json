@@ -1,0 +1,6 @@
+{
+  "flavorZones": [
+    {"id": "flavor-zone-1", "name": "General Purpose", "description": "General purpose flavors", "zoneId": "zone-1"},
+    {"id": "flavor-zone-2", "name": "High CPU Code S", "description": "High CPU flavors", "zoneId": "zone-1"}
+  ]
+}

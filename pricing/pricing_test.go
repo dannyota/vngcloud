@@ -130,6 +130,39 @@ func TestGetQuotePublicVIP(t *testing.T) {
 	}
 }
 
+func TestGetQuoteActionDefaultsToCreate(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := decodeBody(t, r)
+		if body["action"] != ActionCreate {
+			t.Fatalf("action = %v, want %v", body["action"], ActionCreate)
+		}
+		testutil.WriteFixture(t, w, "../testdata/pricing/GetQuoteSnapshot.json")
+	}))
+
+	_, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+	if err != nil {
+		t.Fatalf("GetQuote() error = %v", err)
+	}
+}
+
+func TestGetQuoteActionResize(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := decodeBody(t, r)
+		if body["action"] != ActionResize {
+			t.Fatalf("action = %v, want %v", body["action"], ActionResize)
+		}
+		testutil.WriteFixture(t, w, "../testdata/pricing/GetQuoteSnapshot.json")
+	}))
+
+	_, err := client.GetQuote(context.Background(), &GetQuoteInput{
+		ResourceType: ResourceServer,
+		Action:       ActionResize,
+	})
+	if err != nil {
+		t.Fatalf("GetQuote() error = %v", err)
+	}
+}
+
 func TestGetQuoteNilResourceInfoOmitsKey(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := decodeBody(t, r)

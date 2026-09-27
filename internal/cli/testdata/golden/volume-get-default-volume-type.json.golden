@@ -1,0 +1,13 @@
+{
+  "VolumeType": {
+    "ID": "voltype-1",
+    "VolumeTypeID": "voltype-1",
+    "Name": "",
+    "IOPS": 0,
+    "MaxSize": 0,
+    "MinSize": 0,
+    "Throughput": 0,
+    "ZoneID": "zone-1",
+    "VolumeTypeZoneID": "zone-1"
+  }
+}

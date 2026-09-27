@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"io"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -89,6 +91,98 @@ func TestNoRealOpEverGetsAFlagForASecretField(t *testing.T) {
 func TestFlagSpecsForRejectsNonStructPointer(t *testing.T) {
 	if _, err := flagSpecsFor("not a pointer"); err == nil {
 		t.Fatalf("expected an error for a non-pointer input")
+	}
+}
+
+// sliceFlagsTestInput stands in for an Input carrying a []string field, the
+// shape compute.CreateServerInput.SecurityGroupIDs takes: flags.go gives it
+// a repeatable flag, bound with pflag's StringArrayVar so a value is never
+// split on a comma the way StringSliceVar would.
+type sliceFlagsTestInput struct {
+	Name string
+	Tags []string `vngcloud:"required"`
+}
+
+// TestFlagSpecsForSupportsStringSliceFields checks that a []string field
+// gets its own flag, unlike Extra (flagsTestInput's map[string]any) above.
+func TestFlagSpecsForSupportsStringSliceFields(t *testing.T) {
+	specs, err := flagSpecsFor(&sliceFlagsTestInput{})
+	if err != nil {
+		t.Fatalf("flagSpecsFor: %v", err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("got %d specs, want 2: %+v", len(specs), specs)
+	}
+	var found bool
+	for _, s := range specs {
+		if s.fieldName == "Tags" {
+			found = true
+			if s.kind != reflect.Slice {
+				t.Fatalf("Tags spec.kind = %v, want reflect.Slice", s.kind)
+			}
+			if s.isPointer {
+				t.Fatalf("Tags spec.isPointer = true, want false")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no spec for Tags: %+v", specs)
+	}
+}
+
+// TestRegisterFlagsBindsARepeatableStringSliceFlag checks that a []string
+// flag can be given more than once on one command line, and that each
+// occurrence is kept whole rather than split on a comma: pflag's
+// StringSliceVar would split "a,b" into two values, which would silently
+// break a security group ID or any other value that happens to contain a
+// comma.
+func TestRegisterFlagsBindsARepeatableStringSliceFlag(t *testing.T) {
+	in := &sliceFlagsTestInput{}
+	specs, err := flagSpecsFor(in)
+	if err != nil {
+		t.Fatalf("flagSpecsFor: %v", err)
+	}
+	cmd, bound := newTestCmd(t, specs)
+	if err := cmd.ParseFlags([]string{"--tags", "sg-1", "--tags", "sg-2,not-split"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	applyChangedFlags(cmd, in, bound)
+	want := []string{"sg-1", "sg-2,not-split"}
+	if !slices.Equal(in.Tags, want) {
+		t.Fatalf("Tags = %v, want %v", in.Tags, want)
+	}
+}
+
+// TestApplyChangedFlagsLeavesStringSliceUntouchedWhenNotGiven checks that a
+// []string field --cli-input-json already set survives when the flag is
+// never given on the command line, the same rule every other field type
+// already follows.
+func TestApplyChangedFlagsLeavesStringSliceUntouchedWhenNotGiven(t *testing.T) {
+	in := &sliceFlagsTestInput{Tags: []string{"from-json"}}
+	specs, err := flagSpecsFor(in)
+	if err != nil {
+		t.Fatalf("flagSpecsFor: %v", err)
+	}
+	cmd, bound := newTestCmd(t, specs)
+	if err := cmd.ParseFlags(nil); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	applyChangedFlags(cmd, in, bound)
+	if !slices.Equal(in.Tags, []string{"from-json"}) {
+		t.Fatalf("Tags = %v, want the JSON value left untouched", in.Tags)
+	}
+}
+
+// TestCheckRequiredFlagsNamesAMissingStringSliceFlag checks that a required
+// []string field with no value (a nil slice, the zero value for Slice)
+// fails checkRequiredFlags the same way a missing required string does.
+func TestCheckRequiredFlagsNamesAMissingStringSliceFlag(t *testing.T) {
+	err := checkRequiredFlags(&sliceFlagsTestInput{}, nil)
+	if err == nil {
+		t.Fatalf("expected an error for a missing required []string field")
+	}
+	if got := err.Error(); got != "--tags is required" {
+		t.Fatalf("error = %q, want it to name the flag", got)
 	}
 }
 

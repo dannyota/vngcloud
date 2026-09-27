@@ -14,17 +14,21 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/pricing"
 )
 
 // Client is the volume service client.
 type Client struct {
 	c *core.Client
+	// pricing prices a paid create before it sends one, sharing cfg's login
+	// and token cache with c.
+	pricing *pricing.Client
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg)}
 }
 
 type ListVolumesInput struct {
@@ -77,7 +81,11 @@ type GetVolumeOutput struct {
 }
 
 func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeOutput, error) {
-	if err := core.CheckRequired("volume.GetVolume", in); err != nil {
+	const op = "volume.GetVolume"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "VolumeID", in.VolumeID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -89,7 +97,7 @@ func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeO
 		Data Volume `json:"data"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "volume.GetVolume",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID}, nil),
 		OK:        []int{200},
@@ -126,6 +134,39 @@ func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolum
 		return nil, err
 	}
 	return &GetUnderlyingVolumeOutput{Volume: resp}, nil
+}
+
+type ListVolumesByServerInput struct {
+	ServerID string `vngcloud:"required"`
+}
+
+type ListVolumesByServerOutput = core.List[Volume]
+
+// ListVolumesByServer lists the volumes attached to one server, including
+// its boot volume. The response envelope is not confirmed live, so this
+// decodes a bare array or one wrapped under "data" or "listData".
+func (c *Client) ListVolumesByServer(ctx context.Context, in *ListVolumesByServerInput) (*ListVolumesByServerOutput, error) {
+	const op = "volume.ListVolumesByServer"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "ServerID", in.ServerID); err != nil {
+		return nil, err
+	}
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp listVolumesByServerResponse
+	if err := c.c.DoJSON(ctx, transport.Request{
+		Operation: op,
+		Method:    "GET",
+		URL:       c.volumeURL("v2", []string{projectID, "volumes", "servers", in.ServerID}, nil),
+		OK:        []int{200},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &ListVolumesByServerOutput{Items: resp.Items}, nil
 }
 
 type ListVolumeTypeZonesInput struct {
@@ -222,16 +263,25 @@ func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*Ge
 	return &GetVolumeTypeOutput{VolumeType: resp.VolumeTypes[0]}, nil
 }
 
-type GetDefaultVolumeTypeInput struct{}
+type GetDefaultVolumeTypeInput struct {
+	// ZoneID selects which zone's default volume type to read. Without it,
+	// the API looks up the region's first zone, which can be disabled for
+	// the account.
+	ZoneID string
+}
 
 type GetDefaultVolumeTypeOutput struct {
 	VolumeType VolumeType
 }
 
-func (c *Client) GetDefaultVolumeType(ctx context.Context, _ *GetDefaultVolumeTypeInput) (*GetDefaultVolumeTypeOutput, error) {
+func (c *Client) GetDefaultVolumeType(ctx context.Context, in *GetDefaultVolumeTypeInput) (*GetDefaultVolumeTypeOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
+	}
+	q := url.Values{}
+	if in != nil && in.ZoneID != "" {
+		q.Set("zoneId", in.ZoneID)
 	}
 	var resp struct {
 		ID     string `json:"volumeTypeId"`
@@ -240,7 +290,7 @@ func (c *Client) GetDefaultVolumeType(ctx context.Context, _ *GetDefaultVolumeTy
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "volume.GetDefaultVolumeType",
 		Method:    "GET",
-		URL:       c.volumeURL("v1", []string{projectID, "volume_default_id"}, nil),
+		URL:       c.volumeURL("v1", []string{projectID, "volume_default_id"}, q),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
@@ -292,7 +342,11 @@ type ListSnapshotsInput struct {
 type ListSnapshotsOutput = core.PagedList[Snapshot]
 
 func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*ListSnapshotsOutput, error) {
-	if err := core.CheckRequired("volume.ListSnapshots", in); err != nil {
+	const op = "volume.ListSnapshots"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "VolumeID", in.VolumeID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -301,7 +355,7 @@ func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*Li
 	}
 	var resp listSnapshotsResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "volume.ListSnapshots",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "snapshots"}, core.PageQuery(in.Page, in.Size)),
 		OK:        []int{200},
@@ -350,6 +404,34 @@ type listVolumesResponse struct {
 
 type listEncryptionTypesResponse struct {
 	Items []EncryptionType
+}
+
+// listVolumesByServerResponse decodes ListVolumesByServer's response, whose
+// envelope is not confirmed live: a bare array, or one wrapped under "data"
+// or "listData".
+type listVolumesByServerResponse struct {
+	Items []Volume
+}
+
+func (r *listVolumesByServerResponse) UnmarshalJSON(data []byte) error {
+	var items []Volume
+	if err := json.Unmarshal(data, &items); err == nil {
+		r.Items = items
+		return nil
+	}
+	var wrapped struct {
+		Data     []Volume `json:"data"`
+		ListData []Volume `json:"listData"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return err
+	}
+	if wrapped.Data != nil {
+		r.Items = wrapped.Data
+	} else {
+		r.Items = wrapped.ListData
+	}
+	return nil
 }
 
 type listSnapshotsResponse struct {

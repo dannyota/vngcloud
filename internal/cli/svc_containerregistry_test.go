@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -214,7 +215,7 @@ func TestContainerRegistryCommandsMatchDesignTable(t *testing.T) {
 		for _, s := range specs {
 			got = append(got, s.flagName)
 		}
-		if !equalStringSlices(got, want) {
+		if !slices.Equal(got, want) {
 			t.Errorf("%s flags = %v, want %v", op.name, got, want)
 		}
 	}

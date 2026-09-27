@@ -1,0 +1,20 @@
+{
+  "Items": [
+    {
+      "Bandwidth": 0,
+      "BandwidthUnit": "",
+      "CPU": 1,
+      "CPUPlatformDescription": "",
+      "FlavorID": "flavor-1",
+      "FlavorZoneID": "flavor-zone-1",
+      "GPU": 0,
+      "Group": "",
+      "IsSoldOut": false,
+      "Memory": 2048,
+      "Metadata": "",
+      "Name": "s2-general-1x2",
+      "RemainingVMs": 10,
+      "ZoneID": ""
+    }
+  ]
+}

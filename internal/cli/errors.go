@@ -108,8 +108,9 @@ type errorEnvelope struct {
 // written to --secret-file either way), OTPRejected (a channel OTP
 // create-channel or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
-// create or update was sent), PriceAboveMax (create-log-project's quote
-// priced its order above --max-price, so no order was sent),
+// create or update was sent), PriceAboveMax (a paid write's own quote priced
+// the order above --max-price, so nothing was sent; today only
+// create-log-project reaches this),
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
 // because its target holds, or would gain, an IAM write right, before any
@@ -235,7 +236,11 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, network.ErrBusy) {
 		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
 	}
-	if errors.Is(err, monitor.ErrPriceAboveMax) {
+	// vngcloud.ErrPriceAboveMax is the root sentinel a compute or volume paid
+	// write's own quote guard wraps; monitor.ErrPriceAboveMax is the same
+	// value (see the root package), so checking the root name alone still
+	// classifies monitor's create-log-project refusal the same way.
+	if errors.Is(err, vngcloud.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
 	}
 	// iam.ErrSelfChange and iam.ErrPrivilegedChange are always returned bare,
@@ -400,10 +405,11 @@ func exitCode(err error) int {
 		errors.Is(err, vngcloud.ErrProjectAmbiguous):
 		return 2
 	}
-	// monitor.ErrPriceAboveMax also exits 1 here, through this default: it is
-	// returned directly by CreateLogProject's own price check, never wrapped
-	// alongside a canceled context the way dns.ErrNotSettled can be, so it
-	// needs no earlier special-case check.
+	// vngcloud.ErrPriceAboveMax (and monitor.ErrPriceAboveMax, the same
+	// value) also exits 1 here, through this default: a paid write's price
+	// guard returns it directly, before any request, never wrapped alongside
+	// a canceled context the way dns.ErrNotSettled can be, so it needs no
+	// earlier special-case check.
 	return 1
 }
 

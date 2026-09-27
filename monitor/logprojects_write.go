@@ -9,14 +9,16 @@ import (
 	"net/http"
 	"time"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
 
 // ErrPriceAboveMax means CreateLogProject's quote priced the order above
-// Input.MaxPrice. No order was sent.
-var ErrPriceAboveMax = errors.New("monitor: log project price above MaxPrice")
+// Input.MaxPrice. No order was sent. It is the same value as
+// vngcloud.ErrPriceAboveMax, so errors.Is matches either name.
+var ErrPriceAboveMax = vngcloud.ErrPriceAboveMax
 
 // logProjectPollInterval, logProjectCreateWaitBound, and
 // logProjectDeleteWaitBound are CreateLogProject and DeleteLogProject's own

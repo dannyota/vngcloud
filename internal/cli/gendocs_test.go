@@ -765,6 +765,26 @@ func TestGenDocsNoFlagFieldIsJSONOnlyNotAFlag(t *testing.T) {
 	}
 }
 
+// TestGenDocsQuoteCreateServerDocumentsRepeatableSecurityGroupFlag checks
+// that quote-create-server's --security-group-id flag, a []string field,
+// renders its Go type as "[]string" rather than reflect.Slice's own
+// String() value ("slice"), which would misdocument every repeatable flag
+// the same way.
+func TestGenDocsQuoteCreateServerDocumentsRepeatableSecurityGroupFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Compute.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Compute.md: %v", err)
+	}
+	want := "| `--security-group-id` | `[]string` | yes |"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("quote-create-server doc is missing %q:\n%s", want, data)
+	}
+}
+
 // TestGenDocsGetExamplesQueryTheWrappedResourceField checks the CLI reads
 // design's "Commands" rendering note: a Get whose Output wraps one resource
 // gets a --query <Field> in its wiki example, so running the example as

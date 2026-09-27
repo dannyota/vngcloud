@@ -67,6 +67,17 @@ func TestVolumeGetVolume(t *testing.T) {
 	}
 }
 
+func TestVolumeGetVolumeRejectsBadVolumeID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"..", ".", "/", "?"} {
+		if _, err := c.GetVolume(context.Background(), &GetVolumeInput{VolumeID: bad}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("VolumeID=%q err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}
+
 func TestVolumeGetUnderlyingVolume(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/project-1/volumes/volume-1/mapping" {
@@ -101,6 +112,17 @@ func TestVolumeListSnapshots(t *testing.T) {
 	}
 	if len(out.Items) != 1 || out.Items[0].ID != "snapshot-1" || out.PageSize != 25 {
 		t.Fatalf("unexpected snapshots: %+v", out)
+	}
+}
+
+func TestVolumeListSnapshotsRejectsBadVolumeID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"..", ".", "/", "?"} {
+		if _, err := c.ListSnapshots(context.Background(), &ListSnapshotsInput{VolumeID: bad}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("VolumeID=%q err = %v, want ErrInvalidInput", bad, err)
+		}
 	}
 }
 
@@ -212,6 +234,39 @@ func TestVolumeGetDefaultVolumeType(t *testing.T) {
 	}
 	if out.VolumeType.ID != "type-1" || out.VolumeType.VolumeTypeID != "type-1" || out.VolumeType.ZoneID != "zone-a" || out.VolumeType.VolumeTypeZoneID != "zone-a" {
 		t.Fatalf("unexpected default volume type: %+v", out.VolumeType)
+	}
+}
+
+func TestVolumeGetDefaultVolumeTypeWithZoneID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/project-1/volume_default_id" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("zoneId") != "zone-a" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		testutil.WriteFixture(t, w, "../testdata/volume/get_default_volume_type.json")
+	}))
+
+	out, err := c.GetDefaultVolumeType(context.Background(), &GetDefaultVolumeTypeInput{ZoneID: "zone-a"})
+	if err != nil {
+		t.Fatalf("GetDefaultVolumeType() error = %v", err)
+	}
+	if out.VolumeType.ID != "type-1" {
+		t.Fatalf("unexpected default volume type: %+v", out.VolumeType)
+	}
+}
+
+func TestVolumeGetDefaultVolumeTypeWithoutZoneIDSendsNoQuery(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		testutil.WriteFixture(t, w, "../testdata/volume/get_default_volume_type.json")
+	}))
+
+	if _, err := c.GetDefaultVolumeType(context.Background(), nil); err != nil {
+		t.Fatalf("GetDefaultVolumeType() error = %v", err)
 	}
 }
 

@@ -88,4 +88,5 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | Name | CLI form |
 |-|-|
 | `Query` | `search` |
+| `SecurityGroupIDs` | `security-group-id` |
 | `VPCID` | `vpc-id` |

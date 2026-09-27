@@ -116,6 +116,32 @@ Preferred over create-ssh-key: PublicKey is made elsewhere, for example by ssh-k
 vngcloud compute import-ssh-key --name <name> --public-key <public-key>
 ```
 
+## list-flavor-zones
+
+Kind: Read.
+
+Filters client side: the API always returns every zone's flavor zones, and --zone-id only narrows what this command then prints.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--zone-id` | `string` |  |
+
+```sh
+vngcloud compute list-flavor-zones
+```
+
+## list-flavors
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--flavor-zone-id` | `string` | yes |
+
+```sh
+vngcloud compute list-flavors --flavor-zone-id <flavor-zone-id>
+```
+
 ## list-gpu-images
 
 Kind: Read.
@@ -220,6 +246,37 @@ Kind: Read.
 
 ```sh
 vngcloud compute list-user-images
+```
+
+## quote-create-server
+
+Kind: Read.
+
+Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, or a public IP: changing them does not change the quoted price.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `--image-id` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--security-group-id` | `[]string` | yes |
+| `--ssh-key-id` | `string` | yes |
+| `--root-disk-size` | `int` | yes |
+| `--root-disk-type-id` | `string` | yes |
+| `--data-disk-size` | `int` |  |
+| `--data-disk-type-id` | `string` |  |
+| `--data-disk-name` | `string` |  |
+| `--server-group-id` | `string` |  |
+| `UserData` (via `--cli-input-json` only) | `string` |  |
+| `--auto-renew` | `bool` |  |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud compute quote-create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
 ```
 
 ## update-server-group

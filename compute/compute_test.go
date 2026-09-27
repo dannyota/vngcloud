@@ -63,6 +63,17 @@ func TestComputeGetServer(t *testing.T) {
 	}
 }
 
+func TestComputeGetServerRejectsBadServerID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, bad := range []string{"..", ".", "/", "?"} {
+		if _, err := c.GetServer(context.Background(), &GetServerInput{ServerID: bad}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ServerID=%q err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}
+
 func TestComputeListSSHKeys(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/project-1/sshKeys" {

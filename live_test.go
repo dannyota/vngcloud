@@ -867,6 +867,166 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 	})
 }
 
+// testLiveVServerPaidWritesP1 runs the vServer paid writes design's P1 free
+// checks: flavor and volume reads, and the create quotes for a server and a
+// volume. It sends no write; every call here is a read or a price quote,
+// and QuoteCreateServer's placeholder network, subnet, security group, and
+// SSH key values are never priced or sent anywhere but this one quote
+// request. It runs only in hcm-3, the design's own test region, since its
+// flavor names and zone id are specific to that region's catalog.
+func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	if cfg.Region() != "hcm-3" {
+		t.Skip("vServer paid writes P1 checks run only in hcm-3")
+	}
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+
+	allZones, err := computeClient.ListFlavorZones(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListFlavorZones: %v", err)
+	}
+	t.Logf("flavor zones: %d", len(allZones.Items))
+
+	zones, err := computeClient.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("ListFlavorZones(ZoneID): %v", err)
+	}
+	t.Logf("flavor zones in %s: %d", zoneID, len(zones.Items))
+	if len(zones.Items) == 0 {
+		t.Fatal("no flavor zones in the enabled zone")
+	}
+
+	var flavorID string
+	for _, fz := range zones.Items {
+		flavors, err := computeClient.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
+		if err != nil {
+			t.Fatalf("ListFlavors: %v", err)
+		}
+		for _, f := range flavors.Items {
+			t.Logf("flavor %s: remainingVMs=%d isSoldOut=%v", f.Name, f.RemainingVMs, f.IsSoldOut)
+			if f.Name == "s2-general-1x2" {
+				flavorID = f.FlavorID
+			}
+		}
+	}
+	if flavorID == "" {
+		t.Fatal("flavor s2-general-1x2 not found in the enabled zone")
+	}
+
+	images, err := computeClient.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("ListOSImages: %v", err)
+	}
+	var imageID string
+	for _, img := range images.Items {
+		if strings.Contains(img.ImageVersion, "24.04") {
+			imageID = img.ID
+			break
+		}
+	}
+	if imageID == "" {
+		t.Fatal("Ubuntu 24.04 image not found")
+	}
+
+	t.Run("get-default-volume-type-with-zone", func(t *testing.T) {
+		out, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+		if err != nil {
+			t.Fatalf("GetDefaultVolumeType(ZoneID): %v", err)
+		}
+		if out.VolumeType.ID == "" {
+			t.Fatal("GetDefaultVolumeType(ZoneID) returned an empty id")
+		}
+	})
+	t.Run("get-default-volume-type-without-zone", func(t *testing.T) {
+		if _, err := volumeClient.GetDefaultVolumeType(ctx, nil); err != nil {
+			t.Logf("GetDefaultVolumeType(): %v", err)
+		}
+	})
+
+	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("GetDefaultVolumeType(ZoneID): %v", err)
+	}
+
+	t.Run("quote-create-server", func(t *testing.T) {
+		quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
+			Name: "vngcloud-live-quote", ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+			VPCID: "quote-only", SubnetID: "quote-only", SecurityGroupIDs: []string{"quote-only"},
+			SSHKeyID: "quote-only", RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+		})
+		if err != nil {
+			t.Fatalf("QuoteCreateServer: %v", err)
+		}
+		t.Logf("quote-create-server optimumPrice=%.0f", quote.OptimumPrice)
+		if quote.OptimumPrice <= 0 {
+			t.Fatal("expected a positive price")
+		}
+		var hasInstance, hasRootDisk bool
+		for _, p := range quote.Properties {
+			switch p.Name {
+			case "INSTANCE TYPE":
+				hasInstance = true
+			case "ROOT DISK":
+				hasRootDisk = true
+			}
+		}
+		if !hasInstance || !hasRootDisk {
+			t.Fatalf("missing expected price lines: %+v", quote.Properties)
+		}
+	})
+
+	t.Run("quote-create-server-with-data-disk", func(t *testing.T) {
+		quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
+			Name: "vngcloud-live-quote", ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+			VPCID: "quote-only", SubnetID: "quote-only", SecurityGroupIDs: []string{"quote-only"},
+			SSHKeyID: "quote-only", RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+			DataDiskSize: 10, DataDiskTypeID: volType.VolumeType.ID,
+		})
+		if err != nil {
+			t.Fatalf("QuoteCreateServer(data disk): %v", err)
+		}
+		var hasDataDisk bool
+		for _, p := range quote.Properties {
+			if p.Name == "DATA DISK" {
+				hasDataDisk = true
+			}
+		}
+		if !hasDataDisk {
+			t.Fatalf("missing DATA DISK price line: %+v", quote.Properties)
+		}
+	})
+
+	t.Run("quote-create-volume", func(t *testing.T) {
+		quote, err := volumeClient.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
+			Name: "vngcloud-live-quote", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID,
+		})
+		if err != nil {
+			t.Fatalf("QuoteCreateVolume: %v", err)
+		}
+		t.Logf("quote-create-volume optimumPrice=%.0f", quote.OptimumPrice)
+		if quote.OptimumPrice <= 0 {
+			t.Fatal("expected a positive price")
+		}
+	})
+
+	t.Run("list-volumes-by-server-malformed", func(t *testing.T) {
+		_, err := volumeClient.ListVolumesByServer(ctx, &volume.ListVolumesByServerInput{ServerID: "../etc"})
+		if !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListVolumesByServer(malformed) err = %v, want ErrInvalidInput", err)
+		}
+	})
+	t.Run("list-volumes-by-server-unknown", func(t *testing.T) {
+		res, err := volumeClient.ListVolumesByServer(ctx, &volume.ListVolumesByServerInput{ServerID: "vngcloud-live-unknown-id"})
+		if err != nil {
+			t.Logf("ListVolumesByServer(unknown): %v", err)
+			return
+		}
+		t.Logf("volumes for unknown server: %d", len(res.Items))
+	})
+}
+
 // testLiveContainerRegistry reads repositories and users, per the CLI reads
 // design's live-checks table for containerregistry. Both Repository and
 // User are typed from their live bodies, so a list row can carry no
@@ -928,6 +1088,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		volumes = res.Items
 	})
 	t.Run("volume", func(t *testing.T) { testLiveVolume(ctx, t, cfg, volumes) })
+	t.Run("vserver-paid-writes-p1", func(t *testing.T) { testLiveVServerPaidWritesP1(ctx, t, cfg) })
 	t.Run("vpcs", func(t *testing.T) {
 		res, err := network.New(cfg).ListVPCs(ctx, &network.ListVPCsInput{Page: 1, Size: 5})
 		if err != nil {

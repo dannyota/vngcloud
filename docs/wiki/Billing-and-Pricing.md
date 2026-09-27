@@ -180,8 +180,8 @@ if balances.Balances.Cash != nil {
 
 ## Price quotes
 
-`pricing.GetQuote` asks what a resource would cost to create. It changes
-nothing and places no order:
+`pricing.GetQuote` asks what a resource would cost to create or resize. It
+changes nothing and places no order:
 
 ```go
 quote, err := priceClient.GetQuote(ctx, &pricing.GetQuoteInput{
@@ -194,6 +194,47 @@ log.Printf("optimum price: %.0f", quote.OptimumPrice)
 ```
 
 `ResourceInfo` is a `map[string]any` describing the resource in the create
-call's own shape; leave it nil for a resource type that needs none.
-`pricing.ResourceSnapshot` and `pricing.ResourcePublicVIP` are the verified
-resource types. Other types work through the plain string.
+call's own shape; leave it nil for a resource type that needs none. `Action`
+is `pricing.ActionCreate` or `pricing.ActionResize`; empty sends
+`ActionCreate`, so code written before `Action` existed is unchanged.
+`pricing.ResourceSnapshot`, `pricing.ResourcePublicVIP`,
+`pricing.ResourceServer`, `pricing.ResourceVolume`, and
+`pricing.ResourceLoadBalancer` are the verified resource types. Other types
+work through the plain string.
+
+### Quoting a paid write
+
+A paid write in the SDK, such as `monitor.CreateLogProject`, has its own
+`Quote...` method that takes the write's own Input and returns
+`*pricing.GetQuoteOutput`, so the quote always prices the exact resource the
+write would create:
+
+```go
+quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
+	Name: "web-1", ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
+	VPCID: "<vpc-id>", SubnetID: "<subnet-id>", SecurityGroupIDs: []string{"<security-group-id>"},
+	SSHKeyID: "<ssh-key-id>", RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("server would cost %.0f VND a month", quote.OptimumPrice)
+```
+
+`volumeClient.QuoteCreateVolume` works the same way for a volume create. Both
+build the create's own request body and quote it, minus any field the
+create never prices, such as user data; both ignore the Input's `MaxPrice`
+and `NoWait` fields, which govern only the write itself once it orders
+something.
+
+A paid write refuses to order above its own `MaxPrice` (VND a month, default
+0), with an error wrapping `vngcloud.ErrPriceAboveMax`:
+
+```go
+if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.ErrPriceAboveMax) {
+	log.Fatal("quote is above the price you approved")
+}
+```
+
+`monitor.ErrPriceAboveMax` is the same value as `vngcloud.ErrPriceAboveMax`,
+so code written against either name still works.

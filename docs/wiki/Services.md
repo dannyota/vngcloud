@@ -80,6 +80,9 @@ computeClient.ListServerGroupPolicies(ctx, nil)
 computeClient.ListOSImages(ctx, in)             // ZoneID
 computeClient.ListGPUImages(ctx, nil)
 computeClient.ListUserImages(ctx, in)           // Page, Size
+computeClient.ListFlavorZones(ctx, in)          // ZoneID
+computeClient.ListFlavors(ctx, in)              // FlavorZoneID (required)
+computeClient.QuoteCreateServer(ctx, in)        // *compute.CreateServerInput
 ```
 
 `ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
@@ -89,6 +92,11 @@ extra API calls.
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
 `vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
 
+`ListFlavorZones` filters the API's full flavor zone list to `Input.ZoneID`
+itself; leave it unset to list every flavor zone. `QuoteCreateServer` prices
+a server `compute.CreateServerInput` would create, without ordering it; see
+[Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+
 ## Volume
 
 ```go
@@ -96,20 +104,28 @@ volumeClient := volume.New(cfg)
 volumeClient.ListVolumes(ctx, in)          // Name, Page, Size
 volumeClient.GetVolume(ctx, in)            // VolumeID (required)
 volumeClient.GetUnderlyingVolume(ctx, in)  // VolumeID (required)
+volumeClient.ListVolumesByServer(ctx, in)  // ServerID (required)
 volumeClient.ListVolumeTypeZones(ctx, in)  // ZoneID
 volumeClient.ListVolumeTypes(ctx, in)      // VolumeTypeZoneID
 volumeClient.GetVolumeType(ctx, in)        // VolumeTypeID (required)
-volumeClient.GetDefaultVolumeType(ctx, nil)
+volumeClient.GetDefaultVolumeType(ctx, in) // ZoneID
 volumeClient.ListEncryptionTypes(ctx, nil)
 volumeClient.ListSnapshots(ctx, in)        // VolumeID (required), Page, Size
 volumeClient.ListAllSnapshots(ctx, nil)
+volumeClient.QuoteCreateVolume(ctx, in)    // *volume.CreateVolumeInput
 ```
 
 `ProjectID` is optional in `Config`. Volume methods discover the project for
 the configured region when needed.
 
 `ListAllSnapshots` is a convenience method that walks visible volumes and
-returns their snapshots.
+returns their snapshots. `ListVolumesByServer` lists the volumes attached to
+one server, including its boot volume. `GetDefaultVolumeType`'s `ZoneID`
+selects which zone's default to read; without it, the API looks up the
+region's first zone, which can be disabled for the account.
+`QuoteCreateVolume` prices a volume `volume.CreateVolumeInput` would create,
+without ordering it; see
+[Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
 
 ## Network
 

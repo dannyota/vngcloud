@@ -1,0 +1,5 @@
+{
+  "data": [
+    {"uuid": "volume-1", "name": "<name>", "status": "IN-USE", "size": 10, "serverId": "<server-id>"}
+  ]
+}

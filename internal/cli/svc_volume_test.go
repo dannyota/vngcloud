@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 
 	"danny.vn/vngcloud/volume"
@@ -44,19 +45,25 @@ func TestGoldenVolumeGetVolume(t *testing.T) {
 }
 
 // TestVolumeCommandsMatchDesignTable checks the CLI reads design's "volume"
-// table: the nine command names (get-default-volume-type stays out, per the
-// design's decision 3), each with the flags the table names.
+// table plus the vServer paid writes design's P1 additions
+// (list-volumes-by-server, get-default-volume-type, and quote-create-volume),
+// each with the flags actually visible on its command line: NoFlag'd fields
+// (MaxPrice and NoWait on quote-create-volume) are filtered out here the
+// same way newOpCmd filters them for the real command.
 func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
-		"list-volumes":           {"name", "page", "size"},
-		"get-volume":             {"volume-id"},
-		"get-underlying-volume":  {"volume-id"},
-		"list-volume-type-zones": {"zone-id"},
-		"list-volume-types":      {"volume-type-zone-id"},
-		"get-volume-type":        {"volume-type-id"},
-		"list-encryption-types":  nil,
-		"list-snapshots":         {"volume-id", "page", "size"},
-		"list-all-snapshots":     nil,
+		"list-volumes":            {"name", "page", "size"},
+		"get-volume":              {"volume-id"},
+		"get-underlying-volume":   {"volume-id"},
+		"list-volumes-by-server":  {"server-id"},
+		"list-volume-type-zones":  {"zone-id"},
+		"list-volume-types":       {"volume-type-zone-id"},
+		"get-volume-type":         {"volume-type-id"},
+		"get-default-volume-type": {"zone-id"},
+		"list-encryption-types":   nil,
+		"list-snapshots":          {"volume-id", "page", "size"},
+		"list-all-snapshots":      nil,
+		"quote-create-volume":     {"name", "zone-id", "size", "volume-type-id", "auto-renew"},
 	}
 	if got := opNames(volumeOps); len(got) != len(wantFlags) {
 		t.Fatalf("volume ops = %v, want %d commands", got, len(wantFlags))
@@ -70,11 +77,12 @@ func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: flagSpecsFor: %v", op.name, err)
 		}
+		specs = withoutNoFlag(specs, op.noFlag)
 		var got []string
 		for _, s := range specs {
 			got = append(got, s.flagName)
 		}
-		if !equalStringSlices(got, want) {
+		if !slices.Equal(got, want) {
 			t.Errorf("%s flags = %v, want %v", op.name, got, want)
 		}
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,22 +55,10 @@ func TestPortalCommandsMatchDesignTable(t *testing.T) {
 		for _, s := range specs {
 			got = append(got, s.flagName)
 		}
-		if !equalStringSlices(got, want) {
+		if !slices.Equal(got, want) {
 			t.Errorf("%s flags = %v, want %v", op.name, got, want)
 		}
 	}
-}
-
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // TestPortalGetQuotaMissingNameStopsBeforeAnyRequest checks the CLI design's

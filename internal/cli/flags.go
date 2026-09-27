@@ -71,7 +71,8 @@ type flagSpec struct {
 
 // flagSpecsFor reflects over the struct inputPtr points to and returns one
 // flagSpec per exported field of a supported type: string, int, int64,
-// float64, bool, or a pointer to one of those. Every other field type (a
+// float64, bool, or a pointer to one of those, plus []string, which gets a
+// repeatable flag rather than a pointer variant. Every other field type (a
 // map, for example) is skipped; it is only ever set through
 // --cli-input-json.
 func flagSpecsFor(inputPtr any) ([]flagSpec, error) {
@@ -141,12 +142,14 @@ func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
 
 // supportedFieldKind reports the primitive kind flags.go binds for t: t's own
 // kind for string, int, int64, float64, or bool, or the pointed-to kind for a
-// pointer to one of those. ok is false for any other type, including
-// vngcloud.Secret (or a pointer to it): giving a Secret field a flag would
-// put a private value on argv, where ps and shell history keep it, so it is
-// treated the same as an unsupported type such as a map, settable only
-// through --cli-input-json if at all; applyCLIInputJSON (input.go) refuses
-// it there too.
+// pointer to one of those; reflect.Slice for []string, which never has a
+// pointer variant since an Input never needs to tell "no flags given" apart
+// from "flag given with zero values" for a repeatable field. ok is false for
+// any other type, including vngcloud.Secret (or a pointer to it): giving a
+// Secret field a flag would put a private value on argv, where ps and shell
+// history keep it, so it is treated the same as an unsupported type such as
+// a map, settable only through --cli-input-json if at all; applyCLIInputJSON
+// (input.go) refuses it there too.
 func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok bool) {
 	if isSecretFieldType(t) {
 		return 0, false, false
@@ -154,6 +157,10 @@ func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok b
 	switch t.Kind() {
 	case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
 		return t.Kind(), false, true
+	case reflect.Slice:
+		if t.Elem().Kind() == reflect.String {
+			return reflect.Slice, false, true
+		}
 	case reflect.Pointer:
 		switch t.Elem().Kind() {
 		case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
@@ -175,6 +182,7 @@ type boundFlag struct {
 	i64v  *int64
 	f64v  *float64
 	boolv *bool
+	strsv *[]string
 }
 
 // registerFlags adds one flag per spec to cmd's flag set, bound to a fresh
@@ -200,6 +208,12 @@ func registerFlags(cmd *cobra.Command, specs []flagSpec) []boundFlag {
 		case reflect.Bool:
 			b.boolv = new(bool)
 			cmd.Flags().BoolVar(b.boolv, spec.flagName, false, "")
+		case reflect.Slice:
+			b.strsv = new([]string)
+			// StringArrayVar, not StringSliceVar: the latter splits each
+			// occurrence on a comma, which would silently break a value (a
+			// security group ID, say) that happens to contain one.
+			cmd.Flags().StringArrayVar(b.strsv, spec.flagName, nil, "")
 		}
 		bound[i] = b
 	}
@@ -228,6 +242,8 @@ func applyChangedFlags(cmd *cobra.Command, target any, bound []boundFlag) {
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.f64v))
 		case reflect.Bool:
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.boolv))
+		case reflect.Slice:
+			field.Set(reflect.ValueOf(*b.strsv))
 		}
 	}
 }

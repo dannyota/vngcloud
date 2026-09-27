@@ -2,6 +2,20 @@
 
 # CLI: Volume
 
+## get-default-volume-type
+
+Kind: Read.
+
+Without --zone-id, the API looks up the region's first zone, which can be disabled for the account and then reads as NotFound; pass an enabled zone's ID instead, found with portal list-zones.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--zone-id` | `string` |  |
+
+```sh
+vngcloud volume get-default-volume-type --query VolumeType
+```
+
 ## get-underlying-volume
 
 Kind: Read.
@@ -114,5 +128,37 @@ Kind: Read.
 
 ```sh
 vngcloud volume list-volumes
+```
+
+## list-volumes-by-server
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+
+```sh
+vngcloud volume list-volumes-by-server --server-id <server-id>
+```
+
+## quote-create-volume
+
+Kind: Read.
+
+Never orders anything: prices the volume CreateVolumeInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `--volume-type-id` | `string` | yes |
+| `--auto-renew` | `bool` |  |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud volume quote-create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
 ```
 

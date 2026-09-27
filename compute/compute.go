@@ -13,17 +13,21 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/pricing"
 )
 
 // Client is the compute service client.
 type Client struct {
 	c *core.Client
+	// pricing prices a paid create before it sends one, sharing cfg's login
+	// and token cache with c.
+	pricing *pricing.Client
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg)}
 }
 
 type ListServersInput struct {
@@ -63,7 +67,11 @@ type GetServerOutput struct {
 }
 
 func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerOutput, error) {
-	if err := core.CheckRequired("compute.GetServer", in); err != nil {
+	const op = "compute.GetServer"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "ServerID", in.ServerID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -74,7 +82,7 @@ func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerO
 		Data Server `json:"data"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "compute.GetServer",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "servers", in.ServerID}, nil),
 		OK:        []int{200},
@@ -524,14 +532,20 @@ type NetworkInterface struct {
 	UUID          string `json:"uuid"`
 }
 
+// Flavor decodes both a server's embedded flavor and a ListFlavors row.
+// ZoneID comes from the embedded shape; FlavorZoneID comes from ListFlavors,
+// which groups flavors by flavor zone rather than network zone. A value
+// decoded from one source leaves the other's field at its zero value.
 type Flavor struct {
 	Bandwidth              int64  `json:"bandwidth"`
 	BandwidthUnit          string `json:"bandwidthUnit"`
 	CPU                    int64  `json:"cpu"`
 	CPUPlatformDescription string `json:"cpuPlatformDescription"`
 	FlavorID               string `json:"flavorId"`
+	FlavorZoneID           string `json:"flavorZoneId"`
 	GPU                    int64  `json:"gpu"`
 	Group                  string `json:"group"`
+	IsSoldOut              bool   `json:"isSoldOut"`
 	Memory                 int64  `json:"memory"`
 	Metadata               string `json:"metaData"`
 	Name                   string `json:"name"`

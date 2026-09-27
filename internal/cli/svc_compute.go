@@ -9,6 +9,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/pricing"
 )
 
 // secretFileCleanupDeleteTimeout bounds the cleanup delete callCreateSSHKey
@@ -23,6 +24,14 @@ const secretFileCleanupDeleteTimeout = 10 * time.Second
 // built by hand below, since it needs --secret-file, a flag no Input field
 // derives, and adds a SecretFile field to its own Output beyond compute's
 // CreateSSHKeyOutput.
+//
+// ListFlavorZones and ListFlavors are Read, the reads a caller needs before
+// pricing or creating a server. QuoteCreateServer is Read too, per ADR 0002
+// rule 1: it shares CreateServerInput with the create this design has not
+// added yet, but UserData, MaxPrice, and NoWait govern only that future
+// create, never this price-only call, so NoFlag hides all three here; every
+// other CreateServerInput field, SecurityGroupIDs (a repeatable
+// --security-group-id) included, gets its usual flag.
 var computeOps = []Op[compute.Client]{
 	Read[compute.Client, compute.ListServersInput, compute.ListServersOutput](
 		kebab("ListServers"), (*compute.Client).ListServers),
@@ -59,6 +68,13 @@ var computeOps = []Op[compute.Client]{
 		kebab("ListGPUImages"), (*compute.Client).ListGPUImages),
 	Read[compute.Client, compute.ListUserImagesInput, compute.ListUserImagesOutput](
 		kebab("ListUserImages"), (*compute.Client).ListUserImages),
+	Read[compute.Client, compute.ListFlavorZonesInput, compute.ListFlavorZonesOutput](
+		kebab("ListFlavorZones"), (*compute.Client).ListFlavorZones),
+	Read[compute.Client, compute.ListFlavorsInput, compute.ListFlavorsOutput](
+		kebab("ListFlavors"), (*compute.Client).ListFlavors),
+	Read[compute.Client, compute.CreateServerInput, pricing.GetQuoteOutput](
+		kebab("QuoteCreateServer"), (*compute.Client).QuoteCreateServer,
+		NoFlag("UserData", "MaxPrice", "NoWait")),
 }
 
 func newComputeCmd(e *env) *cobra.Command {

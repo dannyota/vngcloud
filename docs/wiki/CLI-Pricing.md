@@ -9,6 +9,7 @@ Kind: Read.
 | Flag | Type | Required |
 |-|-|-|
 | `--resource-type` | `string` | yes |
+| `--action` | `string` |  |
 | `ResourceInfo` (via `--cli-input-json` only) | `map[string]any` |  |
 
 ```sh

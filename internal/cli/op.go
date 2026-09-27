@@ -46,13 +46,14 @@ type Op[C any] struct {
 	extraFlags func(cmd *cobra.Command)
 }
 
-// writeOption configures a Write operation. Destructive, Guard, and
-// WriteRedact are the three today; cli.WaitFor (for an asynchronous write)
-// is undefined until the first such write needs it.
+// writeOption configures a Write operation. Destructive, Guard, WriteRedact,
+// and WriteNoFlag are the four today; cli.WaitFor (for an asynchronous
+// write) is undefined until the first such write needs it.
 type writeOption struct {
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
 	redact      func(out any)
+	noFlag      map[string]bool
 }
 
 // Destructive marks a Write operation as not undoable by one more command:
@@ -69,6 +70,23 @@ func Destructive() writeOption { return writeOption{destructive: true} }
 // for a channel whose address can carry a secret.
 func Guard(fn func(cmd *cobra.Command, in any) error) writeOption {
 	return writeOption{guard: fn}
+}
+
+// WriteNoFlag marks Input fields of a Write operation that stay settable
+// only through --cli-input-json, the Write-side counterpart to Read's
+// NoFlag (whose own doc comment gives the mechanism). dns's
+// CreateHostedZoneInput.VPCIDs and monitor's CreateCheckInput.Locations use
+// it: both are required []string fields, a type flags.go can bind a
+// repeatable flag to once compute's CreateServerInput.SecurityGroupIDs needs
+// that support, but giving either of those two writes a new flag is outside
+// the design that added it, so both keep their pre-existing
+// --cli-input-json-only behavior.
+func WriteNoFlag(fields ...string) writeOption {
+	m := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		m[f] = true
+	}
+	return writeOption{noFlag: m}
 }
 
 // WriteRedact marks a Write operation's Output as holding a value the CLI
@@ -177,6 +195,12 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 		}
 		if o.redact != nil {
 			redact = o.redact
+		}
+		for f := range o.noFlag {
+			if op.noFlag == nil {
+				op.noFlag = map[string]bool{}
+			}
+			op.noFlag[f] = true
 		}
 	}
 	op.call = func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {

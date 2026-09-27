@@ -15,8 +15,18 @@ import (
 
 // Verified resource types for GetQuote. Other types work through the string.
 const (
-	ResourceSnapshot  = "snapshot"
-	ResourcePublicVIP = "public-vip"
+	ResourceSnapshot     = "snapshot"
+	ResourcePublicVIP    = "public-vip"
+	ResourceServer       = "server"
+	ResourceVolume       = "volume"
+	ResourceLoadBalancer = "load-balancer"
+)
+
+// GetQuoteInput.Action values. ActionCreate is also GetQuoteInput's default
+// when Action is left empty.
+const (
+	ActionCreate = "create"
+	ActionResize = "resize"
 )
 
 // Client is the pricing service client.
@@ -30,10 +40,13 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg)}
 }
 
-// GetQuoteInput asks what ResourceType would cost to create.
+// GetQuoteInput asks what ResourceType would cost to create or resize.
 type GetQuoteInput struct {
 	// ResourceType is, for example, ResourceSnapshot or ResourcePublicVIP.
 	ResourceType string `vngcloud:"required"`
+	// Action is ActionCreate or ActionResize. Empty sends ActionCreate, so
+	// existing callers that never set it are unchanged.
+	Action string
 	// ResourceInfo describes the resource in the create call's own shape.
 	// Nil sends no resourceInfo key.
 	ResourceInfo map[string]any
@@ -58,9 +71,9 @@ type PriceProperty struct {
 	DiscountPercent float64
 }
 
-// quoteBody is GetQuote's request body. The SDK always sends action
-// "create". ResourceInfo uses omitempty so a nil map sends no resourceInfo
-// key.
+// quoteBody is GetQuote's request body. Action is GetQuoteInput's own
+// Action, or ActionCreate when it is empty. ResourceInfo uses omitempty so a
+// nil map sends no resourceInfo key.
 type quoteBody struct {
 	ResourceType string         `json:"resourceType"`
 	Action       string         `json:"action"`
@@ -96,6 +109,11 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		return nil, err
 	}
 
+	action := in.Action
+	if action == "" {
+		action = ActionCreate
+	}
+
 	var raw json.RawMessage
 	req := transport.Request{
 		Operation: op,
@@ -103,7 +121,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		URL:       c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}),
 		Body: quoteBody{
 			ResourceType: in.ResourceType,
-			Action:       "create",
+			Action:       action,
 			ResourceInfo: in.ResourceInfo,
 		},
 		OK:         []int{200},
