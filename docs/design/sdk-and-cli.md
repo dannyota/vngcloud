@@ -373,6 +373,7 @@ Each release ships when CI is green on its commit.
 | `v0.28.0` | vLB certificate import and delete; see [vLB certificates](lb-certificates.md) |
 | `v0.29.0` | vCR repository writes; typed `Repository`. Breaking; see [vCR writes](vcr-writes.md) |
 | `v0.30.0` | vCR user writes and permissions; typed `User`. Breaking; see [vCR writes](vcr-writes.md) |
+| `v0.31.0` | IAM reads; see [IAM writes](iam-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

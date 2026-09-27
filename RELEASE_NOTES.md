@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.31.0 - IAM Reads
+
+### Highlights
+
+- New `iam` package and `vngcloud iam` command group: `GetCallerIdentity`,
+  `ListUsers`, `ListActions`, service account, policy, and group reads,
+  policy attachments, and a user's groups and policies.
+- The policies API lives on its own host; `Config` gains an `IAM`
+  endpoint for it.
+- Pages start at 0 on the IAM APIs.
+
 ## v0.30.0 - vCR User Writes
 
 ### Highlights
