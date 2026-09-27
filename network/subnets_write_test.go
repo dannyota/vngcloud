@@ -267,7 +267,7 @@ func TestDeleteSubnetGuardServers(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[{"uuid":"server-1","status":"ACTIVE"}]}`))
+			_, _ = w.Write([]byte(`[{"uuid":"server-1","status":"ACTIVE"}]`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -287,7 +287,7 @@ func TestDeleteSubnetGuardInterfaces(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"listData":[{"uuid":"iface-1","subnetUuid":"subnet-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
@@ -310,7 +310,7 @@ func TestDeleteSubnetGuardVirtualIPs(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
@@ -339,7 +339,7 @@ func TestDeleteSubnet5xxConfirmedByListAbsence(t *testing.T) {
 			_, _ = w.Write([]byte(`{"message":"internal error"}`))
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
@@ -370,7 +370,7 @@ func TestDeleteSubnet5xxConfirmedByListPresence(t *testing.T) {
 			_, _ = w.Write([]byte(`{"message":"internal error"}`))
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
@@ -402,7 +402,7 @@ func TestDeleteSubnetWaitSettlesByListAbsence(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/servers/subnets/"):
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))

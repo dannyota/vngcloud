@@ -462,9 +462,9 @@ func (c *Client) ListServersBySubnet(ctx context.Context, in *ListServersBySubne
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
-		Data []compute.Server `json:"data"`
-	}
+	// The server answers with a bare JSON array, not the data wrapper other
+	// list calls use.
+	var resp []compute.Server
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
@@ -474,5 +474,5 @@ func (c *Client) ListServersBySubnet(ctx context.Context, in *ListServersBySubne
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &ListServersBySubnetOutput{Items: resp.Data}, nil
+	return &ListServersBySubnetOutput{Items: resp}, nil
 }

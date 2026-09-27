@@ -45,7 +45,7 @@ documented one until the live check records it.
 | Create subnet | `POST /networks/{vpcId}/subnets` | 200 | Live |
 | Rename subnet | `PATCH /networks/{vpcId}/subnets/{subnetId}` | 200 | Live |
 | Delete subnet | `DELETE /networks/{vpcId}/subnets/{subnetId}` | 200 | Live |
-| Servers in a subnet | `GET /servers/subnets/{subnetId}` | 200 | Docs |
+| Servers in a subnet | `GET /servers/subnets/{subnetId}` | 200, a bare array | Live |
 | Get route table | `GET /route-table/{id}` | 200 | Live |
 | Create route table | `POST /route-table` | 202 | Live |
 | Replace routes | `PUT /route-table/{id}/routes` | 200 | Docs |
