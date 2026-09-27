@@ -118,7 +118,10 @@ too; `ListAlarms` still sets it from its filter. `Log` decodes from
 (`json.RawMessage`, nil when absent), `ThresholdType`, `Condition`,
 `ThresholdValue` (`float64`), `TimeFrame` (`int`), `GroupByField`,
 `AggField` (`metricAggKey`), `AggType` (`metricAggType`), and `Resend`.
-`ThresholdValue` and `TimeFrame` accept a JSON number or a numeric string.
+`ThresholdValue`, `TimeFrame`, `Resend.Period`, and `Resend.Times` accept
+a JSON number or a numeric string, and read any other shape as 0;
+`GroupByField` reads a non-string as empty. One odd alarm never fails a
+list.
 
 `LogAlarmResend` has `Enabled`, `Statuses` (`[]string`, split from
 `resendStatus`), `Period` (minutes), and `Times`. Constants name the
@@ -138,7 +141,9 @@ sends `frequency`), `Condition` (empty sends `lt` for `flatline`, else
 In order, with no request before step 4:
 
 1. `core.CheckRequired`, and `core.CheckPathID` on `LogProjectID` and on
-   each channel ID, which also keeps a comma out of the joined string.
+   each channel ID, which also keeps a comma out of the joined string. A
+   NaN or infinite `ThresholdValue` returns `ErrInvalidInput`; update
+   checks the same.
 2. `QueryString` and `Filter` both set or both empty, else
    `ErrInvalidInput`. A set `Filter` must be a JSON object.
 3. Build the body. Both empty sends `queryString` `*`, `logSearchQuery`
@@ -153,7 +158,8 @@ In order, with no request before step 4:
 6. Send the create once. After a 5xx or a failure with no response, the
    error says to list alarms by name before trying again.
 7. Take the ID from the response (`data.id` or `id`) when present, else
-   find the alarm by exact name, then wait.
+   find the alarm by exact name, then wait. An accepted status with any
+   other body, JSON or not, is not an error.
 
 The value rules the console checks stay on the server (ADR 0002 rule 5).
 The SDK does not check `billingStatus`.
