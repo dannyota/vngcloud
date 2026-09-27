@@ -59,4 +59,5 @@ type EndpointOverrides struct {
 	Billing            string
 	CDNDocs            string
 	Monitor            string
+	IAM                string
 }

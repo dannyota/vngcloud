@@ -1,0 +1,11 @@
+{
+  "id": "policy-managed-1",
+  "name": "IAMFullAccess",
+  "description": "<description>",
+  "manager": "VNG CLOUD",
+  "scope": "global",
+  "statements": [
+    { "effect": "allow", "actions": ["iam:*"], "resources": ["*"] }
+  ],
+  "createdAt": 1750000000000
+}

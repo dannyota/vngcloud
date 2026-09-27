@@ -18,6 +18,14 @@ const (
 	ProductBilling Product = "billing"
 	ProductCDNDocs Product = "cdndocs"
 	ProductMonitor Product = "monitor"
+	// ProductIAM is the IAM console host: the policies API only. The
+	// accounts API (service accounts, users, caller identity) stays under
+	// ProductDashboard, per the IAM writes design.
+	ProductIAM Product = "iam"
+	// ProductDashboard is the dashboard console host, used directly by
+	// operations that are not billing- or portal-specific, such as the IAM
+	// accounts API.
+	ProductDashboard Product = "dashboard"
 )
 
 type Endpoints interface {

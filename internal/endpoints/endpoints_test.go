@@ -34,6 +34,16 @@ func TestResolveIAMUser(t *testing.T) {
 	if got.Monitor != "https://vmonitor.console.greennode.ai/" {
 		t.Fatalf("unexpected monitor endpoint: %s", got.Monitor)
 	}
+	if got.IAM != "https://iam.console.greennode.ai/" {
+		t.Fatalf("unexpected iam endpoint: %s", got.IAM)
+	}
+}
+
+func TestResolveIAMUserIAMOverride(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{IAM: "http://example.test/iam"})
+	if got.IAM != "http://example.test/iam/" {
+		t.Fatalf("unexpected iam override: %s", got.IAM)
+	}
 }
 
 func TestResolveIAMUserMonitorOverride(t *testing.T) {

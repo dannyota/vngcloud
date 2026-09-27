@@ -26,6 +26,13 @@ const (
 	// channels, once mapped, would live under a second prefix on the same
 	// host.
 	DefaultMonitor = "https://vmonitor.console.greennode.ai/"
+
+	// DefaultIAM is the IAM console host root, carrying the policies API
+	// under "policies-api/v1/". The accounts API (service accounts, users,
+	// caller identity) stays on Dashboard: it answers there too, but the
+	// policies API returns the console's own HTML page with status 200 on
+	// the dashboard host, so the two never share one endpoint field.
+	DefaultIAM = "https://iam.console.greennode.ai/"
 )
 
 type Overrides struct {
@@ -44,6 +51,7 @@ type Overrides struct {
 	Billing            string
 	CDNDocs            string
 	Monitor            string
+	IAM                string
 }
 
 type Set struct {
@@ -61,6 +69,7 @@ type Set struct {
 	Billing   string
 	CDNDocs   string
 	Monitor   string
+	IAM       string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -78,6 +87,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		Token:     DefaultToken,
 		CDNDocs:   DefaultCDNDocs,
 		Monitor:   DefaultMonitor,
+		IAM:       DefaultIAM,
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -120,6 +130,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.Monitor != "" {
 		set.Monitor = overrides.Monitor
 	}
+	if overrides.IAM != "" {
+		set.IAM = overrides.IAM
+	}
 	return set.Normalize()
 }
 
@@ -147,6 +160,7 @@ func (s Set) Normalize() Set {
 	s.Dashboard = normalizeURL(s.Dashboard)
 	s.Billing = normalizeURL(s.Billing)
 	s.Monitor = normalizeURL(s.Monitor)
+	s.IAM = normalizeURL(s.IAM)
 	return s
 }
 

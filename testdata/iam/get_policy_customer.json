@@ -1,0 +1,12 @@
+{
+  "id": "policy-1",
+  "name": "<name>",
+  "description": "<description>",
+  "manager": "user",
+  "scope": "account",
+  "root": "<account>",
+  "statements": [
+    { "effect": "allow", "actions": ["vserver:List*"], "resources": ["*"] }
+  ],
+  "createdAt": { "$numberLong": "1750000000000" }
+}

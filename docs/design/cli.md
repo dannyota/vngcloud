@@ -132,8 +132,10 @@ hang an agent. Create and update commands run without `--yes`.
 
 A command that would otherwise print a secret instead writes it to a file
 named by a `--secret-file <path>` flag, refuses an existing path or a
-symlink, and creates the file at mode 0600. `iam create-s3-key` is the
-first such command; see [vStorage](storage.md#create-s3-key).
+symlink, and creates the file at mode 0600. `iam create-s3-key`,
+`create-service-account`, and `reset-service-account-secret` are such
+commands; see [vStorage](storage.md#create-s3-key) and
+[IAM writes](iam-writes.md).
 
 ## Read-only
 
@@ -259,10 +261,13 @@ create was sent) and `PriceAboveMax` (a log project quote exceeded
 adds `BucketNotEmpty` (`delete-bucket` refused a bucket holding objects,
 so nothing was sent) and `SecretFileFailed` (`create-s3-key` could not
 write `--secret-file` after the create, so it deleted the new key).
+[IAM writes](iam-writes.md) adds `SelfChange`, `PrivilegedChange`, and
+`ManagedPolicy`.
 For `WriteFailed` and `NotSettled` the CLI also prints the Output on stdout;
 see [vDNS](dns.md#after-a-write). `UnexpectedStatus`, `StatusUnconfirmed`,
 `ZoneBusy`, `WriteFailed`, `NotSettled`, `OTPRejected`, `PriceAboveMax`,
-`BucketNotEmpty`, and `SecretFileFailed` exit 1. A not-found result that
+`BucketNotEmpty`, `SecretFileFailed`, `SelfChange`, `PrivilegedChange`, and
+`ManagedPolicy` exit 1. A not-found result that
 is not an `*APIError`, such as a lookup by listing, also prints `NotFound`
 and exits 4. `QueryFailed` means
 `--query` failed after the operation succeeded; for a write, the message

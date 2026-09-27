@@ -1,0 +1,6 @@
+[
+  { "action": "ListPolicies", "label": "List", "resources": ["*"] },
+  { "action": "GetPolicy", "label": "Read", "resources": ["*"] },
+  { "action": "CreatePolicy", "label": "Write", "resources": ["*"] },
+  { "action": "TagPolicy", "label": "Tagging", "resources": ["*"] }
+]

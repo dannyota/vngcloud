@@ -254,6 +254,10 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.CDNDocs
 	case routes.ProductMonitor:
 		return c.endpoints.Monitor
+	case routes.ProductIAM:
+		return c.endpoints.IAM
+	case routes.ProductDashboard:
+		return c.endpoints.Dashboard
 	default:
 		return ""
 	}

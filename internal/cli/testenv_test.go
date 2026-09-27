@@ -102,6 +102,7 @@ func newFakeServer(t *testing.T, handler http.Handler) []vngcloud.LoadOption {
 		Billing:           base,
 		CDNDocs:           base + "faq/vcdn",
 		Monitor:           base,
+		IAM:               base,
 	}
 	return []vngcloud.LoadOption{
 		vngcloud.WithEndpointOverrides(overrides),
