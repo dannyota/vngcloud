@@ -368,6 +368,7 @@ Each release ships when CI is green on its commit.
 | `v0.23.0` | Security group and rule writes; see [vServer free writes](vserver-writes.md) |
 | `v0.24.0` | SSH key writes and `vngcloud.Secret`. Breaking; see [vServer free writes](vserver-writes.md) |
 | `v0.25.0` | Server group writes; see [vServer network writes](vserver-network-writes.md) |
+| `v0.26.0` | VPC and subnet writes and Private DNS; see [vServer network writes](vserver-network-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

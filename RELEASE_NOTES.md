@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.26.0 - VPC and Subnet Writes
+
+### Highlights
+
+- New `network.CreateVPC`, `UpdateVPC`, `DeleteVPC`, `CreateSubnet`,
+  `UpdateSubnet`, `DeleteSubnet`, and `EnableVPCPrivateDNS`, and the
+  `ListServersBySubnet` read, with matching `vngcloud network` commands.
+- A subnet is created in a zone you name. Creates wait until the VPC or
+  subnet is `ACTIVE`.
+- A VPC with subnets, or a subnet with servers, is never deleted: the SDK
+  refuses with `network.ErrInUse`, CLI code `ResourceInUse`. The server
+  keeps a deleted subnet for several minutes; a VPC delete that it refuses
+  meanwhile also reads as `ResourceInUse`.
+- `delete-vpc`, `delete-subnet`, and `enable-vpc-private-dns` need `--yes`.
+  Private DNS cannot be turned off again and takes about 6 minutes.
+- Do not delete a subnet while a network ACL holds it; disassociate it in
+  the console first. The server can leave the ACL stuck otherwise.
+
+### Behavior changes
+
+`GetVPC`, `GetSubnet`, and `ListSubnetsByVPC` refuse a malformed ID before
+any request.
+
 ## v0.25.0 - Server Group Writes
 
 ### Highlights
