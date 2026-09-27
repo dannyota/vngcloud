@@ -231,13 +231,12 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
 - A rule is keyed by direction (case-insensitive) and priority. Add with
   the same key and the same fields: `Changed` false. Same key, other
   fields: `ErrInvalidInput`, nothing sent.
-- Default rules never change. `RemoveNetworkACLRule` on a default rule
-  returns `ErrDefaultResource`, nothing sent. The list sent leaves default
-  rules out when the live check shows the server keeps them; otherwise it
-  resends each exactly as read. Until the live check shows the marker, a
-  rule is default when its priority is 0 or above 32766 (outside the user
-  range 1 to 32766) or its `system` field is true; the rule seen live has
-  `seqNumber` 0.
+- A rule is default when its priority is 2000 or more (the server keeps
+  these on any PUT, live) or its `system` field is true. Default rules
+  never change: `RemoveNetworkACLRule` on one returns
+  `ErrDefaultResource`, nothing sent. The priority-0 pass-all rules are
+  ordinary rules a caller may remove. The list sent resends every rule as
+  read. Caller priorities are 1 to 1999.
 - The confirm read checks the user rules and that every default rule is
   unchanged.
 
