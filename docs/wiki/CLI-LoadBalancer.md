@@ -24,6 +24,34 @@ The members write replaces the whole list: this command reads every member first
 vngcloud loadbalancer add-pool-member --load-balancer-id <load-balancer-id> --pool-id <pool-id> --address <address> --port <port>
 ```
 
+## create-listener
+
+Kind: Write.
+
+--allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG Cloud's own SDK, which sends 0.0.0.0/0. Any entry with prefix length 0 needs --yes: it opens every port this listener names to the entire internet, more so on a load balancer created with Scheme Internet. --protocol HTTPS requires --default-certificate-id; any other protocol refuses --certificate-ids, --default-certificate-id, and --client-certificate-id all being set. --certificate-ids comes only through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on an Internet load balancer serves cleartext: nothing encrypts traffic between the client and the load balancer.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--protocol` | `string` | yes |
+| `--port` | `int` | yes |
+| `AllowedCIDRs` (via `--cli-input-json` only) | `[]string` | yes |
+| `--default-pool-id` | `string` |  |
+| `--timeout-client` | `int` |  |
+| `--timeout-member` | `int` |  |
+| `--timeout-connection` | `int` |  |
+| `CertificateIDs` (via `--cli-input-json` only) | `[]string` |  |
+| `--default-certificate-id` | `string` |  |
+| `--client-certificate-id` | `string` |  |
+| `InsertHeaders` (via `--cli-input-json` only) | `[]loadbalancer.ListenerInsertHeader` |  |
+| `--no-wait` | `bool` |  |
+| `--allowed-cidrs` | `string` |  |
+
+```sh
+vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> --name <name> --protocol HTTP --port <port> --allowed-cidrs 10.0.0.0/24
+```
+
 ## create-load-balancer
 
 Kind: Write.
@@ -87,6 +115,22 @@ Refuses, before any request, a certificate a listener still uses (error code Res
 
 ```sh
 vngcloud loadbalancer delete-certificate --certificate-id <certificate-id> --yes
+```
+
+## delete-listener
+
+Kind: Write, destructive.
+
+Waits, within the pre-write bound, until the load balancer and the listener are both not busy (error code ResourceBusy, nothing sent, past that bound), then sends the DELETE.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer delete-listener --load-balancer-id <load-balancer-id> --listener-id <listener-id> --yes
 ```
 
 ## delete-load-balancer
@@ -413,6 +457,32 @@ Reads the load balancer first: --package-id equal to its current package makes t
 
 ```sh
 vngcloud loadbalancer resize-load-balancer --load-balancer-id <load-balancer-id> --package-id <package-id>
+```
+
+## update-listener
+
+Kind: Write.
+
+At least one field must be set, checked before any request (InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; leaving it unset keeps the listener's own value, and a set one needs --yes for a /0 prefix the same way. If the listener's own AllowedCIDRs somehow reads back empty and --allowed-cidrs is not given, this exits 2 (InvalidUsage) rather than send an empty list, which would open or close the listener to everyone depending on the server's own interpretation. The merged certificate fields are checked against the listener's own, unchangeable Protocol exactly as create-listener checks them; --certificate-ids comes only through --cli-input-json.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+| `--default-pool-id` | `*string` |  |
+| `--timeout-client` | `*int` |  |
+| `--timeout-member` | `*int` |  |
+| `--timeout-connection` | `*int` |  |
+| `AllowedCIDRs` (via `--cli-input-json` only) | `*[]string` |  |
+| `CertificateIDs` (via `--cli-input-json` only) | `*[]string` |  |
+| `--default-certificate-id` | `*string` |  |
+| `--client-certificate-id` | `*string` |  |
+| `InsertHeaders` (via `--cli-input-json` only) | `*[]loadbalancer.ListenerInsertHeader` |  |
+| `--no-wait` | `bool` |  |
+| `--allowed-cidrs` | `string` |  |
+
+```sh
+vngcloud loadbalancer update-listener --load-balancer-id <load-balancer-id> --listener-id <listener-id> --timeout-client <timeout-client>
 ```
 
 ## update-pool

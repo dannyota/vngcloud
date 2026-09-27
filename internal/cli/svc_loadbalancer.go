@@ -47,6 +47,14 @@ import (
 // (svc_loadbalancer_pool_members.go) is its Guard, matching
 // requireYesToChangeRoutes' own shape for network's add-route and
 // remove-route.
+//
+// create-listener, update-listener, and delete-listener are the design's L5
+// release. create-listener and update-listener are built by hand
+// (createListenerOp, updateListenerOp, in svc_loadbalancer_listeners.go)
+// since AllowedCIDRs takes its own comma-separated --allowed-cidrs flag
+// rather than flags.go's default repeatable one, and needs --yes for a /0
+// prefix; CertificateIDs is NoFlag'd on both, per the design's nested
+// fields. delete-listener is Destructive.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -105,6 +113,10 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 	Write[loadbalancer.Client, loadbalancer.RemovePoolMemberInput, loadbalancer.RemovePoolMemberOutput](
 		kebab("RemovePoolMember"), (*loadbalancer.Client).RemovePoolMember,
 		Guard(requireYesToChangePoolMembership)),
+	createListenerOp(),
+	updateListenerOp(),
+	Write[loadbalancer.Client, loadbalancer.DeleteListenerInput, loadbalancer.DeleteListenerOutput](
+		kebab("DeleteListener"), (*loadbalancer.Client).DeleteListener, Destructive()),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

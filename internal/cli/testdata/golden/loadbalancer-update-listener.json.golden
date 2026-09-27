@@ -1,0 +1,24 @@
+{
+  "Listener": {
+    "UUID": "listener-1",
+    "Name": "https",
+    "Description": "",
+    "Protocol": "HTTPS",
+    "ProtocolPort": 443,
+    "ConnectionLimit": 0,
+    "DefaultPoolID": "",
+    "DefaultPoolName": "",
+    "TimeoutClient": 0,
+    "TimeoutMember": 0,
+    "TimeoutConnection": 0,
+    "AllowedCIDRs": "10.0.0.0/24",
+    "CertificateAuthorities": [],
+    "DisplayStatus": "ACTIVE",
+    "CreatedAt": "",
+    "UpdatedAt": "",
+    "DefaultCertificateAuthority": null,
+    "ClientCertificateAuthentication": null,
+    "ProgressStatus": "",
+    "InsertHeaders": []
+  }
+}

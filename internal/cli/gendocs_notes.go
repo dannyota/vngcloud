@@ -490,6 +490,9 @@ var docOpNotes = map[string]string{
 	"loadbalancer add-pool-member":            loadbalancerAddPoolMemberNote,
 	"loadbalancer update-pool-member":         loadbalancerUpdatePoolMemberNote,
 	"loadbalancer remove-pool-member":         loadbalancerRemovePoolMemberNote,
+	"loadbalancer create-listener":            loadbalancerCreateListenerNote,
+	"loadbalancer update-listener":            loadbalancerUpdateListenerNote,
+	"loadbalancer delete-listener":            loadbalancerDeleteListenerNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
@@ -545,6 +548,7 @@ var docExampleExtraFlag = map[string]string{
 	"monitor update-check":            "name",
 	"loadbalancer update-pool":        "algorithm",
 	"loadbalancer update-pool-member": "weight",
+	"loadbalancer update-listener":    "timeout-client",
 }
 
 // docExampleOverride gives a full example command line for "service
@@ -579,6 +583,13 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
+// loadbalancer create-listener needs it for the same reason as
+// import-certificate: its required AllowedCIDRs field is NoFlag'd
+// (createListenerOp, svc_loadbalancer_listeners.go) so its own
+// comma-separated --allowed-cidrs flag can replace flags.go's default
+// repeatable one, and buildExample's loop would otherwise need a
+// docJSONPlaceholders entry for it and print a command that sets
+// AllowedCIDRs two contradictory ways at once.
 var docExampleOverride = map[string]string{
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
@@ -591,4 +602,6 @@ var docExampleOverride = map[string]string{
 	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
 		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
+	"loadbalancer create-listener": "vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> " +
+		"--name <name> --protocol HTTP --port <port> --allowed-cidrs 10.0.0.0/24",
 }

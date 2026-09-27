@@ -149,3 +149,42 @@ const loadbalancerUpdatePoolMemberNote = loadbalancerPoolMemberNote + " At least
 const loadbalancerRemovePoolMemberNote = loadbalancerPoolMemberNote + " No member at --address and --port " +
 	"is NotFound, nothing sent. Needs --yes on every call: removing a member stops it taking traffic " +
 	"immediately, though add-pool-member can restore it."
+
+// loadbalancerCreateListenerNote documents create-listener's own
+// --allowed-cidrs flag, its /0 guard, its HTTPS certificate rule, and its
+// cleartext warning: the flag table shows AllowedCIDRs as
+// "via --cli-input-json only" (createListenerOp NoFlags it so its own flag
+// can take a comma-separated value instead of flags.go's default repeatable
+// one) and shows every certificate field as an independent, unconditional
+// flag.
+const loadbalancerCreateListenerNote = "--allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with " +
+	"no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG " +
+	"Cloud's own SDK, which sends 0.0.0.0/0. Any entry with prefix length 0 needs --yes: it opens every port " +
+	"this listener names to the entire internet, more so on a load balancer created with Scheme Internet. " +
+	"--protocol HTTPS requires --default-certificate-id; any other protocol refuses --certificate-ids, " +
+	"--default-certificate-id, and --client-certificate-id all being set. --certificate-ids comes only " +
+	"through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A " +
+	"0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, " +
+	"and 5 seconds). An HTTP listener on an Internet load balancer serves cleartext: nothing encrypts traffic " +
+	"between the client and the load balancer."
+
+// loadbalancerUpdateListenerNote documents update-listener's read-merge,
+// its own --allowed-cidrs flag and /0 guard, and its empty-AllowedCIDRs
+// refusal: the flag table shows every field as independently optional, with
+// no hint of any of this.
+const loadbalancerUpdateListenerNote = "At least one field must be set, checked before any request " +
+	"(InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read " +
+	"values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; " +
+	"leaving it unset keeps the listener's own value, and a set one needs --yes for a /0 prefix the same way. " +
+	"If the listener's own AllowedCIDRs somehow reads back empty and --allowed-cidrs is not given, this exits " +
+	"2 (InvalidUsage) rather than send an empty list, which would open or close the listener to everyone " +
+	"depending on the server's own interpretation. The merged certificate fields are checked against the " +
+	"listener's own, unchangeable Protocol exactly as create-listener checks them; --certificate-ids comes " +
+	"only through --cli-input-json."
+
+// loadbalancerDeleteListenerNote documents delete-listener's pre-write
+// wait, which the flag table cannot show at all: it shows only
+// --listener-id.
+const loadbalancerDeleteListenerNote = "Waits, within the pre-write bound, until the load balancer and the " +
+	"listener are both not busy (error code ResourceBusy, nothing sent, past that bound), then sends the " +
+	"DELETE."
