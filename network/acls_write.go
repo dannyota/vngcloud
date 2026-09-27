@@ -35,6 +35,13 @@ func isACLServerError(err error) bool {
 // than paging through every ACL, matches the design; ListNetworkACLs itself
 // defaults to a page of 10000, so this misses an id only in a project with
 // more network ACLs than that.
+//
+// A list that comes back short of the account's own count, more than one
+// page or fewer items than TotalItem, is not a reliable absence: id could
+// simply be on a page this call never asked for. Both callers already
+// treat any error from this method as "fall back to the original 5xx," so
+// this returns an error instead of a bare false in that case, rather than
+// answering a question the single-page list cannot actually settle.
 func (c *Client) aclFoundAfterServerError(ctx context.Context, id string) (bool, error) {
 	out, err := c.ListNetworkACLs(ctx, nil)
 	if err != nil {
@@ -44,6 +51,10 @@ func (c *Client) aclFoundAfterServerError(ctx context.Context, id string) (bool,
 		if acl.UUID == id || acl.ID == id {
 			return true, nil
 		}
+	}
+	if out.TotalPage > 1 || len(out.Items) < out.TotalItem {
+		return false, fmt.Errorf("network ACL list confirm: got %d of %d item(s) across %d page(s); inconclusive",
+			len(out.Items), out.TotalItem, out.TotalPage)
 	}
 	return false, nil
 }

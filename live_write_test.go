@@ -3298,6 +3298,26 @@ func isLiveNetworkACLName(name string) bool {
 	return strings.HasPrefix(name, "vngcloud-live-")
 }
 
+// isLiveDefaultACLRule mirrors the network package's own default-rule
+// marker (network.checkACLRulePriority's 1-to-32766 bound, and the
+// decoded System flag), which is unexported and so cannot be called
+// directly from this package.
+func isLiveDefaultACLRule(rule network.ACLRule) bool {
+	return rule.Priority == 0 || rule.Priority > 32766 || rule.System
+}
+
+// findACLRule returns the rule in rules matching direction (case-sensitive,
+// since every direction this test sends is already lowercase) and
+// priority, for logging a just-added rule's stored fields.
+func findACLRule(rules []network.ACLRule, direction string, priority int) (network.ACLRule, bool) {
+	for _, rule := range rules {
+		if rule.Direction == direction && rule.Priority == priority {
+			return rule, true
+		}
+	}
+	return network.ACLRule{}, false
+}
+
 // listAllNetworkACLs pages through every network ACL the account has.
 func listAllNetworkACLs(ctx context.Context, client *network.Client) ([]network.ACL, error) {
 	var all []network.ACL
@@ -3432,7 +3452,10 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	client := network.New(cfg)
 
 	// Step 1: delete every leftover vngcloud-live-* network ACL from a
-	// previous run, disassociating any subnet it still holds first.
+	// previous run that belongs to this run's own VPC, disassociating any
+	// subnet it still holds first. A leftover in a different VPC is left
+	// alone: this test's disassociate and delete calls must never touch an
+	// ACL outside the VPC it was told to use.
 	leftovers, err := listAllNetworkACLs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListNetworkACLs: %s", safeErr(err))
@@ -3440,6 +3463,11 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	deletedLeftovers := 0
 	for _, leftover := range leftovers {
 		if !isLiveNetworkACLName(leftover.Name) {
+			continue
+		}
+		if leftover.NetworkID != vpcID {
+			t.Logf("step 1: skipping leftover network ACL %s: NetworkID %s does not match this run's VPC %s",
+				leftover.UUID, leftover.NetworkID, vpcID)
 			continue
 		}
 		if deleteNetworkACLLeftover(ctx, t, client, leftover.UUID) {
@@ -3498,20 +3526,24 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		}
 	})
 
-	// Step 4: read the ACL back. The full default rule list, and the marker
-	// beyond seqNumber 0 this SDK infers for a default rule, are still a
-	// live check; this step is the observation for it.
+	// Step 4: read the ACL back. The full default rule list, and whether a
+	// default rule outside seqNumber 0 or the system flag's live value
+	// exist, are still a live check; this step is the observation for it.
+	// None of the fields logged here are secrets.
 	afterCreate, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
 	if err != nil {
 		t.Fatalf("step 4 GetNetworkACL: %s", safeErr(err))
 	}
 	defaultRuleCount := 0
 	for _, rule := range afterCreate.ACL.Rules {
-		if rule.Priority == 0 {
-			defaultRuleCount++
+		if !isLiveDefaultACLRule(rule) {
+			continue
 		}
+		defaultRuleCount++
+		t.Logf("step 4: default rule: type %s, seqNumber %d, port %s, action %s, system %v",
+			rule.Direction, rule.Priority, rule.Port, rule.Action, rule.System)
 	}
-	t.Logf("step 4: read network ACL, total rules %d, priority-0 rules %d, associated subnets %d",
+	t.Logf("step 4: read network ACL, total rules %d, default rules %d, associated subnets %d",
 		len(afterCreate.ACL.Rules), defaultRuleCount, len(afterCreate.ACL.SubnetIDs))
 
 	// Step 5: create the same name again. Whether ACL names are unique per
@@ -3541,26 +3573,36 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	}
 	t.Logf("step 6: added TCP rule, changed %v, status %s, total rules %d, wait %s",
 		tcpRule.Changed, tcpRule.ACL.Status, len(tcpRule.ACL.Rules), time.Since(start))
+	if rule, ok := findACLRule(tcpRule.ACL.Rules, "inbound", 100); ok {
+		t.Logf("step 6: stored port for the TCP rule: %q", rule.Port)
+	}
 
 	// Step 7: add an ANY rule and an ICMP rule, to observe how each stores
-	// port.
+	// port. Every port must be requested explicitly (PortRangeMin 0,
+	// PortRangeMax 65535); leaving both at their zero value is refused.
 	anyRule, err := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
 		NetworkACLID: aclID, Direction: "inbound", Priority: 101, Protocol: "ANY",
-		CIDR: "203.0.113.0/24", Action: "pass",
+		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 0, PortRangeMax: 65535,
 	})
 	if err != nil {
 		t.Fatalf("step 7 AddNetworkACLRule (ANY): %s", safeErr(err))
 	}
 	t.Logf("step 7: added ANY rule, changed %v, total rules %d", anyRule.Changed, len(anyRule.ACL.Rules))
+	if rule, ok := findACLRule(anyRule.ACL.Rules, "inbound", 101); ok {
+		t.Logf("step 7: stored port for the ANY rule: %q", rule.Port)
+	}
 
 	icmpRule, err := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
 		NetworkACLID: aclID, Direction: "inbound", Priority: 102, Protocol: "ICMP",
-		CIDR: "203.0.113.0/24", Action: "pass",
+		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 0, PortRangeMax: 65535,
 	})
 	if err != nil {
 		t.Fatalf("step 7 AddNetworkACLRule (ICMP): %s", safeErr(err))
 	}
 	t.Logf("step 7: added ICMP rule, changed %v, total rules %d", icmpRule.Changed, len(icmpRule.ACL.Rules))
+	if rule, ok := findACLRule(icmpRule.ACL.Rules, "inbound", 102); ok {
+		t.Logf("step 7: stored port for the ICMP rule: %q", rule.Port)
+	}
 
 	// Step 8: add a rule at a priority already used, with a different
 	// protocol; the design expects a refusal, nothing sent.

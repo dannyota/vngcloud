@@ -11,14 +11,21 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-// checkACLRulePriority checks priority per AddNetworkACLRule and
-// RemoveNetworkACLRule's doc comments, before any request: it must be at
-// least 1. CheckRequired already refuses 0 as a missing field on
-// AddNetworkACLRuleInput and RemoveNetworkACLRuleInput, so this only ever
-// catches a negative value.
+// aclMaxUserPriority is the highest Priority AddNetworkACLRule accepts.
+// GreenNode's docs describe user rule priorities running 1 to 32766; a
+// rule at 0 or above this bound is one of the server's own default rules
+// (see isDefaultACLRule), which a caller can name to remove but never add.
+const aclMaxUserPriority = 32766
+
+// checkACLRulePriority checks priority per AddNetworkACLRule's doc
+// comment, before any request: it must be 1 to aclMaxUserPriority.
+// CheckRequired already refuses 0 as a missing field on
+// AddNetworkACLRuleInput, so this only ever catches a negative or
+// too-large value.
 func checkACLRulePriority(op string, priority int) error {
-	if priority < 1 {
-		return fmt.Errorf("%w: %s: Priority must be at least 1, got %d", core.ErrInvalidInput, op, priority)
+	if priority < 1 || priority > aclMaxUserPriority {
+		return fmt.Errorf("%w: %s: Priority must be %d to %d, got %d",
+			core.ErrInvalidInput, op, 1, aclMaxUserPriority, priority)
 	}
 	return nil
 }
@@ -42,12 +49,22 @@ func checkACLRuleCIDR(op, cidr string) error {
 // comment, before any request, and returns the pair to send: each must be 0
 // to 65535, portMax 0 is replaced with portMin, and portMin must not be
 // above the resulting portMax.
+//
+// Leaving both at their zero value, meaning "no ports given," would send
+// port "0-0"; whether the server reads that as port 0 or as every port is
+// an open live check, so this refuses that pair instead of guessing. A
+// caller that wants every port sends it explicitly: PortRangeMin 0,
+// PortRangeMax 65535.
 func checkACLRulePorts(op string, portMin, portMax int) (int, int, error) {
 	if portMin < 0 || portMin > 65535 {
 		return 0, 0, fmt.Errorf("%w: %s: PortRangeMin must be 0 to 65535, got %d", core.ErrInvalidInput, op, portMin)
 	}
 	if portMax < 0 || portMax > 65535 {
 		return 0, 0, fmt.Errorf("%w: %s: PortRangeMax must be 0 to 65535, got %d", core.ErrInvalidInput, op, portMax)
+	}
+	if portMin == 0 && portMax == 0 {
+		return 0, 0, fmt.Errorf("%w: %s: PortRangeMin and PortRangeMax must not both be 0; for every port send PortRangeMin 0 and PortRangeMax 65535",
+			core.ErrInvalidInput, op)
 	}
 	if portMax == 0 {
 		portMax = portMin
@@ -80,12 +97,14 @@ type aclRulesReplaceBody struct {
 }
 
 // isDefaultACLRule reports whether rule is one of an ACL's default rules,
-// which AddNetworkACLRule and RemoveNetworkACLRule must resend unchanged
-// and never let a caller remove. See ACLRule's doc comment for the marker
-// this uses (Priority 0) and why it is safe: no rule a caller adds can ever
-// hold that priority.
+// which AddNetworkACLRule and RemoveNetworkACLRule must resend exactly as
+// read and never let a caller remove or rewrite. A rule holding Priority 0
+// or above aclMaxUserPriority is one no caller-supplied Priority can ever
+// equal (checkACLRulePriority refuses both), so it must be the server's
+// own; a rule that decodes System true is also treated as default, since
+// GreenNode's docs describe default deny rules a caller cannot change.
 func isDefaultACLRule(rule ACLRule) bool {
-	return rule.Priority == 0
+	return rule.Priority == 0 || rule.Priority > aclMaxUserPriority || rule.System
 }
 
 // aclRuleEntriesOf builds the rules replace body from rules exactly as
@@ -94,18 +113,18 @@ func isDefaultACLRule(rule ACLRule) bool {
 // Whether the server needs a default rule resent on every replace, or
 // drops it if left out, is a live check the design leaves open; until then
 // this SDK always resends every rule it read, default or not, so a replace
-// never silently drops one the caller did not name. System, absent from the
-// read model, is set from isDefaultACLRule for each entry; whether the
-// server actually expects true there for a default rule is also a live
-// check, but sending it is the closest inference from the create body's
-// documented fields.
+// never silently drops one the caller did not name. Every entry's System
+// is copied from the rule as GetNetworkACL read it, not recomputed from
+// isDefaultACLRule: a default rule must go back exactly as read, and a
+// rule the server marks System for a reason isDefaultACLRule does not
+// capture must not have that flag silently cleared.
 func aclRuleEntriesOf(networkACLID string, rules []ACLRule) []aclRuleEntry {
 	entries := make([]aclRuleEntry, len(rules))
 	for i, r := range rules {
 		entries[i] = aclRuleEntry{
 			Type: r.Direction, SeqNumber: r.Priority, Protocol: r.Protocol,
 			Port: r.Port, Source: r.CIDR, Action: r.Action,
-			System: isDefaultACLRule(r), InterfaceACLPolicyUUID: networkACLID,
+			System: r.System, InterfaceACLPolicyUUID: networkACLID,
 		}
 	}
 	return entries
@@ -161,10 +180,14 @@ func aclRulesEqual(rules []ACLRule, entries []aclRuleEntry) bool {
 // server adds later never needs an SDK release; the wiki shows "inbound"
 // and "outbound" for Direction and "ANY", "TCP", "UDP", and "ICMP" for
 // Protocol, all confirmed live for at least one rule. Priority orders
-// rules, lowest first, and must be at least 1. CIDR must be a CIDR prefix
-// with no host bits set. PortRangeMin and PortRangeMax each range 0 to
-// 65535; PortRangeMax left 0 sends the same value as PortRangeMin, and
-// PortRangeMin must not be above the resulting PortRangeMax.
+// rules, lowest first, and must be 1 to 32766; a default rule the server
+// owns holds a Priority outside that range, or a fixed one inside it with
+// its System flag set, so a caller can never add or overwrite one. CIDR
+// must be a CIDR prefix with no host bits set. PortRangeMin and
+// PortRangeMax each range 0 to 65535; PortRangeMax left 0 sends the same
+// value as PortRangeMin, and PortRangeMin must not be above the resulting
+// PortRangeMax. Leaving both at 0 is refused: send PortRangeMin 0 and
+// PortRangeMax 65535 for every port.
 type AddNetworkACLRuleInput struct {
 	NetworkACLID string `vngcloud:"required"`
 	Direction    string `vngcloud:"required"`
@@ -190,8 +213,11 @@ type AddNetworkACLRuleOutput struct {
 // AddNetworkACLRule is a read-merge write: it reads the ACL's current
 // rules with GetNetworkACL, waiting first for the ACL to reach ACTIVE
 // within a pre-write bound (ErrBusy, nothing sent, if it does not), then
-// sends back every rule it read, default rules included, plus the one
-// being added, never a caller-supplied whole list.
+// sends back every rule it read, default rules included and exactly as
+// read, plus the one being added, never a caller-supplied whole list.
+// Immediately before sending that write, it re-reads the ACL and refuses
+// with ErrBusy, again sending nothing, if the rules no longer match the
+// read this merge started from; see putACLRulesAndConfirm.
 //
 // A rule already present for the same key (Direction, Priority) with every
 // other field equal makes AddNetworkACLRule a no-op: Changed is false and
@@ -200,10 +226,12 @@ type AddNetworkACLRuleOutput struct {
 //
 // Without NoWait, AddNetworkACLRule waits for the ACL to return to ACTIVE
 // after its PUT, then confirms that a fresh read names exactly the rules
-// just sent. A failure at either point returns an error wrapping ErrFailed
-// (the ACL reached ERROR) or ErrNotSettled (the bound ran out, the confirm
-// read did not match, or a read or sleep failed); the PUT itself is not
-// resent on a rerun; AddNetworkACLRule simply reads the ACL again.
+// just sent. A failure at any of these points returns an error wrapping
+// ErrFailed (the ACL reached ERROR), ErrBusy (the pre-write wait or the
+// pre-PUT re-read above), or ErrNotSettled (the post-write bound ran out,
+// the confirm read did not match, or a read or sleep failed); once the PUT
+// itself is sent, it is not resent on a rerun; AddNetworkACLRule simply
+// reads the ACL again from the start.
 func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInput) (*AddNetworkACLRuleOutput, error) {
 	const op = "network.AddNetworkACLRule"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -260,11 +288,12 @@ func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInp
 // (case-insensitive) and Priority, from a network ACL.
 //
 // Priority is not tagged required: 0 is CheckRequired's zero value, but it
-// is also the live-observed marker for a default rule (see ACLRule's doc
-// comment), so a caller must be able to pass it to name that rule and
-// reach RemoveNetworkACLRule's ErrDefaultResource refusal, rather than
-// being stopped earlier by a generic "missing field" error. A negative
-// value, which no rule can ever hold, is still refused before any request.
+// is also one marker for a default rule (see ACLRule's doc comment and
+// isDefaultACLRule), so a caller must be able to pass it, and any value
+// above 32766, to name such a rule and reach RemoveNetworkACLRule's
+// ErrDefaultResource refusal, rather than being stopped earlier by a shape
+// check meant only for a rule a caller could add. A negative value, which
+// no rule can ever hold, is still refused before any request.
 type RemoveNetworkACLRuleInput struct {
 	NetworkACLID string `vngcloud:"required"`
 	Direction    string `vngcloud:"required"`
@@ -282,15 +311,18 @@ type RemoveNetworkACLRuleOutput struct {
 // Direction (case-insensitive) and Priority. It is the read-merge write
 // AddNetworkACLRule's doc comment describes, in reverse: it waits for the
 // ACL to be ACTIVE (ErrBusy, nothing sent, past the pre-write bound), then
-// sends back every rule it read, default rules included, except the one
-// removed.
+// sends back every rule it read, default rules included and exactly as
+// read, except the one removed. As for AddNetworkACLRule, it also re-reads
+// the ACL immediately before sending that write and refuses with ErrBusy,
+// again sending nothing, if the rules have changed since the first read;
+// see putACLRulesAndConfirm.
 //
 // No rule matching the key fails with core.ErrNotFound, nothing sent. A
-// rule that matches but is one of the ACL's default rules (see ACLRule's
-// doc comment for the marker) fails with ErrDefaultResource, nothing sent:
-// default rules never change. Without NoWait, RemoveNetworkACLRule waits
-// and confirms exactly as AddNetworkACLRule does; see its doc comment for
-// the wait, the confirm, and rerun safety.
+// rule that matches but is one of the ACL's default rules (see
+// isDefaultACLRule) fails with ErrDefaultResource, nothing sent: default
+// rules never change or get removed. Without NoWait, RemoveNetworkACLRule
+// waits and confirms exactly as AddNetworkACLRule does; see its doc
+// comment for the wait, the confirm, and rerun safety.
 func (c *Client) RemoveNetworkACLRule(ctx context.Context, in *RemoveNetworkACLRuleInput) (*RemoveNetworkACLRuleOutput, error) {
 	const op = "network.RemoveNetworkACLRule"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -308,10 +340,9 @@ func (c *Client) RemoveNetworkACLRule(ctx context.Context, in *RemoveNetworkACLR
 		return nil, err
 	}
 
-	entries := aclRuleEntriesOf(in.NetworkACLID, acl.Rules)
 	idx := -1
-	for i, e := range entries {
-		if strings.EqualFold(e.Type, in.Direction) && e.SeqNumber == in.Priority {
+	for i, r := range acl.Rules {
+		if strings.EqualFold(r.Direction, in.Direction) && r.Priority == in.Priority {
 			idx = i
 			break
 		}
@@ -319,10 +350,11 @@ func (c *Client) RemoveNetworkACLRule(ctx context.Context, in *RemoveNetworkACLR
 	if idx == -1 {
 		return nil, fmt.Errorf("%w: %s: network ACL %s has no %s rule at priority %d", core.ErrNotFound, op, in.NetworkACLID, in.Direction, in.Priority)
 	}
-	if entries[idx].System {
+	if isDefaultACLRule(acl.Rules[idx]) {
 		return nil, fmt.Errorf("%w: %s: network ACL %s's %s rule at priority %d is a default rule and cannot be removed",
 			ErrDefaultResource, op, in.NetworkACLID, in.Direction, in.Priority)
 	}
+	entries := aclRuleEntriesOf(in.NetworkACLID, acl.Rules)
 	entries = append(entries[:idx], entries[idx+1:]...)
 
 	updated, err := c.putACLRulesAndConfirm(ctx, op, in.NetworkACLID, entries, acl, in.NoWait)
@@ -339,7 +371,25 @@ func (c *Client) RemoveNetworkACLRule(ctx context.Context, in *RemoveNetworkACLR
 // Rules field is replaced with entries, mapped to ACLRule values, and
 // returned as is, since no read after the PUT is taken to build anything
 // better.
+//
+// Immediately before sending the PUT, it re-reads the ACL and compares
+// those rules to base.Rules. A mismatch means some other writer changed
+// the ACL since AddNetworkACLRule or RemoveNetworkACLRule's own read, so
+// entries, built from that now-stale read, would silently overwrite the
+// change; this sends nothing and returns an error wrapping ErrBusy
+// instead. This narrows the race but does not close it: a writer that
+// changes the ACL between this re-read and the PUT actually reaching the
+// server can still be overwritten by it.
 func (c *Client) putACLRulesAndConfirm(ctx context.Context, op, networkACLID string, entries []aclRuleEntry, base *ACL, noWait bool) (*ACL, error) {
+	recheck, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: networkACLID})
+	if err != nil {
+		return nil, err
+	}
+	if !aclRulesEqual(recheck.ACL.Rules, aclRuleEntriesOf(networkACLID, base.Rules)) {
+		return nil, fmt.Errorf("%w: %s: network ACL %s changed since it was read; nothing sent, run the call again",
+			ErrBusy, op, networkACLID)
+	}
+
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -366,11 +416,17 @@ func (c *Client) putACLRulesAndConfirm(ctx context.Context, op, networkACLID str
 // post-write wait unless NoWait is set: it reads networkACLID with
 // GetNetworkACL, using the shorter pollBound, until its Status reaches
 // aclStatusActive or aclStatusError, then confirms that the rules it just
-// read are exactly sent, regardless of order. A mismatch means another
-// writer changed the ACL between the read-merge write's own pre-write read
-// and this one; it returns an error wrapping ErrNotSettled, same as a bound
-// timeout or a read or sleep failure, since the PUT already reached the
-// server either way and is not resent by running the call again.
+// read are exactly sent, regardless of order.
+//
+// putACLRulesAndConfirm already re-reads the ACL immediately before the
+// PUT and refuses with ErrBusy, sending nothing, if that read did not
+// match the caller's own first read, so a mismatch found here instead
+// means a writer changed the ACL after the PUT itself, in the window
+// between it and this confirming read; that window is not covered by any
+// check. Either that mismatch or a bound timeout or a read or sleep
+// failure returns an error wrapping ErrNotSettled, since the PUT already
+// reached the server either way and is not resent by running the call
+// again.
 func (c *Client) waitACLRulesSettled(ctx context.Context, op, networkACLID string, sent []aclRuleEntry) (*ACL, error) {
 	acl, err := c.waitACLSettled(ctx, op, networkACLID)
 	if err != nil {

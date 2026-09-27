@@ -20,17 +20,28 @@ type AssociateNetworkACLSubnetInput struct {
 type AssociateNetworkACLSubnetOutput struct {
 	ACL     ACL
 	Changed bool
+
+	// PreviousNetworkACLID is the id GetSubnet read from the subnet's own
+	// record just before the move, naming the ACL it was associated with,
+	// if any. It is set only when Changed is true: the no-op path (the
+	// subnet was already in this ACL) never reads the subnet, so it has
+	// nothing to report.
+	PreviousNetworkACLID string
 }
 
 // AssociateNetworkACLSubnet associates a subnet with a network ACL. A
 // subnet belongs to at most one ACL, so associating one already associated
 // with a different ACL moves it there; its rules apply to the subnet's
-// traffic at once.
+// traffic at once. Output.PreviousNetworkACLID names the ACL it moved
+// from.
 //
 // The API replaces an ACL's whole subnet list on every write, so this is a
 // read-merge write like AddNetworkACLRule: it reads the ACL's current
 // subnets with GetNetworkACL, waiting first for the ACL to reach ACTIVE
 // within a pre-write bound (ErrBusy, nothing sent, if it does not).
+// Immediately before sending that write, it re-reads the ACL and refuses
+// with ErrBusy, again sending nothing, if the subnet list no longer
+// matches the read this merge started from; see putACLSubnetsAndConfirm.
 //
 // A SubnetID already in that list makes this a no-op: Changed is false and
 // nothing is sent, including no read of the subnet itself. Otherwise,
@@ -40,9 +51,9 @@ type AssociateNetworkACLSubnetOutput struct {
 //
 // Without NoWait, it waits for the ACL to return to ACTIVE after its PUT,
 // then confirms that a fresh read names exactly the subnet list just sent.
-// A failure at either point returns an error wrapping ErrFailed or
-// ErrNotSettled, as AddNetworkACLRule's doc comment describes; the PUT
-// itself is not resent on a rerun.
+// A failure at any of these points returns an error wrapping ErrFailed,
+// ErrBusy, or ErrNotSettled, as AddNetworkACLRule's doc comment describes;
+// the PUT itself is not resent on a rerun.
 func (c *Client) AssociateNetworkACLSubnet(ctx context.Context, in *AssociateNetworkACLSubnetInput) (*AssociateNetworkACLSubnetOutput, error) {
 	const op = "network.AssociateNetworkACLSubnet"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -65,7 +76,8 @@ func (c *Client) AssociateNetworkACLSubnet(ctx context.Context, in *AssociateNet
 		}
 	}
 
-	if _, err := c.GetSubnet(ctx, &GetSubnetInput{VPCID: acl.VPCID, SubnetID: in.SubnetID}); err != nil {
+	subnet, err := c.GetSubnet(ctx, &GetSubnetInput{VPCID: acl.VPCID, SubnetID: in.SubnetID})
+	if err != nil {
 		return nil, err
 	}
 
@@ -74,7 +86,7 @@ func (c *Client) AssociateNetworkACLSubnet(ctx context.Context, in *AssociateNet
 	if updated == nil {
 		return nil, err
 	}
-	return &AssociateNetworkACLSubnetOutput{ACL: *updated, Changed: true}, err
+	return &AssociateNetworkACLSubnetOutput{ACL: *updated, Changed: true, PreviousNetworkACLID: subnet.Subnet.InterfaceACLPolicyID}, err
 }
 
 // DisassociateNetworkACLSubnetInput removes a subnet's association with a
@@ -95,7 +107,11 @@ type DisassociateNetworkACLSubnetOutput struct {
 // network ACL. It is the read-merge write AssociateNetworkACLSubnet's doc
 // comment describes, in reverse: it waits for the ACL to be ACTIVE (ErrBusy,
 // nothing sent, past the pre-write bound), then sends back every
-// associated subnet it read except the one removed.
+// associated subnet it read except the one removed. As for
+// AssociateNetworkACLSubnet, it also re-reads the ACL immediately before
+// sending that write and refuses with ErrBusy, again sending nothing, if
+// the subnet list has changed since the first read; see
+// putACLSubnetsAndConfirm.
 //
 // A SubnetID not in the ACL's current subnet list makes this a no-op:
 // Changed is false and nothing is sent, unlike RemoveNetworkACLRule, which
@@ -152,7 +168,22 @@ type aclSubnetsReplaceBody struct {
 // the pre-write read Associate or DisassociateNetworkACLSubnet already
 // took; with noWait its SubnetIDs field is replaced with subnetIDs and
 // returned as is.
+//
+// Immediately before sending the PUT, it re-reads the ACL and compares
+// those subnets to base.SubnetIDs; see putACLRulesAndConfirm's doc comment
+// for why a mismatch sends nothing and returns an error wrapping ErrBusy
+// instead, and for the narrower race that remains after the PUT itself is
+// sent.
 func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID string, subnetIDs []string, base *ACL, noWait bool) (*ACL, error) {
+	recheck, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: networkACLID})
+	if err != nil {
+		return nil, err
+	}
+	if !stringSetsEqual(recheck.ACL.SubnetIDs, base.SubnetIDs) {
+		return nil, fmt.Errorf("%w: %s: network ACL %s changed since it was read; nothing sent, run the call again",
+			ErrBusy, op, networkACLID)
+	}
+
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err

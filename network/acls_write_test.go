@@ -28,6 +28,7 @@ func aclJSON(status string, defaultACL bool, rules []aclRuleEntry, subnetIDs []s
 		Port                   string `json:"port"`
 		Source                 string `json:"source"`
 		Action                 string `json:"action"`
+		System                 bool   `json:"system"`
 		InterfaceACLPolicyUUID string `json:"interfaceAclPolicyUuid"`
 	}
 	rs := make([]ruleJSON, len(rules))
@@ -35,7 +36,7 @@ func aclJSON(status string, defaultACL bool, rules []aclRuleEntry, subnetIDs []s
 		rs[i] = ruleJSON{
 			UUID: "aclr-x", SeqNumber: r.SeqNumber, Protocol: r.Protocol,
 			Type: r.Type, Port: r.Port, Source: r.Source, Action: r.Action,
-			InterfaceACLPolicyUUID: "acl-1",
+			System: r.System, InterfaceACLPolicyUUID: "acl-1",
 		}
 	}
 	var fixture struct {
@@ -64,8 +65,11 @@ func aclJSON(status string, defaultACL bool, rules []aclRuleEntry, subnetIDs []s
 }
 
 // defaultInboundRule is the one default rule the live probe observed: an
-// inbound allow-all at priority (seqNumber) 0.
-var defaultInboundRule = aclRuleEntry{Type: "inbound", SeqNumber: 0, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "pass"}
+// inbound allow-all at priority (seqNumber) 0. System is true, as this SDK
+// resends whatever a default rule's own decoded flag was on the read that
+// found it; the live probe never captured a system value, so this is this
+// package's own assumption for its fixtures, not a confirmed one.
+var defaultInboundRule = aclRuleEntry{Type: "inbound", SeqNumber: 0, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "pass", System: true}
 
 // --- GetNetworkACL ---
 
@@ -163,6 +167,32 @@ func TestGetNetworkACL500ListFailureReturnsOriginal500(t *testing.T) {
 	_, err := c.GetNetworkACL(context.Background(), &GetNetworkACLInput{NetworkACLID: "acl-1"})
 	if errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("err = %v, want the original 500, not NotFound: the list call itself failed", err)
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError", err)
+	}
+}
+
+func TestGetNetworkACL500ListIncompleteReturnsOriginal500(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			// acl-1 is absent from this page, but the list has more items
+			// than this one page returned, so absence here is inconclusive.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-2"}],"page":1,"pageSize":1,"totalPage":2,"totalItem":2}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.GetNetworkACL(context.Background(), &GetNetworkACLInput{NetworkACLID: "acl-1"})
+	if errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("err = %v, want the original 500, not NotFound: the list has more than one page", err)
 	}
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
@@ -369,6 +399,56 @@ func TestDeleteNetworkACL500ListedReturnsOriginal500(t *testing.T) {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
 		t.Fatalf("err = %v, want the original 500 *core.APIError: the ACL is still listed", err)
+	}
+}
+
+func TestDeleteNetworkACL500ListFailureReturnsOriginal500(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"list also failed"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError: the list call itself failed", err)
+	}
+}
+
+func TestDeleteNetworkACL500ListIncompleteReturnsOriginal500(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			// acl-1 is absent, but the list reports fewer items than
+			// TotalItem, so absence here is inconclusive.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError: the list reports more items than this page returned", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 // --- AssociateNetworkACLSubnet ---
@@ -21,7 +22,7 @@ func TestAssociateNetworkACLSubnetRequestBodyChecksSubnetVPCFirst(t *testing.T) 
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets/subnet-2":
 			getSubnetCalls++
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1"}`))
+			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1","interfaceAclPolicyUuid":"acl-old"}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/project-1/network-acl/acl-1/subnets":
 			body := decodeBody(t, r)
 			if body["aclId"] != "acl-1" {
@@ -49,6 +50,9 @@ func TestAssociateNetworkACLSubnetRequestBodyChecksSubnetVPCFirst(t *testing.T) 
 	}
 	if len(out.ACL.SubnetIDs) != 2 {
 		t.Fatalf("SubnetIDs = %+v, want 2 entries", out.ACL.SubnetIDs)
+	}
+	if out.PreviousNetworkACLID != "acl-old" {
+		t.Fatalf("PreviousNetworkACLID = %q, want acl-old", out.PreviousNetworkACLID)
 	}
 }
 
@@ -109,11 +113,66 @@ func TestAssociateNetworkACLSubnetPreWriteBoundErrBusy(t *testing.T) {
 	}
 }
 
+func TestAssociateNetworkACLSubnetPreWriteRecheckMismatchErrBusy(t *testing.T) {
+	var aclGets int
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			aclGets++
+			w.Header().Set("Content-Type", "application/json")
+			if aclGets == 1 {
+				_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-1"})))
+				return
+			}
+			// The recheck, and any read after it, sees a subnet list the
+			// pre-write read never saw: another writer changed the ACL.
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-1", "subnet-9"})))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets/subnet-2":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1"}`))
+		case r.Method == http.MethodPut:
+			t.Fatal("unexpected PUT: a mismatched recheck must send nothing")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	_, err := c.AssociateNetworkACLSubnet(context.Background(), &AssociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-2"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
+func TestAssociateNetworkACLSubnetPUT4xxSurfacesAPIError(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets/subnet-2":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1"}`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"bad subnet list"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	_, err := c.AssociateNetworkACLSubnet(context.Background(), &AssociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-2"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		t.Fatalf("err = %v, want a 400 *core.APIError", err)
+	}
+}
+
 // --- DisassociateNetworkACLSubnet ---
 
 func TestDisassociateNetworkACLSubnetRequestBodyDropsOnlyTheNamedSubnet(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
 		aclJSON("ACTIVE", false, nil, []string{"subnet-1", "subnet-2"}), // pre-write read
+		aclJSON("ACTIVE", false, nil, []string{"subnet-1", "subnet-2"}), // pre-PUT recheck: unchanged
 		aclJSON("ACTIVE", false, nil, []string{"subnet-1"}),             // confirm read
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
@@ -181,11 +240,48 @@ func TestDisassociateNetworkACLSubnetNoWaitSkipsPostWritePoll(t *testing.T) {
 	if !out.Changed {
 		t.Fatal("Changed = false, want true")
 	}
-	if getCalls != 1 {
-		t.Fatalf("GET calls = %d, want 1 (the pre-write read only): NoWait must skip the post-write poll", getCalls)
+	if getCalls != 2 {
+		t.Fatalf("GET calls = %d, want 2 (the pre-write read and the pre-PUT recheck): NoWait must skip only the post-write poll", getCalls)
 	}
 	if len(out.ACL.SubnetIDs) != 0 {
 		t.Fatalf("SubnetIDs = %+v, want none left", out.ACL.SubnetIDs)
+	}
+}
+
+func TestDisassociateNetworkACLSubnetPreWriteRecheckMismatchErrBusy(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
+		aclJSON("ACTIVE", false, nil, []string{"subnet-1", "subnet-2"}), // pre-write read
+		aclJSON("ACTIVE", false, nil, []string{"subnet-1", "subnet-9"}), // pre-PUT recheck: changed
+	}, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			t.Fatal("unexpected PUT: a mismatched recheck must send nothing")
+		}
+	})))
+
+	_, err := c.DisassociateNetworkACLSubnet(context.Background(), &DisassociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-2"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
+func TestDisassociateNetworkACLSubnetPUT4xxSurfacesAPIError(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-1"})))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"bad subnet list"}`))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	_, err := c.DisassociateNetworkACLSubnet(context.Background(), &DisassociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		t.Fatalf("err = %v, want a 400 *core.APIError", err)
 	}
 }
 

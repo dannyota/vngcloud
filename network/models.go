@@ -251,10 +251,14 @@ type ACL struct {
 }
 
 // ACLRule is one rule of a network ACL's list. Priority orders rules,
-// lowest first; a live-observed default rule holds Priority 0, one lower
-// than AddNetworkACLRule ever accepts (its shape check requires at least
-// 1), which the SDK uses as the marker for a rule the server owns and a
-// caller may never remove; see isDefaultACLRule.
+// lowest first; AddNetworkACLRule accepts 1 to 32766 for a rule a caller
+// adds. A rule the server owns and a caller may never remove or rewrite
+// holds Priority 0 or above 32766, or decodes System true; see
+// isDefaultACLRule. A new ACL carries at least one such rule: an inbound
+// rule at Priority 0 that passes all traffic from 0.0.0.0/0. It has not
+// been shown live that a user rule with Action "deny" (or similar) takes
+// effect while that pass-all rule is still in the list; do not rely on a
+// deny rule alone to block traffic.
 type ACLRule struct {
 	UUID      string `json:"uuid"`
 	Direction string `json:"type"`
@@ -263,6 +267,7 @@ type ACLRule struct {
 	Port      string `json:"port"`
 	CIDR      string `json:"source"`
 	Action    string `json:"action"`
+	System    bool   `json:"system"`
 }
 
 type Subnet struct {

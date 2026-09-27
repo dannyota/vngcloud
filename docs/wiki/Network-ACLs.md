@@ -70,10 +70,13 @@ read through `ListNetworkACLs` leaves the new fields at their zero value,
 and one read through `GetNetworkACL` or `CreateNetworkACL` leaves the
 older `NetworkID` and `SubnetID` fields empty, since the two calls return
 different shapes. `ACLRule` holds `UUID`, `Direction`, `Priority`,
-`Protocol`, `Port`, `CIDR`, and `Action`. `Direction`, `Protocol`, and
-`Action` are sent to the server exactly as given and checked only for
+`Protocol`, `Port`, `CIDR`, `Action`, and `System`. `Direction`, `Protocol`,
+and `Action` are sent to the server exactly as given and checked only for
 shape; the reference and a live read show `"inbound"` and `"outbound"` for
 `Direction`, and `"ANY"`, `"TCP"`, `"UDP"`, and `"ICMP"` for `Protocol`.
+`System`, decoded from the server's own `system` field when present, marks
+a rule the server owns; see [Rules](#rules) for how it and `Priority`
+together identify a default rule.
 
 ## Get, create, and delete
 
@@ -103,45 +106,68 @@ The API replaces an ACL's whole rule list on every write, so
 the shape `AddRoute` and `RemoveRoute` use: each reads the ACL's current
 rules, waits for it to be `"ACTIVE"` first (`network.ErrBusy`, nothing
 sent, past a 60-second bound), then sends back every rule it read,
-including the server's own default rules, plus one change. A rule is
-keyed by `Direction` (case-insensitive) and `Priority`. `AddNetworkACLRule`
-of a rule already present with every other field equal is a no-op:
-`Changed` is `false` and nothing is sent. The same key with any other field
-different fails with `vngcloud.ErrInvalidInput`; remove it first.
-`RemoveNetworkACLRule` of a key with no match returns
+including the server's own default rules and exactly as read, plus one
+change. Immediately before sending that write, each also re-reads the ACL
+and refuses with `network.ErrBusy`, again sending nothing, if the rules no
+longer match the first read: some other writer changed the ACL in
+between. This narrows the race between the read and the write, but does
+not close it: a writer that changes the ACL between that final read and
+the moment the `PUT` reaches the server can still be overwritten by it.
+
+A rule is keyed by `Direction` (case-insensitive) and `Priority`.
+`AddNetworkACLRule` of a rule already present with every other field equal
+is a no-op: `Changed` is `false` and nothing is sent. The same key with any
+other field different fails with `vngcloud.ErrInvalidInput`; remove it
+first. `RemoveNetworkACLRule` of a key with no match returns
 `vngcloud.IsNotFound(err) == true`, sending nothing.
 
-A default rule never changes. The server's own default rules are the ones
-this SDK has seen with `Priority` (its `seqNumber`) `0`, one lower than
-`AddNetworkACLRule` ever accepts (`Priority` must be at least 1), so a
-caller can never add a rule sharing that priority. `RemoveNetworkACLRule`
-on a rule at `Priority` `0` fails with `network.ErrDefaultResource`,
-sending nothing; naming a default rule this way, to confirm it is
-protected, is safe. Whether the full default rule list uses only priority
-`0`, and whether the server needs a default rule resent on a replace or
-drops it if left out, are still live checks; until they are confirmed, this
-SDK always resends every rule it read, so a replace never silently drops
-one the caller did not name.
+A default rule never changes or gets removed. The server's own default
+rules are the ones this SDK sees with `Priority` (`seqNumber`) `0` or above
+`32766`, one past the range `AddNetworkACLRule` accepts (`Priority` must be
+1 to 32766), or with a decoded `System` field of `true`, per GreenNode's
+docs describing default deny rules a caller cannot change.
+`RemoveNetworkACLRule` on a rule matching any of these fails with
+`network.ErrDefaultResource`, sending nothing; naming a default rule this
+way, to confirm it is protected, is safe. Every rule this SDK resends,
+default or not, carries its `System` value exactly as read, never
+recomputed, so a default rule the server marks for a reason beyond
+`Priority` keeps that marking. Whether the server needs a default rule
+resent on a replace or drops it if left out is still a live check; until it
+is confirmed, this SDK always resends every rule it read, so a replace
+never silently drops one the caller did not name.
+
+A new ACL carries at least one default rule that cannot be removed: an
+inbound rule at `Priority` `0` that passes all traffic from `0.0.0.0/0`.
+It has not been shown live that a user rule with `Action` `"deny"` (or
+similar) takes effect while that pass-all rule is still in the ACL's rule
+list; do not rely on a deny rule alone to block traffic.
 
 `PortRangeMin` and `PortRangeMax` each range 0 to 65535; `PortRangeMax`
-left 0 sends the same value as `PortRangeMin`. `CIDR` must be a CIDR
-prefix with no host bits set. The SDK never defaults `Action`, `Protocol`,
-or `CIDR`.
+left 0 sends the same value as `PortRangeMin`. Leaving both at 0 is
+refused with `vngcloud.ErrInvalidInput`: whether the server reads a port
+of `"0-0"` as port 0 or as every port is an open live check, so this SDK
+never sends it. For every port, send `PortRangeMin` `0` and `PortRangeMax`
+`65535` explicitly. `CIDR` must be a CIDR prefix with no host bits set. The
+SDK never defaults `Action`, `Protocol`, or `CIDR`.
 
 ## Subnet associations
 
 `AssociateNetworkACLSubnet` and `DisassociateNetworkACLSubnet` are the same
-kind of read-merge write, over an ACL's subnet list instead of its rules.
-A subnet belongs to at most one ACL, so associating one already associated
-with a different ACL moves it there, and its rules apply to that subnet's
-traffic at once; test on a non-production VPC first. `AssociateNetworkACLSubnet`
-of a subnet already in the list is a no-op, sending nothing, including no
-read of the subnet itself. Otherwise it reads the subnet with `GetSubnet`
-under the ACL's own VPC first, so a subnet of a different VPC is never
-sent: a `404` there becomes `vngcloud.IsNotFound(err) == true`.
-`DisassociateNetworkACLSubnet` of a subnet not in the list is also a no-op,
-unlike `RemoveNetworkACLRule`'s not-found for an absent rule; what a subnet
-falls back to once disassociated is not yet confirmed live.
+kind of read-merge write, over an ACL's subnet list instead of its rules,
+including the same pre-PUT recheck described above. A subnet belongs to at
+most one ACL, so associating one already associated with a different ACL
+moves it there, and its rules apply to that subnet's traffic at once; test
+on a non-production VPC first. `AssociateNetworkACLSubnet`'s output holds
+`PreviousNetworkACLID`, the id of the ACL the subnet moved from, if any;
+it is set only when `Changed` is `true`. `AssociateNetworkACLSubnet` of a
+subnet already in the list is a no-op, sending nothing, including no read
+of the subnet itself, so `PreviousNetworkACLID` is left empty. Otherwise it
+reads the subnet with `GetSubnet` under the ACL's own VPC first, so a
+subnet of a different VPC is never sent: a `404` there becomes
+`vngcloud.IsNotFound(err) == true`. `DisassociateNetworkACLSubnet` of a
+subnet not in the list is also a no-op, unlike `RemoveNetworkACLRule`'s
+not-found for an absent rule; what a subnet falls back to once
+disassociated is not yet confirmed live.
 
 ## Waits
 
