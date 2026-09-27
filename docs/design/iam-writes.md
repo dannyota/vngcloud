@@ -197,8 +197,9 @@ uses the server's own action list.
    fails, it returns `iam.ErrCreateUnconfirmed` alongside an Output holding
    the create response's own ID and client secret (every other
    `ServiceAccount` field zero), instead of dropping them: the account and
-   its secret are real either way. The CLI's use of this case is not yet
-   decided; see [open questions](#open-questions).
+   its secret are real either way. The CLI still writes `--secret-file`
+   from that Output and exits 1 naming `list-service-accounts`; if the file
+   write fails, it deletes the account by the create's own ID.
 
 ## Errors
 
@@ -371,7 +372,3 @@ existing method or command.
   choices, chosen because a wrong comparison could miss a real self-change.
 - Whether a service account can be a group member; the create spec says
   so, but no call adds one.
-- Whether the CLI should still write `--secret-file` (or clean up the new
-  account) from `CreateServiceAccount`'s Output when the read-back after
-  create fails (`iam.ErrCreateUnconfirmed`), given the create response
-  itself already carries the ID and secret.
