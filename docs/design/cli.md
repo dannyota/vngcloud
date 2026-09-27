@@ -85,8 +85,8 @@ followed by a lowercase letter gives its last capital to the next word, so
 `VirtualIPAddressID` becomes `--virtual-ip-address-id`. One shared rename
 table holds the exceptions: `VPCID` becomes `--vpc-id`, and `Query` becomes
 `--search` so no Input flag shadows a global flag. Supported field types are
-string, integer, boolean, and pointers to string, integer, and boolean; the
-CLI applies a field only when its flag is given. Other field types are set
+string, integer, `float64`, boolean, and pointers to each; the CLI applies
+a field only when its flag is given. Other field types are set
 through `--cli-input-json '<json>'` or `--cli-input-json file://input.json`,
 whose keys are the Go field names.
 

@@ -12,6 +12,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [CDN IP ranges](cdn.md) | Approved |
 | [vMonitor](monitor.md) | Accepted |
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
+| [vMonitor Log Alarms](monitor-log-alarms.md) | Proposed |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |
