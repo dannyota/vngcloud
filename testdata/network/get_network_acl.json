@@ -36,7 +36,7 @@
         "seqNumber": 100,
         "createdAt": "2026-01-01T00:00:00Z",
         "interfaceAclPolicyUuid": "acl-1",
-        "protocol": "TCP",
+        "protocol": "tcp",
         "type": "inbound",
         "port": "443-443",
         "source": "<cidr>",

@@ -167,6 +167,37 @@ func TestAssociateNetworkACLSubnetPUT4xxSurfacesAPIError(t *testing.T) {
 	}
 }
 
+// TestAssociateNetworkACLSubnetPUTBusyMapsToErrBusy checks the busy window
+// confirmed live: a subnets PUT sent while the ACL is still busy from a
+// previous write returns 400 with a message naming the ACL busy; this SDK
+// maps that to ErrBusy, since the PUT was rejected outright and changed
+// nothing.
+func TestAssociateNetworkACLSubnetPUTBusyMapsToErrBusy(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/networks/vpc-1/subnets/subnet-2":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1"}`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is busy doing something"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := c.AssociateNetworkACLSubnet(context.Background(), &AssociateNetworkACLSubnetInput{NetworkACLID: "acl-1", SubnetID: "subnet-2"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %+v, want nil: nothing was changed", out)
+	}
+}
+
 // --- DisassociateNetworkACLSubnet ---
 
 func TestDisassociateNetworkACLSubnetRequestBodyDropsOnlyTheNamedSubnet(t *testing.T) {

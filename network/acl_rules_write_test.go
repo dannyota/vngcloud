@@ -15,7 +15,7 @@ import (
 // --- AddNetworkACLRule and RemoveNetworkACLRule shape checks ---
 
 func TestAddNetworkACLRuleBadPriority(t *testing.T) {
-	cases := []int{-1, 32767, 100000}
+	cases := []int{-1, 2000, 100000}
 	for _, priority := range cases {
 		t.Run(strconv.Itoa(priority), func(t *testing.T) {
 			c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -71,7 +71,6 @@ func TestAddNetworkACLRuleBadPorts(t *testing.T) {
 		{"min negative", -1, 0},
 		{"max too large", 0, 70000},
 		{"min above max", 500, 100},
-		{"both zero", 0, 0},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,6 +116,110 @@ func TestAddNetworkACLRuleExplicitFullPortRangeSends0To65535(t *testing.T) {
 	}
 }
 
+// TestAddNetworkACLRuleProtocolAndPortEncoding checks checkACLRuleProtocol
+// and checkACLRulePorts together: the exact protocol spelling and port
+// string each valid combination sends, confirmed live.
+func TestAddNetworkACLRuleProtocolAndPortEncoding(t *testing.T) {
+	cases := []struct {
+		name             string
+		protocol         string
+		portMin, portMax int
+		wantProtocol     string
+		wantPort         string
+	}{
+		{"tcp single port", "TCP", 22, 22, "tcp", "22"},
+		{"udp port range", "Udp", 53, 54, "udp", "53-54"},
+		{"tcp both ports zero sends explicit 0", "tcp", 0, 0, "tcp", "0"},
+		{"icmp zero", "ICMP", 0, 0, "icmp", "0"},
+		{"icmp full range", "icmp", 0, 65535, "icmp", "0-65535"},
+		{"any lowercase input sends uppercase ANY", "any", 0, 65535, "ANY", "0-65535"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+				case http.MethodPut:
+					body := decodeBody(t, r)
+					rules, _ := body["detailAclRuleList"].([]any)
+					entry, _ := rules[0].(map[string]any)
+					if entry["protocol"] != tt.wantProtocol {
+						t.Fatalf("protocol in body = %v, want %s", entry["protocol"], tt.wantProtocol)
+					}
+					if entry["port"] != tt.wantPort {
+						t.Fatalf("port in body = %v, want %s", entry["port"], tt.wantPort)
+					}
+					w.WriteHeader(http.StatusOK)
+				default:
+					t.Fatalf("unexpected method %s", r.Method)
+				}
+			}))
+
+			_, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+				NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: tt.protocol,
+				CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: tt.portMin, PortRangeMax: tt.portMax, NoWait: true,
+			})
+			if err != nil {
+				t.Fatalf("AddNetworkACLRule() error = %v", err)
+			}
+		})
+	}
+}
+
+// TestAddNetworkACLRuleBadProtocol checks that a value outside "ANY",
+// "tcp", "udp", and "icmp" (case-insensitive) is refused before any
+// request, unlike Direction and Action, which the server checks itself.
+func TestAddNetworkACLRuleBadProtocol(t *testing.T) {
+	cases := []string{"foo", "ip", "tcpx", " tcp"}
+	for _, protocol := range cases {
+		t.Run(protocol, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("no request expected")
+			}))
+			_, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+				NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: protocol, CIDR: "203.0.113.0/24", Action: "pass",
+				PortRangeMin: 22, PortRangeMax: 22,
+			})
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+// TestAddNetworkACLRuleProtocolPortRestrictionsRefused checks the port
+// range each protocol requires: "ANY" must be the full range, and "icmp"
+// must be the full range or 0 and 0 together; any other pair is refused
+// before any request.
+func TestAddNetworkACLRuleProtocolPortRestrictionsRefused(t *testing.T) {
+	cases := []struct {
+		name             string
+		protocol         string
+		portMin, portMax int
+	}{
+		{"ANY single port refused", "ANY", 22, 22},
+		{"any zero-zero refused", "any", 0, 0},
+		{"icmp arbitrary port refused", "icmp", 22, 22},
+		{"icmp partial range refused", "ICMP", 0, 100},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("no request expected")
+			}))
+			_, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+				NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: tt.protocol, CIDR: "203.0.113.0/24", Action: "pass",
+				PortRangeMin: tt.portMin, PortRangeMax: tt.portMax,
+			})
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
 func TestRemoveNetworkACLRuleBadPriority(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
@@ -131,9 +234,9 @@ func TestRemoveNetworkACLRuleBadPriority(t *testing.T) {
 
 func TestAddNetworkACLRuleRequestBodyHoldsDefaultAndNewRules(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil), // pre-write read
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil), // pre-PUT recheck: unchanged
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, {Type: "inbound", SeqNumber: 100, Protocol: "TCP", Port: "443-443", Source: "203.0.113.0/24", Action: "pass"}}, nil), // confirm read
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule}, nil), // pre-write read
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule}, nil), // pre-PUT recheck: unchanged
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule, {Type: "inbound", SeqNumber: 100, Protocol: "tcp", Port: "443", Source: "203.0.113.0/24", Action: "pass"}}, nil), // confirm read
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || r.URL.Path != "/v2/project-1/network-acl/acl-1/rules" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -147,8 +250,8 @@ func TestAddNetworkACLRuleRequestBodyHoldsDefaultAndNewRules(t *testing.T) {
 			t.Fatalf("rules in body = %+v, want 2 entries (the default rule resent, plus the new one)", rules)
 		}
 		first, _ := rules[0].(map[string]any)
-		if first["seqNumber"] != float64(0) || first["system"] != true {
-			t.Fatalf("first rule = %+v, want the default rule resent unchanged with system=true", first)
+		if first["seqNumber"] != float64(2000) || first["system"] != false {
+			t.Fatalf("first rule = %+v, want the deny-all default rule resent unchanged, System false as read", first)
 		}
 		w.WriteHeader(http.StatusOK)
 	})))
@@ -168,7 +271,7 @@ func TestAddNetworkACLRuleRequestBodyHoldsDefaultAndNewRules(t *testing.T) {
 }
 
 func TestAddNetworkACLRuleAlreadyPresentSameFieldsNoOp(t *testing.T) {
-	existing := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "TCP", Port: "443-443", Source: "203.0.113.0/24", Action: "pass"}
+	existing := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "tcp", Port: "443", Source: "203.0.113.0/24", Action: "pass"}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -192,7 +295,7 @@ func TestAddNetworkACLRuleAlreadyPresentSameFieldsNoOp(t *testing.T) {
 }
 
 func TestAddNetworkACLRuleConflictingFieldsErrInvalidInput(t *testing.T) {
-	existing := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "TCP", Port: "443-443", Source: "203.0.113.0/24", Action: "pass"}
+	existing := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "tcp", Port: "443", Source: "203.0.113.0/24", Action: "pass"}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -232,8 +335,8 @@ func TestAddNetworkACLRulePreWriteBoundErrBusy(t *testing.T) {
 
 func TestAddNetworkACLRulePreWriteRecheckMismatchErrBusy(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil), // pre-write read
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, {Type: "outbound", SeqNumber: 200, Protocol: "UDP", Port: "53-53", Source: "198.51.100.0/24", Action: "pass"}}, nil), // pre-PUT recheck: changed
+		aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule}, nil), // pre-write read
+		aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule, {Type: "outbound", SeqNumber: 200, Protocol: "udp", Port: "53-53", Source: "198.51.100.0/24", Action: "pass"}}, nil), // pre-PUT recheck: changed
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
 			t.Fatal("unexpected PUT: a mismatched recheck must send nothing")
@@ -327,11 +430,11 @@ func TestAddNetworkACLRuleNoWaitSkipsPostWritePoll(t *testing.T) {
 // --- RemoveNetworkACLRule read-merge ---
 
 func TestRemoveNetworkACLRuleRequestBodyDropsOnlyTheNamedRuleKeepsDefault(t *testing.T) {
-	removed := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "TCP", Port: "443-443", Source: "203.0.113.0/24", Action: "pass"}
+	removed := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "tcp", Port: "443", Source: "203.0.113.0/24", Action: "pass"}
 	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, removed}, nil), // pre-write read
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, removed}, nil), // pre-PUT recheck: unchanged
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil),          // confirm read
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule, removed}, nil), // pre-write read
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule, removed}, nil), // pre-PUT recheck: unchanged
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule}, nil),          // confirm read
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
 			t.Fatalf("unexpected method %s", r.Method)
@@ -342,8 +445,8 @@ func TestRemoveNetworkACLRuleRequestBodyDropsOnlyTheNamedRuleKeepsDefault(t *tes
 			t.Fatalf("rules in body = %+v, want 1 entry (the default rule, resent)", rules)
 		}
 		entry, _ := rules[0].(map[string]any)
-		if entry["seqNumber"] != float64(0) {
-			t.Fatalf("remaining rule = %+v, want the default rule kept", entry)
+		if entry["seqNumber"] != float64(2000) {
+			t.Fatalf("remaining rule = %+v, want the deny-all default rule kept", entry)
 		}
 		w.WriteHeader(http.StatusOK)
 	})))
@@ -365,7 +468,7 @@ func TestRemoveNetworkACLRuleAbsentReturnsNotFound(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil)))
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule}, nil)))
 		default:
 			t.Fatalf("unexpected method %s: removing an absent rule must send no PUT", r.Method)
 		}
@@ -377,40 +480,85 @@ func TestRemoveNetworkACLRuleAbsentReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestRemoveNetworkACLRuleDefaultRuleRefused(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil)))
-		default:
-			t.Fatalf("unexpected method %s: removing a default rule must send no PUT", r.Method)
+// TestRemoveNetworkACLRulePriorityZeroPassAllRemovable checks fact 3
+// (confirmed live): a PUT that leaves out the seqNumber-0 pass-all rule
+// removes it, so this SDK must let a caller remove it too, unlike a rule
+// at seqNumber 2000 or above.
+func TestRemoveNetworkACLRulePriorityZeroPassAllRemovable(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
+		aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule, denyAllInboundRule}, nil), // pre-write read
+		aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule, denyAllInboundRule}, nil), // pre-PUT recheck: unchanged
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule}, nil),                     // confirm read
+	}, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method %s", r.Method)
 		}
-	}))
+		body := decodeBody(t, r)
+		rules, _ := body["detailAclRuleList"].([]any)
+		if len(rules) != 1 {
+			t.Fatalf("rules in body = %+v, want 1 entry (only the deny-all default rule)", rules)
+		}
+		entry, _ := rules[0].(map[string]any)
+		if entry["seqNumber"] != float64(2000) {
+			t.Fatalf("remaining rule = %+v, want the deny-all default rule, seqNumber 0 dropped", entry)
+		}
+		w.WriteHeader(http.StatusOK)
+	})))
 
-	_, err := c.RemoveNetworkACLRule(context.Background(), &RemoveNetworkACLRuleInput{NetworkACLID: "acl-1", Direction: "inbound", Priority: 0})
-	if err == nil || !strings.Contains(err.Error(), "default rule") {
-		t.Fatalf("err = %v, want a default-rule refusal", err)
+	out, err := c.RemoveNetworkACLRule(context.Background(), &RemoveNetworkACLRuleInput{NetworkACLID: "acl-1", Direction: "inbound", Priority: 0})
+	if err != nil {
+		t.Fatalf("RemoveNetworkACLRule() error = %v, want the priority-0 pass-all rule to be removable", err)
 	}
-	if !errors.Is(err, ErrDefaultResource) {
-		t.Fatalf("err = %v, want ErrDefaultResource", err)
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
 	}
 }
 
-func TestRemoveNetworkACLRuleDefaultByHighPriorityRefused(t *testing.T) {
-	// A default deny rule above the user range, holding no System flag.
-	highPriority := aclRuleEntry{Type: "inbound", SeqNumber: 32767, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "deny"}
+// TestRemoveNetworkACLRuleAtPriority1999Removable checks the boundary
+// opposite TestRemoveNetworkACLRuleDenyAllAtPriority2000Refused: 1999,
+// confirmed live as a working user priority, is an ordinary rule, not a
+// default one.
+func TestRemoveNetworkACLRuleAtPriority1999Removable(t *testing.T) {
+	atBound := aclRuleEntry{Type: "inbound", SeqNumber: 1999, Protocol: "tcp", Port: "22", Source: "203.0.113.0/24", Action: "pass"}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, highPriority}, nil)))
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule, atBound}, nil)))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	out, err := c.RemoveNetworkACLRule(context.Background(), &RemoveNetworkACLRuleInput{NetworkACLID: "acl-1", Direction: "inbound", Priority: 1999, NoWait: true})
+	if err != nil {
+		t.Fatalf("RemoveNetworkACLRule() error = %v, want priority 1999 to be removable", err)
+	}
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+}
+
+// TestRemoveNetworkACLRuleDenyAllAtPriority2000Refused checks fact 3
+// (confirmed live): a PUT that leaves out the seqNumber-2000 deny-all rule
+// keeps it, so this SDK refuses to remove it at all, nothing sent.
+func TestRemoveNetworkACLRuleDenyAllAtPriority2000Refused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule, denyAllInboundRule}, nil)))
 		default:
 			t.Fatalf("unexpected method %s: removing a default rule must send no PUT", r.Method)
 		}
 	}))
 
-	_, err := c.RemoveNetworkACLRule(context.Background(), &RemoveNetworkACLRuleInput{NetworkACLID: "acl-1", Direction: "inbound", Priority: 32767})
+	_, err := c.RemoveNetworkACLRule(context.Background(), &RemoveNetworkACLRuleInput{NetworkACLID: "acl-1", Direction: "inbound", Priority: 2000})
+	if err == nil || !strings.Contains(err.Error(), "default rule") {
+		t.Fatalf("err = %v, want a default-rule refusal", err)
+	}
 	if !errors.Is(err, ErrDefaultResource) {
 		t.Fatalf("err = %v, want ErrDefaultResource", err)
 	}
@@ -424,7 +572,7 @@ func TestRemoveNetworkACLRuleDefaultBySystemFlagRefused(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, systemFlagged}, nil)))
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, []aclRuleEntry{passAllInboundRule, systemFlagged}, nil)))
 		default:
 			t.Fatalf("unexpected method %s: removing a default rule must send no PUT", r.Method)
 		}
@@ -437,10 +585,10 @@ func TestRemoveNetworkACLRuleDefaultBySystemFlagRefused(t *testing.T) {
 }
 
 func TestRemoveNetworkACLRulePreWriteRecheckMismatchErrBusy(t *testing.T) {
-	removed := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "TCP", Port: "443-443", Source: "203.0.113.0/24", Action: "pass"}
+	removed := aclRuleEntry{Type: "inbound", SeqNumber: 100, Protocol: "tcp", Port: "443", Source: "203.0.113.0/24", Action: "pass"}
 	c := withInstantSleep(newTestClient(t, scriptedRouteTableGets(t, []string{
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule, removed}, nil), // pre-write read
-		aclJSON("ACTIVE", false, []aclRuleEntry{defaultInboundRule}, nil),          // pre-PUT recheck: removed is already gone
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule, removed}, nil), // pre-write read
+		aclJSON("ACTIVE", false, []aclRuleEntry{denyAllInboundRule}, nil),          // pre-PUT recheck: removed is already gone
 	}, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
 			t.Fatal("unexpected PUT: a mismatched recheck must send nothing")
@@ -473,5 +621,35 @@ func TestAddNetworkACLRulePUT4xxSurfacesAPIError(t *testing.T) {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
 		t.Fatalf("err = %v, want a 400 *core.APIError", err)
+	}
+}
+
+// TestAddNetworkACLRulePUTBusyMapsToErrBusy checks the busy window
+// confirmed live: a rules PUT sent while the ACL is still busy from a
+// previous write returns 400 with a message naming the ACL busy; this SDK
+// maps that to ErrBusy, since the PUT was rejected outright and changed
+// nothing.
+func TestAddNetworkACLRulePUTBusyMapsToErrBusy(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"The ACL with id acl-1 is busy doing something"}`))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})))
+
+	out, err := c.AddNetworkACLRule(context.Background(), &AddNetworkACLRuleInput{
+		NetworkACLID: "acl-1", Direction: "inbound", Priority: 100, Protocol: "tcp", CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+	})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %+v, want nil: nothing was changed", out)
 	}
 }

@@ -172,8 +172,9 @@ type aclSubnetsReplaceBody struct {
 // Immediately before sending the PUT, it re-reads the ACL and compares
 // those subnets to base.SubnetIDs; see putACLRulesAndConfirm's doc comment
 // for why a mismatch sends nothing and returns an error wrapping ErrBusy
-// instead, and for the narrower race that remains after the PUT itself is
-// sent.
+// instead, for the narrower race that remains after the PUT itself is
+// sent, and for wrapACLBusyErr, which maps the PUT's own busy-window
+// refusal to ErrBusy the same way here as there.
 func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID string, subnetIDs []string, base *ACL, noWait bool) (*ACL, error) {
 	recheck, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: networkACLID})
 	if err != nil {
@@ -196,7 +197,7 @@ func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID s
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+		return nil, wrapACLBusyErr(err)
 	}
 	if noWait {
 		fallback := *base

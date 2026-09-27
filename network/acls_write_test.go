@@ -64,12 +64,19 @@ func aclJSON(status string, defaultACL bool, rules []aclRuleEntry, subnetIDs []s
 	return string(b)
 }
 
-// defaultInboundRule is the one default rule the live probe observed: an
-// inbound allow-all at priority (seqNumber) 0. System is true, as this SDK
-// resends whatever a default rule's own decoded flag was on the read that
-// found it; the live probe never captured a system value, so this is this
-// package's own assumption for its fixtures, not a confirmed one.
-var defaultInboundRule = aclRuleEntry{Type: "inbound", SeqNumber: 0, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "pass", System: true}
+// passAllInboundRule is the ordinary rule a new ACL starts with: an inbound
+// pass-all at priority (seqNumber) 0. Confirmed live, a new ACL's own GET
+// carries no system field at all for this rule, so it decodes System
+// false; isDefaultACLRule does not mark it default by Priority alone, and
+// a caller may remove it like any other rule.
+var passAllInboundRule = aclRuleEntry{Type: "inbound", SeqNumber: 0, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "pass"}
+
+// denyAllInboundRule is one of the default rules a new ACL cannot go
+// without: an inbound deny-all at priority (seqNumber) 2000, confirmed
+// live. Like passAllInboundRule, its GET carries no system field; unlike
+// it, isDefaultACLRule marks this one default by Priority alone (2000 is
+// at aclDefaultRulePriority, one past aclMaxUserPriority).
+var denyAllInboundRule = aclRuleEntry{Type: "inbound", SeqNumber: 2000, Protocol: "ANY", Port: "0-65535", Source: "0.0.0.0/0", Action: "deny"}
 
 // --- GetNetworkACL ---
 
@@ -98,7 +105,7 @@ func TestGetNetworkACLDecodesFixture(t *testing.T) {
 	if acl.Rules[0].Priority != 0 || acl.Rules[0].Direction != "inbound" || acl.Rules[0].Action != "pass" {
 		t.Fatalf("default rule = %+v, unexpected", acl.Rules[0])
 	}
-	if acl.Rules[2].Priority != 100 || acl.Rules[2].Protocol != "TCP" || acl.Rules[2].Port != "443-443" {
+	if acl.Rules[2].Priority != 100 || acl.Rules[2].Protocol != "tcp" || acl.Rules[2].Port != "443-443" {
 		t.Fatalf("user rule = %+v, unexpected", acl.Rules[2])
 	}
 }
@@ -265,8 +272,8 @@ func TestCreateNetworkACLNoIDFails(t *testing.T) {
 
 	_, err := c.CreateNetworkACL(context.Background(), &CreateNetworkACLInput{VPCID: "vpc-1", Name: "web-acl"})
 	var apiErr *core.APIError
-	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list network ACLs") {
-		t.Fatalf("err = %v, want an APIError naming list network ACLs before creating again", err)
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "list network ACLs") || !strings.Contains(apiErr.Message, "createdAt") {
+		t.Fatalf("err = %v, want an APIError naming list network ACLs and createdAt: ACL names repeat, so a same-name ACL may already exist", err)
 	}
 }
 
@@ -285,8 +292,8 @@ func TestCreateNetworkACLNoRetryAfter502(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("POST calls = %d, want 1: a create must never be retried after a 5xx", calls.Load())
 	}
-	if !strings.Contains(err.Error(), "list network ACLs") {
-		t.Fatalf("err = %v, want a hint to list network ACLs before creating again", err)
+	if !strings.Contains(err.Error(), "list network ACLs") || !strings.Contains(err.Error(), "createdAt") {
+		t.Fatalf("err = %v, want a hint to list network ACLs by name and compare createdAt: ACL names repeat, so a same-name ACL may already exist", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -25,6 +26,21 @@ const (
 func isACLServerError(err error) bool {
 	var apiErr *core.APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode >= 500 && apiErr.StatusCode < 600
+}
+
+// wrapACLBusyErr rewraps err with ErrBusy when it is a *core.APIError whose
+// message contains "is busy doing something" (case-insensitive): confirmed
+// live, a rules or subnets PUT sent while the ACL is still busy settling an
+// earlier write, roughly an 18-second window, gets a 400 with that
+// message, and nothing changes. putACLRulesAndConfirm and
+// putACLSubnetsAndConfirm each call this on their own PUT's error. Any
+// other error passes through unchanged.
+func wrapACLBusyErr(err error) error {
+	var apiErr *core.APIError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "is busy doing something") {
+		return fmt.Errorf("%w: %w", ErrBusy, apiErr)
+	}
+	return err
 }
 
 // aclFoundAfterServerError lists network ACLs once and reports whether id
@@ -119,9 +135,10 @@ type createACLBody struct {
 	VPC  string `json:"vpc"`
 }
 
-// CreateNetworkACLInput creates a network ACL in a VPC. Whether ACL names
-// are unique per VPC or per project is not yet confirmed live; a duplicate
-// name fails with the server's own message either way.
+// CreateNetworkACLInput creates a network ACL in a VPC. Confirmed live, ACL
+// names are not unique: creating a second ACL with the same Name in the
+// same VPC succeeds, so a caller cannot tell two same-named ACLs apart by
+// Name alone; compare CreatedAt too.
 type CreateNetworkACLInput struct {
 	VPCID string `vngcloud:"required"`
 	Name  string `vngcloud:"required"`
@@ -132,15 +149,17 @@ type CreateNetworkACLOutput struct {
 }
 
 // CreateNetworkACL creates a network ACL in a VPC. The new ACL is ACTIVE at
-// once (confirmed live) and holds the server's default rules, at least an
-// inbound allow-all rule at priority 0; it starts with no associated
+// once (confirmed live) and holds four default rules: an inbound and an
+// outbound pass-all rule at priority (seqNumber) 0, and an inbound and an
+// outbound deny-all rule at priority 2000; it starts with no associated
 // subnets. CreateNetworkACL takes no wait: its response is final.
 //
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError or
 // core.ErrInvalidInput, the ACL may exist, and the caller lists network
-// ACLs by Name and matches it exactly (the list's own name filter may match
-// by substring) before creating it again, rather than retrying blind.
+// ACLs by Name in the VPC and compares CreatedAt before creating it again,
+// rather than retrying blind, since a same-name ACL may already exist for
+// another reason entirely (see CreateNetworkACLInput).
 func (c *Client) CreateNetworkACL(ctx context.Context, in *CreateNetworkACLInput) (*CreateNetworkACLOutput, error) {
 	const op = "network.CreateNetworkACL"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -168,16 +187,19 @@ func (c *Client) CreateNetworkACL(ctx context.Context, in *CreateNetworkACLInput
 	}
 	if resp.Data.UUID == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status,
-			Message: "create response had no id; the ACL may exist, list network ACLs and match the name exactly before creating it again"}
+			Message: "create response had no id; the ACL may exist, list network ACLs by name in this VPC and compare createdAt, since a same-name ACL may already exist"}
 	}
 	return &CreateNetworkACLOutput{ACL: resp.Data}, nil
 }
 
 // wrapAmbiguousACLCreateErr wraps err, from the create POST op just sent,
-// with a hint to list network ACLs before creating again, unless err is
-// already a 4xx *core.APIError: a 4xx means the server rejected the request
-// outright, so nothing was created and the exact same call is safe to
-// retry. Any other error leaves whether the ACL was created unknown.
+// with a hint to list network ACLs by name and compare createdAt before
+// creating again, unless err is already a 4xx *core.APIError: a 4xx means
+// the server rejected the request outright, so nothing was created and the
+// exact same call is safe to retry. Any other error leaves whether the ACL
+// was created unknown, and, since ACL names repeat, listing by name alone
+// cannot tell a pre-existing ACL from one this create may have just made:
+// CreatedAt is the only way to tell them apart.
 func wrapAmbiguousACLCreateErr(op string, err error) error {
 	if err == nil {
 		return nil
@@ -186,7 +208,7 @@ func wrapAmbiguousACLCreateErr(op string, err error) error {
 	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
 		return err
 	}
-	return fmt.Errorf("%s: create may have already reached the server; list network ACLs and match the name exactly before creating it again: %w", op, err)
+	return fmt.Errorf("%s: create may have already reached the server; list network ACLs by name in this VPC and compare createdAt, since a same-name ACL may already exist: %w", op, err)
 }
 
 // DeleteNetworkACLInput identifies the network ACL to delete.
