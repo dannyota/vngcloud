@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/testutil"
@@ -192,6 +194,119 @@ func TestCreatePoolDuplicateNamePassesThrough(t *testing.T) {
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
 		t.Fatalf("err = %v, want *vngcloud.APIError with status 400", err)
+	}
+}
+
+// TestCreatePoolBusyRefusalResendsOnce checks that a busy refusal on the
+// create POST itself, a race that can still happen right after the
+// pre-write wait passes, is followed by one more wait and exactly one more
+// send: the server did not act on the first attempt, so this is safe.
+func TestCreatePoolBusyRefusalResendsOnce(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == poolLBPath+"/pools":
+			if postCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"load balancer id lb-1 is updating"}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, poolTestPoolID)
+		case r.Method == http.MethodGet && r.URL.Path == poolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, poolTestPoolID, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	out, err := c.CreatePool(context.Background(), validCreatePoolInput())
+	if err != nil {
+		t.Fatalf("CreatePool() error = %v", err)
+	}
+	if out.Pool.UUID != poolTestPoolID {
+		t.Fatalf("Pool = %+v, want uuid %s", out.Pool, poolTestPoolID)
+	}
+	if got := postCalls.Load(); got != 2 {
+		t.Fatalf("POST calls = %d, want 2 (busy refusal, then one resend)", got)
+	}
+}
+
+// TestCreatePoolNonBusyRefusalNoResend checks that a refusal not matching a
+// busy message, such as a duplicate name, is never resent.
+func TestCreatePoolNonBusyRefusalNoResend(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == poolLBPath+"/pools":
+			postCalls.Add(1)
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"duplicated pool name"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	if _, err := c.CreatePool(context.Background(), validCreatePoolInput()); err == nil {
+		t.Fatal("CreatePool() error = nil, want an error")
+	}
+	if got := postCalls.Load(); got != 1 {
+		t.Fatalf("POST calls = %d, want 1 (a non-busy refusal is never resent)", got)
+	}
+}
+
+// TestCreatePoolConcurrentWritesToSameLoadBalancerDoNotOverlap checks that
+// the per-load-balancer lock serializes two CreatePool calls targeting the
+// same LoadBalancerID within one process: the busy resend above assumes the
+// server, not a concurrent goroutine in this process, is the only source of
+// a busy refusal.
+func TestCreatePoolConcurrentWritesToSameLoadBalancerDoNotOverlap(t *testing.T) {
+	var inFlight, maxInFlight, postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == poolLBPath+"/pools":
+			n := inFlight.Add(1)
+			for {
+				m := maxInFlight.Load()
+				if n <= m || maxInFlight.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+			inFlight.Add(-1)
+			id := postCalls.Add(1)
+			_, _ = fmt.Fprintf(w, `{"uuid":"pool-%d"}`, id)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	var wg sync.WaitGroup
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			in := validCreatePoolInput()
+			in.Name = fmt.Sprintf("pool-%d", i)
+			in.NoWait = true
+			if _, err := c.CreatePool(context.Background(), in); err != nil {
+				t.Errorf("CreatePool() error = %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if postCalls.Load() != 2 {
+		t.Fatalf("POST calls = %d, want 2", postCalls.Load())
+	}
+	if got := maxInFlight.Load(); got > 1 {
+		t.Fatalf("max concurrent create POSTs = %d, want 1 (per-load-balancer lock)", got)
 	}
 }
 
@@ -437,6 +552,46 @@ func TestDeletePoolSuccess(t *testing.T) {
 
 	if _, err := c.DeletePool(context.Background(), &DeletePoolInput{LoadBalancerID: poolTestLBID, PoolID: poolTestPoolID}); err != nil {
 		t.Fatalf("DeletePool() error = %v", err)
+	}
+}
+
+// TestDeletePoolBusyRefusalResendsOnce checks that a busy refusal on the
+// DELETE itself, a race after the pre-write wait passed, is followed by one
+// more wait and exactly one more send.
+func TestDeletePoolBusyRefusalResendsOnce(t *testing.T) {
+	var deleteCalls, getCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == poolLBPath+"/listeners":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == poolPath:
+			n := getCalls.Add(1)
+			if n >= 3 {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message":"cannot get pool with id ` + poolTestPoolID + `"}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, poolTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodDelete:
+			if deleteCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"pool id pool-1 is updating"}`))
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	if _, err := c.DeletePool(context.Background(), &DeletePoolInput{LoadBalancerID: poolTestLBID, PoolID: poolTestPoolID}); err != nil {
+		t.Fatalf("DeletePool() error = %v", err)
+	}
+	if got := deleteCalls.Load(); got != 2 {
+		t.Fatalf("DELETE calls = %d, want 2 (busy refusal, then one resend)", got)
 	}
 }
 

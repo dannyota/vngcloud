@@ -243,9 +243,17 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 		Body:      body,
 		OK:        httpStatusOKCreate,
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
-	if err != nil {
-		return nil, wrapAmbiguousCreateErr(op, "list-pools", err)
+	var status int
+	sendErr := sendWithBusyResend(ctx,
+		func(ctx context.Context) error { return c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID) },
+		func() error {
+			var err error
+			status, err = c.c.DoJSONStatus(ctx, req, &resp)
+			return err
+		},
+	)
+	if sendErr != nil {
+		return nil, wrapAmbiguousCreateErr(op, "list-pools", sendErr)
 	}
 	if resp.UUID == "" {
 		return nil, errCreateResponseNoID(op, status, "list-pools")
@@ -446,7 +454,9 @@ func (c *Client) UpdatePool(ctx context.Context, in *UpdatePoolInput) (*UpdatePo
 		Body:      body,
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, poolBusyWaiter(c, op, in.LoadBalancerID, in.PoolID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -477,6 +487,23 @@ func deref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// poolBusyWaiter returns sendWithBusyResend's waitBusy function for a write
+// already targeting an existing pool: waiting again for the load balancer
+// and the pool to both go idle, the same check UpdatePool and DeletePool
+// already ran once before their first send.
+func poolBusyWaiter(c *Client, op, lbID, poolID string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := waitPreWriteReady(c, ctx, op, lbID, "pool", poolID, func(ctx context.Context) (*Pool, string, error) {
+			out, err := c.GetPool(ctx, &GetPoolInput{LoadBalancerID: lbID, PoolID: poolID})
+			if err != nil {
+				return nil, "", err
+			}
+			return &out.Pool, out.Pool.ProgressStatus, nil
+		})
+		return err
+	}
 }
 
 // DeletePoolInput identifies the pool to delete.
@@ -555,7 +582,9 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 		URL:       c.lbURL([]string{projectID, "loadBalancers", in.LoadBalancerID, "pools", in.PoolID}, nil),
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, poolBusyWaiter(c, op, in.LoadBalancerID, in.PoolID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, wrapPoolInUse(op, in.PoolID, err)
 	}
 

@@ -224,6 +224,38 @@ func TestCreateListenerDuplicatePortPassesThrough(t *testing.T) {
 	}
 }
 
+// TestCreateListenerBusyRefusalResendsOnce checks that a busy refusal on the
+// create POST itself, a race after the pre-write wait passed, is followed by
+// one more wait and exactly one more send.
+func TestCreateListenerBusyRefusalResendsOnce(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == listenerLBPath:
+			listenerLBHandler(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == listenerLBPath+"/listeners":
+			if postCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"load balancer id lb-1 is updating"}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, listenerTestID)
+		case r.Method == http.MethodGet && r.URL.Path == listenerPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, listenerTestID, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	if _, err := c.CreateListener(context.Background(), validCreateListenerInput()); err != nil {
+		t.Fatalf("CreateListener() error = %v", err)
+	}
+	if got := postCalls.Load(); got != 2 {
+		t.Fatalf("POST calls = %d, want 2 (busy refusal, then one resend)", got)
+	}
+}
+
 func TestCreateListenerBusyPreWriteBoundExceeded(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == listenerLBPath {

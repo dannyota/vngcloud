@@ -300,6 +300,30 @@ func (c *Client) waitChildDeleted(ctx context.Context, op, lbID, kind, id string
 	return wrapNotSettled(op, kind+" "+id, err)
 }
 
+// sendWithBusyResend runs do, which sends one free write request, and
+// returns its result. If do fails with a busy refusal (isBusyRefusal),
+// meaning the server did not act on it, sendWithBusyResend calls waitBusy to
+// wait for the load balancer (and the child being changed, when waitBusy
+// checks one) to go idle again, then runs do exactly once more and returns
+// that result, whatever it is; a second busy refusal is returned as any
+// other failure would be, with no further resend. Any failure that is not a
+// busy refusal is returned at once, with no resend: a 5xx, a network error,
+// or any other 4xx may have already reached the server, and a create in
+// particular must never be sent twice on the chance it already landed. This
+// is the design's only resend for a free write; it must never wrap a load
+// balancer create, delete, or resize, whose own Once and price-guard rules
+// apply instead.
+func sendWithBusyResend(ctx context.Context, waitBusy func(ctx context.Context) error, do func() error) error {
+	err := do()
+	if err == nil || !isBusyRefusal(err) {
+		return err
+	}
+	if err := waitBusy(ctx); err != nil {
+		return err
+	}
+	return do()
+}
+
 // lockLoadBalancer acquires the per-ID write lock for loadBalancerID,
 // honoring ctx: if ctx ends before the lock is free, it returns ctx.Err()
 // without ever taking the lock. The returned func releases the lock and

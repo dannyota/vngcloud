@@ -147,7 +147,9 @@ func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID
 		Body:      poolMembersReplaceBody{Members: entries},
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, poolBusyWaiter(c, op, lbID, poolID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 	if noWait {

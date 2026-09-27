@@ -175,6 +175,38 @@ func TestCreatePolicyNoResendAfter502(t *testing.T) {
 	}
 }
 
+// TestCreatePolicyBusyRefusalResendsOnce checks that a busy refusal on the
+// create POST itself, a race after the pre-write wait passed, is followed by
+// one more wait and exactly one more send.
+func TestCreatePolicyBusyRefusalResendsOnce(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == policyLBPath:
+			policyLBHandler(w, r)
+		case r.Method == http.MethodPost:
+			if postCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"load balancer id lb-1 is updating"}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, policyTestPolicyID)
+		case r.Method == http.MethodGet && r.URL.Path == policyPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, policyTestPolicyID, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	if _, err := c.CreatePolicy(context.Background(), validCreatePolicyInput()); err != nil {
+		t.Fatalf("CreatePolicy() error = %v", err)
+	}
+	if got := postCalls.Load(); got != 2 {
+		t.Fatalf("POST calls = %d, want 2 (busy refusal, then one resend)", got)
+	}
+}
+
 func TestCreatePolicyBusyPreWriteBoundExceeded(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == policyLBPath {

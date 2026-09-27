@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -305,6 +306,70 @@ func TestPoolMemberConfirmMismatchIsNotSettled(t *testing.T) {
 	_, err := c.RemovePoolMember(context.Background(), in)
 	if !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
+// TestAddPoolMemberBusyRefusalResendsOnce checks that a busy refusal on the
+// members PUT itself, a race after the pre-write wait passed, is followed by
+// one more wait and exactly one more send: the server did not act on the
+// first attempt.
+func TestAddPoolMemberBusyRefusalResendsOnce(t *testing.T) {
+	var putCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			_, _ = w.Write([]byte(memberFixture))
+		case r.Method == http.MethodPut && r.URL.Path == memberMembersPath:
+			if putCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"pool id pool-1 is updating"}`))
+				return
+			}
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080, NoWait: true}
+	if _, err := c.AddPoolMember(context.Background(), in); err != nil {
+		t.Fatalf("AddPoolMember() error = %v", err)
+	}
+	if got := putCalls.Load(); got != 2 {
+		t.Fatalf("PUT calls = %d, want 2 (busy refusal, then one resend)", got)
+	}
+}
+
+// TestAddPoolMemberNonBusyRefusalNoResend checks that a refusal not matching
+// a busy message is never resent.
+func TestAddPoolMemberNonBusyRefusalNoResend(t *testing.T) {
+	var putCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			_, _ = w.Write([]byte(memberFixture))
+		case r.Method == http.MethodPut && r.URL.Path == memberMembersPath:
+			putCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"boom"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080, NoWait: true}
+	if _, err := c.AddPoolMember(context.Background(), in); err == nil {
+		t.Fatal("AddPoolMember() error = nil, want an error")
+	}
+	if got := putCalls.Load(); got != 1 {
+		t.Fatalf("PUT calls = %d, want 1 (a non-busy refusal is never resent)", got)
 	}
 }
 

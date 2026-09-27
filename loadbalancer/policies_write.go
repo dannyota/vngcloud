@@ -215,9 +215,17 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 		Body:      body,
 		OK:        httpStatusOKCreate,
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
-	if err != nil {
-		return nil, wrapAmbiguousCreateErr(op, "list-policies", err)
+	var status int
+	sendErr := sendWithBusyResend(ctx,
+		func(ctx context.Context) error { return c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID) },
+		func() error {
+			var err error
+			status, err = c.c.DoJSONStatus(ctx, req, &resp)
+			return err
+		},
+	)
+	if sendErr != nil {
+		return nil, wrapAmbiguousCreateErr(op, "list-policies", sendErr)
 	}
 	if resp.UUID == "" {
 		return nil, errCreateResponseNoID(op, status, "list-policies")
@@ -366,7 +374,9 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 		Body:      body,
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, policyBusyWaiter(c, op, in.LoadBalancerID, in.ListenerID, in.PolicyID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -453,7 +463,9 @@ func (c *Client) DeletePolicy(ctx context.Context, in *DeletePolicyInput) (*Dele
 		URL:       c.lbURL([]string{projectID, "loadBalancers", in.LoadBalancerID, "listeners", in.ListenerID, "l7policies", in.PolicyID}, nil),
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, policyBusyWaiter(c, op, in.LoadBalancerID, in.ListenerID, in.PolicyID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -471,4 +483,21 @@ func (c *Client) DeletePolicy(ctx context.Context, in *DeletePolicyInput) (*Dele
 		return out.Policy.ProgressStatus, false, nil
 	})
 	return &DeletePolicyOutput{}, err
+}
+
+// policyBusyWaiter returns sendWithBusyResend's waitBusy function for a
+// write already targeting an existing policy: waiting again for the load
+// balancer and the policy to both go idle, the same check UpdatePolicy and
+// DeletePolicy already ran once before their first send.
+func policyBusyWaiter(c *Client, op, lbID, listenerID, policyID string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := waitPreWriteReady(c, ctx, op, lbID, "policy", policyID, func(ctx context.Context) (*Policy, string, error) {
+			out, err := c.GetPolicy(ctx, &GetPolicyInput{LoadBalancerID: lbID, ListenerID: listenerID, PolicyID: policyID})
+			if err != nil {
+				return nil, "", err
+			}
+			return &out.Policy, out.Policy.ProgressStatus, nil
+		})
+		return err
+	}
 }

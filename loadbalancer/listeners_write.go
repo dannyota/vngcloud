@@ -255,9 +255,17 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 		Body:      body,
 		OK:        httpStatusOKCreate,
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
-	if err != nil {
-		return nil, wrapAmbiguousCreateErr(op, "list-listeners", err)
+	var status int
+	sendErr := sendWithBusyResend(ctx,
+		func(ctx context.Context) error { return c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID) },
+		func() error {
+			var err error
+			status, err = c.c.DoJSONStatus(ctx, req, &resp)
+			return err
+		},
+	)
+	if sendErr != nil {
+		return nil, wrapAmbiguousCreateErr(op, "list-listeners", sendErr)
 	}
 	if resp.UUID == "" {
 		return nil, errCreateResponseNoID(op, status, "list-listeners")
@@ -424,7 +432,9 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 		Body:      body,
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, listenerBusyWaiter(c, op, in.LoadBalancerID, in.ListenerID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -508,7 +518,9 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 		URL:       c.lbURL([]string{projectID, "loadBalancers", in.LoadBalancerID, "listeners", in.ListenerID}, nil),
 		OK:        httpStatusOKWrite,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := sendWithBusyResend(ctx, listenerBusyWaiter(c, op, in.LoadBalancerID, in.ListenerID), func() error {
+		return c.c.DoJSON(ctx, req, nil)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -526,4 +538,21 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 		return out.Listener.ProgressStatus, false, nil
 	})
 	return &DeleteListenerOutput{}, err
+}
+
+// listenerBusyWaiter returns sendWithBusyResend's waitBusy function for a
+// write already targeting an existing listener: waiting again for the load
+// balancer and the listener to both go idle, the same check UpdateListener
+// and DeleteListener already ran once before their first send.
+func listenerBusyWaiter(c *Client, op, lbID, listenerID string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := waitPreWriteReady(c, ctx, op, lbID, "listener", listenerID, func(ctx context.Context) (*Listener, string, error) {
+			out, err := c.GetListener(ctx, &GetListenerInput{LoadBalancerID: lbID, ListenerID: listenerID})
+			if err != nil {
+				return nil, "", err
+			}
+			return &out.Listener, out.Listener.ProgressStatus, nil
+		})
+		return err
+	}
 }
