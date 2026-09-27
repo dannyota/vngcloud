@@ -1,7 +1,7 @@
 # IAM Writes Design
 
-Status: Proposed. The owner decides the items under
-[Owner decisions](#owner-decisions).
+Status: Accepted (2026-09-27). The owner approved every recommendation
+under [Owner decisions](#owner-decisions), with guard option (d).
 
 This design adds IAM service account, group, and policy writes to `iam`,
 with the reads they need and CLI commands. It is picks 9 and 10 of the
