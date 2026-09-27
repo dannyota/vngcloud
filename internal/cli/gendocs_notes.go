@@ -444,6 +444,33 @@ const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices t
 	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
 	"checks this request's shape before it checks the ID."
 
+// loadbalancerCreateLoadBalancerNote documents create-load-balancer's price
+// guard default, its MaxPrice guard, the unretried order, the post-order
+// wait bound, and the Internet Scheme guard: the flag table shows Scheme as
+// a plain, unconditional string, with no hint that one value needs --yes.
+const loadbalancerCreateLoadBalancerNote = "Orders nothing above --max-price, default 0: a bare " +
+	"create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, " +
+	"or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same " +
+	"fields, so the order always prices what was just quoted. The order itself is never retried after a " +
+	"failure that may have already reached the server; list load balancers by name " +
+	"(list-load-balancers --name) and match it exactly before ordering again rather than repeating this " +
+	"command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR " +
+	"during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load " +
+	"balancer printed alongside the error, and the write must not be repeated. Scheme Internet needs --yes, " +
+	"matched case-insensitively: an Internet load balancer gets a public address reachable from the entire " +
+	"internet for as long as it exists."
+
+// loadbalancerDeleteLoadBalancerNote documents delete-load-balancer's
+// read-first behavior, its post-delete wait, and that what happens to its
+// listeners and pools is unverified live: the flag table shows only
+// --load-balancer-id, with no hint of any of this.
+const loadbalancerDeleteLoadBalancerNote = "Reads the load balancer first: an unknown --load-balancer-id is " +
+	"NotFound, and one already DELETING is waited on rather than sent a second DELETE. Deleting a load " +
+	"balancer loses its address and its prepaid time for good; what happens to its listeners and pools, if " +
+	"any exist, is unverified live. Without --no-wait, waits up to 15 minutes for the load balancer to 404; " +
+	"ERROR during that wait is WriteFailed, and a timeout is NotSettled, but a rerun is always safe: this " +
+	"command reads first."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -526,6 +553,8 @@ var docOpNotes = map[string]string{
 	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
 	"loadbalancer quote-create-load-balancer": loadbalancerQuoteCreateLoadBalancerNote,
 	"loadbalancer quote-resize-load-balancer": loadbalancerQuoteResizeLoadBalancerNote,
+	"loadbalancer create-load-balancer":       loadbalancerCreateLoadBalancerNote,
+	"loadbalancer delete-load-balancer":       loadbalancerDeleteLoadBalancerNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,

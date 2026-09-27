@@ -2,6 +2,27 @@
 
 # CLI: LoadBalancer
 
+## create-load-balancer
+
+Kind: Write.
+
+Orders nothing above --max-price, default 0: a bare create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same fields, so the order always prices what was just quoted. The order itself is never retried after a failure that may have already reached the server; list load balancers by name (list-load-balancers --name) and match it exactly before ordering again rather than repeating this command. Without --no-wait, waits up to 20 minutes for the new load balancer to reach CREATED; ERROR during that wait is WriteFailed, and a timeout is NotSettled, either way with the last-read load balancer printed alongside the error, and the write must not be repeated. Scheme Internet needs --yes, matched case-insensitively: an Internet load balancer gets a public address reachable from the entire internet for as long as it exists.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `--type` | `string` | yes |
+| `--scheme` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> --type <type> --scheme <scheme> --subnet-id <subnet-id> --zone-id <zone-id>
+```
+
 ## delete-certificate
 
 Kind: Write, destructive.
@@ -14,6 +35,21 @@ Refuses, before any request, a certificate a listener still uses (error code Res
 
 ```sh
 vngcloud loadbalancer delete-certificate --certificate-id <certificate-id> --yes
+```
+
+## delete-load-balancer
+
+Kind: Write, destructive.
+
+Reads the load balancer first: an unknown --load-balancer-id is NotFound, and one already DELETING is waited on rather than sent a second DELETE. Deleting a load balancer loses its address and its prepaid time for good; what happens to its listeners and pools, if any exist, is unverified live. Without --no-wait, waits up to 15 minutes for the load balancer to 404; ERROR during that wait is WriteFailed, and a timeout is NotSettled, but a rerun is always safe: this command reads first.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud loadbalancer delete-load-balancer --load-balancer-id <load-balancer-id> --yes
 ```
 
 ## get-certificate

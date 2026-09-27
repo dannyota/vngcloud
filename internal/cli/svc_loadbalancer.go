@@ -26,6 +26,13 @@ import (
 // writes design's L1 release: Read, per ADR 0002 rule 1, since a quote
 // orders nothing; both hide MaxPrice and NoWait with NoFlag since both
 // govern only an actual create or resize, which this SDK does not send yet.
+//
+// create-load-balancer and delete-load-balancer are the design's L2
+// release. create-load-balancer takes requireYesForInternetLoadBalancer
+// (svc_loadbalancer_create.go) as its Guard: Scheme has no default, so the
+// design's own --yes rule applies only once the caller actually names
+// Internet. delete-load-balancer is Destructive: a deleted load balancer
+// loses its address and its prepaid time for good.
 var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ListLoadBalancersInput, loadbalancer.ListLoadBalancersOutput](
 		kebab("ListLoadBalancers"), (*loadbalancer.Client).ListLoadBalancers),
@@ -64,6 +71,11 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 	Read[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, pricing.GetQuoteOutput](
 		kebab("QuoteResizeLoadBalancer"), (*loadbalancer.Client).QuoteResizeLoadBalancer,
 		NoFlag("MaxPrice", "NoWait")),
+	Write[loadbalancer.Client, loadbalancer.CreateLoadBalancerInput, loadbalancer.CreateLoadBalancerOutput](
+		kebab("CreateLoadBalancer"), (*loadbalancer.Client).CreateLoadBalancer,
+		Guard(requireYesForInternetLoadBalancer)),
+	Write[loadbalancer.Client, loadbalancer.DeleteLoadBalancerInput, loadbalancer.DeleteLoadBalancerOutput](
+		kebab("DeleteLoadBalancer"), (*loadbalancer.Client).DeleteLoadBalancer, Destructive()),
 }
 
 func newLoadBalancerCmd(e *env) *cobra.Command {

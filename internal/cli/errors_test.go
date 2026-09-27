@@ -163,6 +163,19 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1 is in use", loadbalancer.ErrCertificateInUse),
 			1,
 		},
+		{"loadbalancer write failed", fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 is ERROR", loadbalancer.ErrFailed), 1},
+		{"loadbalancer not settled", fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 did not reach CREATED", loadbalancer.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during a vLB post-write wait must exit the same way (1),
+			// checked ahead of the context-canceled rule above, the same rule
+			// the vDNS, network, compute, containerregistry, and iam cases
+			// above follow.
+			"loadbalancer not settled after a canceled context",
+			fmt.Errorf("%w: %w", loadbalancer.ErrNotSettled, context.Canceled),
+			1,
+		},
+		{"loadbalancer resource busy", fmt.Errorf("%w: loadbalancer.ResizeLoadBalancer: load balancer lb-1 is not ready", loadbalancer.ErrBusy), 1},
+		{"loadbalancer resource in use", fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1 is used in listener listener-1 as its default pool", loadbalancer.ErrInUse), 1},
 		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
 		{"network resource busy", fmt.Errorf("%w: route table rt-1 is not ACTIVE", network.ErrBusy), 1},
 		{
@@ -478,6 +491,37 @@ func TestClassify(t *testing.T) {
 			"loadbalancer certificate in use wrapping an inner APIError",
 			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1: %w", loadbalancer.ErrCertificateInUse,
 				&vngcloud.APIError{Operation: "loadbalancer.DeleteCertificate", StatusCode: 409, Code: "Conflict", Message: "certificate is used by a listener"}),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"loadbalancer write failed",
+			fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 is ERROR", loadbalancer.ErrFailed),
+			"WriteFailed", 0, "",
+		},
+		{
+			"loadbalancer not settled",
+			fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 did not reach CREATED", loadbalancer.ErrNotSettled),
+			"NotSettled", 0, "",
+		},
+		{
+			"loadbalancer resource busy",
+			fmt.Errorf("%w: loadbalancer.ResizeLoadBalancer: load balancer lb-1 is not ready within 10m0s; nothing sent", loadbalancer.ErrBusy),
+			"ResourceBusy", 0, "",
+		},
+		{
+			"loadbalancer resource in use (pool named as a listener's default pool)",
+			fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1 is used in listener listener-1 as its default pool", loadbalancer.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			// wrapPoolInUse (loadbalancer/pools_write.go) rewraps the server's
+			// own refusal of the DELETE itself, an *APIError, alongside
+			// ErrInUse; Code must still be ResourceInUse, not that inner
+			// APIError's own status-derived code, the same way
+			// network.ErrInUse wins over its own inner APIError above.
+			"loadbalancer resource in use wrapping an inner APIError",
+			fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1: %w", loadbalancer.ErrInUse,
+				&vngcloud.APIError{Operation: "loadbalancer.DeletePool", StatusCode: 409, Code: "Conflict", Message: "pool is used in listener listener-1"}),
 			"ResourceInUse", 0, "",
 		},
 		{
