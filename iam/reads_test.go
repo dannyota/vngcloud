@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // TestListUsersPaging checks that Page 0 sends pageNumber=0 and a
@@ -200,22 +204,56 @@ func TestListServiceAccountPolicies(t *testing.T) {
 }
 
 // TestIAMHostRouting checks that policies calls go to the IAM endpoint and
-// accounts calls go to Dashboard, and that each can be overridden
-// independently.
+// accounts calls go to Dashboard, independently: Dashboard and IAM are two
+// separate servers here, so a call reaching the wrong one fails the test
+// instead of passing by coincidence. Building the Set this way is exactly
+// what an endpoint override produces (the two fields are set independently
+// of each other), so this also proves that overriding one host's URL never
+// moves the other's calls.
 func TestIAMHostRouting(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var dashboardHits, iamHits int
+	dashboard := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dashboardHits++
+		if r.URL.Path != "/accounts-api/v1/service-accounts" {
+			t.Fatalf("dashboard server received unexpected path: %s", r.URL.Path)
+		}
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
+	defer dashboard.Close()
+
+	iamHost := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		iamHits++
+		if r.URL.Path != "/policies-api/v1/policies" {
+			t.Fatalf("IAM server received unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer iamHost.Close()
+
+	tc := transport.New(transport.Config{HTTPClient: &http.Client{}})
+	cfg := core.NewTestConfig("hcm-3", "project-1", endpoints.Set{
+		Region:    "hcm-3",
+		Dashboard: dashboard.URL + "/",
+		IAM:       iamHost.URL + "/",
+	}, tc)
+	c := New(cfg)
+
 	if _, err := c.ListPolicies(context.Background(), nil); err != nil {
 		t.Fatalf("ListPolicies() error = %v", err)
 	}
 	if _, err := c.ListServiceAccounts(context.Background(), nil); err != nil {
 		t.Fatalf("ListServiceAccounts() error = %v", err)
 	}
+	if dashboardHits != 1 {
+		t.Fatalf("dashboard server hits = %d, want 1", dashboardHits)
+	}
+	if iamHits != 1 {
+		t.Fatalf("IAM server hits = %d, want 1", iamHits)
+	}
 }
 
-// TestIAMPathIDRejection checks that every path ID field is rejected before
-// any request for "..", ".", "/", "?", and empty.
+// TestIAMPathIDRejection checks that every call taking a path ID field
+// rejects "..", ".", "/", "?", and empty before any request.
 func TestIAMPathIDRejection(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
@@ -229,6 +267,30 @@ func TestIAMPathIDRejection(t *testing.T) {
 		}
 		if _, err := c.GetServiceAccount(context.Background(), &GetServiceAccountInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("GetServiceAccount(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ListPolicyAttachments(context.Background(), &ListPolicyAttachmentsInput{PolicyID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListPolicyAttachments(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ListGroupPolicies(context.Background(), &ListGroupPoliciesInput{GroupID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListGroupPolicies(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ListUserPolicies(context.Background(), &ListUserPoliciesInput{UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListUserPolicies(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ListUserGroups(context.Background(), &ListUserGroupsInput{UserID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListUserGroups(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ListServiceAccountPolicies(context.Background(), &ListServiceAccountPoliciesInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ListServiceAccountPolicies(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.UpdateServiceAccount(context.Background(), &UpdateServiceAccountInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("UpdateServiceAccount(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.DeleteServiceAccount(context.Background(), &DeleteServiceAccountInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("DeleteServiceAccount(%q) err = %v, want ErrInvalidInput", id, err)
+		}
+		if _, err := c.ResetServiceAccountSecret(context.Background(), &ResetServiceAccountSecretInput{ServiceAccountID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("ResetServiceAccountSecret(%q) err = %v, want ErrInvalidInput", id, err)
 		}
 	}
 }

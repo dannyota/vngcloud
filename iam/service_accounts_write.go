@@ -21,7 +21,9 @@ type CreateServiceAccountInput struct {
 // CreateServiceAccountOutput's ClientSecret is a vngcloud.Secret, never a
 // plain string: printing, logging, or JSON-encoding the Output gives
 // "[redacted]" for this field, and Reveal is the only way to read the value
-// back out. ClientSecret is empty when the create response holds none.
+// back out. ClientSecret is empty when the create response holds none, in
+// which case CreateServiceAccount also returns ErrNoSecret alongside this
+// Output rather than nil.
 type CreateServiceAccountOutput struct {
 	ServiceAccount ServiceAccount
 	ClientSecret   vngcloud.Secret
@@ -43,19 +45,28 @@ type createServiceAccountResponse struct {
 
 // CreateServiceAccount creates a service account and returns its client
 // secret alongside it, read back with GetServiceAccount after the create.
-// If that read fails, the returned error says the service account was
-// created and names its ID.
+//
+// CreateServiceAccount returns a non-nil Output whenever the create request
+// itself succeeded, even when it also returns an error, so a caller never
+// loses a real secret to a problem after the fact:
+//   - If the read-back fails, Output carries the create response's own ID
+//     (with every other ServiceAccount field left zero) and client secret,
+//     and the error wraps ErrCreateUnconfirmed.
+//   - If the create response carried no client secret, Output's
+//     ClientSecret is empty and the error wraps ErrNoSecret; the account
+//     was still created, and its ID is in Output.ServiceAccount.ID.
 //
 // The request sets transport.Request.Sensitive, so the response never
 // reaches the configured response-capture hook, and a decode failure never
 // quotes the response body either.
 //
-// It is a POST and is never retried after a failure that may have already
-// reached the server: after any error that is not a 4xx *core.APIError, the
-// service account may exist, and the caller lists service accounts by Name
-// before creating it again, rather than retrying blind; a service account
-// found that way has already lost its client secret and should have its
-// secret reset.
+// It sets transport.Request.Once: a resend after a 401 or a followed
+// redirect would create a second service account, so the request is sent at
+// most once. After any error that is not a 4xx *core.APIError, the service
+// account may exist regardless, and the caller lists service accounts by
+// Name before creating it again, rather than retrying blind; a service
+// account found that way has already lost its client secret and should have
+// its secret reset.
 func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAccountInput) (*CreateServiceAccountOutput, error) {
 	const op = "iam.CreateServiceAccount"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -70,6 +81,7 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 		Body:      createServiceAccountBody{Name: in.Name, Description: in.Description},
 		OK:        []int{201},
 		Sensitive: true,
+		Once:      true,
 	}
 	if _, err := c.c.DoJSONStatus(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousServiceAccountCreateErr(op, in.Name, err)
@@ -77,15 +89,18 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 	if resp.ID == "" {
 		return nil, &core.APIError{Operation: op, Message: "create response had no id; a service account may exist, check with list-service-accounts --name"}
 	}
+	secret := vngcloud.Secret(resp.ClientSecret)
 
 	got, err := c.GetServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: resp.ID})
 	if err != nil {
-		return nil, fmt.Errorf("%s: service account %s was created but the read to confirm it failed: %w", op, resp.ID, err)
+		out := &CreateServiceAccountOutput{ServiceAccount: ServiceAccount{ID: resp.ID}, ClientSecret: secret}
+		return out, fmt.Errorf("%s: service account %s was created but the read to confirm it failed: %w: %w", op, resp.ID, ErrCreateUnconfirmed, err)
 	}
-	return &CreateServiceAccountOutput{
-		ServiceAccount: got.ServiceAccount,
-		ClientSecret:   vngcloud.Secret(resp.ClientSecret),
-	}, nil
+	out := &CreateServiceAccountOutput{ServiceAccount: got.ServiceAccount, ClientSecret: secret}
+	if secret == "" {
+		return out, fmt.Errorf("%s: %w: create response had no client secret; run reset-service-account-secret to get one", op, ErrNoSecret)
+	}
+	return out, nil
 }
 
 // wrapAmbiguousServiceAccountCreateErr wraps err from CreateServiceAccount
@@ -208,7 +223,9 @@ type ResetServiceAccountSecretInput struct {
 }
 
 // ResetServiceAccountSecretOutput's ClientSecret is a vngcloud.Secret; see
-// CreateServiceAccountOutput's doc comment.
+// CreateServiceAccountOutput's doc comment. ClientSecret is empty only when
+// ResetServiceAccountSecret also returns ErrNoSecret: the reset itself still
+// succeeded.
 type ResetServiceAccountSecretOutput struct {
 	ClientSecret vngcloud.Secret
 }
@@ -219,7 +236,11 @@ type resetServiceAccountSecretResponse struct {
 
 // ResetServiceAccountSecret replaces a service account's client secret and
 // returns the new value. The old secret stops working immediately; there is
-// no way to recover it.
+// no way to recover it. If the response reports success but carries no
+// client secret, ResetServiceAccountSecret returns ErrNoSecret: the reset
+// most likely already rotated the secret without returning it, so the old
+// secret must be treated as revoked, and the caller should reset again to
+// get a usable value.
 //
 // The guard runs first and sends nothing when it refuses: ErrSelfChange if
 // ServiceAccountID is the caller, or ErrPrivilegedChange if it holds a
@@ -229,12 +250,13 @@ type resetServiceAccountSecretResponse struct {
 // reaches the configured response-capture hook, and a decode failure never
 // quotes the response body either.
 //
-// It is a POST and is never retried after a failure that may have already
-// reached the server: after any error that is not a 4xx *core.APIError,
-// whether the reset reached the server is unknown, and there is no read
-// that shows whether a secret changed, so the caller should treat the
-// previous secret as no longer trustworthy and reset again if it still
-// works.
+// It sets transport.Request.Once: a resend after a 401 or a followed
+// redirect would rotate the secret a second time, discarding the first
+// rotation's value before the caller ever saw it, so the request is sent at
+// most once. After any error that is not a 4xx *core.APIError, whether the
+// reset reached the server is unknown, and there is no read that shows
+// whether a secret changed, so the caller should treat the previous secret
+// as no longer trustworthy and reset again if it still works.
 func (c *Client) ResetServiceAccountSecret(ctx context.Context, in *ResetServiceAccountSecretInput) (*ResetServiceAccountSecretOutput, error) {
 	const op = "iam.ResetServiceAccountSecret"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -254,9 +276,13 @@ func (c *Client) ResetServiceAccountSecret(ctx context.Context, in *ResetService
 		URL:       c.accountsURL([]string{"service-accounts", in.ServiceAccountID, "reset-secret"}, nil),
 		OK:        []int{200},
 		Sensitive: true,
+		Once:      true,
 	}
 	if _, err := c.c.DoJSONStatus(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousResetSecretErr(op, in.ServiceAccountID, err)
+	}
+	if resp.ClientSecret == "" {
+		return &ResetServiceAccountSecretOutput{}, fmt.Errorf("%s: %w: the secret was probably rotated by this call but not returned; reset again to get a usable value", op, ErrNoSecret)
 	}
 	return &ResetServiceAccountSecretOutput{ClientSecret: vngcloud.Secret(resp.ClientSecret)}, nil
 }

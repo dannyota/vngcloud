@@ -5299,20 +5299,22 @@ func TestLiveWriteIAMServiceAccount(t *testing.T) {
 	name := "vngcloud-live-" + suffix
 
 	created, err := client.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{Name: name, Description: "vngcloud live write test"})
-	if err != nil {
+	// CreateServiceAccount returns a non-nil Output whenever the create
+	// request itself succeeded, even when it also returns iam.ErrNoSecret or
+	// iam.ErrCreateUnconfirmed: the account exists either way, so cleanup
+	// (step 3) is registered from created.ServiceAccount.ID before this Fatals
+	// on err, or the account would leak past this test.
+	if created == nil {
 		t.Fatalf("step 2 CreateServiceAccount: %s", safeErr(err))
 	}
 	serviceAccountID := created.ServiceAccount.ID
 	if serviceAccountID == "" {
-		t.Fatal("step 2: CreateServiceAccount returned an empty id")
+		t.Fatalf("step 2: CreateServiceAccount returned an empty id: %s", safeErr(err))
 	}
-	firstSecret := created.ClientSecret.Reveal()
-	writeLiveSecretFile(t, "secret-1", firstSecret)
-	t.Logf("step 2: created service account, secret present=%v", firstSecret != "")
 
 	// Step 3: register cleanup and the final remaining-account check as soon
-	// as serviceAccountID is known, before any later step can fail and skip
-	// the explicit delete below.
+	// as serviceAccountID is known, before any later step (err from step 2
+	// included) can fail and skip the explicit delete below.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -5329,6 +5331,13 @@ func TestLiveWriteIAMServiceAccount(t *testing.T) {
 			t.Errorf("cleanup: expected 0 vngcloud-live service accounts, found %d", len(live))
 		}
 	})
+
+	if err != nil {
+		t.Fatalf("step 2 CreateServiceAccount: %s", safeErr(err))
+	}
+	firstSecret := created.ClientSecret.Reveal()
+	writeLiveSecretFile(t, "secret-1", firstSecret)
+	t.Logf("step 2: created service account, secret present=%v", firstSecret != "")
 
 	// Step 4: read it back.
 	got, err := client.GetServiceAccount(ctx, &iam.GetServiceAccountInput{ServiceAccountID: serviceAccountID})
