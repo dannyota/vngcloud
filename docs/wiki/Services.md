@@ -18,9 +18,11 @@ changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
 [Compute](Compute.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
-[Container Registry](#container-registry) below. `iam` reads caller
-identity, users, actions, policies, groups, and service accounts. See
-[IAM](#iam) below.
+[Container Registry](#container-registry) below. `iam` covers IAM reads
+and service account writes: a service account can be created, updated,
+have its secret reset, and deleted, each guarded against changing the
+caller's own access or a principal that already holds an IAM write right.
+See [IAM](#iam) below.
 
 ## Coverage
 
@@ -35,7 +37,7 @@ identity, users, actions, policies, groups, and service accounts. See
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
-| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below. |
+| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
 
 ## Project
 
@@ -375,3 +377,70 @@ first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it
 can be read and attached, but never updated or deleted.
+
+### Service account writes
+
+```go
+created, err := iamClient.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{
+	Name:        "app",
+	Description: "app service account",
+})
+if err != nil {
+	log.Fatal(err)
+}
+secret := created.ClientSecret.Reveal() // save this now; it is never shown again
+
+if _, err := iamClient.UpdateServiceAccount(ctx, &iam.UpdateServiceAccountInput{
+	ServiceAccountID: created.ServiceAccount.ID,
+	Description:      vngcloud.Ptr("renamed"),
+}); err != nil {
+	log.Fatal(err)
+}
+
+reset, err := iamClient.ResetServiceAccountSecret(ctx, &iam.ResetServiceAccountSecretInput{
+	ServiceAccountID: created.ServiceAccount.ID,
+})
+if err != nil {
+	log.Fatal(err)
+}
+newSecret := reset.ClientSecret.Reveal()
+
+if _, err := iamClient.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{
+	ServiceAccountID: created.ServiceAccount.ID,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+`ClientSecret` is a `vngcloud.Secret`, the same type `compute.CreateSSHKey`
+returns for a private key: printing, logging, or JSON-encoding it gives
+`"[redacted]"`, and `Reveal()` is the only way to read the value back out.
+See [Compute](Compute.md#the-private-key-is-a-secret) for the full
+redaction contract. `CreateServiceAccountOutput.ClientSecret` is empty
+when the create response holds no secret; `ResetServiceAccountSecret`
+always returns one on success.
+
+`CreateServiceAccount` and `ResetServiceAccountSecret` are `POST` and are
+never retried after a failure that may have already reached the server:
+after any error that is not a 4xx `*vngcloud.APIError`, call
+`ListServiceAccounts` with `Name` and look for the service account before
+creating it again, rather than retrying blind. One found that way after a
+failed create has already lost its client secret. A failed reset cannot be
+checked this way at all: there is no read that shows whether the secret
+changed, so treat the previous one as no longer trustworthy either way.
+
+`UpdateServiceAccount`, `DeleteServiceAccount`, and
+`ResetServiceAccountSecret` refuse to run, sending no request, when their
+target is the caller itself or holds a policy that grants an IAM write
+right, such as `CreatePolicy` or `AttachPolicyToIamUser`, found through the
+account's own action list:
+
+| Sentinel | Meaning |
+|-|-|
+| `iam.ErrSelfChange` | The target service account is the caller |
+| `iam.ErrPrivilegedChange` | The target holds a policy that grants an IAM write right, or the caller's own type could not be classified |
+
+Neither error names the policy, statement, or action involved, and there is
+no way to turn either guard off; make such a change from the IAM console
+instead. `CreateServiceAccount` has no guard: creating a service account
+changes no one's rights.

@@ -7,6 +7,7 @@ package iam
 import (
 	"net/url"
 	"strconv"
+	"sync"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -16,6 +17,17 @@ import (
 // Client is the iam service client.
 type Client struct {
 	c *core.Client
+
+	// guardMu protects guardCaller and guardActions, the only state a guard
+	// check reuses across calls: the caller's identity and the account's
+	// IAM action list. Every other guard read, such as a service account's
+	// attached policies, is fetched fresh for each guarded write. A nil
+	// guardCaller or guardActions means nothing is cached yet; ListActions
+	// never returns a nil slice on success (see actions.go), so a cached
+	// empty list still reads as populated.
+	guardMu      sync.Mutex
+	guardCaller  *GetCallerIdentityOutput
+	guardActions []Action
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
