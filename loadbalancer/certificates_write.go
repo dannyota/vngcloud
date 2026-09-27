@@ -28,6 +28,17 @@ const (
 // the DELETE itself named it, whatever status the server used.
 var ErrCertificateInUse = errors.New("loadbalancer: certificate in use")
 
+// ImportCertificateWithheldMessage replaces the server's own message on
+// every failing ImportCertificate response, whatever the status: the status
+// and the code (still run through transport.Request.Redact as defense in
+// depth) still come from the server, but the message never does.
+// transport.Request.Redact cannot be proven to catch every way a server
+// might echo a rejected key or passphrase back (an escaped character, a
+// truncated or re-wrapped line, a \uXXXX escape, or the value encoded whole
+// in a different form), so ImportCertificate never trusts it alone for the
+// message.
+const ImportCertificateWithheldMessage = "server message withheld: it may quote the private key"
+
 // certificatePrivateKeyMarker is the text every PEM private key header
 // contains ("-----BEGIN ... PRIVATE KEY-----"). ImportCertificate refuses a
 // Certificate or CertificateChain holding it, so a caller who passes a key
@@ -150,9 +161,11 @@ func wrapAmbiguousCertificateImportErr(op, name string, err error) error {
 // way is complete, since its key already went in the request.
 //
 // The request sets transport.Request.Sensitive, so the response never
-// reaches the configured response-capture hook, and Redact with PrivateKey
-// and Passphrase, so a rejecting response's error message never echoes
-// either back, even a single line of a multi-line key.
+// reaches the configured response-capture hook, and WithholdMessage, so a
+// failing response's returned error always carries
+// ImportCertificateWithheldMessage instead of the server's own message,
+// whatever the status. Redact still runs with PrivateKey and Passphrase, as
+// defense in depth for the error's Code.
 func (c *Client) ImportCertificate(ctx context.Context, in *ImportCertificateInput) (*ImportCertificateOutput, error) {
 	const op = "loadbalancer.ImportCertificate"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -211,9 +224,10 @@ func (c *Client) ImportCertificate(ctx context.Context, in *ImportCertificateInp
 			PrivateKey:       privateKey,
 			Passphrase:       passphrase,
 		},
-		OK:        []int{201},
-		Sensitive: true,
-		Redact:    []string{privateKey, passphrase},
+		OK:              []int{201},
+		Sensitive:       true,
+		Redact:          []string{privateKey, passphrase},
+		WithholdMessage: ImportCertificateWithheldMessage,
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
@@ -251,18 +265,56 @@ func wrapCertificateDeleteErr(op, certificateID string, err error) error {
 	return err
 }
 
+// certificateListConfirmSize is the page size certificateFoundAfterError
+// requests: core.DefaultPageSize, the same size ListCertificates(ctx, nil)
+// already requests by default. Naming it here lets the inconclusive check
+// compare the server's actual PageSize against what was asked for.
+const certificateListConfirmSize = core.DefaultPageSize
+
+// certificateListInconclusive reports whether out, a response to a list
+// requested with requestedSize, cannot be trusted to prove a certificate
+// absent, and if so, an error describing why. It is called only after out.Items
+// has already been checked for the id in question, so every case here is
+// about certificates the response did not happen to include:
+//
+//   - out.TotalItem is smaller than the number of items the response actually
+//     held: the total field itself is wrong, so no arithmetic built on it can
+//     be trusted either.
+//   - out.TotalItem and out.TotalPage are both zero, the shape of a server
+//     that never fills in totals at all, while as many items came back as
+//     requestedSize: a full page this size, with no total to compare it
+//     against, cannot be told apart from one truncated at the same size.
+//   - out.TotalPage is more than 1: more pages exist that this call never
+//     asked for.
+//   - out.PageSize is smaller than requestedSize: the server capped the page
+//     below what was asked for, so an item beyond it may exist that TotalPage
+//     does not count either.
+func certificateListInconclusive(out *ListCertificatesOutput, requestedSize int) error {
+	switch {
+	case out.TotalItem < len(out.Items):
+		return fmt.Errorf("certificate list confirm: got %d item(s) but totalItem=%d; inconclusive",
+			len(out.Items), out.TotalItem)
+	case out.TotalItem == 0 && out.TotalPage == 0 && len(out.Items) >= requestedSize:
+		return fmt.Errorf("certificate list confirm: got %d item(s) with no total reported; inconclusive",
+			len(out.Items))
+	case out.TotalPage > 1:
+		return fmt.Errorf("certificate list confirm: got %d of %d item(s) across %d page(s); inconclusive",
+			len(out.Items), out.TotalItem, out.TotalPage)
+	case out.PageSize < requestedSize:
+		return fmt.Errorf("certificate list confirm: server returned page size %d, requested %d; inconclusive",
+			out.PageSize, requestedSize)
+	default:
+		return nil
+	}
+}
+
 // certificateFoundAfterError lists certificates once and reports whether id
 // is present, the same list confirm vServer network writes uses for network
-// ACLs. ListCertificates defaults to a page of core.DefaultPageSize (10000),
-// so this misses an id only in a project with more certificates than that.
-//
-// A list that comes back short of the account's own count, more than one
-// page or fewer items than TotalItem, is not a reliable absence: id could
-// simply be on a page this call never asked for. mapCertificateNotFound
-// already treats any error from this method as "fall back to the original
-// error," so this returns an error instead of a bare false in that case.
+// ACLs. mapCertificateNotFound already treats any error from this method as
+// "fall back to the original error," so a response certificateListInconclusive
+// flags returns that error instead of a bare false.
 func (c *Client) certificateFoundAfterError(ctx context.Context, id string) (bool, error) {
-	out, err := c.ListCertificates(ctx, nil)
+	out, err := c.ListCertificates(ctx, &ListCertificatesInput{Size: certificateListConfirmSize})
 	if err != nil {
 		return false, err
 	}
@@ -271,9 +323,8 @@ func (c *Client) certificateFoundAfterError(ctx context.Context, id string) (boo
 			return true, nil
 		}
 	}
-	if out.TotalPage > 1 || len(out.Items) < out.TotalItem {
-		return false, fmt.Errorf("certificate list confirm: got %d of %d item(s) across %d page(s); inconclusive",
-			len(out.Items), out.TotalItem, out.TotalPage)
+	if inconclusive := certificateListInconclusive(out, certificateListConfirmSize); inconclusive != nil {
+		return false, inconclusive
 	}
 	return false, nil
 }

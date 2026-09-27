@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -265,6 +268,173 @@ func TestLoadBalancerImportCertificateNoRetryOn502(t *testing.T) {
 	}
 }
 
+// TestLoadBalancerImportCertificateFailingStatusesWithholdMessage checks that
+// a 404 or a 409 on the POST, both plain 4xx rejections whose own wording a
+// caller might otherwise read, get the same withheld message a 400 does, in
+// exactly one request, with no ambiguous-import hint added.
+func TestLoadBalancerImportCertificateFailingStatusesWithholdMessage(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict} {
+		t.Run(fmt.Sprintf("status-%d", status), func(t *testing.T) {
+			var calls int32
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				atomic.AddInt32(&calls, 1)
+				w.WriteHeader(status)
+				body, marshalErr := json.Marshal(map[string]string{"message": "rejected: " + fixtureKeyPEM})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				_, _ = w.Write(body)
+			}))
+
+			_, err := c.ImportCertificate(context.Background(), &ImportCertificateInput{
+				Name:        "example-com",
+				Type:        CertificateTypeTLS,
+				Certificate: fixtureCertPEM,
+				PrivateKey:  vngcloud.Secret(fixtureKeyPEM),
+			})
+			if calls != 1 {
+				t.Fatalf("server received %d request(s), want 1", calls)
+			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("err = %v, want *vngcloud.APIError", err)
+			}
+			if apiErr.Message != ImportCertificateWithheldMessage {
+				t.Fatalf("Message = %q, want the withheld message", apiErr.Message)
+			}
+			if apiErr.StatusCode != status {
+				t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, status)
+			}
+			if strings.Contains(err.Error(), "list-certificates") {
+				t.Fatalf("a 4xx error should not get the ambiguous-import hint: %v", err)
+			}
+		})
+	}
+}
+
+// TestLoadBalancerImportCertificateNonRetryable5xxWithholdsMessage checks
+// that a 500, which is not one of the statuses the transport retries, is
+// sent exactly once and still gets the withheld message and the
+// ambiguous-import hint, the same as the already-tested 502 case.
+func TestLoadBalancerImportCertificateNonRetryable5xxWithholdsMessage(t *testing.T) {
+	var calls int32
+	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+		body, marshalErr := json.Marshal(map[string]string{"message": "rejected: " + fixtureKeyPEM})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		_, _ = w.Write(body)
+	})))
+
+	_, err := c.ImportCertificate(context.Background(), &ImportCertificateInput{
+		Name:        "example-com",
+		Type:        CertificateTypeTLS,
+		Certificate: fixtureCertPEM,
+		PrivateKey:  vngcloud.Secret(fixtureKeyPEM),
+	})
+	if err == nil {
+		t.Fatal("ImportCertificate() error = nil, want an error")
+	}
+	if calls != 1 {
+		t.Fatalf("server received %d request(s), want 1 (500 is not retryable)", calls)
+	}
+	if !strings.Contains(err.Error(), "list-certificates") {
+		t.Fatalf("error does not name list-certificates: %v", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want *vngcloud.APIError", err)
+	}
+	if apiErr.Message != ImportCertificateWithheldMessage {
+		t.Fatalf("Message = %q, want the withheld message", apiErr.Message)
+	}
+}
+
+// countingErrorRoundTripper fails every RoundTrip with err and counts calls,
+// so a test can assert exactly one attempt for a request that must never be
+// retried after an ambiguous failure with no HTTP response at all.
+type countingErrorRoundTripper struct {
+	calls atomic.Int32
+	err   error
+}
+
+func (rt *countingErrorRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	rt.calls.Add(1)
+	return nil, rt.err
+}
+
+// TestLoadBalancerImportCertificateNonDialNetworkErrorNoRetry checks that a
+// network failure other than a failed dial (a connection reset partway
+// through the request, which may already have reached a handler) is sent
+// exactly once and gets the ambiguous-import hint. There is no HTTP response
+// here for decodeError to run on, so there is no server message to withhold;
+// the only text in the returned error is the network error's own, which
+// never derives from anything this call sent.
+func TestLoadBalancerImportCertificateNonDialNetworkErrorNoRetry(t *testing.T) {
+	rt := &countingErrorRoundTripper{err: &net.OpError{Op: "read", Err: errors.New("connection reset")}}
+	tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: rt}})
+	cfg := core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VLB: "http://127.0.0.1/"}, tc)
+	c := New(cfg)
+
+	_, err := c.ImportCertificate(context.Background(), &ImportCertificateInput{
+		Name:        "example-com",
+		Type:        CertificateTypeTLS,
+		Certificate: fixtureCertPEM,
+		PrivateKey:  vngcloud.Secret(fixtureKeyPEM),
+	})
+	if err == nil {
+		t.Fatal("ImportCertificate() error = nil, want an error")
+	}
+	if rt.calls.Load() != 1 {
+		t.Fatalf("server received %d request(s), want 1 (no retry after a non-dial network error)", rt.calls.Load())
+	}
+	if !strings.Contains(err.Error(), "list-certificates") {
+		t.Fatalf("error does not name list-certificates: %v", err)
+	}
+	if strings.Contains(err.Error(), fixtureKeyPEM) {
+		t.Fatalf("error leaks the private key: %v", err)
+	}
+}
+
+// TestLoadBalancerImportCertificateCodeRedacted checks that a failing
+// response's envelope "code" field is still redacted at the SDK level when
+// it echoes the passphrase: Redact stays on for Code as defense in depth,
+// even though Message is withheld outright regardless of what it said.
+func TestLoadBalancerImportCertificateCodeRedacted(t *testing.T) {
+	const passphrase = "correct-horse-battery-staple"
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		body, err := json.Marshal(map[string]string{
+			"code":    "invalid_passphrase: " + passphrase,
+			"message": "invalid passphrase",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write(body)
+	}))
+
+	_, err := c.ImportCertificate(context.Background(), &ImportCertificateInput{
+		Name:        "example-com",
+		Type:        CertificateTypeTLS,
+		Certificate: fixtureCertPEM,
+		PrivateKey:  vngcloud.Secret(fixtureKeyPEM),
+		Passphrase:  vngcloud.Secret(passphrase),
+	})
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want *vngcloud.APIError", err)
+	}
+	if strings.Contains(apiErr.Code, passphrase) {
+		t.Fatalf("Code = %q, still holds the passphrase", apiErr.Code)
+	}
+	if apiErr.Message != ImportCertificateWithheldMessage {
+		t.Fatalf("Message = %q, want the withheld message", apiErr.Message)
+	}
+}
+
 // TestLoadBalancerImportCertificateNeverCaptured checks that
 // ImportCertificate's Sensitive request never reaches the configured
 // response-capture hook, while an ordinary read on the same Client still
@@ -302,9 +472,11 @@ func TestLoadBalancerImportCertificateNeverCaptured(t *testing.T) {
 }
 
 // TestLoadBalancerImportCertificateRedaction checks that a 400 whose message
-// quotes the whole key, one line of it, its JSON-escaped form, or the
-// passphrase never leaks any of them into the returned error, --debug
-// output, or a fmt/slog/json rendering of the Input.
+// genuinely quotes the whole key, one line of it, its JSON-escaped form, or
+// the passphrase never leaks any of them into the returned error, --debug
+// output, or a fmt/slog/json rendering of the Input: the message is withheld
+// outright (ImportCertificateWithheldMessage), so nothing the body said
+// survives.
 func TestLoadBalancerImportCertificateRedaction(t *testing.T) {
 	const passphrase = "correct-horse-battery-staple"
 	keyLine := strings.Split(fixtureKeyPEM, "\n")[1]
@@ -317,22 +489,26 @@ func TestLoadBalancerImportCertificateRedaction(t *testing.T) {
 	// into text might.
 	escapedKeyText := string(escapedKey[1 : len(escapedKey)-1])
 
-	rejections := []string{
-		fmt.Sprintf(`{"message":"invalid privateKey: %s"}`, mustJSONString(fixtureKeyPEM)),
-		fmt.Sprintf(`{"message":"invalid privateKey line: %s"}`, mustJSONString(keyLine)),
-		fmt.Sprintf(`{"message":"invalid privateKey: %s"}`, mustJSONString(escapedKeyText)),
-		fmt.Sprintf(`{"message":"invalid passphrase: %s"}`, mustJSONString(passphrase)),
+	rejections := map[string]string{
+		"whole key":  "invalid privateKey: " + fixtureKeyPEM,
+		"one line":   "invalid privateKey line: " + keyLine,
+		"escaped":    "invalid privateKey: " + escapedKeyText,
+		"passphrase": "invalid passphrase: " + passphrase,
 	}
 
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
 
-	for i, body := range rejections {
-		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
+	for name, message := range rejections {
+		t.Run(name, func(t *testing.T) {
 			logBuf.Reset()
+			body, marshalErr := json.Marshal(map[string]string{"message": message})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
 			cfg := testutil.NewConfigWithLogger(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(body))
+				_, _ = w.Write(body)
 			}), logger)
 			c := New(cfg)
 
@@ -346,6 +522,13 @@ func TestLoadBalancerImportCertificateRedaction(t *testing.T) {
 			_, callErr := c.ImportCertificate(context.Background(), in)
 			if callErr == nil {
 				t.Fatal("ImportCertificate() error = nil, want the server's rejection")
+			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(callErr, &apiErr) {
+				t.Fatalf("callErr = %v, want *vngcloud.APIError", callErr)
+			}
+			if apiErr.Message != ImportCertificateWithheldMessage {
+				t.Fatalf("Message = %q, want the withheld message %q", apiErr.Message, ImportCertificateWithheldMessage)
 			}
 			for _, secret := range []string{fixtureKeyPEM, keyLine, escapedKeyText, passphrase} {
 				if strings.Contains(callErr.Error(), secret) {
@@ -373,14 +556,6 @@ func TestLoadBalancerImportCertificateRedaction(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustJSONString(s string) string {
-	data, err := json.Marshal(s)
-	if err != nil {
-		panic(err)
-	}
-	return string(data)
 }
 
 // TestLoadBalancerImportCertificateInputSecretRedaction checks that
@@ -559,6 +734,171 @@ func TestLoadBalancerDeleteCertificateAmbiguousStillListedUnchanged(t *testing.T
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("err = %v, want the original 500 *vngcloud.APIError", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificateListConfirmTotalItemLessThanItems checks
+// that a list-confirm response whose TotalItem is smaller than the number of
+// items it actually returned is treated as inconclusive: the total field
+// cannot be trusted, so "not found" cannot be trusted either.
+func TestLoadBalancerDeleteCertificateListConfirmTotalItemLessThanItems(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"listData":[{"uuid":"other-1"},{"uuid":"other-2"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want not NotFound (totalItem smaller than items returned)", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("err = %v, want the original 500 *vngcloud.APIError", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificateListConfirmMissingTotalsCapped checks that
+// a response with no total reported at all (TotalItem and TotalPage both
+// zero) is treated as inconclusive when as many items came back as were
+// requested: a full page this size, with nothing to compare it against,
+// cannot be told apart from one that was capped short of the true total.
+func TestLoadBalancerDeleteCertificateListConfirmMissingTotalsCapped(t *testing.T) {
+	items := make([]string, certificateListConfirmSize)
+	for i := range items {
+		items[i] = fmt.Sprintf(`{"uuid":"other-%d"}`, i)
+	}
+	body := fmt.Sprintf(`{"listData":[%s],"page":1,"pageSize":%d,"totalPage":0,"totalItem":0}`,
+		strings.Join(items, ","), certificateListConfirmSize)
+
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want not NotFound (no totals reported, page may be capped)", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("err = %v, want the original 500 *vngcloud.APIError", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificateListConfirmPageSizeSmallerThanRequested
+// checks that a response whose PageSize is smaller than the size
+// certificateFoundAfterError requested is treated as inconclusive: id could
+// be on a page beyond the one the server chose to return.
+func TestLoadBalancerDeleteCertificateListConfirmPageSizeSmallerThanRequested(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":100,"totalPage":1,"totalItem":0}`))
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want not NotFound (page size capped below what was requested)", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("err = %v, want the original 500 *vngcloud.APIError", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificatePermissionDeniedStillListedUnchanged
+// checks that a 403 on the DELETE itself, with the certificate still listed
+// by the confirm call, stays a plain permission-denied error: it is neither
+// reinterpreted as NotFound nor as ErrCertificateInUse just because it is not
+// a 404.
+func TestLoadBalancerDeleteCertificatePermissionDeniedStillListedUnchanged(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1":
+			_, _ = w.Write([]byte(`{"uuid":"cert-1","inUse":false}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"permission denied"}`))
+		default:
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"cert-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		}
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want not NotFound (still listed)", err)
+	}
+	if errors.Is(err, ErrCertificateInUse) {
+		t.Fatalf("DeleteCertificate() err = %v, want not ErrCertificateInUse", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("err = %v, want the original 403 *vngcloud.APIError", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificateListCallFailingKeepsOriginalError checks
+// that the original error is returned unchanged, not NotFound, when the
+// list-confirm call itself fails: a list call that never resolved carries no
+// information about whether the certificate is actually gone.
+func TestLoadBalancerDeleteCertificateListCallFailingKeepsOriginalError(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			return
+		}
+		// The list-confirm call itself fails too.
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"message":"unavailable"}`))
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want not NotFound (list call itself failed)", err)
+	}
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("err = %v, want the original 500 *vngcloud.APIError from the pre-read", err)
+	}
+}
+
+// TestLoadBalancerDeleteCertificate404AfterCleanPreRead checks that a 404
+// from the DELETE itself, after a pre-read that found the certificate not in
+// use, maps straight to NotFound with no extra list-confirm call: a plain 404
+// is already recognized as NotFound on its own.
+func TestLoadBalancerDeleteCertificate404AfterCleanPreRead(t *testing.T) {
+	var getCalls, delCalls int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/cas/cert-1":
+			atomic.AddInt32(&getCalls, 1)
+			_, _ = w.Write([]byte(`{"uuid":"cert-1","inUse":false}`))
+		case r.Method == http.MethodDelete:
+			atomic.AddInt32(&delCalls, 1)
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatal("no list-confirm call expected: a plain 404 is already NotFound")
+		}
+	}))
+
+	_, err := c.DeleteCertificate(context.Background(), &DeleteCertificateInput{CertificateID: "cert-1"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("DeleteCertificate() err = %v, want NotFound", err)
+	}
+	if getCalls != 1 || delCalls != 1 {
+		t.Fatalf("getCalls=%d delCalls=%d, want 1 and 1", getCalls, delCalls)
 	}
 }
 
