@@ -86,8 +86,9 @@ delete left the zone `ACTIVE` within a second.
 
 Every VPC in a zone needs Private DNS on. A VPC's `dnsStatus`, which
 `network.GetVPC` already returns, goes `DISABLED`, `ENABLING`, `ENABLED`.
-The console enables it with `PATCH /v2/{projectId}/networks/{vpcId}/enableDns`
-on the vServer gateway; `ENABLED` follows about 5.5 minutes later.
+`network.EnableVPCPrivateDNS` enables it
+([vServer network writes](vserver-network-writes.md#private-dns-enable));
+`ENABLED` follows about 5.5 minutes later.
 
 - Creating a zone for a `DISABLED` VPC returns 404 `VPC: <id> is inactive
   DNS.`
@@ -104,8 +105,9 @@ not apply. One open check remains: a vDNS line on the next day's bill.
 ## Non-goals
 
 - Public zones, DNSSEC, and nameserver delegation. vDNS lacks them.
-- Enabling or disabling Private DNS on a VPC. It stays a console step; see
-  [Private DNS stays in the console](#private-dns-stays-in-the-console).
+- Enabling Private DNS on a VPC. It belongs to `network`; see
+  [Private DNS on the VPC](#private-dns-on-the-vpc). The API has no call
+  to disable it.
 - A zone file import or sync command. Per-record `create-record` in a
   script is enough.
 - Finding a record by name in the SDK. `ListRecords` with `Name` filters.
@@ -255,22 +257,6 @@ With `NoWait`, a create returns the `CREATING` resource from its response,
 an update returns one read, and a delete returns at once. `ErrNotSettled`
 and `ErrFailed` never occur then.
 
-## Private DNS stays in the console
-
-Enabling Private DNS stays a documented console step, not an SDK method in
-these releases:
-
-- It is a one-time VPC setting. It changes the VPC's DHCP option set, and
-  each VM must renew DHCP to pick up the new resolver, which the SDK cannot
-  do.
-- Disabling is not verified, so an SDK method could enable but not undo.
-- The CLI can already check it: `vngcloud network get-vpc` shows
-  `DNSStatus`. The DNS wiki page says to wait for `ENABLED` before creating
-  a zone, because an `ENABLING` VPC gives a zone in `ERROR`.
-
-`network.EnableVPCDNS` and `DisableVPCDNS` can follow with their own design
-once disable is verified and someone needs to script it.
-
 ## CLI
 
 `svc_dns.go` adds six entries to `dnsOps`:
@@ -396,7 +382,7 @@ run needs the owner's approval naming the account, region, and VPC.
 Zones come first so the record live test can create its own zone. Neither
 release changes an existing method or command, except that the reads now
 reject a malformed ID before sending it. A `DNS` SDK wiki page covers
-private-only zones, the Private DNS console step and `dnsStatus`, the
+private-only zones, Private DNS and `dnsStatus`, the
 waits, `NoWait`, partial updates, and listing before rerunning a create.
 
 ## Owner decisions
@@ -410,8 +396,9 @@ waits, `NoWait`, partial updates, and listing before rerunning a create.
 5. Approved: `Values` and `VPCIDs` go through `--cli-input-json`.
 6. Approved: no bulk import or sync command.
 7. Approved: no quote, pending the next-day bill check.
-8. Approved: Private DNS stays a documented console step, and
-   `network` gains no enable or disable method in these releases.
+8. Replaced by decision 3 of
+   [vServer network writes](vserver-network-writes.md#owner-decisions):
+   `network` gains `EnableVPCPrivateDNS`.
 9. Approved: the SDK waits before every write (always) and after it
    (unless `NoWait`), polling every 2 seconds for up to 60 seconds; the CLI
    waits by default and takes `--no-wait`.
@@ -425,5 +412,4 @@ waits, `NoWait`, partial updates, and listing before rerunning a create.
 ## Open questions
 
 - A vDNS line on the next day's bill.
-- The `disableDns` call, needed only if Private DNS moves into the SDK.
 - Whether GreenNode plans public zones.

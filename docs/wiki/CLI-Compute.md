@@ -2,6 +2,22 @@
 
 # CLI: Compute
 
+## create-server-group
+
+Kind: Write.
+
+A duplicate --name fails with the server's own message at status 400. The group's policy cannot change after create; update-server-group has no --policy-id flag.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--policy-id` | `string` | yes |
+| `--description` | `string` |  |
+
+```sh
+vngcloud compute create-server-group --name <name> --policy-id <policy-id>
+```
+
 ## create-ssh-key
 
 Kind: Write.
@@ -15,6 +31,20 @@ Prefer import-ssh-key instead: it never has GreenNode see the private key at all
 
 ```sh
 vngcloud compute create-ssh-key --name <name> --secret-file <secret-file>
+```
+
+## delete-server-group
+
+Kind: Write, destructive.
+
+Refuses, before any write, a group with any server attached, found by a pre-delete list scan. Whether the server itself refuses a delete as in use for some other reason, and what status that refusal carries, has not been confirmed live.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-group-id` | `string` | yes |
+
+```sh
+vngcloud compute delete-server-group --server-group-id <server-group-id> --yes
 ```
 
 ## delete-ssh-key
@@ -41,6 +71,20 @@ Kind: Read.
 
 ```sh
 vngcloud compute get-server --server-id <server-id> --query Server
+```
+
+## get-server-group
+
+Kind: Read.
+
+A deleted, or otherwise unknown, group ID reads as NotFound: the server answers with status 200 and no data rather than 404, and this command reports the same NotFound error either way.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-group-id` | `string` | yes |
+
+```sh
+vngcloud compute get-server-group --server-group-id <server-group-id> --query ServerGroup
 ```
 
 ## get-ssh-key
@@ -176,5 +220,19 @@ Kind: Read.
 
 ```sh
 vngcloud compute list-user-images
+```
+
+## update-server-group
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-group-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+
+```sh
+vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>
 ```
 

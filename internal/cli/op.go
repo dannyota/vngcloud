@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/network"
 )
@@ -372,7 +373,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
 	}
 	if callErr != nil {
-		// A vDNS or network security group write that reached the server
+		// A vDNS, network, or compute write that reached the server
 		// still carries its Output: the resource's id, needed to clean up or
 		// check again later. --query is skipped here, unlike the success
 		// path below, so that id is never filtered out by a query the caller
@@ -380,7 +381,8 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		// callErr, the call's own error, which already carries the right
 		// error class and exit code.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
-			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled)) {
+			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
+			errors.Is(callErr, compute.ErrNotSettled)) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

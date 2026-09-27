@@ -335,24 +335,29 @@ func renderCLIPage(services []docService) string {
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
 		"create wait saw the group reach `ERROR`; see [Network](Network.md#waits)), `NotSettled` (a vDNS " +
-		"write was accepted but did not settle within the wait, or a network create-security-group's or " +
+		"write was accepted but did not settle within the wait, a network create-security-group's or " +
 		"update-security-group's wait ran out of time: a create must not be sent again, since a repeat " +
 		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
-		"resolved group rather than making a new one), `OTPRejected` (create-channel's or " +
+		"resolved group rather than making a new one, or a compute update-server-group's confirm read " +
+		"after its PUT succeeded failed to come back: the update itself already landed and may be sent " +
+		"again the same way; see [Compute](CLI-Compute.md#update-server-group)), `OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
 		"order was sent), `SystemSecurityGroup` (a network update-security-group or delete-security-group " +
 		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
 		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
-		"attached or the server itself refused it as in use), `SecretFileFailed` (create-ssh-key's own " +
+		"attached or the server itself refused it as in use), `ServerGroupInUse` (a compute " +
+		"delete-server-group was refused because the group has servers attached, found by a pre-delete " +
+		"list scan, or the server itself refused it as in use; see " +
+		"[Compute](CLI-Compute.md#delete-server-group)), `SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed` and " +
 		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits) and " +
 		"[Network](Network.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, and " +
-		"`SecretFileFailed` all exit 1.\n\n")
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`ServerGroupInUse`, and `SecretFileFailed` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
