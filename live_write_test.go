@@ -6116,3 +6116,829 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	}
 	t.Log("step 12: deleted group and policy")
 }
+
+// --- vLB paid writes (load balancer, resize, pools, members, listeners,
+// policies) ---
+//
+// These tests exercise CreateLoadBalancer, ResizeLoadBalancer, and the free
+// pool, member, listener, and policy writes on the load balancer they
+// create. A load balancer bills by the month, so, per the owner's
+// approval, one is created once, named vngcloud-live-keep-<8 hex>, and
+// reused by the resize, pool, listener, and policy tests within its paid
+// month rather than each test creating and deleting its own; it is deleted
+// only by TestLiveWriteLoadBalancerTeardown, run once these checks are done
+// or the load balancer's paid month has passed.
+//
+// Every test here must never run without credit on the account and the
+// owner's explicit approval for that run, naming the account, region, and
+// the resources it can create. Each is gated by VNGCLOUD_LIVE_WRITE=1, its
+// own VNGCLOUD_LIVE_PAID_LB* variable, and VNGCLOUD_LIVE_MAX_VND, the run's
+// own budget ceiling in VND. Every paid write quotes first, refuses to send
+// if the quote exceeds VNGCLOUD_LIVE_MAX_VND, and then sends MaxPrice equal
+// to the accepted quote, the lowest amount that passes, per the design's
+// price guard.
+
+// liveLoadBalancerNamePattern matches only a throwaway load balancer these
+// tests create and delete within one run: vngcloud-live-<8 hex>. It
+// excludes the kept load balancer, vngcloud-live-keep-<8 hex>, which no
+// automatic sweep here ever deletes.
+var liveLoadBalancerNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func isLiveLoadBalancerName(name string) bool {
+	return liveLoadBalancerNamePattern.MatchString(name)
+}
+
+// liveKeptLoadBalancerPrefix names the one load balancer these tests keep
+// across runs; see the section doc comment above.
+const liveKeptLoadBalancerPrefix = "vngcloud-live-keep-"
+
+func isKeptLoadBalancerName(name string) bool {
+	return strings.HasPrefix(name, liveKeptLoadBalancerPrefix)
+}
+
+// listAllLoadBalancers pages through every load balancer the account has.
+func listAllLoadBalancers(ctx context.Context, client *loadbalancer.Client) ([]loadbalancer.LoadBalancer, error) {
+	var all []loadbalancer.LoadBalancer
+	for page := 1; ; page++ {
+		out, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// findKeptLoadBalancer returns the account's kept load balancer (see the
+// section doc comment above), or nil if none exists yet. The resize, pool,
+// listener, and policy live tests each need it and skip with a clear
+// message when it is missing, rather than creating their own.
+func findKeptLoadBalancer(ctx context.Context, client *loadbalancer.Client) (*loadbalancer.LoadBalancer, error) {
+	all, err := listAllLoadBalancers(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if isKeptLoadBalancerName(all[i].Name) {
+			return &all[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// liveMaxVND reads VNGCLOUD_LIVE_MAX_VND, the run's own budget ceiling in
+// VND that every paid vLB write in these tests must quote at or under
+// before it is sent. ok is false when the variable is unset or does not
+// parse as a non-negative number, in which case the caller must skip
+// rather than guess a default: these tests must never send a paid write
+// without an explicit budget the owner named for this run.
+func liveMaxVND(t *testing.T) (float64, bool) {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+// findSmallestPackageID returns the uuid of the package named "NLB_Small"
+// (Layer 4) in zoneID, the cheapest package per the design's recorded live
+// prices, or an error naming what it saw if none is offered there.
+func findSmallestPackageID(ctx context.Context, client *loadbalancer.Client, zoneID string) (string, error) {
+	packages, err := client.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: zoneID})
+	if err != nil {
+		return "", err
+	}
+	for _, p := range packages.Items {
+		if p.Name == "NLB_Small" {
+			return p.UUID, nil
+		}
+	}
+	return "", fmt.Errorf("no NLB_Small package among %d offered in this zone", len(packages.Items))
+}
+
+// deleteLoadBalancerChildren deletes every policy, listener, and pool of
+// lbID, in that order, ignoring NotFound at each step: a policy attaches to
+// a listener and a listener's DefaultPoolID may name a pool, so this order
+// never hits the server's own in-use refusals.
+func deleteLoadBalancerChildren(ctx context.Context, t *testing.T, client *loadbalancer.Client, lbID string) {
+	t.Helper()
+	listeners, err := client.ListListeners(ctx, &loadbalancer.ListListenersInput{LoadBalancerID: lbID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list listeners: %s", safeErr(err))
+		}
+		return
+	}
+	for _, l := range listeners.Items {
+		policies, err := client.ListPolicies(ctx, &loadbalancer.ListPoliciesInput{LoadBalancerID: lbID, ListenerID: l.UUID})
+		if err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list policies: %s", safeErr(err))
+		}
+		if err == nil {
+			for _, p := range policies.Items {
+				if _, err := client.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: l.UUID, PolicyID: p.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+					t.Errorf("delete load balancer children: delete policy: %s", safeErr(err))
+				}
+			}
+		}
+		if _, err := client.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: l.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: delete listener: %s", safeErr(err))
+		}
+	}
+
+	pools, err := client.ListPools(ctx, &loadbalancer.ListPoolsInput{LoadBalancerID: lbID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list pools: %s", safeErr(err))
+		}
+		return
+	}
+	for _, p := range pools.Items {
+		if _, err := client.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: p.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: delete pool: %s", safeErr(err))
+		}
+	}
+}
+
+// deleteLiveLoadBalancers deletes every throwaway load balancer
+// (isLiveLoadBalancerName) and its children, and returns how many it
+// deleted. It never touches the kept load balancer.
+func deleteLiveLoadBalancers(ctx context.Context, t *testing.T, client *loadbalancer.Client) int {
+	t.Helper()
+	all, err := listAllLoadBalancers(ctx, client)
+	if err != nil {
+		t.Errorf("delete live load balancers: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, lb := range all {
+		if !isLiveLoadBalancerName(lb.Name) {
+			continue
+		}
+		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
+		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live load balancers: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// TestLiveWriteLoadBalancer exercises QuoteCreateLoadBalancer and
+// CreateLoadBalancer: L2 of the design. It creates its own VPC and /24
+// subnet (per vServer network writes' own live-check convention), then
+// orders the account's cheapest package (NLB_Small, Internal) as the kept
+// load balancer these tests reuse; see the section doc comment above. It
+// never deletes the kept load balancer or its VPC; that is
+// TestLiveWriteLoadBalancerTeardown's job.
+//
+// This must never run without credit on the account and the owner's
+// explicit approval for this run, naming the account, region, and the
+// budget in VNGCLOUD_LIVE_MAX_VND.
+func TestLiveWriteLoadBalancer(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB=1 to run the live load balancer create test; it orders a paid load balancer")
+	}
+	maxVND, ok := liveMaxVND(t)
+	if !ok {
+		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer create test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+	netClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	if existing, err := findKeptLoadBalancer(ctx, lbClient); err != nil {
+		t.Fatalf("check for an existing kept load balancer: %s", safeErr(err))
+	} else if existing != nil {
+		t.Skip("a kept load balancer already exists; this test only creates the first one")
+	}
+
+	// Step 1: sweep up leftover throwaway load balancers from an earlier
+	// aborted run.
+	leftovers := deleteLiveLoadBalancers(ctx, t, lbClient)
+	t.Logf("step 1: deleted %d leftover load balancer(s)", leftovers)
+
+	// Step 2: this run's own VPC and /24 subnet.
+	zoneID, err := pickEnabledZoneID(ctx, portalClient)
+	if err != nil {
+		t.Fatalf("step 2 pick enabled zone: %s", safeErr(err))
+	}
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	vpcName := "vngcloud-live-" + suffix
+	vpc, err := netClient.CreateVPC(ctx, &network.CreateVPCInput{Name: vpcName, CIDR: liveVPCCIDR})
+	if err != nil {
+		deleteVPCByName(t, netClient, vpcName)
+		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
+	}
+	vpcID := vpc.VPC.UUID
+	subnet, err := netClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: vpcName + "-a", CIDR: liveSubnet24CIDR})
+	if err != nil {
+		deleteVPCAndSubnets(ctx, t, netClient, vpcID)
+		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
+	}
+	subnetID := subnet.Subnet.UUID
+	t.Log("step 2: created this run's VPC and subnet")
+	// This VPC and subnet are deliberately left in place: the kept load
+	// balancer's subnet must outlive this test. Only
+	// TestLiveWriteLoadBalancerTeardown removes them.
+
+	// Step 3: find the cheapest package.
+	packageID, err := findSmallestPackageID(ctx, lbClient, zoneID)
+	if err != nil {
+		t.Fatalf("step 3 find smallest package: %s", safeErr(err))
+	}
+	t.Log("step 3: found the smallest package")
+
+	// Step 4: quote, check the run's budget, and order.
+	keepSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	name := liveKeptLoadBalancerPrefix + keepSuffix
+	createInput := &loadbalancer.CreateLoadBalancerInput{
+		Name: name, PackageID: packageID, Type: loadbalancer.TypeLayer4,
+		Scheme: loadbalancer.SchemeInternal, SubnetID: subnetID, ZoneID: zoneID,
+	}
+	quote, err := lbClient.QuoteCreateLoadBalancer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateLoadBalancer: %s", safeErr(err))
+	}
+	if quote.OptimumPrice > maxVND {
+		t.Fatalf("step 4: quote %.0f VND exceeds this run's budget %.0f VND; refusing to order", quote.OptimumPrice, maxVND)
+	}
+	createInput.MaxPrice = quote.OptimumPrice
+	start := time.Now()
+	created, err := lbClient.CreateLoadBalancer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 4 CreateLoadBalancer: %s", safeErr(err))
+	}
+	if created.LoadBalancer.UUID == "" {
+		t.Fatal("step 4: CreateLoadBalancer settled with no id")
+	}
+	t.Logf("step 4: created the kept load balancer, status %s, quoted %.0f VND, wait %s",
+		created.LoadBalancer.ProgressStatus, created.QuotedPrice, time.Since(start))
+
+	// Step 5: a same-name, MaxPrice-0 create is refused by the guard alone,
+	// sending nothing, since the quote is already known to be above 0.
+	dup := *createInput
+	dup.MaxPrice = 0
+	if _, err := lbClient.CreateLoadBalancer(ctx, &dup); !errors.Is(err, loadbalancer.ErrPriceAboveMax) {
+		t.Errorf("step 5: duplicate create with MaxPrice 0 err = %s, want ErrPriceAboveMax", safeErr(err))
+	} else {
+		t.Log("step 5: duplicate create refused by the price guard, sending nothing")
+	}
+}
+
+// TestLiveWriteLoadBalancerResize exercises QuoteResizeLoadBalancer and
+// ResizeLoadBalancer on the kept load balancer: L3 of the design. It
+// resizes up to NLB_Medium, then back down to NLB_Small, each time
+// checking the quote against VNGCLOUD_LIVE_MAX_VND first.
+func TestLiveWriteLoadBalancerResize(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_RESIZE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_RESIZE=1 to run the live load balancer resize test; it orders a paid resize")
+	}
+	maxVND, ok := liveMaxVND(t)
+	if !ok {
+		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer resize test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+
+	mediumID, err := func() (string, error) {
+		packages, err := lbClient.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: kept.ZoneID})
+		if err != nil {
+			return "", err
+		}
+		for _, p := range packages.Items {
+			if p.Name == "NLB_Medium" {
+				return p.UUID, nil
+			}
+		}
+		return "", fmt.Errorf("no NLB_Medium package among %d offered in this zone", len(packages.Items))
+	}()
+	if err != nil {
+		t.Fatalf("step 1 find NLB_Medium package: %s", safeErr(err))
+	}
+	smallID := kept.PackageID
+
+	// Step 2: resize up.
+	upInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: mediumID}
+	upQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, upInput)
+	if err != nil {
+		t.Fatalf("step 2 QuoteResizeLoadBalancer (up): %s", safeErr(err))
+	}
+	if upQuote.OptimumPrice > maxVND {
+		t.Fatalf("step 2: resize-up quote %.0f VND exceeds this run's budget %.0f VND; refusing to resize", upQuote.OptimumPrice, maxVND)
+	}
+	upInput.MaxPrice = upQuote.OptimumPrice
+	start := time.Now()
+	up, err := lbClient.ResizeLoadBalancer(ctx, upInput)
+	if err != nil {
+		t.Fatalf("step 2 ResizeLoadBalancer (up): %s", safeErr(err))
+	}
+	t.Logf("step 2: resized up, changed=%v, quoted %.0f VND, wait %s", up.Changed, up.QuotedPrice, time.Since(start))
+
+	// Step 3: resize to the same package is a no-op, quoting and sending
+	// nothing.
+	if same, err := lbClient.ResizeLoadBalancer(ctx, &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: mediumID}); err != nil {
+		t.Fatalf("step 3 ResizeLoadBalancer (same package): %s", safeErr(err))
+	} else if same.Changed {
+		t.Error("step 3: resize to the same package reported Changed=true, want false")
+	} else {
+		t.Log("step 3: resize to the same package was a no-op")
+	}
+
+	// Step 4: resize back down to the original package.
+	downInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: smallID}
+	downQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, downInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteResizeLoadBalancer (down): %s", safeErr(err))
+	}
+	if downQuote.OptimumPrice > maxVND {
+		t.Fatalf("step 4: resize-down quote %.0f VND exceeds this run's budget %.0f VND; refusing to resize", downQuote.OptimumPrice, maxVND)
+	}
+	downInput.MaxPrice = downQuote.OptimumPrice
+	start = time.Now()
+	down, err := lbClient.ResizeLoadBalancer(ctx, downInput)
+	if err != nil {
+		t.Fatalf("step 4 ResizeLoadBalancer (down): %s", safeErr(err))
+	}
+	t.Logf("step 4: resized back down, changed=%v, quoted %.0f VND, wait %s", down.Changed, down.QuotedPrice, time.Since(start))
+}
+
+// TestLiveWriteLoadBalancerPools exercises CreatePool, UpdatePool,
+// DeletePool, AddPoolMember, UpdatePoolMember, and RemovePoolMember on the
+// kept load balancer: L4 of the design. These writes are free; the run's
+// budget cap does not apply to them.
+func TestLiveWriteLoadBalancerPools(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POOLS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POOLS=1 to run the live pool and member write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	lbID := kept.UUID
+
+	// Step 1: create a TCP pool with a TCP check.
+	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-pool", Protocol: loadbalancer.PoolProtocolTCP,
+		HealthCheckProtocol: loadbalancer.HealthCheckProtocolTCP,
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreatePool: %s", safeErr(err))
+	}
+	poolID := pool.Pool.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeletePool(cleanupCtx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: poolID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete pool: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created a TCP pool")
+
+	// Step 2: update its algorithm only.
+	if _, err := lbClient.UpdatePool(ctx, &loadbalancer.UpdatePoolInput{
+		LoadBalancerID: lbID, PoolID: poolID, Algorithm: vngcloud.Ptr(loadbalancer.AlgorithmLeastConnection),
+	}); err != nil {
+		t.Fatalf("step 2 UpdatePool: %s", safeErr(err))
+	}
+	t.Log("step 2: updated the pool's algorithm")
+
+	// Step 3: add two members in the test subnet's range, then update one's
+	// weight, then remove one.
+	memberA, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080,
+	})
+	if err != nil {
+		t.Fatalf("step 3a AddPoolMember: %s", safeErr(err))
+	}
+	t.Logf("step 3a: added member A, changed=%v", memberA.Changed)
+
+	if _, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.251", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3b AddPoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3b: added member B")
+
+	// Adding member A again with the same fields is a no-op.
+	if again, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3c AddPoolMember (repeat): %s", safeErr(err))
+	} else if again.Changed {
+		t.Error("step 3c: repeated add reported Changed=true, want false")
+	} else {
+		t.Log("step 3c: repeated add was a no-op")
+	}
+
+	if _, err := lbClient.UpdatePoolMember(ctx, &loadbalancer.UpdatePoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080, Weight: vngcloud.Ptr(5),
+	}); err != nil {
+		t.Fatalf("step 3d UpdatePoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3d: updated member A's weight")
+
+	if _, err := lbClient.RemovePoolMember(ctx, &loadbalancer.RemovePoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.251", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3e RemovePoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3e: removed member B")
+
+	// Step 4: delete the pool. t.Cleanup above still runs and is a no-op.
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: poolID}); err != nil {
+		t.Fatalf("step 4 DeletePool: %s", safeErr(err))
+	}
+	t.Log("step 4: deleted the pool")
+}
+
+// TestLiveWriteLoadBalancerListeners exercises CreateListener,
+// UpdateListener, and DeleteListener on the kept load balancer: L5 of the
+// design, including an HTTPS listener with an imported throwaway
+// certificate. These writes are free.
+func TestLiveWriteLoadBalancerListeners(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_LISTENERS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_LISTENERS=1 to run the live listener write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	lbID := kept.UUID
+
+	// Step 1: a TCP listener with a /24 AllowedCIDRs.
+	tcpListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-tcp", Protocol: loadbalancer.ProtocolTCP, Port: 8080,
+		AllowedCIDRs: []string{liveSubnet24CIDR},
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreateListener (TCP): %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete TCP listener: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created a TCP listener")
+
+	// Step 2: update its TimeoutClient only.
+	if _, err := lbClient.UpdateListener(ctx, &loadbalancer.UpdateListenerInput{
+		LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID, TimeoutClient: vngcloud.Ptr(30),
+	}); err != nil {
+		t.Fatalf("step 2 UpdateListener: %s", safeErr(err))
+	}
+	t.Log("step 2: updated the listener's TimeoutClient")
+
+	// Step 3: import a throwaway self-signed certificate and create an
+	// HTTPS listener with it.
+	certSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	certName := "vngcloud-live-" + certSuffix
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("step 3 generate rsa key: %v", err)
+	}
+	certPEM, err := generateSelfSignedCertPEM(rsaKey, certName)
+	if err != nil {
+		t.Fatalf("step 3 generate self-signed certificate: %v", err)
+	}
+	imported, err := lbClient.ImportCertificate(ctx, &loadbalancer.ImportCertificateInput{
+		Name: certName, Type: loadbalancer.CertificateTypeTLS, Certificate: certPEM,
+		PrivateKey: vngcloud.Secret(rsaPrivateKeyPEM(rsaKey)),
+	})
+	if err != nil {
+		deleteCertificateByName(t, lbClient, certName)
+		t.Fatalf("step 3 ImportCertificate: %s", safeErr(err))
+	}
+	certID := imported.Certificate.UUID
+	t.Log("step 3: imported a throwaway certificate")
+
+	httpsListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-https", Protocol: loadbalancer.ProtocolHTTPS, Port: 8443,
+		AllowedCIDRs: []string{liveSubnet24CIDR}, DefaultCertificateID: certID,
+	})
+	if err != nil {
+		t.Fatalf("step 3 CreateListener (HTTPS): %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete HTTPS listener: %s", safeErr(err))
+			return
+		}
+		if _, err := lbClient.DeleteCertificate(cleanupCtx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete certificate: %s", safeErr(err))
+		}
+	})
+	t.Logf("step 3: created an HTTPS listener, certificate inUse=%v", imported.Certificate.InUse)
+
+	// Step 4: delete both listeners, then the certificate, in that order
+	// (the certificate delete refuses while the HTTPS listener still names
+	// it). t.Cleanup above still runs and is a no-op.
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil {
+		t.Fatalf("step 4 DeleteListener (HTTPS): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID}); err != nil {
+		t.Fatalf("step 4 DeleteListener (TCP): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteCertificate(ctx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil {
+		t.Fatalf("step 4 DeleteCertificate: %s", safeErr(err))
+	}
+	t.Log("step 4: deleted both listeners and the certificate")
+}
+
+// TestLiveWriteLoadBalancerPolicies exercises CreatePolicy, UpdatePolicy,
+// and DeletePolicy on a Layer 7 listener of the kept load balancer: L6 of
+// the design. It requires the kept load balancer's Type to be Layer 7,
+// which TestLiveWriteLoadBalancer (L2) may not have created if it ordered
+// an NLB (Layer 4) package; this test skips with a clear message rather
+// than guessing when that is so. These writes are free.
+func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POLICIES") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POLICIES=1 to run the live policy write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	if kept.Type != loadbalancer.TypeLayer7 {
+		t.Skip("the kept load balancer is not Layer 7; L7 policies need an HTTP listener on a Layer 7 load balancer")
+	}
+	lbID := kept.UUID
+
+	// Step 1: an HTTP listener and two pools for the redirect targets.
+	listener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-policy-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8081,
+		AllowedCIDRs: []string{liveSubnet24CIDR},
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreateListener: %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete listener: %s", safeErr(err))
+		}
+	})
+	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-policy-pool", Protocol: loadbalancer.PoolProtocolHTTP,
+		HealthCheckProtocol: loadbalancer.HealthCheckProtocolHTTP, HealthCheckPath: "/", HealthCheckDomainName: "example.com",
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreatePool: %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeletePool(cleanupCtx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete pool: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created a listener and a pool")
+
+	// Step 2: a REDIRECT_TO_POOL policy with a PATH STARTS_WITH rule, and a
+	// REDIRECT_TO_URL policy.
+	poolPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-pool",
+		Action: loadbalancer.ActionRedirectToPool, RedirectPoolID: pool.Pool.UUID,
+		Rules: []loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeStartsWith, Value: "/api"}},
+	})
+	if err != nil {
+		t.Fatalf("step 2a CreatePolicy (pool): %s", safeErr(err))
+	}
+	t.Logf("step 2a: created a redirect-to-pool policy, position %d", poolPolicy.Policy.Position)
+
+	urlPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-url",
+		Action: loadbalancer.ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301,
+	})
+	if err != nil {
+		t.Fatalf("step 2b CreatePolicy (url): %s", safeErr(err))
+	}
+	t.Log("step 2b: created a redirect-to-url policy")
+
+	// Step 3: update the pool policy's rules only.
+	if _, err := lbClient.UpdatePolicy(ctx, &loadbalancer.UpdatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: poolPolicy.Policy.UUID,
+		Rules: &[]loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeEqualTo, Value: "/health"}},
+	}); err != nil {
+		t.Fatalf("step 3 UpdatePolicy: %s", safeErr(err))
+	}
+	t.Log("step 3: replaced the pool policy's rules")
+
+	// Step 4: DeletePool on the redirect pool is expected to be refused
+	// while the policy still names it.
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err == nil {
+		t.Error("step 4: DeletePool on a pool a policy redirects to succeeded; the design expects a refusal")
+	} else {
+		t.Logf("step 4: DeletePool refused as expected, %s", safeErr(err))
+	}
+
+	// Step 5: delete both policies, then the listener and pool.
+	if _, err := lbClient.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: poolPolicy.Policy.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePolicy (pool): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: urlPolicy.Policy.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePolicy (url): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil {
+		t.Fatalf("step 5 DeleteListener: %s", safeErr(err))
+	}
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePool: %s", safeErr(err))
+	}
+	t.Log("step 5: deleted both policies, the listener, and the pool")
+}
+
+// TestLiveWriteLoadBalancerTeardown deletes the kept load balancer (see the
+// section doc comment above) and its VPC, once the L2 to L6 live checks are
+// done or the load balancer's paid month has passed. It is gated
+// separately from every other test here so a run of L2 through L6 never
+// deletes the kept load balancer by accident.
+func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_TEARDOWN") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_TEARDOWN=1 to delete the kept load balancer and its VPC")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+	netClient := network.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; nothing to tear down")
+	}
+
+	subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: kept.PrivateSubnetID})
+	if err != nil {
+		t.Fatalf("read the kept load balancer's subnet: %s", safeErr(err))
+	}
+	vpcID := subnetOut.Subnet.NetworkUUID
+
+	deleteLoadBalancerChildren(ctx, t, lbClient, kept.UUID)
+	if _, err := lbClient.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: kept.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("delete the kept load balancer: %s", safeErr(err))
+	}
+	t.Log("deleted the kept load balancer")
+
+	if _, err := findKeptLoadBalancer(ctx, lbClient); err != nil {
+		t.Errorf("confirm the kept load balancer is gone: %s", safeErr(err))
+	}
+
+	deleteVPCAndSubnets(ctx, t, netClient, vpcID)
+	t.Log("deleted the kept load balancer's VPC and subnet")
+}
