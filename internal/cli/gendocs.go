@@ -79,13 +79,18 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // docFieldsFor lists every exported Input field in declaration order: its
 // flag name and Go type when flags.go can bind it and NoFlag (op.go) does
 // not mark it (a pointer type is shown with its leading *), or its Go field
-// name marked viaJSON otherwise.
+// name marked viaJSON otherwise. A vngcloud.Secret field (or a pointer to
+// one) is left out entirely: unlike every other field flags.go skips, it can
+// never be set through --cli-input-json either (applyCLIInputJSON refuses
+// it), so viaJSON would misdocument it as settable that way. The operation's
+// own extraFlags and docOpNotes document how such a field is actually set,
+// such as import-certificate's --private-key-file.
 func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
 	for i := range t.NumField() {
 		f := t.Field(i)
-		if !f.IsExported() {
+		if !f.IsExported() || isSecretFieldType(f.Type) {
 			continue
 		}
 		required := f.Tag.Get("vngcloud") == "required"

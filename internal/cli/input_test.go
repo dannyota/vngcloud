@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"danny.vn/vngcloud"
 )
 
 type jsonTestInput struct {
@@ -160,6 +162,56 @@ func TestApplyCLIInputJSONFileUnderCapSucceeds(t *testing.T) {
 	in := &jsonTestInput{}
 	if err := applyCLIInputJSON("file://"+path, in); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// secretJSONTestInput stands in for an Input carrying a vngcloud.Secret
+// field, the shape loadbalancer.ImportCertificateInput's PrivateKey and
+// Passphrase take.
+type secretJSONTestInput struct {
+	Name   string
+	Secret vngcloud.Secret
+}
+
+// TestApplyCLIInputJSONRefusesSecretFieldLiteral checks that a literal
+// --cli-input-json value can never set a vngcloud.Secret field: one input
+// path for a secret is easier to review.
+func TestApplyCLIInputJSONRefusesSecretFieldLiteral(t *testing.T) {
+	in := &secretJSONTestInput{}
+	err := applyCLIInputJSON(`{"Secret":"hunter2"}`, in)
+	if err == nil {
+		t.Fatalf("expected an error for a Secret field")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if in.Secret.Reveal() != "" {
+		t.Fatalf("Secret = %q, want unchanged", in.Secret.Reveal())
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error echoes the secret value: %v", err)
+	}
+}
+
+// TestApplyCLIInputJSONRefusesSecretFieldFromFile checks that the same
+// refusal applies to a file:// value too, not just a literal one: the
+// design refuses PrivateKey and Passphrase "inline or file://".
+func TestApplyCLIInputJSONRefusesSecretFieldFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "input.json")
+	if err := os.WriteFile(path, []byte(`{"Secret":"hunter2"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	in := &secretJSONTestInput{}
+	err := applyCLIInputJSON("file://"+path, in)
+	if err == nil {
+		t.Fatalf("expected an error for a Secret field set from a file")
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode(err))
+	}
+	if in.Secret.Reveal() != "" {
+		t.Fatalf("Secret = %q, want unchanged", in.Secret.Reveal())
 	}
 }
 

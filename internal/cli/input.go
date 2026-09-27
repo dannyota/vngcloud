@@ -45,9 +45,18 @@ func applyCLIInputJSON(raw string, target any) error {
 	}
 
 	names := exportedFieldNames(target)
+	secrets := secretFieldNames(target)
 	for key := range fields {
 		if !names[key] {
 			return newUsageError("--cli-input-json: %q is not a field of this operation's input", key)
+		}
+		// A vngcloud.Secret field is refused here regardless of how raw was
+		// given, inline or file://: flags.go already gives none of these
+		// fields a flag of its own, and this closes the other input path, so
+		// a secret always arrives through its own dedicated file flag, one
+		// path that is easier to review.
+		if secrets[key] {
+			return newUsageError("--cli-input-json: %q holds a secret value and cannot be set through --cli-input-json", key)
 		}
 	}
 

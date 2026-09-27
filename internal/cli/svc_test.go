@@ -53,6 +53,34 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "globalloadbalancer", globalLoadBalancerOps)
 }
 
+// assertNoSecretFieldGetsAFlag checks, for every op in ops, that no Input
+// field whose type is vngcloud.Secret (or a pointer to it) ever became a
+// flag: flags.go's rule applies to every Input, so a later Secret field
+// stays off argv by default. compute's
+// ImportSSHKeyInput and CreateSSHKeyInput carry none today (only
+// CreateSSHKeyOutput does, an Output flags.go never reflects over), so they
+// pass here with nothing to check; loadbalancer.ImportCertificateInput's
+// PrivateKey and Passphrase are the first real case.
+func assertNoSecretFieldGetsAFlag[C any](t *testing.T, serviceName string, ops []Op[C]) {
+	t.Helper()
+	for _, op := range ops {
+		input := op.newInput()
+		secrets := secretFieldNames(input)
+		if len(secrets) == 0 {
+			continue
+		}
+		specs, err := flagSpecsFor(input)
+		if err != nil {
+			t.Fatalf("%s %s: flagSpecsFor: %v", serviceName, op.name, err)
+		}
+		for _, s := range specs {
+			if secrets[s.fieldName] {
+				t.Errorf("%s %s: field %s is a vngcloud.Secret but got flag --%s", serviceName, op.name, s.fieldName, s.flagName)
+			}
+		}
+	}
+}
+
 func opNames[C any](ops []Op[C]) []string {
 	names := make([]string, len(ops))
 	for i, op := range ops {

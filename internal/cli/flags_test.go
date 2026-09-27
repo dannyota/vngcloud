@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"danny.vn/vngcloud"
 )
 
 type flagsTestInput struct {
@@ -38,6 +40,50 @@ func TestFlagSpecsForSkipsUnsupportedAndUnexported(t *testing.T) {
 	if len(specs) != 6 {
 		t.Fatalf("got %d specs, want 6 (Extra and unexported must be skipped): %+v", len(specs), specs)
 	}
+}
+
+// secretFlagsTestInput stands in for an Input carrying a vngcloud.Secret
+// field, the shape loadbalancer.ImportCertificateInput's PrivateKey and
+// Passphrase take: without the rule flags.go enforces, PlainSecret's
+// underlying reflect.Kind (String) would make flagSpecsFor give it an
+// ordinary "--plain-secret" flag.
+type secretFlagsTestInput struct {
+	Name        string
+	PlainSecret vngcloud.Secret
+	PtrSecret   *vngcloud.Secret
+}
+
+// TestFlagSpecsForSkipsSecretFields checks flags.go's rule that a
+// vngcloud.Secret field, plain or pointer, never becomes a flag: only Name
+// gets one.
+func TestFlagSpecsForSkipsSecretFields(t *testing.T) {
+	specs, err := flagSpecsFor(&secretFlagsTestInput{})
+	if err != nil {
+		t.Fatalf("flagSpecsFor: %v", err)
+	}
+	if len(specs) != 1 || specs[0].fieldName != "Name" {
+		t.Fatalf("specs = %+v, want only Name (PlainSecret and PtrSecret must be skipped)", specs)
+	}
+}
+
+// TestNoRealOpEverGetsAFlagForASecretField sweeps every registered
+// operation table (svc_test.go's assertNoSecretFieldGetsAFlag) so a Secret
+// field added to any real Input, now or later, is caught here rather than
+// only where it happens to be introduced.
+func TestNoRealOpEverGetsAFlagForASecretField(t *testing.T) {
+	assertNoSecretFieldGetsAFlag(t, "billing", billingOps)
+	assertNoSecretFieldGetsAFlag(t, "pricing", pricingOps)
+	assertNoSecretFieldGetsAFlag(t, "compute", computeOps)
+	assertNoSecretFieldGetsAFlag(t, "network", networkOps)
+	assertNoSecretFieldGetsAFlag(t, "dns", dnsOps)
+	assertNoSecretFieldGetsAFlag(t, "cdn", cdnOps)
+	assertNoSecretFieldGetsAFlag(t, "monitor", monitorOps)
+	assertNoSecretFieldGetsAFlag(t, "project", projectOps)
+	assertNoSecretFieldGetsAFlag(t, "portal", portalOps)
+	assertNoSecretFieldGetsAFlag(t, "loadbalancer", loadbalancerOps)
+	assertNoSecretFieldGetsAFlag(t, "volume", volumeOps)
+	assertNoSecretFieldGetsAFlag(t, "containerregistry", containerRegistryOps)
+	assertNoSecretFieldGetsAFlag(t, "globalloadbalancer", globalLoadBalancerOps)
 }
 
 func TestFlagSpecsForRejectsNonStructPointer(t *testing.T) {

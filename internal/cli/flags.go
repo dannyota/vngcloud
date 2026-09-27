@@ -5,7 +5,40 @@ import (
 	"reflect"
 
 	"github.com/spf13/cobra"
+
+	"danny.vn/vngcloud"
 )
+
+// secretType is the reflect.Type of vngcloud.Secret. supportedFieldKind
+// skips a field of this type (or a pointer to it) when deriving flags, and
+// secretFieldNames (input.go) uses it to refuse the same fields from
+// --cli-input-json: the rule applies to every Input, not just
+// loadbalancer's, so a later Secret field stays off argv, and off
+// --cli-input-json, by default. Without this check, supportedFieldKind
+// would give a Secret field an ordinary string flag, since Secret's
+// underlying reflect.Kind is String like any other string field.
+var secretType = reflect.TypeOf(vngcloud.Secret(""))
+
+// isSecretFieldType reports whether t is vngcloud.Secret or a pointer to it.
+func isSecretFieldType(t reflect.Type) bool {
+	return t == secretType || (t.Kind() == reflect.Pointer && t.Elem() == secretType)
+}
+
+// secretFieldNames returns the set of inputPtr's exported struct field names
+// whose type is vngcloud.Secret (or a pointer to it), by their Go name.
+// applyCLIInputJSON (input.go) refuses any --cli-input-json key naming one
+// of these outright, inline or file://: one input path for a secret is
+// easier to review.
+func secretFieldNames(inputPtr any) map[string]bool {
+	t := reflect.TypeOf(inputPtr).Elem()
+	names := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		if f := t.Field(i); f.IsExported() && isSecretFieldType(f.Type) {
+			names[f.Name] = true
+		}
+	}
+	return names
+}
 
 // globalFlagNames names every flag every operation command already carries
 // from the root's persistent flags, plus --cli-input-json, which op.go adds
@@ -108,8 +141,16 @@ func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
 
 // supportedFieldKind reports the primitive kind flags.go binds for t: t's own
 // kind for string, int, int64, float64, or bool, or the pointed-to kind for a
-// pointer to one of those. ok is false for any other type.
+// pointer to one of those. ok is false for any other type, including
+// vngcloud.Secret (or a pointer to it): giving a Secret field a flag would
+// put a private value on argv, where ps and shell history keep it, so it is
+// treated the same as an unsupported type such as a map, settable only
+// through --cli-input-json if at all; applyCLIInputJSON (input.go) refuses
+// it there too.
 func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok bool) {
+	if isSecretFieldType(t) {
+		return 0, false, false
+	}
 	switch t.Kind() {
 	case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
 		return t.Kind(), false, true
