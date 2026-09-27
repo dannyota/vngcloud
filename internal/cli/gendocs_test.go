@@ -172,6 +172,23 @@ func TestGenDocsErrorClassesMentionPageFormat(t *testing.T) {
 	}
 }
 
+// TestGenDocsErrorClassesMentionNetworkVPCCodes checks that the error-classes
+// list documents ResourceInUse (network's VPC and subnet delete guard) and
+// that UnexpectedStatus's own parenthetical names enable-vpc-private-dns
+// alongside the vMonitor check it already covered.
+func TestGenDocsErrorClassesMentionNetworkVPCCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{"ResourceInUse", "enable-vpc-private-dns", "contains the subnet"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("error class text is missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestGenDocsErrorClassesMentionMonitorCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -219,11 +236,11 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now eleven, with
+// closing the error-classes list names every exit-1 code (now twelve, with
 // the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
-// network's SystemSecurityGroup and SecurityGroupInUse, compute's own
-// ServerGroupInUse, and SecretFileFailed) rather than a vague "exit 1",
-// which would read as ambiguous after a list of classes.
+// network's SystemSecurityGroup, SecurityGroupInUse, and ResourceInUse,
+// compute's own ServerGroupInUse, and SecretFileFailed) rather than a vague
+// "exit 1", which would read as ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -232,7 +249,7 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
-		"`ServerGroupInUse`, and `SecretFileFailed` all exit 1"
+		"`ServerGroupInUse`, `ResourceInUse`, and `SecretFileFailed` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}

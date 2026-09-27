@@ -7,14 +7,18 @@ import (
 )
 
 // networkOps is network's operation table. Every Get and List operation
-// reads. CreateSecurityGroup, UpdateSecurityGroup, and CreateSecurityGroupRule
-// are Write; DeleteSecurityGroup and DeleteSecurityGroupRule are Write and
-// Destructive, since a deleted group or rule cannot be restored by one more
-// command, so each needs --yes. CreateSecurityGroupRule also carries a Guard,
+// reads. CreateSecurityGroup, UpdateSecurityGroup, CreateSecurityGroupRule,
+// CreateVPC, UpdateVPC, CreateSubnet, and UpdateSubnet are Write.
+// DeleteSecurityGroup, DeleteSecurityGroupRule, DeleteVPC, and DeleteSubnet
+// are Write and Destructive, since a deleted group, rule, VPC, or subnet
+// cannot be restored by one more command, so each needs --yes.
+// EnableVPCPrivateDNS is also Write and Destructive: the API has no call
+// that disables Private DNS again, so enabling it is not undoable by one
+// more command either. CreateSecurityGroupRule also carries a Guard,
 // refuseWorldOpenIngressWithoutYes (svc_network_write.go), that needs --yes
 // for an ingress rule whose remote prefix is 0.0.0.0/0 or ::/0: such a rule
 // opens every port it names to the whole internet. A read-only profile
-// refuses all five, before any request.
+// refuses every one of these, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -52,6 +56,22 @@ var networkOps = []Op[network.Client]{
 		kebab("GetVPC"), (*network.Client).GetVPC),
 	Read[network.Client, network.GetSubnetInput, network.GetSubnetOutput](
 		kebab("GetSubnet"), (*network.Client).GetSubnet),
+	Write[network.Client, network.CreateVPCInput, network.CreateVPCOutput](
+		kebab("CreateVPC"), (*network.Client).CreateVPC),
+	Write[network.Client, network.UpdateVPCInput, network.UpdateVPCOutput](
+		kebab("UpdateVPC"), (*network.Client).UpdateVPC),
+	Write[network.Client, network.DeleteVPCInput, network.DeleteVPCOutput](
+		kebab("DeleteVPC"), (*network.Client).DeleteVPC, Destructive()),
+	Write[network.Client, network.EnableVPCPrivateDNSInput, network.EnableVPCPrivateDNSOutput](
+		kebab("EnableVPCPrivateDNS"), (*network.Client).EnableVPCPrivateDNS, Destructive()),
+	Write[network.Client, network.CreateSubnetInput, network.CreateSubnetOutput](
+		kebab("CreateSubnet"), (*network.Client).CreateSubnet),
+	Write[network.Client, network.UpdateSubnetInput, network.UpdateSubnetOutput](
+		kebab("UpdateSubnet"), (*network.Client).UpdateSubnet),
+	Write[network.Client, network.DeleteSubnetInput, network.DeleteSubnetOutput](
+		kebab("DeleteSubnet"), (*network.Client).DeleteSubnet, Destructive()),
+	Read[network.Client, network.ListServersBySubnetInput, network.ListServersBySubnetOutput](
+		kebab("ListServersBySubnet"), (*network.Client).ListServersBySubnet),
 	Read[network.Client, network.ListSecurityGroupRulesInput, network.ListSecurityGroupRulesOutput](
 		kebab("ListSecurityGroupRules"), (*network.Client).ListSecurityGroupRules),
 	Read[network.Client, network.ListAllSecurityGroupRulesInput, network.ListAllSecurityGroupRulesOutput](

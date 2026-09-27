@@ -153,6 +153,21 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: security group secg-1 has 1 server(s) attached", network.ErrSecurityGroupInUse),
 			1,
 		},
+		{"network resource in use", fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse), 1},
+		{
+			"network unexpected status",
+			fmt.Errorf("%w: VPC vpc-1 dnsStatus is %q", network.ErrUnexpectedStatus, "UNKNOWN"),
+			1,
+		},
+		{
+			// A Ctrl-C right after EnableVPCPrivateDNS's pre-read observes an
+			// unrecognized dnsStatus must still exit like every other
+			// unexpected-status case (1), checked ahead of the
+			// context-canceled rule above, per network's design.
+			"network unexpected status after a canceled context",
+			fmt.Errorf("%w: %w", network.ErrUnexpectedStatus, context.Canceled),
+			1,
+		},
 		{
 			"compute server group in use",
 			fmt.Errorf("%w: server group sg-1 has 1 server(s) attached", compute.ErrServerGroupInUse),
@@ -341,6 +356,27 @@ func TestClassify(t *testing.T) {
 			"compute not settled",
 			fmt.Errorf("%w: server group sg-1 was accepted", compute.ErrNotSettled),
 			"NotSettled", 0, "",
+		},
+		{
+			"network resource in use",
+			fmt.Errorf("%w: VPC vpc-1 has 1 subnet(s); delete them first", network.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			// wrapVPCContainsSubnet (network/vpcs_write.go) rewraps the
+			// server's own refusal, an *APIError, alongside ErrInUse; Code
+			// must still be ResourceInUse, not that inner APIError's own
+			// status-derived code, the same way network.ErrSecurityGroupInUse
+			// wins over its own inner APIError above.
+			"network resource in use wrapping an inner APIError",
+			fmt.Errorf("%w: %w", network.ErrInUse,
+				&vngcloud.APIError{Operation: "network.DeleteVPC", StatusCode: 400, Code: "BadRequest", Message: "Cannot delete this VPC because it contains the subnet."}),
+			"ResourceInUse", 0, "",
+		},
+		{
+			"network unexpected status",
+			fmt.Errorf("%w: VPC vpc-1 dnsStatus is %q", network.ErrUnexpectedStatus, "UNKNOWN"),
+			"UnexpectedStatus", 0, "",
 		},
 		{
 			"monitor log project price above max",

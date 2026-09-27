@@ -77,7 +77,9 @@ type errorEnvelope struct {
 // NoCredentials, LoginFailed, RequestFailed, QueryFailed, PageFormat (a
 // public page, such as the CDN IP range FAQ, no longer matches the shape
 // its parser expects), UnexpectedStatus (a vMonitor check had a status
-// PauseCheck or ResumeCheck does not recognize), StatusUnconfirmed (a
+// PauseCheck or ResumeCheck does not recognize, or a network
+// enable-vpc-private-dns read a VPC dnsStatus it does not know how to act
+// on), StatusUnconfirmed (a
 // vMonitor pause or resume may have landed but no confirm read showed it),
 // ZoneBusy (a vDNS zone stayed busy past the pre-write wait, so nothing was
 // sent), WriteFailed (a vDNS write reached status ERROR, or a network
@@ -101,8 +103,14 @@ type errorEnvelope struct {
 // reason), ServerGroupInUse (a compute delete-server-group was refused
 // because the group has servers attached, found by a pre-delete list scan,
 // or because the server's own refusal named the group in use for some other
-// reason), or SecretFileFailed (create-ssh-key's own create succeeded but
-// writing --secret-file failed afterward, so the CLI deleted the new key).
+// reason), SecretFileFailed (create-ssh-key's own create succeeded but
+// writing --secret-file failed afterward, so the CLI deleted the new key),
+// or ResourceInUse (a network VPC, subnet, route table, or ACL write was
+// refused because a pre-write read showed it still in use, such as a VPC
+// with subnets or a subnet with servers, or because the server's own
+// refusal named it in use, including a VPC delete the server keeps
+// refusing with "contains the subnet" for several minutes after that
+// subnet's own delete).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -112,7 +120,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) {
 		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
 	}
-	if errors.Is(err, monitor.ErrUnexpectedStatus) {
+	if errors.Is(err, monitor.ErrUnexpectedStatus) || errors.Is(err, network.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
 	// monitor.ErrOTPRejected, like dns.ErrZoneBusy, dns.ErrFailed,
@@ -138,13 +146,15 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
-	// network.ErrSystemGroup and network.ErrSecurityGroupInUse join this same
-	// early group for the same reason monitor.ErrOTPRejected's comment above
-	// gives: ErrSecurityGroupInUse can wrap an inner *core.APIError (see
-	// wrapSecurityGroupInUse in network/security_groups_write.go), and this
-	// check must win over the generic *APIError branch below rather than let
-	// errors.As find that inner error first and report its own status-derived
-	// code instead. compute.ErrServerGroupInUse joins it for the same reason:
+	// network.ErrSystemGroup, network.ErrSecurityGroupInUse, and
+	// network.ErrInUse join this same early group for the same reason
+	// monitor.ErrOTPRejected's comment above gives: ErrSecurityGroupInUse and
+	// ErrInUse can each wrap an inner *core.APIError (see
+	// wrapSecurityGroupInUse in network/security_groups_write.go and
+	// wrapVPCContainsSubnet in network/vpcs_write.go), and this check must win
+	// over the generic *APIError branch below rather than let errors.As find
+	// that inner error first and report its own status-derived code instead.
+	// compute.ErrServerGroupInUse joins it for the same reason:
 	// wrapServerGroupInUse (compute/server_groups_write.go) can wrap the
 	// server's own refusal the same way.
 	if errors.Is(err, network.ErrSystemGroup) {
@@ -155,6 +165,9 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, compute.ErrServerGroupInUse) {
 		return errorEnvelope{Code: "ServerGroupInUse", Message: err.Error()}
+	}
+	if errors.Is(err, network.ErrInUse) {
+		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	if errors.Is(err, monitor.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
@@ -247,12 +260,13 @@ func exitCode(err error) int {
 	// every other unconfirmed toggle, per monitor's design, rather than
 	// happening to match the canceled-context rule by coincidence. dns.ErrZoneBusy,
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
-	// compute.ErrNotSettled, and monitor.ErrOTPRejected join the same early
-	// return for the same reason: per the vDNS and network designs, a
-	// not-settled write specifically must exit the same way even after a
-	// canceled context, because its write may have landed, and the others
-	// join it for consistency.
+	// network.ErrUnexpectedStatus, compute.ErrNotSettled, and
+	// monitor.ErrOTPRejected join the same early return for the same reason:
+	// per the vDNS and network designs, a not-settled write specifically must
+	// exit the same way even after a canceled context, because its write may
+	// have landed, and the others join it for consistency.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
+		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) {

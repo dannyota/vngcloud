@@ -291,6 +291,35 @@ const networkDeleteSecurityGroupNote = "Refuses, before any write, a system grou
 const networkDeleteSecurityGroupRuleNote = "Refuses, before any write, a rule that does not belong to " +
 	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
 
+// networkCreateVPCNote documents that the server ignores CreateVPC's own
+// zone, since CreateVPCInput carries no ZoneID field at all and a reader would
+// otherwise have no way to learn that a VPC's zone is decided elsewhere.
+const networkCreateVPCNote = "Takes no zone: the server ignores a VPC's zone and always places it in " +
+	"the region's first zone, which can be disabled for the account. The zone that matters is a " +
+	"subnet's own --zone-id."
+
+// networkCreateSubnetNote documents create-subnet's --zone-id requirement
+// and where to find a value for it, since the flag table shows --zone-id as
+// a plain required string with no hint of what a valid value looks like.
+const networkCreateSubnetNote = "--zone-id must name a zone enabled for the account; the SDK picks no " +
+	"default, since a guess would place the subnet, and any server later created in it, in a zone " +
+	"the caller did not choose. Run portal list-zones to find an enabled zone."
+
+// networkDeleteVPCNote documents delete-vpc's own subnet-list guard and the
+// server's own hold after a subnet's delete, since the flag table shows only
+// --vpc-id with no hint of either.
+const networkDeleteVPCNote = "Refuses, before any request, a VPC that still has a server, a volume, or " +
+	"a subnet; delete the subnets first. Even once every subnet is gone, the server keeps refusing " +
+	"the VPC's own delete with error code ResourceInUse for several minutes afterward; this command " +
+	"reads first every time, so a rerun once that window passes is safe."
+
+// networkEnableVPCPrivateDNSNote documents enable-vpc-private-dns's one-way
+// nature, its own timing, and why it needs --yes, since the flag table
+// shows only --vpc-id with no hint that this write cannot be reversed.
+const networkEnableVPCPrivateDNSNote = "One-way: the API has no call that disables Private DNS again, so " +
+	"this command needs --yes. Takes about 6 minutes to settle; a server already on the VPC only " +
+	"picks up the new resolver after its own DHCP renew."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -308,6 +337,10 @@ var docOpNotes = map[string]string{
 	"network create-security-group-rule":      networkCreateSecurityGroupRuleNote,
 	"network delete-security-group":           networkDeleteSecurityGroupNote,
 	"network delete-security-group-rule":      networkDeleteSecurityGroupRuleNote,
+	"network create-vpc":                      networkCreateVPCNote,
+	"network create-subnet":                   networkCreateSubnetNote,
+	"network delete-vpc":                      networkDeleteVPCNote,
+	"network enable-vpc-private-dns":          networkEnableVPCPrivateDNSNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,

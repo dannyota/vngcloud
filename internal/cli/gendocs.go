@@ -330,7 +330,8 @@ func renderCLIPage(services []docService) string {
 		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
-		"the SDK does not know, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"the SDK does not know, so nothing was sent, or a network enable-vpc-private-dns read a VPC " +
+		"dnsStatus it does not know how to act on, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
@@ -349,7 +350,11 @@ func renderCLIPage(services []docService) string {
 		"attached or the server itself refused it as in use), `ServerGroupInUse` (a compute " +
 		"delete-server-group was refused because the group has servers attached, found by a pre-delete " +
 		"list scan, or the server itself refused it as in use; see " +
-		"[Compute](CLI-Compute.md#delete-server-group)), `SecretFileFailed` (create-ssh-key's own " +
+		"[Compute](CLI-Compute.md#delete-server-group)), `ResourceInUse` (a network delete-vpc or " +
+		"delete-subnet was refused because a pre-write read showed the VPC or subnet still in use, such as " +
+		"a VPC with subnets or a subnet with servers, or because the server's own refusal named it in use, " +
+		"including a VPC delete the server keeps refusing with \"contains the subnet\" for several minutes " +
+		"after that subnet's own delete; see [Network](Network.md#errors)), `SecretFileFailed` (create-ssh-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key; see " +
 		"[Compute](CLI-Compute.md#create-ssh-key)), or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
@@ -357,7 +362,7 @@ func renderCLIPage(services []docService) string {
 		"`NotSettled` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits) and " +
 		"[Network](Network.md#waits). `UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
-		"`ServerGroupInUse`, and `SecretFileFailed` all exit 1.\n\n")
+		"`ServerGroupInUse`, `ResourceInUse`, and `SecretFileFailed` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
