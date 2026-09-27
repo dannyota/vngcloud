@@ -65,16 +65,18 @@ func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.C
 
 	tcfg.HTTPClient = server.Client()
 	return core.NewTestConfig("hcm-3", "project-1", endpoints.Set{
-		Region:   "hcm-3",
-		VServer:  server.URL + "/",
-		VLB:      server.URL + "/",
-		VNetwork: server.URL + "/",
-		GLB:      server.URL + "/",
-		DNS:      server.URL + "/",
-		VCR:      server.URL + "/",
-		Portal:   server.URL + "/",
-		Billing:  server.URL + "/",
-		Monitor:  server.URL + "/",
+		Region:    "hcm-3",
+		VServer:   server.URL + "/",
+		VLB:       server.URL + "/",
+		VNetwork:  server.URL + "/",
+		GLB:       server.URL + "/",
+		DNS:       server.URL + "/",
+		VCR:       server.URL + "/",
+		Portal:    server.URL + "/",
+		Billing:   server.URL + "/",
+		Monitor:   server.URL + "/",
+		Dashboard: server.URL + "/",
+		IAM:       server.URL + "/",
 	}, transport.New(tcfg))
 }
 

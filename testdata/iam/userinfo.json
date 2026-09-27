@@ -1,0 +1,8 @@
+{
+  "userId": "user-1",
+  "userType": "iam-user",
+  "accountId": 700000000123,
+  "username": "<account>",
+  "rootEmail": "<account>",
+  "twoFactorAuth": false
+}

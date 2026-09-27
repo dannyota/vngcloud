@@ -18,7 +18,9 @@ changed, and deleted. See [Network](Network.md). `compute` covers SSH key
 writes too: a key can be imported, created, or deleted. See
 [Compute](Compute.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
-[Container Registry](#container-registry) below.
+[Container Registry](#container-registry) below. `iam` reads caller
+identity, users, actions, policies, groups, and service accounts. See
+[IAM](#iam) below.
 
 ## Coverage
 
@@ -33,6 +35,7 @@ user writes too: a repository or a user can be created and deleted. See
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
+| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below. |
 
 ## Project
 
@@ -344,3 +347,31 @@ Repository and user names, registry URLs, and ids are account data.
 `docker login vcr.vngcloud.vn -u <login name> --password-stdin` takes the
 secret as the password; whether `<login name>` is the repository user's
 own name or the repository's name is unverified.
+
+## IAM
+
+```go
+iamClient := iam.New(cfg)
+iamClient.GetCallerIdentity(ctx, nil)
+iamClient.ListUsers(ctx, in)                   // Page, Size
+iamClient.ListActions(ctx, nil)
+iamClient.ListServiceAccounts(ctx, in)         // Name, Page, Size
+iamClient.GetServiceAccount(ctx, in)           // ServiceAccountID (required)
+iamClient.ListPolicies(ctx, in)                // Name, Page, Size
+iamClient.GetPolicy(ctx, in)                   // PolicyID (required)
+iamClient.ListPolicyAttachments(ctx, in)       // PolicyID (required)
+iamClient.ListGroups(ctx, nil)
+iamClient.GetGroup(ctx, in)                    // GroupID (required)
+iamClient.ListGroupPolicies(ctx, in)           // GroupID (required), Page, Size
+iamClient.ListUserPolicies(ctx, in)            // UserID (required), Page, Size
+iamClient.ListUserGroups(ctx, in)              // UserID (required)
+iamClient.ListServiceAccountPolicies(ctx, in)  // ServiceAccountID (required), Page, Size
+```
+
+Policy and group reads run on the IAM console host; every other call,
+including every service account call, runs on the dashboard host. Page
+numbers start at 0 in `iam`, unlike the rest of the SDK: `Page: 0` is the
+first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
+
+`Policy.Managed()` reports whether a policy is one GreenNode manages: it
+can be read and attached, but never updated or deleted.

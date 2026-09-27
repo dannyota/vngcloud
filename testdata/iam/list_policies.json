@@ -1,0 +1,11 @@
+{
+  "data": [
+    { "id": "policy-1", "name": "<name>", "createdAt": 1750000000000 },
+    { "id": "policy-2", "name": "<name>", "createdAt": { "$numberLong": "1750000000000" } },
+    { "id": "policy-3", "name": "<name>" }
+  ],
+  "pageNumber": 0,
+  "pageSize": 10000,
+  "totalItems": 3,
+  "totalPages": 1
+}

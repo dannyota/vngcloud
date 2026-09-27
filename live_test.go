@@ -21,6 +21,7 @@ import (
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/globalloadbalancer"
+	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/internal/envfile"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
@@ -115,6 +116,7 @@ func TestLive(t *testing.T) {
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
 	t.Run("monitor-alarms", func(t *testing.T) { testLiveMonitorAlarms(ctx, t, firstCfg) })
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
+	t.Run("iam", func(t *testing.T) { testLiveIAM(ctx, t, firstCfg) })
 
 	for i, region := range regions {
 		cfg := firstCfg
@@ -492,6 +494,56 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 			t.Fatalf("ListUsageHistories: %v", err)
 		}
 		t.Logf("usage histories: %d", len(res.Items))
+	})
+}
+
+// testLiveIAM reads the caller's identity, the account's IAM users, the
+// account's IAM actions, and the account's policies, groups, and service
+// accounts. It logs counts and the caller's user type only: every name, ID,
+// and account value stays out of the log, per live-data.md.
+func testLiveIAM(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := iam.New(cfg)
+
+	caller, err := client.GetCallerIdentity(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetCallerIdentity: %v", err)
+	}
+	t.Logf("caller user type: %s", caller.UserType)
+
+	t.Run("users", func(t *testing.T) {
+		res, err := client.ListUsers(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		t.Logf("iam users: %d", len(res.Items))
+	})
+	t.Run("actions", func(t *testing.T) {
+		res, err := client.ListActions(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListActions: %v", err)
+		}
+		t.Logf("iam actions: %d", len(res.Items))
+	})
+	t.Run("policies", func(t *testing.T) {
+		res, err := client.ListPolicies(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListPolicies: %v", err)
+		}
+		t.Logf("policies: %d", len(res.Items))
+	})
+	t.Run("groups", func(t *testing.T) {
+		res, err := client.ListGroups(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListGroups: %v", err)
+		}
+		t.Logf("groups: %d", len(res.Items))
+	})
+	t.Run("service-accounts", func(t *testing.T) {
+		res, err := client.ListServiceAccounts(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListServiceAccounts: %v", err)
+		}
+		t.Logf("service accounts: %d", len(res.Items))
 	})
 }
 
