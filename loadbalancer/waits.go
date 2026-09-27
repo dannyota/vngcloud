@@ -39,17 +39,31 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every interval, until step reports
-// stop true or bound has elapsed, by now, since poll's first call to step.
-// Elapsed time is read from now rather than counted in interval steps, so a
-// step that itself takes real time, such as a slow read, counts against the
-// bound instead of only the sleeps between steps; a test injects both a
-// fake clock and a sleepFunc that returns quickly. This is the same shape
-// as vDNS's own unexported poll, duplicated here rather than shared, since
-// each write in this package needs its own interval and bound and no
-// package here imports another for this.
-func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+// poll sleeps firstDelay (when positive), then runs step, then again every
+// interval, until step reports stop true or bound has elapsed, by now, since
+// poll was entered. Elapsed time is read from now rather than counted in
+// interval steps, so a step that itself takes real time, such as a slow
+// read, counts against the bound instead of only the sleeps between steps;
+// a test injects both a fake clock and a sleepFunc that returns quickly.
+// This is the same shape as vDNS's own unexported poll, duplicated here
+// rather than shared, since each write in this package needs its own
+// interval and bound and no package here imports another for this.
+//
+// firstDelay exists because a status read taken the instant a write returns
+// can still show the resource's state from before the write: the server may
+// not have started applying it yet, so step's very first call would call a
+// stale read "settled" without the write ever having been observed to take
+// effect. Terraform's own provider waits before its first read the same
+// way. A caller checking current state before sending anything, rather than
+// confirming a change it just made, passes 0: there step should read
+// immediately, not wait out of caution.
+func poll(ctx context.Context, now clockFunc, sleep sleepFunc, firstDelay, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
 	deadline := now().Add(bound)
+	if firstDelay > 0 {
+		if err := sleep(ctx, firstDelay); err != nil {
+			return err
+		}
+	}
 	for {
 		stop, err := step(ctx)
 		if stop {
@@ -158,7 +172,7 @@ const (
 // child check instead (see waitPreWriteReady). Past the bound it returns
 // ErrBusy.
 func (c *Client) waitLoadBalancerPreWriteReady(ctx context.Context, op, lbID string) error {
-	return poll(ctx, c.now, c.sleep, preWritePollInterval, preWriteBound,
+	return poll(ctx, c.now, c.sleep, 0, preWritePollInterval, preWriteBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: lbID})
 			if err != nil {
@@ -201,7 +215,7 @@ const (
 // method, since Go methods cannot take their own type parameters.
 func waitPreWriteReady[T any](c *Client, ctx context.Context, op, lbID, kind, id string, get func(ctx context.Context) (T, string, error)) (T, error) {
 	var child T
-	err := poll(ctx, c.now, c.sleep, preWritePollInterval, preWriteBound,
+	err := poll(ctx, c.now, c.sleep, 0, preWritePollInterval, preWriteBound,
 		func(ctx context.Context) (bool, error) {
 			lbOut, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: lbID})
 			if err != nil {
@@ -234,8 +248,17 @@ func waitPreWriteReady[T any](c *Client, ctx context.Context, op, lbID, kind, id
 // an error, since a child just written may not be readable for a moment; any
 // other status, including one this SDK does not recognize, keeps it
 // polling.
+//
+// It sleeps one childPollInterval before its first read (poll's firstDelay):
+// an update or a members replace often leaves the child's own progressStatus
+// at lbStatusCreated throughout, since only the child's contents changed, so
+// an immediate read cannot be told apart from one taken before the write was
+// even applied. Without this delay, a write that genuinely succeeded could
+// settle on that first, too-early read, and a caller that then confirms the
+// new content, such as the pool members replace does, could still catch the
+// server mid-update and be wrongly told ErrNotSettled.
 func (c *Client) waitChildSettled(ctx context.Context, op, lbID, kind, id string, getStatus func(ctx context.Context) (string, error)) error {
-	err := poll(ctx, c.now, c.sleep, childPollInterval, childBound,
+	err := poll(ctx, c.now, c.sleep, childPollInterval, childPollInterval, childBound,
 		func(ctx context.Context) (bool, error) {
 			status, err := getStatus(ctx)
 			if err != nil {
@@ -271,7 +294,7 @@ func (c *Client) waitChildSettled(ctx context.Context, op, lbID, kind, id string
 // lbID no longer busy (settled), or getStatus reports lbStatusError
 // (failed); any other status keeps it polling.
 func (c *Client) waitChildDeleted(ctx context.Context, op, lbID, kind, id string, getStatus func(ctx context.Context) (status string, notFound bool, err error)) error {
-	err := poll(ctx, c.now, c.sleep, childPollInterval, childBound,
+	err := poll(ctx, c.now, c.sleep, 0, childPollInterval, childBound,
 		func(ctx context.Context) (bool, error) {
 			status, notFound, err := getStatus(ctx)
 			if err != nil {

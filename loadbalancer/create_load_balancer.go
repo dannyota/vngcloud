@@ -251,7 +251,7 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 // read failure stops the wait and is returned as is.
 func (c *Client) waitLoadBalancerCreated(ctx context.Context, op, id string) (*LoadBalancer, error) {
 	var lb *LoadBalancer
-	err := poll(ctx, c.now, c.sleep, lbCreatePollInterval, lbCreateBound,
+	err := poll(ctx, c.now, c.sleep, 0, lbCreatePollInterval, lbCreateBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: id})
 			if err != nil {

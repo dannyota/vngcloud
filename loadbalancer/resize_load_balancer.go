@@ -210,7 +210,7 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 // recognize, keeps it polling.
 func (c *Client) waitLoadBalancerResized(ctx context.Context, op, id, newPackageID string) (*LoadBalancer, error) {
 	var lb *LoadBalancer
-	err := poll(ctx, c.now, c.sleep, lbResizePollInterval, lbResizeBound,
+	err := poll(ctx, c.now, c.sleep, 0, lbResizePollInterval, lbResizeBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: id})
 			if err != nil {

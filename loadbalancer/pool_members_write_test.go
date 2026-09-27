@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 )
@@ -370,6 +371,74 @@ func TestAddPoolMemberNonBusyRefusalNoResend(t *testing.T) {
 	}
 	if got := putCalls.Load(); got != 1 {
 		t.Fatalf("PUT calls = %d, want 1 (a non-busy refusal is never resent)", got)
+	}
+}
+
+// TestAddPoolMemberSettleWaitSleepsBeforeConfirmRead checks that the settle
+// wait after the members PUT sleeps one childPollInterval before its first
+// read, rather than reading immediately: a member replace leaves the pool's
+// own progressStatus at CREATED throughout in this fixture, exactly the
+// case where an immediate read cannot be told apart from one taken before
+// the write was applied, and the confirm read right after the wait would
+// otherwise risk reading the pool before the server finished the change.
+func TestAddPoolMemberSettleWaitSleepsBeforeConfirmRead(t *testing.T) {
+	var events []string
+	var putSent bool
+	var sentBody []byte
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == memberLBPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestLBID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberPoolPath:
+			if putSent {
+				events = append(events, "get-pool")
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, memberTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == memberMembersPath:
+			if sentBody == nil {
+				_, _ = w.Write([]byte(memberFixture))
+				return
+			}
+			// The confirm read after the PUT reflects exactly what was sent,
+			// simulating a server that has already applied the write.
+			var sent poolMembersReplaceBody
+			_ = json.Unmarshal(sentBody, &sent)
+			var out struct {
+				Data []PoolMember `json:"data"`
+			}
+			for _, e := range sent.Members {
+				out.Data = append(out.Data, PoolMember{Address: e.Address, ProtocolPort: e.Port, Backup: e.Backup, Weight: e.Weight, Name: e.Name, MonitorPort: e.MonitorPort})
+			}
+			data, _ := json.Marshal(out)
+			_, _ = w.Write(data)
+		case r.Method == http.MethodPut && r.URL.Path == memberMembersPath:
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			sentBody = data
+			putSent = true
+			events = append(events, "put")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		events = append(events, "sleep:"+d.String())
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080}
+	if _, err := c.AddPoolMember(context.Background(), in); err != nil {
+		t.Fatalf("AddPoolMember() error = %v", err)
+	}
+
+	want := []string{"put", "sleep:" + childPollInterval.String(), "get-pool"}
+	if len(events) < 3 || events[0] != want[0] || events[1] != want[1] || events[2] != want[2] {
+		t.Fatalf("events = %v, want to start with %v", events, want)
 	}
 }
 

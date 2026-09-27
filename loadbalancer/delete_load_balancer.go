@@ -93,7 +93,7 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 // lbStatusError (failed); any other status, or any other read outcome,
 // keeps it polling.
 func (c *Client) waitLoadBalancerDeleted(ctx context.Context, op, id string) error {
-	err := poll(ctx, c.now, c.sleep, lbDeletePollInterval, lbDeleteBound,
+	err := poll(ctx, c.now, c.sleep, 0, lbDeletePollInterval, lbDeleteBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: id})
 			if err != nil {
