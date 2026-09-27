@@ -828,7 +828,7 @@ func testLiveLoadBalancerPaidWritesL1(ctx context.Context, t *testing.T, cfg vng
 
 	t.Run("quote-resize-missing-load-balancer", func(t *testing.T) {
 		_, err := client.QuoteResizeLoadBalancer(ctx, &loadbalancer.ResizeLoadBalancerInput{
-			LoadBalancerID: "vngcloud-live-missing", PackageID: "quote-only",
+			LoadBalancerID: "vngcloud-live-missing", PackageID: packageIDByName["NLB_Small"],
 		})
 		var apiErr *vngcloud.APIError
 		if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
