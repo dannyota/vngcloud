@@ -94,8 +94,7 @@ servers often refuse; whether vStorage does is a live check.
 - Objects, directories, presigned URLs, and uploads. Use an S3 client.
 - Lifecycle, encryption, object lock, notifications, ACLs, IP range ACLs,
   usage alerts, reports, the Swift farm (`HCM03`), and Swift users.
-- Service-account login, the external vStorage API, and a service account's
-  client secret, which the CLI never shows or saves.
+- Service-account login and the external vStorage API.
 
 ## Endpoints
 
@@ -159,17 +158,15 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 ### iam
 
 Operation names are `iam.<Method>`. Paths are under `accounts-api/v1/`.
-List Inputs carry `Page` and `Size`, sent as `pageNumber` and `pageSize`.
+List Inputs carry `Page` and `Size`, sent as `pageNumber` and `pageSize`;
+`pageNumber` starts at 0. Service account calls without S3 are in
+[IAM writes](iam-writes.md).
 
 | Operation | Method and path | Input | Output |
 |-|-|-|-|
 | `ListS3Keys` | `GET s3-keys` | `Search` | L[S3Key] |
 | `CreateS3Key` | `POST s3-keys` | `Name` (r), `ProjectID` (r), `Region` | `{S3Key; SecretKey vngcloud.Secret}` |
 | `DeleteS3Key` | `DELETE s3-keys/{id}` | `S3KeyID` (r) | `{}` |
-| `ListServiceAccounts` | `GET service-accounts` | `Name` | L[ServiceAccount] |
-| `GetServiceAccount` | `GET service-accounts/{id}` | `ServiceAccountID` (r) | `{ServiceAccount}` |
-| `CreateServiceAccount` | `POST service-accounts` | `Name` (r), `Description` | `{ServiceAccount; ClientSecret vngcloud.Secret}` |
-| `DeleteServiceAccount` | `DELETE service-accounts/{id}` | `ServiceAccountID` (r) | `{}` |
 | `ListServiceAccountS3Keys` | `GET service-accounts/{id}/s3-keys` | `ServiceAccountID` (r) | L[S3Key] |
 | `AttachS3Key` | `POST service-accounts/{id}/s3-keys/{keyId}` | `ServiceAccountID` (r), `S3KeyID` (r) | `{}` |
 | `DetachS3Key` | `DELETE service-accounts/{id}/s3-keys/{keyId}` | `ServiceAccountID` (r), `S3KeyID` (r) | `{}` |
@@ -249,7 +246,7 @@ aboutme's setup, per bucket. `policy.json` allows the principal `s3:*` on
 
 ```sh
 vngcloud storage create-bucket --project-id <p> --bucket <b>
-vngcloud iam create-service-account --name <b>-app
+vngcloud iam create-service-account --name <b>-app --secret-file <path>
 vngcloud storage get-service-account-principal --project-id <p> \
   --service-account-id <sa>
 vngcloud storage put-bucket-policy --project-id <p> --bucket <b> \
@@ -278,9 +275,9 @@ Input fields; `Rules` comes through `--cli-input-json`, and `Policy` accepts
 | `storage get-bucket-versioning`, `get-bucket-cors`, `get-bucket-public-access` | Read | No |
 | `storage put-bucket-versioning`, `put-bucket-cors`, `delete-bucket-cors` | Write | No |
 | `storage put-bucket-public-access` | Write | Yes when `--public` |
-| `iam list-s3-keys`, `list-service-accounts`, `get-service-account`, `list-service-account-s3-keys` | Read | No |
-| `iam create-s3-key`, `create-service-account`, `attach-s3-key`, `detach-s3-key` | Write | No |
-| `iam delete-s3-key`, `delete-service-account` | Write, destructive | Yes |
+| `iam list-s3-keys`, `list-service-account-s3-keys` | Read | No |
+| `iam create-s3-key`, `attach-s3-key`, `detach-s3-key` | Write | No |
+| `iam delete-s3-key` | Write, destructive | Yes |
 
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request.
@@ -311,10 +308,6 @@ Input fields; `Rules` comes through `--cli-input-json`, and `Policy` accepts
    error names the key ID so a person can delete it.
 4. Stdout gets the key without the secret: `SecretKey` prints as
    `[redacted]`, and a `SecretFile` field names the path.
-
-`iam create-service-account` prints the service account with
-`ClientSecret` redacted and writes no file. The per-bucket key does not use
-the client secret; a later design can add `reset-secret` with a file.
 
 ## Errors
 
@@ -396,8 +389,7 @@ it lacks one. Writes need a project and the owner's approval.
 5. `DeleteBucket`: empty, holding one object, and repeated.
 6. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
    11th-key error, delete and repeat, and `rclone lsd` with the key.
-7. `CreateServiceAccount`: 201 body and any client secret; delete; attach,
-   repeat attach, and detach.
+7. Attach a key to a service account, repeat the attach, and detach.
 8. Principal: `users/details` with `generated=false` before and after
    attach, and whether `ceph_sub_users` must run first.
 9. Scope, the core claim: with a policy for the principal on bucket A, the
@@ -415,14 +407,14 @@ Each release ships the SDK and CLI together, with its wiki pages.
 | S1 | `storage` reads: `ListRegions`, `ListProjects`, `ListBuckets`, `GetBucket`; the `Storage` endpoint, region lookup, and envelope errors |
 | S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty` |
 | S3 | `iam` S3 keys: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`; `vngcloud.Secret`, `transport.Request.Sensitive`, and `--secret-file` |
-| S4 | `iam` service accounts: list, get, create, delete, attach and detach a key, and list its keys |
+| S4 | `iam` S3 keys on service accounts: `ListServiceAccountS3Keys`, `AttachS3Key`, `DetachS3Key`; needs IAM writes I2 |
 | S5 | Bucket policy get, put, and delete, and `GetServiceAccountPrincipal`: the per-bucket key works end to end |
 | S6 | Bucket versioning, CORS, and public access |
 
 S1 needs only the policy grant; S2 and later need a project. None changes an
-existing method or command. Keys ship before service accounts because a
-project-wide key already unblocks aboutme, and secret handling is the
-riskiest part.
+existing method or command. Keys ship before key attach because a
+project-wide key already unblocks aboutme; service accounts themselves ship
+in [IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
@@ -440,7 +432,8 @@ All 12 are approved as recommended.
 6. Approved: the secret goes only to `--secret-file`, an AWS credentials
    file; no stdout option, which would reach transcripts and CI logs.
 7. Approved: `vngcloud.Secret` redacts even in `json.Marshal`.
-8. Approved: the CLI never shows or saves a service account's client secret.
+8. Replaced by [IAM writes](iam-writes.md) decision 2: the client secret
+   goes only to `--secret-file`.
 9. Approved: `DeleteBucket` refuses a bucket with objects; no force option.
 10. Approved: `--yes` when making a bucket public.
 11. Approved: rclone as the S3 client; no object commands in the CLI.
