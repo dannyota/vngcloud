@@ -298,9 +298,13 @@ const networkDeleteRouteTableNote = "Reads the table, its VPC, and every subnet 
 func networkChangeRouteNote(command, sameRouteBehavior string) string {
 	return "Needs --yes on every call: " + command + " changes routing for every server behind the table, and " +
 		"the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before " +
-		"sending; past that wait, error code ResourceBusy, nothing sent. " + sameRouteBehavior + " Without " +
+		"sending; past that wait, error code ResourceBusy, nothing sent. Matches --destination-cidr as a " +
+		"parsed prefix, not by its exact text. " + sameRouteBehavior + " Reads the table again right before " +
+		"sending and refuses with ResourceBusy, nothing sent, if its routes changed since that first read; a " +
+		"write that lands in the moment between this re-read and the send can still be overwritten. Without " +
 		"--no-wait, waits again after sending and confirms that a fresh read names exactly the routes just " +
-		"sent; a mismatch, such as from another writer changing the table at the same time, is NotSettled."
+		"sent, which only catches a write that lands after this command's own send, not one from before it; " +
+		"a mismatch there is NotSettled."
 }
 
 // networkAddRouteNote documents add-route's own no-op and conflict cases,
@@ -310,10 +314,12 @@ var networkAddRouteNote = networkChangeRouteNote("add-route", "Adding a route to
 	"--destination-cidr with a different --target already there is refused with InvalidUsage, naming the "+
 	"current target; remove-route the old one first.")
 
-// networkRemoveRouteNote documents remove-route's own missing-route case,
-// which networkChangeRouteNote's shared text does not cover.
+// networkRemoveRouteNote documents remove-route's own missing-route and
+// ambiguous-match cases, which networkChangeRouteNote's shared text does
+// not cover.
 var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a --destination-cidr the table "+
-	"does not have returns NotFound, nothing sent.")
+	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
+	"parsed prefix is refused, nothing sent.")
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
