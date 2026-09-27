@@ -249,6 +249,16 @@ sent. One present with any different field fails with
 sent either way. `UpdatePoolMember` or `RemovePoolMember` of a member that
 is not there fails with `vngcloud.IsNotFound(err) == true`.
 
+Each method also checks, before sending anything, that the pool's own
+embedded member list (read alongside its status) names the same members, by
+`Address` and `Port`, as the separate member list read used to build the
+`PUT` body. A mismatch means the two reads landed moments apart and
+something else changed the pool in between (or the server has not caught
+up), so resending either list as the whole set would drop or fabricate
+members; this returns `loadbalancer.ErrBusy` and sends nothing, and the
+write can be retried. A pool read that omits its embedded member list
+entirely skips this check.
+
 Without `NoWait`, all three wait for the pool to settle after the write and
 then confirm that a fresh read names exactly the list just sent; a mismatch
 means another writer changed the pool and returns

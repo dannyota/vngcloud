@@ -179,23 +179,49 @@ func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID
 	return pool, nil
 }
 
-// checkMembersNotUnexpectedlyEmpty refuses to proceed when pool's own
-// embedded Members, from the pre-write GetPool read, names at least one
-// member but a fresh ListPoolMembers came back with none. ListPoolMembers
-// already refuses a missing or null data key on its own
-// (listLoadBalancerChild), so a genuinely empty result here means the pool
-// really has no members; this cross-check is a second line of defense
-// against any other way a read could wrongly come back empty, since every
-// write in this file would otherwise resend that empty read as the pool's
-// whole list, plus only the one member being added or changed, silently
-// dropping every other member the pool actually has.
-func checkMembersNotUnexpectedlyEmpty(op, poolID string, pool *Pool, members []PoolMember) error {
-	if len(pool.Members) > 0 && len(members) == 0 {
-		return &core.APIError{Operation: op, Message: fmt.Sprintf(
-			"pool %s: ListPoolMembers returned no members, but the pool read %d; refusing to replace the list",
-			poolID, len(pool.Members))}
+// poolMemberKeySetOf builds the set of poolMemberKey (address and port) for
+// members.
+func poolMemberKeySetOf(members []PoolMember) map[poolMemberKey]bool {
+	set := make(map[poolMemberKey]bool, len(members))
+	for _, m := range members {
+		set[poolMemberKeyOf(m.Address, m.ProtocolPort)] = true
 	}
-	return nil
+	return set
+}
+
+// checkMemberReadsAgree refuses to proceed when pool's own embedded
+// Members, from the pre-write GetPool read, and a fresh ListPoolMembers read
+// do not name the same set of members, keyed by Address and Port. The two
+// reads happen moments apart; server lag or another process's write between
+// them can make GetPool's embedded list and ListPoolMembers disagree by any
+// number of members, not just down to zero, and every write in this file
+// would otherwise resend whichever list it read as the pool's whole set,
+// silently dropping or fabricating the members only the other read named.
+//
+// GetPool omitting the members field entirely leaves pool.Members nil,
+// distinct from the server naming an empty list; there is then nothing to
+// compare against, so this check is skipped and the write proceeds from the
+// ListPoolMembers read alone, as it always did before this check existed.
+func checkMemberReadsAgree(op, poolID string, pool *Pool, members []PoolMember) error {
+	if pool.Members == nil {
+		return nil
+	}
+	want := poolMemberKeySetOf(pool.Members)
+	got := poolMemberKeySetOf(members)
+	agree := len(want) == len(got)
+	if agree {
+		for k := range want {
+			if !got[k] {
+				agree = false
+				break
+			}
+		}
+	}
+	if agree {
+		return nil
+	}
+	return fmt.Errorf("%w: %s: pool %s: the pool read named %d member(s) and ListPoolMembers named %d; the two reads disagree, nothing sent, retry",
+		ErrBusy, op, poolID, len(pool.Members), len(members))
 }
 
 // poolPreWritePool waits, within the pre-write bound, until the load
@@ -291,7 +317,7 @@ func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*Ad
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMembersNotUnexpectedlyEmpty(op, in.PoolID, pool, membersOut.Items); err != nil {
+	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
 		return nil, err
 	}
 	entries := poolMemberEntriesOf(membersOut.Items)
@@ -394,7 +420,7 @@ func (c *Client) UpdatePoolMember(ctx context.Context, in *UpdatePoolMemberInput
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMembersNotUnexpectedlyEmpty(op, in.PoolID, pool, membersOut.Items); err != nil {
+	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
 		return nil, err
 	}
 	entries := poolMemberEntriesOf(membersOut.Items)
@@ -488,7 +514,7 @@ func (c *Client) RemovePoolMember(ctx context.Context, in *RemovePoolMemberInput
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMembersNotUnexpectedlyEmpty(op, in.PoolID, pool, membersOut.Items); err != nil {
+	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
 		return nil, err
 	}
 	entries := poolMemberEntriesOf(membersOut.Items)
