@@ -48,6 +48,10 @@ var volumeOps = []Op[volume.Client]{
 		kebab("CreateVolume"), (*volume.Client).CreateVolume),
 	Write[volume.Client, volume.DeleteVolumeInput, volume.DeleteVolumeOutput](
 		kebab("DeleteVolume"), (*volume.Client).DeleteVolume, Destructive()),
+	Write[volume.Client, volume.AttachVolumeInput, volume.AttachVolumeOutput](
+		kebab("AttachVolume"), (*volume.Client).AttachVolume),
+	Write[volume.Client, volume.DetachVolumeInput, volume.DetachVolumeOutput](
+		kebab("DetachVolume"), (*volume.Client).DetachVolume, Destructive()),
 }
 
 func newVolumeCmd(e *env) *cobra.Command {

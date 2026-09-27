@@ -377,6 +377,9 @@ func renderCLIPage(services []docService) string {
 		"delete-volume already reads first and is safe to run again; see " +
 		"[Volume](CLI-Volume.md#create-volume)), `VolumeInUse` (a volume delete-volume was refused " +
 		"because a pre-delete read showed the volume attached to a server, before any request), " +
+		"`BootVolume` (a volume detach-volume targeted a server's own boot volume, before any " +
+		"request), `ServerRunning` (a volume detach-volume targeted a server that was not STOPPED " +
+		"without --allow-running, before any request; see [Volume](CLI-Volume.md#detach-volume)), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's or volume create-volume's own quote priced its " +
@@ -422,7 +425,7 @@ func renderCLIPage(services []docService) string {
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, `SecretFileFailed`, and `VolumeInUse` all exit 1.\n\n")
+		"`UserNotFound`, `SecretFileFailed`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

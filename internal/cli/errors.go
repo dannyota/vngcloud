@@ -116,6 +116,9 @@ type errorEnvelope struct {
 // delete-volume already reads first and is safe to run again),
 // VolumeInUse (a volume delete-volume was refused because a pre-delete
 // read showed the volume attached to a server, before any request),
+// BootVolume (a volume detach-volume targeted a server's own boot volume,
+// before any request), ServerRunning (a volume detach-volume targeted a
+// server that was not STOPPED without --allow-running, before any request),
 // RepositoryNotEmpty (a
 // containerregistry delete-repository was refused because a pre-delete
 // read showed the repository still holds images), UserNotFound (a
@@ -215,6 +218,15 @@ func classify(err error) errorEnvelope {
 	// branch.
 	if errors.Is(err, volume.ErrVolumeInUse) {
 		return errorEnvelope{Code: "VolumeInUse", Message: err.Error()}
+	}
+	// volume.ErrBootVolume and volume.ErrServerRunning are always returned
+	// bare too, from DetachVolume's own pre-detach guards, for the same
+	// reason volume.ErrVolumeInUse joins this group just above.
+	if errors.Is(err, volume.ErrBootVolume) {
+		return errorEnvelope{Code: "BootVolume", Message: err.Error()}
+	}
+	if errors.Is(err, volume.ErrServerRunning) {
+		return errorEnvelope{Code: "ServerRunning", Message: err.Error()}
 	}
 	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
 	// delete-repository's own pre-delete image count check, never wrapping a

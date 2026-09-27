@@ -2,6 +2,24 @@
 
 # CLI: Volume
 
+## attach-volume
+
+Kind: Write.
+
+Already attached to --server-id: Changed is false and nothing is sent. Attached to a different server, the PUT reaches the server, which refuses it with its own error. Keeps the transport's normal PUT retries: a repeat is refused as already attached, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to read IN-USE with --server-id among its attached servers; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since this command always reads first.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--server-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume attach-volume --volume-id <volume-id> --server-id <server-id>
+```
+
 ## create-volume
 
 Kind: Write.
@@ -39,6 +57,25 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 
 ```sh
 vngcloud volume delete-volume --volume-id <volume-id> --yes
+```
+
+## detach-volume
+
+Kind: Write, destructive.
+
+Needs --yes: detaching a volume can lose unwritten data if it is still mounted. Not attached to --server-id: Changed is false and nothing is sent. Otherwise always reads --server-id next, --allow-running included, since the boot-volume guard below needs that read regardless. Refuses, before any request, with error code BootVolume when the volume is --server-id's own boot volume, or when that read cannot confirm --server-id's boot volume at all; a server cannot boot without one. Refuses, before any request, with error code ServerRunning when --server-id is not STOPPED and --allow-running is not set, since the volume may be mounted there and detaching it under a mounted filesystem can lose unwritten data; stop the server first, or unmount it yourself and pass --allow-running to skip only this status check. Keeps the transport's normal PUT retries: a repeat is refused as already available, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to read AVAILABLE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since this command always reads first.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--server-id` | `string` | yes |
+| `--allow-running` | `bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume detach-volume --volume-id <volume-id> --server-id <server-id> --yes
 ```
 
 ## get-default-volume-type

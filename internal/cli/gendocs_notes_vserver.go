@@ -114,3 +114,31 @@ var computeRebootServerNote = "Needs --yes: a reboot interrupts what runs on the
 // paid write, needs no --yes, and takes no wait at all.
 const computeRenameServerNote = "Free: no quote, no --max-price, and no wait, since the response carries the " +
 	"renamed server directly. Keeps the transport's normal PUT retries.\n\n" + vserverDriftNote
+
+// volumeAttachVolumeNote documents attach-volume's own no-op case and wait
+// bound: the flag table shows only --volume-id and --server-id, with no
+// hint that a volume already attached elsewhere is left to the server's own
+// refusal.
+const volumeAttachVolumeNote = "Already attached to --server-id: Changed is false and nothing is sent. " +
+	"Attached to a different server, the PUT reaches the server, which refuses it with its own error. Keeps " +
+	"the transport's normal PUT retries: a repeat is refused as already attached, never a second charge. " +
+	"Without --no-wait, waits up to 5 minutes for the volume to read IN-USE with --server-id among its " +
+	"attached servers; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a " +
+	"rerun is safe, since this command always reads first.\n\n" + vserverDriftNote
+
+// volumeDetachVolumeNote documents detach-volume's own no-op case, its boot
+// volume and running-server guards, and why the latter needs --allow-running
+// rather than only --yes: the flag table shows --allow-running as a plain,
+// optional bool, with no hint that skipping it can lose data.
+const volumeDetachVolumeNote = "Needs --yes: detaching a volume can lose unwritten data if it is still " +
+	"mounted. Not attached to --server-id: Changed is false and nothing is sent. Otherwise always reads " +
+	"--server-id next, --allow-running included, since the boot-volume guard below needs that read " +
+	"regardless. Refuses, before any request, with error code BootVolume when the volume is --server-id's " +
+	"own boot volume, or when that read cannot confirm --server-id's boot volume at all; a server cannot " +
+	"boot without one. Refuses, before any request, with error code ServerRunning when --server-id is not " +
+	"STOPPED and --allow-running is not set, since the volume may be mounted there and detaching it under a " +
+	"mounted filesystem can lose unwritten data; stop the server first, or unmount it yourself and pass " +
+	"--allow-running to skip only this status check. Keeps the transport's normal PUT retries: a repeat is refused as " +
+	"already available, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to " +
+	"read AVAILABLE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun " +
+	"is safe, since this command always reads first.\n\n" + vserverDriftNote
