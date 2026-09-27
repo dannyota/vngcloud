@@ -444,6 +444,43 @@ const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices t
 	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
 	"checks this request's shape before it checks the ID."
 
+// networkCreateDHCPOptionsNote documents create-dhcp-options's own
+// --cli-input-json requirement for DNSServers, its reserved-name guard, and
+// its retry advice: the flag table shows DNSServers only as a Go type with
+// no flag, and cannot show either the reserved prefix or the create's own
+// no-retry rule.
+const networkCreateDHCPOptionsNote = "DNSServers has no flag of its own, since it is a list: pass it through " +
+	"--cli-input-json, with at least one IPv4 address; the four-address limit stays on the server. Name must " +
+	"not start with dhcp-option-dns-, reserved for the set VPC Private DNS creates; either problem is refused " +
+	"with InvalidUsage before any request. MTU is sent only when set; the server's own default is 1450. Never " +
+	"retried after a failure that may have already reached the server; list-dhcp-options --name and match the " +
+	"name exactly before creating it again rather than retrying blind."
+
+// networkDeleteDHCPOptionsNote documents delete-dhcp-options's pre-delete
+// guard and its system-set and repeat-delete behavior: the flag table shows
+// only --dhcp-options-id, with no hint of the read this command makes
+// before its own DELETE.
+const networkDeleteDHCPOptionsNote = "Refuses, before any request, with error code ResourceInUse, a set still " +
+	"attached to any VPC, naming them; detach it from every VPC first. A set left behind unattached by a " +
+	"deleted Private DNS VPC deletes like any other set. A repeat delete of an already-deleted set returns " +
+	"NotFound."
+
+// networkSetVPCDHCPOptionsNote documents set-vpc-dhcp-options's own --yes
+// requirement, its DefaultResource and ResourceBusy guards, its no-op case,
+// and its post-write wait: the flag table shows only --vpc-id and
+// --dhcp-options-id, with no hint of any of this.
+const networkSetVPCDHCPOptionsNote = "Needs --yes on every call: the API has no call that returns a VPC to no " +
+	"DHCP options set, and a server already in the VPC only picks up the new resolvers after its own next " +
+	"DHCP renew or reboot. Refuses, before any request, with error code DefaultResource, a VPC whose Private " +
+	"DNS is enabled or whose current set already is one Private DNS created, or a target set that is itself " +
+	"one Private DNS created: replacing it would cut every server in the VPC off from its private zone " +
+	"lookups, and there is no call to put it back. Refuses, before any request, with error code ResourceBusy, " +
+	"a target set that is not yet ACTIVE. Setting the VPC's current set again is a no-op: Changed is false " +
+	"and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 " +
+	"seconds for a read to show the new set: a VPC that reaches ERROR is WriteFailed, and the wait running " +
+	"out is NotSettled, but either way the PATCH already landed and is safe to send again with the same " +
+	"--dhcp-options-id."
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -497,6 +534,9 @@ var docOpNotes = map[string]string{
 	"network remove-network-acl-rule":         networkRemoveNetworkACLRuleNote,
 	"network associate-network-acl-subnet":    networkAssociateNetworkACLSubnetNote,
 	"network disassociate-network-acl-subnet": networkDisassociateNetworkACLSubnetNote,
+	"network create-dhcp-options":             networkCreateDHCPOptionsNote,
+	"network delete-dhcp-options":             networkDeleteDHCPOptionsNote,
+	"network set-vpc-dhcp-options":            networkSetVPCDHCPOptionsNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -561,6 +601,7 @@ var docJSONPlaceholders = map[string]string{
 	"VPCIDs":      `["<vpc-id>"]`,
 	"Values":      `[{"Value":"<value>"}]`,
 	"Permissions": `[{"RepositoryID":"<repository-id>","Actions":["Pull Images"]}]`,
+	"DNSServers":  `["<dns-server>"]`,
 }
 
 // docExampleExtraFlag names one flag buildExample adds to an operation's
@@ -638,6 +679,9 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
+// network set-vpc-dhcp-options needs it for the same reason as add-route:
+// it is not Destructive either, but requireYesToSetVPCDHCPOptions
+// (svc_network_dhcp.go) refuses it without --yes on every call.
 var docExampleOverride = map[string]string{
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
@@ -659,4 +703,6 @@ var docExampleOverride = map[string]string{
 		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
 	"network disassociate-network-acl-subnet": "vngcloud network disassociate-network-acl-subnet " +
 		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
+	"network set-vpc-dhcp-options": "vngcloud network set-vpc-dhcp-options --vpc-id <vpc-id> " +
+		"--dhcp-options-id <dhcp-options-id> --yes",
 }

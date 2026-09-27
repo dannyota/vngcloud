@@ -20,7 +20,8 @@ var renameTable = map[string]string{
 	// --security-group-id occurrence, so the singular form reads right; the
 	// mechanical conversion would give the plural "security-group-ids"
 	// instead, since IDs (capital-run-plus-trailing-s) reads as one word.
-	"SecurityGroupIDs": "security-group-id",
+	"SecurityGroupIDs":  "security-group-id",
+	"SetVPCDHCPOptions": "set-vpc-dhcp-options",
 }
 
 // flagNameFor returns the flag name for an Input field's Go name.
