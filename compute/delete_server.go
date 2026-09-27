@@ -15,9 +15,10 @@ type deleteServerBody struct {
 }
 
 // DeleteServerInput identifies the server to delete. With DeleteVolumes
-// false, its attached volumes, including the boot volume, stay and keep
-// being billed; with it true, every attached volume is deleted with the
-// server, data included.
+// false, its attached volumes stay and keep being billed; with it true,
+// every attached volume is deleted with the server, data included. Whether
+// the boot volume stays when DeleteVolumes is false is unverified until the
+// live check.
 type DeleteServerInput struct {
 	ServerID string `vngcloud:"required"`
 
@@ -26,9 +27,10 @@ type DeleteServerInput struct {
 }
 
 // DeleteServerOutput names what happened to the server's volumes.
-// DeletedVolumeIDs is set only when Input.DeleteVolumes was true; otherwise
-// KeptVolumeIDs names every volume the server still holds, so the caller
-// sees what still costs money.
+// DeletedVolumeIDs is set only when Input.DeleteVolumes was true and names
+// volumes requested for deletion, not confirmed deleted; otherwise KeptVolumeIDs
+// names every volume the server still holds, so the caller sees what still costs
+// money.
 type DeleteServerOutput struct {
 	DeletedVolumeIDs []string
 	KeptVolumeIDs    []string

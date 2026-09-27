@@ -6213,6 +6213,7 @@ func TestLiveWritePaidVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
+	computeClient := compute.New(cfg)
 	volumeClient := volume.New(cfg)
 	billingClient := billing.New(cfg)
 
@@ -6308,6 +6309,8 @@ func TestLiveWritePaidVolume(t *testing.T) {
 		t.Fatalf("step 7: GetVolume after delete = %s, want NotFound", safeErr(err))
 	}
 	t.Log("step 7: confirmed the volume is gone")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }
 
 // deleteLiveServers deletes every server named with the "vngcloud-live-"
@@ -7214,4 +7217,6 @@ func TestLiveWritePaidResize(t *testing.T) {
 		t.Fatalf("step 9 DeleteServer: %s", safeErr(err))
 	}
 	t.Log("step 9: deleted the data volume and the server with its boot volume")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }
