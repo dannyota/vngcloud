@@ -3,9 +3,12 @@ package compute
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -170,4 +173,155 @@ func (c *Client) QuoteCreateServer(ctx context.Context, in *CreateServerInput) (
 		Action:       pricing.ActionCreate,
 		ResourceInfo: info,
 	})
+}
+
+// CreateServerOutput is CreateServer's result. Server is filled from
+// CreateServer's own post-create wait unless NoWait is set, in which case it
+// holds only the UUID and Name the caller gave, since the create response's
+// other fields are not confirmed live. MonthlyPrice is the quote's own
+// OptimumPrice, the price actually checked against Input.MaxPrice.
+type CreateServerOutput struct {
+	Server       Server
+	MonthlyPrice float64
+}
+
+// createServerResponse decodes CreateServer's response. Its only confirmed
+// field is data.uuid; every other field is unverified, so this never
+// decodes into the bare Server model.
+type createServerResponse struct {
+	Data struct {
+		UUID string `json:"uuid"`
+	} `json:"data"`
+}
+
+// CreateServer orders a server. Before any request, it rejects a NaN,
+// +Inf, -Inf, or negative Input.MaxPrice with core.ErrInvalidInput: the
+// price guard below (quote.OptimumPrice > Input.MaxPrice) cannot compare
+// any of those safely. It then lists every server and refuses, also with
+// core.ErrInvalidInput and before any pricing or order request, when one
+// already exists with Input.Name exactly, so a rerun after an unclear
+// failure never risks ordering a second server under the same name.
+//
+// CreateServer builds one request body from Input with buildCreateServerBody
+// (ADR 0002 rule 8), the same builder QuoteCreateServer uses. It sends a
+// copy of that body, with UserData and UserDataBase64Encoded cleared, to
+// the quote endpoint first, since user data is not priced and must never
+// reach the billing gateway. It refuses with vngcloud.ErrPriceAboveMax,
+// ordering nothing, when the quote's OptimumPrice exceeds Input.MaxPrice
+// (default 0).
+//
+// The order is a POST and is never retried after a failure that may have
+// already reached the server: after any error that is not a 4xx
+// *core.APIError, the server may exist, and the caller lists servers and
+// matches Name exactly before ordering again. When Input.UserData is set,
+// the request is transport.Request.Sensitive, so a decode failure never
+// quotes the response body; UserData itself is never sent to the quote,
+// captured, logged, or echoed in any error.
+//
+// Without NoWait, CreateServer waits up to 15 minutes, polling GetServer
+// every 5 seconds, for the new server to reach ACTIVE. If the server
+// reaches ERROR instead, or the bound runs out, or a read or a sleep in
+// that wait fails, such as from a canceled ctx, the returned error wraps
+// ErrFailed or ErrNotSettled and Output.Server still holds the last server
+// a read returned, falling back to one with only the new UUID and
+// Input.Name if no read ever succeeded. NoWait skips that wait and returns
+// at once with Output.Server holding only the new UUID and Input.Name.
+func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*CreateServerOutput, error) {
+	const op = "compute.CreateServer"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckMaxPrice(op, in.MaxPrice); err != nil {
+		return nil, err
+	}
+	body, err := buildCreateServerBody(op, in)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.refuseIfServerNameExists(ctx, op, in.Name); err != nil {
+		return nil, err
+	}
+
+	quoteBody := body
+	quoteBody.UserData = ""
+	quoteBody.UserDataBase64Encoded = false
+	info, err := core.QuoteResourceInfo(quoteBody)
+	if err != nil {
+		return nil, err
+	}
+	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
+		ResourceType: pricing.ResourceServer,
+		Action:       pricing.ActionCreate,
+		ResourceInfo: info,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := core.CheckPriceAboveMax(op, quote.OptimumPrice, in.MaxPrice); err != nil {
+		return nil, err
+	}
+
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp createServerResponse
+	req := transport.Request{
+		Operation: op,
+		Method:    http.MethodPost,
+		URL:       c.computeURL("v2", []string{projectID, "servers"}, nil),
+		Body:      body,
+		OK:        []int{202},
+		Sensitive: in.UserData != "",
+	}
+	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	if err != nil {
+		return nil, wrapAmbiguousServerCreateErr(op, err)
+	}
+	if resp.Data.UUID == "" {
+		return nil, &core.APIError{Operation: op, StatusCode: status,
+			Message: "create response had no id; the server may exist, list servers and match the name exactly before creating it again"}
+	}
+
+	fallback := Server{UUID: resp.Data.UUID, Name: in.Name}
+	if in.NoWait {
+		return &CreateServerOutput{Server: fallback, MonthlyPrice: quote.OptimumPrice}, nil
+	}
+	settled, waitErr := c.waitServerActive(ctx, op, resp.Data.UUID)
+	if settled == nil {
+		settled = &fallback
+	}
+	return &CreateServerOutput{Server: *settled, MonthlyPrice: quote.OptimumPrice}, waitErr
+}
+
+// wrapAmbiguousServerCreateErr wraps err, from the create POST just sent,
+// with a hint to list servers before creating again, unless err is already a
+// 4xx *core.APIError: a 4xx means the server rejected the request outright,
+// so nothing was created and the exact same call is safe to retry. Any
+// other error leaves whether the server was created unknown.
+func wrapAmbiguousServerCreateErr(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *core.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+		return err
+	}
+	return fmt.Errorf("%s: create may have already reached the server; list servers and match the name exactly before creating it again: %w", op, err)
+}
+
+// refuseIfServerNameExists refuses to order a server named name when one
+// already exists on the account, before any pricing or order request. It
+// scans every server since ListServers has no name filter of its own.
+func (c *Client) refuseIfServerNameExists(ctx context.Context, op, name string) error {
+	servers, err := c.ListServers(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for i := range servers.Items {
+		if servers.Items[i].Name == name {
+			return fmt.Errorf("%w: %s: a server named %q already exists", core.ErrInvalidInput, op, name)
+		}
+	}
+	return nil
 }

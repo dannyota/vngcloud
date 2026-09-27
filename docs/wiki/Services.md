@@ -92,7 +92,10 @@ already returned by server and server-group list APIs. They do not require
 extra API calls.
 
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
-`vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
+`vngcloud.Secret` a create returns, and server writes (`CreateServer`,
+`DeleteServer`, `StartServer`, `StopServer`, `RebootServer`,
+`RenameServer`) and their price guard, are on the [Compute](Compute.md)
+page.
 
 `ListFlavorZones` filters the API's full flavor zone list to `Input.ZoneID`
 itself; leave it unset to list every flavor zone. `QuoteCreateServer` prices
