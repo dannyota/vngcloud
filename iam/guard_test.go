@@ -35,6 +35,42 @@ func TestMatchesWriteAction(t *testing.T) {
 	}
 }
 
+// TestMatchesWriteActionOddPatternsPrivileged checks that an action pattern
+// with whitespace, an internal space, a stray control character, a period,
+// or a literal backslash is treated as privileged rather than parsed as a
+// wildcard: none of these ever match, since they are not built only from
+// letters, digits, "*", and one optional ":", so a policy using one must
+// never be waved through as unprivileged just because path.Match happens to
+// find no match for it.
+func TestMatchesWriteActionOddPatternsPrivileged(t *testing.T) {
+	writeActions := writeActionNames([]Action{{Action: "CreatePolicy", Label: "Write"}})
+	// zeroWidthSpace is built at runtime, rather than written as a literal
+	// character or a "​" escape, so the source file holds no invisible
+	// Unicode format character for a linter or a reviewer to trip over.
+	zeroWidthSpace := string(rune(0x200b))
+	odd := []string{
+		" iam:*",
+		"iam:* ",
+		"iam :*",
+		"iam:create*\t",
+		"iam:" + zeroWidthSpace + "*",
+		"iam:Create.*",
+		`iam:\*`,
+	}
+	for _, pattern := range odd {
+		if !matchesWriteAction(pattern, writeActions) {
+			t.Errorf("matchesWriteAction(%q) = false, want true (odd pattern must be privileged)", pattern)
+		}
+	}
+
+	ordinary := []string{"vserver:ListServers", "vserver:List*"}
+	for _, pattern := range ordinary {
+		if matchesWriteAction(pattern, writeActions) {
+			t.Errorf("matchesWriteAction(%q) = true, want false (an ordinary, unrelated pattern)", pattern)
+		}
+	}
+}
+
 // TestMatchesWriteActionAlwaysPrivilegedIgnoresActionList checks that "*",
 // "*:*", and "iam:*" match even against an empty write action list: these
 // three patterns grant every IAM write action by their own shape, so they
@@ -138,6 +174,20 @@ func TestPolicyIsPrivilegedNonDenyEffectCountsAsAllow(t *testing.T) {
 	}}
 	if !policyIsPrivileged(garbled, writeActions) {
 		t.Error("policyIsPrivileged() = false for a non-deny, non-allow effect, want true")
+	}
+}
+
+// TestPolicyIsPrivilegedAllowNextToDeny checks that a policy with one deny
+// statement and one privileged allow statement is still privileged: the deny
+// only excuses itself, never a separate allow the loop has yet to reach.
+func TestPolicyIsPrivilegedAllowNextToDeny(t *testing.T) {
+	writeActions := writeActionNames([]Action{{Action: "CreatePolicy", Label: "Write"}})
+	mixed := &Policy{Statements: []Statement{
+		{Effect: "deny", Actions: []string{"iam:*"}},
+		{Effect: "allow", Actions: []string{"iam:CreatePolicy"}},
+	}}
+	if !policyIsPrivileged(mixed, writeActions) {
+		t.Error("policyIsPrivileged() = false for an allow next to a deny, want true")
 	}
 }
 

@@ -132,6 +132,40 @@ func TestAttachServiceAccountPolicyRefusesServiceAccountCaller(t *testing.T) {
 	}
 }
 
+// TestDetachServiceAccountPolicyRefusesProtectedTarget is
+// TestAttachServiceAccountPolicyRefusesProtectedTarget for detach: the
+// design refuses a protected target either way.
+func TestDetachServiceAccountPolicyRefusesProtectedTarget(t *testing.T) {
+	g := unprivilegedAttachFixture()
+	g.attachedPolicyIDs = []string{"policy-priv"}
+	g.policies["policy-priv"] = Policy{ID: "policy-priv", Manager: "user", Statements: privilegedStatements()}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1/service-accounts/sa-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: "sa-1"})
+	if !errors.Is(err, ErrPrivilegedChange) {
+		t.Fatalf("DetachServiceAccountPolicy() err = %v, want ErrPrivilegedChange", err)
+	}
+}
+
+// TestDetachServiceAccountPolicyRefusesServiceAccountCaller is
+// TestAttachServiceAccountPolicyRefusesServiceAccountCaller for detach.
+func TestDetachServiceAccountPolicyRefusesServiceAccountCaller(t *testing.T) {
+	g := unprivilegedAttachFixture()
+	g.caller = userInfoResponse{UserID: "sa-1", UserType: callerTypeUserSA}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1/service-accounts/sa-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: "sa-1"})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("DetachServiceAccountPolicy() err = %v, want ErrSelfChange", err)
+	}
+}
+
 func TestAttachServiceAccountPolicyWriteStatuses(t *testing.T) {
 	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError} {
 		g := unprivilegedAttachFixture()

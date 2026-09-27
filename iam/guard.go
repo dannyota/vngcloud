@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 
 	"danny.vn/vngcloud/internal/transport"
@@ -90,13 +91,28 @@ func alwaysPrivilegedActionPattern(pattern string) bool {
 	}
 }
 
+// validActionPattern matches the only shape the API's own action patterns
+// ever take: one or two groups of letters, digits, and "*", joined by a
+// single ":". No whitespace, punctuation, or other character is valid in a
+// real pattern such as "iam:*" or "vserver:List*", so matchesWriteAction
+// treats anything else, however it was produced, as privileged rather than
+// hand it to path.Match, which would simply report no match and let it
+// through as harmless.
+var validActionPattern = regexp.MustCompile(`^[A-Za-z0-9*]+(:[A-Za-z0-9*]+)?$`)
+
 // matchesWriteAction reports whether pattern, a statement's action entry
 // such as "iam:*" or "iam:CreatePolicy", matches any name in
 // writeActionNames, compared case-insensitively with "*" as a wildcard.
-// path.Match never errors on the wildcard-only patterns this API uses, but
-// a malformed pattern is treated as a match: a privileged policy that this
-// check cannot parse must never be waved through.
+// path.Match never errors on the wildcard-only patterns this API uses, but a
+// malformed pattern is treated as a match: a privileged policy that this
+// check cannot parse must never be waved through. pattern is checked against
+// validActionPattern with no trimming first, so a pattern with a leading or
+// trailing space, an internal space, or a stray control character refuses
+// the same way, instead of quietly falling through as "no match found".
 func matchesWriteAction(pattern string, writeActionNames []string) bool {
+	if !validActionPattern.MatchString(pattern) {
+		return true
+	}
 	if alwaysPrivilegedActionPattern(pattern) {
 		return true
 	}
@@ -184,18 +200,19 @@ func (c *Client) guardWriteActionNames(ctx context.Context) ([]string, error) {
 }
 
 // maxGuardAttachmentPage caps the page size a guard read asks for when it
-// lists a service account's attached policies. The account's own quota
-// (20 customer policies) is far below it, so a real response always fits on
-// one page; guardServiceAccountPolicySummaries refuses rather than trust a
-// response that claims otherwise.
+// lists an IAM user's or a service account's attached policies. The
+// account's own quota (20 customer policies) is far below it, so a real
+// response always fits on one page; guardPagedPolicySummaries refuses rather
+// than trust a response that claims otherwise.
 const maxGuardAttachmentPage = 10000
 
 // pagedPolicySummaries is the shape a paged policy-summary attachment list
-// decodes into for a guard read. Data and TotalItems are pointers so a key
-// the server leaves out is distinguishable from an explicit empty array or
-// zero: guardServiceAccountPolicySummaries refuses on a missing key rather
-// than reading it as "no attachments". TotalPages is checked only when the
-// server sends it.
+// decodes into for a guard read, shared by guardServiceAccountPolicySummaries
+// and guardUserPolicySummaries. Data and TotalItems are pointers so a key
+// the server leaves out, or a null value, is distinguishable from an
+// explicit empty array or zero: guardPagedPolicySummaries refuses on either
+// rather than reading it as "no attachments". TotalPages is checked only
+// when the server sends it.
 type pagedPolicySummaries struct {
 	Data       *[]PolicySummary `json:"data"`
 	TotalItems *int             `json:"totalItems"`
@@ -245,6 +262,114 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 		return nil, fmt.Errorf("iam: guard: %s: attachment list reports more than one page", op)
 	}
 	return *resp.Data, nil
+}
+
+// guardFetchAttachmentArray decodes a bare JSON array response at urlParts
+// for a guard check, refusing when the response is a JSON null, an absent
+// body, or any other shape that leaves the array itself unset. Decoding into
+// a pointer, rather than a plain slice, is what makes a null response
+// distinguishable from a real empty array: a plain []T target would silently
+// become nil either way, which is exactly the fail-open bug this guards
+// against. It is a function, not a method, because a method cannot carry its
+// own type parameter.
+func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string, urlParts []string) ([]T, error) {
+	var items *[]T
+	req := transport.Request{
+		Operation: op,
+		Method:    http.MethodGet,
+		URL:       c.policiesURL(urlParts, nil),
+		OK:        []int{200},
+	}
+	if err := c.c.DoJSON(ctx, req, &items); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return nil, fmt.Errorf("iam: guard: %s: attachment list was null or missing", op)
+	}
+	return *items, nil
+}
+
+// guardPolicyAttachments reads policyID's attachments for a guard check: the
+// same three policies/{id}/... endpoints the public, tolerant
+// ListPolicyAttachments reads, but through guardFetchAttachmentArray, so a
+// null or missing list on any of the three refuses instead of being read as
+// "no attachments". ListPolicyAttachments itself is left as it is for its
+// own callers, since a read command has no reason to refuse on an ambiguous
+// response the way a guard must.
+func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string) (*ListPolicyAttachmentsOutput, error) {
+	groups, err := guardFetchAttachmentArray[GroupSummary](ctx, c, op, []string{"policies", policyID, "groups"})
+	if err != nil {
+		return nil, err
+	}
+	userIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "iam-users"})
+	if err != nil {
+		return nil, err
+	}
+	serviceAccountIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "service-accounts"})
+	if err != nil {
+		return nil, err
+	}
+	return &ListPolicyAttachmentsOutput{Groups: groups, UserIDs: userIDs, ServiceAccountIDs: serviceAccountIDs}, nil
+}
+
+// guardGroupAttachments is the shape a GetGroup response decodes into for a
+// guard check, instead of the public, tolerant Group model: PolicyIDs and
+// UserIDs are pointers so a null or missing key is distinguishable from an
+// actual empty list, and guardGetGroupAttachments refuses on either rather
+// than reading it as "no policies" or "no members".
+type guardGroupAttachments struct {
+	PolicyIDs *[]string `json:"policies"`
+	UserIDs   *[]string `json:"iamUsers"`
+}
+
+// guardGetGroupAttachments reads groupID's own PolicyIDs and UserIDs for a
+// guard check, failing closed on a null or missing field on either; see
+// guardGroupAttachments.
+func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string) (policyIDs, userIDs []string, err error) {
+	var resp guardGroupAttachments
+	req := transport.Request{
+		Operation: op,
+		Method:    http.MethodGet,
+		URL:       c.policiesURL([]string{"groups", groupID}, nil),
+		OK:        []int{200},
+	}
+	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+		return nil, nil, err
+	}
+	if resp.PolicyIDs == nil {
+		return nil, nil, fmt.Errorf("iam: guard: %s: a group response had no policies field", op)
+	}
+	if resp.UserIDs == nil {
+		return nil, nil, fmt.Errorf("iam: guard: %s: a group response had no iamUsers field", op)
+	}
+	return *resp.PolicyIDs, *resp.UserIDs, nil
+}
+
+// guardUserGroupAttachments is one entry of a guard check's read of a user's
+// groups: only the fields userIsProtected needs, with PolicyIDs a pointer so
+// a null or missing "policies" key is distinguishable from a group that
+// really holds no policies, unlike the public, tolerant Group model
+// ListUserGroups decodes into.
+type guardUserGroupAttachments struct {
+	ID        string    `json:"id"`
+	PolicyIDs *[]string `json:"policies"`
+}
+
+// guardUserGroups reads userID's groups for a guard check, at the same
+// endpoint ListUserGroups uses, refusing when the group list itself is null
+// or missing, or when any group in it has a null or missing policies field;
+// see guardUserGroupAttachments.
+func (c *Client) guardUserGroups(ctx context.Context, op, userID string) ([]guardUserGroupAttachments, error) {
+	groups, err := guardFetchAttachmentArray[guardUserGroupAttachments](ctx, c, op, []string{"user-attachments", "iam-users", userID, "groups"})
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		if g.PolicyIDs == nil {
+			return nil, fmt.Errorf("iam: guard: %s: a user's group had no policies field", op)
+		}
+	}
+	return groups, nil
 }
 
 // serviceAccountIsProtected reports whether serviceAccountID has a

@@ -34,6 +34,14 @@ var ErrNoSecret = errors.New("iam: no client secret returned")
 // from Output.ClientSecret, or delete the account by Output.ServiceAccount.ID.
 var ErrCreateUnconfirmed = errors.New("iam: service account created but not confirmed by a read")
 
+// ErrNotSettled is returned by CreatePolicy and UpdatePolicy when their own
+// write reached the server, but the read that confirms it and fills in the
+// rest of the Policy failed. The write already happened either way: Output
+// still carries the policy's ID (every other Policy field left zero for
+// CreatePolicy, or as they were before the write for UpdatePolicy), so the
+// caller can look the policy up again with GetPolicy or list-policies.
+var ErrNotSettled = errors.New("iam: write accepted but not confirmed by a read")
+
 // ErrManagedPolicy is returned, with no request sent, by UpdatePolicy and
 // DeletePolicy when the target policy is managed (Policy.Managed() is
 // true): a GreenNode-managed policy can be read and attached but never

@@ -170,6 +170,46 @@ func TestCreatePolicyNoRetryOn502(t *testing.T) {
 	}
 }
 
+func TestCreatePolicyMissingID(t *testing.T) {
+	g := unprivilegedGuardFixture()
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/policies", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{}`))
+		})
+	})
+	if _, err := c.CreatePolicy(context.Background(), &CreatePolicyInput{Name: "app", Statements: readOnlyStatements()}); err == nil {
+		t.Fatal("CreatePolicy() error = nil, want an error for a response with no id")
+	}
+}
+
+// TestCreatePolicyReadFailureKeepsOutput checks that a failed confirm read
+// after a landed create wraps ErrNotSettled and keeps a non-nil Output
+// holding the create response's own id, mirroring
+// TestCreateServiceAccountReadFailureKeepsOutput.
+func TestCreatePolicyReadFailureKeepsOutput(t *testing.T) {
+	g := unprivilegedGuardFixture()
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /policies-api/v1/policies", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"policy-1"}`))
+		})
+		mux.HandleFunc("GET /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		})
+	})
+	out, err := c.CreatePolicy(context.Background(), &CreatePolicyInput{Name: "app", Statements: readOnlyStatements()})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("CreatePolicy() err = %v, want ErrNotSettled", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want the create's id kept despite the failed read-back")
+	}
+	if out.Policy.ID != "policy-1" {
+		t.Fatalf("Output.Policy.ID = %q, want policy-1", out.Policy.ID)
+	}
+}
+
 func TestCreatePolicyDuplicateNameNotWrapped(t *testing.T) {
 	g := unprivilegedGuardFixture()
 	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
@@ -417,8 +457,9 @@ func TestUpdatePolicyAttachedToUserProtectedOnlyByGroup(t *testing.T) {
 }
 
 // TestUpdatePolicyAttachedToCallerRefused checks that a policy attached to
-// the caller's own IAM user is treated as attached to a protected
-// principal.
+// the caller's own IAM user refuses as a self-change, not a privileged one:
+// the design says a change to the caller's own rights is ErrSelfChange, and
+// it wins even though the caller also counts as a protected principal.
 func TestUpdatePolicyAttachedToCallerRefused(t *testing.T) {
 	g := unprivilegedPolicyFixture()
 	g.policyUserIDs = []string{"user-1"}
@@ -428,8 +469,37 @@ func TestUpdatePolicyAttachedToCallerRefused(t *testing.T) {
 		})
 	})
 	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
-	if !errors.Is(err, ErrPrivilegedChange) {
-		t.Fatalf("UpdatePolicy() err = %v, want ErrPrivilegedChange", err)
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
+	}
+}
+
+// TestUpdatePolicyServiceAccountCallerRefusesServiceAccountAttachment checks
+// that a service-account caller updating a policy attached to any service
+// account at all refuses as a self-change, mirroring guardServiceAccountWrite
+// (see the design's open question on the caller identity form): the caller's
+// UserID is not confirmed to use the same form as a target service account's
+// ID, so the guard cannot rule out that the attached account is the caller
+// itself, and refuses without even checking whether it holds a privileged
+// policy.
+func TestUpdatePolicyServiceAccountCallerRefusesServiceAccountAttachment(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.caller = userInfoResponse{UserID: "sa-caller", UserType: callerTypeUserSA}
+	g.policyServiceAccountIDs = []string{"sa-1"}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	_, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrSelfChange) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrSelfChange", err)
+	}
+	if errors.Is(err, ErrPrivilegedChange) {
+		t.Fatal("err also matches ErrPrivilegedChange; ErrSelfChange must win alone")
 	}
 }
 
@@ -487,6 +557,208 @@ func TestUpdatePolicyWriteStatuses(t *testing.T) {
 		if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
 			t.Fatalf("status %d: UpdatePolicy() error = nil, want an error", status)
 		}
+	}
+}
+
+// TestUpdatePolicyReadFailureKeepsOutput checks that a failed confirm read
+// after a landed PUT wraps ErrNotSettled and keeps a non-nil Output holding
+// the target policy's own id, mirroring TestCreatePolicyReadFailureKeepsOutput.
+// The fixture's GET handler distinguishes the guard's own pre-write read,
+// which must succeed for the PUT to be sent at all, from the confirm read
+// after it, which is made to fail.
+func TestUpdatePolicyReadFailureKeepsOutput(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	var policyGETs int
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			policyGETs++
+			if policyGETs == 1 {
+				_ = json.NewEncoder(w).Encode(g.policies["policy-1"])
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		})
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+	out, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("UpdatePolicy() err = %v, want ErrNotSettled", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want the policy's id kept despite the failed confirm read")
+	}
+	if out.Policy.ID != "policy-1" {
+		t.Fatalf("Output.Policy.ID = %q, want policy-1", out.Policy.ID)
+	}
+}
+
+// TestUpdatePolicyRefusesWhenGetPolicyFails checks that a guard-read failure
+// on the policy itself refuses UpdatePolicy with no PUT sent.
+func TestUpdatePolicyRefusesWhenGetPolicyFails(t *testing.T) {
+	g := unprivilegedGuardFixture()
+	g.policyHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a guard-read failure")
+	}
+}
+
+// TestUpdatePolicyRefusesWhenPolicyAttachmentsFail checks that a failure of
+// one of guardPolicyAttachments' own reads refuses UpdatePolicy with no PUT
+// sent.
+func TestUpdatePolicyRefusesWhenPolicyAttachmentsFail(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroupsHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a guard-read failure")
+	}
+}
+
+// TestUpdatePolicyRefusesWhenGetGroupFails checks that a failure reading an
+// attached group's own attachments refuses UpdatePolicy with no PUT sent.
+func TestUpdatePolicyRefusesWhenGetGroupFails(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroups = []GroupSummary{{ID: "group-z"}}
+	g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a guard-read failure")
+	}
+}
+
+// TestUpdatePolicyRefusesWhenListUserGroupsFails checks that a failure
+// reading an attached user's groups refuses UpdatePolicy with no PUT sent.
+func TestUpdatePolicyRefusesWhenListUserGroupsFails(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyUserIDs = []string{"user-x"}
+	g.userGroupsHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a guard-read failure")
+	}
+}
+
+// TestGuardPolicyAttachmentsRefusesNullGroups checks that UpdatePolicy
+// refuses when a policy's own groups attachment list comes back JSON null,
+// rather than reading it as "no groups attached": guardPolicyAttachments,
+// not the public, tolerant ListPolicyAttachments, backs this guard read.
+func TestGuardPolicyAttachmentsRefusesNullGroups(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroupsHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`null`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for a null groups list")
+	}
+}
+
+// TestGuardGroupAttachmentsRefusesNullPolicies checks that UpdatePolicy
+// refuses when a group's own "policies" field comes back JSON null, rather
+// than reading it as "the group holds no policies".
+func TestGuardGroupAttachmentsRefusesNullPolicies(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroups = []GroupSummary{{ID: "group-z"}}
+	g.groupHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"group-z","policies":null,"iamUsers":[]}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for a null policies field")
+	}
+}
+
+// TestGuardUserGroupsRefusesNullPolicies checks that UpdatePolicy refuses
+// when one of a user's groups has a null "policies" field, rather than
+// reading it as "that group holds no policies".
+func TestGuardUserGroupsRefusesNullPolicies(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyUserIDs = []string{"user-x"}
+	g.userGroupsHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"group-y","policies":null}]`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for a null policies field")
+	}
+}
+
+// TestGuardUserPolicySummariesPartialPageRefusesUpdate checks that
+// UpdatePolicy refuses when a user's own direct policy attachment page holds
+// fewer rows than its own reported totalItems, extending the same coverage
+// TestGuardRefusesAttachmentListPartial gives the service-account endpoint to
+// the IAM-user one guardUserPolicySummaries reads.
+func TestGuardUserPolicySummariesPartialPageRefusesUpdate(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyUserIDs = []string{"user-x"}
+	g.userPoliciesHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"policy-1"}],"totalItems":2,"totalPages":1}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for a partial page")
+	}
+}
+
+// TestGuardUserPolicySummariesMissingTotalsRefusesUpdate is
+// TestGuardUserPolicySummariesPartialPageRefusesUpdate for a response with no
+// totalItems key at all.
+func TestGuardUserPolicySummariesMissingTotalsRefusesUpdate(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyUserIDs = []string{"user-x"}
+	g.userPoliciesHandler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("PUT /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err == nil {
+		t.Fatal("UpdatePolicy() error = nil, want a refusal for a missing totalItems key")
 	}
 }
 
@@ -585,6 +857,41 @@ func TestDeletePolicyAttachedToServiceAccountRefused(t *testing.T) {
 	_, err := c.DeletePolicy(context.Background(), &DeletePolicyInput{PolicyID: "policy-1"})
 	if !errors.Is(err, ErrInUse) {
 		t.Fatalf("DeletePolicy() err = %v, want ErrInUse", err)
+	}
+}
+
+// TestDeletePolicyRefusesWhenGetPolicyFails checks that a guard-read failure
+// on the policy itself refuses DeletePolicy with no DELETE sent.
+func TestDeletePolicyRefusesWhenGetPolicyFails(t *testing.T) {
+	g := unprivilegedGuardFixture()
+	g.policyHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.DeletePolicy(context.Background(), &DeletePolicyInput{PolicyID: "policy-1"}); err == nil {
+		t.Fatal("DeletePolicy() error = nil, want a guard-read failure")
+	}
+}
+
+// TestDeletePolicyRefusesWhenPolicyAttachmentsFail checks that a failure of
+// one of guardPolicyAttachments' own reads refuses DeletePolicy with no
+// DELETE sent.
+func TestDeletePolicyRefusesWhenPolicyAttachmentsFail(t *testing.T) {
+	g := unprivilegedPolicyFixture()
+	g.policyGroupsHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+		mux.HandleFunc("DELETE /policies-api/v1/policies/policy-1", func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("no write request expected")
+		})
+	})
+	if _, err := c.DeletePolicy(context.Background(), &DeletePolicyInput{PolicyID: "policy-1"}); err == nil {
+		t.Fatal("DeletePolicy() error = nil, want a guard-read failure")
 	}
 }
 

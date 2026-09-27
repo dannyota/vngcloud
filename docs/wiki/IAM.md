@@ -163,12 +163,13 @@ policy attached, or with a protected principal as a member.
 
 | Sentinel | Meaning |
 |-|-|
-| `iam.ErrSelfChange` | The target service account is the caller, or the caller is a service account |
+| `iam.ErrSelfChange` | The target service account is the caller, the caller is a service account, or `UpdatePolicy` targets a policy attached to the caller (or to any service account, when the caller is one) |
 | `iam.ErrPrivilegedChange` | The target, or something it is attached to, holds a policy that grants an IAM write right, or the caller's own type could not be classified |
 | `iam.ErrManagedPolicy` | `UpdatePolicy` or `DeletePolicy` targets a GreenNode-managed policy |
 | `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account |
 | `iam.ErrNoSecret` | A create or reset response reported success but carried no client secret |
 | `iam.ErrCreateUnconfirmed` | A create succeeded but the read-back that confirms it failed |
+| `iam.ErrNotSettled` | `CreatePolicy` or `UpdatePolicy` succeeded but the read-back that confirms it failed; Output keeps the policy's ID |
 
 None of these sentinels name the policy, statement, or action involved, and
 there is no way to turn any guard off; make such a change from the IAM

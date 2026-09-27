@@ -71,6 +71,12 @@ type createPolicyResponse struct {
 
 // CreatePolicy creates a customer policy and reads it back with GetPolicy.
 //
+// If that confirm read fails, CreatePolicy still returns a non-nil Output,
+// its Policy holding only the new ID (every other field left zero), and
+// wraps ErrNotSettled rather than returning nil: the policy was really
+// created either way, and the caller can look it up again with GetPolicy or
+// list-policies.
+//
 // It sets transport.Request.Once: a resend after a 401 or a followed
 // redirect would create a second policy, so the request is sent at most
 // once. After any error that is not a 4xx *core.APIError, the policy may
@@ -106,7 +112,8 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 
 	got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: resp.ID})
 	if err != nil {
-		return nil, fmt.Errorf("%s: policy %s was created but the read to confirm it failed: %w", op, resp.ID, err)
+		out := &CreatePolicyOutput{Policy: Policy{ID: resp.ID}}
+		return out, fmt.Errorf("%s: policy %s was created but the read to confirm it failed: %w: %w", op, resp.ID, ErrNotSettled, err)
 	}
 	return &CreatePolicyOutput{Policy: got.Policy}, nil
 }
@@ -152,10 +159,16 @@ type updatePolicyBody struct {
 // statements with a PUT, filling any field the caller left nil from the
 // policy's own current state, and reads it back with GetPolicy.
 //
-// The guard runs first and sends nothing when it refuses: ErrManagedPolicy
-// if the policy is managed, or ErrPrivilegedChange if its current or
-// proposed statements are privileged or it is attached to a protected
+// The guard runs first and sends nothing when it refuses: ErrSelfChange if
+// the change would affect the caller's own rights, ErrManagedPolicy if the
+// policy is managed, or ErrPrivilegedChange if its current or proposed
+// statements are privileged or it is attached to some other protected
 // principal or group.
+//
+// If the confirm read after the PUT fails, UpdatePolicy still returns a
+// non-nil Output, its Policy holding only PolicyID (every other field left
+// zero), and wraps ErrNotSettled rather than returning nil: the update
+// already reached the server either way.
 //
 // PUT is idempotent regardless of any request field, so the transport's own
 // retry after a 5xx is safe to repeat.
@@ -202,7 +215,8 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 
 	got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: in.PolicyID})
 	if err != nil {
-		return nil, fmt.Errorf("%s: policy %s was updated but the read to confirm it failed: %w", op, in.PolicyID, err)
+		out := &UpdatePolicyOutput{Policy: Policy{ID: in.PolicyID}}
+		return out, fmt.Errorf("%s: policy %s was updated but the read to confirm it failed: %w: %w", op, in.PolicyID, ErrNotSettled, err)
 	}
 	return &UpdatePolicyOutput{Policy: got.Policy}, nil
 }

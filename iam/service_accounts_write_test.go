@@ -63,6 +63,18 @@ type guardFixture struct {
 	// groups it belongs to (ListUserGroups).
 	userPolicyIDs map[string][]string
 	userGroups    map[string][]Group
+
+	// policyHandler, policyGroupsHandler, groupHandler, and
+	// userGroupsHandler, when non-nil, replace the default GetPolicy,
+	// policies/{id}/groups, GetGroup, and a user's groups handlers entirely,
+	// for a test that needs a raw or failing response shape the policies,
+	// policyGroups, groups, and userGroups fields cannot express, such as a
+	// null attachment list or a read that fails outright.
+	policyHandler       http.HandlerFunc
+	policyGroupsHandler http.HandlerFunc
+	groupHandler        http.HandlerFunc
+	userGroupsHandler   http.HandlerFunc
+	userPoliciesHandler http.HandlerFunc
 }
 
 func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.ServeMux {
@@ -107,6 +119,10 @@ func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.Se
 		})
 	}
 	mux.HandleFunc("GET /policies-api/v1/policies/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if g.policyHandler != nil {
+			g.policyHandler(w, r)
+			return
+		}
 		p, ok := g.policies[r.PathValue("id")]
 		if !ok {
 			t.Fatalf("unexpected policy id: %s", r.PathValue("id"))
@@ -116,6 +132,10 @@ func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.Se
 		}
 	})
 	mux.HandleFunc("GET /policies-api/v1/policies/{id}/groups", func(w http.ResponseWriter, r *http.Request) {
+		if g.policyGroupsHandler != nil {
+			g.policyGroupsHandler(w, r)
+			return
+		}
 		groups := g.policyGroups
 		if groups == nil {
 			groups = []GroupSummary{}
@@ -143,35 +163,68 @@ func (g guardFixture) mux(t *testing.T, extra func(mux *http.ServeMux)) *http.Se
 		}
 	})
 	mux.HandleFunc("GET /policies-api/v1/groups/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if g.groupHandler != nil {
+			g.groupHandler(w, r)
+			return
+		}
 		group, ok := g.groups[r.PathValue("id")]
 		if !ok {
 			t.Fatalf("unexpected group id: %s", r.PathValue("id"))
+		}
+		// A fixture that leaves UserIDs or PolicyIDs unset means "this group
+		// has none", encoded as a real empty array: encoding/json marshals a
+		// nil slice as JSON null, which the guard's own fail-closed decode
+		// (guardGetGroupAttachments) would otherwise mistake for a broken
+		// response and refuse.
+		if group.PolicyIDs == nil {
+			group.PolicyIDs = []string{}
+		}
+		if group.UserIDs == nil {
+			group.UserIDs = []string{}
 		}
 		if err := json.NewEncoder(w).Encode(group); err != nil {
 			t.Fatal(err)
 		}
 	})
-	mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/policies", func(w http.ResponseWriter, r *http.Request) {
-		ids := g.userPolicyIDs[r.PathValue("id")]
-		rows := make([]PolicySummary, 0, len(ids))
-		for _, id := range ids {
-			rows = append(rows, PolicySummary{ID: id})
-		}
-		resp := struct {
-			Data       []PolicySummary `json:"data"`
-			TotalItems int             `json:"totalItems"`
-			TotalPages int             `json:"totalPages"`
-		}{Data: rows, TotalItems: len(rows), TotalPages: 1}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if g.userPoliciesHandler != nil {
+		mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/policies", g.userPoliciesHandler)
+	} else {
+		mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/policies", func(w http.ResponseWriter, r *http.Request) {
+			ids := g.userPolicyIDs[r.PathValue("id")]
+			rows := make([]PolicySummary, 0, len(ids))
+			for _, id := range ids {
+				rows = append(rows, PolicySummary{ID: id})
+			}
+			resp := struct {
+				Data       []PolicySummary `json:"data"`
+				TotalItems int             `json:"totalItems"`
+				TotalPages int             `json:"totalPages"`
+			}{Data: rows, TotalItems: len(rows), TotalPages: 1}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 	mux.HandleFunc("GET /policies-api/v1/user-attachments/iam-users/{id}/groups", func(w http.ResponseWriter, r *http.Request) {
+		if g.userGroupsHandler != nil {
+			g.userGroupsHandler(w, r)
+			return
+		}
 		groups := g.userGroups[r.PathValue("id")]
 		if groups == nil {
 			groups = []Group{}
 		}
-		if err := json.NewEncoder(w).Encode(groups); err != nil {
+		// As the GetGroup handler above does: a fixture Group with PolicyIDs
+		// left unset means "holds no policies", encoded as a real empty
+		// array rather than the null a nil slice would otherwise marshal to.
+		normalized := make([]Group, len(groups))
+		for i, group := range groups {
+			if group.PolicyIDs == nil {
+				group.PolicyIDs = []string{}
+			}
+			normalized[i] = group
+		}
+		if err := json.NewEncoder(w).Encode(normalized); err != nil {
 			t.Fatal(err)
 		}
 	})

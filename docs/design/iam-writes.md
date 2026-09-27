@@ -78,7 +78,12 @@ call the API another way.
   `*` as a wildcard: `*`, `iam:*`, `iam:Attach*`, and `iam:CreatePolicy`
   all match. Resources and conditions are ignored, so a narrowed grant
   still counts. Managed examples: `IAMFullAccess` and the `AgentBase`
-  role policies.
+  role policies. An action pattern that is not built only from letters,
+  digits, and `*`, with one optional `:` joining two such groups, such as
+  one with whitespace, a stray control character, or other punctuation,
+  counts as privileged rather than being matched as a wildcard: it never
+  matches a real action name, so treating it as unprivileged would let an
+  odd pattern through unnoticed.
 - **Caller**: the principal from `GetCallerIdentity`: an IAM user or a
   service account. An unknown user type fails every guarded write.
 - **Protected principal**: the caller; an IAM user with a privileged
@@ -123,6 +128,9 @@ no statements at all is privileged, and any statement effect other than
 A caller whose own type is a service account (`user-sa` or `service-sa`)
 refuses every service-account-targeted write, not only one against its own
 ID: see the [open question](#open-questions) on the caller identity form.
+The same rule applies to `UpdatePolicy`: such a caller refuses to update a
+policy attached to any service account at all, as `ErrSelfChange`, without
+checking whether that service account holds a privileged policy.
 
 ### Cost of the checks
 
@@ -212,6 +220,7 @@ uses the server's own action list.
 | Update or delete of a managed policy | `iam.ErrManagedPolicy`, no write sent | `ManagedPolicy`, 1 |
 | Delete of an attached policy or a non-empty group | `iam.ErrInUse`, no write sent | `ResourceInUse`, 1 |
 | Create or reset response held no secret | `iam.ErrNoSecret`, write already applied | `SecretFileFailed`, 1 |
+| A policy create or update landed but its confirm read failed | `iam.ErrNotSettled`, write already applied | `NotSettled`, 1 |
 | Unknown ID | `NotFound` | `NotFound`, 4 |
 | Name taken, repeated attach or add | `Conflict` | 1 |
 | IAM policy denies the call | `ErrPermission` | 1 |
