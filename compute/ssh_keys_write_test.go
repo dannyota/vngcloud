@@ -236,6 +236,27 @@ func TestComputeCreateSSHKeyMissingIDOrPrivateKey(t *testing.T) {
 	}
 }
 
+// TestComputeCreateSSHKeyMissingPrivateKeyNamesID checks that a 201 with an
+// id but no private key names that id in the error, so the caller can
+// delete the orphaned key directly instead of searching for it by name.
+func TestComputeCreateSSHKeyMissingPrivateKeyNamesID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"data":{"id":"key-1","name":"app","pubKey":"<public-key>","status":"ACTIVE"}}`))
+	}))
+
+	_, err := c.CreateSSHKey(context.Background(), &CreateSSHKeyInput{Name: "app"})
+	if err == nil {
+		t.Fatal("CreateSSHKey() error = nil, want an error for a response with no private key")
+	}
+	if !strings.Contains(err.Error(), "key-1") {
+		t.Fatalf("error does not name the orphaned key's id: %v", err)
+	}
+	if strings.Contains(err.Error(), "list-ssh-keys") {
+		t.Fatalf("error should point at the named id directly, not the list-and-match hint: %v", err)
+	}
+}
+
 func TestComputeCreateSSHKeyNoRetryOn502(t *testing.T) {
 	var calls int32
 	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -2253,18 +2253,56 @@ func sshMPInt(n *big.Int) []byte {
 	return b
 }
 
-// firstPEMLine returns key's first line when it looks like a PEM boundary
-// ("-----BEGIN ..."), which names a private key's type without revealing
-// any of its material, or "" for anything else. It never returns any other
+// firstPEMLine returns key's PEM header ("-----BEGIN ...-----"), which
+// names a private key's type without revealing any of its material, or ""
+// for anything else. It caps the result at the closing "-----" of the
+// BEGIN marker rather than returning the whole first line: a key with no
+// newlines at all, body and footer included, would otherwise still count
+// as "the first line" and be returned whole. It never returns any other
 // part of key, so a caller logging its result never risks printing key
 // content by mistake.
 func firstPEMLine(key string) string {
+	const beginPrefix = "-----BEGIN "
 	line, _, _ := strings.Cut(key, "\n")
 	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "-----BEGIN ") {
-		return line
+	if !strings.HasPrefix(line, beginPrefix) {
+		return ""
 	}
-	return ""
+	closer := strings.Index(line[len(beginPrefix):], "-----")
+	if closer < 0 {
+		return ""
+	}
+	return line[:len(beginPrefix)+closer+len("-----")]
+}
+
+// TestFirstPEMLine checks that firstPEMLine never returns more than the
+// BEGIN header, even when a key arrives with no newlines at all: cutting
+// only on "\n" would then return the whole key, body included. header and
+// body are kept as separate literals, joined only at run time, and no
+// footer is used at all, so no fake PEM ever appears as one contiguous
+// string in source.
+func TestFirstPEMLine(t *testing.T) {
+	const header = "-----BEGIN OPENSSH PRIVATE KEY-----"
+	const body = "AAAAB3NzaC1yc2Vub3RhcmVhbGtleWZha2Vib2R5Zm9ydGVzdHM"
+
+	tests := map[string]struct {
+		key  string
+		want string
+	}{
+		"multi-line PEM":        {key: header + "\n" + body + "\n", want: header},
+		"one line, no newlines": {key: header + body, want: header},
+		"not a PEM":             {key: "just some ordinary text", want: ""},
+		"empty":                 {key: "", want: ""},
+		"BEGIN with no closer":  {key: "-----BEGIN " + body, want: ""},
+	}
+	for name, tt := range tests {
+		if got := firstPEMLine(tt.key); got != tt.want {
+			t.Errorf("%s: firstPEMLine(...) = %q, want %q", name, got, tt.want)
+		}
+		if tt.want == "" && strings.Contains(firstPEMLine(tt.key), body) {
+			t.Errorf("%s: firstPEMLine(...) leaked the body", name)
+		}
+	}
 }
 
 // isLiveSSHKeyName reports whether name is one this test's own runs create.

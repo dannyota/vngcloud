@@ -126,11 +126,11 @@ rather than a 404 or 400; `GetSSHKey` treats that the same way, returning
 ### The private key is a Secret
 
 `CreateSSHKeyOutput.PrivateKey` is a `vngcloud.Secret`, not a plain string.
-Printing it with any `fmt` verb (`%v`, `%+v`, `%#v`, `%s`, and so on),
-logging it through `log/slog`, or encoding it with `json.Marshal` all give
-`"[redacted]"`; this holds even when the `Secret` is a field of a larger
-struct, such as the whole `CreateSSHKeyOutput`. `Reveal()` is the only way
-to read the actual value back out:
+Printing it with an ordinary `fmt` verb (`%v`, `%+v`, `%#v`, `%s`, and so
+on), logging it through `log/slog`, or encoding it with `json.Marshal` all
+give `"[redacted]"`; this holds even when the `Secret` is a field of a
+larger struct, such as the whole `CreateSSHKeyOutput`. `Reveal()` is the
+only way to read the actual value back out:
 
 ```go
 fmt.Println(created)               // ...PrivateKey:[redacted]
@@ -140,6 +140,14 @@ data, _ := json.Marshal(created)    // {"SSHKey":{...},"PrivateKey":"[redacted]"
 
 key := created.PrivateKey.Reveal()  // the private key, in PEM form
 ```
+
+Three things bypass the redaction, none of them through the methods above:
+`fmt.Printf("%p", ...)` on a `Secret` prints the value itself, in fmt's own
+error text for a verb it does not support (`%!p(vngcloud.Secret=...)`);
+`encoding/gob` encodes the underlying string directly; and
+`reflect.Value.String()` called on a `Secret` value returns the string
+itself rather than calling `String()`. Never format a `Secret` with `%p`,
+gob-encode one, or read one back with `reflect.Value.String()`.
 
 Nothing in the SDK writes a `Secret`'s value to a file for you; save
 `Reveal()`'s result yourself, with a mode that keeps it readable only by

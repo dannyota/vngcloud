@@ -166,9 +166,11 @@ type CreateSSHKeyOutput struct {
 // reached the server: after any error that is not a 4xx *core.APIError, the
 // key may exist, and the caller lists keys by Name before creating it
 // again, rather than retrying blind; a key found that way has already lost
-// its private key and should be deleted. A 201 response missing an id or a
-// private key is itself an *core.APIError with the same hint, since it
-// leaves the same question open.
+// its private key and should be deleted. A 201 response missing an id is
+// itself an *core.APIError with the same list-and-match hint, since it
+// leaves the same question open; a 201 with an id but no private key names
+// that id in the error instead, so the caller deletes it directly rather
+// than searching for it.
 func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (*CreateSSHKeyOutput, error) {
 	const op = "compute.CreateSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -196,10 +198,14 @@ func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (*Crea
 		return nil, wrapAmbiguousSSHKeyErr(op, in.Name, true, err)
 	}
 	if resp.Data.ID == "" || resp.Data.PrivateKey == "" {
+		msg := "create response had no id or no private key; a key may exist, check with list-ssh-keys"
+		if resp.Data.ID != "" {
+			msg = fmt.Sprintf("create response for ssh key %s had no private key; its private key is lost, delete that key directly", resp.Data.ID)
+		}
 		return nil, &core.APIError{
 			Operation:  op,
 			StatusCode: status,
-			Message:    "create response had no id or no private key; a key may exist, check with list-ssh-keys",
+			Message:    msg,
 		}
 	}
 	return &CreateSSHKeyOutput{
