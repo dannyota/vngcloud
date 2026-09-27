@@ -110,6 +110,50 @@ func TestIAMCreatePolicyGolden(t *testing.T) {
 	}
 }
 
+// TestIAMCreatePolicyNotSettledOnFailedConfirmRead drives a real create-policy
+// call whose POST succeeds and whose confirm read (the GetPolicy call
+// CreatePolicy makes right after) fails with a 500. Per iam.CreatePolicy's
+// own contract, that failure surfaces as an error wrapping iam.ErrNotSettled,
+// with the Output falling back to the new policy's own ID; op.go must still
+// print that Output on stdout even though the command exits with an error,
+// the same as dns, network, and compute's own NotSettled writes.
+func TestIAMCreatePolicyNotSettledOnFailedConfirmRead(t *testing.T) {
+	doc := writeDocumentFile(t,
+		`{"statements": [{"effect": "allow", "actions": ["vserver:ListServers"], "resources": ["*"]}]}`)
+
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/accounts-api/v1/auth/userinfo": jsonHandler(http.StatusOK, iamUserInfoJSON("user-1", "iam-user")),
+		"/policies-api/v1/actions":       jsonHandler(http.StatusOK, iamWriteActionsJSON),
+		"/policies-api/v1/policies": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"policy-2"}`))
+		},
+		"/policies-api/v1/policies/policy-2": func(w http.ResponseWriter, _ *http.Request) {
+			// The confirm read after the POST: fails, so the write is
+			// accepted but never confirmed.
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "iam", "create-policy", "--name", "app-read", "--document-file", doc})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "NotSettled" {
+		t.Fatalf("Code = %q, want NotSettled (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"ID": "policy-2"`) {
+		t.Fatalf("stdout = %s, want the fallback policy ID printed", got)
+	}
+}
+
 // TestIAMCreatePolicyDocumentFileGoFieldNames checks that a --document-file
 // using get-policy's own Go field names (Statements, Effect, Actions,
 // Resources) decodes the same way as the console's lower-case form, since

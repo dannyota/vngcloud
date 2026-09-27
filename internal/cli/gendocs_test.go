@@ -237,13 +237,14 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now sixteen,
+// closing the error-classes list names every exit-1 code (now nineteen,
 // with the three vDNS wait codes, monitor's own OTPRejected and
-// PriceAboveMax, network's SystemSecurityGroup, SecurityGroupInUse,
-// ResourceInUse, DefaultResource, and ResourceBusy, compute's own
-// ServerGroupInUse, and containerregistry's own RepositoryNotEmpty,
-// UserNotFound, and SecretFileFailed) rather than a vague "exit 1", which
-// would read as ambiguous after a list of classes.
+// PriceAboveMax, iam's own SelfChange, PrivilegedChange, and ManagedPolicy,
+// network's SystemSecurityGroup, SecurityGroupInUse, ResourceInUse,
+// DefaultResource, and ResourceBusy, compute's own ServerGroupInUse, and
+// containerregistry's own RepositoryNotEmpty, UserNotFound, and
+// SecretFileFailed) rather than a vague "exit 1", which would read as
+// ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -251,7 +252,8 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SystemSecurityGroup`, `SecurityGroupInUse`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`UserNotFound`, and `SecretFileFailed` all exit 1"
 	if !strings.Contains(data, want) {
@@ -259,6 +261,30 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	if strings.Contains(data, "Both exit 1") {
 		t.Errorf("error class text still has the ambiguous \"Both exit 1\":\n%s", data)
+	}
+}
+
+// TestGenDocsErrorClassesMentionIAMCodes checks that the error-classes list
+// documents SelfChange, PrivilegedChange, and ManagedPolicy, that
+// ResourceInUse's own text names iam delete-policy alongside the network
+// delete guards it already covered, and that NotSettled names iam
+// create-policy and update-policy alongside their own repeat rule.
+func TestGenDocsErrorClassesMentionIAMCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{
+		"`SelfChange`", "`PrivilegedChange`", "`ManagedPolicy`",
+		"iam delete-policy targeted a policy",
+		"an iam create-policy or update-policy whose write reached the server",
+		"create-policy must not be sent again, since a repeat risks a second policy",
+		"update-policy may be sent again",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("error class text is missing %q:\n%s", want, data)
+		}
 	}
 }
 
