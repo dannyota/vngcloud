@@ -269,7 +269,7 @@ const networkDeleteSecurityGroupRuleNote = "Refuses, before any request, a rule 
 	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
 
 // networkCreateVPCNote documents that the server ignores CreateVPC's own
-// zone, since VPCInput carries no ZoneID field at all and a reader would
+// zone, since CreateVPCInput carries no ZoneID field at all and a reader would
 // otherwise have no way to learn that a VPC's zone is decided elsewhere.
 const networkCreateVPCNote = "Takes no zone: the server ignores a VPC's zone and always places it in " +
 	"the region's first zone, which can be disabled for the account. The zone that matters is a " +

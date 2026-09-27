@@ -104,8 +104,8 @@ All methods live in `network`.
   `ListSubnetsByVPC` returns any subnet: `ErrInUse`. The message names the
   count and says to delete subnets first. Subnets that Private DNS
   reserves do not appear in the list.
-- The live read shows a default or system marker on the VPC:
-  `ErrDefaultResource`.
+- No default or system marker exists on the VPC read (live), so this
+  release has no `ErrDefaultResource` guard for VPCs.
 
 The VPC's ACLs and route tables go with it; the wiki and the `--yes`
 help say so. The server's refusal is the final guard: 400 `Cannot delete
@@ -303,9 +303,9 @@ writes, have no wait: their responses are final.
   exactly, because list filters may match substrings as security groups
   do: `list-server-groups --name`, `list-vpcs --name`,
   `list-subnets-by-vpc`, `list-route-tables --name`, or
-  `list-network-acls --name`. Server group names are unique; whether the
-  others are is a live check, and where one is not, the message also says
-  a rerun can make a second one.
+  `list-network-acls --name`. Server group names are unique. Subnet names
+  are not (live), so a subnet is matched by CIDR, which the server keeps
+  unique within a VPC; a rerun with the same CIDR cannot make a second one.
 - Updates, replaces, and deletes keep the transport's retries, except the
   Private DNS `PATCH` (`Once`). A retried delete that finds the resource
   gone returns `NotFound`; subnet and ACL deletes confirm by list instead,
@@ -355,7 +355,7 @@ writes, have no wait: their responses are final.
 | Subnet create with an unknown or disabled zone | The server's 404 `Cannot get zone with id <zone>` | `NotFound`, 4 |
 | Server group with servers | `compute.ErrServerGroupInUse` | `ServerGroupInUse`, 1 |
 | VPC, subnet, route table, or ACL in use; VPC delete refused with `contains the subnet` | `ErrInUse` | `ResourceInUse`, 1 |
-| Main route table, default ACL, default rule, default VPC | `ErrDefaultResource`, no request | `DefaultResource`, 1 |
+| Main route table, default ACL, default rule | `ErrDefaultResource`, no request | `DefaultResource`, 1 |
 | Not `ACTIVE` within the pre-write bound | `ErrBusy`, no request | `ResourceBusy`, 1 |
 | Unknown `dnsStatus` before enable | `ErrUnexpectedStatus`, no request | `UnexpectedStatus`, 1 |
 | `ERROR` after a write | `ErrFailed`, with Output | `WriteFailed`, 1 |
@@ -375,8 +375,8 @@ keep their meaning. The CLI list in
 | Release | Content |
 |-|-|
 | N1 | `compute` `GetServerGroup`, `CreateServerGroup`, `UpdateServerGroup`, `DeleteServerGroup`, `ErrServerGroupInUse`; CLI commands |
-| N2 | `network` VPC and subnet writes (subnet create takes a zone), `EnableVPCPrivateDNS`, `ListServersBySubnet`, the per-wait poll bounds, `ErrInUse`, `ErrDefaultResource`, `ErrUnexpectedStatus`, path ID checks on `GetVPC`, `GetSubnet`, and `ListSubnetsByVPC`; CLI commands |
-| N3 | `network` `GetRouteTable`, route table create and delete, `AddRoute`, `RemoveRoute`, `ErrBusy`; CLI commands |
+| N2 | `network` VPC and subnet writes (subnet create takes a zone), `EnableVPCPrivateDNS`, `ListServersBySubnet`, the per-wait poll bounds, `ErrInUse`, `ErrUnexpectedStatus`, path ID checks on `GetVPC`, `GetSubnet`, and `ListSubnetsByVPC`; CLI commands |
+| N3 | `network` `GetRouteTable`, route table create and delete, `AddRoute`, `RemoveRoute`, `ErrDefaultResource`, `ErrBusy`; CLI commands |
 | N4 | `network` `GetNetworkACL`, ACL create and delete, rule add and remove, subnet associate and disassociate, the `ACL` fields and `ACLRule`; CLI commands |
 
 Each is numbered when it ships, in this order: N3 and N4 need N2's VPC for
@@ -445,5 +445,6 @@ A. `ZoneID` on VPC create, replacing decision 7. The server ignores
 - The `port` encoding for one port and ICMP, and the rule `type` and
   `action` values a user may send.
 - What a subnet uses after ACL disassociate.
-- Whether VPC, subnet, route table, and ACL names and VPC CIDRs must be
-  unique.
+- Whether VPC and ACL names and VPC CIDRs must be unique. Live: subnet
+  names repeat, subnet CIDRs cannot overlap in a VPC, and a duplicate route
+  table name is refused.
