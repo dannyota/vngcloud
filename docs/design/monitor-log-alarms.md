@@ -171,9 +171,11 @@ but `NoWait` as a pointer: `Name`*, `Description`*, `Severity`*,
 clears), and `Resend`*.
 
 It checks `AlarmID` and any new channel or project ID, reads the alarm,
-and refuses with `ErrInvalidInput` when `Kind` is not `Log`. It applies the
-set fields to the read, with the create's pairing rule for `QueryString`
-and `Filter`, and builds the body with the create's builder. A new
+and refuses with `ErrInvalidInput` when `Kind` is not `Log`, when the read
+lacks a field the create always sends, or when `status` is `CREATING` or
+`UPDATING`. `QueryString` and `Filter` must be set together or both left
+unset; new values follow the create's pairing rule. It applies the set
+fields to the read and builds the body with the create's builder. A new
 `LogProjectID` gets `projectName` from `GetLogProject`; otherwise the read's
 `LogProjectName` is sent. An unset `QueryString` keeps the read's
 `logSearchQuery`; a read without `filter` sends none. `reason` is rebuilt.
@@ -181,10 +183,11 @@ It sends `PUT` with normal retries, then waits.
 
 ### DeleteLogAlarm
 
-`DeleteLogAlarmInput` has `AlarmID` (r). It checks the ID and sends one
-`DELETE` with normal retries; a retry that finds the alarm gone returns
-not-found. There is no read first and no wait: the console treats a
-success as done.
+`DeleteLogAlarmInput` has `AlarmID` (r). It checks the ID, reads the
+alarm, and refuses with `ErrInvalidInput` unless `Kind` is `Log`, since
+nothing shows the server refuses a metric alarm's ID on this path. It then
+sends one `DELETE` with normal retries; a retry that finds the alarm gone
+returns not-found. There is no wait: the console treats a success as done.
 
 ### Wait
 
@@ -227,8 +230,8 @@ No new sentinel or CLI code is added.
 - Scalar fields are flags: `--name`, `--log-project-id`,
   `--threshold-value`, `--query-string`, `--time-frame`, and the rest.
   `Filter`, `InAlarm`, `OK`, and `Resend` come through `--cli-input-json`.
-- `--threshold-value` needs `float64` and `*float64` flag types, which the
-  CLI adds ([CLI](cli.md#operation-table)).
+- `--threshold-value` uses the `float64` and `*float64` flag types
+  ([CLI](cli.md#operation-table)).
 - A read-only profile refuses all three. Waiting writes take `--no-wait`.
 - Delete needs `--yes`: a deleted alarm's history is lost, and a new alarm
   has a new ID.
@@ -260,14 +263,14 @@ recoveries a month, and the test account has used them, so none can be
 ordered until the limit resets. The release can be built and reviewed now;
 its live check and tag wait for the reset.
 
-With the owner's approval, on the test account: order a free Basic project
-`vngcloud-live-<hex>` and a webhook channel. Create a `frequency` alarm
-with the match-all query, threshold 1000, and that channel in `inAlarm`.
-Record the create response (does it hold the ID?), the get and list
-shapes (the `alarmLog` keys, whether `filter` is there, the number types),
-and the statuses and their timing. Update the threshold and name, read
-back, delete, and delete again. Clean up the channel and the project with
-`Purge`. Adjust the design to what the check shows before the tag.
+With the owner's approval, on the test account, with an existing `ACTIVE` log
+project named by `VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID` (the test never orders
+one) and a webhook channel it creates. Create a `frequency` alarm with the
+match-all query, threshold 1000, and that channel in `inAlarm`. Record the
+create response (does it hold the ID?), the get and list shapes (the `alarmLog`
+keys, whether `filter` is there, the number types), and the statuses and their
+timing. Update the threshold and name, read back, delete, and delete again.
+Clean up the channel. Adjust the design to what the check shows before the tag.
 
 ## Release
 
