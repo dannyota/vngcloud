@@ -25,7 +25,8 @@ policy can be created, updated, deleted, and attached to or detached from
 a service account, a group, or an IAM user; a group can be created,
 updated, deleted, and have members added or removed. Every write is
 guarded against changing the caller's own access or a principal that
-already holds an IAM write right. See [IAM](#iam) below.
+already holds an IAM write right. See [IAM](#iam) below. `tagging` writes
+tags on any resource type. See [Tagging](Tagging.md).
 
 ## Coverage
 
@@ -41,6 +42,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
 
 ## Project
 
@@ -420,3 +422,14 @@ can be read and attached, but never updated or deleted.
 `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
 `RemoveUserFromGroup`, `AttachGroupPolicy`, `DetachGroupPolicy`, their
 guards, and their errors.
+
+## Tagging
+
+```go
+taggingClient := tagging.New(cfg)
+taggingClient.ListResourceTags(ctx, in)  // ResourceID (required)
+```
+
+`ListResourceTags` reads any resource's tags through the one tag API the
+vServer gateway serves for every resource type. `TagResource`, its read-merge
+write, and its errors are on the [Tagging](Tagging.md) page.
