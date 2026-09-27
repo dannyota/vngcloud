@@ -21,7 +21,9 @@ var (
 
 	// ErrNotSettled means UpdateServerGroup's confirm read after a
 	// successful PUT failed to come back. The write already reached the
-	// server and must not be resent; the returned Output holds the fields
+	// server, but unlike a create, the update is safe to run again: it is
+	// a read-merge PUT that always resends both fields, so a repeat
+	// converges on the same result. The returned Output holds the fields
 	// the PUT itself sent, so the caller keeps the group's id to check
 	// again later.
 	ErrNotSettled = errors.New("compute: write accepted but not settled")
@@ -127,11 +129,12 @@ func wrapAmbiguousServerGroupCreateErr(op string, err error) error {
 
 // UpdateServerGroupInput changes a group's Name, Description, or both,
 // leaving any field left nil unchanged. At least one of Name and
-// Description must be set. A group's policy cannot change after create, so
-// there is no PolicyID field here. The API replaces both fields on every
-// update, so UpdateServerGroup reads the group first and resends whichever
-// field the caller leaves nil unchanged; the last writer wins, since the API
-// has no condition field.
+// Description must be set, and a Name that is set must not be the empty
+// string. A group's policy cannot change after create, so there is no
+// PolicyID field here. The API replaces both fields on every update, so
+// UpdateServerGroup reads the group first and resends whichever field the
+// caller leaves nil unchanged; the last writer wins, since the API has no
+// condition field.
 type UpdateServerGroupInput struct {
 	ServerGroupID string `vngcloud:"required"`
 
@@ -162,6 +165,9 @@ func (c *Client) UpdateServerGroup(ctx context.Context, in *UpdateServerGroupInp
 	}
 	if in.Name == nil && in.Description == nil {
 		return nil, fmt.Errorf("%w: %s requires at least one field to change", core.ErrInvalidInput, op)
+	}
+	if in.Name != nil && *in.Name == "" {
+		return nil, fmt.Errorf("%w: %s: Name must not be empty", core.ErrInvalidInput, op)
 	}
 
 	current, err := c.GetServerGroup(ctx, &GetServerGroupInput{ServerGroupID: in.ServerGroupID})

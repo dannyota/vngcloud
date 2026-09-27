@@ -168,6 +168,8 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 
 type ListServerGroupsInput struct {
 	Name string
+	// Page is an offset, not a page number: it starts at 0, and each
+	// value names the index of the first item to return.
 	Page int
 	Size int
 }

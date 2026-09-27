@@ -30,6 +30,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/envfile"
+	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 )
@@ -2966,18 +2967,81 @@ func isLiveServerGroupName(name string) bool {
 
 // listAllServerGroups pages through every server group the account has,
 // since a leftover cleanup or a remaining-group check must not miss one
-// that landed past the first page.
+// that landed past the first page. ListServerGroupsInput.Page is an offset,
+// not a page number, so the walk starts at 0 and advances by the number of
+// items the previous call actually returned. It fails rather than
+// returning a silently short list if an empty page comes back before the
+// server's own TotalItem is reached.
 func listAllServerGroups(ctx context.Context, client *compute.Client) ([]compute.ServerGroup, error) {
 	var all []compute.ServerGroup
-	for page := 1; ; page++ {
-		out, err := client.ListServerGroups(ctx, &compute.ListServerGroupsInput{Page: page})
+	offset := 0
+	for {
+		out, err := client.ListServerGroups(ctx, &compute.ListServerGroupsInput{Page: offset})
 		if err != nil {
 			return all, err
 		}
 		all = append(all, out.Items...)
-		if page >= out.TotalPage {
+		if len(all) >= out.TotalItem {
 			return all, nil
 		}
+		if len(out.Items) == 0 {
+			return all, fmt.Errorf("listAllServerGroups: collected %d server group(s), server reports %d", len(all), out.TotalItem)
+		}
+		offset += len(out.Items)
+	}
+}
+
+// TestListAllServerGroupsStartsAtOffsetZero checks that listAllServerGroups
+// requests offset 0 first, not 1: ListServerGroups' own Page field is an
+// offset into the list, not a page number, so starting at 1 would silently
+// skip the first server group on every run.
+func TestListAllServerGroupsStartsAtOffsetZero(t *testing.T) {
+	var offsets []string
+	client := compute.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		offset := r.URL.Query().Get("offset")
+		offsets = append(offsets, offset)
+		w.Header().Set("Content-Type", "application/json")
+		switch offset {
+		case "0":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"group-0","name":"a"}],"page":1,"pageSize":1,"totalPage":2,"totalItem":2}`))
+		case "1":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"group-1","name":"b"}],"page":2,"pageSize":1,"totalPage":2,"totalItem":2}`))
+		default:
+			t.Fatalf("unexpected offset %q", offset)
+		}
+	})))
+
+	groups, err := listAllServerGroups(context.Background(), client)
+	if err != nil {
+		t.Fatalf("listAllServerGroups() error = %v", err)
+	}
+	if len(offsets) != 2 || offsets[0] != "0" || offsets[1] != "1" {
+		t.Fatalf("offsets requested = %v, want [0 1]", offsets)
+	}
+	if len(groups) != 2 || groups[0].UUID != "group-0" || groups[1].UUID != "group-1" {
+		t.Fatalf("groups = %+v, want group-0 then group-1", groups)
+	}
+}
+
+// TestListAllServerGroupsFailsWhenServerUnderreports checks that
+// listAllServerGroups returns an error, instead of a silently short list,
+// when the server's own TotalItem is larger than what the walk actually
+// collected before an empty page ended it.
+func TestListAllServerGroupsFailsWhenServerUnderreports(t *testing.T) {
+	client := compute.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("offset") {
+		case "0":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"group-0","name":"a"}],"page":1,"pageSize":1,"totalPage":1,"totalItem":5}`))
+		case "1":
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":1,"totalPage":1,"totalItem":5}`))
+		default:
+			t.Fatalf("unexpected offset %q", r.URL.Query().Get("offset"))
+		}
+	})))
+
+	if _, err := listAllServerGroups(context.Background(), client); err == nil {
+		t.Fatal("listAllServerGroups() error = nil, want an error for a short collection")
 	}
 }
 
@@ -3019,11 +3083,12 @@ func deleteServerGroupByName(t *testing.T, client *compute.Client, name string) 
 // server's own refusal (step 6); renames it with the description left out,
 // then sets a new description with the name left out, then clears the
 // description, each time confirming the field left out of that call's body
-// was resent unchanged (step 7); deletes the group and confirms a
-// not-found read (step 8); and repeats the delete, logging its status,
-// since a second delete's behavior is not confirmed live (step 9). Every
-// step logs only statuses, counts, field lengths, and timings, never a
-// group's own name.
+// was resent unchanged, that PolicyID never changed, and, for the last
+// call, that the description came back empty rather than merely logging
+// its length (step 7); deletes the group and confirms a not-found read
+// (step 8); and repeats the delete, logging its status, since a second
+// delete's behavior is not confirmed live (step 9). Every step logs only
+// statuses, counts, field lengths, and timings, never a group's own name.
 func TestLiveWriteServerGroup(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live server group write test")
@@ -3183,6 +3248,9 @@ func TestLiveWriteServerGroup(t *testing.T) {
 		if out.ServerGroup.Name != name {
 			t.Errorf("%s: Name is not the expected value", step)
 		}
+		if out.ServerGroup.PolicyID != policy.UUID {
+			t.Errorf("%s: PolicyID changed, want it to stay %q", step, policy.UUID)
+		}
 		t.Logf("%s: updated group, description length %d", step, len(out.ServerGroup.Description))
 		return out
 	}
@@ -3198,7 +3266,10 @@ func TestLiveWriteServerGroup(t *testing.T) {
 	}
 	const updatedDescription = "vngcloud live write test updated"
 	update("step 7b (new description, name left out)", nil, vngcloud.Ptr(updatedDescription))
-	update("step 7c (empty description)", nil, vngcloud.Ptr(""))
+	cleared := update("step 7c (empty description)", nil, vngcloud.Ptr(""))
+	if len(cleared.ServerGroup.Description) != 0 {
+		t.Errorf("step 7c: description length %d, want 0 (the empty description was not cleared)", len(cleared.ServerGroup.Description))
+	}
 
 	// Step 8: delete the group and log the status and the time until a
 	// GetServerGroup read returns NotFound.

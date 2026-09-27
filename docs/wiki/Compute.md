@@ -107,16 +107,19 @@ is synchronous: the response already carries the finished group, so there
 is no wait.
 
 `UpdateServerGroup` changes `Name`, `Description`, or both; at least one
-must be set, or the call fails with `vngcloud.ErrInvalidInput` and sends
-nothing. The API takes a full replacement body, so the SDK reads the group
-first and resends whichever field the caller left `nil` unchanged, plus a
-`serverGroupId` field set to the same id as the path (the `PUT` fails
-without it), then reads the group once more after the `PUT` to build the
-Output from a shape the SDK trusts rather than the `PUT` response itself.
-If that confirm read fails, the write has already succeeded: the error wraps
-`compute.ErrNotSettled`, and the Output falls back to the fields the `PUT`
-itself sent. There is no `PolicyID` field on the update; a group's policy
-cannot change after create.
+must be set, and a `Name` that is set must not be the empty string, or the
+call fails with `vngcloud.ErrInvalidInput` and sends nothing. The API takes
+a full replacement body, so the SDK reads the group first and resends
+whichever field the caller left `nil` unchanged, plus a `serverGroupId`
+field set to the same id as the path (the `PUT` fails without it), then
+reads the group once more after the `PUT` to build the Output from a shape
+the SDK trusts rather than the `PUT` response itself. If that confirm read
+fails, the write has already succeeded: the error wraps
+`compute.ErrNotSettled`. Unlike `CreateServerGroup`'s `POST`, this update is
+a read-merge `PUT` and is safe to run again after `ErrNotSettled`; it will
+just resend the same Name and Description. The Output falls back to the
+fields the `PUT` itself sent. There is no `PolicyID` field on the update; a
+group's policy cannot change after create.
 
 `DeleteServerGroup` lists server groups first, since `GetServerGroup` never
 returns a group's members, and sends nothing when that list shows the group
@@ -124,7 +127,10 @@ has any server attached (`compute.ErrServerGroupInUse`). A group can be in
 use by more than servers, so the server's own refusal is the final guard:
 an error whose message contains `"server group is in use"` also wraps
 `compute.ErrServerGroupInUse`, whatever its HTTP status. `DELETE` keeps the
-transport's normal retries.
+transport's normal retries; a retry sent after the first response was lost
+can find the group already gone and get back a 404, which
+`vngcloud.IsNotFound(err) == true` reports the same as any other unknown
+id. That 404 means the group is gone, not that the delete failed.
 
 `GetServerGroup` on an unknown id gets a 200 with `"data"` null rather than
 a 404; `GetServerGroup` treats that the same way, returning
@@ -231,9 +237,10 @@ you (`0600` on Unix), and never print or log it once read.
 ## Errors
 
 A malformed `SSHKeyID`, `ServerGroupID`, or `PolicyID`, an empty required
-field, an empty `UpdateServerGroup` input, or an `ImportSSHKey` shape
-refusal fails with `vngcloud.ErrInvalidInput` before any request. An
-unknown key or server group fails with `vngcloud.IsNotFound(err) == true`.
+field, an empty `UpdateServerGroup` input, an `UpdateServerGroup` `Name` set
+to the empty string, or an `ImportSSHKey` shape refusal fails with
+`vngcloud.ErrInvalidInput` before any request. An unknown key or server
+group fails with `vngcloud.IsNotFound(err) == true`.
 
 ```go
 var ErrServerGroupInUse = errors.New("compute: server group in use")
@@ -245,8 +252,9 @@ group has servers attached, or that its `DELETE` request was refused by
 the server; see [Creating, updating, and deleting server
 groups](#creating-updating-and-deleting-server-groups) above.
 `ErrNotSettled` means `UpdateServerGroup`'s confirm read after a successful
-`PUT` failed to come back; the write already reached the server and must
-not be resent.
+`PUT` failed to come back; the write already reached the server, but the
+update is safe to run again, since it is a read-merge `PUT` that resends
+both fields either way.
 
 A duplicate name, a quota, or a rejected key or policy shape from the
 server itself comes back as the server's own `*vngcloud.APIError`; see

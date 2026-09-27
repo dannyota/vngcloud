@@ -322,6 +322,56 @@ func TestComputeUpdateServerGroupEmptyInputFails(t *testing.T) {
 	}
 }
 
+// TestComputeUpdateServerGroupEmptyNameFails checks that a Name set to the
+// empty string is refused before any request, the same as leaving both
+// fields nil: the API would otherwise happily rename the group to nothing.
+func TestComputeUpdateServerGroupEmptyNameFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	_, err := c.UpdateServerGroup(context.Background(), &UpdateServerGroupInput{
+		ServerGroupID: "server-group-1",
+		Name:          vngcloud.Ptr(""),
+	})
+	if !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestComputeUpdateServerGroupPUTBadRequestSurfacesAPIError checks that a
+// 400 from the PUT itself, such as a rename to a name another group
+// already holds, comes back as the server's own *core.APIError rather than
+// being folded into ErrNotSettled or some other sentinel.
+func TestComputeUpdateServerGroupPUTBadRequestSurfacesAPIError(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(serverGroupBody("old-name", "d")))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"name must be unique"}`))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	_, err := c.UpdateServerGroup(context.Background(), &UpdateServerGroupInput{
+		ServerGroupID: "server-group-1",
+		Name:          vngcloud.Ptr("duplicate-name"),
+	})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want *core.APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("StatusCode = %d, want 400", apiErr.StatusCode)
+	}
+	if errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, must not wrap ErrNotSettled: the PUT itself was refused", err)
+	}
+}
+
 func TestComputeUpdateServerGroupReReadFailureWrapsNotSettled(t *testing.T) {
 	var getCalls atomic.Int64
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
