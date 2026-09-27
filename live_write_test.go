@@ -19,6 +19,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -6130,8 +6131,12 @@ func liveMaxVND(t *testing.T) float64 {
 		t.Fatal("set VNGCLOUD_LIVE_MAX_VND to this run's VND-a-month cap; no paid write test sends anything without it")
 	}
 	budgetCap, err := strconv.ParseFloat(raw, 64)
-	if err != nil || budgetCap <= 0 {
-		t.Fatalf("VNGCLOUD_LIVE_MAX_VND = %q, want a positive number", raw)
+	// strconv.ParseFloat recognizes "NaN", "Inf", and "+Inf" as well as an
+	// ordinary number: NaN compares false to every spend total, and +Inf
+	// compares true to none, either of which would silently disable the
+	// budget cap this whole run exists to enforce.
+	if err != nil || math.IsNaN(budgetCap) || math.IsInf(budgetCap, 0) || budgetCap <= 0 {
+		t.Fatalf("VNGCLOUD_LIVE_MAX_VND = %q, want a positive, finite number", raw)
 	}
 	return budgetCap
 }
@@ -6271,13 +6276,18 @@ func TestLiveWritePaidVolume(t *testing.T) {
 	}
 	volumeID := created.Volume.UUID
 
-	if before != nil {
+	// The raw balance is account data and never logged; only whether the
+	// drop this create caused stayed within budgetCap.
+	if before != nil && before.Balances.Cash != nil {
 		after, err := billingClient.GetBalances(ctx, &billing.GetBalancesInput{})
-		if err != nil {
+		switch {
+		case err != nil:
 			t.Logf("step 5: GetBalances after create failed (non-fatal): %s", safeErr(err))
-		} else {
-			t.Logf("step 5: cash balance before=%v after=%v (compare manually; refund timing is unconfirmed)",
-				before.Balances.Cash, after.Balances.Cash)
+		case after.Balances.Cash == nil:
+			t.Log("step 5: GetBalances after create returned no cash balance (non-fatal)")
+		default:
+			drop := *before.Balances.Cash - *after.Balances.Cash
+			t.Logf("step 5: cash balance drop stayed within this run's cap: %v", drop >= 0 && drop <= budgetCap)
 		}
 	}
 
@@ -6305,7 +6315,10 @@ func TestLiveWritePaidVolume(t *testing.T) {
 // for the pre-test sweep and the cleanup of TestLiveWritePaidServer. It
 // waits for each delete to settle, so a caller relying on the servers being
 // fully gone (such as a subsequent VPC or security group delete) does not
-// need its own extra wait.
+// need its own extra wait. A server still CREATING or CREATING-BILLING
+// cannot be deleted at all, per the design's server rules, so this waits
+// for it to leave that status first rather than let the delete fail and
+// leave it billing.
 func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client) int {
 	t.Helper()
 	list, err := client.ListServers(ctx, nil)
@@ -6318,6 +6331,13 @@ func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client
 		if !strings.HasPrefix(s.Name, "vngcloud-live-") {
 			continue
 		}
+		if strings.EqualFold(s.Status, "CREATING") || strings.EqualFold(s.Status, "CREATING-BILLING") {
+			t.Logf("sweep: server %s is still %s; waiting for it to settle before deleting", s.UUID, s.Status)
+			if err := waitLiveServerLeavesCreating(ctx, client, s.UUID); err != nil {
+				t.Errorf("sweep: wait for server %s to leave %s: %s", s.UUID, s.Status, safeErr(err))
+				continue
+			}
+		}
 		if _, err := client.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: s.UUID, DeleteVolumes: true}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("sweep: DeleteServer(%s): %s", s.UUID, safeErr(err))
 			continue
@@ -6325,6 +6345,64 @@ func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client
 		deleted++
 	}
 	return deleted
+}
+
+// waitLiveServerLeavesCreating polls GetServer until id's Status is no
+// longer CREATING or CREATING-BILLING, or the design's 15-minute create
+// bound passes.
+func waitLiveServerLeavesCreating(ctx context.Context, client *compute.Client, id string) error {
+	deadline := time.Now().Add(15 * time.Minute)
+	for {
+		out, err := client.GetServer(ctx, &compute.GetServerInput{ServerID: id})
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(out.Server.Status, "CREATING") && !strings.EqualFold(out.Server.Status, "CREATING-BILLING") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("server %s is still %s after 15m", id, out.Server.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+// assertNoLiveServersOrVolumesRemain lists servers and volumes and fails
+// the test, logging only the counts, when either still holds an item named
+// with the "vngcloud-live-" prefix: the design's live-run cleanup must
+// leave nothing behind that keeps billing.
+func assertNoLiveServersOrVolumesRemain(ctx context.Context, t *testing.T, computeClient *compute.Client, volumeClient *volume.Client) {
+	t.Helper()
+	servers, err := computeClient.ListServers(ctx, nil)
+	if err != nil {
+		t.Errorf("final check: ListServers: %s", safeErr(err))
+		return
+	}
+	serverCount := 0
+	for _, s := range servers.Items {
+		if strings.HasPrefix(s.Name, "vngcloud-live-") {
+			serverCount++
+		}
+	}
+	volumes, err := volumeClient.ListVolumes(ctx, nil)
+	if err != nil {
+		t.Errorf("final check: ListVolumes: %s", safeErr(err))
+		return
+	}
+	volumeCount := 0
+	for _, v := range volumes.Items {
+		if strings.HasPrefix(v.Name, "vngcloud-live-") {
+			volumeCount++
+		}
+	}
+	t.Logf("final check: %d vngcloud-live server(s), %d vngcloud-live volume(s) remain", serverCount, volumeCount)
+	if serverCount > 0 || volumeCount > 0 {
+		t.Errorf("final check: %d server(s) and %d volume(s) named vngcloud-live-* still remain after cleanup", serverCount, volumeCount)
+	}
 }
 
 // TestLiveWritePaidServer is the design's L2 live run, gating the P3
@@ -6569,17 +6647,35 @@ func TestLiveWritePaidServer(t *testing.T) {
 	}
 	t.Logf("step 10: renamed to %s", renamed.Server.Name)
 
-	// Step 11: delete with DeleteVolumes true, removing the root volume too.
+	// Step 11: delete with DeleteVolumes false, so the boot volume stays and
+	// is named in KeptVolumeIDs.
+	bootVolumeID := created.Server.BootVolumeID
 	deleteStart := time.Now()
-	deletedOut, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID, DeleteVolumes: true})
+	deletedOut, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID})
 	if err != nil {
 		t.Fatalf("step 11 DeleteServer: %s", safeErr(err))
 	}
-	t.Logf("step 11: delete settled after %s, deleted volume(s): %v", time.Since(deleteStart), deletedOut.DeletedVolumeIDs)
+	t.Logf("step 11: delete settled after %s, kept volume(s): %v", time.Since(deleteStart), deletedOut.KeptVolumeIDs)
 	if _, err := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: serverID}); !vngcloud.IsNotFound(err) {
 		t.Fatalf("step 11: GetServer after delete = %s, want NotFound", safeErr(err))
 	}
-	t.Log("step 11: confirmed the server is gone")
+	if !slices.Contains(deletedOut.KeptVolumeIDs, bootVolumeID) {
+		t.Fatalf("step 11: KeptVolumeIDs = %v, want it to include the boot volume %s", deletedOut.KeptVolumeIDs, bootVolumeID)
+	}
+	t.Log("step 11: confirmed the server is gone and its boot volume was kept")
+
+	// Step 12: delete every kept volume, and confirm each is gone.
+	for _, id := range deletedOut.KeptVolumeIDs {
+		if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil {
+			t.Fatalf("step 12 DeleteVolume(%s): %s", id, safeErr(err))
+		}
+		if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id}); !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 12: GetVolume(%s) after delete = %s, want NotFound", id, safeErr(err))
+		}
+	}
+	t.Logf("step 12: deleted %d kept volume(s)", len(deletedOut.KeptVolumeIDs))
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }
 
 // TestLiveWritePaidAttach is the design's L2 live run's attach and detach
@@ -6797,14 +6893,19 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	}
 
 	// Step 7: guards. DetachVolume without AllowRunning on an ACTIVE server
-	// refuses; DeleteVolume on the attached volume refuses.
+	// refuses; DetachVolume of the boot volume refuses even with
+	// AllowRunning; DeleteVolume on the attached volume refuses.
 	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID}); !errors.Is(err, volume.ErrServerRunning) {
 		t.Fatalf("step 7 DetachVolume (running, no AllowRunning) = %s, want ErrServerRunning", safeErr(err))
+	}
+	bootVolumeID := server.Server.BootVolumeID
+	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: bootVolumeID, ServerID: serverID, AllowRunning: true}); !errors.Is(err, volume.ErrBootVolume) {
+		t.Fatalf("step 7 DetachVolume (boot volume) = %s, want ErrBootVolume", safeErr(err))
 	}
 	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); !errors.Is(err, volume.ErrVolumeInUse) {
 		t.Fatalf("step 7 DeleteVolume (attached) = %s, want ErrVolumeInUse", safeErr(err))
 	}
-	t.Log("step 7: both guards refused as expected")
+	t.Log("step 7: all three guards refused as expected")
 
 	// Step 8: stop the server, then detach.
 	if _, err := computeClient.StopServer(ctx, &compute.StopServerInput{ServerID: serverID}); err != nil {
@@ -6832,6 +6933,8 @@ func TestLiveWritePaidAttach(t *testing.T) {
 		t.Fatalf("step 9: GetServer after delete = %s, want NotFound", safeErr(err))
 	}
 	t.Log("step 9: confirmed the volume and the server are gone")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }
 
 // TestLiveWritePaidResize is the design's L3 live run, gating the P5
@@ -6997,7 +7100,13 @@ func TestLiveWritePaidResize(t *testing.T) {
 	volumeInput := &volume.CreateVolumeInput{Name: name + "-data", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID}
 
 	// Step 4: quote the create writes, and refuse to order anything once
-	// their sum exceeds this run's cap, before any write.
+	// their sum exceeds this run's cap, before any write. spent tracks the
+	// running total of every quote accepted so far in this run: each later
+	// step checks spent plus its own quote against budgetCap, not the quote
+	// alone, since checking each quote against the full cap in isolation
+	// would let the run's total spend exceed it even though no single quote
+	// did.
+	var spent float64
 	serverQuote, err := computeClient.QuoteCreateServer(ctx, serverInput)
 	if err != nil {
 		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
@@ -7006,8 +7115,10 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 4 QuoteCreateVolume: %s", safeErr(err))
 	}
-	if total := serverQuote.OptimumPrice + volumeQuote.OptimumPrice; total > budgetCap {
-		t.Fatalf("step 4: create total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", total, budgetCap)
+	if createTotal := serverQuote.OptimumPrice + volumeQuote.OptimumPrice; spent+createTotal > budgetCap {
+		t.Fatalf("step 4: create total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", createTotal, budgetCap)
+	} else {
+		spent += createTotal
 	}
 
 	t.Cleanup(func() {
@@ -7047,9 +7158,10 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 6 QuoteResizeVolume: %s", safeErr(err))
 	}
-	if dataResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 6: resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", dataResizeQuote.OptimumPrice, budgetCap)
+	if spent+dataResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 6: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, dataResizeQuote.OptimumPrice, budgetCap)
 	}
+	spent += dataResizeQuote.OptimumPrice
 	resizedData, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 20, MaxPrice: dataResizeQuote.OptimumPrice})
 	if err != nil {
 		t.Fatalf("step 6 ResizeVolume (data): %s", safeErr(err))
@@ -7064,9 +7176,10 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 7 QuoteResizeServer: %s", safeErr(err))
 	}
-	if serverResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 7: resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", serverResizeQuote.OptimumPrice, budgetCap)
+	if spent+serverResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 7: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, serverResizeQuote.OptimumPrice, budgetCap)
 	}
+	spent += serverResizeQuote.OptimumPrice
 	resizedServer, err := computeClient.ResizeServer(ctx, &compute.ResizeServerInput{ServerID: serverID, FlavorID: bigFlavorID, MaxPrice: serverResizeQuote.OptimumPrice})
 	if err != nil {
 		t.Fatalf("step 7 ResizeServer: %s", safeErr(err))
@@ -7078,8 +7191,10 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 8 QuoteResizeVolume (boot): %s", safeErr(err))
 	}
-	if bootResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 8: resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", bootResizeQuote.OptimumPrice, budgetCap)
+	// This is the run's last quoted spend, so nothing reads spent again
+	// after this check; an assignment here would be dead.
+	if spent+bootResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 8: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, bootResizeQuote.OptimumPrice, budgetCap)
 	}
 	resizedBoot, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: bootVolumeID, Size: 30, MaxPrice: bootResizeQuote.OptimumPrice})
 	if err != nil {
