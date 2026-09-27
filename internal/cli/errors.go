@@ -178,11 +178,17 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	// network.ErrDefaultResource and network.ErrBusy join this same early
-	// group too: both come from DeleteRouteTable's own pre-delete reads or
-	// from AddRoute's and RemoveRoute's pre-write wait, never from wrapping
-	// the server's own response, so checking them here costs nothing extra
-	// today, but keeps every network sentinel error classified in the same
-	// place ahead of the generic *APIError branch below.
+	// group too. ErrDefaultResource always comes from a pre-write or
+	// pre-delete read (DeleteRouteTable's main-table check, or
+	// RemoveNetworkACLRule's and DeleteNetworkACL's own default-resource
+	// checks), never from wrapping the server's response. ErrBusy usually
+	// comes the same way, from AddRoute's, RemoveRoute's, or a network ACL
+	// rule or subnet write's pre-write wait or pre-send recheck, but
+	// wrapACLBusyErr (network/acls_write.go) also wraps it around the
+	// server's own 400 when an ACL rules or subnets PUT lands in the ACL's
+	// busy window, so this check must win over the generic *APIError branch
+	// below for that case too, the same reason ErrSecurityGroupInUse and
+	// ErrInUse are checked here rather than after it.
 	if errors.Is(err, network.ErrDefaultResource) {
 		return errorEnvelope{Code: "DefaultResource", Message: err.Error()}
 	}
