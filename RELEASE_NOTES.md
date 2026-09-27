@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.27.0 - Route Table Writes
+
+### Highlights
+
+- New `network.GetRouteTable`, `CreateRouteTable`, `DeleteRouteTable`,
+  `AddRoute`, and `RemoveRoute`, with matching `vngcloud network` commands.
+- The first route table created in a VPC with none becomes its main table.
+  A main table is never deleted while a subnet relies on it: the SDK
+  refuses with `network.ErrDefaultResource`, CLI code `DefaultResource`.
+- The server replaces a table's whole route list on each change. The SDK
+  reads the list, adds or removes one route, and reads again just before
+  sending, so it sends nothing if the table changed meanwhile. A write to a
+  table that is still busy is refused with `network.ErrBusy`, CLI code
+  `ResourceBusy`, and changed nothing.
+- `add-route`, `remove-route`, and `delete-route-table` need `--yes`.
+
 ## v0.26.0 - VPC and Subnet Writes
 
 ### Highlights
