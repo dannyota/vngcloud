@@ -358,6 +358,210 @@ func TestCreateLoadBalancerRejectsMissingFieldsSendsNothing(t *testing.T) {
 	}
 }
 
+// TestCreateLoadBalancerNilInputNoPanic checks that a nil Input is refused
+// with ErrInvalidInput rather than dereferenced: CheckRequired (inside
+// createLoadBalancerQuoteInfo) must run before anything reads in.MaxPrice.
+func TestCreateLoadBalancerNilInputNoPanic(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	if _, err := c.CreateLoadBalancer(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("CreateLoadBalancer(nil) err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestCreateLoadBalancerQuoteNullPriceRefusesOrder checks that a quote whose
+// optimumPrice is a literal JSON null refuses the order: decoded through
+// pricing.GetQuoteOutput's plain float64, a null price would otherwise
+// silently become 0 and pass the default MaxPrice of 0.
+func TestCreateLoadBalancerQuoteNullPriceRefusesOrder(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":null,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case "/v2/project-1/loadBalancers":
+			postCalls.Add(1)
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
+		t.Fatal("CreateLoadBalancer() error = nil, want an error for a null quote price")
+	}
+	if postCalls.Load() != 0 {
+		t.Fatalf("create POST calls = %d, want 0", postCalls.Load())
+	}
+}
+
+// TestCreateLoadBalancerQuoteMissingPriceRefusesOrder checks a quote body
+// with no optimumPrice key at all, same as TestCreateLoadBalancerQuoteNullPriceRefusesOrder
+// but for the missing-key case.
+func TestCreateLoadBalancerQuoteMissingPriceRefusesOrder(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/price":
+			_, _ = w.Write([]byte(`{"originalPrice":400000}`))
+		case "/v2/project-1/loadBalancers":
+			postCalls.Add(1)
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
+		t.Fatal("CreateLoadBalancer() error = nil, want an error for a missing quote price")
+	}
+	if postCalls.Load() != 0 {
+		t.Fatalf("create POST calls = %d, want 0", postCalls.Load())
+	}
+}
+
+// TestCreateLoadBalancerQuoteNegativePriceRefusesOrder checks that a
+// create's negative quote is refused outright, per the design: unlike a
+// resize, a create has no downsize to refund, so a negative price is never
+// legitimate.
+func TestCreateLoadBalancerQuoteNegativePriceRefusesOrder(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":-100}`))
+		case "/v2/project-1/loadBalancers":
+			postCalls.Add(1)
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
+		t.Fatal("CreateLoadBalancer() error = nil, want an error for a negative quote price")
+	}
+	if postCalls.Load() != 0 {
+		t.Fatalf("create POST calls = %d, want 0", postCalls.Load())
+	}
+}
+
+// TestCheckQuotedPriceRefusesNaNAndInf is a pure test of the guard's own
+// finite check: a valid JSON number can never decode to NaN or infinite (an
+// out-of-range literal fails to decode at all, and neither token is valid
+// JSON), so this exercises checkQuotedPrice directly rather than through an
+// httptest fixture.
+func TestCheckQuotedPriceRefusesNaNAndInf(t *testing.T) {
+	for _, price := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if err := checkQuotedPrice("op", price, false); err == nil {
+			t.Fatalf("price=%v allowNegative=false: err = nil, want an error", price)
+		}
+		if err := checkQuotedPrice("op", price, true); err == nil {
+			t.Fatalf("price=%v allowNegative=true: err = nil, want an error", price)
+		}
+	}
+}
+
+// TestCreateLoadBalancerNoResendAfter401 checks that Once keeps the create
+// POST from being resent after a 401, which would otherwise order a second
+// load balancer.
+func TestCreateLoadBalancerNoResendAfter401(t *testing.T) {
+	var priceCalls, postCalls atomic.Int32
+	c := newOnceTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/price":
+			priceCalls.Add(1)
+			_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case "/v2/project-1/loadBalancers":
+			postCalls.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
+		t.Fatal("CreateLoadBalancer() error = nil, want an error")
+	}
+	if got := postCalls.Load(); got != 1 {
+		t.Fatalf("create POST calls = %d, want 1 (no resend after 401)", got)
+	}
+}
+
+// TestCreateLoadBalancerNoFollowRedirect307And308 checks that Once keeps the
+// create POST from following a 307 or 308, which net/http would otherwise
+// do on its own, resending the same body and ordering a second load
+// balancer.
+func TestCreateLoadBalancerNoFollowRedirect307And308(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		var postCalls atomic.Int32
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/price":
+				_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+			case "/v2/project-1/loadBalancers":
+				postCalls.Add(1)
+				w.Header().Set("Location", r.URL.String())
+				w.WriteHeader(status)
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		in := validCreateLoadBalancerInput()
+		in.MaxPrice = 400000
+		if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
+			t.Fatalf("status %d: CreateLoadBalancer() error = nil, want an error", status)
+		}
+		if got := postCalls.Load(); got != 1 {
+			t.Fatalf("status %d: create POST calls = %d, want 1 (no redirect followed)", status, got)
+		}
+	}
+}
+
+// TestCreateLoadBalancerNoResendAfterDroppedConnection checks that a
+// connection dropped mid-request on the create POST is returned as an
+// ambiguous error, with no retry: Once forces exactly one attempt, and the
+// create POST is not idempotent by method either.
+func TestCreateLoadBalancerNoResendAfterDroppedConnection(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		case "/v2/project-1/loadBalancers":
+			postCalls.Add(1)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("ResponseWriter does not support hijacking")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.Close()
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	_, err := c.CreateLoadBalancer(context.Background(), in)
+	if err == nil {
+		t.Fatal("CreateLoadBalancer() error = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "list-load-balancers --name") {
+		t.Fatalf("err = %v, want a hint naming list-load-balancers --name", err)
+	}
+	if got := postCalls.Load(); got != 1 {
+		t.Fatalf("create POST calls = %d, want 1 (no resend)", got)
+	}
+}
+
 func TestCreateLoadBalancerRejectsBadBodyIDs(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")

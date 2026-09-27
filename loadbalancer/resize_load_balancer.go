@@ -92,8 +92,11 @@ type resizeLoadBalancerBody struct {
 // bound (10 minutes, polling every 5 seconds), until the load balancer is
 // no longer busy; past that bound it returns ErrBusy, sending nothing.
 //
-// It then quotes with QuoteResizeLoadBalancer's own fields and, when the
-// quote's OptimumPrice exceeds Input.MaxPrice (default 0), returns
+// It then quotes with QuoteResizeLoadBalancer's own fields. The quote is
+// read and checked independently of pricing.Client.GetQuote (quotedPrice),
+// refusing a missing, null, or non-finite price; a negative one is allowed,
+// since a downsize may legitimately refund. When the price exceeds
+// Input.MaxPrice (default 0, so never exceeded by a negative price), returns
 // ErrPriceAboveMax naming both amounts, sending nothing.
 //
 // The resize PUT is sent with transport.Request.Once: it is never resent,
@@ -151,19 +154,21 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 	// under this call's own name; QuoteResizeLoadBalancer, called
 	// separately, keeps its own independent behavior. The shape checks
 	// above already cover everything QuoteResizeLoadBalancer would check.
-	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
-		ResourceType: pricing.ResourceLoadBalancer,
-		Action:       pricing.ActionResize,
-		ResourceInfo: map[string]any{
-			"packageId":      in.PackageID,
-			"loadBalancerId": in.LoadBalancerID,
-		},
-	})
+	// quotedPrice reads and checks the quote itself (missing, null,
+	// non-finite), regardless of what pricing.Client.GetQuote would have
+	// done with the same response; allowNegative is true here, since a
+	// downsize's quote may legitimately price below zero as a refund, which
+	// never exceeds MaxPrice (checkMaxPrice above already refused a
+	// negative one).
+	price, err := c.quotedPrice(ctx, op, pricing.ActionResize, map[string]any{
+		"packageId":      in.PackageID,
+		"loadBalancerId": in.LoadBalancerID,
+	}, true)
 	if err != nil {
 		return nil, err
 	}
-	if quote.OptimumPrice > in.MaxPrice {
-		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, quote.OptimumPrice, in.MaxPrice)
+	if price > in.MaxPrice {
+		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, price, in.MaxPrice)
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -188,14 +193,14 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 	if in.NoWait {
 		fallback := current.LoadBalancer
 		fallback.PackageID = in.PackageID
-		return &ResizeLoadBalancerOutput{LoadBalancer: fallback, QuotedPrice: quote.OptimumPrice, Changed: true}, nil
+		return &ResizeLoadBalancerOutput{LoadBalancer: fallback, QuotedPrice: price, Changed: true}, nil
 	}
 
 	settled, waitErr := c.waitLoadBalancerResized(ctx, op, in.LoadBalancerID, in.PackageID)
 	if settled == nil {
 		settled = &current.LoadBalancer
 	}
-	return &ResizeLoadBalancerOutput{LoadBalancer: *settled, QuotedPrice: quote.OptimumPrice, Changed: true}, waitErr
+	return &ResizeLoadBalancerOutput{LoadBalancer: *settled, QuotedPrice: price, Changed: true}, waitErr
 }
 
 // waitLoadBalancerResized is ResizeLoadBalancer's post-resize wait unless

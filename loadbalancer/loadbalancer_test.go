@@ -3,12 +3,19 @@ package loadbalancer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 func TestLoadBalancerListLoadBalancers(t *testing.T) {
@@ -264,6 +271,33 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	return New(testutil.NewConfig(t, handler))
+}
+
+// sequentialTokenSource hands out a new access token on every call, so a
+// newOnceTestClient can exercise the transport's real 401 invalidate-and-
+// refresh path, which only runs when a TokenSource is configured; the
+// zero-value TokenSource newTestClient leaves in place never triggers it.
+type sequentialTokenSource struct {
+	n atomic.Int64
+}
+
+func (s *sequentialTokenSource) Token(context.Context) (transport.Token, error) {
+	n := s.n.Add(1)
+	return transport.Token{AccessToken: fmt.Sprintf("token-%d", n), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (s *sequentialTokenSource) Invalidate(string) {}
+
+// newOnceTestClient builds a Client whose transport has a real TokenSource,
+// so a test can prove that Once keeps a write from being resent after a 401
+// that would otherwise be retried with a refreshed token.
+func newOnceTestClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &sequentialTokenSource{}})
+	cfg := core.NewTestConfig("hcm-3", "project-1", endpoints.Set{Region: "hcm-3", Portal: server.URL + "/", VLB: server.URL + "/"}, tc)
+	return New(cfg)
 }
 
 // TestLoadBalancerRejectsBadPathIDs checks that every read operation with an

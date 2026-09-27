@@ -46,12 +46,22 @@ takes the same Input, and each quotes before it sends:
 
 1. Check the Input's shape, and that `MaxPrice` is finite and not
    negative (`ErrInvalidInput`).
-2. Quote with the same builder the write uses. A quote with no price is
-   an error, as `pricing.GetQuote` already returns.
-3. When `OptimumPrice` is above `MaxPrice`, return `ErrPriceAboveMax`
-   naming both amounts, sending nothing.
-4. Send the write once. Never send it again after a failure that may have
-   reached the server.
+2. Quote with the same builder the write uses, reading the response
+   itself rather than through `pricing.GetQuote`: `GetQuoteOutput`'s
+   `OptimumPrice` is a plain `float64`, so a JSON `null` there silently
+   becomes 0, indistinguishable from a genuine zero price. The guard
+   reads the raw quote body and refuses a missing `optimumPrice` key, a
+   null one, or a NaN or infinite number, whatever pricing.GetQuote would
+   have done with the same response.
+3. A create's negative quote is refused the same way: a create never
+   spends less than nothing. A resize's negative quote is a refund for a
+   downsize and spends nothing, so it is allowed; it is always at or
+   under `MaxPrice`, which is at least 0.
+4. When the price is above `MaxPrice`, return `ErrPriceAboveMax` naming
+   both amounts, sending nothing.
+5. Send the write once. Never send it again after a failure that may have
+   reached the server: the create `POST` sets `Once`, and the resize
+   `PUT` already did.
 
 `MaxPrice` is VND and defaults to 0, so a bare create orders nothing: the
 cheapest package quotes 400,000 VND a month. A create quote uses

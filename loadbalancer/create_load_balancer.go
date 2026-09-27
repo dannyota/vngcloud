@@ -128,22 +128,29 @@ type createLoadBalancerBody struct {
 }
 
 // CreateLoadBalancer orders a load balancer. Before any request, it checks
-// Input's shape and rejects a NaN, +Inf, -Inf, or negative MaxPrice with
-// core.ErrInvalidInput (checkMaxPrice): the price guard below
-// (quote.OptimumPrice > in.MaxPrice) cannot compare any of those safely, and
-// a bad guard on a paid create must fail closed rather than order anyway.
+// Input's shape (createLoadBalancerQuoteInfo, which also refuses a nil in)
+// and then rejects a NaN, +Inf, -Inf, or negative MaxPrice with
+// core.ErrInvalidInput (checkMaxPrice): the price guard below cannot compare
+// any of those safely, and a bad guard on a paid create must fail closed
+// rather than order anyway.
 //
 // It then quotes with the same fields QuoteCreateLoadBalancer checks and
 // prices (createLoadBalancerQuoteInfo), so the quote and the order always
 // describe the same resource; QuoteCreateLoadBalancer, called separately,
-// keeps its own independent behavior. When the quote's OptimumPrice exceeds
-// Input.MaxPrice (default 0), CreateLoadBalancer returns
-// ErrPriceAboveMax naming both amounts, ordering nothing: a bare
-// CreateLoadBalancerInput therefore only ever orders a load balancer whose
-// package prices at 0 VND, which none does today.
+// keeps its own independent behavior. The quote is read and checked by
+// quotedPrice, which refuses a missing, null, non-finite, or negative price
+// on its own, regardless of what pricing.Client.GetQuote would have done
+// with the same response. When the price exceeds Input.MaxPrice (default
+// 0), CreateLoadBalancer returns ErrPriceAboveMax naming both amounts,
+// ordering nothing: a bare CreateLoadBalancerInput therefore only ever
+// orders a load balancer whose package prices at 0 VND, which none does
+// today.
 //
-// The order is a POST and is never retried after a failure that may have
-// already reached the server: after any error that is not a 4xx
+// The order is a POST sent with Once, so it reaches the server at most
+// once: it is never retried after a failure that may have already reached
+// the server, including a 401 (which would otherwise be resent with a
+// refreshed token) and a 307 or 308 (which net/http would otherwise follow,
+// resending the same body). After any error that is not a 4xx
 // *core.APIError, the load balancer may have been ordered, and the caller
 // lists load balancers by Name (list-load-balancers --name) and matches it
 // exactly before ordering again, rather than retrying blind. A response
@@ -161,24 +168,23 @@ type createLoadBalancerBody struct {
 // returns that same fallback at once.
 func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerInput) (*CreateLoadBalancerOutput, error) {
 	const op = "loadbalancer.CreateLoadBalancer"
-	if err := checkMaxPrice(op, in.MaxPrice); err != nil {
-		return nil, err
-	}
+	// createLoadBalancerQuoteInfo runs core.CheckRequired first, so a nil in
+	// is refused here rather than dereferenced below: checkMaxPrice(in.MaxPrice)
+	// must never run before this, since in.MaxPrice would panic on a nil in.
 	info, err := createLoadBalancerQuoteInfo(op, in)
 	if err != nil {
 		return nil, err
 	}
+	if err := checkMaxPrice(op, in.MaxPrice); err != nil {
+		return nil, err
+	}
 
-	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
-		ResourceType: pricing.ResourceLoadBalancer,
-		Action:       pricing.ActionCreate,
-		ResourceInfo: info,
-	})
+	price, err := c.quotedPrice(ctx, op, pricing.ActionCreate, info, false)
 	if err != nil {
 		return nil, err
 	}
-	if quote.OptimumPrice > in.MaxPrice {
-		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, quote.OptimumPrice, in.MaxPrice)
+	if price > in.MaxPrice {
+		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, price, in.MaxPrice)
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -203,6 +209,11 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 			IsPoc:        false,
 		},
 		OK: httpStatusOKCreate,
+		// Once: a paid order must reach the server at most once. Without it,
+		// a 401 is retried with a refreshed token, and a 307 or 308 is
+		// followed by net/http, either of which would resend this POST and
+		// risk a second load balancer.
+		Once: true,
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
@@ -222,14 +233,14 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 		ZoneID:             in.ZoneID,
 	}
 	if in.NoWait {
-		return &CreateLoadBalancerOutput{LoadBalancer: fallback, QuotedPrice: quote.OptimumPrice}, nil
+		return &CreateLoadBalancerOutput{LoadBalancer: fallback, QuotedPrice: price}, nil
 	}
 
 	settled, waitErr := c.waitLoadBalancerCreated(ctx, op, resp.UUID)
 	if settled == nil {
 		settled = &fallback
 	}
-	return &CreateLoadBalancerOutput{LoadBalancer: *settled, QuotedPrice: quote.OptimumPrice}, waitErr
+	return &CreateLoadBalancerOutput{LoadBalancer: *settled, QuotedPrice: price}, waitErr
 }
 
 // waitLoadBalancerCreated is CreateLoadBalancer's post-create wait unless

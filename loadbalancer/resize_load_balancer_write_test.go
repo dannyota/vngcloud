@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -168,8 +169,63 @@ func TestResizeLoadBalancerPriceAboveMaxSendsNothing(t *testing.T) {
 	}
 }
 
+// TestResizeLoadBalancerQuoteNullPriceRefusesOrder checks that a resize
+// quote whose optimumPrice is a literal JSON null refuses the PUT, the same
+// way a create's null quote is refused (TestCreateLoadBalancerQuoteNullPriceRefusesOrder):
+// decoded through pricing.GetQuoteOutput's plain float64, a null price would
+// otherwise silently become 0 and pass the default MaxPrice of 0.
+func TestResizeLoadBalancerQuoteNullPriceRefusesOrder(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/price" {
+			_, _ = w.Write([]byte(`{"optimumPrice":null}`))
+			return
+		}
+		resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, "")(w, r)
+	}))
+	if _, err := c.ResizeLoadBalancer(context.Background(), validResizeInput()); err == nil {
+		t.Fatal("ResizeLoadBalancer() error = nil, want an error for a null quote price")
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
+	}
+}
+
+// TestResizeLoadBalancerQuoteNegativePriceAllowed checks that a resize's
+// negative quote, unlike a create's, is allowed through: a downsize can
+// legitimately refund, so it must never be refused as though it were an
+// unpriced quote, and is always at or under a non-negative MaxPrice.
+func TestResizeLoadBalancerQuoteNegativePriceAllowed(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses := []string{lbStatusCreated, lbStatusCreated, lbStatusCreated}
+	packages := []string{resizeLoadBalancerOldPackage, resizeLoadBalancerOldPackage, resizeLoadBalancerNewPackage}
+	inner := resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, "")
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/price" {
+			_, _ = w.Write([]byte(`{"optimumPrice":-50000}`))
+			return
+		}
+		inner(w, r)
+	}))
+	withInstantSleep(c)
+
+	in := validResizeInput()
+	in.MaxPrice = 0
+	out, err := c.ResizeLoadBalancer(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ResizeLoadBalancer() error = %v, want a negative resize quote to be allowed", err)
+	}
+	if !out.Changed || out.QuotedPrice != -50000 {
+		t.Fatalf("out = %+v, want Changed true and QuotedPrice -50000", out)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want 1", putCalls.Load())
+	}
+}
+
 func TestResizeLoadBalancerRejectsBadMaxPriceSendsNothing(t *testing.T) {
-	for _, bad := range []float64{-1} {
+	for _, bad := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
 		c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 			t.Fatal("handler should not be called")
 		}))
