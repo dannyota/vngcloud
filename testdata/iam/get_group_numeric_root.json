@@ -1,0 +1,10 @@
+{
+  "id": "group-2",
+  "name": "<name>",
+  "description": "<description>",
+  "mode": "iam",
+  "root": 700000000123,
+  "iamUsers": ["user-1"],
+  "policies": ["policy-1"],
+  "createdAt": 1750000000000
+}

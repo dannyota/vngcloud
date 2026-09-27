@@ -5235,6 +5235,30 @@ func deleteLiveIAMServiceAccounts(ctx context.Context, t *testing.T, client *iam
 	return deleted
 }
 
+// deleteLiveIAMServiceAccountByExactName deletes the one service account
+// whose Name is exactly name, if the account has one. CreateServiceAccount
+// returns a nil Output when the create request itself was rejected outright
+// or an ambiguous 5xx or network error left the outcome unknown (see
+// wrapAmbiguousServiceAccountCreateErr in service_accounts_write.go), so a
+// cleanup that must run before any id is known has to search by the name
+// this test generated instead.
+func deleteLiveIAMServiceAccountByExactName(ctx context.Context, t *testing.T, client *iam.Client, name string) {
+	t.Helper()
+	out, err := client.ListServiceAccounts(ctx, nil)
+	if err != nil {
+		t.Errorf("cleanup: list service accounts by name: %s", safeErr(err))
+		return
+	}
+	for _, sa := range out.Items {
+		if sa.Name != name {
+			continue
+		}
+		if _, err := client.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: sa.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete service account %s: %s", name, safeErr(err))
+		}
+	}
+}
+
 // writeLiveSecretFile writes secret to a new, mode-0600 file in a fresh temp
 // directory, mirroring the CLI's --secret-file contract at the SDK layer: a
 // live write test must never log a client secret, only whether one is
@@ -5297,6 +5321,17 @@ func TestLiveWriteIAMServiceAccount(t *testing.T) {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
 	name := "vngcloud-live-" + suffix
+
+	// Register a by-exact-name cleanup before the create call: it is the
+	// only way to find and delete an account that reached the server despite
+	// an error that leaves Output nil below (a rejected create, or an
+	// ambiguous 5xx or network error). It runs even if this test never gets
+	// past that Fatalf.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveIAMServiceAccountByExactName(cleanupCtx, t, client, name)
+	})
 
 	created, err := client.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{Name: name, Description: "vngcloud live write test"})
 	// CreateServiceAccount returns a non-nil Output whenever the create
@@ -5434,6 +5469,39 @@ func deleteLiveIAMPolicies(ctx context.Context, t *testing.T, client *iam.Client
 	return deleted
 }
 
+// deleteLiveIAMPolicyByExactName deletes the one customer policy whose Name
+// is exactly name, if the account has one, detaching it from any service
+// account it still holds first. CreatePolicy never returns a non-nil Output
+// on error (see CreatePolicy in policies_write.go), so a cleanup that must
+// run before any id is known has to search by the name this test generated
+// instead.
+func deleteLiveIAMPolicyByExactName(ctx context.Context, t *testing.T, client *iam.Client, name string) {
+	t.Helper()
+	out, err := client.ListPolicies(ctx, nil)
+	if err != nil {
+		t.Errorf("cleanup: list policies by name: %s", safeErr(err))
+		return
+	}
+	for _, p := range out.Items {
+		if p.Name != name {
+			continue
+		}
+		attachments, err := client.ListPolicyAttachments(ctx, &iam.ListPolicyAttachmentsInput{PolicyID: p.ID})
+		if err != nil {
+			t.Errorf("cleanup: list attachments for %s: %s", name, safeErr(err))
+			continue
+		}
+		for _, saID := range attachments.ServiceAccountIDs {
+			if _, err := client.DetachServiceAccountPolicy(ctx, &iam.DetachServiceAccountPolicyInput{PolicyID: p.ID, ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: detach policy %s: %s", name, safeErr(err))
+			}
+		}
+		if _, err := client.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyID: p.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete policy %s: %s", name, safeErr(err))
+		}
+	}
+}
+
 // containsPolicyID reports whether policies holds one whose ID is id.
 func containsPolicyID(policies []iam.PolicySummary, id string) bool {
 	for _, p := range policies {
@@ -5497,6 +5565,18 @@ func TestLiveWriteIAMPolicy(t *testing.T) {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
 	policyName := "vngcloud-live-" + policySuffix
+
+	// Register a by-exact-name cleanup before the create call: CreatePolicy
+	// never returns a non-nil Output on error, whether the create was
+	// rejected outright, left ambiguous by a 5xx or network error, or landed
+	// but failed its confirm read, so this is the only way to find and
+	// delete a policy that reached the server despite an error below. It
+	// runs even if this test never gets past the Fatalf that follows.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveIAMPolicyByExactName(cleanupCtx, t, client, policyName)
+	})
 
 	createdPolicy, err := client.CreatePolicy(ctx, &iam.CreatePolicyInput{
 		Name: policyName,
@@ -5570,8 +5650,19 @@ func TestLiveWriteIAMPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 4 generate name suffix: %v", err)
 	}
+	saName := "vngcloud-live-" + saSuffix
+
+	// Register a by-exact-name cleanup before the create call, as step 2
+	// does for the policy: it is the only way to find and delete this
+	// service account if the create below leaves Output nil.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveIAMServiceAccountByExactName(cleanupCtx, t, client, saName)
+	})
+
 	createdSA, err := client.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{
-		Name:        "vngcloud-live-" + saSuffix,
+		Name:        saName,
 		Description: "vngcloud live write test",
 	})
 	// As in TestLiveWriteIAMServiceAccount, CreateServiceAccount returns a

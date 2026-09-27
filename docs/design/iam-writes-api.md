@@ -93,7 +93,10 @@ specs and the console until the [probes](iam-writes-checks.md#probes).
   `description`, `manager`, `scope`, `root`, `statements`, and `_id`.
   GreenNode-managed policies have `manager` `VNG CLOUD` and a null or
   missing `root`; a customer policy has `manager` `user` and its account
-  number in `root`.
+  number in `root`, sent as a JSON number, confirmed live on 2026-09-27. The
+  SDK decodes `root` as a number, a string, or null or absent, and always
+  exposes it as a string; `Group.root` gets the same tolerant decode on the
+  same key name, though no live read has confirmed its type.
 - `createdAt` arrives as an epoch-milliseconds number, as
   `{"$numberLong": "<digits>"}`, or not at all, varying by row. IAM user
   `createdAt` is an RFC 3339 string.
@@ -206,9 +209,9 @@ Models keep their API JSON tags; `_id` is dropped.
   `Statements`, `CreatedAt`. `Managed()` is true unless `Manager` is
   `user`.
 - `PolicySummary`: `ID`, `Name`, `CreatedAt`.
-- `Group`: `ID`, `Name`, `Description`, `Mode`, `UserIDs` (`iamUsers`),
-  `PolicyIDs` (`policies`), `CreatedAt`. `GroupSummary`: `ID`, `Name`,
-  `CreatedAt`.
+- `Group`: `ID`, `Name`, `Description`, `Mode`, `Root`, `UserIDs`
+  (`iamUsers`), `PolicyIDs` (`policies`), `CreatedAt`. `GroupSummary`: `ID`,
+  `Name`, `CreatedAt`.
 - `ServiceAccount`: `ID`, `ClientID`, `Name`, `Description`,
   `AccessTokenLifeSpan`, `CreatedAt`, `Enabled`, `LastUse`. It has no
   secret field.
