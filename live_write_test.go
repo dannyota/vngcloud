@@ -331,7 +331,7 @@ func emptyWriteFile(t *testing.T, name string) string {
 
 // randomHex returns n*2 lowercase hex characters from a cryptographically
 // random source.
-func randomHex(n int) (string, error) {
+func randomHex(n int) (string, error) { //nolint:unparam // every caller wants 4 bytes today; n keeps the length explicit at each call
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
