@@ -163,7 +163,7 @@ vngcloud network create-vpc --name <name> --cidr <cidr>
 
 Kind: Write, destructive.
 
-Refuses, before any request, with error code DefaultResource for a project's default ACL, and ResourceInUse when any subnet is still associated; disassociate every subnet first. Confirmed live: a deleted ACL's own GET returns 500, not 404, so this command, and a repeat delete, confirm through the ACL list instead of trusting that status alone; a plain 404 for an id that was never valid still returns NotFound directly. A DELETE sent while the ACL is still settling an earlier write gets the server's own busy 400 back, mapped to error code ResourceBusy rather than a plain API error; nothing changed, so the command can be run again.
+Refuses, before any request, with error code DefaultResource for a project's default ACL, and ResourceInUse when any subnet is still associated; disassociate every subnet first. Confirmed live: a deleted ACL's own GET returns 500, not 404, so this command, and a repeat delete, confirm through the ACL list instead of trusting that status alone; a plain 404 for an id that was never valid still returns NotFound directly. A DELETE sent while the ACL is still settling an earlier write gets the server's own busy 400 back, mapped to error code ResourceBusy rather than a plain API error; nothing changed, so the command can be run again. After a subnet associate or disassociate, a DELETE inside the ACL's own busy window (about 20-30 seconds after the change) gets a 500 back instead; nothing changed, so the command can be run again. If a 500 is returned, the command then checks the ACL list for up to 60 seconds and, if the ACL is still listed, exits with that 500 as a plain API error; wait and run the command again.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -221,7 +221,7 @@ vngcloud network delete-security-group-rule --security-group-id <security-group-
 
 Kind: Write, destructive.
 
-Refuses, before any request, with error code ResourceInUse when a network ACL in the subnet's own VPC still lists it; disassociate the subnet from that ACL first.
+Refuses, before any request, with error code ResourceInUse when a network ACL in the subnet's own VPC still lists it; disassociate the subnet from that ACL first. Also refuses with error code InvalidInput if the subnet read names a VPC other than --vpc-id. After disassociating the subnet from a network ACL, wait about 30 seconds before deleting it, since this command cannot see the ACL's own busy window.
 
 | Flag | Type | Required |
 |-|-|-|
