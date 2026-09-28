@@ -166,10 +166,10 @@ func (c *Client) DisassociateNetworkACLSubnet(ctx context.Context, in *Disassoci
 	return &DisassociateNetworkACLSubnetOutput{ACL: *updated, Changed: true}, err
 }
 
-// aclSubnetsReplaceBody is the PUT .../subnets request body, inferred from
-// the design: the whole subnet id list, plus the ACL's own id.
+// aclSubnetsReplaceBody is the PUT .../subnets request body, confirmed live
+// against the GreenNode web console: the whole subnet id list, with no
+// aclId field. The ACL is already named by the URL's path segment.
 type aclSubnetsReplaceBody struct {
-	ACLID       string   `json:"aclId"`
 	SubnetUUIDs []string `json:"subnetUuids"`
 }
 
@@ -207,7 +207,7 @@ func (c *Client) putACLSubnetsAndConfirm(ctx context.Context, op, networkACLID s
 		Operation: op,
 		Method:    http.MethodPut,
 		URL:       c.networkURL([]string{projectID, "network-acl", networkACLID, "subnets"}, nil),
-		Body:      aclSubnetsReplaceBody{ACLID: networkACLID, SubnetUUIDs: subnetIDs},
+		Body:      aclSubnetsReplaceBody{SubnetUUIDs: subnetIDs},
 		OK:        []int{200},
 		Once:      true,
 	}

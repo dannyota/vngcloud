@@ -706,6 +706,137 @@ func TestWaitSubnetDeletedPollParameters(t *testing.T) {
 	}
 }
 
+func TestDeleteSubnetRefusedWhenNetworkACLHoldsIt(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":"vpc-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-1"})))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s: a subnet a network ACL still holds must send no DELETE", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if !errors.Is(err, ErrInUse) {
+		t.Fatalf("err = %v, want ErrInUse", err)
+	}
+}
+
+func TestDeleteSubnetProceedsWhenNoNetworkACLHoldsIt(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			// One ACL exists in this VPC, but it does not list this subnet.
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":"vpc-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-9"})))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatal("no write expected")
+		}
+	}))
+
+	out, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1", NoWait: true})
+	if err != nil {
+		t.Fatalf("DeleteSubnet() error = %v, want success: no network ACL in this VPC holds this subnet", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want a non-nil &DeleteSubnetOutput{}")
+	}
+}
+
+func TestDeleteSubnetNetworkACLListFailureRefuses(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatal("no write expected: a failed network ACL list must refuse the delete rather than proceed")
+		}
+	}))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if err == nil {
+		t.Fatal("err = nil, want an error: a failed network ACL list must fail closed")
+	}
+}
+
+func TestDeleteSubnetNetworkACLGetFailureRefuses(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":"vpc-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatal("no write expected: a failed network ACL read must refuse the delete rather than proceed")
+		}
+	}))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if err == nil {
+		t.Fatal("err = nil, want an error: a failed network ACL read must fail closed")
+	}
+}
+
 // --- ListServersBySubnet ---
 
 func TestListServersBySubnet(t *testing.T) {

@@ -246,6 +246,17 @@ type DeleteSubnetOutput struct{}
 // list takes a subnet filter of its own. The server's own refusal is the
 // final guard for any other use.
 //
+// It also sends nothing and returns ErrInUse when a network ACL in the
+// subnet's own VPC still lists it in that ACL's SubnetIDs: deleting a
+// subnet an ACL still holds, rather than disassociating it first, leaves
+// that ACL permanently stuck, unable to accept any further write, with a
+// VPC that can never be deleted (confirmed live; see
+// vserver-network-writes-api.md). This check walks every network ACL in
+// the VPC and reads each one's own SubnetIDs with GetNetworkACL; a failure
+// listing the ACLs, reading any one of them, or a listing that comes back
+// short of the total the server itself reported, fails closed and refuses
+// the delete rather than risk sending it while the answer is unknown.
+//
 // A repeat DELETE on an already-deleted subnet returns 500, so after a 5xx
 // or network error on the DELETE, DeleteSubnet lists the VPC's subnets: an
 // absent subnet means the delete took effect and the call succeeds;
@@ -277,6 +288,9 @@ func (c *Client) DeleteSubnet(ctx context.Context, in *DeleteSubnetInput) (*Dele
 	}
 
 	if err := checkSubnetNotInUse(ctx, c, op, in.SubnetID); err != nil {
+		return nil, err
+	}
+	if err := checkSubnetNotHeldByNetworkACL(ctx, c, op, in.VPCID, in.SubnetID); err != nil {
 		return nil, err
 	}
 
@@ -345,6 +359,68 @@ func checkSubnetNotInUse(ctx context.Context, c *Client, op, subnetID string) er
 		return fmt.Errorf("%w: %s: subnet %s has %d virtual IP(s) attached", ErrInUse, op, subnetID, vipCount)
 	}
 	return nil
+}
+
+// checkSubnetNotHeldByNetworkACL returns ErrInUse, sending nothing else,
+// when a network ACL in vpcID lists subnetID in its own SubnetIDs
+// (subnetAssociationList). It fails closed: a failure listing the VPC's
+// network ACLs, or reading any one of them, returns that error instead of
+// ErrInUse, so DeleteSubnet also refuses in that case; the caller can
+// simply retry once the read succeeds.
+func checkSubnetNotHeldByNetworkACL(ctx context.Context, c *Client, op, vpcID, subnetID string) error {
+	acls, err := c.listNetworkACLsInVPC(ctx, vpcID)
+	if err != nil {
+		return fmt.Errorf("%s: could not confirm no network ACL in VPC %s still holds subnet %s: %w", op, vpcID, subnetID, err)
+	}
+	for _, acl := range acls {
+		detail, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: acl.UUID})
+		if err != nil {
+			return fmt.Errorf("%s: could not confirm network ACL %s does not hold subnet %s: %w", op, acl.UUID, subnetID, err)
+		}
+		for _, held := range detail.ACL.SubnetIDs {
+			if held != subnetID {
+				continue
+			}
+			name := detail.ACL.Name
+			if name == "" {
+				name = acl.UUID
+			}
+			return fmt.Errorf("%w: %s: subnet %s is associated with network ACL %s; disassociate it first",
+				ErrInUse, op, subnetID, name)
+		}
+	}
+	return nil
+}
+
+// listNetworkACLsInVPC walks every page of ListNetworkACLs and returns the
+// ACLs whose NetworkID equals vpcID. NetworkID, unlike VPCID, is set only
+// by the list response (see the ACL type's doc comment), so this is the
+// only field the list itself can filter by. It returns an error, rather
+// than a partial answer, when the items seen across every page fall short
+// of the total the server itself reported.
+func (c *Client) listNetworkACLsInVPC(ctx context.Context, vpcID string) ([]ACL, error) {
+	var matched []ACL
+	var seen, total int
+	for page := 1; ; page++ {
+		out, err := c.ListNetworkACLs(ctx, &ListNetworkACLsInput{Page: page})
+		if err != nil {
+			return nil, err
+		}
+		total = out.TotalItem
+		seen += len(out.Items)
+		for _, acl := range out.Items {
+			if acl.NetworkID == vpcID {
+				matched = append(matched, acl)
+			}
+		}
+		if page >= out.TotalPage || len(out.Items) == 0 {
+			break
+		}
+	}
+	if seen < total {
+		return nil, fmt.Errorf("network ACL list: got %d of %d item(s) across every page; the list is incomplete", seen, total)
+	}
+	return matched, nil
 }
 
 // confirmSubnetDeleteOn5xx returns nil for a 5xx or network error on the

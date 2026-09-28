@@ -27,8 +27,8 @@ func TestAssociateNetworkACLSubnetRequestBodyChecksSubnetVPCFirst(t *testing.T) 
 			_, _ = w.Write([]byte(`{"uuid":"subnet-2","networkUuid":"vpc-1","interfaceAclPolicyUuid":"acl-old"}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/project-1/network-acl/acl-1/subnets":
 			body := decodeBody(t, r)
-			if body["aclId"] != "acl-1" {
-				t.Fatalf("aclId in body = %v, want acl-1", body["aclId"])
+			if _, ok := body["aclId"]; ok {
+				t.Fatalf("body = %+v, must never send aclId: the console sends only subnetUuids", body)
 			}
 			ids, _ := body["subnetUuids"].([]any)
 			if len(ids) != 2 || ids[0] != "subnet-1" || ids[1] != "subnet-2" {
