@@ -27,6 +27,7 @@ rename; the module keeps the `vngcloud` name.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
+- [Network ACLs](Network-ACLs.md): ACLs, rules, and subnet associations.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
 
 ## CLI

@@ -142,9 +142,10 @@ On a VPC and `/24` subnet the run creates:
 2. Add a route to `10.251.200.0/24` with a target address inside the test
    subnet that no interface holds: accepted or refused, the new route's
    `routingType`, statuses from `UPDATING` to `ACTIVE`, time.
-3. On the test VPC's main route table: whether it has system routes, and
-   whether a `PUT` that leaves them out keeps them. Restore the table as
-   read afterwards.
+3. Whether the new table became the VPC's main table: a VPC created with
+   none gets one assigned automatically, and this run's own VPC has none
+   beforehand. When it did, whether that table carries any routes right
+   after becoming main.
 4. Remove the route: status and final list.
 5. Delete the route table: 202, then 404. Repeat delete: status.
 
@@ -166,8 +167,10 @@ On a VPC and `/24` subnet the run creates:
    Add a rule with a used priority: status and message.
 4. Remove the user rules: final list, default rules unchanged.
 5. Associate the test subnet: status, `subnetAssociationList`, the
-   subnet's `interfaceAclPolicyUuid`. Associate again. Send the raw ACL
-   `DELETE` while associated: status and message.
+   subnet's `interfaceAclPolicyUuid`. Associate again. Try
+   `DeleteNetworkACL` while associated: the SDK's own `ErrInUse` refusal,
+   or the server's; confirm the ACL still exists and still lists the
+   subnet.
 6. Disassociate: the subnet's ACL fields afterwards.
 7. Delete the ACL: 204, and `GetNetworkACL` afterwards is `NotFound`
    through the list confirm. Repeat delete: status.

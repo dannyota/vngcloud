@@ -75,11 +75,12 @@ neither, except `zoneId` on subnet create.
 - Route table create (live): `name`, `networkId` (the VPC), and optional
   `routes`, which the SDK leaves out. Route replace (inferred): `routes`,
   the whole list, each `destinationCidrBlock` and `target`.
-- ACL create (live): `name`, `vpc`. Rules replace (inferred): `aclId` and
+- ACL create (live): `name`, `vpc`. Rules replace (live): `aclId` and
   `detailAclRuleList`, the whole list, each `type`, `seqNumber`,
   `protocol`, `port` (a string), `source`, `action`, `system`, and
-  `interfaceAclPolicyUuid`. Subnets replace (inferred): `aclId` and
-  `subnetUuids`, the whole list.
+  `interfaceAclPolicyUuid`; the probes exercised this shape directly (see
+  the live facts under [Server rules](#server-rules-from-the-product-docs)).
+  Subnets replace (inferred): `aclId` and `subnetUuids`, the whole list.
 
 ## Responses
 
@@ -143,16 +144,23 @@ exception: its live response matches the read model, so it decodes into
   route table created in such a VPC becomes its main table, and the server
   still deletes it on request, leaving the VPC without one (live). Only
   routes a user added can change.
-- The docs say a new ACL has two default deny rules (inbound and
-  outbound) that cannot change or be deleted, and list an allow-all rule
-  per direction. Live: a new ACL has at least an inbound rule with
-  `seqNumber` 0, `protocol` `ANY`, `port` `"0-65535"`, `source`
-  `0.0.0.0/0`, and `action` `pass`; the rest of its default list was not
-  captured. Rules are evaluated by priority, lowest first, up to 32766,
-  and a priority is unique in an ACL. Protocols are `ANY`, `TCP`, `UDP`,
-  and `ICMP`.
+- Live: a new ACL has four rules, a pass-all at `seqNumber` 0 and a
+  deny-all at `seqNumber` 2000 per direction (`protocol` `ANY`, `port`
+  `"0-65535"`, `source` `0.0.0.0/0`), with no `system` field. A rules PUT
+  that leaves out a priority-0 rule removes it; one that leaves out a
+  priority-2000 rule keeps it. User priorities are 1 to 1999 (2500 gets
+  "The priority is too big"). Protocols are `ANY` (upper case) and `tcp`,
+  `udp`, `icmp` (lower case). Ports are `"22"`, `"53-54"`, or `"0-65535"`;
+  `icmp` takes `"0"` or `"0-65535"`. A rules PUT leaves the ACL busy for
+  about 18 s; a write then gets 400 "... is busy doing something". ACL
+  names can repeat. Whether a deny rule takes effect beside the priority-0
+  pass-all rules is not verified.
 - A subnet belongs to at most one ACL. Associating it with another ACL
-  moves it. An ACL with subnets cannot be deleted.
+  moves it. An ACL with subnets cannot be deleted. Live: a subnets PUT
+  (associate or disassociate) leaves the ACL busy for about 20 s too, but,
+  unlike a rules PUT, `status` stays `ACTIVE` for that whole window; a write
+  sent into it gets 400 "... is being updated" instead of the rules PUT's
+  message, with no status change to mark the window at all.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK

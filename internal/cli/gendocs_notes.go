@@ -489,6 +489,13 @@ var docOpNotes = map[string]string{
 	"network delete-route-table":              networkDeleteRouteTableNote,
 	"network add-route":                       networkAddRouteNote,
 	"network remove-route":                    networkRemoveRouteNote,
+	"network get-network-acl":                 networkGetNetworkACLNote,
+	"network create-network-acl":              networkCreateNetworkACLNote,
+	"network delete-network-acl":              networkDeleteNetworkACLNote,
+	"network add-network-acl-rule":            networkAddNetworkACLRuleNote,
+	"network remove-network-acl-rule":         networkRemoveNetworkACLRuleNote,
+	"network associate-network-acl-subnet":    networkAssociateNetworkACLSubnetNote,
+	"network disassociate-network-acl-subnet": networkDisassociateNetworkACLSubnetNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -595,7 +602,26 @@ var docExampleExtraFlag = map[string]string{
 // need this too: neither is Destructive (see networkOps in svc_network.go),
 // so buildExample's own destructive-only rule would never append --yes, but
 // requireYesToChangeRoutes (svc_network_write.go) refuses either command
-// without it on every call.
+// without it on every call. network add-network-acl-rule,
+// associate-network-acl-subnet, and disassociate-network-acl-subnet need it
+// for the same reason: none is Destructive, but requireYesForACLChange
+// (svc_network_acl.go) refuses each without --yes on every call.
+// add-network-acl-rule needs the same treatment as list-alarms and
+// send-channel-otp for its own required Protocol field: checkACLRuleProtocol
+// (network/acl_rules_write.go) only accepts ANY, tcp, udp, or icmp
+// (case-insensitive), so the placeholder "--protocol <protocol>" is not a
+// value the command accepts either; the override names a real one, tcp. Its
+// override also supplies --port-range-min and --port-range-max: neither is
+// a required Input field, so buildExample's required-fields loop would
+// otherwise leave both out, defaulting to port 0, which checkACLRulePorts
+// refuses for tcp since it names no port at all; the override gives a
+// single real port, 22 and 22, matching checkACLRulePorts' own single-port
+// format.
+// remove-network-acl-rule needs it for both reasons at once: it also is not
+// Destructive, and its override additionally supplies --priority, since
+// Priority carries no vngcloud:"required" tag on RemoveNetworkACLRuleInput
+// (see network/acl_rules_write.go), so buildExample's required-fields loop
+// would otherwise leave it out of the example entirely.
 // loadbalancer import-certificate needs it for a different reason: its
 // required Certificate field is NoFlag'd (importCertificateOp,
 // svc_loadbalancer_certificates.go), so buildExample's loop would otherwise
@@ -623,4 +649,13 @@ var docExampleOverride = map[string]string{
 	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
 		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
+	"network add-network-acl-rule": "vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> " +
+		"--direction <direction> --priority <priority> --protocol tcp --cidr <cidr> --action <action> " +
+		"--port-range-min 22 --port-range-max 22 --yes",
+	"network remove-network-acl-rule": "vngcloud network remove-network-acl-rule --network-acl-id <network-acl-id> " +
+		"--direction <direction> --priority <priority> --yes",
+	"network associate-network-acl-subnet": "vngcloud network associate-network-acl-subnet " +
+		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
+	"network disassociate-network-acl-subnet": "vngcloud network disassociate-network-acl-subnet " +
+		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
 }

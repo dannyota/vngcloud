@@ -43,14 +43,15 @@ const (
 )
 
 var (
-	// ErrInUse means a VPC, subnet, or route table write was refused because
-	// a pre-write read showed the resource still holds or is held by
-	// something that must be removed first: a VPC or subnet with servers,
-	// volumes, subnets, interfaces, or virtual IPs still attached (see
-	// below), or a route table still named by a subnet's routeTableUuid
-	// (route_tables_write.go), or because the server's own refusal named
-	// the resource in use. In the first case nothing was sent; in the
-	// second, the request reached the server.
+	// ErrInUse means a VPC, subnet, route table, or network ACL write was
+	// refused because a pre-write read showed the resource still holds or
+	// is held by something that must be removed first: a VPC or subnet
+	// with servers, volumes, subnets, interfaces, or virtual IPs still
+	// attached (see below), a route table still named by a subnet's
+	// routeTableUuid (route_tables_write.go), a network ACL with any
+	// associated subnet (acls_write.go), or because the server's own
+	// refusal named the resource in use. In the first case nothing was
+	// sent; in the second, the request reached the server.
 	ErrInUse = errors.New("network: resource in use")
 
 	// ErrUnexpectedStatus means EnableVPCPrivateDNS read a VPC dnsStatus
