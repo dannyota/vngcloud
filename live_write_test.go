@@ -4498,50 +4498,116 @@ func retryACLBusy[T any](ctx context.Context, t *testing.T, fn func() (T, error)
 // still lists, retrying each disassociate with retryACLBusy, since the ACL
 // can still be settling an earlier write. It logs but does not fail the
 // test on a disassociate error, and does nothing when the ACL is already
-// gone. It returns the subnet ids it could not remove even after retrying:
-// the caller decides whether leaving one behind is fatal, since deleting
-// that subnet or its VPC out from under a still-associated ACL is what
-// stranded an ACL on a past live run.
-func disassociateAllNetworkACLSubnets(ctx context.Context, t *testing.T, client *network.Client, aclID string) []string {
+// gone. It returns the subnet ids it could not remove even after retrying
+// (stuck: the caller decides whether leaving one behind is fatal, since
+// deleting that subnet or its VPC out from under a still-associated ACL is
+// what stranded an ACL on a past live run) and whether any disassociate
+// actually changed the ACL (changed): a delete sent right after one gets a
+// 500 and changes nothing (see aclCleanupWaitStep), so a caller about to
+// delete aclID waits first only when this is true.
+func disassociateAllNetworkACLSubnets(ctx context.Context, t *testing.T, client *network.Client, aclID string) (stuck []string, changed bool) {
 	t.Helper()
 	acl, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
 	if err != nil {
 		if !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: get network ACL before disassociate: %s", safeErr(err))
 		}
-		return nil
+		return nil, false
 	}
-	var stuck []string
 	for _, subnetID := range acl.ACL.SubnetIDs {
 		subnetID := subnetID
-		if _, err := retryACLBusy(ctx, t, func() (*network.DisassociateNetworkACLSubnetOutput, error) {
+		out, err := retryACLBusy(ctx, t, func() (*network.DisassociateNetworkACLSubnetOutput, error) {
 			return client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
-		}); err != nil {
+		})
+		if err != nil {
 			t.Errorf("cleanup: disassociate subnet: %s", safeErr(err))
 			stuck = append(stuck, subnetID)
+			continue
+		}
+		if out.Changed {
+			changed = true
 		}
 	}
-	return stuck
+	return stuck, changed
+}
+
+// aclCleanupWaitStep is how long this file's cleanup helpers wait, both
+// before a network ACL delete that follows a disassociate which actually
+// changed the ACL, and between each retry deleteNetworkACLRetrying makes
+// after a plain HTTP 500: confirmed live, a subnets write (associate or
+// disassociate) leaves the ACL busy for about this long, with no change in
+// its own Status to mark the window, and a DELETE sent inside it answers
+// 500 and changes nothing rather than the 400 any other write gets.
+const aclCleanupWaitStep = 30 * time.Second
+
+// aclDeleteRetries is how many extra attempts deleteNetworkACLRetrying makes
+// after DeleteNetworkACL answers a plain HTTP 500, aclCleanupWaitStep apart.
+// Waiting out the busy window above, more than once if needed, is what
+// tells that transient 500 apart from the account's one network ACL whose
+// own DELETE always 500s no matter how long a caller waits (see
+// deleteNetworkACLLeftover); only exhausting every retry counts an ACL as
+// that kind of permanently stuck one.
+const aclDeleteRetries = 3
+
+// waitACLCleanupStep waits aclCleanupWaitStep and reports true, or returns
+// false at once if ctx ends first.
+func waitACLCleanupStep(ctx context.Context, t *testing.T) bool {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(aclCleanupWaitStep):
+		return true
+	}
+}
+
+// deleteNetworkACLRetrying calls DeleteNetworkACL through retryACLBusy and,
+// when that still fails with a plain HTTP 500, retries the whole call up to
+// aclDeleteRetries more times, aclCleanupWaitStep apart. DeleteNetworkACL
+// always reads the ACL again before it sends anything, so retrying after
+// the busy window passes, or after an earlier attempt's own list confirm
+// already deleted it, is always safe. Any other error, nil included,
+// returns at once; a ctx that ends during a wait also returns at once, with
+// that last 500.
+func deleteNetworkACLRetrying(ctx context.Context, t *testing.T, client *network.Client, aclID string) error {
+	t.Helper()
+	var err error
+	for attempt := 0; ; attempt++ {
+		_, err = retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
+			return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+		})
+		var apiErr *vngcloud.APIError
+		if err == nil || !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+			return err
+		}
+		if attempt >= aclDeleteRetries || !waitACLCleanupStep(ctx, t) {
+			return err
+		}
+	}
 }
 
 // deleteNetworkACLLeftover disassociates every subnet a leftover
-// vngcloud-live-* network ACL still holds, then tries to delete it once,
-// and reports whether that delete succeeded (deleted) and, if not, whether
-// the ACL is the account's own permanently stuck one (stuck): the account
-// holds one network ACL whose subnets can be disassociated but whose own
-// DELETE always answers with the server's own 500, never anything a rerun
-// fixes (see vserver-network-writes-checks.md). A leftover sweep that ran
-// into it before this treated that 500 like any other failure and kept
-// failing the whole test on every future run once its VPC became the
-// account's last one and had to be reused; this instead counts it and
-// leaves it alone. It ignores ErrDefaultResource and NotFound: a default
-// ACL, or one already gone, is left alone too, and neither counts as stuck.
+// vngcloud-live-* network ACL still holds, waits out the ACL's own busy
+// window when that changed anything, then tries to delete it through
+// deleteNetworkACLRetrying, and reports whether that delete succeeded
+// (deleted) and, if not, whether the ACL is the account's own permanently
+// stuck one (stuck): the account holds one network ACL whose subnets can be
+// disassociated but whose own DELETE always answers with the server's own
+// 500, even after every retry (see vserver-network-writes-checks.md). A
+// leftover sweep that ran into it before this treated a single 500 like any
+// other failure and kept failing the whole test on every future run once
+// its VPC became the account's last one and had to be reused; this instead
+// counts an ACL as stuck only once deleteNetworkACLRetrying's own retries
+// are exhausted, and leaves it alone. It ignores ErrDefaultResource and
+// NotFound: a default ACL, or one already gone, is left alone too, and
+// neither counts as stuck.
 func deleteNetworkACLLeftover(ctx context.Context, t *testing.T, client *network.Client, aclID string) (deleted, stuck bool) {
 	t.Helper()
-	disassociateAllNetworkACLSubnets(ctx, t, client, aclID)
-	_, err := retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
-		return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
-	})
+	_, changed := disassociateAllNetworkACLSubnets(ctx, t, client, aclID)
+	if changed {
+		waitACLCleanupStep(ctx, t)
+	}
+	err := deleteNetworkACLRetrying(ctx, t, client, aclID)
 	switch {
 	case err == nil:
 		return true, false
@@ -4673,15 +4739,19 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	// subnet it still holds first. With a freshly created VPC this never
 	// finds one in practice; with a reused VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID)
 	// it also finds the account's one permanently stuck ACL, whose own
-	// DELETE always 500s (see deleteNetworkACLLeftover); that one is counted
-	// and left alone rather than failing the test. A leftover in a different
-	// VPC is left alone too: this test's disassociate and delete calls must
-	// never touch an ACL outside the VPC it was told to use.
+	// DELETE always 500s even after deleteNetworkACLRetrying's own retries;
+	// that one is counted and left alone rather than failing the test. A
+	// leftover in a different VPC is left alone too: this test's disassociate
+	// and delete calls must never touch an ACL outside the VPC it was told to
+	// use. knownStuckLeftoverACLs records every id found stuck here, by id,
+	// so step 4's own cleanup never repeats a hopeless retry sequence against
+	// the same permanently stuck ACL a second time.
 	leftovers, err := listAllNetworkACLs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 2 ListNetworkACLs: %s", safeErr(err))
 	}
 	deletedLeftovers, stuckLeftovers := 0, 0
+	knownStuckLeftoverACLs := make(map[string]bool)
 	for _, leftover := range leftovers {
 		if !isLiveNetworkACLName(leftover.Name) {
 			continue
@@ -4697,6 +4767,7 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		}
 		if stuck {
 			stuckLeftovers++
+			knownStuckLeftoverACLs[leftover.UUID] = true
 		}
 	}
 	t.Logf("step 2: deleted %d leftover network ACL(s), %d permanently stuck", deletedLeftovers, stuckLeftovers)
@@ -4737,16 +4808,17 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		stuck := disassociateAllNetworkACLSubnets(cleanupCtx, t, client, aclID)
+		stuck, changed := disassociateAllNetworkACLSubnets(cleanupCtx, t, client, aclID)
 		if slices.Contains(stuck, subnetID) {
 			aclStuck.Store(true)
 			t.Errorf("cleanup: network ACL %s still lists this run's subnet %s after busy retries; leaving the ACL, subnet, and VPC for manual cleanup",
 				aclID, subnetID)
 			return
 		}
-		if _, err := retryACLBusy(cleanupCtx, t, func() (*network.DeleteNetworkACLOutput, error) {
-			return client.DeleteNetworkACL(cleanupCtx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
-		}); err != nil && !vngcloud.IsNotFound(err) {
+		if changed {
+			waitACLCleanupStep(cleanupCtx, t)
+		}
+		if err := deleteNetworkACLRetrying(cleanupCtx, t, client, aclID); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete network ACL: %s", safeErr(err))
 		}
 		final, err := listAllNetworkACLs(cleanupCtx, client)
@@ -4787,6 +4859,16 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 			if detail.ACL.VPCID != vpcID {
 				t.Logf("cleanup: skipping same-named network ACL %s: VPC %s does not match this run's VPC %s",
 					acl.UUID, detail.ACL.VPCID, vpcID)
+				continue
+			}
+			if knownStuckLeftoverACLs[acl.UUID] {
+				// Step 2 already ran this id through deleteNetworkACLRetrying
+				// and confirmed it permanently stuck; a second full retry
+				// sequence against the same dead end only spends more time for
+				// the same answer.
+				t.Logf("cleanup: network ACL %s was already confirmed permanently stuck in step 2; leaving it alone", acl.UUID)
+				remaining++
+				stuckRemaining++
 				continue
 			}
 			if deleted, stuck := deleteNetworkACLLeftover(cleanupCtx, t, client, acl.UUID); !deleted {

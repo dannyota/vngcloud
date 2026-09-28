@@ -53,7 +53,7 @@ documented one until the live check records it.
 | Get ACL | `GET /network-acl/{id}` | 200 | Live |
 | Create ACL | `POST /network-acl` | 201 | Live |
 | Replace ACL rules | `PUT /network-acl/{id}/rules` | 200 | Docs |
-| Replace ACL subnets | `PUT /network-acl/{id}/subnets` | 200 | Docs |
+| Replace ACL subnets | `PUT /network-acl/{id}/subnets` | 200 | Live |
 | Delete ACL | `DELETE /network-acl/{id}` | 204 | Live |
 
 The reference marks a `portal-user-id` header required; the reads work
@@ -178,8 +178,9 @@ exception: its live response matches the read model, so it decodes into
 - Deleting a subnet while a network ACL still lists it in
   `subnetAssociationList`, instead of disassociating first, leaves that ACL
   permanently stuck: every later write to it returns 400 "... is being
-  updated", its own `DELETE` returns 500 instead of the usual 500-on-read
-  (see [Reads after a delete](#reads-after-a-delete)), and its VPC can
+  updated", and its own `DELETE` returns 500 even though the ACL itself was
+  never deleted, unlike the ordinary 500 a read gets only after a real
+  delete (see [Reads after a delete](#reads-after-a-delete)). Its VPC can
   never be deleted (`This network is attached by the network policy`).
   Only GreenNode support can clear it; `DeleteSubnet` refuses instead of
   reaching the server whenever it finds the subnet still held this way.

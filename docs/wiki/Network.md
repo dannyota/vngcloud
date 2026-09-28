@@ -304,19 +304,20 @@ that has any `SecondarySubnets`, with `vngcloud.ErrInvalidInput`, sending
 nothing: the rename body has no field for them, and whether omitting it
 would drop them is not yet confirmed live.
 
-`DeleteSubnet` returns `vngcloud.IsNotFound(err) == true`, sending nothing,
-for a subnet read with status `"DELETED"`: `GetSubnet` keeps returning a
-deleted subnet for minutes after `ListSubnetsByVPC` has already dropped it.
-It also sends nothing and returns `network.ErrInUse` when
-`ListServersBySubnet`, `ListNetworkInterfaces`, or `ListVirtualIPAddresses`
-shows any item in the subnet, or when a [network ACL still associates the
-subnet](Network-ACLs.md#subnet-associations): deleting a held subnet
-instead of disassociating it first can leave that ACL stuck for good, so
-this check fails closed on any error reading the account's ACLs. A repeat
-`DELETE` on an already-deleted subnet returns a 500, so after a 5xx or
-network error on the `DELETE`, `DeleteSubnet` lists the VPC's subnets: an
-absent subnet means the delete took effect. Without `NoWait`, it then
-waits for the subnet to leave that list; see [Waits](#waits) below.
+`DeleteSubnet` returns `vngcloud.IsNotFound(err) == true`, sending nothing, for
+a subnet read with status `"DELETED"`: `GetSubnet` keeps returning a deleted
+subnet for minutes after `ListSubnetsByVPC` has already dropped it. It also
+sends nothing and returns `network.ErrInUse` when `ListServersBySubnet`,
+`ListNetworkInterfaces`, or `ListVirtualIPAddresses` shows any item in the
+subnet, or when a [network ACL still associates the
+subnet](Network-ACLs.md#subnet-associations): deleting a held subnet instead of
+disassociating it first can leave that ACL stuck for good, so this check fails
+closed on any error reading the account's ACLs. A repeat `DELETE` on an
+already-deleted subnet returns a 500, so after a 5xx or network error on the
+`DELETE`, `DeleteSubnet` lists the VPC's subnets: an absent subnet means the
+delete took effect. Without `NoWait`, it then waits for the subnet to leave that
+list; see [Waits](#waits) below. Wait 30 seconds after disassociating a subnet
+from a network ACL before deleting it; see [Limitations](Limitations.md).
 
 ## Enabling Private DNS
 

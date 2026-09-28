@@ -12,11 +12,15 @@ Associating or disassociating a subnet leaves the ACL busy for about 20
 seconds, during which any other write to it fails. Unlike after a rules
 write, `Status` stays `"ACTIVE"` the whole time, so nothing in a read marks
 the window; the write itself gets a 400 naming the ACL "is being updated".
-The SDK maps that to `network.ErrBusy`, which always means nothing was
-sent, so waiting a few seconds and calling again is safe. `DeleteNetworkACL`
+The SDK maps that to `network.ErrBusy`, which always means nothing
+changed, so waiting a few seconds and calling again is safe. `DeleteNetworkACL`
 sent into that same window instead answers 500 and changes nothing; see
 [Get, create, and delete](Network-ACLs.md#get-create-and-delete). See also
 [Rules](Network-ACLs.md#rules).
+
+Deleting a subnet right after disassociating it from a network ACL can also
+land in this window; wait about 30 seconds first. The SDK cannot see the
+window, and whether a delete inside it wedges the ACL is not confirmed.
 
 ## Deleting a subnet a network ACL still holds
 
@@ -98,4 +102,5 @@ accident. See [Rules](Network-ACLs.md#rules).
   so page 1 of a one-item list comes back empty. See
   [design/iam-writes-api.md](https://github.com/dannyota/vngcloud/blob/master/docs/design/iam-writes-api.md#bodies-and-responses).
 - **vMonitor**: pause and resume share one toggle call, so the SDK never
-  retries either after an unconfirmed result; a retry could undo it. See [Pausing and resuming](Monitor.md#pausing-and-resuming).
+  retries either after an unconfirmed result; a retry could undo it. See
+  [Pausing and resuming](Monitor.md#pausing-and-resuming).

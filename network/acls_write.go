@@ -359,8 +359,8 @@ type DeleteNetworkACLOutput struct{}
 // A 204 confirms the delete at once, with no wait. The DELETE is sent with
 // Once true, overriding the transport's normal retry of an idempotent
 // method on a retryable status (502, 503, 504), so this confirm, not a
-// resend, decides the outcome of any attempt that fails. A DELETE sent
-// into the ACL's own busy window after an earlier rules write (see
+// resend, decides the outcome of any 5xx. A DELETE sent into the ACL's own
+// busy window after an earlier rules write (see
 // aclBusyMessages) gets a 400 naming the ACL busy; DeleteNetworkACL maps
 // that to ErrBusy the same way the rules and subnets PUT do. Confirmed
 // live, a DELETE sent into the busy window after a subnets write
