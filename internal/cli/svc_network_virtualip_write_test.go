@@ -230,7 +230,7 @@ func TestNetworkDeleteVirtualIPAddressWithYesSendsGetListDelete(t *testing.T) {
 			switch r.Method {
 			case http.MethodGet:
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", "", "", nil)))
+				_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", "private", "", nil)))
 			case http.MethodDelete:
 				deleted = true
 				w.WriteHeader(http.StatusNoContent)

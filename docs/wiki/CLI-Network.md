@@ -255,7 +255,7 @@ vngcloud network delete-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --yes
 
 Kind: Write, destructive.
 
-Refuses, before any request, with error code ResourceInUse, a virtual IP that still has an address pair, found either on its own read or by list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and deleting it would move traffic. Refuses, with error code InvalidUsage, a virtual IP whose Type is not the empty string, so a public virtual IP, which has its own delete call and price, is never deleted through this one; no live check has yet recorded what Type value a private virtual IP itself carries, so today this command refuses every virtual IP, private included, until that value is confirmed and the SDK is updated to accept it.
+Refuses, before any request, with error code InvalidUsage, a virtual IP whose type is not "private" (a public virtual IP has its own delete call), and with error code ResourceInUse, one that still has an address pair, found either on its own read or by list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and deleting it would move traffic.
 
 | Flag | Type | Required |
 |-|-|-|

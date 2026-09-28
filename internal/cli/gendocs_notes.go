@@ -411,17 +411,12 @@ const networkCreateVirtualIPAddressNote = "Never resent after a failure that may
 	"so this wait ever runs at all, has not been confirmed live."
 
 // networkDeleteVirtualIPAddressNote documents delete-virtual-ip-address's
-// pre-delete guards, including the one that currently refuses every virtual
-// IP: the flag table shows only --virtual-ip-address-id, with no hint that
-// this command can never delete anything yet.
-const networkDeleteVirtualIPAddressNote = "Refuses, before any request, with error code ResourceInUse, a " +
-	"virtual IP that still has an address pair, found either on its own read or by " +
+// pre-delete guards: a type check and an address pair check.
+const networkDeleteVirtualIPAddressNote = "Refuses, before any request, with error code InvalidUsage, a " +
+	"virtual IP whose type is not \"private\" (a public virtual IP has its own delete call), and with " +
+	"error code ResourceInUse, one that still has an address pair, found either on its own read or by " +
 	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
-	"deleting it would move traffic. Refuses, with error code InvalidUsage, a virtual IP whose Type is not " +
-	"the empty string, so a public virtual IP, which has its own delete call and price, is never deleted " +
-	"through this one; no live check has yet recorded what Type value a private virtual IP itself carries, " +
-	"so today this command refuses every virtual IP, private included, until that value is confirmed and the " +
-	"SDK is updated to accept it."
+	"deleting it would move traffic."
 
 // loadbalancerImportCertificateNote documents import-certificate's file
 // flags and their rules, none of which the flag table can show on its own:
