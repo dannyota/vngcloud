@@ -6,12 +6,13 @@ ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
 security groups and their rules, VPCs, subnets, and Private DNS, the
 network resources this SDK writes here. See [Network Route
-Tables](Network-RouteTables.md) for route tables and routes. Servers,
-volumes, floating IPs, and ACLs stay read-only.
+Tables](Network-RouteTables.md) for route tables and routes, and [Network
+ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations.
+Servers, volumes, and floating IPs stay read-only.
 
-If a VPC, subnet, route table, or security group is managed by OpenTofu or
-Terraform, a write made here drifts from that state; keep such a
-resource's writes in its own tool.
+If a VPC, subnet, route table, ACL, or security group is managed by
+OpenTofu or Terraform, a write made here drifts from that state; keep such
+a resource's writes in its own tool.
 
 ## Setup
 
@@ -232,10 +233,12 @@ if _, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{
 `CIDR` must parse with `net/netip.ParsePrefix`, be IPv4, and have no host
 bits: `10.20.1.0/16` is refused because bits beyond the prefix length are
 set. The exact prefix length and which blocks are private stay on the
-server. `CreateVPC` never sends `zoneId`: live, the server ignores it and
-places every VPC in the region's first zone, even one disabled for the
-account, so an input the server ignores would tell the caller it chose a
-zone when it did not. A subnet's own `ZoneID` is what matters.
+server, and so does overlap: a `CIDR` that overlaps any VPC already in the
+project is refused with 400 "VPC is overlap with another." `CreateVPC`
+never sends `zoneId`: live, the server ignores it and places every VPC in
+the region's first zone, even one disabled for the account, so an input
+the server ignores would tell the caller it chose a zone when it did not.
+A subnet's own `ZoneID` is what matters.
 
 `CreateVPC` is a `POST` and is never retried after an ambiguous failure,
 for the same reason `CreateSecurityGroup` is not; list VPCs and match the
@@ -301,16 +304,20 @@ that has any `SecondarySubnets`, with `vngcloud.ErrInvalidInput`, sending
 nothing: the rename body has no field for them, and whether omitting it
 would drop them is not yet confirmed live.
 
-`DeleteSubnet` returns `vngcloud.IsNotFound(err) == true`, sending nothing,
-for a subnet read with status `"DELETED"`: `GetSubnet` keeps returning a
-deleted subnet for minutes after `ListSubnetsByVPC` has already dropped it.
-It also sends nothing and returns `network.ErrInUse` when
-`ListServersBySubnet`, `ListNetworkInterfaces`, or `ListVirtualIPAddresses`
-shows any item in the subnet. A repeat `DELETE` on an already-deleted
-subnet returns a 500, so after a 5xx or network error on the `DELETE`,
-`DeleteSubnet` lists the VPC's subnets: an absent subnet means the delete
-took effect. Without `NoWait`, it then waits for the subnet to leave that
-list; see [Waits](#waits) below.
+`DeleteSubnet` returns `vngcloud.IsNotFound(err) == true`, sending nothing, for
+a subnet read with status `"DELETED"`: `GetSubnet` keeps returning a deleted
+subnet for minutes after `ListSubnetsByVPC` has already dropped it. It also
+sends nothing and returns `network.ErrInUse` when `ListServersBySubnet`,
+`ListNetworkInterfaces`, or `ListVirtualIPAddresses` shows any item in the
+subnet, or when a [network ACL still associates the
+subnet](Network-ACLs.md#subnet-associations): deleting a held subnet instead of
+disassociating it first can leave that ACL stuck for good, so this check fails
+closed on any error reading the account's ACLs. A repeat `DELETE` on an
+already-deleted subnet returns a 500, so after a 5xx or network error on the
+`DELETE`, `DeleteSubnet` lists the VPC's subnets: an absent subnet means the
+delete took effect. Without `NoWait`, it then waits for the subnet to leave that
+list; see [Waits](#waits) below. Wait 30 seconds after disassociating a subnet
+from a network ACL before deleting it; see [Limitations](Limitations.md).
 
 ## Enabling Private DNS
 
@@ -414,7 +421,6 @@ var ErrNotSettled         = errors.New("network: write accepted but not settled"
 var ErrFailed             = errors.New("network: write failed on the server")
 ```
 
-`ErrSystemGroup` and `ErrSecurityGroupInUse` mean a delete or update sent
 nothing, or that a delete's own `DELETE` request was refused by the server;
 see [Creating, updating, and deleting
 groups](#creating-updating-and-deleting-groups) above. `ErrInUse` means
@@ -423,11 +429,22 @@ the resource still holds something, or that the server's own refusal named
 it in use; see [Creating, renaming, and deleting
 VPCs](#creating-renaming-and-deleting-vpcs) and [Creating, renaming, and
 deleting subnets](#creating-renaming-and-deleting-subnets) above.
-`DeleteRouteTable` returns the same `ErrInUse`, alongside its own
-`ErrDefaultResource` and `ErrBusy`; see [Network Route
-Tables](Network-RouteTables.md) for those. `ErrUnexpectedStatus` means
-`EnableVPCPrivateDNS` read a `dnsStatus` this SDK does not know how to act
-on. `ErrFailed` means a create or delete reached `"ERROR"`. `ErrNotSettled`
-means a write was sent, and may have reached the server, but no confirming
-read followed; see [Waits](#waits) above for what to do next and for why
-the Output still holds the resource.
+`DeleteRouteTable` and `DeleteNetworkACL` return the same `ErrInUse`,
+alongside their own `ErrDefaultResource` and `ErrBusy`; see [Network Route
+Tables](Network-RouteTables.md) and [Network ACLs](Network-ACLs.md) for
+those. `ErrUnexpectedStatus` means `EnableVPCPrivateDNS` read a `dnsStatus`
+this SDK does not know how to act on. `ErrFailed` means a create or delete
+reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
+reached the server, but no confirming read followed; see [Waits](#waits)
+above for what to do next and for why the Output still holds the resource.
+
+## Route tables and routes
+
+See [Network Route Tables](Network-RouteTables.md) for `GetRouteTable`,
+`CreateRouteTable`, `DeleteRouteTable`, `AddRoute`, and `RemoveRoute`.
+
+## Network ACLs
+
+See [Network ACLs](Network-ACLs.md) for `GetNetworkACL`, `CreateNetworkACL`,
+`DeleteNetworkACL`, `AddNetworkACLRule`, `RemoveNetworkACLRule`,
+`AssociateNetworkACLSubnet`, and `DisassociateNetworkACLSubnet`.

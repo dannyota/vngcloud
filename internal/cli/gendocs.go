@@ -362,7 +362,10 @@ func renderCLIPage(services []docService) string {
 		"[IAM](CLI-IAM.md#create-policy), or an iam create-group or update-group whose write reached the " +
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
-		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
+		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), or a " +
+		"network ACL rules or subnets PUT, sent once with no retry, failed in a way that may already have " +
+		"reached the server, a 5xx, a network error, or a timeout: the write is not resent automatically, " +
+		"so read the ACL first before trying the command again; see [Network](Network.md#waits)), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
@@ -377,18 +380,23 @@ func renderCLIPage(services []docService) string {
 		"delete-server-group was refused because the group has servers attached, found by a pre-delete " +
 		"list scan, or the server itself refused it as in use; see " +
 		"[Compute](CLI-Compute.md#delete-server-group)), `ResourceInUse` (a network delete-vpc, " +
-		"delete-subnet, or delete-route-table was refused because a pre-write read showed it still in use, " +
-		"such as a VPC with subnets, a subnet with servers, or a route table a subnet still names, or " +
-		"because the server's own refusal named it in use, including a VPC delete the server keeps refusing " +
-		"with \"contains the subnet\" for several minutes after that subnet's own delete, or an iam " +
-		"delete-policy targeted a policy still attached to a group, an IAM user, or a service account, or " +
-		"an iam delete-group targeted a group with a member or an attached policy, before any request; " +
-		"see [Network](Network.md#errors), [IAM](CLI-IAM.md#delete-policy)), " +
-		"`DefaultResource` (a network delete-route-table targeted a VPC's " +
-		"main route table while a subnet names no route table of its own and so relies on it; the server " +
-		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +
-		"remove-route read a route table that was not ACTIVE and stayed that way past the wait before the " +
-		"write, so nothing was sent), " +
+		"delete-subnet, delete-route-table, or delete-network-acl was refused because a pre-write read " +
+		"showed it still in use, such as a VPC with subnets, a subnet with servers, a route table a subnet " +
+		"still names, or an ACL a subnet is still associated with, or because the server's own refusal " +
+		"named it in use, including a VPC delete the server keeps refusing with \"contains the subnet\" " +
+		"for several minutes after that subnet's own delete, or an iam delete-policy targeted a policy " +
+		"still attached to a group, an IAM user, or a service account, or an iam delete-group targeted a " +
+		"group with a member or an attached policy, before any request; see [Network](Network.md#errors), " +
+		"[IAM](CLI-IAM.md#delete-policy)), " +
+		"`DefaultResource` (a network delete-route-table targeted a VPC's main route table while a subnet " +
+		"names no route table of its own and so relies on it, though the server itself deletes a main " +
+		"table once nothing relies on it; or a write targeted a project's default network ACL or one of " +
+		"an ACL's own default rules), `ResourceBusy` (a network add-route, remove-route, or a network ACL " +
+		"rule or subnet write read a table or ACL that was not ACTIVE and stayed that way past the wait " +
+		"before the write, or saw it change before the send, so nothing was sent; or a network ACL rules " +
+		"or subnets PUT, or a delete-network-acl DELETE, sent once with no retry landed in the ACL's own " +
+		"busy window and got the server's own busy 400 back, which changed nothing, so the command can be " +
+		"run again; see [Network](Network.md#waits)), " +
 		"`RepositoryNotEmpty` (a containerregistry delete-repository was refused because a pre-delete read " +
 		"showed the repository still holds images; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#delete-repository)), " +

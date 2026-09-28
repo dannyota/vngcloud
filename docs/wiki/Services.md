@@ -146,6 +146,7 @@ networkClient.ListVirtualIPAddresses(ctx, in)               // Name, Page, Size
 networkClient.ListRouteTables(ctx, in)                      // Name, Page, Size
 networkClient.ListPeerings(ctx, in)                         // Name, Page, Size
 networkClient.ListNetworkACLs(ctx, in)                      // Name, Page, Size
+networkClient.GetNetworkACL(ctx, in)                        // NetworkACLID (required)
 networkClient.ListInterconnects(ctx, in)                    // Name, Page, Size
 networkClient.ListSubnets(ctx, nil)
 networkClient.ListSubnetsByVPC(ctx, in)                     // VPCID (required)
@@ -165,13 +166,17 @@ networkClient.ListEndpointTags(ctx, in)                     // EndpointID (requi
 `ListEndpoints` and `GetEndpoint` discover VNetwork region metadata when
 needed before reading endpoint resources.
 
-The SDK has no method for network ACL rules or for a single network
-interface.
+The SDK has no method for a single network interface.
 
-`network` also writes security groups and their rules; see
+`network` also writes security groups and their rules, route tables and
+routes, and network ACLs, their rules, and subnet associations; see
 [Network](Network.md) for `CreateSecurityGroup`, `UpdateSecurityGroup`,
-`DeleteSecurityGroup`, `CreateSecurityGroupRule`, and
-`DeleteSecurityGroupRule`, their waits, and their errors.
+`DeleteSecurityGroup`, `CreateSecurityGroupRule`, `DeleteSecurityGroupRule`,
+`CreateRouteTable`, `DeleteRouteTable`, `AddRoute`, and `RemoveRoute`, their
+waits, and their errors, and [Network ACLs](Network-ACLs.md) for
+`CreateNetworkACL`, `DeleteNetworkACL`, `AddNetworkACLRule`,
+`RemoveNetworkACLRule`, `AssociateNetworkACLSubnet`, and
+`DisassociateNetworkACLSubnet`.
 
 ## Load Balancing
 

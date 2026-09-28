@@ -504,6 +504,30 @@ func TestGenDocsAddRouteAndRemoveRouteExamplesIncludeYes(t *testing.T) {
 	}
 }
 
+// TestGenDocsAddNetworkACLRuleExampleIncludesPortRange checks that
+// add-network-acl-rule's own example command line names a real Protocol,
+// tcp, rather than a placeholder, since checkACLRuleProtocol
+// (network/acl_rules_write.go) accepts only ANY, tcp, udp, or icmp, and sets
+// --port-range-min and --port-range-max to a single real port: neither
+// backs a required Input field, so buildExample's generic, required-fields-
+// only derivation would otherwise leave both out.
+func TestGenDocsAddNetworkACLRuleExampleIncludesPortRange(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Network.md"))
+	if err != nil {
+		t.Fatalf("ReadFile CLI-Network.md: %v", err)
+	}
+	want := "vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> --direction <direction> " +
+		"--priority <priority> --protocol tcp --cidr <cidr> --action <action> " +
+		"--port-range-min 22 --port-range-max 22 --yes"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("CLI-Network.md is missing the runnable example %q:\n%s", want, data)
+	}
+}
+
 // TestGenDocsGlobalLoadBalancerShapeOpsDocumentUnverified checks that every
 // globalloadbalancer op with no live row (per the CLI reads design's
 // globalloadbalancer section) states the unverified-live note, while

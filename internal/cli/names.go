@@ -13,8 +13,9 @@ import (
 // flag-name derivation (an Input field name) and the operation-name check
 // (an SDK method name); any name absent from it uses kebab(name) unchanged.
 var renameTable = map[string]string{
-	"VPCID": "vpc-id",
-	"Query": "search",
+	"VPCID":        "vpc-id",
+	"NetworkACLID": "network-acl-id",
+	"Query":        "search",
 	// SecurityGroupIDs is a repeatable []string flag, one ID per
 	// --security-group-id occurrence, so the singular form reads right; the
 	// mechanical conversion would give the plural "security-group-ids"

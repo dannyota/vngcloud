@@ -126,20 +126,22 @@ type errorEnvelope struct {
 // or because the server's own refusal named the group in use for some other
 // reason), ResourceInUse (a network VPC, subnet, or route table write
 // was refused because a pre-write read showed it still in use, such as a
-// VPC with subnets, a subnet with servers, or a route table a subnet still
-// names, or because the server's own refusal named it in use, including a
-// VPC delete the server keeps refusing with "contains the subnet" for
-// several minutes after that subnet's own delete, or a loadbalancer
-// delete-certificate refused because a pre-delete read showed the
-// certificate still in use by a listener, or because the server's own
-// refusal named it in use; or an iam delete-policy targeted a policy still
-// attached to a group, an IAM user, or a service account, before any
-// request), DefaultResource (a network delete-route-table
+// VPC with subnets, a subnet with servers, a route table a subnet still
+// names, or an ACL a subnet is still associated with, or because the
+// server's own refusal named it in use, including a VPC delete the server
+// keeps refusing with "contains the subnet" for several minutes after that
+// subnet's own delete, or a loadbalancer delete-certificate refused because
+// a pre-delete read showed the certificate still in use by a listener, or
+// because the server's own refusal named it in use; or an iam delete-policy
+// targeted a policy still attached to a group, an IAM user, or a service
+// account, before any request), DefaultResource (a network delete-route-table
 // targeted a VPC's main route table while a subnet names no route table of
-// its own and so relies on it; the server itself deletes a main table once
-// no subnet relies on it), ResourceBusy (a network add-route or
-// remove-route read a route table that was not ACTIVE and stayed that way
-// past the wait before the write), or SecretFileFailed
+// its own and so relies on it, though the server itself deletes a main
+// table once nothing relies on it; or a write targeted a project's default
+// network ACL or one of an ACL's own default rules), ResourceBusy (a
+// network add-route, remove-route, or a network ACL rule or subnet write
+// read a table or ACL that was not ACTIVE and stayed that way past the wait
+// before the write, or saw it change before the send), or SecretFileFailed
 // (create-ssh-key's own create succeeded but writing --secret-file failed
 // afterward, so the CLI deleted the new key).
 func classify(err error) errorEnvelope {
@@ -225,11 +227,17 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	// network.ErrDefaultResource and network.ErrBusy join this same early
-	// group too: both come from DeleteRouteTable's own pre-delete reads or
-	// from AddRoute's and RemoveRoute's pre-write wait, never from wrapping
-	// the server's own response, so checking them here costs nothing extra
-	// today, but keeps every network sentinel error classified in the same
-	// place ahead of the generic *APIError branch below.
+	// group too. ErrDefaultResource always comes from a pre-write or
+	// pre-delete read (DeleteRouteTable's main-table check, or
+	// RemoveNetworkACLRule's and DeleteNetworkACL's own default-resource
+	// checks), never from wrapping the server's response. ErrBusy usually
+	// comes the same way, from AddRoute's, RemoveRoute's, or a network ACL
+	// rule or subnet write's pre-write wait or pre-send recheck, but
+	// wrapACLBusyErr (network/acls_write.go) also wraps it around the
+	// server's own 400 when an ACL rules or subnets PUT lands in the ACL's
+	// busy window, so this check must win over the generic *APIError branch
+	// below for that case too, the same reason ErrSecurityGroupInUse and
+	// ErrInUse are checked here rather than after it.
 	if errors.Is(err, network.ErrDefaultResource) {
 		return errorEnvelope{Code: "DefaultResource", Message: err.Error()}
 	}

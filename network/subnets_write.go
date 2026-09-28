@@ -240,11 +240,26 @@ type DeleteSubnetOutput struct{}
 // after ListSubnetsByVPC has already dropped it, so this SDK treats
 // DELETED as gone rather than sending a DELETE that the server would 500.
 //
+// It also sends nothing and returns core.ErrInvalidInput when that read's
+// own NetworkID is set and does not match VPCID: the caller named the
+// wrong VPC for this subnet.
+//
 // It then sends nothing and returns ErrInUse when ListServersBySubnet,
 // ListNetworkInterfaces, or ListVirtualIPAddresses shows any item in the
 // subnet; the last two are filtered by subnet id in the SDK, since neither
 // list takes a subnet filter of its own. The server's own refusal is the
 // final guard for any other use.
+//
+// It also sends nothing and returns ErrInUse when a network ACL in the
+// subnet's own VPC still lists it in that ACL's SubnetIDs: deleting a
+// subnet an ACL still holds, rather than disassociating it first, leaves
+// that ACL permanently stuck, unable to accept any further write, with a
+// VPC that can never be deleted (confirmed live; see
+// vserver-network-writes-api.md). This check walks every network ACL in
+// the VPC and reads each one's own SubnetIDs with GetNetworkACL; a failure
+// listing the ACLs, reading any one of them, or a listing that comes back
+// short of the total the server itself reported, fails closed and refuses
+// the delete rather than risk sending it while the answer is unknown.
 //
 // A repeat DELETE on an already-deleted subnet returns 500, so after a 5xx
 // or network error on the DELETE, DeleteSubnet lists the VPC's subnets: an
@@ -275,8 +290,15 @@ func (c *Client) DeleteSubnet(ctx context.Context, in *DeleteSubnetInput) (*Dele
 	if current.Subnet.Status == subnetStatusDeleted {
 		return nil, fmt.Errorf("%w: %s: subnet %s is already DELETED", core.ErrNotFound, op, in.SubnetID)
 	}
+	if current.Subnet.NetworkID != "" && current.Subnet.NetworkID != in.VPCID {
+		return nil, fmt.Errorf("%w: %s: subnet %s belongs to VPC %s, not %s",
+			core.ErrInvalidInput, op, in.SubnetID, current.Subnet.NetworkID, in.VPCID)
+	}
 
 	if err := checkSubnetNotInUse(ctx, c, op, in.SubnetID); err != nil {
+		return nil, err
+	}
+	if err := checkSubnetNotHeldByNetworkACL(ctx, c, op, in.VPCID, in.SubnetID); err != nil {
 		return nil, err
 	}
 
@@ -345,6 +367,79 @@ func checkSubnetNotInUse(ctx context.Context, c *Client, op, subnetID string) er
 		return fmt.Errorf("%w: %s: subnet %s has %d virtual IP(s) attached", ErrInUse, op, subnetID, vipCount)
 	}
 	return nil
+}
+
+// checkSubnetNotHeldByNetworkACL returns ErrInUse, sending nothing else,
+// when a network ACL in vpcID lists subnetID in its own SubnetIDs
+// (subnetAssociationList). It fails closed: a failure listing the VPC's
+// network ACLs, or reading any one of them, returns that error instead of
+// ErrInUse, so DeleteSubnet also refuses in that case; the caller can
+// simply retry once the read succeeds. The one exception is a listed ACL
+// whose own detail read comes back core.ErrNotFound: it was deleted between
+// the list and this read, so it skips that ACL rather than failing closed,
+// since a gone ACL cannot hold the subnet.
+//
+// listNetworkACLsInVPC also returns an ACL whose list NetworkID came back
+// empty, since that field is not reliably set (see its own doc comment);
+// for each of those, the ACL's own detail (already read below to check
+// SubnetIDs) also carries VPCID, and this skips the ACL when that VPCID is
+// set and names a different VPC, rather than flagging a subnet held by an
+// ACL that turns out to belong elsewhere.
+func checkSubnetNotHeldByNetworkACL(ctx context.Context, c *Client, op, vpcID, subnetID string) error {
+	acls, err := c.listNetworkACLsInVPC(ctx, vpcID)
+	if err != nil {
+		return fmt.Errorf("%s: could not confirm no network ACL in VPC %s still holds subnet %s: %w", op, vpcID, subnetID, err)
+	}
+	for _, acl := range acls {
+		detail, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: acl.UUID})
+		if err != nil {
+			if core.IsNotFound(err) {
+				// The ACL was deleted between the list above and this read;
+				// a gone ACL cannot hold the subnet.
+				continue
+			}
+			return fmt.Errorf("%s: could not confirm network ACL %s does not hold subnet %s: %w", op, acl.UUID, subnetID, err)
+		}
+		if detail.ACL.VPCID != "" && detail.ACL.VPCID != vpcID {
+			continue
+		}
+		for _, held := range detail.ACL.SubnetIDs {
+			if held != subnetID {
+				continue
+			}
+			name := detail.ACL.Name
+			if name == "" {
+				name = acl.UUID
+			}
+			return fmt.Errorf("%w: %s: subnet %s is associated with network ACL %s; disassociate it first",
+				ErrInUse, op, subnetID, name)
+		}
+	}
+	return nil
+}
+
+// listNetworkACLsInVPC walks every page of ListNetworkACLs and returns
+// every ACL whose NetworkID equals vpcID, plus every ACL whose NetworkID
+// came back empty. NetworkID, unlike VPCID, is set only by the list
+// response (see the ACL type's doc comment), so this is the only field the
+// list itself can filter by; confirmed live, some ACLs list with an empty
+// NetworkID even though they do belong to a VPC, so an empty value means
+// "possibly this VPC," not "no VPC," and checkSubnetNotHeldByNetworkACL
+// resolves it by reading that ACL's own detail. It returns an error,
+// rather than a partial answer, when the items seen across every page fall
+// short of the total the server itself reported.
+func (c *Client) listNetworkACLsInVPC(ctx context.Context, vpcID string) ([]ACL, error) {
+	all, err := c.listAllNetworkACLs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var matched []ACL
+	for _, acl := range all {
+		if acl.NetworkID == vpcID || acl.NetworkID == "" {
+			matched = append(matched, acl)
+		}
+	}
+	return matched, nil
 }
 
 // confirmSubnetDeleteOn5xx returns nil for a 5xx or network error on the
