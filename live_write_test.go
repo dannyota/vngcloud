@@ -3318,11 +3318,59 @@ func TestLiveWriteServerGroup(t *testing.T) {
 
 // TestLiveWriteNetworkVPC creates: a VPC is one /16 from 10.0.0.0/8, and a
 // subnet is a /24 or /28 inside it.
-const (
-	liveVPCCIDR      = "10.250.0.0/16"
-	liveSubnet24CIDR = "10.250.1.0/24"
-	liveSubnet28CIDR = "10.250.2.0/28"
-)
+
+// pickFreeVPCCIDR scans /16 blocks from 10.250.0.0/16 down to 10.200.0.0/16
+// and returns the first that overlaps no VPC CIDR the project already
+// lists: GreenNode refuses CreateVPC with 400 BadRequest "VPC is overlap
+// with another." when the new VPC's CIDR overlaps any existing VPC in the
+// project, and the test account keeps a permanent VPC at a fixed /16 (see
+// useLiveVPCAndSubnet) that a hardcoded constant here would collide with.
+// The scan order is deterministic, so repeated runs favor the same free
+// block while other runs hold no VPC.
+func pickFreeVPCCIDR(ctx context.Context, client *network.Client) (string, error) {
+	existing, err := listAllVPCs(ctx, client)
+	if err != nil {
+		return "", fmt.Errorf("list VPCs: %w", err)
+	}
+	used := make([]netip.Prefix, 0, len(existing))
+	for _, v := range existing {
+		p, err := netip.ParsePrefix(v.CIDR)
+		if err != nil {
+			continue
+		}
+		used = append(used, p.Masked())
+	}
+
+	for second := 250; second >= 200; second-- {
+		candidate := netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(second), 0, 0}), 16).Masked()
+		free := true
+		for _, u := range used {
+			if candidate.Overlaps(u) {
+				free = false
+				break
+			}
+		}
+		if free {
+			return candidate.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no free /16 CIDR between 10.200.0.0/16 and 10.250.0.0/16, %d VPC(s) already used", len(used))
+}
+
+// vpcBlockCIDR returns the CIDR of the /24 block at index block (0-255)
+// inside vpcCIDR, a /16 under 10.0.0.0/8, masked to bits (24 or 28). Every
+// subnet a live VPC test creates comes from this, so the subnets always sit
+// inside whatever /16 pickFreeVPCCIDR chose rather than a fixed constant.
+func vpcBlockCIDR(vpcCIDR string, block byte, bits int) (string, error) {
+	prefix, err := netip.ParsePrefix(vpcCIDR)
+	if err != nil {
+		return "", fmt.Errorf("parse VPC CIDR %q: %w", vpcCIDR, err)
+	}
+	addr := prefix.Masked().Addr().As4()
+	addr[2] = block
+	addr[3] = 0
+	return netip.PrefixFrom(netip.AddrFrom4(addr), bits).String(), nil
+}
 
 // listAllVPCs pages through every VPC the account has, since a leftover
 // cleanup or a remaining-VPC check must not miss one that landed past the
@@ -3485,7 +3533,12 @@ func createLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.C
 	}
 	name := "vngcloud-live-" + suffix
 
-	createdVPC, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: liveVPCCIDR})
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, client)
+	if err != nil {
+		t.Fatalf("pick a free VPC CIDR: %s", err)
+	}
+
+	createdVPC, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: vpcCIDR})
 	if err != nil {
 		deleteVPCByName(t, client, name)
 		t.Fatalf("CreateVPC: %s", safeErr(err))
@@ -3505,8 +3558,12 @@ func createLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.C
 		deleteVPCAndSubnets(cleanupCtx, t, client, vpcID, blocked)
 	})
 
+	subnet24CIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("derive /24 subnet CIDR: %s", err)
+	}
 	createdSubnet, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: liveSubnet24CIDR,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: subnet24CIDR,
 	})
 	if err != nil {
 		t.Fatalf("CreateSubnet: %s", safeErr(err))
@@ -3784,8 +3841,13 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	}
 	name := "vngcloud-live-" + suffix
 
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, client)
+	if err != nil {
+		t.Fatalf("step 3 pick a free VPC CIDR: %s", err)
+	}
+
 	start := time.Now()
-	created, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: liveVPCCIDR})
+	created, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: vpcCIDR})
 	if err != nil {
 		deleteVPCByName(t, client, name)
 		t.Fatalf("step 3 CreateVPC: %s", safeErr(err))
@@ -3837,9 +3899,22 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	t.Logf("step 5: renamed VPC twice, final status %s", sameName.VPC.Status)
 
 	// Step 6: create a /24 and a /28 subnet in the enabled zone.
+	subnet24CIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("step 6 derive /24 subnet CIDR: %s", err)
+	}
+	subnet28CIDR, err := vpcBlockCIDR(vpcCIDR, 2, 28)
+	if err != nil {
+		t.Fatalf("step 6 derive /28 subnet CIDR: %s", err)
+	}
+	dupNameSubnetCIDR, err := vpcBlockCIDR(vpcCIDR, 3, 24)
+	if err != nil {
+		t.Fatalf("step 6 derive duplicate-name subnet CIDR: %s", err)
+	}
+
 	start = time.Now()
 	sub24, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: liveSubnet24CIDR,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: subnet24CIDR,
 	})
 	if err != nil {
 		t.Fatalf("step 6a CreateSubnet (/24): %s", safeErr(err))
@@ -3852,7 +3927,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 
 	start = time.Now()
 	sub28, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-b", CIDR: liveSubnet28CIDR,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-b", CIDR: subnet28CIDR,
 	})
 	if err != nil {
 		t.Fatalf("step 6b CreateSubnet (/28): %s", safeErr(err))
@@ -3867,7 +3942,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	// both expected to be refused. An unexpected success is left for
 	// t.Cleanup's subnet sweep to remove along with every other subnet.
 	_, overlapErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-c", CIDR: liveSubnet24CIDR, NoWait: true,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-c", CIDR: subnet24CIDR, NoWait: true,
 	})
 	if overlapErr == nil {
 		t.Error("step 7a: creating an overlapping subnet succeeded; the design expects a refusal")
@@ -3878,7 +3953,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	// the extra subnet is deleted at once: a VPC delete refuses while it
 	// remains.
 	dupSubnet, dupNameErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: "10.250.3.0/24",
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: dupNameSubnetCIDR,
 	})
 	if dupNameErr != nil {
 		t.Logf("step 7b: duplicate-named subnet refused, %s", safeErr(dupNameErr))
@@ -4691,10 +4766,29 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 				remaining++
 				continue
 			}
-			// A leftover from another run, most often the account's own
-			// permanently stuck network ACL when this test reused an
-			// existing VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID): try it the same
-			// way step 2's sweep does rather than assume which one it is.
+			// A same-named ACL from another run, most often the account's
+			// own permanently stuck network ACL when this test reused an
+			// existing VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID). The list's own
+			// NetworkID is not reliable (confirmed live: it can come back
+			// empty for an ACL that does belong to a VPC), so this reads
+			// the ACL's own detail and only tries it, and counts it toward
+			// this run's tally, when its VPCID matches vpcID; a read
+			// failure fails closed, leaving it alone rather than guessing.
+			// An ACL confirmed to belong elsewhere is left untouched, the
+			// same principle step 2 already follows: this run's cleanup
+			// must never disassociate or delete an ACL outside its own VPC.
+			detail, err := client.GetNetworkACL(cleanupCtx, &network.GetNetworkACLInput{NetworkACLID: acl.UUID})
+			if err != nil {
+				if !vngcloud.IsNotFound(err) {
+					t.Errorf("cleanup: get network ACL %s to check its VPC: %s", acl.UUID, safeErr(err))
+				}
+				continue
+			}
+			if detail.ACL.VPCID != vpcID {
+				t.Logf("cleanup: skipping same-named network ACL %s: VPC %s does not match this run's VPC %s",
+					acl.UUID, detail.ACL.VPCID, vpcID)
+				continue
+			}
 			if deleted, stuck := deleteNetworkACLLeftover(cleanupCtx, t, client, acl.UUID); !deleted {
 				remaining++
 				if stuck {
@@ -4948,6 +5042,18 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyID,
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyUUID,
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyName)
+
+	// Step 14c: wait out the disassociate's own busy window before deleting
+	// the ACL, the same 30 seconds step 13b waits before the repeat
+	// associate. Confirmed live, a DELETE sent inside that window answers
+	// 500 and changes nothing, unlike the 400 "is being updated" any other
+	// write gets in it; without this wait, step 15 could exercise that busy
+	// case by accident instead of an ordinary delete.
+	select {
+	case <-ctx.Done():
+		t.Fatalf("step 14c: context ended while waiting out the ACL's busy window: %s", safeErr(ctx.Err()))
+	case <-time.After(30 * time.Second):
+	}
 
 	// Step 15: delete the ACL explicitly.
 	start = time.Now()

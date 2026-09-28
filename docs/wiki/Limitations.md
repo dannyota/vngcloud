@@ -13,7 +13,9 @@ seconds, during which any other write to it fails. Unlike after a rules
 write, `Status` stays `"ACTIVE"` the whole time, so nothing in a read marks
 the window; the write itself gets a 400 naming the ACL "is being updated".
 The SDK maps that to `network.ErrBusy`, which always means nothing was
-sent, so waiting a few seconds and calling again is safe. See
+sent, so waiting a few seconds and calling again is safe. `DeleteNetworkACL`
+sent into that same window instead answers 500 and changes nothing; see
+[Get, create, and delete](Network-ACLs.md#get-create-and-delete). See also
 [Rules](Network-ACLs.md#rules).
 
 ## Deleting a subnet a network ACL still holds
@@ -21,15 +23,15 @@ sent, so waiting a few seconds and calling again is safe. See
 Deleting a subnet while a network ACL still lists it, instead of
 disassociating it first, leaves that ACL permanently stuck: every later
 write to it fails, its own delete fails too, and its VPC can never be
-deleted. `DeleteSubnet` now refuses, sending nothing, whenever a network
+deleted. `DeleteSubnet` refuses, sending nothing, whenever a network
 ACL in the subnet's VPC still holds it; disassociate the subnet first. See
 [Creating, renaming, and deleting subnets](Network.md#creating-renaming-and-deleting-subnets).
 
 ## A permanently stuck network ACL
 
 Once a network ACL is wedged this way, no SDK call can recover it: every
-write returns 400 "is being updated", and even `DeleteNetworkACL` returns
-500 instead of the usual 500-on-read. Only GreenNode support can clear it.
+write returns 400 "is being updated", and `DeleteNetworkACL` returns 500.
+Only GreenNode support can clear it.
 
 ## A VPC's zone is ignored
 
@@ -37,6 +39,13 @@ write returns 400 "is being updated", and even `DeleteNetworkACL` returns
 region's first zone regardless of what a caller asks for, confirmed
 through both the SDK and the GreenNode web console. The zone that matters
 is the one a subnet names. See
+[Creating, renaming, and deleting VPCs](Network.md#creating-renaming-and-deleting-vpcs).
+
+## VPC CIDRs cannot overlap
+
+`CreateVPC` refuses a CIDR that overlaps any VPC already in the project,
+with 400 "VPC is overlap with another." The SDK does not check for an
+overlap itself; that check stays on the server. See
 [Creating, renaming, and deleting VPCs](Network.md#creating-renaming-and-deleting-vpcs).
 
 ## Subnet size limits
@@ -88,6 +97,5 @@ accident. See [Rules](Network-ACLs.md#rules).
   (`iam-users`, `service-accounts`, `policies`) numbers its pages from 0,
   so page 1 of a one-item list comes back empty. See
   [design/iam-writes-api.md](https://github.com/dannyota/vngcloud/blob/master/docs/design/iam-writes-api.md#bodies-and-responses).
-- **vMonitor**: pausing and resuming a check are one toggle call each, not
-  a dedicated pause and resume pair, and neither is ever retried after an
-  unconfirmed result. See [Pausing and resuming](Monitor.md#pausing-and-resuming).
+- **vMonitor**: pause and resume share one toggle call, so the SDK never
+  retries either after an unconfirmed result; a retry could undo it. See [Pausing and resuming](Monitor.md#pausing-and-resuming).

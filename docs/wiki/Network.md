@@ -233,10 +233,12 @@ if _, err := client.DeleteVPC(ctx, &network.DeleteVPCInput{
 `CIDR` must parse with `net/netip.ParsePrefix`, be IPv4, and have no host
 bits: `10.20.1.0/16` is refused because bits beyond the prefix length are
 set. The exact prefix length and which blocks are private stay on the
-server. `CreateVPC` never sends `zoneId`: live, the server ignores it and
-places every VPC in the region's first zone, even one disabled for the
-account, so an input the server ignores would tell the caller it chose a
-zone when it did not. A subnet's own `ZoneID` is what matters.
+server, and so does overlap: a `CIDR` that overlaps any VPC already in the
+project is refused with 400 "VPC is overlap with another." `CreateVPC`
+never sends `zoneId`: live, the server ignores it and places every VPC in
+the region's first zone, even one disabled for the account, so an input
+the server ignores would tell the caller it chose a zone when it did not.
+A subnet's own `ZoneID` is what matters.
 
 `CreateVPC` is a `POST` and is never retried after an ambiguous failure,
 for the same reason `CreateSecurityGroup` is not; list VPCs and match the
