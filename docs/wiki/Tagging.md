@@ -64,7 +64,7 @@ Every resource carries system tags the platform manages: `vng.zone`,
 ```go
 tagged, err := client.TagResource(ctx, &tagging.TagResourceInput{
 	ResourceID:   resourceID,
-	ResourceType: "VIRTUAL-IP-ADDRESS",
+	ResourceType: tagging.ResourceTypeVirtualIPAddress,
 	Key:          "env",
 	Value:        "prod",
 })
@@ -76,8 +76,8 @@ log.Println(tagged.Changed, tagged.Previous)
 
 `TagResource` sets `Key` to `Value` on `ResourceID`, leaving every other tag
 on the resource unchanged. `ResourceType` is sent to the server exactly as
-given. `VIRTUAL-IP-ADDRESS` is confirmed live to accept a tag write for
-free. VNG Cloud's own Go SDK also names `SERVER`, `VOLUME`, and
+given. `tagging.ResourceTypeVirtualIPAddress` is confirmed live to accept a
+tag write for free. VNG Cloud's own Go SDK also names `SERVER`, `VOLUME`, and
 `LOAD-BALANCER` for this call, on paid resources this package has not
 tried.
 
@@ -111,7 +111,7 @@ writing `Previous` back.
 ```go
 untagged, err := client.UntagResource(ctx, &tagging.UntagResourceInput{
 	ResourceID:   resourceID,
-	ResourceType: "VIRTUAL-IP-ADDRESS",
+	ResourceType: tagging.ResourceTypeVirtualIPAddress,
 	Key:          "env",
 })
 ```
@@ -138,4 +138,5 @@ or by matching an existing system tag, and `TagResource` or `UntagResource`
 sent nothing. `ErrNotSettled` means the `PUT` was sent, and may have
 reached the server, but the confirming read did not come back matching it:
 either that read itself failed, or another writer changed the tags in
-between. The returned `Output` still holds the last tags a read returned.
+between. On a mismatched read, `Output` holds that read's tags. On a failed
+confirming read, `Output` holds the tags read before the write.

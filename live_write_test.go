@@ -7207,14 +7207,12 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	t.Log("step 12: deleted group and policy")
 }
 
-// createLiveVirtualIPAddress POSTs the private virtual IP address body the
-// design records (name, subnetId, mode) directly on the vServer gateway,
-// since this branch has no network.CreateVirtualIPAddress yet, and returns
-// the created virtual IP's id.
-func createLiveVirtualIPAddress(ctx context.Context, c *core.Client, subnetID, name string) (string, error) {
+// createLiveVirtualIPAddress reconciles an ambiguous POST through the
+// existing private virtual IP list and get calls.
+func createLiveVirtualIPAddress(ctx context.Context, client *network.Client, c *core.Client, subnetID, name string) (network.VirtualIPAddress, error) {
 	projectID, err := c.RequireProjectID(ctx)
 	if err != nil {
-		return "", err
+		return network.VirtualIPAddress{}, err
 	}
 	var resp struct {
 		Data struct {
@@ -7229,15 +7227,96 @@ func createLiveVirtualIPAddress(ctx context.Context, c *core.Client, subnetID, n
 		OK:        []int{200, 201, 202},
 	}
 	if err := c.DoJSON(ctx, req, &resp); err != nil {
-		return "", err
+		vip, reconcileErr := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+		if reconcileErr != nil {
+			return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP: %w; reconcile: %w", err, reconcileErr)
+		}
+		return vip, nil
 	}
-	return resp.Data.UUID, nil
+	if resp.Data.UUID == "" {
+		if _, err := findLiveVirtualIPAddress(ctx, client, name, subnetID); err != nil {
+			return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP returned an empty id: %w", err)
+		}
+		return network.VirtualIPAddress{}, errors.New("create virtual IP returned an empty id")
+	}
+	vip, err := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+	if err != nil {
+		return network.VirtualIPAddress{}, err
+	}
+	if vip.UUID != resp.Data.UUID {
+		return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP id did not match the reconciled id")
+	}
+	return vip, nil
 }
 
-// deleteLiveVirtualIPAddress DELETEs a virtual IP address directly on the
-// vServer gateway, since this branch has no network.DeleteVirtualIPAddress
-// yet.
-func deleteLiveVirtualIPAddress(ctx context.Context, c *core.Client, id string) error {
+var errLiveVirtualIPAddressNotFound = errors.New("live virtual IP address not found")
+
+var liveVirtualIPAddressNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func findLiveVirtualIPAddress(ctx context.Context, client *network.Client, name, subnetID string) (network.VirtualIPAddress, error) {
+	var found []network.VirtualIPAddress
+	complete := false
+	for page := 1; page <= 1000; page++ {
+		out, err := client.ListVirtualIPAddresses(ctx, &network.ListVirtualIPAddressesInput{Name: name, Page: page})
+		if err != nil {
+			return network.VirtualIPAddress{}, err
+		}
+		if page == 1 && len(out.Items) == 0 && out.TotalPage == 0 && out.TotalItem == 0 {
+			return network.VirtualIPAddress{}, errLiveVirtualIPAddressNotFound
+		}
+		for _, vip := range out.Items {
+			if vip.Name != name || vip.SubnetID != subnetID {
+				continue
+			}
+			if vip.UUID == "" {
+				return network.VirtualIPAddress{}, errors.New("listed virtual IP has an empty id")
+			}
+			detail, err := client.GetVirtualIPAddress(ctx, &network.GetVirtualIPAddressInput{VirtualIPAddressID: vip.UUID})
+			if err != nil {
+				return network.VirtualIPAddress{}, err
+			}
+			if detail.VirtualIPAddress.UUID != vip.UUID || detail.VirtualIPAddress.Name != name || detail.VirtualIPAddress.SubnetID != subnetID {
+				return network.VirtualIPAddress{}, errors.New("virtual IP detail did not match the exact name and subnet")
+			}
+			if detail.VirtualIPAddress.Type != "private" {
+				return network.VirtualIPAddress{}, errors.New("virtual IP is not private")
+			}
+			if len(detail.VirtualIPAddress.AddressPairIPs) != 0 {
+				return network.VirtualIPAddress{}, errors.New("virtual IP has address pair attachments")
+			}
+			pairs, err := client.ListAddressPairsByVirtualIPAddress(ctx, &network.ListAddressPairsByVirtualIPAddressInput{VirtualIPAddressID: vip.UUID})
+			if err != nil {
+				return network.VirtualIPAddress{}, err
+			}
+			if len(pairs.Items) != 0 {
+				return network.VirtualIPAddress{}, errors.New("virtual IP has address pair attachments")
+			}
+			found = append(found, detail.VirtualIPAddress)
+		}
+		if out.TotalPage < page {
+			return network.VirtualIPAddress{}, errors.New("virtual IP list returned an incomplete page count")
+		}
+		if page >= out.TotalPage {
+			complete = true
+			break
+		}
+	}
+	if !complete {
+		return network.VirtualIPAddress{}, errors.New("virtual IP list did not finish")
+	}
+	if len(found) == 0 {
+		return network.VirtualIPAddress{}, errLiveVirtualIPAddressNotFound
+	}
+	if len(found) != 1 {
+		return network.VirtualIPAddress{}, fmt.Errorf("found %d virtual IPs with the exact name and subnet, want 1", len(found))
+	}
+	return found[0], nil
+}
+
+func deleteLiveVirtualIPAddress(ctx context.Context, c *core.Client, vip network.VirtualIPAddress) error {
+	if err := validateLiveVirtualIPAddressDelete(vip); err != nil {
+		return err
+	}
 	projectID, err := c.RequireProjectID(ctx)
 	if err != nil {
 		return err
@@ -7245,21 +7324,165 @@ func deleteLiveVirtualIPAddress(ctx context.Context, c *core.Client, id string) 
 	req := transport.Request{
 		Operation: "tagging.live.DeleteVirtualIPAddress",
 		Method:    http.MethodDelete,
-		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress", id}}),
+		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress", vip.UUID}}),
 		OK:        []int{200, 202, 204},
 	}
 	return c.DoJSON(ctx, req, nil)
 }
 
-// countSystemTags returns how many of tags carry SystemTag true.
-func countSystemTags(tags []tagging.Tag) int {
-	n := 0
+func validateLiveVirtualIPAddressDelete(vip network.VirtualIPAddress) error {
+	if err := core.CheckPathID("tagging.live.DeleteVirtualIPAddress", "VirtualIPAddressID", vip.UUID); err != nil {
+		return err
+	}
+	if !liveVirtualIPAddressNamePattern.MatchString(vip.Name) || vip.SubnetID == "" || vip.Type != "private" || len(vip.AddressPairIPs) != 0 {
+		return errors.New("refuse to delete a virtual IP that is not this test's unattached private resource")
+	}
+	return nil
+}
+
+func deleteLiveVirtualIPAddressByExactNameAndSubnet(ctx context.Context, t *testing.T, client *network.Client, c *core.Client, name, subnetID string) {
+	t.Helper()
+	vip, err := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+	if errors.Is(err, errLiveVirtualIPAddressNotFound) || vngcloud.IsNotFound(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("cleanup: reconcile virtual IP: %s", safeErr(err))
+		return
+	}
+	if err := deleteLiveVirtualIPAddress(ctx, c, vip); err != nil && !vngcloud.IsNotFound(err) {
+		t.Errorf("cleanup: delete virtual IP: %s", safeErr(err))
+	}
+}
+
+func systemTagSet(tags []tagging.Tag) map[tagging.Tag]int {
+	out := make(map[tagging.Tag]int)
 	for _, tag := range tags {
 		if tag.SystemTag {
-			n++
+			out[tag]++
 		}
 	}
-	return n
+	return out
+}
+
+func systemTagsEqual(a, b []tagging.Tag) bool {
+	return reflect.DeepEqual(systemTagSet(a), systemTagSet(b))
+}
+
+func TestSystemTagsEqual(t *testing.T) {
+	before := []tagging.Tag{
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true},
+		{Key: "vng.region", Value: "hcm", SystemTag: true},
+		{Key: "vng.createdBy", Value: "system", SystemTag: true},
+	}
+	after := []tagging.Tag{
+		{Key: "vng.createdBy", Value: "system", SystemTag: true},
+		{Key: "vng.region", Value: "hcm", SystemTag: true},
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true},
+	}
+	if !systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = false, want equal system tag sets")
+	}
+	after[0].Value = "changed"
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a changed system tag value")
+	}
+	after = append([]tagging.Tag(nil), before...)
+	after[0].CreatedAt = "changed"
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a changed system tag timestamp")
+	}
+	after = append(after, before[0])
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a duplicate system tag")
+	}
+}
+
+func TestFindLiveVirtualIPAddressEmptyPageIsNotFound(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":25,"totalPage":0,"totalItem":0}`))
+	})))
+
+	_, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1")
+	if !errors.Is(err, errLiveVirtualIPAddressNotFound) {
+		t.Fatalf("findLiveVirtualIPAddress() error = %v, want errLiveVirtualIPAddressNotFound", err)
+	}
+}
+
+func TestFindLiveVirtualIPAddressRefusesNonPrivateBeforeAddressPairs(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/project-1/virtualIpAddress":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":1,"totalItem":1}`))
+		case "/v2/project-1/virtualIpAddress/vip-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"public"}}`))
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+	})))
+
+	if _, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1"); err == nil {
+		t.Fatal("findLiveVirtualIPAddress() error = nil, want non-private refusal")
+	}
+}
+
+func TestFindLiveVirtualIPAddressRefusesAttachedResource(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/project-1/virtualIpAddress":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":1,"totalItem":1}`))
+		case "/v2/project-1/virtualIpAddress/vip-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"private","addressPairIps":["pair"]}}`))
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+	})))
+
+	if _, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1"); err == nil {
+		t.Fatal("findLiveVirtualIPAddress() error = nil, want attachment refusal")
+	}
+}
+
+func TestFindLiveVirtualIPAddressPagesAndValidates(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/project-1/virtualIpAddress" {
+			if r.URL.Query().Get("page") == "1" {
+				_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-other","name":"other","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":2,"totalItem":2}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":2,"pageSize":1,"totalPage":2,"totalItem":2}`))
+			return
+		}
+		if r.URL.Path == "/v2/project-1/virtualIpAddress/vip-1" {
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"private"}}`))
+			return
+		}
+		if r.URL.Path == "/v2/project-1/virtualIpAddress/vip-1/addressPairs" {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		t.Fatalf("unexpected request: %s", r.URL.String())
+	})))
+
+	vip, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1")
+	if err != nil {
+		t.Fatalf("findLiveVirtualIPAddress() error = %v", err)
+	}
+	if vip.UUID != "vip-1" {
+		t.Fatalf("UUID = %q, want vip-1", vip.UUID)
+	}
+}
+
+func TestValidateLiveVirtualIPAddressDeleteRefusesUnsafeResource(t *testing.T) {
+	for _, vip := range []network.VirtualIPAddress{
+		{Name: "vngcloud-live-0123abcd", SubnetID: "subnet-1", Type: "private"},
+		{UUID: "vip-1", Name: "vngcloud-live-0123abcd", SubnetID: "subnet-1", Type: "public"},
+		{UUID: "vip-1", Name: "other", SubnetID: "subnet-1", Type: "private"},
+	} {
+		if err := validateLiveVirtualIPAddressDelete(vip); err == nil {
+			t.Fatalf("validateLiveVirtualIPAddressDelete(%+v) error = nil, want refusal", vip)
+		}
+	}
 }
 
 // TestLiveWriteTagging exercises tagging.TagResource and
@@ -7326,20 +7549,21 @@ func TestLiveWriteTagging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate virtual IP name suffix: %v", err)
 	}
-	vipID, err := createLiveVirtualIPAddress(ctx, coreClient, subnetID, "vngcloud-live-"+suffix)
-	if err != nil {
-		t.Fatalf("step 2 create virtual IP: %s", safeErr(err))
-	}
+	vipName := "vngcloud-live-" + suffix
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := deleteLiveVirtualIPAddress(cleanupCtx, coreClient, vipID); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete virtual IP: %s", safeErr(err))
-		}
+		deleteLiveVirtualIPAddressByExactNameAndSubnet(cleanupCtx, t, networkClient, coreClient, vipName, subnetID)
 	})
+	vip, err := createLiveVirtualIPAddress(ctx, networkClient, coreClient, subnetID, vipName)
+	if err != nil {
+		t.Fatalf("step 2 create virtual IP: %s", safeErr(err))
+	}
+	vipID := vip.UUID
+	if vipID == "" {
+		t.Fatal("step 2: reconciled virtual IP has an empty id")
+	}
 	t.Log("step 2: created a private virtual IP")
-
-	const resourceType = "VIRTUAL-IP-ADDRESS"
 
 	// Step 3: read the tags the create left: the system tags GreenNode's
 	// console shows on every resource.
@@ -7347,15 +7571,14 @@ func TestLiveWriteTagging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 3 ListResourceTags: %s", safeErr(err))
 	}
-	systemBefore := countSystemTags(before.Items)
-	if systemBefore == 0 {
+	if len(systemTagSet(before.Items)) == 0 {
 		t.Fatal("step 3: no system tag on a freshly created virtual IP, want at least one")
 	}
-	t.Logf("step 3: virtual IP has %d system tag(s) and %d user tag(s) after create", systemBefore, len(before.Items)-systemBefore)
+	systemBefore := before.Items
 
 	// Step 4: tag it.
 	tagged, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
-		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "one",
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag", Value: "one",
 	})
 	if err != nil {
 		t.Fatalf("step 4 TagResource: %s", safeErr(err))
@@ -7363,14 +7586,14 @@ func TestLiveWriteTagging(t *testing.T) {
 	if !tagged.Changed {
 		t.Fatal("step 4: Changed = false, want true for a new key")
 	}
-	if n := countSystemTags(tagged.Tags); n != systemBefore {
-		t.Fatalf("step 4: system tag count = %d, want %d unchanged", n, systemBefore)
+	if !systemTagsEqual(systemBefore, tagged.Tags) {
+		t.Fatal("step 4: system tags changed")
 	}
 	t.Log("step 4: tagged the virtual IP")
 
 	// Step 5: edit the tag.
 	edited, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
-		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "two",
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag", Value: "two",
 	})
 	if err != nil {
 		t.Fatalf("step 5 TagResource (edit): %s", safeErr(err))
@@ -7378,14 +7601,14 @@ func TestLiveWriteTagging(t *testing.T) {
 	if edited.Previous == nil || *edited.Previous != "one" {
 		t.Fatalf("step 5: Previous = %v, want \"1\"", edited.Previous)
 	}
-	if n := countSystemTags(edited.Tags); n != systemBefore {
-		t.Fatalf("step 5: system tag count = %d, want %d unchanged", n, systemBefore)
+	if !systemTagsEqual(systemBefore, edited.Tags) {
+		t.Fatal("step 5: system tags changed")
 	}
 	t.Log("step 5: edited the tag")
 
 	// Step 6: untag it.
 	untagged, err := taggingClient.UntagResource(ctx, &tagging.UntagResourceInput{
-		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag",
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag",
 	})
 	if err != nil {
 		t.Fatalf("step 6 UntagResource: %s", safeErr(err))
@@ -7393,8 +7616,8 @@ func TestLiveWriteTagging(t *testing.T) {
 	if !untagged.Changed || untagged.Previous == nil || *untagged.Previous != "two" {
 		t.Fatalf("step 6: Changed/Previous = %v/%v, want true/\"2\"", untagged.Changed, untagged.Previous)
 	}
-	if n := countSystemTags(untagged.Tags); n != systemBefore {
-		t.Fatalf("step 6: system tag count = %d, want %d unchanged", n, systemBefore)
+	if !systemTagsEqual(systemBefore, untagged.Tags) {
+		t.Fatal("step 6: system tags changed")
 	}
 	t.Log("step 6: untagged the virtual IP")
 
@@ -7404,17 +7627,21 @@ func TestLiveWriteTagging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 7 ListResourceTags: %s", safeErr(err))
 	}
-	if n := countSystemTags(after.Items); n != systemBefore {
-		t.Fatalf("step 7: system tag count = %d, want %d", n, systemBefore)
+	if !systemTagsEqual(systemBefore, after.Items) {
+		t.Fatal("step 7: system tags changed")
 	}
-	if len(after.Items) != systemBefore {
-		t.Fatalf("step 7: %d tag(s) left, want only the %d system tag(s)", len(after.Items), systemBefore)
+	if len(after.Items) != len(systemTagSet(systemBefore)) {
+		t.Fatal("step 7: user tags remain")
 	}
 	t.Log("step 7: system tags survived the tag write, edit, and removal; no user tag remains")
 
 	// Step 8: delete the virtual IP; the cleanup above repeats this and
 	// tolerates NotFound.
-	if err := deleteLiveVirtualIPAddress(ctx, coreClient, vipID); err != nil {
+	freshVIP, err := findLiveVirtualIPAddress(ctx, networkClient, vipName, subnetID)
+	if err != nil {
+		t.Fatalf("step 8 reconcile virtual IP: %s", safeErr(err))
+	}
+	if err := deleteLiveVirtualIPAddress(ctx, coreClient, freshVIP); err != nil {
 		t.Fatalf("step 8 delete virtual IP: %s", safeErr(err))
 	}
 	t.Log("step 8: deleted the virtual IP")

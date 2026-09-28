@@ -439,8 +439,8 @@ func TestTagResourceConfirmReadFailureNotSettled(t *testing.T) {
 	if !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled", err)
 	}
-	if out == nil || len(out.Tags) != 1 || out.Tags[0].Key != "env" {
-		t.Fatalf("out = %+v, want a fallback Output carrying the intended tag list", out)
+	if out == nil || len(out.Tags) != 0 {
+		t.Fatalf("out = %+v, want the last tags read before the write", out)
 	}
 }
 
@@ -704,6 +704,34 @@ func TestUntagResourceConfirmMismatchNotSettled(t *testing.T) {
 	}
 }
 
+func TestUntagResourceConfirmReadFailureNotSettled(t *testing.T) {
+	current := []Tag{{Key: "env", Value: "prod"}}
+	var calls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if calls.Add(1) == 1 {
+				writeJSON(t, w, tagsJSON(t, current))
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"boom"}`))
+		case http.MethodPut:
+			writeJSON(t, w, "[]")
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	out, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+	if out == nil || len(out.Tags) != 1 || out.Tags[0] != current[0] {
+		t.Fatalf("out = %+v, want the last tags read before the write", out)
+	}
+}
+
 func TestUntagResourceRequiredInput(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
@@ -845,5 +873,8 @@ func TestTagsEqual(t *testing.T) {
 	}
 	if tagsEqual(a, []Tag{{Key: "a", Value: "1"}, {Key: "b", Value: "different"}}) {
 		t.Fatal("tagsEqual = true, want false for a different value")
+	}
+	if tagsEqual(a, []Tag{{Key: "a", Value: "1"}, {Key: "a", Value: "1"}}) {
+		t.Fatal("tagsEqual = true, want false when the second list repeats a key")
 	}
 }

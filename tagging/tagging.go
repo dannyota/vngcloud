@@ -13,7 +13,7 @@
 // with the "vng." prefix those system tags use, or the pre-write read
 // finds an existing system tag under that exact Key.
 //
-// ResourceType is sent to the server exactly as given. VIRTUAL-IP-ADDRESS
+// ResourceType is sent to the server exactly as given. ResourceTypeVirtualIPAddress
 // is confirmed live to accept a tag write for free. VNG Cloud's own Go SDK
 // also names SERVER, VOLUME, and LOAD-BALANCER for this call, on paid
 // resources this package has not tried.
@@ -46,6 +46,10 @@ var (
 	// more, rather than repeating this same call blind.
 	ErrNotSettled = errors.New("tagging: write accepted but not settled")
 )
+
+// ResourceTypeVirtualIPAddress is the recorded accepted resource type for a
+// private virtual IP address.
+const ResourceTypeVirtualIPAddress = "VIRTUAL-IP-ADDRESS"
 
 // Tag is one key/value pair on a resource. SystemTag is true for a tag the
 // platform manages.
@@ -135,9 +139,8 @@ type TagResourceOutput struct {
 // idempotent, so the transport's normal retries apply. TagResource then
 // reads the tags again to confirm the user tags equal what was sent. A
 // mismatch, or a failure of that confirming read, returns an error wrapping
-// ErrNotSettled, and the Output falls back to the resource's system tags
-// plus the user tags TagResource intended to write, or, on a mismatch, the
-// tags the confirming read actually found.
+// ErrNotSettled. The Output holds the confirming read's tags on a mismatch,
+// or the last tags read before the write when that read fails.
 func (c *Client) TagResource(ctx context.Context, in *TagResourceInput) (*TagResourceOutput, error) {
 	const op = "tagging.TagResource"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -163,7 +166,7 @@ func (c *Client) TagResource(ctx context.Context, in *TagResourceInput) (*TagRes
 	if !changed {
 		return &TagResourceOutput{Tags: current, Previous: previous, Changed: false}, nil
 	}
-	return c.writeTags(ctx, op, in.ResourceID, in.ResourceType, system, next, previous)
+	return c.writeTags(ctx, op, in.ResourceID, in.ResourceType, current, next, previous)
 }
 
 // UntagResourceInput removes Key from ResourceID's tags.
@@ -216,7 +219,7 @@ func (c *Client) UntagResource(ctx context.Context, in *UntagResourceInput) (*Un
 	if !changed {
 		return &UntagResourceOutput{Tags: current, Previous: previous, Changed: false}, nil
 	}
-	out, err := c.writeTags(ctx, op, in.ResourceID, in.ResourceType, system, next, previous)
+	out, err := c.writeTags(ctx, op, in.ResourceID, in.ResourceType, current, next, previous)
 	if out == nil {
 		return nil, err
 	}
@@ -316,6 +319,7 @@ func tagsEqual(a, b []Tag) bool {
 		if !ok || v != tag.Value {
 			return false
 		}
+		delete(values, tag.Key)
 	}
 	return true
 }
@@ -359,9 +363,9 @@ func (c *Client) listTags(ctx context.Context, op, resourceID string) ([]Tag, er
 // writeTags sends next as ResourceID's whole user tag list, never system,
 // and confirms the result by reading the tags again. previous is threaded
 // through to the returned Output unchanged; it plays no part in the write
-// itself. system is only used to build a fallback Output.Tags if the
-// confirming read fails; the write itself never sends it.
-func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType string, system, next []Tag, previous *string) (*TagResourceOutput, error) {
+// itself. current is returned if the confirming read fails, because it is
+// the last tag list the SDK observed.
+func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType string, current, next []Tag, previous *string) (*TagResourceOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -386,10 +390,7 @@ func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType str
 	// the write may have landed and must not be sent again.
 	confirmed, err := c.listTags(ctx, op, resourceID)
 	if err != nil {
-		fallback := make([]Tag, 0, len(system)+len(next))
-		fallback = append(fallback, system...)
-		fallback = append(fallback, next...)
-		return &TagResourceOutput{Tags: fallback, Previous: previous, Changed: true},
+		return &TagResourceOutput{Tags: current, Previous: previous, Changed: true},
 			fmt.Errorf("%w: %s: resource %s: confirm read failed: %w", ErrNotSettled, op, resourceID, err)
 	}
 	_, confirmedUser := splitTags(confirmed)
