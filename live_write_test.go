@@ -3389,6 +3389,72 @@ func listAllVPCs(ctx context.Context, client *network.Client) ([]network.VPC, er
 	}
 }
 
+// vpcIDsHeldByNetworkACLs returns the set of VPC ids that some network ACL
+// belongs to, account-wide. A listed ACL's own NetworkID is confirmed live
+// to sometimes come back empty for an ACL that does belong to a VPC, so
+// this also reads every ACL's own detail with GetNetworkACL and checks its
+// VPCID. ok is false when the ACL listing, or any one read, fails other
+// than NotFound; the caller must then treat every VPC as held rather than
+// risk deleting one a network ACL still holds.
+func vpcIDsHeldByNetworkACLs(ctx context.Context, client *network.Client) (held map[string]bool, ok bool) {
+	acls, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		return nil, false
+	}
+	held = make(map[string]bool)
+	for _, acl := range acls {
+		if acl.NetworkID != "" {
+			held[acl.NetworkID] = true
+		}
+		detail, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: acl.UUID})
+		if err != nil {
+			if vngcloud.IsNotFound(err) {
+				continue
+			}
+			return nil, false
+		}
+		if detail.ACL.VPCID != "" {
+			held[detail.ACL.VPCID] = true
+		}
+	}
+	return held, true
+}
+
+// leftoverVPCsToDelete filters candidates, a leftover VPC sweep's own
+// name-matched VPCs, down to the ones safe to delete this run. The account
+// can hold a permanently stuck VPC: one a network ACL still belongs to, or
+// one with Private DNS on, whose delete always fails. Neither case is ever
+// true of a VPC one of these test sweeps created itself, since none of
+// them associates a network ACL with its own VPC's subnet past its own
+// cleanup or enables Private DNS on its own VPC, so either marks a leftover
+// from an earlier run that must be left alone rather than fail the test on
+// its delete. When the network ACL check itself fails, every candidate is
+// skipped and logged instead of risking a delete against a VPC a network
+// ACL still holds.
+func leftoverVPCsToDelete(ctx context.Context, t *testing.T, client *network.Client, candidates []network.VPC) []network.VPC {
+	t.Helper()
+	if len(candidates) == 0 {
+		return nil
+	}
+	held, ok := vpcIDsHeldByNetworkACLs(ctx, client)
+	if !ok {
+		t.Logf("step 1: could not list or read every network ACL; skipping all %d leftover VPC(s) this run", len(candidates))
+		return nil
+	}
+	var keep []network.VPC
+	for _, vpc := range candidates {
+		switch {
+		case held[vpc.UUID]:
+			t.Logf("step 1: skipping leftover VPC %s: a network ACL belongs to it", vpc.UUID)
+		case vpc.DNSStatus != "DISABLED":
+			t.Logf("step 1: skipping leftover VPC %s: DNS status is %s, not DISABLED", vpc.UUID, vpc.DNSStatus)
+		default:
+			keep = append(keep, vpc)
+		}
+	}
+	return keep
+}
+
 // pickEnabledZoneID returns the uuid of the first zone portal.ListZones
 // reports enabled. The test account's default zone is disabled, so a
 // subnet create needs this rather than any zone the account has.
@@ -3812,16 +3878,22 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	client := network.New(cfg)
 	portalClient := portal.New(cfg)
 
-	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run.
+	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run,
+	// skipping one a network ACL still holds or with Private DNS on (see
+	// leftoverVPCsToDelete): the account can hold a permanently stuck VPC
+	// like that, and this test must not fail on its delete.
 	leftovers, err := listAllVPCs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
 	}
-	deletedLeftovers := 0
+	var candidates []network.VPC
 	for _, leftover := range leftovers {
-		if !isLiveSecurityGroupName(leftover.Name) {
-			continue
+		if isLiveSecurityGroupName(leftover.Name) {
+			candidates = append(candidates, leftover)
 		}
+	}
+	deletedLeftovers := 0
+	for _, leftover := range leftoverVPCsToDelete(ctx, t, client, candidates) {
 		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedLeftovers++
 	}
@@ -5275,16 +5347,24 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 	// Step 1: delete every leftover vngcloud-live-* VPC, then every leftover
 	// vngcloud-live-* DHCP options set, from a previous run. A leftover set
 	// still attached to a leftover VPC becomes unattached once that VPC is
-	// deleted, so the VPC sweep always runs first.
+	// deleted, so the VPC sweep always runs first. A VPC a network ACL
+	// still holds or with Private DNS on is skipped rather than deleted
+	// (see leftoverVPCsToDelete): the account can hold a permanently stuck
+	// VPC like that, and this test must not fail on its delete; its DHCP
+	// options set then stays attached, and the set sweep below already
+	// tolerates that.
 	leftoverVPCs, err := listAllVPCs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
 	}
-	deletedVPCLeftovers := 0
+	var vpcCandidates []network.VPC
 	for _, leftover := range leftoverVPCs {
-		if !isLiveSecurityGroupName(leftover.Name) {
-			continue
+		if isLiveSecurityGroupName(leftover.Name) {
+			vpcCandidates = append(vpcCandidates, leftover)
 		}
+	}
+	deletedVPCLeftovers := 0
+	for _, leftover := range leftoverVPCsToDelete(ctx, t, client, vpcCandidates) {
 		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedVPCLeftovers++
 	}
