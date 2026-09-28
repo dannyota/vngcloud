@@ -708,6 +708,59 @@ func TestSetVPCDHCPOptionsWaitFailsOnError(t *testing.T) {
 	}
 }
 
+func TestVPCDHCPOptionsWaitFailsOnErrorWhenTargetMatches(t *testing.T) {
+	t.Run("set", func(t *testing.T) {
+		getCalls := 0
+		c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodPatch:
+				w.WriteHeader(http.StatusOK)
+			case strings.Contains(r.URL.Path, "/dhcp_option/"):
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"uuid":"dop-2","status":"ACTIVE","associatedNetworks":[]}`))
+			case r.Method == http.MethodGet:
+				getCalls++
+				if getCalls == 1 {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ERROR","dnsStatus":"DISABLED","dhcpOptionId":"dop-2"}`))
+			}
+		})))
+
+		_, err := c.SetVPCDHCPOptions(context.Background(), &SetVPCDHCPOptionsInput{VPCID: "vpc-1", DHCPOptionsID: "dop-2"})
+		if !errors.Is(err, ErrFailed) {
+			t.Fatalf("err = %v, want ErrFailed", err)
+		}
+	})
+
+	t.Run("clear", func(t *testing.T) {
+		getCalls := 0
+		c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPatch:
+				w.WriteHeader(http.StatusOK)
+			case http.MethodGet:
+				getCalls++
+				if getCalls == 1 {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ERROR","dnsStatus":"DISABLED","dhcpOptionId":""}`))
+			}
+		})))
+
+		_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+		if !errors.Is(err, ErrFailed) {
+			t.Fatalf("err = %v, want ErrFailed", err)
+		}
+	})
+}
+
 func TestSetVPCDHCPOptionsWaitBoundReached(t *testing.T) {
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

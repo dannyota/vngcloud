@@ -441,10 +441,10 @@ func (c *Client) waitVPCDHCPOptionsSet(ctx context.Context, op, vpcID, target st
 			}
 			vpc = &out.VPC
 			switch {
-			case vpc.DHCPOptionID == target:
-				return true, nil
 			case vpc.Status == vpcStatusError:
 				return true, fmt.Errorf("%w: %s: VPC %s is ERROR", ErrFailed, op, vpcID)
+			case vpc.DHCPOptionID == target:
+				return true, nil
 			default:
 				return false, nil
 			}

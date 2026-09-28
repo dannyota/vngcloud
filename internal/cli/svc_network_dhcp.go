@@ -11,14 +11,15 @@ import (
 // on every call, even one that turns out to be a no-op because the VPC
 // already has the target set: once the write lands, every server in the VPC
 // picks up the new resolvers after its own next DHCP renew or reboot.
-// clear-vpc-dhcp-options can return the VPC to no set, but not back to
-// whatever set it had before the change; see requireYesToClearVPCDHCPOptions.
+// Running the command again with the VPC's previous set id restores it
+// while that set still exists; see requireYesToClearVPCDHCPOptions for
+// moving the VPC to no set instead.
 func requireYesToSetVPCDHCPOptions(cmd *cobra.Command, _ any) error {
 	if yes, _ := cmd.Flags().GetBool("yes"); yes {
 		return nil
 	}
 	return newUsageError(
-		"network set-vpc-dhcp-options moves the VPC to a DHCP options set with no call back to its previous one, and changes DNS for every server in it; pass --yes to confirm")
+		"network set-vpc-dhcp-options moves the VPC to a DHCP options set and changes DNS for every server in it; pass --yes to confirm")
 }
 
 // requireYesToClearVPCDHCPOptions is clear-vpc-dhcp-options's Guard, the
@@ -27,12 +28,12 @@ func requireYesToSetVPCDHCPOptions(cmd *cobra.Command, _ any) error {
 // design, this command needs --yes on every call, even one that turns out to
 // be a no-op because the VPC already has no set: once the write lands, every
 // server in the VPC picks up the change after its own next DHCP renew or
-// reboot, and the API gives no call that restores the set or the resolvers
-// the VPC had before.
+// reboot. Running set-vpc-dhcp-options with the VPC's previous set id
+// restores it while that set still exists.
 func requireYesToClearVPCDHCPOptions(cmd *cobra.Command, _ any) error {
 	if yes, _ := cmd.Flags().GetBool("yes"); yes {
 		return nil
 	}
 	return newUsageError(
-		"network clear-vpc-dhcp-options removes the VPC's DHCP options set with no call to restore it, and changes DNS for every server in it; pass --yes to confirm")
+		"network clear-vpc-dhcp-options removes the VPC's DHCP options set and changes DNS for every server in it; pass --yes to confirm")
 }

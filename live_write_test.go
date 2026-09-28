@@ -3421,38 +3421,58 @@ func vpcIDsHeldByNetworkACLs(ctx context.Context, client *network.Client) (held 
 }
 
 // leftoverVPCsToDelete filters candidates, a leftover VPC sweep's own
-// name-matched VPCs, down to the ones safe to delete this run. The account
-// can hold a permanently stuck VPC: one a network ACL still belongs to, or
-// one with Private DNS on, whose delete always fails. Neither case is ever
-// true of a VPC one of these test sweeps created itself, since none of
-// them associates a network ACL with its own VPC's subnet past its own
-// cleanup or enables Private DNS on its own VPC, so either marks a leftover
-// from an earlier run that must be left alone rather than fail the test on
-// its delete. When the network ACL check itself fails, every candidate is
-// skipped and logged instead of risking a delete against a VPC a network
-// ACL still holds.
-func leftoverVPCsToDelete(ctx context.Context, t *testing.T, client *network.Client, candidates []network.VPC) []network.VPC {
+// name-matched VPCs, down to the ones safe to delete this run, in toDelete.
+// The account can hold a permanently stuck VPC: one a network ACL still
+// belongs to, or one with Private DNS on, whose delete always fails.
+// TestLiveWriteNetworkVPC enables Private DNS on its own VPC, behind
+// VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS, and neither case is ever true of a VPC
+// that test created past its own run: the ACL association and the Private
+// DNS enable both happen only on that run's own VPC, and its own cleanup
+// then tries to delete it regardless. So a candidate held or with Private
+// DNS on always marks a leftover from an earlier run that must be left
+// alone rather than fail the test on its delete; skippedIDs names every
+// such candidate, by UUID, for the caller to exclude from its own later
+// "did this run clean up after itself" check. When the network ACL check
+// itself fails, every candidate is skipped and logged, and skippedIDs holds
+// all of them, instead of risking a delete against a VPC a network ACL
+// still holds.
+func leftoverVPCsToDelete(ctx context.Context, t *testing.T, client *network.Client, candidates []network.VPC) (toDelete []network.VPC, skippedIDs map[string]bool) {
 	t.Helper()
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 	held, ok := vpcIDsHeldByNetworkACLs(ctx, client)
 	if !ok {
 		t.Logf("step 1: could not list or read every network ACL; skipping all %d leftover VPC(s) this run", len(candidates))
-		return nil
+		skippedIDs = make(map[string]bool, len(candidates))
+		for _, vpc := range candidates {
+			skippedIDs[vpc.UUID] = true
+		}
+		return nil, skippedIDs
 	}
-	var keep []network.VPC
+	skippedIDs = make(map[string]bool)
+	aclHeld := 0
+	nonDisabledDNS := 0
 	for _, vpc := range candidates {
 		switch {
 		case held[vpc.UUID]:
-			t.Logf("step 1: skipping leftover VPC %s: a network ACL belongs to it", vpc.UUID)
+			aclHeld++
+			skippedIDs[vpc.UUID] = true
 		case vpc.DNSStatus != "DISABLED":
-			t.Logf("step 1: skipping leftover VPC %s: DNS status is %s, not DISABLED", vpc.UUID, vpc.DNSStatus)
+			nonDisabledDNS++
+			t.Logf("step 1: skipping a leftover VPC: DNS status is %s, not DISABLED", vpc.DNSStatus)
+			skippedIDs[vpc.UUID] = true
 		default:
-			keep = append(keep, vpc)
+			toDelete = append(toDelete, vpc)
 		}
 	}
-	return keep
+	if aclHeld > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) held by a network ACL", aclHeld)
+	}
+	if nonDisabledDNS > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) with Private DNS enabled", nonDisabledDNS)
+	}
+	return toDelete, skippedIDs
 }
 
 // pickEnabledZoneID returns the uuid of the first zone portal.ListZones
@@ -3892,8 +3912,9 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 			candidates = append(candidates, leftover)
 		}
 	}
+	deletable, skippedVPCIDs := leftoverVPCsToDelete(ctx, t, client, candidates)
 	deletedLeftovers := 0
-	for _, leftover := range leftoverVPCsToDelete(ctx, t, client, candidates) {
+	for _, leftover := range deletable {
 		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedLeftovers++
 	}
@@ -3933,6 +3954,9 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 
 	// Step 4: register the fallback cleanup as soon as vpcID is known,
 	// before any later step can fail and skip the explicit deletes below.
+	// Its final count excludes skippedVPCIDs: a VPC step 1 left alone on
+	// purpose is not this run's to clean up, and must not fail every later
+	// run until someone deletes it by hand.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
@@ -3944,7 +3968,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 		}
 		remaining := 0
 		for _, v := range final {
-			if isLiveSecurityGroupName(v.Name) {
+			if isLiveSecurityGroupName(v.Name) && !skippedVPCIDs[v.UUID] {
 				remaining++
 			}
 		}
@@ -5257,25 +5281,30 @@ func listAllDHCPOptions(ctx context.Context, client *network.Client) ([]network.
 	}
 }
 
-// deleteLiveDHCPOptionsSet deletes id, tolerating NotFound (already gone).
-// A set DeleteDHCPOptions itself reports as still attached to a VPC
-// (ErrInUse) is left alone rather than forced: TestLiveWriteNetworkDHCPOptions
-// registers this cleanup for each set it creates before it registers the
-// run's own VPC cleanup, so t.Cleanup's LIFO order runs the VPC's delete
-// first and frees every set the VPC held; an attachment found here means an
-// earlier step left the set attached some other way, and the set is left
-// for a later run's own leftover sweep rather than risking a delete this
-// design never allows.
-func deleteLiveDHCPOptionsSet(ctx context.Context, t *testing.T, client *network.Client, id string) {
+// deleteLiveDHCPOptionsSet deletes id, tolerating NotFound (already gone),
+// and reports deleted true only when the delete itself succeeded: a caller
+// counting how many leftovers it actually removed must not count NotFound
+// or a skip as a delete. A set DeleteDHCPOptions itself reports as still
+// attached to a VPC (ErrInUse) is left alone rather than forced:
+// TestLiveWriteNetworkDHCPOptions registers this cleanup for each set it
+// creates before it registers the run's own VPC cleanup, so t.Cleanup's
+// LIFO order runs the VPC's delete first and frees every set the VPC held;
+// an attachment found here means an earlier step left the set attached some
+// other way, and the set is left for a later run's own leftover sweep
+// rather than risking a delete this design never allows.
+func deleteLiveDHCPOptionsSet(ctx context.Context, t *testing.T, client *network.Client, id string) (deleted bool) {
 	t.Helper()
 	_, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: id})
 	switch {
-	case err == nil, vngcloud.IsNotFound(err):
+	case err == nil:
+		return true
+	case vngcloud.IsNotFound(err):
 	case errors.Is(err, network.ErrInUse):
 		t.Log("cleanup: a DHCP options set is still attached to a VPC; leaving it for a later run's leftover sweep")
 	default:
 		t.Errorf("cleanup: delete DHCP options set: %s", safeErr(err))
 	}
+	return false
 }
 
 // TestLiveWriteNetworkDHCPOptions exercises ListDHCPOptions, GetDHCPOptions,
@@ -5298,12 +5327,12 @@ func deleteLiveDHCPOptionsSet(ctx context.Context, t *testing.T, client *network
 // expecting the SDK's own ErrInUse (step 6); sets the VPC to the second set,
 // which frees the first, and deletes the first set (step 7); clears the
 // VPC's set with ClearVPCDHCPOptions, expecting Changed true and an empty
-// DHCPOptionID within the same 60-second bound, repeats the call expecting
-// Changed false, then deletes the second set now that it is unattached
-// (step 8); deletes the subnet and VPC explicitly rather than waiting for
-// their registered cleanups (step 9); and logs portal.ListQuotaUsed's row
-// count before step 2 and after step 9. It never sets Private DNS on its
-// VPC, so DNSStatus stays DISABLED throughout and never blocks the
+// DHCPOptionID within the same 60-second bound, then repeats the call
+// expecting Changed false (step 8); reattaches the second set, deletes the
+// subnet and VPC, then verifies that VPC deletion detached the set before
+// deleting it (step 9); and logs portal.ListQuotaUsed's row count before
+// step 2 and after step 9. It never sets Private DNS on its VPC, so
+// DNSStatus stays DISABLED throughout and never blocks the
 // SetVPCDHCPOptions and ClearVPCDHCPOptions calls above. It must never run
 // at the same time as TestLiveWriteNetworkVPC, TestLiveWriteNetworkRouteTable,
 // or TestLiveWriteNetworkACL, since the account's VPC quota leaves room for
@@ -5363,8 +5392,9 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 			vpcCandidates = append(vpcCandidates, leftover)
 		}
 	}
+	deletableVPCs, _ := leftoverVPCsToDelete(ctx, t, client, vpcCandidates)
 	deletedVPCLeftovers := 0
-	for _, leftover := range leftoverVPCsToDelete(ctx, t, client, vpcCandidates) {
+	for _, leftover := range deletableVPCs {
 		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedVPCLeftovers++
 	}
@@ -5377,8 +5407,9 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 		if !isLiveSecurityGroupName(leftover.Name) {
 			continue
 		}
-		deleteLiveDHCPOptionsSet(ctx, t, client, leftover.UUID)
-		deletedSetLeftovers++
+		if deleteLiveDHCPOptionsSet(ctx, t, client, leftover.UUID) {
+			deletedSetLeftovers++
+		}
 	}
 	t.Logf("step 1: deleted %d leftover VPC(s) and %d leftover DHCP options set(s)", deletedVPCLeftovers, deletedSetLeftovers)
 
@@ -5518,8 +5549,7 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 
 	// Step 8: clear the VPC's DHCP options set, expecting Changed true and
 	// an empty DHCPOptionID within the design's 60-second bound, then repeat
-	// the same call expecting Changed false, then delete the second set now
-	// that it is unattached.
+	// the same call expecting Changed false.
 	start = time.Now()
 	cleared, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{VPCID: vpcID})
 	if err != nil {
@@ -5543,17 +5573,31 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 	}
 	t.Logf("step 8: repeat clear was a no-op as expected, wait %s", time.Since(start))
 
-	if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set2ID}); err != nil {
-		t.Errorf("step 8 DeleteDHCPOptions (second set, now unattached): %s", safeErr(err))
-	} else {
-		t.Log("step 8: deleted the second set")
+	start = time.Now()
+	setSecondAgain, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Fatalf("step 9 SetVPCDHCPOptions (second set, reattach): %s", safeErr(err))
 	}
+	if !setSecondAgain.Changed || setSecondAgain.VPC.DHCPOptionID != set2ID {
+		t.Error("step 9: reattaching the second set did not settle on that set")
+	}
+	t.Logf("step 9: reattached the second set, wait %s", time.Since(start))
 
 	// Step 9: delete the subnet and VPC explicitly rather than waiting for
 	// their registered cleanups; those cleanups then find both already gone
-	// and do nothing.
+	// and do nothing. VPC deletion must detach its DHCP options set.
 	deleteVPCAndSubnets(ctx, t, client, vpcID, nil)
 	t.Log("step 9: deleted the subnet and VPC")
+	secondSetAfterVPCDelete, err := client.GetDHCPOptions(ctx, &network.GetDHCPOptionsInput{DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Errorf("step 9 GetDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else if len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs) != 0 {
+		t.Errorf("step 9: second set has %d associated VPC(s) after VPC delete, want 0", len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs))
+	} else if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set2ID}); err != nil {
+		t.Errorf("step 9 DeleteDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else {
+		t.Log("step 9: VPC deletion detached and the SDK deleted the second set")
+	}
 
 	quotaAfter, err := portalClient.ListQuotaUsed(ctx, nil)
 	if err != nil {
