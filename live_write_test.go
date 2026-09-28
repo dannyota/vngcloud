@@ -318,8 +318,50 @@ func deleteBudgetByName(t *testing.T, client *billing.Client, name string) {
 	}
 }
 
-// safeErr summarizes err for a test log line without its message text, which
-// may name this test's own budget or threshold UUID.
+// sdkSentinelErrs lists the SDK's own hand-built sentinel errors: every one
+// of these is constructed in this codebase from an operation name plus IDs,
+// names, counts, or statuses already known to the caller (see each error's
+// own doc comment), and none is ever built by wrapping a raw transport
+// failure or an *vngcloud.APIError, whose Message field echoes server text
+// safeErr must not print. safeErr prints the full message of an error that
+// wraps one of these; every other error stays redacted.
+var sdkSentinelErrs = []error{
+	vngcloud.ErrInvalidInput,
+	network.ErrInUse,
+	network.ErrBusy,
+	network.ErrDefaultResource,
+	network.ErrFailed,
+	network.ErrNotSettled,
+	network.ErrSecurityGroupInUse,
+	network.ErrSystemGroup,
+	network.ErrUnexpectedStatus,
+	iam.ErrSelfChange,
+	iam.ErrPrivilegedChange,
+	iam.ErrNoSecret,
+	iam.ErrCreateUnconfirmed,
+	iam.ErrManagedPolicy,
+	iam.ErrInUse,
+	dns.ErrZoneBusy,
+	dns.ErrNotSettled,
+	dns.ErrFailed,
+	compute.ErrServerGroupInUse,
+	compute.ErrNotSettled,
+	containerregistry.ErrUserNotFound,
+	containerregistry.ErrRepositoryNotEmpty,
+	containerregistry.ErrNotSettled,
+	loadbalancer.ErrCertificateInUse,
+	monitor.ErrOTPRejected,
+	monitor.ErrUnexpectedStatus,
+	monitor.ErrStatusUnconfirmed,
+}
+
+// safeErr summarizes err for a test log line. A *vngcloud.APIError's own
+// Message may echo request data, such as this test's own budget or
+// threshold UUID, so only its StatusCode and Code print. An error that
+// wraps one of sdkSentinelErrs prints in full instead, since reaching this
+// branch already means the error carries no *vngcloud.APIError anywhere in
+// its chain (the check above would have matched it first); anything else,
+// including a bare transport failure, prints only its Go type.
 func safeErr(err error) string {
 	if err == nil {
 		return "none"
@@ -328,7 +370,47 @@ func safeErr(err error) string {
 	if errors.As(err, &apiErr) {
 		return fmt.Sprintf("status=%d code=%s", apiErr.StatusCode, apiErr.Code)
 	}
+	for _, sentinel := range sdkSentinelErrs {
+		if errors.Is(err, sentinel) {
+			return err.Error()
+		}
+	}
 	return fmt.Sprintf("non-API error (%T)", err)
+}
+
+// TestSafeErr checks that safeErr redacts an *vngcloud.APIError and an
+// unrecognized error, but prints the full message of an error wrapping one
+// of the SDK's own sentinel errors.
+func TestSafeErr(t *testing.T) {
+	if got := safeErr(nil); got != "none" {
+		t.Errorf("safeErr(nil) = %q, want %q", got, "none")
+	}
+
+	apiErr := &vngcloud.APIError{Operation: "network.DeleteVirtualIPAddress", StatusCode: 400, Code: "InvalidUsage", Message: "vip-secret-name is not deletable"}
+	if got := safeErr(apiErr); got != "status=400 code=InvalidUsage" {
+		t.Errorf("safeErr(apiErr) = %q, want status=400 code=InvalidUsage", got)
+	}
+	if strings.Contains(safeErr(apiErr), apiErr.Message) {
+		t.Errorf("safeErr(apiErr) = %q, must not include the server message", safeErr(apiErr))
+	}
+
+	invalidInputErr := fmt.Errorf("%w: network.DeleteVirtualIPAddress: virtual IP vip-1 has type %q, not a private virtual IP; it must be deleted through the public virtual IP call instead", vngcloud.ErrInvalidInput, "public-vm")
+	if got := safeErr(invalidInputErr); got != invalidInputErr.Error() {
+		t.Errorf("safeErr(invalidInputErr) = %q, want the full message %q", got, invalidInputErr.Error())
+	}
+
+	inUseErr := fmt.Errorf("%w: network.DeleteVirtualIPAddress: virtual IP vip-1 has 2 address pair(s) attached", network.ErrInUse)
+	if got := safeErr(inUseErr); got != inUseErr.Error() {
+		t.Errorf("safeErr(inUseErr) = %q, want the full message %q", got, inUseErr.Error())
+	}
+
+	transportErr := fmt.Errorf("Get \"https://example.invalid/v2/token=abc123\": dial tcp: connection refused")
+	if got := safeErr(transportErr); got != fmt.Sprintf("non-API error (%T)", transportErr) {
+		t.Errorf("safeErr(transportErr) = %q, want the redacted form", got)
+	}
+	if strings.Contains(safeErr(transportErr), "example.invalid") || strings.Contains(safeErr(transportErr), "abc123") {
+		t.Errorf("safeErr(transportErr) = %q, must not include the URL", safeErr(transportErr))
+	}
 }
 
 // emptyWriteFile creates an empty, mode-0600 file named name in a fresh temp

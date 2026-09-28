@@ -7,7 +7,7 @@
     "subnetId": "subnet-1",
     "description": "<description>",
     "mode": "Active/Active",
-    "type": "",
+    "type": "private",
     "status": "ACTIVE"
   }
 }

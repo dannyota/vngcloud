@@ -77,7 +77,10 @@ checks record the 4xx answers.
   a VPC with Private DNS, empty on one without.
 - A virtual IP has `uuid`, `name`, `ipAddress`, `networkId`, `subnetId`,
   `description`, `mode`, `type`, `status`, `addressPairIps`, `zone`, and
-  CIDR and name fields, as `VirtualIPAddress` decodes today.
+  CIDR and name fields, as `VirtualIPAddress` decodes today. A private
+  virtual IP's `type` is the lowercase string `private` (live: the create
+  response, and the GreenNode console it feeds, both return it; the console
+  displays it as PRIVATE).
 - A tag (live for the read, on VPC IDs) is `key`, `value`, `systemTag`, and
   `createdAt`. The read returns 200 with `[]` for a VPC with no tags; that
   shows the read accepts any ID, not that a write accepts a VPC type.

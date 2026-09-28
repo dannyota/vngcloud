@@ -71,14 +71,13 @@ any address pair is still attached, checked both by the read's own
 `AddressPairIPs` and by `ListAddressPairsByVirtualIPAddress`
 (`network.ErrInUse`): a pair binds the address to a server interface, and
 deleting it would move traffic. It also sends nothing for a virtual IP
-whose `Type` is not the private type (`vngcloud.ErrInvalidInput`), so a
-public virtual IP, which has its own delete call and price, is never
-deleted through this one; the exact `Type` a private virtual IP carries is
-not yet confirmed live, so today this refuses every virtual IP until that
-is recorded. `DELETE` is idempotent; a retry that finds the virtual IP
-already gone returns `vngcloud.IsNotFound(err) == true`. Deleting a subnet
-that still holds a virtual IP is refused; see [Creating, renaming, and
-deleting
+whose `Type` is not `"private"`, compared case-insensitively
+(`vngcloud.ErrInvalidInput`), so a public virtual IP, which has its own
+delete call and price, is never deleted through this one; an empty `Type`
+is refused the same way. `DELETE` is idempotent; a retry that finds the
+virtual IP already gone returns `vngcloud.IsNotFound(err) == true`.
+Deleting a subnet that still holds a virtual IP is refused; see [Creating,
+renaming, and deleting
 subnets](Network.md#creating-renaming-and-deleting-subnets).
 
 ## Waits
