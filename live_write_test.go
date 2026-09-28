@@ -7207,106 +7207,81 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	t.Log("step 12: deleted group and policy")
 }
 
-// probeTagRequest is one key/value pair, both for a create body's
-// speculative "tags" field and for a tag PUT's tagRequestList; the API
-// bodies section names both shapes as key/value pairs.
-type probeTagRequest struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// probeCreateWithTag POSTs body, with one extra "tags" field holding one
-// key/value pair, to the vServer gateway at parts (under
-// v2/{projectId}/...), and returns the created resource's id. No source
-// the design cites confirms the shape a create body's own "tags" field
-// takes for a security group, server group, route table, network ACL, or
-// subnet; this probe is what settles it, and a refusal here is itself a
-// useful result to log.
-func probeCreateWithTag(ctx context.Context, c *core.Client, parts []string, body map[string]any) (string, error) {
+// createLiveVirtualIPAddress POSTs the private virtual IP address body the
+// design records (name, subnetId, mode) directly on the vServer gateway,
+// since this branch has no network.CreateVirtualIPAddress yet, and returns
+// the created virtual IP's id.
+func createLiveVirtualIPAddress(ctx context.Context, c *core.Client, subnetID, name string) (string, error) {
 	projectID, err := c.RequireProjectID(ctx)
 	if err != nil {
 		return "", err
 	}
-	full := make(map[string]any, len(body)+1)
-	for k, v := range body {
-		full[k] = v
-	}
-	full["tags"] = []probeTagRequest{{Key: "vngcloud-live-probe", Value: "1"}}
 	var resp struct {
 		Data struct {
 			UUID string `json:"uuid"`
 		} `json:"data"`
-		UUID string `json:"uuid"`
 	}
-	routeParts := append([]string{projectID}, parts...)
 	req := transport.Request{
-		Operation: "tagging.probe.CreateWithTag",
+		Operation: "tagging.live.CreateVirtualIPAddress",
 		Method:    http.MethodPost,
-		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: routeParts}),
-		Body:      full,
+		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress"}}),
+		Body:      map[string]any{"name": name, "subnetId": subnetID, "mode": "Active/Active"},
 		OK:        []int{200, 201, 202},
 	}
 	if err := c.DoJSON(ctx, req, &resp); err != nil {
 		return "", err
 	}
-	if resp.Data.UUID != "" {
-		return resp.Data.UUID, nil
-	}
-	return resp.UUID, nil
+	return resp.Data.UUID, nil
 }
 
-// probePutTags PUTs resourceType and tags for resourceID directly on the
-// tag gateway, bypassing tagging.Client.TagResource: the type probe below
-// tries resourceType values the SDK does not yet know are accepted, and
-// sends an exact list rather than a read-merge, which tagging.TagResource
-// does not support. A nil tags sends an empty tagRequestList.
-func probePutTags(ctx context.Context, c *core.Client, resourceID, resourceType string, tags []probeTagRequest) error {
+// deleteLiveVirtualIPAddress DELETEs a virtual IP address directly on the
+// vServer gateway, since this branch has no network.DeleteVirtualIPAddress
+// yet.
+func deleteLiveVirtualIPAddress(ctx context.Context, c *core.Client, id string) error {
 	projectID, err := c.RequireProjectID(ctx)
 	if err != nil {
 		return err
 	}
-	if tags == nil {
-		tags = []probeTagRequest{}
-	}
-	body := map[string]any{"resourceId": resourceID, "resourceType": resourceType, "tagRequestList": tags}
 	req := transport.Request{
-		Operation: "tagging.probe.PutTags",
-		Method:    http.MethodPut,
-		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "tag", "resource", resourceID}}),
-		Body:      body,
-		OK:        []int{200},
+		Operation: "tagging.live.DeleteVirtualIPAddress",
+		Method:    http.MethodDelete,
+		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress", id}}),
+		OK:        []int{200, 202, 204},
 	}
 	return c.DoJSON(ctx, req, nil)
 }
 
-// TestLiveWriteTaggingProbe runs the design's tag type probe against the
-// account named in .env: it looks for a resource type the tag write
-// accepts for free, and records whether an accepted type's tag PUT
-// replaces a resource's tags or upserts by key. Every step logs its result
-// rather than asserting one, since the design's tag resource type and
-// write semantics are open questions this probe exists to settle.
+// countSystemTags returns how many of tags carry SystemTag true.
+func countSystemTags(tags []tagging.Tag) int {
+	n := 0
+	for _, tag := range tags {
+		if tag.SystemTag {
+			n++
+		}
+	}
+	return n
+}
+
+// TestLiveWriteTagging exercises tagging.TagResource and
+// tagging.UntagResource against the account named in .env: it creates a
+// private virtual IP address in its own VPC and subnet, tags it, edits the
+// tag, removes it, and checks throughout that the platform's own system
+// tags (vng.zone, vng.region, vng.createdBy, confirmed live) are still on
+// the resource, since the tag PUT never sends or touches them.
 //
-// The steps that need no VPC run under VNGCLOUD_LIVE_TAGGING=1 alone: a
-// security group and a server group are each created with one tag in the
-// create body, and their tags are read back. The VPC-dependent steps run
-// only behind the additional VNGCLOUD_LIVE_TAGGING_VPC=1 gate: reading the
-// VPC and subnet's own tags; creating a route table, a network ACL, and a
-// second subnet, each with one tag in the create body; trying candidate
-// resourceType values on the VPC, then the subnet if none of those work;
-// checking whether the first accepted type's tag PUT replaces or upserts;
-// a tag PUT past the ten-tag quota; and clearing the tags this run wrote.
-// It creates its own VPC and subnet with createLiveVPCAndSubnet, which
-// registers their cleanup, and never touches a resource without the
-// vngcloud-live- prefix. It never associates its own network ACL or route
-// table with a subnet, so it passes createLiveVPCAndSubnet a nil blocked
-// func: nothing this test does can leave a subnet stuck the way an
-// associated network ACL can (see TestLiveWriteNetworkACL).
-func TestLiveWriteTaggingProbe(t *testing.T) {
+// This branch has no network.CreateVirtualIPAddress or
+// network.DeleteVirtualIPAddress yet, so the virtual IP is created and
+// deleted directly on the vServer gateway, the same way the type probe
+// this test replaces did. It creates its own VPC and subnet with
+// createLiveVPCAndSubnet, and never touches a resource without the
+// vngcloud-live- prefix; it never associates its subnet with a network ACL
+// or route table, so it passes createLiveVPCAndSubnet a nil blocked func.
+func TestLiveWriteTagging(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
-		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live tagging probe")
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live tagging write test")
 	}
 	if os.Getenv("VNGCLOUD_LIVE_TAGGING") != "1" {
-		t.Skip("set VNGCLOUD_LIVE_TAGGING=1 to run the live tagging probe")
+		t.Skip("set VNGCLOUD_LIVE_TAGGING=1 to run the live tagging write test")
 	}
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -7319,7 +7294,7 @@ func TestLiveWriteTaggingProbe(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
 	cfg, err := vngcloud.LoadConfig(ctx,
@@ -7335,240 +7310,112 @@ func TestLiveWriteTaggingProbe(t *testing.T) {
 	}
 
 	networkClient := network.New(cfg)
-	computeClient := compute.New(cfg)
 	portalClient := portal.New(cfg)
 	taggingClient := tagging.New(cfg)
 	coreClient := core.ClientOf(cfg)
 
-	// Step 1a: sweep leftovers, then create a security group with one tag
-	// in the create body, and read its tags back.
-	if secGroups, err := listAllSecurityGroups(ctx, networkClient); err == nil {
-		for _, g := range secGroups {
-			if isLiveSecurityGroupName(g.Name) {
-				deleteSecurityGroupAndRules(ctx, t, networkClient, g.ID)
-			}
-		}
-	}
-	secGroupSuffix, err := randomHex(4)
-	if err != nil {
-		t.Fatalf("generate name suffix: %v", err)
-	}
-	secGroupID, err := probeCreateWithTag(ctx, coreClient, []string{"secgroups"},
-		map[string]any{"name": "vngcloud-live-" + secGroupSuffix, "description": ""})
-	if err != nil {
-		t.Logf("step 1a: create security group with a create-body tag failed: %s", safeErr(err))
-	} else {
-		t.Log("step 1a: created security group with a create-body tag")
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			deleteSecurityGroupAndRules(cleanupCtx, t, networkClient, secGroupID)
-		})
-		if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: secGroupID}); err != nil {
-			t.Logf("step 1a: read security group tags failed: %s", safeErr(err))
-		} else {
-			t.Logf("step 1a: security group has %d tag(s) after create", len(tags.Items))
-		}
-	}
-
-	// Step 1b: sweep leftovers, then create a server group with one tag in
-	// the create body, and read its tags back.
-	if serverGroups, err := listAllServerGroups(ctx, computeClient); err == nil {
-		for _, g := range serverGroups {
-			if !isLiveServerGroupName(g.Name) || len(g.Servers) > 0 {
-				continue
-			}
-			if _, err := computeClient.DeleteServerGroup(ctx, &compute.DeleteServerGroupInput{ServerGroupID: g.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("step 1b: delete leftover server group: %s", safeErr(err))
-			}
-		}
-	}
-	policies, err := computeClient.ListServerGroupPolicies(ctx, nil)
-	if err != nil || len(policies.Items) == 0 {
-		t.Logf("step 1b: skipped: no server group policy available (%s)", safeErr(err))
-	} else {
-		serverGroupSuffix, err := randomHex(4)
-		if err != nil {
-			t.Fatalf("generate name suffix: %v", err)
-		}
-		serverGroupID, err := probeCreateWithTag(ctx, coreClient, []string{"serverGroups"},
-			map[string]any{"name": "vngcloud-live-" + serverGroupSuffix, "policyId": policies.Items[0].UUID, "description": ""})
-		if err != nil {
-			t.Logf("step 1b: create server group with a create-body tag failed: %s", safeErr(err))
-		} else {
-			t.Log("step 1b: created server group with a create-body tag")
-			t.Cleanup(func() {
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				if _, err := computeClient.DeleteServerGroup(cleanupCtx, &compute.DeleteServerGroupInput{ServerGroupID: serverGroupID}); err != nil && !vngcloud.IsNotFound(err) {
-					t.Errorf("cleanup: delete probe server group: %s", safeErr(err))
-				}
-			})
-			if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: serverGroupID}); err != nil {
-				t.Logf("step 1b: read server group tags failed: %s", safeErr(err))
-			} else {
-				t.Logf("step 1b: server group has %d tag(s) after create", len(tags.Items))
-			}
-		}
-	}
-
-	if os.Getenv("VNGCLOUD_LIVE_TAGGING_VPC") != "1" {
-		t.Log("VPC-dependent steps skipped: set VNGCLOUD_LIVE_TAGGING_VPC=1 to run them")
-		return
-	}
-
-	// Step 2: create this run's own VPC and /24 subnet; createLiveVPCAndSubnet
+	// Step 1: create this run's own VPC and /24 subnet. createLiveVPCAndSubnet
 	// registers their cleanup as soon as each id is known. This test never
-	// associates a subnet with an ACL, so it passes a nil blocked func.
-	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
-	t.Log("step 2: created this run's own VPC and /24 subnet")
+	// associates its subnet with an ACL or route table, so it passes a nil
+	// blocked func.
+	_, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
+	t.Log("step 1: created this run's own VPC and /24 subnet")
 
-	for _, id := range []string{vpcID, subnetID} {
-		if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: id}); err != nil {
-			t.Logf("step 2: read tags before any write failed: %s", safeErr(err))
-		} else {
-			t.Logf("step 2: resource has %d tag(s) before any write", len(tags.Items))
-		}
+	// Step 2: create a private virtual IP in that subnet.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate virtual IP name suffix: %v", err)
 	}
+	vipID, err := createLiveVirtualIPAddress(ctx, coreClient, subnetID, "vngcloud-live-"+suffix)
+	if err != nil {
+		t.Fatalf("step 2 create virtual IP: %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := deleteLiveVirtualIPAddress(cleanupCtx, coreClient, vipID); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete virtual IP: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created a private virtual IP")
 
-	if id, err := probeCreateWithTag(ctx, coreClient, []string{"route-table"},
-		map[string]any{"name": "vngcloud-live-rt", "networkId": vpcID}); err != nil {
-		t.Logf("step 2: create route table with a create-body tag failed: %s", safeErr(err))
-	} else {
-		t.Log("step 2: created route table with a create-body tag")
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			if _, err := networkClient.DeleteRouteTable(cleanupCtx, &network.DeleteRouteTableInput{RouteTableID: id}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("cleanup: delete probe route table: %s", safeErr(err))
-			}
-		})
-		if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: id}); err == nil {
-			t.Logf("step 2: route table has %d tag(s) after create", len(tags.Items))
-		}
-	}
+	const resourceType = "VIRTUAL-IP-ADDRESS"
 
-	if id, err := probeCreateWithTag(ctx, coreClient, []string{"network-acl"},
-		map[string]any{"name": "vngcloud-live-acl", "vpc": vpcID}); err != nil {
-		t.Logf("step 2: create network ACL with a create-body tag failed: %s", safeErr(err))
-	} else {
-		t.Log("step 2: created network ACL with a create-body tag")
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			if _, err := networkClient.DeleteNetworkACL(cleanupCtx, &network.DeleteNetworkACLInput{NetworkACLID: id}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("cleanup: delete probe network ACL: %s", safeErr(err))
-			}
-		})
-		if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: id}); err == nil {
-			t.Logf("step 2: network ACL has %d tag(s) after create", len(tags.Items))
-		}
+	// Step 3: read the tags the create left: the system tags GreenNode's
+	// console shows on every resource.
+	before, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: vipID})
+	if err != nil {
+		t.Fatalf("step 3 ListResourceTags: %s", safeErr(err))
 	}
+	systemBefore := countSystemTags(before.Items)
+	if systemBefore == 0 {
+		t.Fatal("step 3: no system tag on a freshly created virtual IP, want at least one")
+	}
+	t.Logf("step 3: virtual IP has %d system tag(s) and %d user tag(s) after create", systemBefore, len(before.Items)-systemBefore)
 
-	// The second subnet's CIDR comes from this run's own VPC block, the
-	// same way TestLiveWriteNetworkRouteTable derives one, rather than a
-	// fixed constant that could collide with another VPC in the project.
-	if vpcInfo, err := networkClient.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID}); err != nil {
-		t.Logf("step 2: read VPC CIDR for the second subnet failed: %s", safeErr(err))
-	} else if subnet28CIDR, err := vpcBlockCIDR(vpcInfo.VPC.CIDR, 2, 28); err != nil {
-		t.Logf("step 2: derive second subnet CIDR failed: %s", err)
-	} else if zoneID, err := pickEnabledZoneID(ctx, portalClient); err != nil {
-		t.Logf("step 2: pick enabled zone for the second subnet failed: %s", safeErr(err))
-	} else if id, err := probeCreateWithTag(ctx, coreClient, []string{"networks", vpcID, "subnets"},
-		map[string]any{"name": "vngcloud-live-b", "cidr": subnet28CIDR, "zoneId": zoneID}); err != nil {
-		t.Logf("step 2: create second subnet with a create-body tag failed: %s", safeErr(err))
-	} else {
-		t.Log("step 2: created second subnet with a create-body tag")
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-			defer cancel()
-			if _, err := networkClient.DeleteSubnet(cleanupCtx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: id}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("cleanup: delete probe subnet: %s", safeErr(err))
-			}
-		})
-		if tags, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: id}); err == nil {
-			t.Logf("step 2: second subnet has %d tag(s) after create", len(tags.Items))
-		}
+	// Step 4: tag it.
+	tagged, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
+		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "1",
+	})
+	if err != nil {
+		t.Fatalf("step 4 TagResource: %s", safeErr(err))
 	}
+	if !tagged.Changed {
+		t.Fatal("step 4: Changed = false, want true for a new key")
+	}
+	if n := countSystemTags(tagged.Tags); n != systemBefore {
+		t.Fatalf("step 4: system tag count = %d, want %d unchanged", n, systemBefore)
+	}
+	t.Log("step 4: tagged the virtual IP")
 
-	// Step 3: try candidate resourceType values on the VPC, then the
-	// subnet if none of those work, stopping at the first one accepted so
-	// the probe writes at most one extra tag to either resource.
-	var foundResourceID, foundType string
-	for _, candidate := range []string{"NETWORK", "VPC", "network", "vpc"} {
-		err := probePutTags(ctx, coreClient, vpcID, candidate, []probeTagRequest{{Key: "vngcloud-live-probe-type", Value: "1"}})
-		if err != nil {
-			t.Logf("step 3: VPC resourceType %q refused: %s", candidate, safeErr(err))
-			continue
-		}
-		t.Logf("step 3: VPC resourceType %q accepted", candidate)
-		foundResourceID, foundType = vpcID, candidate
-		break
+	// Step 5: edit the tag.
+	edited, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
+		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "2",
+	})
+	if err != nil {
+		t.Fatalf("step 5 TagResource (edit): %s", safeErr(err))
 	}
-	if foundResourceID == "" {
-		for _, candidate := range []string{"SUBNET", "subnet"} {
-			err := probePutTags(ctx, coreClient, subnetID, candidate, []probeTagRequest{{Key: "vngcloud-live-probe-type", Value: "1"}})
-			if err != nil {
-				t.Logf("step 3: subnet resourceType %q refused: %s", candidate, safeErr(err))
-				continue
-			}
-			t.Logf("step 3: subnet resourceType %q accepted", candidate)
-			foundResourceID, foundType = subnetID, candidate
-			break
-		}
+	if edited.Previous == nil || *edited.Previous != "1" {
+		t.Fatalf("step 5: Previous = %v, want \"1\"", edited.Previous)
 	}
-	if foundResourceID == "" {
-		t.Log("steps 4 to 6: skipped: no free resourceType was accepted; N7's live check waits for credit on SERVER or VOLUME")
-		return
+	if n := countSystemTags(edited.Tags); n != systemBefore {
+		t.Fatalf("step 5: system tag count = %d, want %d unchanged", n, systemBefore)
 	}
-	t.Logf("steps 4 to 6: using resourceType %q on the resource the probe found free", foundType)
+	t.Log("step 5: edited the tag")
 
-	// Step 4: PUT two tags, then one of them, to see whether the accepted
-	// type's tag PUT replaces the whole list or upserts by key.
-	tagA := probeTagRequest{Key: "vngcloud-live-probe-a", Value: "1"}
-	tagB := probeTagRequest{Key: "vngcloud-live-probe-b", Value: "1"}
-	switch {
-	case probePutTags(ctx, coreClient, foundResourceID, foundType, []probeTagRequest{tagA, tagB}) != nil:
-		t.Log("step 4: PUT two tags failed")
-	case probePutTags(ctx, coreClient, foundResourceID, foundType, []probeTagRequest{tagA}) != nil:
-		t.Log("step 4: PUT one tag failed")
-	default:
-		after, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: foundResourceID})
-		if err != nil {
-			t.Logf("step 4: read tags after failed: %s", safeErr(err))
-			break
-		}
-		stillHasB := false
-		for _, tag := range after.Items {
-			if tag.Key == tagB.Key {
-				stillHasB = true
-			}
-		}
-		if stillHasB {
-			t.Log("step 4: the tag PUT upserts by key; a key left off the list is kept")
-		} else {
-			t.Log("step 4: the tag PUT replaces the whole list; a key left off the list is dropped")
-		}
+	// Step 6: untag it.
+	untagged, err := taggingClient.UntagResource(ctx, &tagging.UntagResourceInput{
+		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag",
+	})
+	if err != nil {
+		t.Fatalf("step 6 UntagResource: %s", safeErr(err))
 	}
+	if !untagged.Changed || untagged.Previous == nil || *untagged.Previous != "2" {
+		t.Fatalf("step 6: Changed/Previous = %v/%v, want true/\"2\"", untagged.Changed, untagged.Previous)
+	}
+	if n := countSystemTags(untagged.Tags); n != systemBefore {
+		t.Fatalf("step 6: system tag count = %d, want %d unchanged", n, systemBefore)
+	}
+	t.Log("step 6: untagged the virtual IP")
 
-	// Step 5: PUT eleven tags, to observe the quota refusal.
-	eleven := make([]probeTagRequest, 11)
-	for i := range eleven {
-		eleven[i] = probeTagRequest{Key: fmt.Sprintf("vngcloud-live-probe-q%d", i), Value: "1"}
+	// Step 7: confirm the system tags read back exactly as step 3 found
+	// them, with no user tag left.
+	after, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: vipID})
+	if err != nil {
+		t.Fatalf("step 7 ListResourceTags: %s", safeErr(err))
 	}
-	if err := probePutTags(ctx, coreClient, foundResourceID, foundType, eleven); err != nil {
-		t.Logf("step 5: PUT eleven tags refused as expected: %s", safeErr(err))
-	} else {
-		t.Log("step 5: PUT eleven tags succeeded; the design's ten-tag quota may not apply to this resource type")
+	if n := countSystemTags(after.Items); n != systemBefore {
+		t.Fatalf("step 7: system tag count = %d, want %d", n, systemBefore)
 	}
+	if len(after.Items) != systemBefore {
+		t.Fatalf("step 7: %d tag(s) left, want only the %d system tag(s)", len(after.Items), systemBefore)
+	}
+	t.Log("step 7: system tags survived the tag write, edit, and removal; no user tag remains")
 
-	// Step 6: clear the tags this run wrote. Under upsert semantics an
-	// empty list is a no-op that leaves them in place; either way the VPC
-	// and subnet themselves are deleted by createLiveVPCAndSubnet's own
-	// cleanup once this test ends.
-	if err := probePutTags(ctx, coreClient, foundResourceID, foundType, nil); err != nil {
-		t.Logf("step 6: clear tags failed: %s", safeErr(err))
-	} else {
-		t.Log("step 6: sent an empty tag list to the probe resource")
+	// Step 8: delete the virtual IP; the cleanup above repeats this and
+	// tolerates NotFound.
+	if err := deleteLiveVirtualIPAddress(ctx, coreClient, vipID); err != nil {
+		t.Fatalf("step 8 delete virtual IP: %s", safeErr(err))
 	}
+	t.Log("step 8: deleted the virtual IP")
 }

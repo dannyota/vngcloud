@@ -9,7 +9,10 @@ The API shapes, server rules, and cost evidence behind
 ## Sources
 
 Shapes come from these public sources, and from read-only calls on the
-test account in `hcm-3` on 2026-09-27. No write was sent.
+test account in `hcm-3` on 2026-09-27. On 2026-09-28, the tag write itself
+was checked on `hcm-3` by hand through the GreenNode web console, adding,
+editing, and removing a tag on a private virtual IP address, a free
+resource.
 
 - The vServer API reference on `docs.api.greennode.ai`
   (`service-docs/vserver.html`): the DHCP option, virtual IP address, and
@@ -23,8 +26,8 @@ test account in `hcm-3` on 2026-09-27. No write was sent.
 - Product docs on `docs.greennode.ai`: DHCP Options Sets, DNS Server IP
   Address, Virtual IP, and VIP Mode.
 
-A shape marked "live" was seen in the read-only calls; the rest is from the
-reference until its live check records it.
+A shape marked "live" was seen in the read-only calls or the console check;
+the rest is from the reference until its live check records it.
 
 ## Calls
 
@@ -42,7 +45,7 @@ marks a `portal-user-id` header required; the reads work without it.
 | Update virtual IP | `PUT /virtualIpAddress/{id}` | 200, `data` | Docs |
 | Delete virtual IP | `DELETE /virtualIpAddress/{id}` | 204 | Docs |
 | List a resource's tags | `GET /tag/resource/{resourceId}` | 200, a bare array | Live |
-| Write a resource's tags | `PUT /tag/resource/{resourceId}` | 200, a bare array | Docs |
+| Write a resource's tags | `PUT /tag/resource/{resourceId}` | 200, a bare array of the user tags | Live |
 | Tag quota | `GET /tag/quota` | 200 | Live |
 
 The reference lists only 200 or 201, 401, and 500 for each call; the live
@@ -63,10 +66,12 @@ checks record the 4xx answers.
 - Tag write: `resourceId` and `resourceType` (required), and
   `tagRequestList`, each `key` and `value`. The reference example uses
   `resourceType` `Server`; VNG Cloud's Go SDK sends `SERVER`, `VOLUME`, and,
-  on the vLB gateway, `LOAD-BALANCER`. The body also lists `tags` and
-  `zoneId`, which the SDK does not send. The Go SDK's tag model has an
-  optional `isEdited` boolean whose effect is unknown; the SDK does not send
-  it.
+  on the vLB gateway, `LOAD-BALANCER`, all paid. The console check confirms
+  `VIRTUAL-IP-ADDRESS` as a free `resourceType` the write accepts. The body
+  also lists `tags` and `zoneId`, which the SDK does not send. `tagRequestList`
+  replaces the resource's whole user tag list (live): the console sends
+  `isEdited` on the changed tag, but an empty list still clears every user
+  tag, so the replace does not depend on it, and the SDK does not send it.
 
 ## Responses
 
@@ -78,9 +83,14 @@ checks record the 4xx answers.
 - A virtual IP has `uuid`, `name`, `ipAddress`, `networkId`, `subnetId`,
   `description`, `mode`, `type`, `status`, `addressPairIps`, `zone`, and
   CIDR and name fields, as `VirtualIPAddress` decodes today.
-- A tag (live for the read, on VPC IDs) is `key`, `value`, `systemTag`, and
-  `createdAt`. The read returns 200 with `[]` for a VPC with no tags; that
-  shows the read accepts any ID, not that a write accepts a VPC type.
+- A tag (live) is `key`, `value`, `systemTag`, and `createdAt`. The read
+  returns 200 with `[]` for a resource with no user tags; on a virtual IP
+  address it also lists three system tags (`vng.zone`, `vng.region`,
+  `vng.createdBy`, `systemTag` true, `createdAt` null), which the user
+  cannot edit. The write's 200 response is a bare array of the user tags
+  only: the system tags are never in the request and never in this
+  response, and a live check confirms they are unchanged on the resource
+  afterward.
 - The tag quota (live) is one row, `TAG_PER_RESOURCE`, limit 10, type
   `Server`.
 
@@ -125,14 +135,15 @@ From the product docs, unless marked live:
 
 ## Tag resource types
 
-No public source shows a free resource type accepted by the tag write:
+The console check confirms `VIRTUAL-IP-ADDRESS` as a free `resourceType`
+the tag write accepts, on a private virtual IP address:
 
 - The reference example is `Server`; VNG Cloud's Go SDK names `SERVER`,
-  `VOLUME`, and `LOAD-BALANCER`, all paid.
+  `VOLUME`, and `LOAD-BALANCER`, all paid, none tried.
 - The create bodies for VPCs, subnets, DHCP sets, and route tables take
-  `tags`, so the server stores tags for those resources under some type.
-- VNG Cloud's Go SDK comments that the tag `PUT` upserts by key and leaves
-  unlisted keys alone; the survey read the reference as a full replace.
-
-The [type probe](vserver-network-writes-2-checks.md#probes-the-manager-runs)
-settles both.
+  `tags`, so the server stores tags for those resources under some type,
+  not checked here.
+- The tag `PUT` replaces the resource's whole user tag list, confirmed
+  live: sending an empty `tagRequestList` clears every user tag, and the
+  system tags stay exactly as they were before the write. VNG Cloud's Go
+  SDK's own comment, that the write upserts by key, does not match this.

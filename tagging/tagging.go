@@ -1,14 +1,22 @@
 // Package tagging reads and writes GreenNode resource tags. One PUT
 // endpoint on the vServer gateway serves every resource type: TagResource
-// reads a resource's whole tag list, applies one key's change, sends the
-// whole list back, and confirms the result with another read, so it never
-// drops a tag the caller did not name.
+// and UntagResource each read a resource's whole tag list, apply one key's
+// change to the user tags, send the user tags back, and confirm the result
+// with another read, so neither call ever drops a tag the caller did not
+// name.
 //
-// TagResource refuses to write to a resource that already carries any
-// system tag, with ErrSystemTag, until a live check shows what the tag PUT
-// does to one. ResourceType is sent to the server exactly as given; the
-// package exports no resource type constant yet, since none has been
-// confirmed live to accept a tag write for free.
+// Every resource carries system tags the platform manages (vng.zone,
+// vng.region, vng.createdBy, confirmed live on a virtual IP address): the
+// tag PUT replaces only the user tag list, so it never sends and never
+// touches a system tag. TagResource and UntagResource refuse with
+// ErrSystemTag, and send nothing, when Key names one: either it starts
+// with the "vng." prefix those system tags use, or the pre-write read
+// finds an existing system tag under that exact Key.
+//
+// ResourceType is sent to the server exactly as given. VIRTUAL-IP-ADDRESS
+// is confirmed live to accept a tag write for free. VNG Cloud's own Go SDK
+// also names SERVER, VOLUME, and LOAD-BALANCER for this call, on paid
+// resources this package has not tried.
 package tagging
 
 import (
@@ -16,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -24,11 +33,10 @@ import (
 )
 
 var (
-	// ErrSystemTag means a tag write was refused because the resource
-	// already carries a system tag, found by the pre-write read every write
-	// makes. Nothing was sent: whether the tag PUT resends a system tag
-	// unchanged or drops it is not yet confirmed live.
-	ErrSystemTag = errors.New("tagging: resource has a system tag")
+	// ErrSystemTag means a tag write was refused because Key names a
+	// system tag, either by its "vng." prefix or by matching an existing
+	// system tag the pre-write read found. Nothing was sent.
+	ErrSystemTag = errors.New("tagging: key is a system tag")
 
 	// ErrNotSettled means a tag write's PUT was sent, and may have reached
 	// the server, but the confirming read did not come back matching it:
@@ -87,10 +95,15 @@ func (c *Client) ListResourceTags(ctx context.Context, in *ListResourceTagsInput
 	return &ListResourceTagsOutput{Items: tags}, nil
 }
 
+// systemTagPrefix is the key prefix GreenNode's own system tags use
+// (vng.zone, vng.region, vng.createdBy, confirmed live). TagResource and
+// UntagResource refuse any Key with this prefix before they even read the
+// resource's tags, since the platform reserves it.
+const systemTagPrefix = "vng."
+
 // TagResourceInput sets Key to Value on ResourceID, leaving every other tag
-// on the resource unchanged. ResourceType is sent exactly as given; no
-// constant is exported yet for it, since none has been confirmed live to
-// accept a tag write for free.
+// on the resource unchanged. ResourceType is sent exactly as given; see the
+// package doc for the resource types confirmed or named for it.
 type TagResourceInput struct {
 	ResourceID   string `vngcloud:"required"`
 	ResourceType string `vngcloud:"required"`
@@ -99,10 +112,10 @@ type TagResourceInput struct {
 	Value string
 }
 
-// TagResourceOutput is the resource's tags after the write. Previous is
-// Key's value before the write, or nil when the resource had no such tag,
-// so a caller can undo the write by setting Key back to *Previous, or by
-// removing it if Previous is nil.
+// TagResourceOutput is the resource's whole tag list, system tags included,
+// after the write. Previous is Key's value before the write, or nil when
+// the resource had no such tag, so a caller can undo the write by setting
+// Key back to *Previous, or by removing it if Previous is nil.
 type TagResourceOutput struct {
 	Tags     []Tag
 	Previous *string
@@ -111,16 +124,20 @@ type TagResourceOutput struct {
 
 // TagResource sets Key to Value on ResourceID.
 //
-// It first reads every tag on the resource. If any of them is a system tag,
-// it returns ErrSystemTag and sends nothing. Otherwise, when Key is already
-// set to Value, it returns at once with Changed false and sends nothing.
+// It refuses with ErrSystemTag, sending nothing, when Key starts with
+// "vng." or names an existing system tag. Otherwise it reads every tag on
+// the resource; when Key is already set to Value among the user tags, it
+// returns at once with Changed false and sends nothing.
 //
-// Otherwise it sends every tag read, with Key's value replaced or added, in
-// one PUT: PUT is idempotent, so the transport's normal retries apply. It
-// then reads the tags again to confirm they equal what was sent. A
+// Otherwise it sends every user tag read, with Key's value replaced or
+// added, in one PUT: system tags are never included, since the PUT
+// replaces only the user tag list and leaves system tags untouched. PUT is
+// idempotent, so the transport's normal retries apply. TagResource then
+// reads the tags again to confirm the user tags equal what was sent. A
 // mismatch, or a failure of that confirming read, returns an error wrapping
-// ErrNotSettled, and the Output falls back to the list TagResource intended
-// to write, or, on a mismatch, the tags the confirming read actually found.
+// ErrNotSettled, and the Output falls back to the resource's system tags
+// plus the user tags TagResource intended to write, or, on a mismatch, the
+// tags the confirming read actually found.
 func (c *Client) TagResource(ctx context.Context, in *TagResourceInput) (*TagResourceOutput, error) {
 	const op = "tagging.TagResource"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -129,45 +146,52 @@ func (c *Client) TagResource(ctx context.Context, in *TagResourceInput) (*TagRes
 	if err := core.CheckPathID(op, "ResourceID", in.ResourceID); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(in.Key, systemTagPrefix) {
+		return nil, fmt.Errorf("%w: %s: key %q", ErrSystemTag, op, in.Key)
+	}
 
 	current, err := c.listTags(ctx, op, in.ResourceID)
 	if err != nil {
 		return nil, err
 	}
-	if sys, ok := firstSystemTag(current); ok {
-		return nil, fmt.Errorf("%w: %s: resource %s has system tag %q", ErrSystemTag, op, in.ResourceID, sys.Key)
+	system, user := splitTags(current)
+	if systemTagKey(system, in.Key) {
+		return nil, fmt.Errorf("%w: %s: resource %s: key %q", ErrSystemTag, op, in.ResourceID, in.Key)
 	}
 
-	next, previous, changed := applyTag(current, in.Key, in.Value)
+	next, previous, changed := applyTag(user, in.Key, in.Value)
 	if !changed {
 		return &TagResourceOutput{Tags: current, Previous: previous, Changed: false}, nil
 	}
-	return c.writeTags(ctx, op, in.ResourceID, in.ResourceType, next, previous)
+	return c.writeTags(ctx, op, in.ResourceID, in.ResourceType, system, next, previous)
 }
 
-// untagResourceInput removes Key from ResourceID's tags. It stays
-// unexported until a live check confirms that the tag PUT drops a key left
-// off the list, rather than leaving it in place under upsert semantics; see
-// the package doc.
-type untagResourceInput struct {
+// UntagResourceInput removes Key from ResourceID's tags.
+type UntagResourceInput struct {
 	ResourceID   string `vngcloud:"required"`
 	ResourceType string `vngcloud:"required"`
 	Key          string `vngcloud:"required"`
 }
 
-type untagResourceOutput struct {
+// UntagResourceOutput is the resource's whole tag list, system tags
+// included, after the write. Previous is Key's value before the write, or
+// nil when the resource had no such tag.
+type UntagResourceOutput struct {
 	Tags     []Tag
 	Previous *string
 	Changed  bool
 }
 
-// untagResource removes Key from ResourceID's tags, following the same
-// read-refuse-send-confirm shape as TagResource: it refuses a resource that
-// carries any system tag with ErrSystemTag, returns at once with Changed
-// false when Key is already absent, and otherwise sends every other tag
-// read and confirms the result with another read, wrapping ErrNotSettled on
-// a mismatch or a failed confirm.
-func (c *Client) untagResource(ctx context.Context, in *untagResourceInput) (*untagResourceOutput, error) {
+// UntagResource removes Key from ResourceID's tags, following the same
+// refuse-read-send-confirm shape as TagResource: it refuses with
+// ErrSystemTag, sending nothing, when Key starts with "vng." or names an
+// existing system tag; it returns at once with Changed false when Key is
+// already absent from the user tags; and otherwise it sends every other
+// user tag read and confirms the result with another read, wrapping
+// ErrNotSettled on a mismatch or a failed confirm. The confirmed PUT
+// replaces only the user tag list, so a resource's system tags are never
+// sent and never touched.
+func (c *Client) UntagResource(ctx context.Context, in *UntagResourceInput) (*UntagResourceOutput, error) {
 	const op = "tagging.UntagResource"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -175,24 +199,54 @@ func (c *Client) untagResource(ctx context.Context, in *untagResourceInput) (*un
 	if err := core.CheckPathID(op, "ResourceID", in.ResourceID); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(in.Key, systemTagPrefix) {
+		return nil, fmt.Errorf("%w: %s: key %q", ErrSystemTag, op, in.Key)
+	}
 
 	current, err := c.listTags(ctx, op, in.ResourceID)
 	if err != nil {
 		return nil, err
 	}
-	if sys, ok := firstSystemTag(current); ok {
-		return nil, fmt.Errorf("%w: %s: resource %s has system tag %q", ErrSystemTag, op, in.ResourceID, sys.Key)
+	system, user := splitTags(current)
+	if systemTagKey(system, in.Key) {
+		return nil, fmt.Errorf("%w: %s: resource %s: key %q", ErrSystemTag, op, in.ResourceID, in.Key)
 	}
 
-	next, previous, changed := applyUntag(current, in.Key)
+	next, previous, changed := applyUntag(user, in.Key)
 	if !changed {
-		return &untagResourceOutput{Tags: current, Previous: previous, Changed: false}, nil
+		return &UntagResourceOutput{Tags: current, Previous: previous, Changed: false}, nil
 	}
-	out, err := c.writeTags(ctx, op, in.ResourceID, in.ResourceType, next, previous)
+	out, err := c.writeTags(ctx, op, in.ResourceID, in.ResourceType, system, next, previous)
 	if out == nil {
 		return nil, err
 	}
-	return &untagResourceOutput{Tags: out.Tags, Previous: out.Previous, Changed: out.Changed}, err
+	return &UntagResourceOutput{Tags: out.Tags, Previous: out.Previous, Changed: out.Changed}, err
+}
+
+// splitTags separates tags into its system and user tags, each in the
+// order tags held them.
+func splitTags(tags []Tag) (system, user []Tag) {
+	for _, tag := range tags {
+		if tag.SystemTag {
+			system = append(system, tag)
+		} else {
+			user = append(user, tag)
+		}
+	}
+	return system, user
+}
+
+// systemTagKey reports whether key matches one of system's keys. Callers
+// check the "vng." prefix separately, before ever reading a resource's
+// tags, so this only needs to catch a system tag under a key that prefix
+// would miss.
+func systemTagKey(system []Tag, key string) bool {
+	for _, tag := range system {
+		if tag.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // applyTag returns the tag list a write for key and value should send
@@ -239,15 +293,6 @@ func applyUntag(current []Tag, key string) (next []Tag, previous *string, change
 		return current, nil, false
 	}
 	return next, previous, true
-}
-
-func firstSystemTag(tags []Tag) (Tag, bool) {
-	for _, tag := range tags {
-		if tag.SystemTag {
-			return tag, true
-		}
-	}
-	return Tag{}, false
 }
 
 // tagsEqual reports whether a and b name the same set of key/value pairs,
@@ -311,10 +356,12 @@ func (c *Client) listTags(ctx context.Context, op, resourceID string) ([]Tag, er
 	return tags, nil
 }
 
-// writeTags sends next as ResourceID's whole tag list and confirms the
-// result by reading the tags again. previous is threaded through to the
-// returned Output unchanged; it plays no part in the write itself.
-func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType string, next []Tag, previous *string) (*TagResourceOutput, error) {
+// writeTags sends next as ResourceID's whole user tag list, never system,
+// and confirms the result by reading the tags again. previous is threaded
+// through to the returned Output unchanged; it plays no part in the write
+// itself. system is only used to build a fallback Output.Tags if the
+// confirming read fails; the write itself never sends it.
+func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType string, system, next []Tag, previous *string) (*TagResourceOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -339,10 +386,14 @@ func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType str
 	// the write may have landed and must not be sent again.
 	confirmed, err := c.listTags(ctx, op, resourceID)
 	if err != nil {
-		return &TagResourceOutput{Tags: next, Previous: previous, Changed: true},
+		fallback := make([]Tag, 0, len(system)+len(next))
+		fallback = append(fallback, system...)
+		fallback = append(fallback, next...)
+		return &TagResourceOutput{Tags: fallback, Previous: previous, Changed: true},
 			fmt.Errorf("%w: %s: resource %s: confirm read failed: %w", ErrNotSettled, op, resourceID, err)
 	}
-	if !tagsEqual(confirmed, next) {
+	_, confirmedUser := splitTags(confirmed)
+	if !tagsEqual(confirmedUser, next) {
 		return &TagResourceOutput{Tags: confirmed, Previous: previous, Changed: true},
 			fmt.Errorf("%w: %s: resource %s: another writer may have changed the tags", ErrNotSettled, op, resourceID)
 	}

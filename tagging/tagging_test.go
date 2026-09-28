@@ -293,20 +293,94 @@ func TestTagResourceNoChangeSendsNothing(t *testing.T) {
 	}
 }
 
-func TestTagResourceSystemTagRefused(t *testing.T) {
-	current := []Tag{{Key: "vng:managed", Value: "true", SystemTag: true}, {Key: "env", Value: "prod"}}
+func TestTagResourceSystemPrefixKeyRefused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected: a \"vng.\" Key is refused before any read")
+	}))
+
+	_, err := c.TagResource(context.Background(), &TagResourceInput{
+		ResourceID: "res-1", ResourceType: "SERVER", Key: "vng.owner", Value: "sre",
+	})
+	if !errors.Is(err, ErrSystemTag) {
+		t.Fatalf("err = %v, want ErrSystemTag", err)
+	}
+}
+
+func TestTagResourceExistingSystemKeyRefused(t *testing.T) {
+	// A system tag under a key without the "vng." prefix, to prove the
+	// refusal also checks the resource's own tags, not the prefix alone.
+	current := []Tag{{Key: "legacy-system", Value: "true", SystemTag: true}, {Key: "env", Value: "prod"}}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			t.Fatalf("unexpected method %s: a system-tagged resource must send no write", r.Method)
+			t.Fatalf("unexpected method %s: a system Key must send no write", r.Method)
 		}
 		writeJSON(t, w, tagsJSON(t, current))
 	}))
 
 	_, err := c.TagResource(context.Background(), &TagResourceInput{
-		ResourceID: "res-1", ResourceType: "SERVER", Key: "env", Value: "staging",
+		ResourceID: "res-1", ResourceType: "SERVER", Key: "legacy-system", Value: "false",
 	})
 	if !errors.Is(err, ErrSystemTag) {
 		t.Fatalf("err = %v, want ErrSystemTag", err)
+	}
+}
+
+// TestTagResourceCoexistsWithSystemTags writes a user tag on a resource
+// that also carries a system tag, since every resource does (vng.zone,
+// vng.region, vng.createdBy, confirmed live): the write must not refuse for
+// that reason alone, and its PUT must carry only the user tags.
+func TestTagResourceCoexistsWithSystemTags(t *testing.T) {
+	current := []Tag{
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true, CreatedAt: "2026-01-01T00:00:00Z"},
+		{Key: "env", Value: "prod"},
+	}
+	var calls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			n := calls.Add(1)
+			if n == 1 {
+				writeJSON(t, w, tagsJSON(t, current))
+				return
+			}
+			writeJSON(t, w, tagsJSON(t, append(current, Tag{Key: "owner", Value: "sre"})))
+		case http.MethodPut:
+			body := decodePutBody(t, r)
+			if len(body.TagRequestList) != 2 {
+				t.Fatalf("TagRequestList = %+v, want 2 entries: the system tag must not be sent", body.TagRequestList)
+			}
+			want := map[string]string{"env": "prod", "owner": "sre"}
+			for _, tr := range body.TagRequestList {
+				if want[tr.Key] != tr.Value {
+					t.Fatalf("TagRequestList entry %+v not in %v", tr, want)
+				}
+			}
+			writeJSON(t, w, "[]")
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	out, err := c.TagResource(context.Background(), &TagResourceInput{
+		ResourceID: "res-1", ResourceType: "VIRTUAL-IP-ADDRESS", Key: "owner", Value: "sre",
+	})
+	if err != nil {
+		t.Fatalf("TagResource() error = %v", err)
+	}
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	if len(out.Tags) != 3 {
+		t.Fatalf("Tags = %+v, want the system tag plus both user tags", out.Tags)
+	}
+	found := false
+	for _, tag := range out.Tags {
+		if tag.Key == "vng.zone" && tag.SystemTag {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Tags = %+v, want the system tag still present", out.Tags)
 	}
 }
 
@@ -458,7 +532,7 @@ func TestTagResourceQuotaSendsFullListEvenAtLimit(t *testing.T) {
 	}
 }
 
-// --- untagResource ---
+// --- UntagResource ---
 
 func TestUntagResourceRemovesKey(t *testing.T) {
 	current := []Tag{{Key: "env", Value: "prod"}, {Key: "team", Value: "platform"}}
@@ -483,9 +557,9 @@ func TestUntagResourceRemovesKey(t *testing.T) {
 		}
 	}))
 
-	out, err := c.untagResource(context.Background(), &untagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
+	out, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
 	if err != nil {
-		t.Fatalf("untagResource() error = %v", err)
+		t.Fatalf("UntagResource() error = %v", err)
 	}
 	if !out.Changed {
 		t.Fatal("Changed = false, want true")
@@ -507,9 +581,9 @@ func TestUntagResourceAbsentKeyNoChange(t *testing.T) {
 		writeJSON(t, w, tagsJSON(t, current))
 	}))
 
-	out, err := c.untagResource(context.Background(), &untagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
+	out, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
 	if err != nil {
-		t.Fatalf("untagResource() error = %v", err)
+		t.Fatalf("UntagResource() error = %v", err)
 	}
 	if out.Changed {
 		t.Fatal("Changed = true, want false")
@@ -522,18 +596,82 @@ func TestUntagResourceAbsentKeyNoChange(t *testing.T) {
 	}
 }
 
-func TestUntagResourceSystemTagRefused(t *testing.T) {
-	current := []Tag{{Key: "vng:managed", Value: "true", SystemTag: true}, {Key: "env", Value: "prod"}}
+func TestUntagResourceSystemPrefixKeyRefused(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected: a \"vng.\" Key is refused before any read")
+	}))
+
+	_, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "vng.zone"})
+	if !errors.Is(err, ErrSystemTag) {
+		t.Fatalf("err = %v, want ErrSystemTag", err)
+	}
+}
+
+func TestUntagResourceExistingSystemKeyRefused(t *testing.T) {
+	current := []Tag{{Key: "legacy-system", Value: "true", SystemTag: true}, {Key: "env", Value: "prod"}}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			t.Fatalf("unexpected method %s: a system-tagged resource must send no write", r.Method)
+			t.Fatalf("unexpected method %s: a system Key must send no write", r.Method)
 		}
 		writeJSON(t, w, tagsJSON(t, current))
 	}))
 
-	_, err := c.untagResource(context.Background(), &untagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
+	_, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "legacy-system"})
 	if !errors.Is(err, ErrSystemTag) {
 		t.Fatalf("err = %v, want ErrSystemTag", err)
+	}
+}
+
+// TestUntagResourceCoexistsWithSystemTags removes a user tag from a
+// resource that also carries a system tag: the removal must not refuse for
+// that reason alone, and its PUT must carry only the remaining user tags.
+func TestUntagResourceCoexistsWithSystemTags(t *testing.T) {
+	current := []Tag{
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true, CreatedAt: "2026-01-01T00:00:00Z"},
+		{Key: "env", Value: "prod"},
+		{Key: "owner", Value: "sre"},
+	}
+	var calls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			n := calls.Add(1)
+			if n == 1 {
+				writeJSON(t, w, tagsJSON(t, current))
+				return
+			}
+			writeJSON(t, w, tagsJSON(t, []Tag{current[0], current[1]}))
+		case http.MethodPut:
+			body := decodePutBody(t, r)
+			if len(body.TagRequestList) != 1 || body.TagRequestList[0].Key != "env" {
+				t.Fatalf("TagRequestList = %+v, want only env=prod: the system tag must not be sent", body.TagRequestList)
+			}
+			writeJSON(t, w, "[]")
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+
+	out, err := c.UntagResource(context.Background(), &UntagResourceInput{
+		ResourceID: "res-1", ResourceType: "VIRTUAL-IP-ADDRESS", Key: "owner",
+	})
+	if err != nil {
+		t.Fatalf("UntagResource() error = %v", err)
+	}
+	if !out.Changed || out.Previous == nil || *out.Previous != "sre" {
+		t.Fatalf("Changed/Previous = %v/%v, want true/\"sre\"", out.Changed, out.Previous)
+	}
+	if len(out.Tags) != 2 {
+		t.Fatalf("Tags = %+v, want the system tag plus the remaining user tag", out.Tags)
+	}
+	found := false
+	for _, tag := range out.Tags {
+		if tag.Key == "vng.zone" && tag.SystemTag {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Tags = %+v, want the system tag still present", out.Tags)
 	}
 }
 
@@ -557,7 +695,7 @@ func TestUntagResourceConfirmMismatchNotSettled(t *testing.T) {
 		}
 	}))
 
-	out, err := c.untagResource(context.Background(), &untagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
+	out, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: "res-1", ResourceType: "SERVER", Key: "env"})
 	if !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("err = %v, want ErrNotSettled: the confirm read still shows the key the PUT was sent to drop", err)
 	}
@@ -570,17 +708,17 @@ func TestUntagResourceRequiredInput(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
 	}))
-	cases := []*untagResourceInput{
+	cases := []*UntagResourceInput{
 		{ResourceType: "SERVER", Key: "env"},
 		{ResourceID: "res-1", Key: "env"},
 		{ResourceID: "res-1", ResourceType: "SERVER"},
 	}
 	for _, in := range cases {
-		if _, err := c.untagResource(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		if _, err := c.UntagResource(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Errorf("in = %+v: err = %v, want ErrInvalidInput", in, err)
 		}
 	}
-	if _, err := c.untagResource(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
+	if _, err := c.UntagResource(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("nil input err = %v, want ErrInvalidInput", err)
 	}
 }
@@ -591,7 +729,7 @@ func TestUntagResourcePathIDRejection(t *testing.T) {
 			c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				t.Fatal("no request expected for a malformed path ID")
 			}))
-			_, err := c.untagResource(context.Background(), &untagResourceInput{ResourceID: id, ResourceType: "SERVER", Key: "env"})
+			_, err := c.UntagResource(context.Background(), &UntagResourceInput{ResourceID: id, ResourceType: "SERVER", Key: "env"})
 			if !errors.Is(err, vngcloud.ErrInvalidInput) {
 				t.Errorf("ResourceID %q: err = %v, want ErrInvalidInput", id, err)
 			}
@@ -600,6 +738,34 @@ func TestUntagResourcePathIDRejection(t *testing.T) {
 }
 
 // --- pure helpers ---
+
+func TestSplitTags(t *testing.T) {
+	tags := []Tag{
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true},
+		{Key: "env", Value: "prod"},
+		{Key: "vng.region", Value: "hcm", SystemTag: true},
+	}
+	system, user := splitTags(tags)
+	if len(system) != 2 || system[0].Key != "vng.zone" || system[1].Key != "vng.region" {
+		t.Fatalf("system = %+v, want vng.zone and vng.region in order", system)
+	}
+	if len(user) != 1 || user[0].Key != "env" {
+		t.Fatalf("user = %+v, want only env", user)
+	}
+}
+
+func TestSystemTagKey(t *testing.T) {
+	system := []Tag{{Key: "legacy-system", Value: "x", SystemTag: true}}
+	if !systemTagKey(system, "legacy-system") {
+		t.Fatal("systemTagKey = false, want true for a matching key")
+	}
+	if systemTagKey(system, "env") {
+		t.Fatal("systemTagKey = true, want false for an unrelated key")
+	}
+	if systemTagKey(nil, "legacy-system") {
+		t.Fatal("systemTagKey = true, want false with no system tags")
+	}
+}
 
 func TestApplyTagKeepsUnnamedKeys(t *testing.T) {
 	current := []Tag{{Key: "a", Value: "1"}, {Key: "b", Value: "2"}, {Key: "c", Value: "3"}}
