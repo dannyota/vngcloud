@@ -429,10 +429,9 @@ the resource still holds something, or that the server's own refusal named
 it in use; see [Creating, renaming, and deleting
 VPCs](#creating-renaming-and-deleting-vpcs) and [Creating, renaming, and
 deleting subnets](#creating-renaming-and-deleting-subnets) above.
-`DeleteRouteTable`, `DeleteNetworkACL`, and `DeleteVirtualIPAddress` also
-return `ErrInUse`; the first two add their own `ErrDefaultResource` and
-`ErrBusy`. See [Network Route Tables](Network-RouteTables.md), [Network
-ACLs](Network-ACLs.md), and [Network Virtual IPs](Network-VirtualIPs.md) for
+`DeleteRouteTable` and `DeleteNetworkACL` return the same `ErrInUse`,
+alongside their own `ErrDefaultResource` and `ErrBusy`; see [Network Route
+Tables](Network-RouteTables.md) and [Network ACLs](Network-ACLs.md) for
 those. `ErrUnexpectedStatus` means `EnableVPCPrivateDNS` read a `dnsStatus`
 this SDK does not know how to act on. `ErrFailed` means a create or delete
 reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
@@ -449,8 +448,3 @@ See [Network Route Tables](Network-RouteTables.md) for `GetRouteTable`,
 See [Network ACLs](Network-ACLs.md) for `GetNetworkACL`, `CreateNetworkACL`,
 `DeleteNetworkACL`, `AddNetworkACLRule`, `RemoveNetworkACLRule`,
 `AssociateNetworkACLSubnet`, and `DisassociateNetworkACLSubnet`.
-
-## Virtual IPs
-
-See [Network Virtual IPs](Network-VirtualIPs.md) for `CreateVirtualIPAddress`,
-`UpdateVirtualIPAddress`, and `DeleteVirtualIPAddress`.
