@@ -181,13 +181,31 @@ The live write test first deletes leftovers whose names start with
 `vngcloud-live-`: ACLs (after disassociating their subnets), route tables,
 subnets, VPCs, then server groups. It registers `t.Cleanup` as soon as
 each ID is known, and deletes in that order with its own context,
-asserting none remain. If a create fails, it lists by exact name and
-deletes a match. It never touches a resource without the prefix, a main
-route table, or a default ACL. A VPC delete refused with `ErrInUse` after
-its subnets are gone is retried every 30 seconds for up to 20 minutes,
-since the server holds deleted subnets for minutes. Private DNS takes
-about 6 minutes and that hold about 11, so the live target's timeout is
-at least 40 minutes.
+asserting none remain, except a leftover ACL whose delete returns the
+server's own 500 after one try, which it counts and leaves alone rather
+than failing the run on; see [VPC reuse](#vpc-reuse). If a create fails,
+it lists by exact name and deletes a match. It never touches a resource
+without the prefix, a main route table, or a default ACL. A VPC delete
+refused with `ErrInUse` after its subnets are gone is retried every 30
+seconds for up to 20 minutes, since the server holds deleted subnets for
+minutes. Private DNS takes about 6 minutes and that hold about 11, so the
+live target's timeout is at least 40 minutes.
+
+### VPC reuse
+
+With owner approval, a live network test may reuse an existing
+`vngcloud-live-` VPC named by `VNGCLOUD_LIVE_NETWORK_VPC_ID` instead of
+creating and deleting its own: the account's VPC quota can leave no VPC
+free, as it does for one stuck `vngcloud-live-` VPC whose one network ACL
+returns the server's own 500 on every delete attempt, disassociated
+subnets included, and so can never be removed. When the variable is set,
+the test reads that VPC first and refuses, before any write, a name that
+does not exactly match `vngcloud-live-<8 hex>`. It then creates only its
+own new `/24` subnet inside that VPC, in a range that avoids every subnet
+already there, and deletes only that subnet afterward, disassociating its
+own network ACL first when one still lists it; it never deletes the VPC
+itself. Without the variable, a test still creates and deletes its own
+VPC as before.
 
 ## Security review
 
