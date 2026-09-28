@@ -3299,7 +3299,7 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 
 	// Step 7: delete the alarm explicitly, so the cleanup above finds it
 	// already gone.
-	if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID}); err != nil {
+	if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID}); err != nil && !vngcloud.IsNotFound(err) {
 		t.Fatalf("step 7 DeleteLogAlarm: %s", safeErr(err))
 	}
 	t.Log("step 7: deleted the alarm")

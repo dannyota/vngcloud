@@ -836,6 +836,68 @@ func TestUpdateLogAlarmMergeUnsetFieldsResendReadValues(t *testing.T) {
 	}
 }
 
+// TestUpdateLogAlarmPreservesAbsentReadQueryFields ensures an unrelated
+// update does not turn an alarm with no query fields into a match-all alarm.
+func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(raw))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
+			body := decodeLogProjectBody(t, r)
+			if body["queryString"] != "" || body["logSearchQuery"] != "" {
+				t.Fatalf("query fields = queryString=%q logSearchQuery=%q, want unchanged empty values", body["queryString"], body["logSearchQuery"])
+			}
+			if _, ok := body["filter"]; ok {
+				t.Fatalf("filter = %v, want omitted", body["filter"])
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, Description: ptrStr("new description"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateLogAlarm() error = %v", err)
+	}
+}
+
+// TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults distinguishes an
+// explicit empty query update from leaving the read's empty values untouched.
+func TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(raw))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
+			body := decodeLogProjectBody(t, r)
+			if body["queryString"] != "*" || body["logSearchQuery"] != "[]" {
+				t.Fatalf("query fields = queryString=%q logSearchQuery=%q, want create defaults", body["queryString"], body["logSearchQuery"])
+			}
+			if _, ok := body["filter"]; !ok {
+				t.Fatal("filter absent, want match-all filter")
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, QueryString: ptrStr(""), Filter: ptrRaw(""),
+	})
+	if err != nil {
+		t.Fatalf("UpdateLogAlarm() error = %v", err)
+	}
+}
+
 func checkUpdateLogAlarmMergedBody(t *testing.T, body map[string]any) {
 	t.Helper()
 	if body["name"] != "existing-alarm" || body["description"] != "new description" || body["severity"] != "LOW" {
@@ -1093,6 +1155,55 @@ func TestUpdateLogAlarmRefusesIncompleteLogDetail(t *testing.T) {
 			}))
 			_, err = client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
 				AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
+			})
+			if !errors.Is(err, core.ErrInvalidInput) {
+				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+// TestUpdateLogAlarmRefusesMissingRequiredReadFields keeps a full-replace
+// update from clearing create-body fields that only the read can provide.
+func TestUpdateLogAlarmRefusesMissingRequiredReadFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+	}{
+		{"Name", "name"},
+		{"Severity", "severity"},
+		{"LogProjectName", "logProjectName"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			alarmLog := map[string]any{
+				"logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
+				"logSearchQuery": "[]", "thresholdType": "frequency", "condition": "gt",
+				"thresholdValue": 100, "timeFrame": 5, "inAlarm": "", "ok": "",
+			}
+			alarm := map[string]any{
+				"id": "alarm-1", "name": "existing-alarm", "type": "LOG", "status": "OK", "severity": "LOW",
+				"alarmLog": alarmLog,
+			}
+			if tc.field == "logProjectName" {
+				alarmLog[tc.field] = ""
+			} else {
+				alarm[tc.field] = ""
+			}
+			raw, err := json.Marshal(map[string]any{"data": alarm})
+			if err != nil {
+				t.Fatalf("marshal fixture: %v", err)
+			}
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write(raw)
+					return
+				}
+				t.Fatalf("unexpected request to %s %s after an incomplete read", r.Method, r.URL.Path)
+			}))
+			_, err = client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+				AlarmID: "alarm-1", NoWait: true, Description: ptrStr("new description"),
 			})
 			if !errors.Is(err, core.ErrInvalidInput) {
 				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)

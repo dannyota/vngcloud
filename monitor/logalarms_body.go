@@ -59,15 +59,15 @@ const (
 // for a nil CreateLogAlarmInput.Resend.
 const logAlarmDefaultResendPeriod = 30
 
-// matchAllLogFilter is the filter body CreateLogAlarm and UpdateLogAlarm
-// send when QueryString and Filter are both empty: four empty lists, which
-// the console's own query parser produces for no query at all.
+// matchAllLogFilter is the filter body CreateLogAlarm sends when QueryString
+// and Filter are both empty: four empty lists, which the console's own query
+// parser produces for no query at all.
 const matchAllLogFilter = `{"type":"bool","value":{"filter":[],"should":[],"must":[],"mustNot":[]}}`
 
 // logAlarmFields holds a log alarm's fields already resolved to their final
-// values: CreateLogAlarm's own defaults applied, or UpdateLogAlarm's merge
-// of the read with the caller's set fields. buildLogAlarmBody turns it into
-// the wire body both writes send (ADR 0002 rule 8).
+// values: CreateLogAlarm's defaults, or UpdateLogAlarm's merge of the read
+// with the caller's set fields. buildLogAlarmBody turns it into the wire body
+// both writes send (ADR 0002 rule 8).
 type logAlarmFields struct {
 	Name           string
 	Description    string
@@ -163,18 +163,10 @@ func joinChannelIDs(ids []string) string {
 	return b.String()
 }
 
-// buildLogAlarmBody resolves f's QueryString and Filter pairing (both empty
-// sends the match-all filter and queryString "*"; a set pair is sent
-// unchanged) and returns the body CreateLogAlarm and UpdateLogAlarm both
-// send.
+// buildLogAlarmBody returns f's resolved values unchanged in the request
+// body. CreateLogAlarm resolves its match-all defaults before calling this
+// builder. UpdateLogAlarm must preserve every unset read field exactly.
 func buildLogAlarmBody(f logAlarmFields) logAlarmBody {
-	queryString, filter, logSearchQuery := f.QueryString, f.Filter, f.LogSearchQuery
-	if queryString == "" && len(filter) == 0 {
-		queryString = "*"
-		filter = json.RawMessage(matchAllLogFilter)
-		logSearchQuery = "[]"
-	}
-
 	var groupByField *string
 	if f.GroupByField != "" {
 		gbf := f.GroupByField
@@ -188,9 +180,9 @@ func buildLogAlarmBody(f logAlarmFields) logAlarmBody {
 		LogProjectID:   f.LogProjectID,
 		ProjectName:    f.ProjectName,
 		Zone:           "",
-		QueryString:    queryString,
-		LogSearchQuery: logSearchQuery,
-		Filter:         filter,
+		QueryString:    f.QueryString,
+		LogSearchQuery: f.LogSearchQuery,
+		Filter:         f.Filter,
 		ThresholdType:  f.ThresholdType,
 		Condition:      f.Condition,
 		ThresholdValue: f.ThresholdValue,
@@ -198,7 +190,7 @@ func buildLogAlarmBody(f logAlarmFields) logAlarmBody {
 		GroupByField:   groupByField,
 		AggField:       f.AggField,
 		AggType:        f.AggType,
-		Reason:         buildLogAlarmReason(f, queryString),
+		Reason:         buildLogAlarmReason(f, f.QueryString),
 		InAlarm:        joinChannelIDs(f.InAlarm),
 		OK:             joinChannelIDs(f.OK),
 		Undetermined:   "",
@@ -258,15 +250,15 @@ func checkLogAlarmThresholdValue(op string, value float64) error {
 // checkLogAlarmUpdatable refuses UpdateLogAlarm's full-replace PUT when
 // current cannot supply every field the create body always sends:
 // current.Log nil (no alarmLog and no top-level inAlarm/ok at all in the
-// read), or a Log missing LogProjectID, ThresholdType, Condition, or a
-// nonzero TimeFrame. Sending the PUT anyway would replace those fields
-// with the wire's own zero values instead of leaving them alone.
+// read), or a read missing a create-body field. Sending the PUT anyway
+// would replace those fields with the wire's own zero values instead of
+// leaving them alone.
 func checkLogAlarmUpdatable(op, alarmID string, current *Alarm) error {
 	if current.Log == nil {
 		return fmt.Errorf("%w: %s: alarm %s's read carries no log alarm detail to update from", core.ErrInvalidInput, op, alarmID)
 	}
 	d := current.Log
-	if d.LogProjectID == "" || d.ThresholdType == "" || d.Condition == "" || d.TimeFrame == 0 {
+	if current.Name == "" || current.Severity == "" || d.LogProjectID == "" || d.LogProjectName == "" || d.ThresholdType == "" || d.Condition == "" || d.TimeFrame == 0 {
 		return fmt.Errorf("%w: %s: alarm %s's read is missing a field the create body always sends; refusing a full-replace update", core.ErrInvalidInput, op, alarmID)
 	}
 	return nil

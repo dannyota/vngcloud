@@ -132,6 +132,10 @@ func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*
 		OK:             in.OK,
 		Resend:         resolveLogAlarmResend(in.Resend),
 	}
+	if fields.QueryString == "" && len(fields.Filter) == 0 {
+		fields.QueryString = "*"
+		fields.Filter = json.RawMessage(matchAllLogFilter)
+	}
 
 	if err := c.refuseIfLogAlarmNameExists(ctx, op, in.Name); err != nil {
 		return nil, err
@@ -372,9 +376,10 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 		queryString = *in.QueryString
 		filter = *in.Filter
 		logSearchQuery = "[]"
-	}
-	if logSearchQuery == "" {
-		logSearchQuery = "[]"
+		if queryString == "" && len(filter) == 0 {
+			queryString = "*"
+			filter = json.RawMessage(matchAllLogFilter)
+		}
 	}
 
 	thresholdType := logDetail.ThresholdType
