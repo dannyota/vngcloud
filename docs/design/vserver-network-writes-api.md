@@ -75,12 +75,14 @@ neither, except `zoneId` on subnet create.
 - Route table create (live): `name`, `networkId` (the VPC), and optional
   `routes`, which the SDK leaves out. Route replace (inferred): `routes`,
   the whole list, each `destinationCidrBlock` and `target`.
-- ACL create (live): `name`, `vpc`. Rules replace (live): `aclId` and
-  `detailAclRuleList`, the whole list, each `type`, `seqNumber`,
-  `protocol`, `port` (a string), `source`, `action`, `system`, and
-  `interfaceAclPolicyUuid`; the probes exercised this shape directly (see
-  the live facts under [Server rules](#server-rules-from-the-product-docs)).
-  Subnets replace (inferred): `aclId` and `subnetUuids`, the whole list.
+- ACL create (live): `name`, `vpc`; the GreenNode web console sends the
+  same two fields. Rules replace (live): `aclId` and `detailAclRuleList`,
+  the whole list, each `type`, `seqNumber`, `protocol`, `port` (a string),
+  `source`, `action`, `system`, and `interfaceAclPolicyUuid`; the probes
+  exercised this shape directly (see the live facts under
+  [Server rules](#server-rules-from-the-product-docs)). Subnets replace
+  (live, confirmed against the console): `subnetUuids`, the whole list,
+  with no `aclId`; the ACL is already named by the URL.
 
 ## Responses
 
@@ -125,12 +127,17 @@ exception: its live response matches the read model, so it decodes into
 ## Server rules (from the product docs)
 
 - A VPC is one `/16` from `10.0.0.0/8`, `172.16.0.0` to `172.24.0.0`, or
-  `192.168.0.0/16`. A subnet is a `/24` or `/28` inside it.
+  `192.168.0.0/16`. A subnet is a `/24` or `/28` inside it; the GreenNode
+  web console's own subnet form offers a wider choice of prefix lengths,
+  `/16`, `/18`, `/20`, `/22`, `/24`, `/26`, and `/28`.
 - Live: every VPC lands in the region's first zone (`HCM03-1A` in
   `hcm-3`), whatever `zoneId` says, even when that zone is disabled for
   the account, as it is for the test account. A subnet create without
   `zoneId` looks up that zone and fails with 404 `Cannot get zone with id
   HCM03-1A`; with an enabled zone from `portal list-zones` it succeeds.
+  Confirmed independently through the console, whose own create form sends
+  a `zoneId` too (along with `tags` and a fixed `mtu` of 1500, neither of
+  which the SDK sends) and still lands the VPC in `HCM03-1A`.
 - Enabling Private DNS reserves `/28` subnets for vDNS. Live: those
   subnets do not appear in the VPC's subnet list, and the VPC deletes
   normally afterwards. The API has no disable call.
@@ -160,7 +167,18 @@ exception: its live response matches the read model, so it decodes into
   (associate or disassociate) leaves the ACL busy for about 20 s too, but,
   unlike a rules PUT, `status` stays `ACTIVE` for that whole window; a write
   sent into it gets 400 "... is being updated" instead of the rules PUT's
-  message, with no status change to mark the window at all.
+  message, with no status change to mark the window at all. The console
+  shows the same busy window from the other side: a disassociate sent right
+  after an associate gets that same 400 while `status` still reads
+  `ACTIVE`; sent about a minute later it returns 200.
+- Deleting a subnet while a network ACL still lists it in
+  `subnetAssociationList`, instead of disassociating first, leaves that ACL
+  permanently stuck: every later write to it returns 400 "... is being
+  updated", its own `DELETE` returns 500 instead of the usual 500-on-read
+  (see [Reads after a delete](#reads-after-a-delete)), and its VPC can
+  never be deleted (`This network is attached by the network policy`).
+  Only GreenNode support can clear it; `DeleteSubnet` refuses instead of
+  reaching the server whenever it finds the subnet still held this way.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK
