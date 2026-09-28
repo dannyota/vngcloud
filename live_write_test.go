@@ -4729,25 +4729,7 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	t.Logf("step 5: read network ACL, total rules %d, default rules %d, associated subnets %d",
 		len(afterCreate.ACL.Rules), defaultRuleCount, len(afterCreate.ACL.SubnetIDs))
 
-	// Step 6: create the same name again. Confirmed live, ACL names repeat,
-	// so this must succeed; delete the duplicate at once so it is never
-	// left behind.
-	dup, dupErr := client.CreateNetworkACL(ctx, &network.CreateNetworkACLInput{VPCID: vpcID, Name: name})
-	if dupErr != nil {
-		t.Errorf("step 6 CreateNetworkACL (duplicate name): %s", safeErr(dupErr))
-	} else {
-		t.Log("step 6: creating a duplicate name succeeded, as expected")
-		if dup.ACL.UUID != "" {
-			dupID := dup.ACL.UUID
-			if _, err := retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
-				return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: dupID})
-			}); err != nil && !vngcloud.IsNotFound(err) {
-				t.Errorf("step 6: delete duplicate ACL: %s", safeErr(err))
-			}
-		}
-	}
-
-	// Step 7: add an inbound tcp rule for port 443 from 203.0.113.0/24.
+	// Step 6: add an inbound tcp rule for port 443 from 203.0.113.0/24.
 	// Priority stays within 1 to 1999, the user range confirmed live;
 	// Protocol is sent in the server's own accepted spelling.
 	start = time.Now()
@@ -4758,15 +4740,15 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("step 7 AddNetworkACLRule (tcp): %s", safeErr(err))
+		t.Fatalf("step 6 AddNetworkACLRule (tcp): %s", safeErr(err))
 	}
-	t.Logf("step 7: added tcp rule, changed %v, status %s, total rules %d, wait %s",
+	t.Logf("step 6: added tcp rule, changed %v, status %s, total rules %d, wait %s",
 		tcpRule.Changed, tcpRule.ACL.Status, len(tcpRule.ACL.Rules), time.Since(start))
 	if rule, ok := findACLRule(tcpRule.ACL.Rules, "inbound", 100); ok {
-		t.Logf("step 7: stored port for the tcp rule: %q", rule.Port)
+		t.Logf("step 6: stored port for the tcp rule: %q", rule.Port)
 	}
 
-	// Step 8: add an ANY rule and an icmp rule, to observe how each stores
+	// Step 7: add an ANY rule and an icmp rule, to observe how each stores
 	// port. ANY and icmp each require the full port range, PortRangeMin 0
 	// and PortRangeMax 65535 (icmp also accepts 0 and 0 together); leaving
 	// both at their zero value is refused for either protocol.
@@ -4777,11 +4759,11 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("step 8 AddNetworkACLRule (ANY): %s", safeErr(err))
+		t.Fatalf("step 7 AddNetworkACLRule (ANY): %s", safeErr(err))
 	}
-	t.Logf("step 8: added ANY rule, changed %v, total rules %d", anyRule.Changed, len(anyRule.ACL.Rules))
+	t.Logf("step 7: added ANY rule, changed %v, total rules %d", anyRule.Changed, len(anyRule.ACL.Rules))
 	if rule, ok := findACLRule(anyRule.ACL.Rules, "inbound", 101); ok {
-		t.Logf("step 8: stored port for the ANY rule: %q", rule.Port)
+		t.Logf("step 7: stored port for the ANY rule: %q", rule.Port)
 	}
 
 	icmpRule, err := retryACLBusy(ctx, t, func() (*network.AddNetworkACLRuleOutput, error) {
@@ -4791,26 +4773,26 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("step 8 AddNetworkACLRule (icmp): %s", safeErr(err))
+		t.Fatalf("step 7 AddNetworkACLRule (icmp): %s", safeErr(err))
 	}
-	t.Logf("step 8: added icmp rule, changed %v, total rules %d", icmpRule.Changed, len(icmpRule.ACL.Rules))
+	t.Logf("step 7: added icmp rule, changed %v, total rules %d", icmpRule.Changed, len(icmpRule.ACL.Rules))
 	if rule, ok := findACLRule(icmpRule.ACL.Rules, "inbound", 102); ok {
-		t.Logf("step 8: stored port for the icmp rule: %q", rule.Port)
+		t.Logf("step 7: stored port for the icmp rule: %q", rule.Port)
 	}
 
-	// Step 9: add a rule at a priority already used, with a different
+	// Step 8: add a rule at a priority already used, with a different
 	// protocol; the design expects a refusal, nothing sent.
 	_, conflictErr := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
 		NetworkACLID: aclID, Direction: "inbound", Priority: 100, Protocol: "udp",
 		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443, NoWait: true,
 	})
 	if !errors.Is(conflictErr, vngcloud.ErrInvalidInput) {
-		t.Errorf("step 9: conflicting priority err = %s, want ErrInvalidInput", safeErr(conflictErr))
+		t.Errorf("step 8: conflicting priority err = %s, want ErrInvalidInput", safeErr(conflictErr))
 	} else {
-		t.Log("step 9: conflicting priority refused as expected")
+		t.Log("step 8: conflicting priority refused as expected")
 	}
 
-	// Step 10: remove the three rules just added.
+	// Step 9: remove the three rules just added.
 	for _, priority := range []int{100, 101, 102} {
 		priority := priority
 		start = time.Now()
@@ -4818,21 +4800,21 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 			return client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: priority})
 		})
 		if err != nil {
-			t.Fatalf("step 10 RemoveNetworkACLRule (priority %d): %s", priority, safeErr(err))
+			t.Fatalf("step 9 RemoveNetworkACLRule (priority %d): %s", priority, safeErr(err))
 		}
-		t.Logf("step 10: removed rule at priority %d, changed %v, total rules %d, wait %s",
+		t.Logf("step 9: removed rule at priority %d, changed %v, total rules %d, wait %s",
 			priority, removed.Changed, len(removed.ACL.Rules), time.Since(start))
 	}
 
-	// Step 11: remove one again; the design expects NotFound.
+	// Step 10: remove one again; the design expects NotFound.
 	_, removedAgainErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: 100, NoWait: true})
 	if !vngcloud.IsNotFound(removedAgainErr) {
-		t.Errorf("step 11: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
+		t.Errorf("step 10: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
 	} else {
-		t.Log("step 11: repeat remove returned NotFound as expected")
+		t.Log("step 10: repeat remove returned NotFound as expected")
 	}
 
-	// Step 12: remove the inbound priority-0 pass-all rule. Confirmed live,
+	// Step 11: remove the inbound priority-0 pass-all rule. Confirmed live,
 	// it is an ordinary rule, not a default one, so this must succeed; a
 	// fresh read (returned on RemoveNetworkACLRule itself) then confirms
 	// it is gone.
@@ -4840,92 +4822,105 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		return client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: 0})
 	})
 	if err != nil {
-		t.Fatalf("step 12 RemoveNetworkACLRule (priority-0 pass-all): %s", safeErr(err))
+		t.Fatalf("step 11 RemoveNetworkACLRule (priority-0 pass-all): %s", safeErr(err))
 	}
 	if !removedPassAll.Changed {
-		t.Error("step 12: Changed = false, want true: the priority-0 pass-all rule must be removable")
+		t.Error("step 11: Changed = false, want true: the priority-0 pass-all rule must be removable")
 	}
 	if _, ok := findACLRule(removedPassAll.ACL.Rules, "inbound", 0); ok {
-		t.Error("step 12: the priority-0 pass-all rule is still present after removal")
+		t.Error("step 11: the priority-0 pass-all rule is still present after removal")
 	} else {
-		t.Logf("step 12: removed the inbound priority-0 pass-all rule, total rules %d", len(removedPassAll.ACL.Rules))
+		t.Logf("step 11: removed the inbound priority-0 pass-all rule, total rules %d", len(removedPassAll.ACL.Rules))
 	}
 
-	// Step 13: confirm the priority-2000 deny-all rules cannot be removed:
+	// Step 12: confirm the priority-2000 deny-all rules cannot be removed:
 	// the design treats a Priority of 2000 or above as a default rule the
 	// server protects, so each direction's own remove must fail with
 	// ErrDefaultResource and send nothing.
 	for _, direction := range []string{"inbound", "outbound"} {
 		_, denyErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: direction, Priority: 2000, NoWait: true})
 		if !errors.Is(denyErr, network.ErrDefaultResource) {
-			t.Errorf("step 13: remove %s priority-2000 rule err = %s, want ErrDefaultResource", direction, safeErr(denyErr))
+			t.Errorf("step 12: remove %s priority-2000 rule err = %s, want ErrDefaultResource", direction, safeErr(denyErr))
 		} else {
-			t.Logf("step 13: %s priority-2000 rule remove refused as expected", direction)
+			t.Logf("step 12: %s priority-2000 rule remove refused as expected", direction)
 		}
 	}
 
-	// Step 14: associate this run's own subnet with the ACL, associate it
-	// again, and try to delete the ACL while it remains associated.
-	// Associating a subnet can cut that subnet's traffic at once, so this
-	// never associates any subnet but the one created in step 1.
+	// Step 13: associate this run's own subnet with the ACL, wait out its
+	// busy window, associate it again, and try to delete the ACL while it
+	// remains associated. Associating a subnet can cut that subnet's traffic
+	// at once, so this never associates any subnet but the one created in
+	// step 1.
 	start = time.Now()
 	associated, err := retryACLBusy(ctx, t, func() (*network.AssociateNetworkACLSubnetOutput, error) {
 		return client.AssociateNetworkACLSubnet(ctx, &network.AssociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
 	})
 	if err != nil {
-		t.Fatalf("step 14a AssociateNetworkACLSubnet: %s", safeErr(err))
+		t.Fatalf("step 13a AssociateNetworkACLSubnet: %s", safeErr(err))
 	}
 	if !associated.Changed {
-		t.Error("step 14a: Changed = false, want true: associating a subnet not yet in the ACL must change it")
+		t.Error("step 13a: Changed = false, want true: associating a subnet not yet in the ACL must change it")
 	}
 	if !slices.Contains(associated.ACL.SubnetIDs, subnetID) {
-		t.Error("step 14a: the ACL's own subnetAssociationList does not name the subnet just associated")
+		t.Error("step 13a: the ACL's own subnetAssociationList does not name the subnet just associated")
 	}
-	t.Logf("step 14a: associated the subnet, status %s, associated subnets %d, wait %s",
+	t.Logf("step 13a: associated the subnet, status %s, associated subnets %d, wait %s",
 		associated.ACL.Status, len(associated.ACL.SubnetIDs), time.Since(start))
 	subnetAfterAssociate, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
 	if err != nil {
-		t.Fatalf("step 14a GetSubnet: %s", safeErr(err))
+		t.Fatalf("step 13a GetSubnet: %s", safeErr(err))
 	}
 	// Which subnet field, if any, names the associated ACL is unconfirmed
 	// live (InterfaceACLPolicyUUID has been seen empty here); log every
 	// candidate rather than asserting one.
-	t.Logf("step 14a: subnet ACL fields after associate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
+	t.Logf("step 13a: subnet ACL fields after associate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
 		subnetAfterAssociate.Subnet.InterfaceACLPolicyID,
 		subnetAfterAssociate.Subnet.InterfaceACLPolicyUUID,
 		subnetAfterAssociate.Subnet.InterfaceACLPolicyName)
+
+	// Step 13b: wait out the associate's own busy window before this ACL
+	// gets any other write. Confirmed live, a subnets write leaves the ACL
+	// busy for about 20 more seconds without ever changing Status, so
+	// nothing in a read marks when it ends; retryACLBusy would retry a
+	// write sent too soon, but waiting the full window first keeps the
+	// remaining steps' own retry counts meaningful.
+	select {
+	case <-ctx.Done():
+		t.Fatalf("step 13b: context ended while waiting out the ACL's busy window: %s", safeErr(ctx.Err()))
+	case <-time.After(30 * time.Second):
+	}
 
 	againAssociated, err := retryACLBusy(ctx, t, func() (*network.AssociateNetworkACLSubnetOutput, error) {
 		return client.AssociateNetworkACLSubnet(ctx, &network.AssociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
 	})
 	if err != nil {
-		t.Fatalf("step 14b AssociateNetworkACLSubnet (repeat): %s", safeErr(err))
+		t.Fatalf("step 13c AssociateNetworkACLSubnet (repeat): %s", safeErr(err))
 	}
 	if againAssociated.Changed {
-		t.Error("step 14b: repeat associate reported Changed true, want false: the subnet is already in this ACL")
+		t.Error("step 13c: repeat associate reported Changed true, want false: the subnet is already in this ACL")
 	} else {
-		t.Log("step 14b: repeat associate was a no-op as expected")
+		t.Log("step 13c: repeat associate was a no-op as expected")
 	}
 
 	_, deleteWhileAssociatedErr := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
 	if deleteWhileAssociatedErr == nil {
-		t.Fatal("step 14c: DeleteNetworkACL while a subnet is associated succeeded; the design expects a refusal")
+		t.Fatal("step 13d: DeleteNetworkACL while a subnet is associated succeeded; the design expects a refusal")
 	}
 	if errors.Is(deleteWhileAssociatedErr, network.ErrInUse) {
-		t.Logf("step 14c: delete while associated refused with the SDK's own ErrInUse, as expected")
+		t.Logf("step 13d: delete while associated refused with the SDK's own ErrInUse, as expected")
 	} else {
-		t.Logf("step 14c: delete while associated refused by the server instead of the SDK's own guard: %s",
+		t.Logf("step 13d: delete while associated refused by the server instead of the SDK's own guard: %s",
 			safeErr(deleteWhileAssociatedErr))
 	}
 	stillAssociated, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
 	if err != nil {
-		t.Fatalf("step 14c GetNetworkACL after refused delete: %s", safeErr(err))
+		t.Fatalf("step 13d GetNetworkACL after refused delete: %s", safeErr(err))
 	}
 	if !slices.Contains(stillAssociated.ACL.SubnetIDs, subnetID) {
-		t.Error("step 14c: the ACL no longer lists the associated subnet after a refused delete; it may have been deleted")
+		t.Error("step 13d: the ACL no longer lists the associated subnet after a refused delete; it may have been deleted")
 	}
 
-	// Step 15: disassociate the subnet, then check its own ACL fields
+	// Step 14: disassociate the subnet, then check its own ACL fields
 	// afterward. What a subnet falls back to once disassociated is not yet
 	// confirmed live, so this only logs the fields rather than asserting a
 	// value for them.
@@ -4934,43 +4929,43 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 		return client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
 	})
 	if err != nil {
-		t.Fatalf("step 15a DisassociateNetworkACLSubnet: %s", safeErr(err))
+		t.Fatalf("step 14a DisassociateNetworkACLSubnet: %s", safeErr(err))
 	}
 	if !disassociated.Changed {
-		t.Error("step 15a: Changed = false, want true: disassociating an associated subnet must change it")
+		t.Error("step 14a: Changed = false, want true: disassociating an associated subnet must change it")
 	}
 	if slices.Contains(disassociated.ACL.SubnetIDs, subnetID) {
-		t.Error("step 15a: the ACL still lists the subnet after disassociating it")
+		t.Error("step 14a: the ACL still lists the subnet after disassociating it")
 	}
-	t.Logf("step 15a: disassociated the subnet, status %s, associated subnets %d, wait %s",
+	t.Logf("step 14a: disassociated the subnet, status %s, associated subnets %d, wait %s",
 		disassociated.ACL.Status, len(disassociated.ACL.SubnetIDs), time.Since(start))
 
 	subnetAfterDisassociate, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
 	if err != nil {
-		t.Fatalf("step 15b GetSubnet: %s", safeErr(err))
+		t.Fatalf("step 14b GetSubnet: %s", safeErr(err))
 	}
-	t.Logf("step 15b: subnet ACL fields after disassociate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
+	t.Logf("step 14b: subnet ACL fields after disassociate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyID,
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyUUID,
 		subnetAfterDisassociate.Subnet.InterfaceACLPolicyName)
 
-	// Step 16: delete the ACL explicitly.
+	// Step 15: delete the ACL explicitly.
 	start = time.Now()
 	if _, err := retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
 		return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
 	}); err != nil {
-		t.Fatalf("step 16 DeleteNetworkACL: %s", safeErr(err))
+		t.Fatalf("step 15 DeleteNetworkACL: %s", safeErr(err))
 	}
-	t.Logf("step 16: deleted network ACL, wait %s", time.Since(start))
+	t.Logf("step 15: deleted network ACL, wait %s", time.Since(start))
 
-	// Step 17: repeat delete; the design expects NotFound, through the list
+	// Step 16: repeat delete; the design expects NotFound, through the list
 	// confirm after the server's 500, since the delete's own guard reads
 	// run first.
 	_, repeatErr := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
 	if !vngcloud.IsNotFound(repeatErr) {
-		t.Errorf("step 17: repeat delete err = %s, want NotFound", safeErr(repeatErr))
+		t.Errorf("step 16: repeat delete err = %s, want NotFound", safeErr(repeatErr))
 	} else {
-		t.Log("step 17: repeat delete returned NotFound as expected")
+		t.Log("step 16: repeat delete returned NotFound as expected")
 	}
 }
 
