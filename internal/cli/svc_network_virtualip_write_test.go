@@ -266,7 +266,7 @@ func TestNetworkDeleteVirtualIPAddressInUseWithAddressPairsNoDelete(t *testing.T
 				t.Fatalf("unexpected method %s, want only GET", r.Method)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", "", "", []string{"203.0.113.20"})))
+			_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", "private", "", []string{"203.0.113.20"})))
 		},
 		"/v2/proj-1/virtualIpAddress/vip-1/addressPairs": func(_ http.ResponseWriter, r *http.Request) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -289,34 +289,47 @@ func TestNetworkDeleteVirtualIPAddressInUseWithAddressPairsNoDelete(t *testing.T
 	}
 }
 
-// TestNetworkDeleteVirtualIPAddressPublicTypeNoDelete checks that a Type
-// other than the private value refuses the delete with InvalidUsage, so a
-// public virtual IP is never deleted through this command.
+// TestNetworkDeleteVirtualIPAddressPublicTypeNoDelete checks that only the
+// recorded lowercase private type can reach the address pairs check.
 func TestNetworkDeleteVirtualIPAddressPublicTypeNoDelete(t *testing.T) {
-	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v2/proj-1/virtualIpAddress/vip-1": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				t.Fatalf("unexpected method %s, want only GET", r.Method)
+	tests := []struct {
+		name string
+		typ  string
+	}{
+		{name: "public", typ: "public-vm"},
+		{name: "uppercase private", typ: "PRIVATE"},
+		{name: "empty", typ: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/v2/proj-1/virtualIpAddress/vip-1": func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodGet {
+						t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", tt.typ, "", nil)))
+				},
+				"/v2/proj-1/virtualIpAddress/vip-1/addressPairs": func(_ http.ResponseWriter, r *http.Request) {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				},
+			})
+			root, _, stderr := newSvcRoot(t, fixture)
+			root.SetArgs([]string{
+				"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+				"network", "delete-virtual-ip-address", "--virtual-ip-address-id", "vip-1",
+			})
+			err := root.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatal("expected an error")
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(vipEnvelopeJSON("vip1", "Active/Active", "public-vm", "", nil)))
-		},
-		"/v2/proj-1/virtualIpAddress/vip-1/addressPairs": jsonHandler(http.StatusOK, `{"data":[]}`),
-	})
-	root, _, stderr := newSvcRoot(t, fixture)
-	root.SetArgs([]string{
-		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
-		"network", "delete-virtual-ip-address", "--virtual-ip-address-id", "vip-1",
-	})
-	err := root.ExecuteContext(context.Background())
-	if err == nil {
-		t.Fatal("expected an error")
-	}
-	if got := classify(err).Code; got != "InvalidUsage" {
-		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
-	}
-	if n := fixture.requestCount(); n != 2 {
-		t.Fatalf("requestCount = %d, want 2 (read, address pairs list, no delete)", n)
+			if got := classify(err).Code; got != "InvalidUsage" {
+				t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+			}
+			if n := fixture.requestCount(); n != 1 {
+				t.Fatalf("requestCount = %d, want 1 (the read only)", n)
+			}
+		})
 	}
 }
 

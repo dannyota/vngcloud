@@ -429,8 +429,8 @@ func TestIsPrivateVirtualIPType(t *testing.T) {
 		want bool
 	}{
 		{"private", true},
-		{"PRIVATE", true},
-		{"Private", true},
+		{"PRIVATE", false},
+		{"Private", false},
 		{"public", false},
 		{"public-vm", false},
 		{"public-mkp", false},
@@ -482,8 +482,6 @@ func TestDeleteVirtualIPAddressGuardPublicType(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/vip-1"):
 			_, _ = w.Write([]byte(vipBody("vip1", VirtualIPModeActiveActive, "public-vm", "ACTIVE", nil)))
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/addressPairs"):
-			_, _ = w.Write([]byte(`{"data":[]}`))
 		default:
 			t.Fatalf("unexpected request: %s %s (delete must send no DELETE)", r.Method, r.URL.Path)
 		}
@@ -516,25 +514,21 @@ func TestDeleteVirtualIPAddressGuardEmptyType(t *testing.T) {
 	}
 }
 
-// TestDeleteVirtualIPAddressGuardTypeCaseInsensitive checks that a Type of
-// "PRIVATE", as the GreenNode console shows it, is accepted the same as the
-// live lowercase "private" the API itself returns.
-func TestDeleteVirtualIPAddressGuardTypeCaseInsensitive(t *testing.T) {
+// TestDeleteVirtualIPAddressGuardUnrecordedPrivateType checks that only the
+// lowercase type recorded by the API permits deletion.
+func TestDeleteVirtualIPAddressGuardUnrecordedPrivateType(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/vip-1"):
 			_, _ = w.Write([]byte(vipBody("vip1", VirtualIPModeActiveActive, "PRIVATE", "ACTIVE", nil)))
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/addressPairs"):
-			_, _ = w.Write([]byte(`{"data":[]}`))
-		case r.Method == http.MethodDelete:
-			w.WriteHeader(http.StatusNoContent)
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Fatalf("unexpected request: %s %s (delete must send no DELETE)", r.Method, r.URL.Path)
 		}
 	}))
 
-	if _, err := c.DeleteVirtualIPAddress(context.Background(), &DeleteVirtualIPAddressInput{VirtualIPAddressID: "vip-1"}); err != nil {
-		t.Fatalf("DeleteVirtualIPAddress() error = %v, want nil for a case-differing private type", err)
+	_, err := c.DeleteVirtualIPAddress(context.Background(), &DeleteVirtualIPAddressInput{VirtualIPAddressID: "vip-1"})
+	if !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
 

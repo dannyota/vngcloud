@@ -51,8 +51,7 @@ use, are the server's own checks. `CreateVirtualIPAddress` never sends
 call, not covered here.
 
 `CreateVirtualIPAddress` is a `POST` and is never retried after a failure
-that may already have reached the server, for the reason
-`CreateSecurityGroup` is not (see [Network](Network.md)): list virtual IPs
+that may already have reached the server: list virtual IPs
 with `ListVirtualIPAddresses` and match the name exactly, or the address
 if one was given, since the server keeps an address unique within a
 subnet, before creating it again. If the create response is not already
@@ -71,7 +70,7 @@ any address pair is still attached, checked both by the read's own
 `AddressPairIPs` and by `ListAddressPairsByVirtualIPAddress`
 (`network.ErrInUse`): a pair binds the address to a server interface, and
 deleting it would move traffic. It also sends nothing for a virtual IP
-whose `Type` is not `"private"`, compared case-insensitively
+whose `Type` is not the recorded lowercase `"private"`
 (`vngcloud.ErrInvalidInput`), so a public virtual IP, which has its own
 delete call and price, is never deleted through this one; an empty `Type`
 is refused the same way. `DELETE` is idempotent; a retry that finds the
@@ -83,7 +82,7 @@ subnets](Network.md#creating-renaming-and-deleting-subnets).
 ## Waits
 
 `CreateVirtualIPAddress` skips its wait entirely when the create response
-is already `"ACTIVE"`. Otherwise, without `NoWait`, it polls
+is already `"ACTIVE"`. Otherwise, it polls
 `GetVirtualIPAddress` every 2 seconds for up to 60 seconds of elapsed
 time, tolerating a 404, until the virtual IP reaches `"ACTIVE"`. If it
 reaches `"ERROR"` instead, the create returns an error wrapping

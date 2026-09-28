@@ -356,12 +356,9 @@ var sdkSentinelErrs = []error{
 }
 
 // safeErr summarizes err for a test log line. A *vngcloud.APIError's own
-// Message may echo request data, such as this test's own budget or
-// threshold UUID, so only its StatusCode and Code print. An error that
-// wraps one of sdkSentinelErrs prints in full instead, since reaching this
-// branch already means the error carries no *vngcloud.APIError anywhere in
-// its chain (the check above would have matched it first); anything else,
-// including a bare transport failure, prints only its Go type.
+// Message may echo request data, so only its StatusCode and Code print. An
+// SDK sentinel may wrap IDs or addresses, so only its constant message
+// prints. Anything else prints only its Go type.
 func safeErr(err error) string {
 	if err == nil {
 		return "none"
@@ -372,15 +369,13 @@ func safeErr(err error) string {
 	}
 	for _, sentinel := range sdkSentinelErrs {
 		if errors.Is(err, sentinel) {
-			return err.Error()
+			return sentinel.Error()
 		}
 	}
 	return fmt.Sprintf("non-API error (%T)", err)
 }
 
-// TestSafeErr checks that safeErr redacts an *vngcloud.APIError and an
-// unrecognized error, but prints the full message of an error wrapping one
-// of the SDK's own sentinel errors.
+// TestSafeErr checks that safeErr redacts API and sentinel detail.
 func TestSafeErr(t *testing.T) {
 	if got := safeErr(nil); got != "none" {
 		t.Errorf("safeErr(nil) = %q, want %q", got, "none")
@@ -395,13 +390,19 @@ func TestSafeErr(t *testing.T) {
 	}
 
 	invalidInputErr := fmt.Errorf("%w: network.DeleteVirtualIPAddress: virtual IP vip-1 has type %q, not a private virtual IP; it must be deleted through the public virtual IP call instead", vngcloud.ErrInvalidInput, "public-vm")
-	if got := safeErr(invalidInputErr); got != invalidInputErr.Error() {
-		t.Errorf("safeErr(invalidInputErr) = %q, want the full message %q", got, invalidInputErr.Error())
+	if got := safeErr(invalidInputErr); got != vngcloud.ErrInvalidInput.Error() {
+		t.Errorf("safeErr(invalidInputErr) = %q, want %q", got, vngcloud.ErrInvalidInput.Error())
+	}
+	if strings.Contains(safeErr(invalidInputErr), "vip-1") || strings.Contains(safeErr(invalidInputErr), "public-vm") {
+		t.Errorf("safeErr(invalidInputErr) = %q, must not include virtual IP detail", safeErr(invalidInputErr))
 	}
 
-	inUseErr := fmt.Errorf("%w: network.DeleteVirtualIPAddress: virtual IP vip-1 has 2 address pair(s) attached", network.ErrInUse)
-	if got := safeErr(inUseErr); got != inUseErr.Error() {
-		t.Errorf("safeErr(inUseErr) = %q, want the full message %q", got, inUseErr.Error())
+	inUseErr := fmt.Errorf("%w: virtual IP vip-1 at 10.0.0.10 has 2 address pairs", network.ErrInUse)
+	if got := safeErr(inUseErr); got != network.ErrInUse.Error() {
+		t.Errorf("safeErr(inUseErr) = %q, want %q", got, network.ErrInUse.Error())
+	}
+	if strings.Contains(safeErr(inUseErr), "vip-1") || strings.Contains(safeErr(inUseErr), "10.0.0.10") {
+		t.Errorf("safeErr(inUseErr) = %q, must not include virtual IP detail", safeErr(inUseErr))
 	}
 
 	transportErr := fmt.Errorf("Get \"https://example.invalid/v2/token=abc123\": dial tcp: connection refused")
@@ -5254,30 +5255,76 @@ func listAllVirtualIPAddresses(ctx context.Context, client *network.Client) ([]n
 	}
 }
 
-// deleteLiveVirtualIPs deletes every vngcloud-live-* virtual IP, returning
-// how many it deleted. It is used both for a leftover from an earlier run
-// and from t.Cleanup, so a virtual IP already gone does not fail the caller;
-// it runs before the run's own VPC and subnet are deleted, per live data's
-// children-before-parents rule.
+// liveVirtualIPNamePattern matches every virtual IP name this test creates.
+var liveVirtualIPNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}(-b(-renamed)?|-c)?$`)
+
+func isLiveVirtualIPName(name string) bool {
+	return liveVirtualIPNamePattern.MatchString(name)
+}
+
+// deleteLiveVirtualIPs removes prior test virtual IPs before parent cleanup.
 func deleteLiveVirtualIPs(ctx context.Context, t *testing.T, client *network.Client) int {
 	t.Helper()
 	all, err := listAllVirtualIPAddresses(ctx, client)
 	if err != nil {
-		t.Errorf("cleanup: list virtual ip addresses: %s", safeErr(err))
+		t.Errorf("cleanup: list virtual ip addresses: %s", safeVirtualIPErr(err))
 		return 0
 	}
 	deleted := 0
 	for _, vip := range all {
-		if !isLiveSecurityGroupName(vip.Name) {
+		if !isLiveVirtualIPName(vip.Name) {
 			continue
 		}
 		if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vip.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete virtual ip: %s", safeErr(err))
+			t.Errorf("cleanup: delete virtual ip: %s", safeVirtualIPErr(err))
 			continue
 		}
 		deleted++
 	}
 	return deleted
+}
+
+// registerVirtualIPCleanupIfCreated registers cleanup before create errors
+// are checked because a failed post-create wait can still return an ID.
+func registerVirtualIPCleanupIfCreated(t *testing.T, client *network.Client, out *network.CreateVirtualIPAddressOutput, label string) {
+	t.Helper()
+	if out == nil || out.VirtualIPAddress.UUID == "" {
+		return
+	}
+	id := out.VirtualIPAddress.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteVirtualIPAddress(cleanupCtx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: id}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete %s virtual ip: %s", label, safeVirtualIPErr(err))
+		}
+	})
+}
+
+// safeVirtualIPErr keeps virtual-IP live-test logs free of IDs, addresses,
+// CIDRs, and SDK sentinel detail that may include them.
+func safeVirtualIPErr(err error) string {
+	if err == nil {
+		return "none"
+	}
+	var apiErr *vngcloud.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Sprintf("status=%d code=%s", apiErr.StatusCode, apiErr.Code)
+	}
+	switch {
+	case errors.Is(err, network.ErrNotSettled):
+		return "not settled"
+	case errors.Is(err, network.ErrFailed):
+		return "write failed"
+	case errors.Is(err, network.ErrInUse):
+		return "resource in use"
+	case errors.Is(err, vngcloud.ErrInvalidInput):
+		return "invalid input"
+	case vngcloud.IsNotFound(err):
+		return "not found"
+	default:
+		return fmt.Sprintf("non-API error (%T)", err)
+	}
 }
 
 // looksLikePaymentRefusal reports whether err is a *vngcloud.APIError whose
@@ -5292,6 +5339,16 @@ func looksLikePaymentRefusal(err error) bool {
 	}
 	msg := strings.ToLower(apiErr.Message)
 	return strings.Contains(msg, "payment") || strings.Contains(msg, "balance") || strings.Contains(msg, "credit")
+}
+
+// isVirtualIPAddressDuplicateRefusal accepts only documented duplicate
+// address refusals. Other errors leave the create outcome unknown.
+func isVirtualIPAddressDuplicateRefusal(err error) bool {
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusConflict
 }
 
 // TestLiveWriteNetworkVirtualIP exercises CreateVirtualIPAddress,
@@ -5315,8 +5372,8 @@ func looksLikePaymentRefusal(err error) bool {
 // change (step 6); deletes the second virtual IP and confirms a 404, then
 // repeats the delete and logs its status (step 7); deletes the subnet while
 // the first virtual IP remains, expecting ErrInUse (step 8); and deletes the
-// first virtual IP (step 9). Every step logs only statuses, counts, field
-// names, and timings, never a virtual IP's own id, name, or address.
+// first virtual IP (step 9). Every step logs through safeVirtualIPErr. Every
+// direct t.Logf call names only a status, a mode, or a count.
 func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network virtual IP write test")
@@ -5375,25 +5432,18 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	created, err := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
 		SubnetID: subnetID, Name: name, Mode: network.VirtualIPModeActivePassive,
 	})
+	registerVirtualIPCleanupIfCreated(t, client, created, "first")
 	if err != nil {
 		if looksLikePaymentRefusal(err) {
-			t.Logf("step 3: create refused, %s (looks like a payment requirement; stopping, not retrying)", safeErr(err))
-			return
+			t.Skipf("step 3: create refused for payment, balance, or credit, %s; add owner-approved credit before this live check", safeVirtualIPErr(err))
 		}
-		t.Fatalf("step 3 CreateVirtualIPAddress: %s", safeErr(err))
+		t.Fatalf("step 3 CreateVirtualIPAddress: %s", safeVirtualIPErr(err))
 	}
 	vipID := created.VirtualIPAddress.UUID
 	if vipID == "" {
 		t.Fatal("step 3: CreateVirtualIPAddress returned an empty id; the design requires one")
 	}
 	t.Logf("step 3: created virtual IP, status %s, mode %s", created.VirtualIPAddress.Status, created.VirtualIPAddress.Mode)
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := client.DeleteVirtualIPAddress(cleanupCtx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete virtual ip: %s", safeErr(err))
-		}
-	})
 
 	// Step 4: create a second virtual IP with mode Active/Active and a
 	// given address in the run's subnet. The subnet's own CIDR comes from
@@ -5402,11 +5452,11 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	// return it.
 	subnet, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
 	if err != nil {
-		t.Fatalf("step 4 GetSubnet: %s", safeErr(err))
+		t.Fatalf("step 4 GetSubnet: %s", safeVirtualIPErr(err))
 	}
 	subnetPrefix, err := netip.ParsePrefix(subnet.Subnet.CIDR)
 	if err != nil {
-		t.Fatalf("step 4 parse subnet CIDR %q: %s", subnet.Subnet.CIDR, err)
+		t.Fatalf("step 4 parse subnet CIDR: %s", safeVirtualIPErr(err))
 	}
 	addr := subnetPrefix.Masked().Addr().As4()
 	addr[3] = 10
@@ -5414,41 +5464,30 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	created2, err := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
 		SubnetID: subnetID, Name: name + "-b", Mode: network.VirtualIPModeActiveActive, IPAddress: address,
 	})
+	registerVirtualIPCleanupIfCreated(t, client, created2, "second")
 	if err != nil {
-		t.Fatalf("step 4 CreateVirtualIPAddress with address: %s", safeErr(err))
+		t.Fatalf("step 4 CreateVirtualIPAddress with address: %s", safeVirtualIPErr(err))
 	}
 	vipID2 := created2.VirtualIPAddress.UUID
 	if vipID2 == "" {
 		t.Fatal("step 4: CreateVirtualIPAddress returned an empty id; the design requires one")
 	}
 	t.Logf("step 4: created a second virtual IP with a given address, status %s", created2.VirtualIPAddress.Status)
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := client.DeleteVirtualIPAddress(cleanupCtx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID2}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete second virtual ip: %s", safeErr(err))
-		}
-	})
-
 	// Step 5: create again with the same address; the server keeps an
 	// address unique within a subnet, so the design expects a refusal.
 	dup, dupErr := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
 		SubnetID: subnetID, Name: name + "-c", Mode: network.VirtualIPModeActiveActive, IPAddress: address,
 	})
+	registerVirtualIPCleanupIfCreated(t, client, dup, "duplicate-address")
 	switch {
 	case dupErr == nil:
 		t.Error("step 5: creating a virtual IP with a used address succeeded; the design expects a refusal")
-		if dupID := dup.VirtualIPAddress.UUID; dupID != "" {
-			t.Cleanup(func() {
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				if _, err := client.DeleteVirtualIPAddress(cleanupCtx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: dupID}); err != nil && !vngcloud.IsNotFound(err) {
-					t.Errorf("cleanup: delete duplicate-address virtual ip: %s", safeErr(err))
-				}
-			})
-		}
+	case dup != nil && dup.VirtualIPAddress.UUID != "":
+		t.Fatalf("step 5 CreateVirtualIPAddress with a used address: %s", safeVirtualIPErr(dupErr))
+	case isVirtualIPAddressDuplicateRefusal(dupErr):
+		t.Logf("step 5: used address refused, %s", safeVirtualIPErr(dupErr))
 	default:
-		t.Logf("step 5: used address refused, %s", safeErr(dupErr))
+		t.Fatalf("step 5 CreateVirtualIPAddress with a used address: %s", safeVirtualIPErr(dupErr))
 	}
 
 	// Step 6: rename the second virtual IP, resending its mode; the mode
@@ -5457,7 +5496,7 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 		VirtualIPAddressID: vipID2, Name: vngcloud.Ptr(name + "-b-renamed"),
 	})
 	if err != nil {
-		t.Fatalf("step 6 UpdateVirtualIPAddress: %s", safeErr(err))
+		t.Fatalf("step 6 UpdateVirtualIPAddress: %s", safeVirtualIPErr(err))
 	}
 	if updated.VirtualIPAddress.Mode != network.VirtualIPModeActiveActive {
 		t.Fatalf("step 6: mode = %q after a name-only update, want %q unchanged",
@@ -5468,25 +5507,25 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	// Step 7: delete the second virtual IP and confirm a 404, then repeat
 	// the delete and log its status.
 	if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID2}); err != nil {
-		t.Fatalf("step 7 DeleteVirtualIPAddress: %s", safeErr(err))
+		t.Fatalf("step 7 DeleteVirtualIPAddress: %s", safeVirtualIPErr(err))
 	}
 	if _, err := client.GetVirtualIPAddress(ctx, &network.GetVirtualIPAddressInput{VirtualIPAddressID: vipID2}); !vngcloud.IsNotFound(err) {
-		t.Fatalf("step 7: get after delete = %s, want NotFound", safeErr(err))
+		t.Fatalf("step 7: get after delete = %s, want NotFound", safeVirtualIPErr(err))
 	}
 	_, repeatErr := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID2})
-	t.Logf("step 7: deleted the second virtual IP, confirmed 404, repeat delete status %s", safeErr(repeatErr))
+	t.Logf("step 7: deleted the second virtual IP, confirmed 404, repeat delete status %s", safeVirtualIPErr(repeatErr))
 
 	// Step 8: the subnet delete must be refused while the first virtual IP
 	// remains.
 	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID, NoWait: true}); !errors.Is(err, network.ErrInUse) {
-		t.Fatalf("step 8: DeleteSubnet while a virtual IP remains = %s, want ErrInUse", safeErr(err))
+		t.Fatalf("step 8: DeleteSubnet while a virtual IP remains = %s, want ErrInUse", safeVirtualIPErr(err))
 	}
 	t.Log("step 8: subnet delete refused while a virtual IP remains")
 
 	// Step 9: delete the first virtual IP, so the run's own subnet and VPC
 	// cleanup can proceed without ErrInUse.
 	if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID}); err != nil {
-		t.Fatalf("step 9 DeleteVirtualIPAddress: %s", safeErr(err))
+		t.Fatalf("step 9 DeleteVirtualIPAddress: %s", safeVirtualIPErr(err))
 	}
 	t.Log("step 9: deleted the first virtual IP")
 }

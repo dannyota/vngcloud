@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -32,19 +31,13 @@ const (
 
 // virtualIPTypePrivate is the Type value a private virtual IP carries,
 // confirmed live: the create response, and the GreenNode console it feeds,
-// both return the lowercase string "private" (the console displays it as
-// PRIVATE). isPrivateVirtualIPType compares against it case-insensitively,
-// since the API's own casing is not a contract. An empty Type has no
-// recorded meaning, so DeleteVirtualIPAddress fails it closed like any
-// other non-matching value: core.ErrInvalidInput, since a public virtual
-// IP has its own delete call and price and must never be deleted through
-// this one.
+// both return the lowercase string "private". No other spelling is recorded,
+// so DeleteVirtualIPAddress fails it closed with core.ErrInvalidInput.
 const virtualIPTypePrivate = "private"
 
-// isPrivateVirtualIPType reports whether t is virtualIPTypePrivate, compared
-// case-insensitively.
+// isPrivateVirtualIPType reports whether t is the recorded private type.
 func isPrivateVirtualIPType(t string) bool {
-	return strings.EqualFold(t, virtualIPTypePrivate)
+	return t == virtualIPTypePrivate
 }
 
 // virtualIPWriteResponse is CreateVirtualIPAddress and
@@ -364,9 +357,9 @@ type DeleteVirtualIPAddressOutput struct{}
 // attached, checked both by AddressPairIPs on the read and by
 // ListAddressPairsByVirtualIPAddress (ErrInUse): a pair binds the address to
 // a server interface, and deleting it moves traffic. It also sends nothing
-// when the read's Type is not virtualIPTypePrivate, compared
-// case-insensitively (core.ErrInvalidInput), so a public virtual IP, which
-// has its own delete call and price, is never deleted through this call.
+// when the read's Type is not the recorded lowercase private value
+// (core.ErrInvalidInput), so a public virtual IP, which has its own delete
+// call and price, is never deleted through this call.
 //
 // DELETE is idempotent and keeps the transport's normal retries; a retry
 // that finds the virtual IP already gone returns NotFound. The delete is
@@ -384,6 +377,10 @@ func (c *Client) DeleteVirtualIPAddress(ctx context.Context, in *DeleteVirtualIP
 	if err != nil {
 		return nil, err
 	}
+	if !isPrivateVirtualIPType(current.VirtualIPAddress.Type) {
+		return nil, fmt.Errorf("%w: %s: virtual IP %s has type %q, not a private virtual IP; it must be deleted through the public virtual IP call instead",
+			core.ErrInvalidInput, op, in.VirtualIPAddressID, current.VirtualIPAddress.Type)
+	}
 	if len(current.VirtualIPAddress.AddressPairIPs) > 0 {
 		return nil, fmt.Errorf("%w: %s: virtual IP %s has %d address pair(s) attached",
 			ErrInUse, op, in.VirtualIPAddressID, len(current.VirtualIPAddress.AddressPairIPs))
@@ -396,11 +393,6 @@ func (c *Client) DeleteVirtualIPAddress(ctx context.Context, in *DeleteVirtualIP
 		return nil, fmt.Errorf("%w: %s: virtual IP %s has %d address pair(s) attached",
 			ErrInUse, op, in.VirtualIPAddressID, len(pairs.Items))
 	}
-	if !isPrivateVirtualIPType(current.VirtualIPAddress.Type) {
-		return nil, fmt.Errorf("%w: %s: virtual IP %s has type %q, not a private virtual IP; it must be deleted through the public virtual IP call instead",
-			core.ErrInvalidInput, op, in.VirtualIPAddressID, current.VirtualIPAddress.Type)
-	}
-
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err

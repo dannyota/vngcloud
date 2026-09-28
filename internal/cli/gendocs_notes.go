@@ -412,7 +412,7 @@ const networkCreateVirtualIPAddressNote = "Never resent after a failure that may
 
 // networkDeleteVirtualIPAddressNote documents delete-virtual-ip-address's
 // pre-delete guards: a type check and an address pair check.
-const networkDeleteVirtualIPAddressNote = "Refuses, before any request, with error code InvalidUsage, a " +
+const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE, refuses with error code InvalidUsage a " +
 	"virtual IP whose type is not \"private\" (a public virtual IP has its own delete call), and with " +
 	"error code ResourceInUse, one that still has an address pair, found either on its own read or by " +
 	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
