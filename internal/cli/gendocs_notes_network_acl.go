@@ -99,7 +99,8 @@ func networkChangeACLSubnetNote(command, extra string) string {
 		"changing the ACL at the same time, is also NotSettled. Confirmed live, a successful call still " +
 		"leaves the ACL busy for about 20 more seconds, and, unlike after a rules write, the ACL's own " +
 		"status reads ACTIVE throughout, so nothing in a read marks the window: the very next write to this " +
-		"ACL, of any kind, can still get ResourceBusy during that time, which is safe to wait out and retry."
+		"ACL, of any kind, can still get ResourceBusy during that time, which is safe to wait out and retry. " +
+		"See [Limitations](Limitations.md#a-network-acls-busy-window)."
 }
 
 // networkAssociateNetworkACLSubnetNote documents associate-network-acl-subnet's
@@ -119,3 +120,10 @@ var networkAssociateNetworkACLSubnetNote = networkChangeACLSubnetNote("associate
 var networkDisassociateNetworkACLSubnetNote = networkChangeACLSubnetNote("disassociate-network-acl-subnet",
 	"Disassociating a subnet not in this ACL's list is a no-op: Changed is false and nothing is sent. What a "+
 		"subnet falls back to once disassociated is not yet confirmed live.")
+
+// networkDeleteSubnetNote documents delete-subnet's own network ACL guard,
+// which the flag table cannot show at all: keyed to "network delete-subnet"
+// in gendocs_notes.go's docOpNotes map, but kept here since it is a network
+// ACL note like the others in this file.
+const networkDeleteSubnetNote = "Refuses, before any request, with error code ResourceInUse when a network " +
+	"ACL in the subnet's own VPC still lists it; disassociate the subnet from that ACL first."

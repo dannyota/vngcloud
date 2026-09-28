@@ -484,6 +484,7 @@ var docOpNotes = map[string]string{
 	"network create-vpc":                      networkCreateVPCNote,
 	"network create-subnet":                   networkCreateSubnetNote,
 	"network delete-vpc":                      networkDeleteVPCNote,
+	"network delete-subnet":                   networkDeleteSubnetNote,
 	"network enable-vpc-private-dns":          networkEnableVPCPrivateDNSNote,
 	"network create-route-table":              networkCreateRouteTableNote,
 	"network delete-route-table":              networkDeleteRouteTableNote,
