@@ -90,8 +90,9 @@ func TestNetworkGetDHCPOptionsEndToEnd(t *testing.T) {
 // --- create-dhcp-options ---
 
 // TestNetworkCreateDHCPOptionsEndToEnd checks that --name and DNSServers
-// (given through --cli-input-json, since it has no flag) become the POST
-// body, and that the create response comes back on stdout.
+// (given here through --cli-input-json, an alternate way to set the same
+// --dns-servers flag) become the POST body, and that the create response
+// comes back on stdout.
 func TestNetworkCreateDHCPOptionsEndToEnd(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -129,8 +130,8 @@ func TestNetworkCreateDHCPOptionsEndToEnd(t *testing.T) {
 }
 
 // TestNetworkCreateDHCPOptionsMissingDNSServersIsUsageErrorWithZeroRequests
-// checks that DNSServers, a required field with no flag of its own, is
-// still enforced before any request when --cli-input-json never sets it.
+// checks that DNSServers, a required field, is still enforced before any
+// request when neither --dns-servers nor --cli-input-json sets it.
 func TestNetworkCreateDHCPOptionsMissingDNSServersIsUsageErrorWithZeroRequests(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v2/proj-1/dhcp_option": func(_ http.ResponseWriter, r *http.Request) {
@@ -355,12 +356,115 @@ func TestNetworkSetVPCDHCPOptionsAlreadySetSendsNoPatch(t *testing.T) {
 	}
 }
 
+// --- clear-vpc-dhcp-options ---
+
+func TestNetworkClearVPCDHCPOptionsRequiresYesWithZeroRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/networks/vpc-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1",
+		"network", "clear-vpc-dhcp-options", "--vpc-id", "vpc-1",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error without --yes")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+// TestNetworkClearVPCDHCPOptionsWithYesSendsEmptyPatchAndWaits checks the
+// success path: the VPC read (DHCPOptionID set), the PATCH with an empty
+// JSON body, then the post-write confirm read settling to an empty set.
+func TestNetworkClearVPCDHCPOptionsWithYesSendsEmptyPatchAndWaits(t *testing.T) {
+	vpcReads := 0
+	var patchBody []byte
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/networks/vpc-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+			vpcReads++
+			fields := vpcFields("my-vpc", "DISABLED")
+			if vpcReads == 1 {
+				fields["dhcpOptionId"] = "dop-1"
+			}
+			b, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(b)
+		},
+		"/v2/proj-1/dhcp_option/dop-1": jsonHandler(http.StatusOK, dhcpOptionsJSON("vpc-1")),
+		"/v2/proj-1/networks/vpc-1/updateDhcpOption": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPatch {
+				t.Fatalf("method = %s, want PATCH", r.Method)
+			}
+			defer func() { _ = r.Body.Close() }()
+			patchBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "clear-vpc-dhcp-options", "--vpc-id", "vpc-1",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("clear-vpc-dhcp-options: %v (stderr=%s)", err, stderr.String())
+	}
+	if got := strings.TrimSpace(string(patchBody)); got != "{}" {
+		t.Fatalf("PATCH body = %q, want {}", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": true`) {
+		t.Fatalf("stdout = %s, want Changed true", got)
+	}
+}
+
+// TestNetworkClearVPCDHCPOptionsAlreadyClearSendsNoPatch checks that a VPC
+// already with no set sends no PATCH and reports Changed false, even though
+// --yes is still required.
+func TestNetworkClearVPCDHCPOptionsAlreadyClearSendsNoPatch(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/networks/vpc-1": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(vpcJSON("my-vpc", "DISABLED")))
+		},
+		"/v2/proj-1/networks/vpc-1/updateDhcpOption": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "clear-vpc-dhcp-options", "--vpc-id", "vpc-1",
+	})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("clear-vpc-dhcp-options: %v (stderr=%s)", err, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1 (the pre-read only)", n)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"Changed": false`) {
+		t.Fatalf("stdout = %s, want Changed false", got)
+	}
+}
+
 // --- read-only ---
 
 // TestNetworkDHCPOptionsWritesReadOnlyRefusedWithZeroRequests checks that
-// read-only refuses create-dhcp-options, delete-dhcp-options, and
-// set-vpc-dhcp-options before any request, the same way it already does for
-// every other network write.
+// read-only refuses create-dhcp-options, delete-dhcp-options,
+// set-vpc-dhcp-options, and clear-vpc-dhcp-options before any request, the
+// same way it already does for every other network write.
 func TestNetworkDHCPOptionsWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	tests := []struct {
 		op   string
@@ -374,6 +478,7 @@ func TestNetworkDHCPOptionsWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 		{"set-vpc-dhcp-options", []string{
 			"set-vpc-dhcp-options", "--vpc-id", "vpc-1", "--dhcp-options-id", "dop-1", "--yes",
 		}},
+		{"clear-vpc-dhcp-options", []string{"clear-vpc-dhcp-options", "--vpc-id", "vpc-1", "--yes"}},
 	}
 	unexpected := func(t *testing.T) func(http.ResponseWriter, *http.Request) {
 		return func(_ http.ResponseWriter, r *http.Request) {

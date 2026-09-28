@@ -57,20 +57,34 @@ Needs --yes on every call: associate-network-acl-subnet can change which ACL's r
 vngcloud network associate-network-acl-subnet --network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes
 ```
 
+## clear-vpc-dhcp-options
+
+Kind: Write.
+
+Needs --yes on every call: clearing a VPC's set changes DNS for every server already in it, which only picks up the change after its own next DHCP renew or reboot, and the API gives no call that restores the set or the resolvers the VPC had before. Refuses, before any request, with error code DefaultResource, a VPC whose Private DNS is enabled or whose current set already is one Private DNS created: clearing it would cut every server in the VPC off from its private zone lookups, and there is no call to put it back. Clearing a VPC that already has no set is a no-op: Changed is false and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 seconds for a read to show an empty set: a VPC that reaches ERROR is WriteFailed, and the wait running out is NotSettled, but either way the PATCH already landed and is safe to send again. To restore a VPC's default resolvers, create-dhcp-options a set with the region's documented defaults and set-vpc-dhcp-options it onto the VPC; there is no command that restores them directly.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+
+```sh
+vngcloud network clear-vpc-dhcp-options --vpc-id <vpc-id> --yes
+```
+
 ## create-dhcp-options
 
 Kind: Write.
 
-DNSServers has no flag of its own, since it is a list: pass it through --cli-input-json, with at least one IPv4 address; the four-address limit stays on the server. Name must not start with dhcp-option-dns-, reserved for the set VPC Private DNS creates; either problem is refused with InvalidUsage before any request. MTU is sent only when set; the server's own default is 1450. Never retried after a failure that may have already reached the server; list-dhcp-options --name and match the name exactly before creating it again rather than retrying blind.
+--dns-servers must be given at least once, each an IPv4 address; the four-address limit stays on the server. Name must not start with dhcp-option-dns-, reserved for the set VPC Private DNS creates; either problem is refused with InvalidUsage before any request. MTU is sent only when set; the server's own default is 1450. Never retried after a failure that may have already reached the server; list-dhcp-options --name and match the name exactly before creating it again rather than retrying blind.
 
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
-| `DNSServers` (via `--cli-input-json` only) | `[]string` | yes |
+| `--dns-servers` | `[]string` | yes |
 | `--mtu` | `*int` |  |
 
 ```sh
-vngcloud network create-dhcp-options --name <name> --cli-input-json '{"DNSServers":["<dns-server>"]}'
+vngcloud network create-dhcp-options --name <name> --dns-servers <dns-servers>
 ```
 
 ## create-network-acl
@@ -735,7 +749,7 @@ vngcloud network remove-route --route-table-id <route-table-id> --destination-ci
 
 Kind: Write.
 
-Needs --yes on every call: the API has no call that returns a VPC to no DHCP options set, and a server already in the VPC only picks up the new resolvers after its own next DHCP renew or reboot. Refuses, before any request, with error code DefaultResource, a VPC whose Private DNS is enabled or whose current set already is one Private DNS created, or a target set that is itself one Private DNS created: replacing it would cut every server in the VPC off from its private zone lookups, and there is no call to put it back. Refuses, before any request, with error code ResourceBusy, a target set that is not yet ACTIVE. Setting the VPC's current set again is a no-op: Changed is false and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 seconds for a read to show the new set: a VPC that reaches ERROR is WriteFailed, and the wait running out is NotSettled, but either way the PATCH already landed and is safe to send again with the same --dhcp-options-id.
+Needs --yes on every call: moving a VPC's set changes DNS for every server already in it, which only picks up the new resolvers after its own next DHCP renew or reboot, and clear-vpc-dhcp-options can return the VPC to no set afterward but not back to this one. Refuses, before any request, with error code DefaultResource, a VPC whose Private DNS is enabled or whose current set already is one Private DNS created, or a target set that is itself one Private DNS created: replacing it would cut every server in the VPC off from its private zone lookups, and there is no call to put it back. Refuses, before any request, with error code ResourceBusy, a target set that is not yet ACTIVE. Setting the VPC's current set again is a no-op: Changed is false and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 seconds for a read to show the new set: a VPC that reaches ERROR is WriteFailed, and the wait running out is NotSettled, but either way the PATCH already landed and is safe to send again with the same --dhcp-options-id.
 
 | Flag | Type | Required |
 |-|-|-|

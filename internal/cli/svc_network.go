@@ -37,12 +37,15 @@ import (
 // DeleteDHCPOptions is Write and Destructive, since a deleted set cannot be
 // restored by one more command; list-dhcp-options and get-dhcp-options are
 // Read. set-vpc-dhcp-options carries the Guard requireYesToSetVPCDHCPOptions
-// (svc_network_dhcp.go): no command ever returns a VPC to no DHCP options
-// set, and the servers behind it pick up the new resolvers only once they
-// renew, so it needs --yes on every call the same way AddRoute and
-// RemoveRoute need requireYesToChangeRoutes on theirs, rather than being
-// registered Destructive. A read-only profile refuses every one of these
-// Write operations, before any request.
+// (svc_network_dhcp.go), and clear-vpc-dhcp-options (ClearVPCDHCPOptions,
+// under the rename table's override for its own mechanical kebab-case)
+// carries requireYesToClearVPCDHCPOptions (svc_network_dhcp.go): moving or
+// clearing a VPC's set changes DNS for every server behind it, and the
+// servers pick up the new resolvers only once they renew, so each needs
+// --yes on every call the same way AddRoute and RemoveRoute need
+// requireYesToChangeRoutes on theirs, rather than being registered
+// Destructive. A read-only profile refuses every one of these Write
+// operations, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -161,6 +164,8 @@ var networkOps = []Op[network.Client]{
 		kebab("DeleteDHCPOptions"), (*network.Client).DeleteDHCPOptions, Destructive()),
 	Write[network.Client, network.SetVPCDHCPOptionsInput, network.SetVPCDHCPOptionsOutput](
 		"set-vpc-dhcp-options", (*network.Client).SetVPCDHCPOptions, Guard(requireYesToSetVPCDHCPOptions)),
+	Write[network.Client, network.ClearVPCDHCPOptionsInput, network.ClearVPCDHCPOptionsOutput](
+		"clear-vpc-dhcp-options", (*network.Client).ClearVPCDHCPOptions, Guard(requireYesToClearVPCDHCPOptions)),
 }
 
 func newNetworkCmd(e *env) *cobra.Command {
