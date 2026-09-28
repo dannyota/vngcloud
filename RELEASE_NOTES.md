@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.37.0 - Network ACLs
+
+### Highlights
+
+- New `network.GetNetworkACL`, `CreateNetworkACL`, `DeleteNetworkACL`,
+  `AddNetworkACLRule`, `RemoveNetworkACLRule`, `AssociateNetworkACLSubnet`,
+  and `DisassociateNetworkACLSubnet`, with matching `vngcloud network`
+  commands. Rule and subnet writes need `--yes`, re-read the ACL right
+  before sending, and send each write once.
+- `network.ErrBusy`, CLI code `ResourceBusy`, now also covers an ACL still
+  settling an earlier write; nothing changed, so waiting and calling again
+  is safe.
+- New [Limitations](https://github.com/dannyota/vngcloud/wiki/Limitations)
+  wiki page listing GreenNode server behaviors the SDK cannot change, such
+  as the ACL busy window and overlapping VPC CIDRs.
+
+### Behavior changes
+
+- `network.DeleteSubnet` refuses with `ErrInUse`, sending nothing, while a
+  network ACL still holds the subnet, since that delete leaves the ACL
+  stuck for good. It also refuses when the subnet belongs to a VPC other
+  than `VPCID`.
+- `network.DeleteNetworkACL` sends the DELETE once and, after a 5xx,
+  checks the ACL list for up to 60 seconds before reporting the result.
+
 ## v0.36.0 - Load Balancer Quotes
 
 ### Highlights
