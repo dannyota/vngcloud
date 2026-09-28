@@ -130,6 +130,10 @@ exception: its live response matches the read model, so it decodes into
   `192.168.0.0/16`. A subnet is a `/24` or `/28` inside it; the GreenNode
   web console's own subnet form offers a wider choice of prefix lengths,
   `/16`, `/18`, `/20`, `/22`, `/24`, `/26`, and `/28`.
+- Live: `CreateVPC` refuses a `cidr` that overlaps any VPC already in the
+  project, with 400 `VPC is overlap with another.` The SDK does not check
+  for an overlap itself; per ADR 0002 rule 5, value rules like this stay on
+  the server.
 - Live: every VPC lands in the region's first zone (`HCM03-1A` in
   `hcm-3`), whatever `zoneId` says, even when that zone is disabled for
   the account, as it is for the test account. A subnet create without
@@ -179,6 +183,19 @@ exception: its live response matches the read model, so it decodes into
   never be deleted (`This network is attached by the network policy`).
   Only GreenNode support can clear it; `DeleteSubnet` refuses instead of
   reaching the server whenever it finds the subnet still held this way.
+- Live: a `DELETE` sent into the busy window after a subnets write
+  (associate or disassociate) answers 500 and changes nothing, instead of
+  the 400 "... is being updated" any other write gets in that same window;
+  a repeat `DELETE` sent after the window passes succeeds normally.
+  `DeleteNetworkACL` cannot tell that 500 apart from any other by its
+  status alone, so after any 5xx it never resends the `DELETE`; it polls
+  the list instead, across every page, for up to 60 seconds, and returns
+  the original 500 if the ACL is still listed at the bound, so the caller
+  can wait out the window and call it again.
+- Live: `ListNetworkACLs` can return an ACL's `networkId` empty even though
+  the ACL does belong to a VPC; the ACL's own `GET` still carries that VPC
+  in `interfaceNetworkUuid`. A caller matching ACLs to a VPC by the list's
+  `networkId` alone can miss one this way.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK

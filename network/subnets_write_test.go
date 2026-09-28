@@ -776,6 +776,88 @@ func TestDeleteSubnetProceedsWhenNoNetworkACLHoldsIt(t *testing.T) {
 	}
 }
 
+// TestDeleteSubnetRefusedWhenEmptyNetworkIDACLHoldsIt checks the live case
+// where ListNetworkACLs answers an ACL's NetworkID as empty even though the
+// ACL does belong to this VPC and holds this subnet: listNetworkACLsInVPC
+// must still surface it for a detail read, and checkSubnetNotHeldByNetworkACL
+// must still refuse the delete.
+func TestDeleteSubnetRefusedWhenEmptyNetworkIDACLHoldsIt(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			// networkId comes back empty, as seen live for an ACL that does
+			// belong to this VPC.
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":""}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			// The detail read carries VPCID (interfaceNetworkUuid) matching
+			// this VPC, and lists the subnet.
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, []string{"subnet-1"})))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s: a subnet an empty-NetworkID ACL holds must send no DELETE", r.Method, r.URL.Path)
+		}
+	}))
+
+	_, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1"})
+	if !errors.Is(err, ErrInUse) {
+		t.Fatalf("err = %v, want ErrInUse", err)
+	}
+}
+
+// TestDeleteSubnetProceedsWhenEmptyNetworkIDACLBelongsToAnotherVPC checks
+// that an ACL listed with an empty NetworkID, but whose own detail names a
+// different VPC, never blocks a delete in this VPC, even if it happens to
+// list this subnet id.
+func TestDeleteSubnetProceedsWhenEmptyNetworkIDACLBelongsToAnotherVPC(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/servers/subnets/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "network-interfaces-elastic"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case strings.HasSuffix(r.URL.Path, "virtualIpAddress"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":1,"totalItem":0}`))
+		case r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":""}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"uuid":"acl-1","status":"ACTIVE","defaultAcl":false,"interfaceNetworkUuid":"vpc-2","subnetAssociationList":["subnet-1"]}}`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
+		default:
+			t.Fatal("no write expected")
+		}
+	}))
+
+	out, err := c.DeleteSubnet(context.Background(), &DeleteSubnetInput{VPCID: "vpc-1", SubnetID: "subnet-1", NoWait: true})
+	if err != nil {
+		t.Fatalf("DeleteSubnet() error = %v, want success: the empty-NetworkID ACL's own detail names a different VPC", err)
+	}
+	if out == nil {
+		t.Fatal("Output = nil, want a non-nil &DeleteSubnetOutput{}")
+	}
+}
+
 func TestDeleteSubnetNetworkACLListFailureRefuses(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

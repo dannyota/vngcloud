@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -373,12 +374,14 @@ func TestDeleteNetworkACLSuccess(t *testing.T) {
 }
 
 func TestDeleteNetworkACL500AbsentFromListSucceeds(t *testing.T) {
+	var deleteCalls atomic.Int64
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			deleteCalls.Add(1)
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"message":"internal error"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
@@ -392,9 +395,135 @@ func TestDeleteNetworkACL500AbsentFromListSucceeds(t *testing.T) {
 	if _, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"}); err != nil {
 		t.Fatalf("DeleteNetworkACL() error = %v, want nil: the ACL is absent from the list confirm", err)
 	}
+	if deleteCalls.Load() != 1 {
+		t.Fatalf("DELETE calls = %d, want 1: a 5xx must never be resent", deleteCalls.Load())
+	}
+}
+
+// TestDeleteNetworkACLOnceNotResentOn502 checks that a DELETE answering
+// with a status the transport would otherwise retry for any other
+// idempotent method (502) is still sent exactly once: DeleteNetworkACL's
+// own Once field forces the confirm, not a transport resend, to decide the
+// outcome.
+func TestDeleteNetworkACLOnceNotResentOn502(t *testing.T) {
+	var deleteCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"upstream error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	if _, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"}); err != nil {
+		t.Fatalf("DeleteNetworkACL() error = %v, want nil: the ACL is absent from the list confirm", err)
+	}
+	if deleteCalls.Load() != 1 {
+		t.Fatalf("DELETE calls = %d, want 1: a 502 must never be resent, only confirmed by listing", deleteCalls.Load())
+	}
+}
+
+// TestDeleteNetworkACL500BecomesAbsentDuringPollSucceeds checks that the
+// poll succeeds as soon as the ACL leaves the list, without waiting out
+// the rest of the bound: the DELETE answers 500, the ACL is still listed
+// on the first two poll steps, then leaves the list on the third, and the
+// call succeeds without ever resending the DELETE.
+func TestDeleteNetworkACL500BecomesAbsentDuringPollSucceeds(t *testing.T) {
+	var deleteCalls, listCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			if listCalls.Add(1) <= 2 {
+				_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	if _, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"}); err != nil {
+		t.Fatalf("DeleteNetworkACL() error = %v, want nil: the ACL leaves the list on the third poll", err)
+	}
+	if deleteCalls.Load() != 1 {
+		t.Fatalf("DELETE calls = %d, want 1", deleteCalls.Load())
+	}
+	if len(sleeps) != 2 {
+		t.Fatalf("sleep calls = %d, want 2: the ACL is confirmed gone on the third list call", len(sleeps))
+	}
 }
 
 func TestDeleteNetworkACL500ListedReturnsOriginal500(t *testing.T) {
+	var deleteCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(aclJSON("ACTIVE", false, nil, nil)))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/project-1/network-acl/acl-1":
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	var sleeps []time.Duration
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
+
+	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
+		t.Fatalf("err = %v, want the original 500 *core.APIError: the ACL is still listed", err)
+	}
+	if deleteCalls.Load() != 1 {
+		t.Fatalf("DELETE calls = %d, want 1: a 5xx must never be resent", deleteCalls.Load())
+	}
+	if len(sleeps) != 30 {
+		t.Fatalf("sleep calls = %d, want 30 (a 2s interval over a 60-second confirm bound)", len(sleeps))
+	}
+}
+
+// TestDeleteNetworkACL500ListPagedStillPresentReturnsOriginal500 checks
+// that the confirm walks every page: acl-1 is absent from page 1 but
+// present on page 2, so the confirm must still treat it as listed rather
+// than stopping after the first page.
+func TestDeleteNetworkACL500ListPagedStillPresentReturnsOriginal500(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/acl-1":
@@ -405,16 +534,29 @@ func TestDeleteNetworkACL500ListedReturnsOriginal500(t *testing.T) {
 			_, _ = w.Write([]byte(`{"message":"internal error"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/network-acl/list":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+			switch r.URL.Query().Get("page") {
+			case "1":
+				_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-2"}],"page":1,"pageSize":1,"totalPage":2,"totalItem":2}`))
+			case "2":
+				_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1"}],"page":2,"pageSize":1,"totalPage":2,"totalItem":2}`))
+			default:
+				t.Fatalf("unexpected page %q", r.URL.Query().Get("page"))
+			}
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 	}))
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+	c.sleep = func(ctx context.Context, d time.Duration) error {
+		clock = clock.Add(d)
+		return ctx.Err()
+	}
 
 	_, err := c.DeleteNetworkACL(context.Background(), &DeleteNetworkACLInput{NetworkACLID: "acl-1"})
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
-		t.Fatalf("err = %v, want the original 500 *core.APIError: the ACL is still listed", err)
+		t.Fatalf("err = %v, want the original 500 *core.APIError: acl-1 is listed on page 2", err)
 	}
 }
 

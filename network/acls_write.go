@@ -100,7 +100,7 @@ func wrapACLPutFailure(op, networkACLID string, err error) error {
 }
 
 // aclFoundAfterServerError lists network ACLs once and reports whether id
-// is present. GetNetworkACL and DeleteNetworkACL call this only after a 5xx,
+// is present. GetNetworkACL calls this only after a 5xx on its own GET,
 // never after a 404: a deleted ACL's own get returns 500, not 404, unlike
 // every other resource this package deletes, so a 5xx here needs the same
 // list confirm a 404 gets automatically elsewhere. Listing once, rather
@@ -108,10 +108,18 @@ func wrapACLPutFailure(op, networkACLID string, err error) error {
 // defaults to a page of 10000, so this misses an id only in a project with
 // more network ACLs than that.
 //
+// DeleteNetworkACL's pre-delete read goes through GetNetworkACL, so a 5xx
+// on that read is confirmed the same way; DeleteNetworkACL's own DELETE
+// uses waitACLAbsentAfterDelete instead, which pages through every ACL and
+// polls rather than trusting one page read once (see its doc comment for
+// why: a delete is destructive, so a false "still there" costs only time,
+// while a false "gone" would leave a caller believing a live ACL is
+// deleted).
+//
 // A list that comes back short of the account's own count, more than one
 // page or fewer items than TotalItem, is not a reliable absence: id could
-// simply be on a page this call never asked for. Both callers already
-// treat any error from this method as "fall back to the original 5xx," so
+// simply be on a page this call never asked for. GetNetworkACL already
+// treats any error from this method as "fall back to the original 5xx," so
 // this returns an error instead of a bare false in that case, rather than
 // answering a question the single-page list cannot actually settle.
 func (c *Client) aclFoundAfterServerError(ctx context.Context, id string) (bool, error) {
@@ -129,6 +137,74 @@ func (c *Client) aclFoundAfterServerError(ctx context.Context, id string) (bool,
 			len(out.Items), out.TotalItem, out.TotalPage)
 	}
 	return false, nil
+}
+
+// listAllNetworkACLs walks every page of ListNetworkACLs and returns every
+// item seen. It returns an error, rather than a partial slice, when the
+// items seen across every page fall short of the total the server itself
+// reported: listNetworkACLsInVPC (subnets_write.go) and
+// waitACLAbsentAfterDelete both need every ACL the account has, not just
+// whatever a first page happens to hold.
+func (c *Client) listAllNetworkACLs(ctx context.Context) ([]ACL, error) {
+	var items []ACL
+	var seen, total int
+	for page := 1; ; page++ {
+		out, err := c.ListNetworkACLs(ctx, &ListNetworkACLsInput{Page: page})
+		if err != nil {
+			return nil, err
+		}
+		total = out.TotalItem
+		seen += len(out.Items)
+		items = append(items, out.Items...)
+		if page >= out.TotalPage || len(out.Items) == 0 {
+			break
+		}
+	}
+	if seen < total {
+		return nil, fmt.Errorf("network ACL list: got %d of %d item(s) across every page; the list is incomplete", seen, total)
+	}
+	return items, nil
+}
+
+// aclListedAfterDelete reports whether id is still present across every
+// page of ListNetworkACLs, for waitACLAbsentAfterDelete's poll. Any error
+// from listAllNetworkACLs, including an incomplete listing, is returned
+// as is: the caller treats it the same as "still listed," since neither
+// answers whether id is truly gone.
+func (c *Client) aclListedAfterDelete(ctx context.Context, id string) (bool, error) {
+	all, err := c.listAllNetworkACLs(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, acl := range all {
+		if acl.UUID == id || acl.ID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// waitACLAbsentAfterDelete is DeleteNetworkACL's confirm after a 5xx on its
+// own DELETE, sent with Once so this confirm, not a resend, decides the
+// outcome. It polls aclListedAfterDelete every pollInterval, paging through
+// every network ACL each time, until id is absent or pollBound elapses.
+// DeleteNetworkACL treats a nil error here as success and any non-nil error,
+// including one from a failed list or from the bound running out, as a
+// signal to return the original DELETE error unchanged: a delete is
+// destructive, so this never itself invents a reason to call the ACL gone.
+func (c *Client) waitACLAbsentAfterDelete(ctx context.Context, id string) error {
+	return poll(ctx, c.now, c.sleep, pollInterval, pollBound,
+		func(ctx context.Context) (bool, error) {
+			found, err := c.aclListedAfterDelete(ctx, id)
+			if err != nil {
+				return true, err
+			}
+			return !found, nil
+		},
+		func() error {
+			return fmt.Errorf("network ACL %s still listed %s after the delete", id, pollBound)
+		},
+	)
 }
 
 // GetNetworkACLInput identifies the network ACL to read.
@@ -280,18 +356,24 @@ type DeleteNetworkACLOutput struct{}
 // associated subnet (SubnetIDs, ErrInUse); disassociate every subnet with
 // DisassociateNetworkACLSubnet first.
 //
-// The delete itself is taken as synchronous: a 204 confirms it, and there
-// is no wait. A DELETE sent into the ACL's own busy window after an earlier
-// rules or subnets write (see aclBusyMessages) gets a 400 naming the ACL
-// busy; DeleteNetworkACL maps that to ErrBusy the same way the rules and
-// subnets PUT do. Unlike those PUTs, the DELETE keeps the transport's normal
-// retries, since a retried DELETE that finds the ACL already gone is safe;
-// confirmed live, a deleted ACL's get returns 500, not 404, so a repeat
-// delete would too; after any other 5xx on the DELETE, DeleteNetworkACL
-// calls ListNetworkACLs once, the same list confirm GetNetworkACL uses: the
-// ACL absent from that list means the delete already took effect, and this
-// call returns success; listed, or if the list call itself fails, it
-// returns the original 5xx.
+// A 204 confirms the delete at once, with no wait. The DELETE is sent with
+// Once true, overriding the transport's normal retry of an idempotent
+// method on a retryable status (502, 503, 504), so this confirm, not a
+// resend, decides the outcome of any attempt that fails. A DELETE sent
+// into the ACL's own busy window after an earlier rules write (see
+// aclBusyMessages) gets a 400 naming the ACL busy; DeleteNetworkACL maps
+// that to ErrBusy the same way the rules and subnets PUT do. Confirmed
+// live, a DELETE sent into the busy window after a subnets write
+// (associate or disassociate) instead answers 500 and changes nothing,
+// rather than the 400 "is being updated" any other write gets in that same
+// window. DeleteNetworkACL cannot tell that 500 apart from any other by
+// its status alone, so after any 5xx it never resends the DELETE; instead
+// waitACLAbsentAfterDelete polls every network ACL, across every page,
+// every 2 seconds for up to 60 seconds. The ACL absent from that list at
+// any point means the delete did take effect and this call returns
+// success; still listed at the bound, or a list error at any point,
+// returns the original 500 unchanged, and waiting out the busy window
+// before calling DeleteNetworkACL again succeeds.
 func (c *Client) DeleteNetworkACL(ctx context.Context, in *DeleteNetworkACLInput) (*DeleteNetworkACLOutput, error) {
 	const op = "network.DeleteNetworkACL"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -322,6 +404,7 @@ func (c *Client) DeleteNetworkACL(ctx context.Context, in *DeleteNetworkACLInput
 		Method:    http.MethodDelete,
 		URL:       c.networkURL([]string{projectID, "network-acl", in.NetworkACLID}, nil),
 		OK:        []int{204},
+		Once:      true,
 	}, nil)
 	if delErr == nil {
 		return &DeleteNetworkACLOutput{}, nil
@@ -332,8 +415,7 @@ func (c *Client) DeleteNetworkACL(ctx context.Context, in *DeleteNetworkACLInput
 	if !isACLServerError(delErr) {
 		return nil, delErr
 	}
-	found, listErr := c.aclFoundAfterServerError(ctx, in.NetworkACLID)
-	if listErr != nil || found {
+	if err := c.waitACLAbsentAfterDelete(ctx, in.NetworkACLID); err != nil {
 		return nil, delErr
 	}
 	return &DeleteNetworkACLOutput{}, nil

@@ -88,12 +88,9 @@ live, a deleted ACL's `GET` returns 500, not 404, so this SDK never treats
 a bare 5xx there as not found on its own: after a 5xx, it lists network
 ACLs once and checks whether the id is still listed. Absent, the call
 returns `vngcloud.IsNotFound(err) == true`; listed, or if the list call
-itself fails, it returns the original 5xx. `DeleteNetworkACL` uses the same
-list confirm after a 5xx on its own `DELETE`: absent means the delete
-already took effect and the call succeeds; listed, or a failed list,
-returns the original error. A plain 404 on either call, for an id that was
-never valid, still becomes not-found through the shared transport with no
-list call.
+itself fails, it returns the original 5xx. A plain 404 on either call, for
+an id that was never valid, still becomes not-found through the shared
+transport with no list call.
 
 `CreateNetworkACL` makes an ACL that is already `"ACTIVE"` and holds four
 default rules, confirmed live: an inbound and an outbound pass-all rule at
@@ -108,10 +105,20 @@ may already exist for a reason having nothing to do with that failed call.
 `DeleteNetworkACL` reads the ACL first and sends nothing when it is a
 project's default ACL (`network.ErrDefaultResource`) or still has an
 associated subnet (`network.ErrInUse`); disassociate every subnet first. A
-`204` confirms the delete; there is no wait either. A `DELETE` sent into
-the ACL's own busy window (see [Rules](#rules)) gets a `400` naming the ACL
-busy, which this SDK maps to `network.ErrBusy` the same way the rules and
-subnets `PUT` do.
+`204` confirms the delete at once, with no wait. The `DELETE` is sent once
+and never resent by the transport. A `DELETE` sent into the ACL's busy
+window after a rules write (see [Rules](#rules)) gets a `400` naming the
+ACL busy, which this SDK maps to `network.ErrBusy` the same way the rules
+and subnets `PUT` do. Confirmed live, a `DELETE` sent into the busy window
+after a subnets write (associate or disassociate) instead answers 500 and
+changes nothing, rather than the 400 that window gives any other write.
+`DeleteNetworkACL` cannot tell that 500 apart from any other by its status
+alone, so after any 5xx it polls every network ACL instead of resending
+the `DELETE`, across every page, every 2 seconds for up to 60 seconds: the
+id absent at any point means the delete did take effect and the call
+succeeds; still listed at the bound, or a list error at any point, returns
+the original 500, and waiting out the busy window before calling again
+succeeds.
 
 ## Rules
 
@@ -142,8 +149,11 @@ a retry can never land in that window: a busy `400` on that single attempt
 maps to `network.ErrBusy`, since it was rejected outright and changed
 nothing, while a `5xx`, a network error, or a timeout maps to
 `network.ErrNotSettled` instead, since that attempt may already have
-reached the server. `DeleteNetworkACL`'s own `DELETE` keeps the transport's
-normal retries and maps the same busy `400` to `network.ErrBusy` too.
+reached the server. `DeleteNetworkACL`'s own `DELETE` is sent once too, and
+in a rules write's busy window gets that same busy `400`, mapped to
+`network.ErrBusy` the same way; in a subnets write's busy window it instead
+answers 500, since that window gives a `DELETE` no busy `400` at all (see
+[Get, create, and delete](#get-create-and-delete)).
 
 Because a subnets write's busy window never shows in `Status`, a call that
 already reported success can still leave the very next write to that ACL,

@@ -367,6 +367,13 @@ func checkSubnetNotInUse(ctx context.Context, c *Client, op, subnetID string) er
 // network ACLs, or reading any one of them, returns that error instead of
 // ErrInUse, so DeleteSubnet also refuses in that case; the caller can
 // simply retry once the read succeeds.
+//
+// listNetworkACLsInVPC also returns an ACL whose list NetworkID came back
+// empty, since that field is not reliably set (see its own doc comment);
+// for each of those, the ACL's own detail (already read below to check
+// SubnetIDs) also carries VPCID, and this skips the ACL when that VPCID is
+// set and names a different VPC, rather than flagging a subnet held by an
+// ACL that turns out to belong elsewhere.
 func checkSubnetNotHeldByNetworkACL(ctx context.Context, c *Client, op, vpcID, subnetID string) error {
 	acls, err := c.listNetworkACLsInVPC(ctx, vpcID)
 	if err != nil {
@@ -376,6 +383,9 @@ func checkSubnetNotHeldByNetworkACL(ctx context.Context, c *Client, op, vpcID, s
 		detail, err := c.GetNetworkACL(ctx, &GetNetworkACLInput{NetworkACLID: acl.UUID})
 		if err != nil {
 			return fmt.Errorf("%s: could not confirm network ACL %s does not hold subnet %s: %w", op, acl.UUID, subnetID, err)
+		}
+		if detail.ACL.VPCID != "" && detail.ACL.VPCID != vpcID {
+			continue
 		}
 		for _, held := range detail.ACL.SubnetIDs {
 			if held != subnetID {
@@ -392,33 +402,26 @@ func checkSubnetNotHeldByNetworkACL(ctx context.Context, c *Client, op, vpcID, s
 	return nil
 }
 
-// listNetworkACLsInVPC walks every page of ListNetworkACLs and returns the
-// ACLs whose NetworkID equals vpcID. NetworkID, unlike VPCID, is set only
-// by the list response (see the ACL type's doc comment), so this is the
-// only field the list itself can filter by. It returns an error, rather
-// than a partial answer, when the items seen across every page fall short
-// of the total the server itself reported.
+// listNetworkACLsInVPC walks every page of ListNetworkACLs and returns
+// every ACL whose NetworkID equals vpcID, plus every ACL whose NetworkID
+// came back empty. NetworkID, unlike VPCID, is set only by the list
+// response (see the ACL type's doc comment), so this is the only field the
+// list itself can filter by; confirmed live, some ACLs list with an empty
+// NetworkID even though they do belong to a VPC, so an empty value means
+// "possibly this VPC," not "no VPC," and checkSubnetNotHeldByNetworkACL
+// resolves it by reading that ACL's own detail. It returns an error,
+// rather than a partial answer, when the items seen across every page fall
+// short of the total the server itself reported.
 func (c *Client) listNetworkACLsInVPC(ctx context.Context, vpcID string) ([]ACL, error) {
-	var matched []ACL
-	var seen, total int
-	for page := 1; ; page++ {
-		out, err := c.ListNetworkACLs(ctx, &ListNetworkACLsInput{Page: page})
-		if err != nil {
-			return nil, err
-		}
-		total = out.TotalItem
-		seen += len(out.Items)
-		for _, acl := range out.Items {
-			if acl.NetworkID == vpcID {
-				matched = append(matched, acl)
-			}
-		}
-		if page >= out.TotalPage || len(out.Items) == 0 {
-			break
-		}
+	all, err := c.listAllNetworkACLs(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if seen < total {
-		return nil, fmt.Errorf("network ACL list: got %d of %d item(s) across every page; the list is incomplete", seen, total)
+	var matched []ACL
+	for _, acl := range all {
+		if acl.NetworkID == vpcID || acl.NetworkID == "" {
+			matched = append(matched, acl)
+		}
 	}
 	return matched, nil
 }
