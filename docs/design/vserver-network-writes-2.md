@@ -1,7 +1,10 @@
 # vServer Network Writes 2 Design
 
 Status: Accepted (2026-09-27). The owner approved every recommendation
-under [Owner decisions](#owner-decisions).
+under [Owner decisions](#owner-decisions). Amended 2026-09-28 after a
+console check showed that a VPC's DHCP options set can be cleared: the
+owner approved the clear call and [decision 10](#owner-decisions)
+(`--yes` on every call) the same day.
 
 This design adds the three writes the
 [free writes survey](free-writes-survey.md) left after
@@ -21,7 +24,6 @@ probes, live checks, and the security review are in
 ## Non-goals
 
 - DHCP options set update: the API has no call for it.
-- Detaching a DHCP options set from a VPC: the API has no call for it.
 - Public virtual IPs (`public-vips`), which cost 120,000 VND a month.
 - Address pairs, which need a server interface and so a paid server.
 - Tags on create bodies (`tags` in VPC, subnet, and other creates).
@@ -53,6 +55,7 @@ All methods live in `network`. A new `DHCPOptions` model holds `UUID`
 | `CreateDHCPOptions` | `Name` (r), `DNSServers` []string (r), `MTU` *int | `{DHCPOptions}` |
 | `DeleteDHCPOptions` | `DHCPOptionsID` (r) | `{}` |
 | `SetVPCDHCPOptions` | `VPCID` (r), `DHCPOptionsID` (r) | `{VPC; Changed bool}` |
+| `ClearVPCDHCPOptions` | `VPCID` (r) | `{VPC; Changed bool}` |
 
 "(r)" marks `vngcloud:"required"`.
 
@@ -87,9 +90,10 @@ answer after a delete is a live check; until it is recorded, a 404 maps to
 ### Set on a VPC
 
 `PATCH networks/{vpcId}/updateDhcpOption` takes `dhcpOptionId` and replaces
-the VPC's set. No call clears it, so this is a one-way write in the sense
-of ADR 0002 rule 6: the VPC can move to another set but never back to
-none. `SetVPCDHCPOptions`:
+the VPC's set; the same `PATCH` with body `{}` clears it (live). The write
+is reversible: a VPC can move to another set, back to a previous set while
+that set exists, or to no set with `ClearVPCDHCPOptions`.
+`SetVPCDHCPOptions`:
 
 1. Reads the VPC. When `DHCPOptionID` already equals the target: `Changed`
    false, nothing sent.
@@ -103,6 +107,16 @@ none. `SetVPCDHCPOptions`:
 4. Sends the `PATCH`, marked idempotent: sending the same ID twice is
    harmless.
 5. Confirms by reading the VPC until `DHCPOptionID` equals the target (see
+   [Waits](#waits)). `Changed` is true.
+
+`ClearVPCDHCPOptions`:
+
+1. Reads the VPC. When it has no set: `Changed` false, nothing sent.
+2. Refuses a VPC whose `DNSStatus` is not `DISABLED`, or whose current set
+   is a system set, with `ErrDefaultResource`, nothing sent, for the reason
+   in step 2 above.
+3. Sends the `PATCH` with body `{}`, marked idempotent.
+4. Confirms by reading the VPC until `DHCPOptionID` is empty (see
    [Waits](#waits)). `Changed` is true.
 
 Servers keep their old resolvers until a DHCP renew or reboot; the wiki
@@ -204,6 +218,7 @@ poll helper with the injected clock and sleep, and honour `ctx`.
 | Write | Settled | Failed | Poll | Bound |
 |-|-|-|-|-|
 | `SetVPCDHCPOptions` | VPC `DHCPOptionID` equals the target | VPC `ERROR` | 2 s | 60 s |
+| `ClearVPCDHCPOptions` | VPC `DHCPOptionID` empty | VPC `ERROR` | 2 s | 60 s |
 | Virtual IP create, when the response status is not `ACTIVE` | `ACTIVE` | `ERROR` | 2 s | 60 s |
 
 DHCP set create and delete, virtual IP update and delete, and tag writes
@@ -235,14 +250,16 @@ each bound is short.
 | `network list-dhcp-options`, `get-dhcp-options` | Read | No | N5 |
 | `network create-dhcp-options` | Write | No | N5 |
 | `network delete-dhcp-options` | Write, destructive | Yes | N5 |
-| `network set-vpc-dhcp-options` | Write, one-way, changes DNS | Yes | N5 |
+| `network set-vpc-dhcp-options` | Write, changes DNS | Yes | N5 |
+| `network clear-vpc-dhcp-options` | Write, changes DNS | Yes | N5 |
 | `network create-virtual-ip-address`, `update-virtual-ip-address` | Write | No | N6 |
 | `network delete-virtual-ip-address` | Write, destructive | Yes | N6 |
 | `tagging list-resource-tags` | Read | No | N7 |
 | `tagging tag-resource`, `untag-resource` | Write | No | N7 |
 
-- `set-vpc-dhcp-options` needs `--yes` because no command returns the VPC
-  to no set, and it changes DNS for every server in the VPC.
+- `set-vpc-dhcp-options` and `clear-vpc-dhcp-options` need `--yes` on every
+  call: each changes DNS for every server in the VPC on its next DHCP
+  renew ([decision 10](#owner-decisions)).
 - Tag writes need no `--yes`: each is undone by the other, and the Output
   gives `Previous` ([decision 9](#owner-decisions)).
 - `DNSServers` is a list, so `create-dhcp-options` takes it through
@@ -261,6 +278,7 @@ each bound is short.
 | Unknown VPC, set, virtual IP, or resource | `NotFound` | `NotFound`, 4 |
 | Set attached to a VPC; virtual IP with address pairs | `network.ErrInUse` | `ResourceInUse`, 1 |
 | Set on a Private DNS VPC, or to or from a system set | `network.ErrDefaultResource`, no request | `DefaultResource`, 1 |
+| Clear on a Private DNS VPC, or of a system set | `network.ErrDefaultResource`, no request | `DefaultResource`, 1 |
 | Target set not `ACTIVE` | `network.ErrBusy`, no request | `ResourceBusy`, 1 |
 | Resource with a system tag | `tagging.ErrSystemTag`, no request | `SystemTag`, 1 |
 | `ERROR` after a write | `network.ErrFailed`, with Output | `WriteFailed`, 1 |
@@ -277,7 +295,7 @@ both packages' `ErrNotSettled`.
 
 | Release | Content |
 |-|-|
-| N5 | `network` `DHCPOptions`, `ListDHCPOptions`, `GetDHCPOptions`, `CreateDHCPOptions`, `DeleteDHCPOptions`, `SetVPCDHCPOptions`; CLI commands |
+| N5 | `network` `DHCPOptions`, `ListDHCPOptions`, `GetDHCPOptions`, `CreateDHCPOptions`, `DeleteDHCPOptions`, `SetVPCDHCPOptions`, `ClearVPCDHCPOptions`; CLI commands |
 | N6 | `network` `CreateVirtualIPAddress`, `UpdateVirtualIPAddress`, `DeleteVirtualIPAddress`, the mode constants, path ID checks on the virtual IP reads; CLI commands |
 | N7 | `tagging` package, `ListResourceTags`, `TagResource`, `UntagResource` if decision 7 allows, `ErrSystemTag`, `ErrNotSettled`, the verified type constants; the `tagging` CLI group |
 
@@ -321,6 +339,10 @@ live checks pass before its code merges.
    system tags as read. Recommend refuse until a live check on a resource
    with a system tag shows the `PUT`'s effect. The test account has none.
 9. `--yes` on tag writes. Options: none; always. Recommend none.
+10. `--yes` on `set-vpc-dhcp-options` and `clear-vpc-dhcp-options` now that
+    both are reversible. Options: every call; none. Recommend every call:
+    each changes DNS for every server in the VPC, and an agent should not
+    do that by default.
 
 ## Open questions
 
