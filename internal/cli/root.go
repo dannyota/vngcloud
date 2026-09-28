@@ -86,6 +86,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newVolumeCmd(e))
 	root.AddCommand(newContainerRegistryCmd(e))
 	root.AddCommand(newGlobalLoadBalancerCmd(e))
+	root.AddCommand(newTaggingCmd(e))
 
 	return root
 }

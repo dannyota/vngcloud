@@ -38,3 +38,4 @@
 - [CLI: Volume](CLI-Volume.md)
 - [CLI: ContainerRegistry](CLI-ContainerRegistry.md)
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
+- [CLI: Tagging](CLI-Tagging.md)

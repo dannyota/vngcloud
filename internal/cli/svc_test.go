@@ -52,6 +52,7 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "volume", volumeOps)
 	assertKindMatchesMethodName(t, "containerregistry", containerRegistryOps)
 	assertKindMatchesMethodName(t, "globalloadbalancer", globalLoadBalancerOps)
+	assertKindMatchesMethodName(t, "tagging", taggingOps)
 }
 
 // assertNoSecretFieldGetsAFlag checks, for every op in ops, that no Input
@@ -109,6 +110,7 @@ func TestServiceHelpListsEveryOp(t *testing.T) {
 		{"volume", opNames(volumeOps)},
 		{"containerregistry", opNames(containerRegistryOps)},
 		{"globalloadbalancer", opNames(globalLoadBalancerOps)},
+		{"tagging", opNames(taggingOps)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.service, func(t *testing.T) {
@@ -301,7 +303,7 @@ func TestBillingUpdateBudgetSendsOnlyTheChangedField(t *testing.T) {
 func TestEveryServiceCommandHasAShortDescription(t *testing.T) {
 	withCleanEnv(t)
 	root := newRootCmd(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	for _, name := range []string{"billing", "pricing", "compute", "iam", "network", "dns", "cdn", "monitor", "project", "portal", "volume", "globalloadbalancer"} {
+	for _, name := range []string{"billing", "pricing", "compute", "iam", "network", "dns", "cdn", "monitor", "project", "portal", "volume", "globalloadbalancer", "tagging"} {
 		cmd, _, err := root.Find([]string{name})
 		if err != nil {
 			t.Fatalf("Find(%s): %v", name, err)
