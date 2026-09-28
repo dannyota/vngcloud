@@ -8,8 +8,10 @@ The API shapes, server rules, and cost evidence behind
 
 ## Sources
 
-Shapes come from these public sources, and from read-only calls on the
-test account in `hcm-3` on 2026-09-27. No write was sent.
+Shapes come from these public sources, from read-only calls on the test
+account in `hcm-3` on 2026-09-27 (no write sent), and from DHCP options set
+create, attach, and detach writes made through the GreenNode web console on
+2026-09-28.
 
 - The vServer API reference on `docs.api.greennode.ai`
   (`service-docs/vserver.html`): the DHCP option, virtual IP address, and
@@ -23,8 +25,8 @@ test account in `hcm-3` on 2026-09-27. No write was sent.
 - Product docs on `docs.greennode.ai`: DHCP Options Sets, DNS Server IP
   Address, Virtual IP, and VIP Mode.
 
-A shape marked "live" was seen in the read-only calls; the rest is from the
-reference until its live check records it.
+A shape marked "live" was seen in a read-only call or a console write; the
+rest is from the reference until its own live check records it.
 
 ## Calls
 
@@ -35,9 +37,9 @@ marks a `portal-user-id` header required; the reads work without it.
 |-|-|-|-|
 | List DHCP sets | `GET /dhcp_option` | 200, paged `listData` | Live |
 | Get DHCP set | `GET /dhcp_option/{id}` | 200, the set at the top level | Live |
-| Create DHCP set | `POST /dhcp_option` | 201, `data` | Docs |
-| Delete DHCP set | `DELETE /dhcp_option/{id}` | 204 | Docs |
-| Set a VPC's DHCP set | `PATCH /networks/{vpcId}/updateDhcpOption` | 200, `data` holding the VPC | Docs |
+| Create DHCP set | `POST /dhcp_option` | 201, `data` | Live |
+| Delete DHCP set | `DELETE /dhcp_option/{id}` | 204 | Live |
+| Set a VPC's DHCP set | `PATCH /networks/{vpcId}/updateDhcpOption` | 200, `data` holding the VPC | Live |
 | Create virtual IP | `POST /virtualIpAddress` | 201, `data` | Docs |
 | Update virtual IP | `PUT /virtualIpAddress/{id}` | 200, `data` | Docs |
 | Delete virtual IP | `DELETE /virtualIpAddress/{id}` | 204 | Docs |
@@ -50,11 +52,16 @@ checks record the 4xx answers.
 
 ## Bodies
 
-- DHCP set create: `name` (required), `dnsServers` (a list of addresses),
-  `mtu` (integer), `tags`, `zoneId`. The SDK sends `name`, `dnsServers`,
-  and `mtu` when set.
+- DHCP set create: `name` (required, live: 5 to 50 characters of letters,
+  digits, `_`, and `-`), `dnsServers` (a list of addresses; live: the
+  console's form fills in the region's two default resolvers), `mtu`
+  (integer), `tags`, `zoneId`. The SDK sends `name`, `dnsServers`, and `mtu`
+  when set.
 - Set a VPC's DHCP set: `dhcpOptionId` (required), `tags`, `zoneId`. The
   SDK sends `dhcpOptionId` only.
+- Detach a VPC's DHCP set: live, the console's Detach action sends the same
+  `PATCH` with an empty body (`{}`, no `dhcpOptionId`); the response VPC
+  comes back with `dhcpOptionId` and `dhcpOptionName` both null.
 - Virtual IP create: `subnetId`, `name`, and `mode` (required), `ipAddress`,
   `description`. `mode` is `Active/Active` or `Active/Passive`. Terraform
   sends only `name`, `description`, and `subnetId`, so the server may
@@ -94,7 +101,11 @@ From the product docs, unless marked live:
   services may not resolve.
 - A user may create at most 10 DHCP sets, and the limit cannot be raised.
 - A set belongs to its region, may serve many VPCs, and a VPC has at most
-  one set. A set must be detached from every VPC before delete.
+  one set. A set must be detached from every VPC before delete. Live: the
+  console's own delete confirmation states that deleting an attached set
+  detaches it from every associated VPC automatically; this was not
+  exercised against a live delete of an attached set, and the SDK keeps its
+  stricter guard (refuse while attached) rather than rely on it.
 - New servers use the VPC's set; existing servers pick it up after a
   reboot or a DHCP renew (`dhclient`, `ipconfig /renew`).
 - Live: enabling Private DNS on a VPC creates and attaches a set named

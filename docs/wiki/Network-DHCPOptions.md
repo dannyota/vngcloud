@@ -75,15 +75,9 @@ if err != nil {
 log.Println(result.Changed)
 ```
 
-`SetVPCDHCPOptions` moves a VPC onto a set. There is no call to clear a
-VPC's set, so this is one-way: a VPC can move to another set but never back
-to having none. It reads the VPC first; if its current set already matches,
-it returns at once with `Changed` false, sending nothing.
-
-To restore a VPC's default resolvers, create a set with the region's
-documented defaults (see above) and move the VPC to it with
-`SetVPCDHCPOptions`; there is no call that clears a set or restores the
-defaults directly.
+`SetVPCDHCPOptions` moves a VPC onto a set. It reads the VPC first; if its
+current set already matches, it returns at once with `Changed` false,
+sending nothing.
 
 It refuses, with `network.ErrDefaultResource` and nothing sent, a VPC whose
 Private DNS is enabled or enabling, or whose current set is already one
@@ -112,3 +106,36 @@ and the bound running out, or a read or a sleep failing, wraps
 read returned. Existing servers keep their old resolvers until a DHCP renew
 or reboot (`dhclient`, `ipconfig /renew`); only a new server, or one
 renewed, picks up the change.
+
+## Clearing a VPC's DHCP options
+
+```go
+cleared, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{
+	VPCID: vpcID,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(cleared.Changed)
+```
+
+`ClearVPCDHCPOptions` returns a VPC to no DHCP options set at all, sending
+the same `PATCH` `SetVPCDHCPOptions` uses with an empty JSON body (no
+`dhcpOptionId`): the console's own Detach action sends this same body, and
+its response VPC comes back with both `dhcpOptionId` and `dhcpOptionName`
+empty. It reads the VPC first; a VPC with no current set returns at once
+with `Changed` false, sending nothing.
+
+It applies the same guard `SetVPCDHCPOptions` applies before replacing a
+set: a VPC whose Private DNS is enabled or enabling, or whose current set
+is already one Private DNS created, is refused with
+`network.ErrDefaultResource` and nothing sent, since clearing that set would
+cut every server in the VPC off from its private zone lookups with no way
+to put it back automatically.
+
+The `PATCH` is idempotent, and its failure modes, wait, and `Changed`
+semantics match `SetVPCDHCPOptions` exactly, except the wait polls for an
+empty `DHCPOptionID` instead of a target set's id. To restore a VPC's
+default resolvers after clearing, create a set with the region's documented
+defaults (see above) and move the VPC to it with `SetVPCDHCPOptions`; there
+is no call that restores the defaults directly.

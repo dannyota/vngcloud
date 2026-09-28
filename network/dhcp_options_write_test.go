@@ -728,6 +728,239 @@ func TestSetVPCDHCPOptionsWaitBoundReached(t *testing.T) {
 	}
 }
 
+// --- ClearVPCDHCPOptions ---
+
+func TestClearVPCDHCPOptionsRequestBody(t *testing.T) {
+	var patched atomic.Bool
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			if r.URL.Path != "/v2/project-1/networks/vpc-1/updateDhcpOption" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			body := decodeBody(t, r)
+			if len(body) != 0 {
+				t.Fatalf("body = %+v, want an empty object", body)
+			}
+			patched.Store(true)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			current, name := "dop-1", "corp"
+			if patched.Load() {
+				current, name = "", ""
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", current, name)))
+		}
+	})))
+
+	out, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if err != nil {
+		t.Fatalf("ClearVPCDHCPOptions() error = %v", err)
+	}
+	if !patched.Load() {
+		t.Fatal("PATCH was never sent")
+	}
+	if !out.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+}
+
+func TestClearVPCDHCPOptionsAlreadyEmptySendsNothing(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no write expected")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "", "")))
+	}))
+
+	out, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if err != nil {
+		t.Fatalf("ClearVPCDHCPOptions() error = %v", err)
+	}
+	if out.Changed {
+		t.Fatal("Changed = true, want false")
+	}
+}
+
+func TestClearVPCDHCPOptionsGuardPrivateDNSEnabled(t *testing.T) {
+	for _, status := range []string{"ENABLED", "ENABLING"} {
+		t.Run(status, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatal("no write expected")
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(dhcpVPCBody(status, "dop-1", "corp")))
+			}))
+
+			_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+			if !errors.Is(err, ErrDefaultResource) {
+				t.Fatalf("err = %v, want ErrDefaultResource", err)
+			}
+		})
+	}
+}
+
+func TestClearVPCDHCPOptionsGuardCurrentSystemSet(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no write expected")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-sys", "dhcp-option-dns-1")))
+	}))
+
+	_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrDefaultResource) {
+		t.Fatalf("err = %v, want ErrDefaultResource", err)
+	}
+}
+
+// TestClearVPCDHCPOptionsGuardCurrentSystemSetEmptyName checks that, like
+// SetVPCDHCPOptions, an empty DHCPOptionName on the VPC read makes
+// ClearVPCDHCPOptions read the current set by id rather than assume it is
+// not a system set.
+func TestClearVPCDHCPOptionsGuardCurrentSystemSetEmptyName(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPatch:
+			t.Fatal("no PATCH expected")
+		case strings.Contains(r.URL.Path, "/dhcp_option/dop-sys"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"uuid":"dop-sys","name":"dhcp-option-dns-1","status":"ACTIVE","associatedNetworks":["vpc-1"]}`))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-sys", "")))
+		}
+	}))
+
+	_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrDefaultResource) {
+		t.Fatalf("err = %v, want ErrDefaultResource", err)
+	}
+}
+
+func TestClearVPCDHCPOptionsVPCNotFound(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatal("no write expected")
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+	}))
+
+	_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-missing"})
+	if !vngcloud.IsNotFound(err) {
+		t.Fatalf("err = %v, want NotFound", err)
+	}
+}
+
+// TestClearVPCDHCPOptionsPatchFails checks the PATCH's own failure statuses,
+// mirroring TestSetVPCDHCPOptionsPatchFails: a 400 or 404 is a 4xx
+// *core.APIError returned as is, while a 5xx additionally wraps a hint that
+// the change may already be in place and that get-vpc shows the VPC's
+// current set.
+func TestClearVPCDHCPOptionsPatchFails(t *testing.T) {
+	cases := []struct {
+		name     string
+		status   int
+		wantHint bool
+	}{
+		{"400", http.StatusBadRequest, false},
+		{"404", http.StatusNotFound, false},
+		{"500", http.StatusInternalServerError, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodPatch:
+					w.WriteHeader(tt.status)
+					_, _ = w.Write([]byte(`{"message":"failed"}`))
+				case http.MethodGet:
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+				}
+			}))
+
+			_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+			var apiErr *core.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status {
+				t.Fatalf("err = %v, want a %d *core.APIError", err, tt.status)
+			}
+			if strings.Contains(err.Error(), "get-vpc") != tt.wantHint {
+				t.Fatalf("err = %v, want hint to run get-vpc = %v", err, tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestClearVPCDHCPOptionsRequiredInput(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	if _, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestClearVPCDHCPOptionsPathIDRejection(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	for _, id := range pathIDRejections {
+		if _, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: id}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("VPCID %q: err = %v, want ErrInvalidInput", id, err)
+		}
+	}
+}
+
+func TestClearVPCDHCPOptionsWaitFailsOnError(t *testing.T) {
+	getCalls := 0
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			getCalls++
+			if getCalls == 1 {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"vpc-1","status":"ERROR","dnsStatus":"DISABLED","dhcpOptionId":"dop-1"}`))
+		}
+	})))
+
+	out, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrFailed) {
+		t.Fatalf("err = %v, want ErrFailed", err)
+	}
+	if out == nil || !out.Changed {
+		t.Fatalf("Output = %+v, want Changed true (the PATCH was sent)", out)
+	}
+}
+
+func TestClearVPCDHCPOptionsWaitBoundReached(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(dhcpVPCBody("DISABLED", "dop-1", "corp")))
+		}
+	})))
+
+	_, err := c.ClearVPCDHCPOptions(context.Background(), &ClearVPCDHCPOptionsInput{VPCID: "vpc-1"})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}
+
 // TestWaitVPCDHCPOptionsSetPollParameters checks the literal interval and
 // bound waitVPCDHCPOptionsSet passes to poll (the package's generic 2s
 // interval and 60s bound), so that swapping either with another wait's
