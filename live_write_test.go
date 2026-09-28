@@ -7355,7 +7355,7 @@ func TestLiveWriteTagging(t *testing.T) {
 
 	// Step 4: tag it.
 	tagged, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
-		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "1",
+		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "one",
 	})
 	if err != nil {
 		t.Fatalf("step 4 TagResource: %s", safeErr(err))
@@ -7370,12 +7370,12 @@ func TestLiveWriteTagging(t *testing.T) {
 
 	// Step 5: edit the tag.
 	edited, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
-		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "2",
+		ResourceID: vipID, ResourceType: resourceType, Key: "vngcloud-live-tag", Value: "two",
 	})
 	if err != nil {
 		t.Fatalf("step 5 TagResource (edit): %s", safeErr(err))
 	}
-	if edited.Previous == nil || *edited.Previous != "1" {
+	if edited.Previous == nil || *edited.Previous != "one" {
 		t.Fatalf("step 5: Previous = %v, want \"1\"", edited.Previous)
 	}
 	if n := countSystemTags(edited.Tags); n != systemBefore {
@@ -7390,7 +7390,7 @@ func TestLiveWriteTagging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 6 UntagResource: %s", safeErr(err))
 	}
-	if !untagged.Changed || untagged.Previous == nil || *untagged.Previous != "2" {
+	if !untagged.Changed || untagged.Previous == nil || *untagged.Previous != "two" {
 		t.Fatalf("step 6: Changed/Previous = %v/%v, want true/\"2\"", untagged.Changed, untagged.Previous)
 	}
 	if n := countSystemTags(untagged.Tags); n != systemBefore {

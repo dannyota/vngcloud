@@ -86,7 +86,9 @@ with `vng.` or names an existing system tag: those two checks cover every
 system tag confirmed live, and a resource carrying one is otherwise no
 reason to refuse, since every resource has one. Otherwise it reads every
 tag on the resource; when `Key` is already set to `Value` among the user
-tags, it returns at once with `Changed` false and sends nothing.
+tags, it returns at once with `Changed` false and sends nothing. The
+server refuses a `Value` shorter than 3 or longer than 255 characters with
+400; the SDK leaves that rule to the server.
 
 Otherwise it sends every user tag it read, with `Key`'s value replaced or
 added, in one `PUT`. System tags are never included: the `PUT` replaces
