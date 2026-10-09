@@ -18,7 +18,7 @@ const policyPath = bucketsPath + "/policy"
 
 // validPolicy is the smallest document PutBucketPolicy accepts. It holds
 // characters the JSON string encoding may escape.
-const validPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::my-bucket/*&<>"}]}`
+const validPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::my-bucket/*&<>"}]}`
 
 func getPolicy(c *Client) (*GetBucketPolicyOutput, error) {
 	return c.GetBucketPolicy(context.Background(), &GetBucketPolicyInput{ProjectID: "proj-1", Bucket: "my-bucket"})
@@ -213,12 +213,73 @@ func TestPutBucketPolicyRefusesBadPolicyBeforeAnyRequest(t *testing.T) {
 	}
 }
 
+func TestPutBucketPolicyRefusesIncompleteStatements(t *testing.T) {
+	const (
+		eff = `"Effect":"Allow"`
+		pr  = `"Principal":"*"`
+		act = `"Action":"s3:GetObject"`
+		res = `"Resource":"arn:aws:s3:::b/*"`
+	)
+	tests := []struct {
+		name      string
+		statement string
+		field     string
+	}{
+		{"empty statement", `{}`, "Effect"},
+		{"no Principal", `{` + eff + `,` + act + `,` + res + `}`, "Principal"},
+		{"empty Principal object", `{` + eff + `,"Principal":{},` + act + `,` + res + `}`, "Principal"},
+		{"empty AWS string", `{` + eff + `,"Principal":{"AWS":""},` + act + `,` + res + `}`, "Principal"},
+		{"empty AWS list", `{` + eff + `,"Principal":{"AWS":[]},` + act + `,` + res + `}`, "Principal"},
+		{"AWS list with empty string", `{` + eff + `,"Principal":{"AWS":[""]},` + act + `,` + res + `}`, "Principal"},
+		{"AWS is a number", `{` + eff + `,"Principal":{"AWS":1},` + act + `,` + res + `}`, "Principal"},
+		{"empty Principal string", `{` + eff + `,"Principal":"",` + act + `,` + res + `}`, "Principal"},
+		{"Principal is null", `{` + eff + `,"Principal":null,` + act + `,` + res + `}`, "Principal"},
+		{"Principal is a number", `{` + eff + `,"Principal":1,` + act + `,` + res + `}`, "Principal"},
+		{"no Action", `{` + eff + `,` + pr + `,` + res + `}`, "Action"},
+		{"empty Action list", `{` + eff + `,` + pr + `,"Action":[],` + res + `}`, "Action"},
+		{"Action list with empty string", `{` + eff + `,` + pr + `,"Action":[""],` + res + `}`, "Action"},
+		{"empty Action string", `{` + eff + `,` + pr + `,"Action":"",` + res + `}`, "Action"},
+		{"no Resource", `{` + eff + `,` + pr + `,` + act + `}`, "Resource"},
+		{"empty Resource list", `{` + eff + `,` + pr + `,` + act + `,"Resource":[]}`, "Resource"},
+		{"no Effect", `{` + pr + `,` + act + `,` + res + `}`, "Effect"},
+		{"empty Effect", `{"Effect":"",` + pr + `,` + act + `,` + res + `}`, "Effect"},
+		{"Effect is not a string", `{"Effect":true,` + pr + `,` + act + `,` + res + `}`, "Effect"},
+		{"lower case principal", `{` + eff + `,"principal":"*",` + act + `,` + res + `}`, "Principal"},
+		{"statement is a string", `"x"`, "JSON object"},
+		{"statement is null", `null`, "JSON object"},
+		{"statement is an array", `[]`, "JSON object"},
+	}
+	good := `{` + eff + `,` + pr + `,` + act + `,` + res + `}`
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sent atomic.Int32
+			c := newTestClient(t, serve(t, func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
+			// The bad statement is second, so the message must name index 1.
+			err := putPolicy(c, `{"Statement":[`+good+`,`+tt.statement+`]}`)
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+			if !strings.Contains(err.Error(), "Statement[1]") || !strings.Contains(err.Error(), tt.field) {
+				t.Fatalf("err = %v, want it to name Statement[1] and %s", err, tt.field)
+			}
+			if sent.Load() != 0 {
+				t.Fatalf("%d request(s) sent, want 0", sent.Load())
+			}
+			if strings.Contains(err.Error(), "arn:") || strings.Contains(err.Error(), "s3:GetObject") {
+				t.Fatalf("the error quotes the policy: %v", err)
+			}
+		})
+	}
+}
+
 func TestPutBucketPolicyAcceptsValidDocuments(t *testing.T) {
 	for name, policy := range map[string]string{
-		"minimal":         validPolicy,
-		"padded":          "\n " + validPolicy + " \n",
-		"extra members":   `{"Id":"x","Statement":[{}],"Other":[1]}`,
-		"template-shaped": `{"Version":"2012-10-17","Statement":[{"Sid":"Bucket","Effect":"Allow","Principal":{"AWS":["arn:aws:iam:::user/u:sa-n"]},"Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::b"]}]}`,
+		"minimal":              validPolicy,
+		"padded":               "\n " + validPolicy + " \n",
+		"extra members":        `{"Id":"x","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:*","Resource":"*"}],"Other":[1]}`,
+		"AWS principal list":   `{"Statement":[{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam:::user/u:sa-n"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::b/*"]}]}`,
+		"AWS principal string": `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam:::user/u:sa-n"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+		"template-shaped":      `{"Version":"2012-10-17","Statement":[{"Sid":"Bucket","Effect":"Allow","Principal":{"AWS":["arn:aws:iam:::user/u:sa-n"]},"Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::b"]}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := &keyServer{status: 200, body: okEnvelope}

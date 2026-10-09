@@ -52,6 +52,9 @@ _, err = client.DeleteBucketPolicy(ctx, &storage.DeleteBucketPolicyInput{
 - `PutBucketPolicy` replaces the whole policy. It sends `Policy` unchanged as
   a JSON string. A `Policy` that is not a JSON object with a non-empty
   `Statement` array returns `vngcloud.ErrInvalidInput`, and nothing is sent.
+  So does a statement that is not a JSON object or lacks a non-empty `Effect`,
+  `Principal`, `Action`, or `Resource`. The error names the statement index
+  and the field.
   To remove every statement, call `DeleteBucketPolicy`.
 - `DeleteBucketPolicy` succeeds when the bucket has no policy, so a repeat
   delete returns the same result.
@@ -97,12 +100,12 @@ non-owner do so is not checked, and the template avoids the question.
   such as a mistyped ARN or a deleted service account, is accepted and grants
   nothing. Copy `PrincipalARN` from `EnsureServiceAccountPrincipal`, and check
   access with the attached key.
-- Give every statement a `Principal`. The server accepted a statement with no
-  `Principal`, including `{}`, and the console API then answered
-  `GetBucketPolicy`, `DeleteBucketPolicy`, and `DeleteBucket` for that bucket
-  with an empty body (`EmptyResponse`). The S3 `DeleteBucketPolicy` call, made
-  with an S3 key that is not attached, removed the policy and restored the
-  console calls.
+- `PutBucketPolicy` refuses a statement with no `Principal`, including `{}`,
+  because the server accepts one and then answers the console API's
+  `GetBucketPolicy`, `DeleteBucketPolicy`, and `DeleteBucket` for that
+  bucket with an empty body (`EmptyResponse`). A policy put by another tool
+  can still cause this. The S3 `DeleteBucketPolicy` call, made with an S3 key
+  that is not attached, removes the policy and restores the console calls.
 - Remove a service account from its bucket policies before you delete it: a
   new service account with the same name gets the same principal.
 
@@ -111,7 +114,7 @@ non-owner do so is not checked, and the template avoids the question.
 | Case | Result |
 |---|---|
 | Missing field, bad project ID or bucket name, unmapped region | `vngcloud.ErrInvalidInput`, no call sent |
-| `Policy` is not a JSON object with a non-empty `Statement` array | `vngcloud.ErrInvalidInput`, no call sent |
+| `Policy` is not a JSON object with a non-empty `Statement` array, or a statement lacks a non-empty `Effect`, `Principal`, `Action`, or `Resource` | `vngcloud.ErrInvalidInput`, no call sent |
 | The server cannot parse the policy: envelope code `400`, such as an unknown `Version` or `Effect` | `*vngcloud.APIError` with the parser's message, no sentinel |
 | Envelope code `114` | `*vngcloud.APIError` with the server's message, no sentinel |
 | `GetBucketPolicy` on a bucket that does not exist | `*vngcloud.APIError`, code `EmptyResponse`: the server answers HTTP 200 with no body |

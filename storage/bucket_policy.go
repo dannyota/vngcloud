@@ -69,7 +69,8 @@ type PutBucketPolicyInput struct {
 	ProjectID string `vngcloud:"required"`
 	Bucket    string `vngcloud:"required"`
 	// Policy is the policy document as JSON text. It must be a JSON object
-	// whose Statement member is an array with at least one element.
+	// whose Statement member is an array of complete statements; see
+	// PutBucketPolicy.
 	Policy string `vngcloud:"required"`
 }
 
@@ -84,9 +85,15 @@ type putBucketPolicyBody struct {
 // DeleteBucketPolicy.
 //
 // A Policy that is not a JSON object with a non-empty Statement array is
-// ErrInvalidInput, and nothing is sent. The server refuses a document it
-// cannot parse as an *APIError with code 400 and the parser's message, and an
-// empty one with code 114; neither matches a sentinel.
+// ErrInvalidInput, and nothing is sent. So is a statement that is not a JSON
+// object, or lacks a non-empty Effect string, Principal, Action, or Resource.
+// The server accepts a statement with no Principal, and the bucket's console
+// calls and bucket delete then fail until the policy is removed through the
+// S3 data plane.
+//
+// The server refuses a document it cannot parse as an *APIError with code 400
+// and the parser's message, and an empty one with code 114; neither matches a
+// sentinel.
 //
 // The server does not check principals. A policy that names a sub-user that
 // does not exist, a mistyped ARN, or a deleted service account is accepted
@@ -191,5 +198,73 @@ func checkPolicyDocument(op, policy string) error {
 	if err := json.Unmarshal(statements, &items); err != nil || len(items) == 0 {
 		return refuse("Statement is empty")
 	}
+	for i, item := range items {
+		if field, why := checkStatement(item); field != "" {
+			return fmt.Errorf("%w: %s requires every statement to be complete (Statement[%d]: %s %s)", core.ErrInvalidInput, op, i, field, why)
+		}
+	}
 	return nil
+}
+
+// checkStatement returns the first field of one statement that is missing or
+// empty, with the reason, or "" when the statement is complete. The server
+// accepts a statement with no Principal, and the bucket's console calls and
+// bucket delete then fail until the policy is removed through the S3 data
+// plane, so the check is stricter than the server's.
+func checkStatement(raw json.RawMessage) (field, why string) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil || members == nil {
+		return "statement", "is not a JSON object"
+	}
+	var effect string
+	if err := json.Unmarshal(members["Effect"], &effect); err != nil || effect == "" {
+		return "Effect", "is missing or not a non-empty string"
+	}
+	if !nonEmptyPrincipal(members["Principal"]) {
+		return "Principal", "is missing or empty"
+	}
+	for _, name := range []string{"Action", "Resource"} {
+		if !nonEmptyStrings(members[name]) {
+			return name, "is missing or empty"
+		}
+	}
+	return "", ""
+}
+
+// nonEmptyPrincipal accepts a non-empty string, or a non-empty object whose
+// values are each non-empty strings or non-empty arrays of non-empty strings.
+func nonEmptyPrincipal(raw json.RawMessage) bool {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text != ""
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil || len(members) == 0 {
+		return false
+	}
+	for _, v := range members {
+		if !nonEmptyStrings(v) {
+			return false
+		}
+	}
+	return true
+}
+
+// nonEmptyStrings accepts a non-empty string or a non-empty array of
+// non-empty strings.
+func nonEmptyStrings(raw json.RawMessage) bool {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text != ""
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) != nil || len(list) == 0 {
+		return false
+	}
+	for _, v := range list {
+		if v == "" {
+			return false
+		}
+	}
+	return true
 }
