@@ -38,6 +38,10 @@ included. Flags follow the Input fields; `Rules` comes through
   off a running app's bucket access.
 - `ensure-service-account-principal` is a write, so a read-only profile
   refuses it. It prints `SubUserID` and `PrincipalARN`.
+- `get-bucket-policy` prints `{"Policy": "<document>"}`, with `""` for a
+  bucket that has none. `put-bucket-policy` refuses a policy that is not a
+  JSON object with a non-empty `Statement` array, with exit 2 and no
+  request ([Bucket policy](storage-keys.md#bucket-policy)).
 - An attach or detach that the server refuses prints code `114` and the
   server's message, which says what state the key is in
   ([Service account keys](storage-keys.md#service-account-keys)).
@@ -92,9 +96,9 @@ client setup: endpoint `https://hcm04.vstorage.vngcloud.vn` and region
 
 ## Per-bucket key
 
-The target setup for aboutme, per bucket. `policy.json` allows the
-principal `s3:*` on `arn:aws:s3:::<b>` and `arn:aws:s3:::<b>/*`; the wiki
-gives the template.
+The target setup for aboutme, per bucket. `policy.json` is the
+[template](storage-keys.md#template) with the bucket name and the
+`PrincipalARN` filled in.
 
 ```sh
 vngcloud storage create-bucket --project-id <p> --bucket <b>
@@ -109,7 +113,8 @@ vngcloud storage create-s3-key --project-id <p> \
 
 The order matters:
 
-- The principal exists before the policy names it.
+- `ensure-service-account-principal` gives the `PrincipalARN` the policy
+  needs. An attach would make the sub-user too, but the policy comes first.
 - The policy exists before the key, since an attached key has no rights in
   the bucket until a policy names its principal.
 - The key is attached before its secret is written; a key is unrestricted
@@ -117,15 +122,18 @@ The order matters:
   `storage attach-s3-key --project-id <p> --user-key-id <k>
   --service-account-id <sa> --yes`.
 
-An attached key can still list the project's buckets and create buckets.
-`put-bucket-policy` ships in S5, after the live check that the policy
-scopes the key to its bucket
-([key live checks](storage-keys.md#live-checks)). Until then an attached
-key reaches no bucket, and `create-s3-key` without `--service-account-id`
-makes a project-wide key with the IAM user's rights on every bucket of the
-project. The wiki says so and tells the reader to make keys only with an
-IAM user scoped to vStorage.
+Check the setup with the key: a put and a get in the bucket succeed. The
+server accepts a policy whose principal matches no sub-user, so a mistyped
+ARN shows up only as a 403 here.
+
+An attached key can still list the project's buckets and create buckets
+it then cannot use, and it learns which object names exist in any bucket
+of the project ([wiki rules](storage-keys.md#wiki-rules)).
+`create-s3-key` without `--service-account-id` makes a project-wide key
+with the IAM user's rights on every bucket of the project. The wiki says so
+and tells the reader to make keys only with an IAM user scoped to vStorage.
 
 Before deleting a service account, remove its principal from every bucket
-policy: a new service account with the same name may get the same
-principal ([Principal](storage-keys.md#principal)).
+policy and detach its keys: a new service account with the same name may
+get the same principal ([Principal](storage-keys.md#principal)), and a key
+stays attached to a deleted service account.

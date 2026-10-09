@@ -1,9 +1,10 @@
 # vStorage: keys
 
-S3 keys and service account keys for [vStorage](storage.md). The
-operation table, envelope errors, secrets, and releases are in that
-design; the calls and live results are in
-[S3 keys](storage-api.md#s3-keys); the commands are in
+S3 keys, service account keys, and the bucket policy that scopes them, for
+[vStorage](storage.md). The operation table, envelope errors, secrets, and
+releases are in that design; the calls and live results are in
+[S3 keys](storage-api.md#s3-keys) and
+[Bucket policy](storage-api.md#bucket-policy); the commands are in
 [vStorage: CLI](storage-cli.md).
 
 ## S3 keys
@@ -70,8 +71,15 @@ The server checks "attached elsewhere" before it checks the service
 account, so any attach of an attached key gives that message. An unknown
 service account or key is code 114, not `ErrNotFound`.
 
+An attach to a service account with no sub-user makes the sub-user, so an
+attach needs no `EnsureServiceAccountPrincipal` first. A key stays attached
+to a deleted service account: `ListS3Keys` still shows its `SubUserID`,
+and `DetachS3Key` still succeeds.
+
 An attached key keeps two rights outside any policy: it lists the
-project's buckets and creates buckets. The wiki says so.
+project's buckets and creates buckets. It cannot use a bucket it creates:
+the account-level user owns it, and object writes and the bucket delete
+answer 403. The wiki says so.
 
 ## Principal
 
@@ -83,7 +91,9 @@ until one is generated, so the SDK offers an explicit write:
   `generated=true`, `project_id=<ProjectID>`, and
   `iam_account_id=sa-<ServiceAccountID>`, as the console's own sub-user
   create does. With `generated=false` or without the `sa-` prefix the
-  server answers a null `subUserId`, so the SDK always sends both.
+  server answers a null `subUserId`, so the SDK always sends both. A
+  well-formed ID that matches no service account answers code 114, an
+  `*APIError` with no Output.
 - It is a write (ADR 0002 rule 1), although the method is `GET`: a
   read-only profile refuses it, and no read in the SDK sends
   `generated=true`.
@@ -91,9 +101,12 @@ until one is generated, so the SDK offers an explicit write:
   may retry it as any `GET`.
 - The Output is `SubUserID` (`data.subUserId`) and `PrincipalARN`
   (`arn:aws:iam:::user/` and `SubUserID`). A null or empty `subUserId` is
-  an error that says no principal was made. A `subUserId` without a `:sa-`
-  segment is an error and returns nothing, so a caller never puts the IAM
-  user's own `:iam-` principal in a policy.
+  an error that says no principal was made. A `subUserId` that is not
+  exactly `<user>:sa-<name>`, with a non-empty user, a non-empty name, and
+  no further colon, is an error and returns nothing, so a caller never puts
+  the IAM user's own `:iam-` principal in a policy.
+- Callers need it only to get `PrincipalARN` for a policy: an attach makes
+  the sub-user by itself.
 - The sub-user cannot be deleted through the console API. It costs nothing
   and has no rights until a policy names it.
 - The SDK does not call `POST users/ceph_sub_users`: the server ignores its
@@ -105,6 +118,83 @@ service account cannot be renamed through `iam`, but a new one with a
 deleted one's name may get the same principal and so inherit any bucket
 policy that still names it. The wiki tells the reader to remove a service
 account from its bucket policies before deleting it.
+
+## Bucket policy
+
+A bucket policy grants a service account's [principal](#principal) rights
+on one bucket. The calls are `ceph/projects/{p}/buckets/{b}/policy` with
+both region headers ([Bucket policy](storage-api.md#bucket-policy)).
+
+- `GetBucketPolicy` returns `Policy`, the server's `data` string unchanged.
+  A response with no `data`, or `data` null, means the bucket has no
+  policy: `Policy` is `""` and the error is nil. A `data` that is not a
+  JSON string is a decode error.
+- The server re-serializes the document: object keys sorted, array order
+  kept. The SDK does not reformat it. The doc comment and the wiki tell
+  callers to compare decoded documents, not bytes. The CLI prints
+  `{"Policy": "<document as a string>"}`, as `aws s3api get-bucket-policy`
+  does.
+- `PutBucketPolicy` checks `Policy` before any request: valid JSON, a
+  top-level object, and a `Statement` member that is an array with at least
+  one element. Anything else is `ErrInvalidInput` with no request. This
+  catches the empty string, which the server refuses only with a generic
+  code 114, and JSON that is not an object. To remove every statement, call
+  `DeleteBucketPolicy`.
+- `PutBucketPolicy` sends `{"policy": "<Policy>"}`, the caller's text
+  unchanged as a JSON string. A put replaces the whole policy. Success is
+  the envelope's `success: true`; the Output is `{}`.
+- The server's refusals are `*APIError` with the envelope code and message
+  and no sentinel: code 400 carries Ceph's parser message, and code 114 a
+  generic one. The CLI prints the code and the message and exits 1.
+- `DeleteBucketPolicy` returns `{}`. A delete of a bucket with no policy
+  also succeeds, so a repeat delete returns `{}`.
+- Put and delete give the same result when repeated, so both keep the
+  transport's retries.
+- The server does not check principals. A policy that names a sub-user that
+  does not exist, a mistyped ARN, or a deleted service account is accepted
+  and grants nothing, and the SDK cannot detect it. The doc comment and the
+  wiki say so, and tell callers to copy `PrincipalARN` from
+  `EnsureServiceAccountPrincipal` and to check access with the attached key.
+- The data plane follows a put or delete within about a second.
+
+### Template
+
+The wiki and the S5 live test use this template, which grants object work
+and nothing on the bucket's settings:
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Sid": "Bucket", "Effect": "Allow",
+   "Principal": {"AWS": ["<PrincipalARN>"]},
+   "Action": ["s3:ListBucket", "s3:GetBucketLocation",
+              "s3:ListBucketMultipartUploads"],
+   "Resource": ["arn:aws:s3:::<bucket>"]},
+  {"Sid": "Objects", "Effect": "Allow",
+   "Principal": {"AWS": ["<PrincipalARN>"]},
+   "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+              "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+   "Resource": ["arn:aws:s3:::<bucket>/*"]}]}
+```
+
+`s3:*` also grants the bucket delete and policy changes on that bucket in
+S3, so a leaked key could delete the bucket or rewrite its policy. Whether
+Ceph lets a non-owner do so is unchecked; the template avoids the question.
+
+### Wiki rules
+
+The SDK and CLI storage pages state:
+
+- An attached key lists every bucket of the project and can create a
+  bucket, but cannot put or delete objects in it, or delete it.
+- A `GET` of a missing object answers 404 `NoSuchKey` even in a bucket the
+  key cannot read, so a key learns which object names exist anywhere in
+  the project. Do not put secrets in object names.
+- An attach makes the service account's sub-user. Run
+  `EnsureServiceAccountPrincipal` only to get `PrincipalARN` for a policy.
+- A policy that names no real sub-user is accepted and grants nothing.
+- `GetBucketPolicy` returns the document re-serialized; compare decoded
+  documents.
+- The template above, and the reason it avoids `s3:*`.
 
 ## Retries
 
@@ -139,7 +229,8 @@ account from its bucket policies before deleting it.
 | Attach or detach refused, envelope code 114 | `*APIError`, message from the table above | `114` and the message, 1 |
 | Attach or detach got a 5xx or a network error | `*APIError`, says it may have happened | 1 |
 | Attach failed in `create-s3-key --service-account-id` | Key deleted, no file | The attach's code, 1 |
-| `subUserId` null, empty, or not `:sa-` | Error, no Output | 1 |
+| Principal for an unknown service account, envelope code 114 | `*APIError`, no Output | `114`, 1 |
+| `subUserId` null, empty, or not `<user>:sa-<name>` | Error, no Output | `NotServiceAccountPrincipal`, 1 |
 
 ## Security
 
@@ -167,7 +258,8 @@ Unit tests use `httptest`:
   after a 429); each code 114 message reaches `*APIError.Message`.
 - `EnsureServiceAccountPrincipal` sends `generated=true`, `project_id`, and
   `iam_account_id=sa-<id>`; builds `PrincipalARN`; refuses a null
-  `subUserId` and an `:iam-` one; read-only refusal with no request.
+  `subUserId`, an `:iam-` one, and one with a further colon; code 114 for
+  an unknown service account; read-only refusal with no request.
 - `create-s3-key --service-account-id`: the attach runs before the file is
   opened; a failed attach deletes the key and leaves no file; a failed
   cleanup names the `UserKeyID`.
@@ -189,26 +281,44 @@ leftover service account named `vngcloud-live-storage`, then:
 The fixed name keeps each run to one undeletable sub-user and checks that
 a same-name recreate returns the same principal.
 
+The S5 live write test runs the per-bucket key end to end, with the same
+approval and service account name. Data plane calls use a small Signature
+V4 signer in the live test, standard library only, against the region's
+`s3Host` with path-style URLs. It deletes leftover `vngcloud-live-`
+buckets, then:
+
+1. Creates buckets A and B. `GetBucketPolicy` on A returns `""`.
+   `GetBucketPolicy` on a missing bucket is expected to return
+   `ErrNotFound` (code 404); the test logs the code it gets.
+2. Creates the service account, calls `EnsureServiceAccountPrincipal`, and
+   puts the [template](#template) on A. `GetBucketPolicy` returns a
+   document that decodes equal to the one put.
+3. Creates a key with the attach. Within 5 seconds the key puts, gets,
+   lists, and deletes an object in A. A put in B answers 403.
+4. Deletes A's policy. Within 5 seconds a put in A answers 403. A second
+   delete returns `{}`, and `GetBucketPolicy` returns `""`.
+5. Cleanup, registered as each ID is known, deletes the key, the buckets,
+   and the service account, and asserts none remains. If a step failed
+   with the test object still in A, cleanup first puts the template back
+   and deletes the object with the key. It logs statuses and counts only.
+
+Unit tests for the policy calls cover: the path and region headers; the put
+body as a JSON string; each client-side refusal (empty, invalid JSON, an
+array, an object without `Statement`, an empty `Statement`) with no request;
+no `data` and null `data` as `""`; code 400 and code 114 reaching
+`*APIError.Message`; and a second delete as `{}`.
+
 ## Live checks
 
-Answered for S4, on the test project: the create and sub-user bodies'
-ignored fields; the `users/details` sub-user; attach, detach, and each
-code 114; the accounts API's 404 for console keys; and the data plane
-before attach, after attach, and after detach. The results are in
-[S3 keys](storage-api.md#s3-keys).
+Answered for S4 and S5, on the test project: the create and sub-user
+bodies' ignored fields; the `users/details` sub-user and its code 114 for
+an unknown service account; attach, detach, and each code 114; an attach
+that makes the sub-user; a key attached to a deleted service account; the
+accounts API's 404 for console keys; the policy calls and their errors;
+and the data plane with no policy, with a policy on one bucket, and after
+the policy delete. The results are in [S3 keys](storage-api.md#s3-keys),
+[Bucket policy](storage-api.md#bucket-policy), and
+[Data plane](storage-api.md#data-plane).
 
-Open, checked by the S4 live test: the attach body takes the unprefixed
-IAM ID; a repeat ensure and a same-name recreate return the same
-principal; a key can be deleted while attached.
-
-Open for S5, its core claim, before any policy code ships. With the key
-attached to a service account and a policy on bucket A that allows its
-`PrincipalARN` `s3:*` on `arn:aws:s3:::<A>` and `arn:aws:s3:::<A>/*`:
-
-1. The key lists, puts, gets, and deletes objects in A.
-2. The key gets 403 on list, put, and delete in bucket B, which has no
-   policy for the principal.
-3. After the policy delete, the key gets 403 in A again.
-4. Who owns a bucket the attached key creates, and whether the key can
-   delete it.
-5. Whether an attach before any ensure makes the sub-user.
+Open: the S5 live write test repeats the policy-with-key check with the
+[template](#template) instead of `s3:*`.

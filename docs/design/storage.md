@@ -66,9 +66,9 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 | `AttachS3Key` | `PUT users/s3_keys/{k}/attach` | `ProjectID` (r), `UserKeyID` (r), `ServiceAccountID` (r) | `{}` |
 | `DetachS3Key` | `PUT users/s3_keys/{k}/detach` | `ProjectID` (r), `UserKeyID` (r) | `{}` |
 | `EnsureServiceAccountPrincipal` | `GET users/details?generated=true&project_id={p}&iam_account_id=sa-{sa}` | `ProjectID` (r), `ServiceAccountID` (r) | `{SubUserID, PrincipalARN string}` |
-| `GetBucketPolicy` | `GET .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{Policy string}` |
-| `PutBucketPolicy` | `PUT .../buckets/{b}/policy` | plus `Policy` (r) | `{}` |
-| `DeleteBucketPolicy` | `DELETE .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{}` |
+| `GetBucketPolicy` | `GET ceph/projects/{p}/buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{Policy string}`, `""` for none |
+| `PutBucketPolicy` | `PUT ceph/projects/{p}/buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r), `Policy` (r) | `{}` |
+| `DeleteBucketPolicy` | `DELETE ceph/projects/{p}/buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{}`, also when none |
 | `GetBucketVersioning` | `GET .../buckets/{b}/versioning` | `ProjectID` (r), `Bucket` (r) | `{Enabled bool}` |
 | `PutBucketVersioning` | `PUT .../buckets/{b}/versioning` | plus `Enabled bool` | `{}` |
 | `GetBucketCORS` | `GET .../buckets/{b}/cors` | `ProjectID` (r), `Bucket` (r) | `{Rules []CORSRule}` |
@@ -82,9 +82,8 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
   `count` set, so the Output comes from a `GetBucket` after the create; if
   that read fails, the error says the bucket was created. A create of a name
   the account already owns answers the same 200, so a rerun is safe.
-- `PutBucketPolicy` sends `{"policy": "<Policy>"}`. `Policy` is the JSON
-  document as a string; the SDK checks only that it is valid JSON. A put
-  replaces the whole policy.
+- The policy calls, the `Policy` check, and the template are in
+  [Bucket policy](storage-keys.md#bucket-policy).
 - `PutBucketCORS` replaces every rule. `CORSRule` has `AllowedOrigins`,
   `AllowedMethods`, `AllowedHeaders`, `ExposeHeaders`, and `MaxAgeSeconds`;
   the request uses capitalised keys and the response camel case.
@@ -198,6 +197,8 @@ can stop at the first read's error, sending no `DELETE`. The CLI
 | Bucket delete not settled in 30 s | `storage.ErrNotSettled` | `NotSettled`, 1 |
 | Bucket holds objects or data, or its count is not reported | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
 | IAM policy denies the action | `ErrPermission` | `IAM_PERMISSION_DENIED`, 1 |
+| `Policy` is not a JSON object with a non-empty `Statement` array | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Server refuses a policy, envelope code 400 or 114 | `*APIError` with the server's message | That code, 1 |
 | Envelope `success: false` | `*APIError`, envelope code | That code, 1 or 4 |
 | Empty 2xx body | `*APIError` `EmptyResponse` | 1 |
 
@@ -275,8 +276,8 @@ run needs the owner's approval naming the account, region, and project.
   the key's access key. Keys have no name, so the test deletes only the
   keys it made: `t.Cleanup`, registered as each ID is known, deletes the
   key and the bucket and asserts neither remains. It logs only statuses
-  and counts. Later releases add their resources the same way; the S4
-  test is in [key testing](storage-keys.md#testing).
+  and counts. Later releases add their resources the same way; the S4 and
+  S5 tests are in [key testing](storage-keys.md#testing).
 
 ## Live checks before code
 
@@ -286,19 +287,32 @@ in `HCM04`. Writes need the owner's approval.
 Answered: `ListProjects` returns the project once `region` is sent, so an
 empty list means none; the headers the server needs; the empty bucket list;
 bucket shapes and dates; an unknown bucket; create, duplicate, and invalid
-name; and empty and repeated delete; console S3 key create, list, list
-fields, repeat and unknown delete, the 11th key, and data-plane use; the
-accounts API create's 500; and the S4 probes. The results are in
-[bucket writes](storage-api.md#bucket-writes) and
-[S3 keys](storage-api.md#s3-keys).
+name; empty and repeated delete; console S3 key create, list, list fields,
+repeat and unknown delete, the 11th key, and data-plane use; the accounts
+API create's 500; the S4 probes; and the S5 scope probe. The results are in
+[vStorage: API](storage-api.md) and
+[key live checks](storage-keys.md#live-checks).
 
-1. Once S3 can put an object: `DeleteBucket` on a bucket holding one
-   object, and the server's refusal code when the count reads 0 but
-   versions remain. Also open: an unknown project's code, and whether
-   bucket names are unique across accounts.
-2. The S4 live test's open points and the S5 scope claim, before any
-   policy code: see [key live checks](storage-keys.md#live-checks).
-3. Policy, versioning, CORS, and public access bodies and errors.
+1. S5, by its live write test: the policy-with-key check with the
+   [template](storage-keys.md#template). By hand, once, before the tag: an
+   rclone copy of a file large enough for a multipart upload, with a key
+   under the template.
+2. S6, before any of its code, on a new bucket:
+   1. `GET` versioning, CORS, and public access before any put: the shape
+      and the empty answer.
+   2. Versioning `PUT` with `{"enable": true}` and `false`: whether false
+      suspends, and the `GET` after each.
+   3. CORS `PUT` keys, the `GET` shape, delete and repeat delete, an
+      invalid rule's code, and whether a data-plane `OPTIONS` preflight
+      follows the rule.
+   4. Public access `PUT` body and `GET`; an anonymous object `GET` before
+      and after; whether the server stores public access as a bucket
+      policy, so that a policy put or delete changes it; and whether a
+      policy with `"Principal": "*"` grants anonymous reads.
+   5. `DeleteBucket` on a bucket holding one object, and on a versioned
+      bucket whose count is 0 with versions left: the refusal codes.
+3. Also open: an unknown project's code, and whether bucket names are
+   unique across accounts.
 4. The next month's bill shows nothing beyond the project package.
 
 ## Releases
@@ -312,21 +326,22 @@ Each release ships the SDK and CLI together, with its wiki pages.
 | S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty`, the delete wait and `NoWait`, and envelope code 112 as `ErrInvalidInput` |
 | S3 | `storage` S3 keys on the console API: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`, `storage.ErrNoSecret`; `storage list-s3-keys`, `create-s3-key` with `--secret-file`, and `delete-s3-key` |
 | S4 | Service account keys: `AttachS3Key`, `DetachS3Key`, `EnsureServiceAccountPrincipal`, and `S3Key.SubUserID` as the restriction state; `storage attach-s3-key`, `detach-s3-key`, `ensure-service-account-principal`, and `create-s3-key --service-account-id` |
-| S5 | The live scope check first, then bucket policy get, put, and delete: the per-bucket key works end to end |
-| S6 | Bucket versioning, CORS, and public access |
+| S5 | Bucket policy: `GetBucketPolicy`, `PutBucketPolicy` with its `Policy` check, and `DeleteBucketPolicy`; `storage get-bucket-policy`, `put-bucket-policy`, and `delete-bucket-policy`; the policy template and wiki rules; the live test runs the per-bucket key end to end |
+| S6 | Its live checks first, then bucket versioning, CORS, and public access: `GetBucketVersioning`, `PutBucketVersioning`, `GetBucketCORS`, `PutBucketCORS`, `DeleteBucketCORS`, `GetBucketPublicAccess`, `PutBucketPublicAccess`, and their commands |
 
 S1.1 ships before S2, since no storage read finds data without it. S2 is
 not tagged yet, so the delete wait and code 112 ship in it. S2 and later
 use the test project. None changes an existing method or command. S3 ships
 before S4 because a project-wide key already unblocks aboutme. S4 ships
 before S5 because the policy needs the principal and an attached key to
-check. If the S5 scope check fails, S5 stops and the design changes before
-any policy code. Service accounts themselves shipped in
+check. The S5 scope probe passed, so S5 ships the policy calls. S6 follows
+S5; its bodies stay unknown until its live checks, and a shape that differs
+from the table changes this design before code. Service accounts shipped in
 [IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
-Decisions 1 to 28 are approved as recommended.
+Decisions 1 to 37 are approved as recommended.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -375,7 +390,6 @@ Decisions 1 to 28 are approved as recommended.
     CLI rule that `NotFound` counts as done does not apply to keys.
     `delete-s3-key` on a deleted key exits 1 with code 114, and the
     `--secret-file` cleanup takes success or code 114 as "key gone".
-
 22. Approved: S4 attaches console keys with the console's
     `users/s3_keys/{k}/attach` and `detach`. The accounts API is dropped:
     its attach answers 404 for console keys and its create answers 500.
@@ -402,6 +416,32 @@ Decisions 1 to 28 are approved as recommended.
     `vngcloud-live-storage`, so each run leaves at most one undeletable
     sub-user and the run checks that a same-name recreate gets the same
     principal.
+
+29. Approved: `GetBucketPolicy` returns `Policy ""` and no error when
+    the server sends no `data`, since it answers success. The alternative,
+    `ErrNotFound` as S3's `NoSuchBucketPolicy`, would make a normal state
+    an error.
+30. Approved: `PutBucketPolicy` requires a JSON object with a non-empty
+    `Statement` array before any request. The alternative, valid JSON only,
+    lets `""` reach the server's generic code 114 and lets a JSON array or
+    string through.
+31. Approved: the server's policy refusals, codes 400 and 114, stay
+    `*APIError` with its message and no sentinel. The alternative maps code
+    400 to `ErrInvalidInput`, exit 2.
+32. Approved: `DeleteBucketPolicy` returns `{}` when no policy exists,
+    as the server answers, so a repeat delete succeeds.
+33. Approved: `GetBucketPolicy` returns the server's re-serialized
+    string unchanged, and the docs tell callers to compare decoded
+    documents. The CLI prints it as a string, as the AWS CLI does.
+34. Approved: the SDK does not check a policy's principals, and the
+    docs say a policy that names no real sub-user grants nothing. A check
+    would block valid principals such as an IAM user's.
+35. Approved: the wiki template grants named object actions, not `s3:*`,
+    so a leaked key cannot delete its bucket or rewrite its policy.
+36. Approved: the S5 live test signs data plane calls with a small
+    standard-library Signature V4 signer, not an external tool.
+37. Approved: S6 is the next release after S5 and starts with its live
+    checks.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.

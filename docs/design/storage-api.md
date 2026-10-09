@@ -10,9 +10,9 @@ Public docs (`docs.greennode.ai/vstorage`), the OpenAPI specs on
 vStorage console bundle and its `config.prod.json`, live reads on the test
 account on 2026-09-26, the console's own calls with the test IAM user
 on 2026-10-09, after the owner bought a project, and live bucket, S3 key,
-and service account key writes on the test project the same day; every
-key and service account made was deleted. VNG Cloud's Go SDK and
-Terraform provider have no vStorage code.
+service account key, and bucket policy writes on the test project the same
+day; every bucket, key, and service account made was deleted. VNG Cloud's
+Go SDK and Terraform provider have no vStorage code.
 
 ## Model
 
@@ -155,10 +155,12 @@ account-level user `<root local part>-<account ID>`, with `subUserId`
 For a service account, `GET users/details` with `generated=true`,
 `project_id=<p>`, and `iam_account_id=sa-<service account id>` answers
 `subUserId` `<account user>:sa-<service account name>`. With
-`generated=false`, or with the ID without `sa-`, `subUserId` is null. The
-console's own sub-user create sends exactly this: `sa-` or `iam-` plus the
-ID, with `generated=true`. The sub-user name comes from the service
-account's name, not its ID. No console call deletes a sub-user.
+`generated=false`, or with the ID without `sa-`, `subUserId` is null. For a
+well-formed ID that matches no service account, `generated=true` answers
+200 with `success: false` and code 114. The console's own sub-user create
+sends exactly this: `sa-` or `iam-` plus the ID, with `generated=true`.
+The sub-user name comes from the service account's name, not its ID. No
+console call deletes a sub-user.
 
 ## Bucket writes
 
@@ -225,8 +227,13 @@ Live on the test project, with a console key and a new service account:
 
 Every answer is HTTP 200. The "attached elsewhere" check runs before the
 service account check. Neither call is idempotent. The console shows
-`subUserId` in its "Restriction by IAM" column. Untested: an attach before
-the service account's sub-user exists, and a delete of an attached key.
+`subUserId` in its "Restriction by IAM" column.
+
+- An attach to a service account that has no sub-user yet makes the
+  sub-user: a `generated=false` read shows it afterwards.
+- A key attached to a service account that is then deleted keeps its
+  `subUserId`. A detach of that key still succeeds.
+- An attached key can be deleted.
 
 ### Accounts API
 
@@ -276,7 +283,44 @@ With SigV4 against `hcm04.vstorage.vngcloud.vn`, one console key:
 | 3 s and 30 s after attach | Yes | Yes | 403 `AccessDenied` |
 | After detach | Yes | Yes | Yes |
 
-A bucket policy that grants the principal was not tested.
+With the key attached and a policy on bucket A that allows its principal
+`s3:*` on `arn:aws:s3:::<A>` and `arn:aws:s3:::<A>/*`:
+
+| Call | Bucket A, policy on | Bucket B, no policy | Bucket A, policy deleted |
+|-|-|-|-|
+| List, put, get, delete objects | Allowed | 403 `AccessDenied` | 403 `AccessDenied` |
+| `GET` of a missing key | 404 `NoSuchKey` | 404 `NoSuchKey` | 404 `NoSuchKey` |
+
+- The 404 on a bucket the key cannot read means the key can learn whether a
+  key name exists.
+- List buckets is allowed, and so is create bucket. In a bucket C that the
+  key creates, put object, delete object, and delete bucket are 403. C's
+  owner is the account-level user, not the sub-user; the IAM user deleted
+  it.
+- A policy put, a policy delete, and an attach take effect on the data
+  plane within about a second.
+
+## Bucket policy
+
+Live on the test project, with both region headers. Paths are
+`ceph/projects/{p}/buckets/{b}/policy` under `internal/v1/`. Every answer
+was HTTP 200.
+
+| Call | Result |
+|-|-|
+| `GET` before any put | `{"code":200,"success":true}`, no `data` |
+| `PUT` `{"policy":"<document as a JSON string>"}` | `data: true` |
+| `GET` after the put | `data`, the document as a JSON string |
+| `DELETE` | `data: true`; a `GET` then has no `data` |
+| `DELETE` again | `data: true` |
+| `PUT` with a `policy` that is not valid JSON | `success: false`, code 400, Ceph's parser message, such as `At character offset 1, Missing a name for object member.` |
+| `PUT` `{"policy":""}` | `success: false`, code 114, `Error occurred when updating bucket policy.` |
+| `PUT` naming a sub-user that does not exist | `data: true`: the principal is not checked |
+
+The document a `GET` returns is equal to the one put, but re-serialized:
+object keys sorted (`Statement` before `Version`; `Action`, `Effect`,
+`Principal`, `Resource`, `Sid`), array order kept, `Resource` order
+included. A byte comparison with the document put fails.
 
 ## Purchase
 
