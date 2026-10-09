@@ -236,6 +236,60 @@ func testLiveCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("item %q did not parse as a CIDR: %v", item, err)
 		}
 	}
+	testLiveVCDN(ctx, t, cfg)
+}
+
+// testLiveVCDN reads the vCDN API with the API key in VNGCLOUD_VCDN_API_KEY.
+// It skips without one. It logs counts and booleans only: never the key, a
+// token, an email, or an ID. The wrong-key call proves the 401 path and its
+// fixed message.
+func testLiveVCDN(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	if os.Getenv("VNGCLOUD_VCDN_API_KEY") == "" {
+		t.Log("vcdn: VNGCLOUD_VCDN_API_KEY not set; skipping the vCDN API reads")
+		return
+	}
+	client := cdn.New(cfg)
+
+	certs, err := client.ListCertificates(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListCertificates: %v", err)
+	}
+	t.Logf("vcdn certificates: %d", len(certs.Items))
+
+	keys, err := client.ListAPIKeys(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListAPIKeys: %v", err)
+	}
+	current, expiring := 0, false
+	for _, k := range keys.Items {
+		if k.Current {
+			current++
+			expiring = k.ExpiresAt.After(time.Now())
+		}
+	}
+	t.Logf("vcdn api keys: %d, current: %d, current not expired: %v", len(keys.Items), current, expiring)
+	if current != 1 {
+		t.Fatalf("exactly one key must be Current, got %d", current)
+	}
+
+	wrong, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithStaticToken("unused"),
+		vngcloud.WithCDNAPIKey("not-a-real-vcdn-key"),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	_, err = cdn.New(wrong).ListCertificates(ctx, nil)
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("wrong key: err = %v, want *APIError", err)
+	}
+	t.Logf("vcdn wrong key: status %d, code %s, auth error: %v", apiErr.StatusCode, apiErr.Code, errors.Is(err, vngcloud.ErrAuth))
+	if apiErr.StatusCode != 401 || apiErr.Code != "Unauthorized" || !errors.Is(err, vngcloud.ErrAuth) ||
+		apiErr.Message != "vCDN API key rejected: check the key and its expiry" {
+		t.Fatalf("wrong key: unexpected error shape: status %d code %q", apiErr.StatusCode, apiErr.Code)
+	}
 }
 
 // testLiveMonitor lists vMonitor checks and, when the account has at least

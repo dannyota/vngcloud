@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get list API key successful.",
+  "data": [
+    {
+      "apiKeyId": 1,
+      "userEmail": "<account>",
+      "token": "<secret>",
+      "expiredDate": "2026-12-01T03:04:05.678+00:00",
+      "createTime": "2026-10-01T00:00:00.123+00:00",
+      "updateTime": "2026-10-02T01:02:03.000+00:00",
+      "allowOriginHeader": "https://<hostname>"
+    },
+    {
+      "apiKeyId": 2,
+      "userEmail": "<account>",
+      "token": "<secret-other>",
+      "expiredDate": "2027-01-01T00:00:00.000+00:00",
+      "createTime": "2026-10-03T00:00:00.000+00:00",
+      "updateTime": "2026-10-03T00:00:00.000+00:00",
+      "allowOriginHeader": ""
+    }
+  ]
+}

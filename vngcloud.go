@@ -68,6 +68,7 @@ var (
 	WithEndpointOverrides     = core.WithEndpointOverrides
 	WithResponseCapture       = core.WithResponseCapture
 	WithStaticToken           = core.WithStaticToken
+	WithCDNAPIKey             = core.WithCDNAPIKey
 
 	IsNotFound         = core.IsNotFound
 	IsPermissionDenied = core.IsPermissionDenied

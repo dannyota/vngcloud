@@ -37,6 +37,10 @@ const (
 	// DefaultStorage is the vStorage console API host root. Paths live under
 	// "internal/v1/" beneath it.
 	DefaultStorage = "https://vstorage.console.greennode.ai/"
+
+	// DefaultCDN is the vCDN API host root. Paths live under "v1/" beneath
+	// it. It is not a console host: it takes an API key, not an IAM token.
+	DefaultCDN = "https://vcdn-api.vngcloud.vn/vcdn-api/"
 )
 
 type Overrides struct {
@@ -57,6 +61,7 @@ type Overrides struct {
 	Monitor            string
 	IAM                string
 	Storage            string
+	CDN                string
 }
 
 type Set struct {
@@ -76,6 +81,7 @@ type Set struct {
 	Monitor   string
 	IAM       string
 	Storage   string
+	CDN       string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -95,6 +101,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		Monitor:   DefaultMonitor,
 		IAM:       DefaultIAM,
 		Storage:   DefaultStorage,
+		CDN:       DefaultCDN,
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -143,6 +150,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.Storage != "" {
 		set.Storage = overrides.Storage
 	}
+	if overrides.CDN != "" {
+		set.CDN = overrides.CDN
+	}
 	return set.Normalize()
 }
 
@@ -172,6 +182,7 @@ func (s Set) Normalize() Set {
 	s.Monitor = normalizeURL(s.Monitor)
 	s.IAM = normalizeURL(s.IAM)
 	s.Storage = normalizeURL(s.Storage)
+	s.CDN = normalizeURL(s.CDN)
 	return s
 }
 

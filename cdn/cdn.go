@@ -1,7 +1,10 @@
-// Package cdn reads the GreenNode CDN IP ranges a vCDN origin must allow.
-// vCDN has no API of its own, so the ranges come from GreenNode's public FAQ
-// page instead; see the design doc for why. ListIPRanges is the package's
-// only operation.
+// Package cdn reads GreenNode vCDN. ListIPRanges reads the CDN IP ranges a
+// vCDN origin must allow from GreenNode's public FAQ page; it needs no
+// credential. ListCertificates, GetCertificate, and ListAPIKeys call the
+// vCDN API, which takes a vCDN API key instead of an IAM token: set it with
+// vngcloud.WithCDNAPIKey, VNGCLOUD_VCDN_API_KEY, or vcdn_api_key in the
+// credentials file. A call with no key returns ErrNoAPIKey before any
+// request. The API ignores the region and takes no project ID.
 package cdn
 
 import (
@@ -39,8 +42,9 @@ type Client struct {
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
-// another service client shares its login and token cache, though
-// ListIPRanges never uses either: it sends no credential of its own.
+// another service client shares its login and token cache, though no cdn
+// call uses either: ListIPRanges sends no credential, and the vCDN calls
+// send the API key.
 func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg)}
 }

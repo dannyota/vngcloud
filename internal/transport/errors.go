@@ -52,12 +52,14 @@ type errorBody struct {
 	Error   string          `json:"error"`
 	Message string          `json:"message"`
 	Detail  string          `json:"detail"`
+	Title   string          `json:"title"`
 	Errors  json.RawMessage `json:"errors"`
 }
 
-// text returns the first non-empty of message, error, and detail.
+// text returns the first non-empty of message, error, detail, and title. The
+// title is the problem+json summary, the weakest of the four.
 func (eb errorBody) text() string {
-	for _, s := range []string{eb.Message, eb.Error, eb.Detail} {
+	for _, s := range []string{eb.Message, eb.Error, eb.Detail, eb.Title} {
 		if s != "" {
 			return s
 		}
@@ -92,7 +94,7 @@ func unwrapEntries(raw json.RawMessage) errorBody {
 		}
 	}
 	first.Message = strings.Join(msgs, "; ")
-	first.Error, first.Detail, first.Errors = "", "", nil
+	first.Error, first.Detail, first.Title, first.Errors = "", "", "", nil
 	return first
 }
 
@@ -138,8 +140,8 @@ func decodeError(req Request, status int, body []byte) error {
 	apiErr := &APIError{
 		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       redact(codeString(eb.Code), req.Redact),
-		Message:    redact(strings.TrimSpace(msg), req.Redact),
+		Code:       redact(codeString(eb.Code), req.redactValues()),
+		Message:    redact(strings.TrimSpace(msg), req.redactValues()),
 		Retryable:  req.retryable(status),
 	}
 	if req.WithholdMessage != "" {

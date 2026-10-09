@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get certificate data successful.",
+  "data": {
+    "cdnSslcertificateId": "cert-1",
+    "caRoot": "-----BEGIN CERTIFICATE-----\n<ca-root>\n-----END CERTIFICATE-----",
+    "cdnUsing": 2,
+    "certificate": "-----BEGIN CERTIFICATE-----\n<certificate>\n-----END CERTIFICATE-----",
+    "cname": "<hostname>",
+    "commonName": "<hostname>",
+    "expiresOn": "28 Apr 2026 06:53:20 GMT",
+    "validFrom": "28 Apr 2025 06:53:20 GMT",
+    "issuer": "<issuer>",
+    "privateKey": "<secret>-private-key",
+    "status": 1,
+    "createdTime": "2025-04-28T10:24:32.000+0000",
+    "userUuid": "<account>"
+  }
+}

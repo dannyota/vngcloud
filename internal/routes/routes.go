@@ -28,6 +28,9 @@ const (
 	ProductDashboard Product = "dashboard"
 	// ProductStorage is the vStorage console API host.
 	ProductStorage Product = "storage"
+	// ProductCDN is the vCDN API host. It takes an API key, not an IAM
+	// token, and ignores the region.
+	ProductCDN Product = "cdn"
 )
 
 type Endpoints interface {

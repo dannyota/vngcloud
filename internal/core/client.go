@@ -28,6 +28,11 @@ type Client struct {
 	// it nil, so ProfileSetting always returns "" for it.
 	profileSettings map[string]string
 
+	// cdnAPIKey is the vCDN API key; see CDNAPIKey. It is a pointer so that
+	// fmt prints an address, not the key, when it formats a Client whole:
+	// fmt cannot call a Format method on an unexported field.
+	cdnAPIKey *cdnKey
+
 	// err is set on a Client returned by ClientOf for a zero Config, so every
 	// call fails with ErrInvalidConfig instead of a nil-pointer panic.
 	err error
@@ -58,6 +63,11 @@ func newClient(opts ...Option) (*Client, error) {
 	settings := defaultClientConfig()
 	for _, opt := range opts {
 		opt.apply(&settings)
+	}
+	if settings.cdnAPIKey != "" {
+		if err := validateCDNAPIKey("WithCDNAPIKey", settings.cdnAPIKey); err != nil {
+			return nil, err
+		}
 	}
 	return buildClient(settings)
 }
@@ -139,6 +149,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	c := &Client{
 		region:    settings.region,
 		projectID: settings.projectID,
+		cdnAPIKey: &settings.cdnAPIKey,
 		endpoints: resolvedEndpoints,
 		transport: tc,
 		logger:    logger,
@@ -258,6 +269,8 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.IAM
 	case routes.ProductStorage:
 		return c.endpoints.Storage
+	case routes.ProductCDN:
+		return c.endpoints.CDN
 	case routes.ProductDashboard:
 		return c.endpoints.Dashboard
 	default:

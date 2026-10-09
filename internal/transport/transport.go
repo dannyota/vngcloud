@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -157,6 +156,10 @@ type Request struct {
 	// an error message, since Redact cannot be proven to catch every form a
 	// server might echo a rejected value back in.
 	WithholdMessage string
+
+	// APIKey, when set, is sent as the bearer credential in place of the
+	// IAM token; see apikey.go.
+	APIKey string
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -244,7 +247,10 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, e
 // authentication for. It returns the final status, Content-Type header, and
 // raw body.
 func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, error) {
-	if !req.SkipAuth {
+	if err := req.checkAPIKey(); err != nil {
+		return 0, "", nil, err
+	}
+	if req.usesToken() {
 		if err := c.EnsureToken(ctx); err != nil {
 			return 0, "", nil, err
 		}
@@ -263,7 +269,7 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 		// doc comment); every other error path in send leaves it 0.
 		return statusCode, "", nil, err
 	}
-	if statusCode == http.StatusUnauthorized && !req.SkipAuth && c.tokenSource != nil {
+	if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {
 		if req.Once {
 			// ADR 0003 rule 3: invalidate the sent token as usual, but never
 			// resend. The caller gets this 401 back; a later call, Once or
@@ -280,46 +286,6 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 		}
 	}
 	return statusCode, contentType, body, nil
-}
-
-// rawClient returns a copy of c.httpClient with Jar cleared, so a request
-// sent through it carries no cookie even when the configured client has a
-// cookie jar. The copy's CheckRedirect enforces the SDK's same-host, at
-// most 10 hops rule first, then calls the original client's own
-// CheckRedirect, if it had one: a caller-supplied client that never set
-// CheckRedirect at all otherwise follows a redirect to any host, which
-// DoRaw must never do.
-func (c *Client) rawClient() *http.Client {
-	cp := *c.httpClient
-	cp.Jar = nil
-	inner := c.httpClient.CheckRedirect
-	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
-		}
-		if req.URL.Host != via[0].URL.Host {
-			return fmt.Errorf("redirected from %q to %q: cross-host redirect refused", via[0].URL.Host, req.URL.Host)
-		}
-		if inner != nil {
-			return inner(req, via)
-		}
-		return nil
-	}
-	return &cp
-}
-
-// refuseRedirects returns a client that behaves exactly like base except it
-// never follows a redirect: its CheckRedirect always returns
-// http.ErrUseLastResponse, so http.Client.Do returns the 3xx response itself
-// instead of resending req's method and body at the Location it names. It
-// builds a copy rather than mutating base, which the caller may still reuse
-// for a request this rule must not apply to.
-func refuseRedirects(base *http.Client) *http.Client {
-	cp := *base
-	cp.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	return &cp
 }
 
 // errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
@@ -433,7 +399,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			httpReq.Header.Set(key, value)
 		}
-		if !req.SkipAuth {
+		if req.APIKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+		} else if !req.SkipAuth {
 			sentToken = c.currentToken().AccessToken
 			if sentToken == "" && c.tokenSource != nil {
 				// A configured token source with nothing to hand out: never
@@ -539,7 +507,7 @@ func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
 	if c.capture == nil || req.Sensitive {
 		return
 	}
-	bodyCopy := append([]byte(nil), body...)
+	bodyCopy := req.redactBody(body)
 	c.capture(Capture{
 		Operation:  req.Operation,
 		Method:     req.Method,

@@ -23,3 +23,12 @@ func NewTestClient(region, projectID string, endpointSet endpoints.Set, tc *tran
 func NewTestConfig(region, projectID string, endpointSet endpoints.Set, tc *transport.Client) Config {
 	return Config{client: NewTestClient(region, projectID, endpointSet, tc)}
 }
+
+// NewTestConfigWithCDNAPIKey is NewTestConfig for a Config that also holds a
+// vCDN API key.
+func NewTestConfigWithCDNAPIKey(region, projectID string, endpointSet endpoints.Set, tc *transport.Client, key string) Config {
+	c := NewTestClient(region, projectID, endpointSet, tc)
+	k := cdnKey(key)
+	c.cdnAPIKey = &k
+	return Config{client: c}
+}

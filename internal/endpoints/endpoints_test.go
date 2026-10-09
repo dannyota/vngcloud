@@ -133,3 +133,14 @@ func TestResolveIAMUserStorage(t *testing.T) {
 		t.Fatalf("unexpected storage override: %s", got.Storage)
 	}
 }
+
+func TestResolveIAMUserCDN(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{})
+	if got.CDN != "https://vcdn-api.vngcloud.vn/vcdn-api/" {
+		t.Fatalf("unexpected cdn endpoint: %s", got.CDN)
+	}
+	got = ResolveIAMUser("han-1", Overrides{CDN: "http://example.test/cdn"})
+	if got.CDN != "http://example.test/cdn/" {
+		t.Fatalf("unexpected cdn override: %s", got.CDN)
+	}
+}

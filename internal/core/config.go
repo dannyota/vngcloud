@@ -61,4 +61,5 @@ type EndpointOverrides struct {
 	Monitor            string
 	IAM                string
 	Storage            string
+	CDN                string
 }

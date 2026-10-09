@@ -46,6 +46,7 @@ fails with `vngcloud.ErrNoCredentials` naming the profile.
 | `VNGCLOUD_PROJECT_ID` | Project ID |
 | `VNGCLOUD_ROOT_EMAIL`, `VNGCLOUD_USERNAME`, `VNGCLOUD_PASSWORD`, `VNGCLOUD_TOTP_SECRET` | IAM User credentials |
 | `VNGCLOUD_ACCESS_TOKEN` | Static token; wins over IAM User values |
+| `VNGCLOUD_VCDN_API_KEY` | vCDN API key; see [vCDN API key](#vcdn-api-key) |
 | `VNGCLOUD_CONFIG_FILE` | Config file path |
 | `VNGCLOUD_SHARED_CREDENTIALS_FILE` | Credentials file path |
 
@@ -85,6 +86,21 @@ sections use the bare profile name either way. Unknown keys are ignored. A
 named profile that appears in neither file is an error naming it. The
 credentials file has no access token key: a static token comes only from
 `WithStaticToken` or `VNGCLOUD_ACCESS_TOKEN`.
+
+### vCDN API key
+
+The `cdn` package's vCDN calls take an API key, not an IAM token. The key
+resolves on its own, highest first: `WithCDNAPIKey(key)`, then
+`VNGCLOUD_VCDN_API_KEY` (skipped when the profile is explicit, as for every
+credential), then `vcdn_api_key` in the profile's credentials section, which
+keeps the mode 0600 check. No flag carries it.
+
+The key does not count as an IAM credential: `LoadConfig` still fails with
+`vngcloud.ErrNoCredentials` when no IAM credential set resolves. A key that
+holds whitespace or a control character, or is over 4 KiB, fails with
+`vngcloud.ErrInvalidConfig` naming the source and never the value. The
+`Config` has no getter for the key, and no error, log, or formatted value
+holds it. See [CDN](CDN.md#vcdn-api).
 
 ### Profile settings
 

@@ -95,6 +95,9 @@ func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 	if err := resolveCredentials(&settings, explicitProfile, profile, credsSection); err != nil {
 		return Config{}, err
 	}
+	if err := resolveCDNAPIKey(&settings, explicitProfile, profile, credsSection); err != nil {
+		return Config{}, err
+	}
 	settings.profile = profile
 
 	c, err := buildClient(settings)

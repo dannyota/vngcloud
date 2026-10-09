@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get list certificate successful.",
+  "data": [
+    {
+      "cdnSslcertificateId": "cert-1",
+      "caRoot": "<secret>",
+      "cdnUsing": 2,
+      "certificate": "-----BEGIN CERTIFICATE-----\n<certificate>\n-----END CERTIFICATE-----",
+      "cname": "<hostname>",
+      "commonName": "<hostname>",
+      "expiresOn": "28 Apr 2026 06:53:20 GMT",
+      "validFrom": "28 Apr 2025 06:53:20 GMT",
+      "issuer": "<issuer>",
+      "privateKey": "<secret>-private-key",
+      "status": 1,
+      "createdTime": "2025-04-28T10:24:32.000+0000",
+      "deletedTime": null,
+      "updatedTime": null,
+      "userUuid": "<account>",
+      "createdUser": "<account>",
+      "updatedUser": null,
+      "deletedUser": null
+    },
+    {
+      "cdnSslcertificateId": "cert-2",
+      "cdnUsing": 0,
+      "commonName": "<hostname>",
+      "expiresOn": "28 Apr 2027 06:53:20 GMT",
+      "privateKey": "<secret>-private-key",
+      "status": 0
+    }
+  ]
+}

@@ -334,3 +334,11 @@ func TestDoJSONAccountsWrapperErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestClientEndpointReturnsCDN(t *testing.T) {
+	c := NewTestClient("hcm-3", "", endpoints.Set{CDN: "https://vcdn.example/"},
+		transport.New(transport.Config{}))
+	if got := c.Endpoint(routes.ProductCDN); got != "https://vcdn.example/" {
+		t.Fatalf("Endpoint(ProductCDN) = %s, want https://vcdn.example/", got)
+	}
+}
