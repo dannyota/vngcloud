@@ -164,8 +164,32 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: loadbalancer.DeleteCertificate: certificate cert-1 is in use", loadbalancer.ErrCertificateInUse),
 			1,
 		},
+		{
+			"network resource in use (ACL)",
+			fmt.Errorf("%w: network ACL acl-1 has 2 associated subnet(s); disassociate them first", network.ErrInUse),
+			1,
+		},
 		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
+		{
+			"network default resource (default ACL)",
+			fmt.Errorf("%w: network ACL acl-1 is a default ACL", network.ErrDefaultResource),
+			1,
+		},
+		{
+			"network default resource (ACL default rule)",
+			fmt.Errorf("%w: network ACL acl-1's inbound rule at priority 2000 is a default rule and cannot be removed", network.ErrDefaultResource),
+			1,
+		},
 		{"network resource busy", fmt.Errorf("%w: route table rt-1 is not ACTIVE", network.ErrBusy), 1},
+		{
+			// wrapACLBusyErr (network/acls_write.go) rewraps the server's own
+			// busy refusal, an *APIError, alongside ErrBusy when a rules or
+			// subnets write finds the ACL still settling an earlier one.
+			"network resource busy (ACL busy after a rules write)",
+			fmt.Errorf("%w: %w", network.ErrBusy,
+				&vngcloud.APIError{Operation: "network.AddNetworkACLRule", StatusCode: 400, Code: "BadRequest", Message: "ACL acl-1 is busy doing something"}),
+			1,
+		},
 		{
 			"network unexpected status",
 			fmt.Errorf("%w: VPC vpc-1 dnsStatus is %q", network.ErrUnexpectedStatus, "UNKNOWN"),
@@ -482,13 +506,44 @@ func TestClassify(t *testing.T) {
 			"ResourceInUse", 0, "",
 		},
 		{
+			"network resource in use (ACL)",
+			fmt.Errorf("%w: network ACL acl-1 has 2 associated subnet(s); disassociate them first", network.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
 			"network default resource",
 			fmt.Errorf("%w: route table rt-1 is the VPC's main route table and a subnet relies on it", network.ErrDefaultResource),
 			"DefaultResource", 0, "",
 		},
 		{
+			// DeleteNetworkACL's own guard (network/acls_write.go) returns this
+			// bare, before ever sending a request, when the ACL is a project's
+			// default ACL.
+			"network default resource (default ACL)",
+			fmt.Errorf("%w: network ACL acl-1 is a default ACL", network.ErrDefaultResource),
+			"DefaultResource", 0, "",
+		},
+		{
+			// RemoveNetworkACLRule's own guard returns this bare for a rule the
+			// server protects (Priority 2000 or above, or System true).
+			"network default resource (ACL default rule)",
+			fmt.Errorf("%w: network ACL acl-1's inbound rule at priority 2000 is a default rule and cannot be removed", network.ErrDefaultResource),
+			"DefaultResource", 0, "",
+		},
+		{
 			"network resource busy",
 			fmt.Errorf("%w: route table rt-1 is not ACTIVE within 1m0s; nothing sent", network.ErrBusy),
+			"ResourceBusy", 0, "",
+		},
+		{
+			// wrapACLBusyErr (network/acls_write.go) rewraps the server's own
+			// busy refusal, an *APIError, alongside ErrBusy; Code must still be
+			// ResourceBusy, not that inner APIError's own status-derived code,
+			// the same way network.ErrInUse wins over its own inner APIError
+			// above.
+			"network resource busy (ACL busy after a rules write)",
+			fmt.Errorf("%w: %w", network.ErrBusy,
+				&vngcloud.APIError{Operation: "network.AddNetworkACLRule", StatusCode: 400, Code: "BadRequest", Message: "ACL acl-1 is busy doing something"}),
 			"ResourceBusy", 0, "",
 		},
 		{

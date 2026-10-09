@@ -282,41 +282,6 @@ const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its bi
 	"each either succeed or 404. --purge in one call has not run live; a purge sent right after a " +
 	"delete returned 409 Conflict once.\n\n" + logProjectDeleteResponseUnverifiedNote
 
-// networkCreateSecurityGroupNote documents create-security-group's
-// confirmed-live wait behavior and its duplicate-name status: the flag
-// table shows only --name and --description, with no hint that the wait
-// this command runs afterward never really polls in practice.
-const networkCreateSecurityGroupNote = "Confirmed live: the new group is already ACTIVE in the create " +
-	"response itself, so the wait this command runs afterward settles on its first read. A duplicate " +
-	"--name fails with the server's own message at status 400."
-
-// networkCreateSecurityGroupRuleNote documents create-security-group-rule's
-// confirmed-live no-wait behavior, its duplicate and overlap statuses, that
-// a prefix with host bits set is stored exactly as given rather than masked
-// to its network address, and the CLI's own world-open guard, which the
-// flag table cannot show since --direction and --remote-ip-prefix are each
-// listed as a plain, unconditional string.
-const networkCreateSecurityGroupRuleNote = "Confirmed live: the new rule is already ACTIVE in the create " +
-	"response, so this command takes no wait. A rule that exactly duplicates an existing one fails with " +
-	"status 409; a rule that overlaps an existing one without duplicating it fails with status 400. " +
-	"--remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to " +
-	"203.0.113.0/24. A rule whose --direction is not egress and whose --remote-ip-prefix has prefix length " +
-	"0, such as 0.0.0.0/0 or ::/0, needs --yes: it opens every port the rule names to the entire internet."
-
-// networkDeleteSecurityGroupNote documents delete-security-group's pre-read
-// guards and its unverified in-use status: the flag table shows only
-// --security-group-id, with no hint of the reads this command makes before
-// its own DELETE.
-const networkDeleteSecurityGroupNote = "Refuses, before any write, a system group or a group with any " +
-	"server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete " +
-	"the server itself refuses as in use for some other reason has not been confirmed live."
-
-// networkDeleteSecurityGroupRuleNote documents delete-security-group-rule's
-// pre-read guard and repeat-delete status: the flag table shows only the
-// two IDs, with no hint that this command lists the group's rules first.
-const networkDeleteSecurityGroupRuleNote = "Refuses, before any write, a rule that does not belong to " +
-	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
-
 // networkCreateVPCNote documents that the server ignores CreateVPC's own
 // zone, since CreateVPCInput carries no ZoneID field at all and a reader would
 // otherwise have no way to learn that a VPC's zone is decided elsewhere.
@@ -399,6 +364,25 @@ var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a 
 	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
 	"parsed prefix is refused, nothing sent.")
 
+// networkCreateVirtualIPAddressNote documents create-virtual-ip-address's
+// own retry advice and its wait, neither of which the flag table can show:
+// Mode is a plain, required string with no hint that a create must never be
+// retried blind, or that its post-create wait has never been seen to poll at
+// all.
+const networkCreateVirtualIPAddressNote = "Never resent after a failure that may have already reached the " +
+	"server: list-virtual-ip-addresses and match --name exactly, or --ip-address if one was given, before " +
+	"creating again, rather than retrying blind. Waits up to 60 seconds for ACTIVE only when the create " +
+	"response itself is not already there; whether the server ever actually returns an intermediate status, " +
+	"so this wait ever runs at all, has not been confirmed live."
+
+// networkDeleteVirtualIPAddressNote documents delete-virtual-ip-address's
+// pre-delete guards: a type check and an address pair check.
+const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE, refuses with error code InvalidUsage a " +
+	"virtual IP whose type is not \"private\" (a public virtual IP has its own delete call), and with " +
+	"error code ResourceInUse, one that still has an address pair, found either on its own read or by " +
+	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
+	"deleting it would move traffic."
+
 // loadbalancerImportCertificateNote documents import-certificate's file
 // flags and their rules, none of which the flag table can show on its own:
 // --name and --type still take ordinary flags, but every field that can
@@ -420,6 +404,33 @@ const loadbalancerImportCertificateNote = "Certificate, CertificateChain, Privat
 const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certificate a listener still uses " +
 	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
 	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
+
+// loadbalancerQuoteCreateLoadBalancerNote documents quote-create-load-balancer's
+// own price guard exemptions and unit, and that the billing gateway prices
+// only PackageID and ZoneID: the flag table shows every
+// CreateLoadBalancerInput field the same way create-load-balancer itself
+// will, with no hint that this command never orders anything or that most
+// of those fields do nothing here.
+const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices the load balancer " +
+	"CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND " +
+	"a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets " +
+	"them: both govern only an actual create. The billing gateway also ignores every key it does not price, " +
+	"such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price."
+
+// loadbalancerQuoteResizeLoadBalancerNote documents quote-resize-load-balancer's
+// own price guard exemptions, unit, and its not-found status, which differs
+// from every other load-balancer command's: the flag table shows only
+// --load-balancer-id and --package-id, with no hint of any of this.
+const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices the package change " +
+	"ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND " +
+	"a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
+	"only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the " +
+	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
+	"checks this request's shape before it checks the ID."
+
+// network's own DHCP options doc notes (create-dhcp-options through
+// clear-vpc-dhcp-options) live in gendocs_notes_network_dhcp.go, kept apart
+// from this file so neither grows past the length limit.
 
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
@@ -469,11 +480,25 @@ var docOpNotes = map[string]string{
 	"network create-vpc":                      networkCreateVPCNote,
 	"network create-subnet":                   networkCreateSubnetNote,
 	"network delete-vpc":                      networkDeleteVPCNote,
+	"network delete-subnet":                   networkDeleteSubnetNote,
 	"network enable-vpc-private-dns":          networkEnableVPCPrivateDNSNote,
 	"network create-route-table":              networkCreateRouteTableNote,
 	"network delete-route-table":              networkDeleteRouteTableNote,
 	"network add-route":                       networkAddRouteNote,
 	"network remove-route":                    networkRemoveRouteNote,
+	"network get-network-acl":                 networkGetNetworkACLNote,
+	"network create-network-acl":              networkCreateNetworkACLNote,
+	"network delete-network-acl":              networkDeleteNetworkACLNote,
+	"network add-network-acl-rule":            networkAddNetworkACLRuleNote,
+	"network remove-network-acl-rule":         networkRemoveNetworkACLRuleNote,
+	"network associate-network-acl-subnet":    networkAssociateNetworkACLSubnetNote,
+	"network disassociate-network-acl-subnet": networkDisassociateNetworkACLSubnetNote,
+	"network create-dhcp-options":             networkCreateDHCPOptionsNote,
+	"network delete-dhcp-options":             networkDeleteDHCPOptionsNote,
+	"network set-vpc-dhcp-options":            networkSetVPCDHCPOptionsNote,
+	"network clear-vpc-dhcp-options":          networkClearVPCDHCPOptionsNote,
+	"network create-virtual-ip-address":       networkCreateVirtualIPAddressNote,
+	"network delete-virtual-ip-address":       networkDeleteVirtualIPAddressNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -515,6 +540,8 @@ var docOpNotes = map[string]string{
 	"loadbalancer list-tags":                  loadBalancerShapeUnverifiedNote,
 	"loadbalancer import-certificate":         loadbalancerImportCertificateNote,
 	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
+	"loadbalancer quote-create-load-balancer": loadbalancerQuoteCreateLoadBalancerNote,
+	"loadbalancer quote-resize-load-balancer": loadbalancerQuoteResizeLoadBalancerNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
@@ -530,6 +557,9 @@ var docOpNotes = map[string]string{
 	"globalloadbalancer list-pool-members":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer get-pool-member":      globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote + " The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.",
+	"tagging list-resource-tags":              taggingListResourceTagsNote,
+	"tagging tag-resource":                    taggingTagResourceNote,
+	"tagging untag-resource":                  taggingUntagResourceNote,
 }
 
 // docJSONPlaceholders gives the JSON literal buildExample writes into
@@ -557,15 +587,19 @@ var docJSONPlaceholders = map[string]string{
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
 // field to change. compute update-server-group is the same shape: it also
-// requires Name or Description. compute create-ssh-key does not need an entry here even
+// requires Name or Description. network update-virtual-ip-address is the
+// same shape again: VirtualIPAddressID is its only required field, but
+// UpdateVirtualIPAddress also requires at least one of Name, Description, or
+// Mode to change. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
 // required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
-	"compute update-server-group": "name",
-	"dns update-hosted-zone":      "description",
-	"dns update-record":           "ttl",
-	"monitor update-check":        "name",
+	"compute update-server-group":       "name",
+	"dns update-hosted-zone":            "description",
+	"dns update-record":                 "ttl",
+	"monitor update-check":              "name",
+	"network update-virtual-ip-address": "name",
 }
 
 // docExampleOverride gives a full example command line for "service
@@ -584,7 +618,26 @@ var docExampleExtraFlag = map[string]string{
 // need this too: neither is Destructive (see networkOps in svc_network.go),
 // so buildExample's own destructive-only rule would never append --yes, but
 // requireYesToChangeRoutes (svc_network_write.go) refuses either command
-// without it on every call.
+// without it on every call. network add-network-acl-rule,
+// associate-network-acl-subnet, and disassociate-network-acl-subnet need it
+// for the same reason: none is Destructive, but requireYesForACLChange
+// (svc_network_acl.go) refuses each without --yes on every call.
+// add-network-acl-rule needs the same treatment as list-alarms and
+// send-channel-otp for its own required Protocol field: checkACLRuleProtocol
+// (network/acl_rules_write.go) only accepts ANY, tcp, udp, or icmp
+// (case-insensitive), so the placeholder "--protocol <protocol>" is not a
+// value the command accepts either; the override names a real one, tcp. Its
+// override also supplies --port-range-min and --port-range-max: neither is
+// a required Input field, so buildExample's required-fields loop would
+// otherwise leave both out, defaulting to port 0, which checkACLRulePorts
+// refuses for tcp since it names no port at all; the override gives a
+// single real port, 22 and 22, matching checkACLRulePorts' own single-port
+// format.
+// remove-network-acl-rule needs it for both reasons at once: it also is not
+// Destructive, and its override additionally supplies --priority, since
+// Priority carries no vngcloud:"required" tag on RemoveNetworkACLRuleInput
+// (see network/acl_rules_write.go), so buildExample's required-fields loop
+// would otherwise leave it out of the example entirely.
 // loadbalancer import-certificate needs it for a different reason: its
 // required Certificate field is NoFlag'd (importCertificateOp,
 // svc_loadbalancer_certificates.go), so buildExample's loop would otherwise
@@ -600,6 +653,11 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
+// network set-vpc-dhcp-options and clear-vpc-dhcp-options need it for the
+// same reason as add-route: neither is Destructive either, but
+// requireYesToSetVPCDHCPOptions and requireYesToClearVPCDHCPOptions
+// (svc_network_dhcp.go) each refuse their own command without --yes on
+// every call.
 var docExampleOverride = map[string]string{
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
@@ -612,4 +670,16 @@ var docExampleOverride = map[string]string{
 	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
 		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
+	"network add-network-acl-rule": "vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> " +
+		"--direction <direction> --priority <priority> --protocol tcp --cidr <cidr> --action <action> " +
+		"--port-range-min 22 --port-range-max 22 --yes",
+	"network remove-network-acl-rule": "vngcloud network remove-network-acl-rule --network-acl-id <network-acl-id> " +
+		"--direction <direction> --priority <priority> --yes",
+	"network associate-network-acl-subnet": "vngcloud network associate-network-acl-subnet " +
+		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
+	"network disassociate-network-acl-subnet": "vngcloud network disassociate-network-acl-subnet " +
+		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
+	"network set-vpc-dhcp-options": "vngcloud network set-vpc-dhcp-options --vpc-id <vpc-id> " +
+		"--dhcp-options-id <dhcp-options-id> --yes",
+	"network clear-vpc-dhcp-options": "vngcloud network clear-vpc-dhcp-options --vpc-id <vpc-id> --yes",
 }

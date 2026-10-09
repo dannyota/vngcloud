@@ -29,7 +29,8 @@ policy can be created, updated, deleted, and attached to or detached from
 a service account, a group, or an IAM user; a group can be created,
 updated, deleted, and have members added or removed. Every write is
 guarded against changing the caller's own access or a principal that
-already holds an IAM write right. See [IAM](#iam) below.
+already holds an IAM write right. See [IAM](#iam) below. `tagging` writes
+tags on any resource type. See [Tagging](Tagging.md).
 
 ## Coverage
 
@@ -40,11 +41,12 @@ already holds an IAM write right. See [IAM](#iam) below.
 | Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types, plus volume create and delete | Typed | Includes a convenience method for walking snapshots; see [Volume](Volume.md) for writes. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
-| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes | Typed | Requires IAM User permissions for the target load balancer resources. |
+| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes and create/resize price quotes | Typed | Requires IAM User permissions for the target load balancer resources. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
 
 ## Project
 
@@ -157,6 +159,7 @@ networkClient.ListVirtualIPAddresses(ctx, in)               // Name, Page, Size
 networkClient.ListRouteTables(ctx, in)                      // Name, Page, Size
 networkClient.ListPeerings(ctx, in)                         // Name, Page, Size
 networkClient.ListNetworkACLs(ctx, in)                      // Name, Page, Size
+networkClient.GetNetworkACL(ctx, in)                        // NetworkACLID (required)
 networkClient.ListInterconnects(ctx, in)                    // Name, Page, Size
 networkClient.ListSubnets(ctx, nil)
 networkClient.ListSubnetsByVPC(ctx, in)                     // VPCID (required)
@@ -176,13 +179,17 @@ networkClient.ListEndpointTags(ctx, in)                     // EndpointID (requi
 `ListEndpoints` and `GetEndpoint` discover VNetwork region metadata when
 needed before reading endpoint resources.
 
-The SDK has no method for network ACL rules or for a single network
-interface.
+The SDK has no method for a single network interface.
 
-`network` also writes security groups and their rules; see
+`network` also writes security groups and their rules, route tables and
+routes, and network ACLs, their rules, and subnet associations; see
 [Network](Network.md) for `CreateSecurityGroup`, `UpdateSecurityGroup`,
-`DeleteSecurityGroup`, `CreateSecurityGroupRule`, and
-`DeleteSecurityGroupRule`, their waits, and their errors.
+`DeleteSecurityGroup`, `CreateSecurityGroupRule`, `DeleteSecurityGroupRule`,
+`CreateRouteTable`, `DeleteRouteTable`, `AddRoute`, and `RemoveRoute`, their
+waits, and their errors, and [Network ACLs](Network-ACLs.md) for
+`CreateNetworkACL`, `DeleteNetworkACL`, `AddNetworkACLRule`,
+`RemoveNetworkACLRule`, `AssociateNetworkACLSubnet`, and
+`DisassociateNetworkACLSubnet`.
 
 ## Load Balancing
 
@@ -206,7 +213,17 @@ lbClient.ListCertificates(ctx, in)          // Name, Page, Size
 lbClient.GetCertificate(ctx, in)            // CertificateID (required)
 lbClient.ImportCertificate(ctx, in)         // Name, Type, Certificate (all required); CertificateChain, PrivateKey, Passphrase
 lbClient.DeleteCertificate(ctx, in)         // CertificateID (required)
+lbClient.QuoteCreateLoadBalancer(ctx, in)   // *loadbalancer.CreateLoadBalancerInput
+lbClient.QuoteResizeLoadBalancer(ctx, in)   // *loadbalancer.ResizeLoadBalancerInput
 ```
+
+`QuoteCreateLoadBalancer` prices a load balancer `loadbalancer.CreateLoadBalancerInput`
+would create, and `QuoteResizeLoadBalancer` prices a package change
+`loadbalancer.ResizeLoadBalancerInput` describes, neither ordering anything;
+see [Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+Every path ID above, including one carried in a body such as `PackageID` or
+`SubnetID`, is checked before any request; a malformed one, `..` or `/` for
+example, returns `vngcloud.ErrInvalidInput`.
 
 `ImportCertificate` sends `PrivateKey` and `Passphrase` to GreenNode, which
 stores the certificate and never returns the key back; both fields are
@@ -416,3 +433,14 @@ can be read and attached, but never updated or deleted.
 `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
 `RemoveUserFromGroup`, `AttachGroupPolicy`, `DetachGroupPolicy`, their
 guards, and their errors.
+
+## Tagging
+
+```go
+taggingClient := tagging.New(cfg)
+taggingClient.ListResourceTags(ctx, in)  // ResourceID (required)
+```
+
+`ListResourceTags` reads any resource's tags through the one tag API the
+vServer gateway serves for every resource type. `TagResource`, its read-merge
+write, and its errors are on the [Tagging](Tagging.md) page.

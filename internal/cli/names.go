@@ -13,13 +13,16 @@ import (
 // flag-name derivation (an Input field name) and the operation-name check
 // (an SDK method name); any name absent from it uses kebab(name) unchanged.
 var renameTable = map[string]string{
-	"VPCID": "vpc-id",
-	"Query": "search",
+	"VPCID":        "vpc-id",
+	"NetworkACLID": "network-acl-id",
+	"Query":        "search",
 	// SecurityGroupIDs is a repeatable []string flag, one ID per
 	// --security-group-id occurrence, so the singular form reads right; the
 	// mechanical conversion would give the plural "security-group-ids"
 	// instead, since IDs (capital-run-plus-trailing-s) reads as one word.
-	"SecurityGroupIDs": "security-group-id",
+	"SecurityGroupIDs":    "security-group-id",
+	"SetVPCDHCPOptions":   "set-vpc-dhcp-options",
+	"ClearVPCDHCPOptions": "clear-vpc-dhcp-options",
 }
 
 // flagNameFor returns the flag name for an Input field's Go name.

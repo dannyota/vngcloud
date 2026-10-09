@@ -60,6 +60,7 @@ var operationOutputPaths = map[string]string{
 	"network.GetVirtualIPAddress":                "network/virtual_ip_detail",
 	"network.ListAddressPairsByVirtualIPAddress": "network/virtual_ip_address_pair",
 	"network.ListAddressPairsByVirtualSubnet":    "network/virtual_subnet_address_pair",
+	"tagging.ListResourceTags":                   "tagging/resource_tag",
 	"loadbalancer.ListLoadBalancers":             "loadbalancer/load_balancer",
 	"loadbalancer.GetLoadBalancer":               "loadbalancer/load_balancer_detail",
 	"loadbalancer.ListListeners":                 "loadbalancer/listener",

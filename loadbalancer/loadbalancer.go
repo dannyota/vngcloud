@@ -11,17 +11,21 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/pricing"
 )
 
 // Client is the load balancer service client.
 type Client struct {
 	c *core.Client
+	// pricing prices a paid create or resize before it sends one, sharing
+	// cfg's login and token cache with c.
+	pricing *pricing.Client
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg)}
 }
 
 type ListLoadBalancersInput struct {
@@ -63,6 +67,9 @@ type GetLoadBalancerOutput struct {
 
 func (c *Client) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerInput) (*GetLoadBalancerOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetLoadBalancer", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetLoadBalancer", "LoadBalancerID", in.LoadBalancerID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -151,6 +158,9 @@ func (c *Client) ListListeners(ctx context.Context, in *ListListenersInput) (*Li
 	if err := core.CheckRequired("loadbalancer.ListListeners", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.ListListeners", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
 	items, err := listLoadBalancerChild[Listener](c, ctx, "loadbalancer.ListListeners", in.LoadBalancerID, []string{"listeners"})
 	if err != nil {
 		return nil, err
@@ -169,6 +179,12 @@ type GetListenerOutput struct {
 
 func (c *Client) GetListener(ctx context.Context, in *GetListenerInput) (*GetListenerOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetListener", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetListener", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetListener", "ListenerID", in.ListenerID); err != nil {
 		return nil, err
 	}
 	var resp struct {
@@ -190,6 +206,9 @@ func (c *Client) ListPools(ctx context.Context, in *ListPoolsInput) (*ListPoolsO
 	if err := core.CheckRequired("loadbalancer.ListPools", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.ListPools", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
 	items, err := listLoadBalancerChild[Pool](c, ctx, "loadbalancer.ListPools", in.LoadBalancerID, []string{"pools"})
 	if err != nil {
 		return nil, err
@@ -208,6 +227,12 @@ type GetPoolOutput struct {
 
 func (c *Client) GetPool(ctx context.Context, in *GetPoolInput) (*GetPoolOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetPool", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetPool", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetPool", "PoolID", in.PoolID); err != nil {
 		return nil, err
 	}
 	var resp struct {
@@ -232,6 +257,12 @@ func (c *Client) GetPoolHealthMonitor(ctx context.Context, in *GetPoolHealthMoni
 	if err := core.CheckRequired("loadbalancer.GetPoolHealthMonitor", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.GetPoolHealthMonitor", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetPoolHealthMonitor", "PoolID", in.PoolID); err != nil {
+		return nil, err
+	}
 	var resp struct {
 		Data HealthMonitor `json:"data"`
 	}
@@ -252,6 +283,12 @@ func (c *Client) ListPoolMembers(ctx context.Context, in *ListPoolMembersInput) 
 	if err := core.CheckRequired("loadbalancer.ListPoolMembers", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.ListPoolMembers", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.ListPoolMembers", "PoolID", in.PoolID); err != nil {
+		return nil, err
+	}
 	items, err := listLoadBalancerChild[PoolMember](c, ctx, "loadbalancer.ListPoolMembers", in.LoadBalancerID, []string{"pools", in.PoolID, "members"})
 	if err != nil {
 		return nil, err
@@ -268,6 +305,12 @@ type ListPoliciesOutput = core.List[Policy]
 
 func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*ListPoliciesOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListPolicies", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.ListPolicies", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.ListPolicies", "ListenerID", in.ListenerID); err != nil {
 		return nil, err
 	}
 	items, err := listLoadBalancerChild[Policy](c, ctx, "loadbalancer.ListPolicies", in.LoadBalancerID, []string{"listeners", in.ListenerID, "l7policies"})
@@ -291,6 +334,15 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 	if err := core.CheckRequired("loadbalancer.GetPolicy", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("loadbalancer.GetPolicy", "LoadBalancerID", in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetPolicy", "ListenerID", in.ListenerID); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.GetPolicy", "PolicyID", in.PolicyID); err != nil {
+		return nil, err
+	}
 	var resp struct {
 		Data Policy `json:"data"`
 	}
@@ -308,6 +360,9 @@ type ListTagsOutput = core.List[Tag]
 
 func (c *Client) ListTags(ctx context.Context, in *ListTagsInput) (*ListTagsOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListTags", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("loadbalancer.ListTags", "LoadBalancerID", in.LoadBalancerID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -529,6 +584,7 @@ type Pool struct {
 	Description       string         `json:"description"`
 	LoadBalanceMethod string         `json:"loadBalanceMethod"`
 	DisplayStatus     string         `json:"displayStatus"`
+	ProgressStatus    string         `json:"progressStatus"`
 	Stickiness        bool           `json:"stickiness"`
 	TLSEncryption     bool           `json:"tlsEncryption"`
 	Members           []PoolMember   `json:"members"`

@@ -53,7 +53,7 @@ documented one until the live check records it.
 | Get ACL | `GET /network-acl/{id}` | 200 | Live |
 | Create ACL | `POST /network-acl` | 201 | Live |
 | Replace ACL rules | `PUT /network-acl/{id}/rules` | 200 | Docs |
-| Replace ACL subnets | `PUT /network-acl/{id}/subnets` | 200 | Docs |
+| Replace ACL subnets | `PUT /network-acl/{id}/subnets` | 200 | Live |
 | Delete ACL | `DELETE /network-acl/{id}` | 204 | Live |
 
 The reference marks a `portal-user-id` header required; the reads work
@@ -75,11 +75,14 @@ neither, except `zoneId` on subnet create.
 - Route table create (live): `name`, `networkId` (the VPC), and optional
   `routes`, which the SDK leaves out. Route replace (inferred): `routes`,
   the whole list, each `destinationCidrBlock` and `target`.
-- ACL create (live): `name`, `vpc`. Rules replace (inferred): `aclId` and
-  `detailAclRuleList`, the whole list, each `type`, `seqNumber`,
-  `protocol`, `port` (a string), `source`, `action`, `system`, and
-  `interfaceAclPolicyUuid`. Subnets replace (inferred): `aclId` and
-  `subnetUuids`, the whole list.
+- ACL create (live): `name`, `vpc`; the GreenNode web console sends the
+  same two fields. Rules replace (live): `aclId` and `detailAclRuleList`,
+  the whole list, each `type`, `seqNumber`, `protocol`, `port` (a string),
+  `source`, `action`, `system`, and `interfaceAclPolicyUuid`; the probes
+  exercised this shape directly (see the live facts under
+  [Server rules](#server-rules-from-the-product-docs)). Subnets replace
+  (live, confirmed against the console): `subnetUuids`, the whole list,
+  with no `aclId`; the ACL is already named by the URL.
 
 ## Responses
 
@@ -124,12 +127,21 @@ exception: its live response matches the read model, so it decodes into
 ## Server rules (from the product docs)
 
 - A VPC is one `/16` from `10.0.0.0/8`, `172.16.0.0` to `172.24.0.0`, or
-  `192.168.0.0/16`. A subnet is a `/24` or `/28` inside it.
+  `192.168.0.0/16`. A subnet is a `/24` or `/28` inside it; the GreenNode
+  web console's own subnet form offers a wider choice of prefix lengths,
+  `/16`, `/18`, `/20`, `/22`, `/24`, `/26`, and `/28`.
+- Live: `CreateVPC` refuses a `cidr` that overlaps any VPC already in the
+  project, with 400 `VPC is overlap with another.` The SDK does not check
+  for an overlap itself; per ADR 0002 rule 5, value rules like this stay on
+  the server.
 - Live: every VPC lands in the region's first zone (`HCM03-1A` in
   `hcm-3`), whatever `zoneId` says, even when that zone is disabled for
   the account, as it is for the test account. A subnet create without
   `zoneId` looks up that zone and fails with 404 `Cannot get zone with id
   HCM03-1A`; with an enabled zone from `portal list-zones` it succeeds.
+  Confirmed independently through the console, whose own create form sends
+  a `zoneId` too (along with `tags` and a fixed `mtu` of 1500, neither of
+  which the SDK sends) and still lands the VPC in `HCM03-1A`.
 - Enabling Private DNS reserves `/28` subnets for vDNS. Live: those
   subnets do not appear in the VPC's subnet list, and the VPC deletes
   normally afterwards. The API has no disable call.
@@ -143,16 +155,48 @@ exception: its live response matches the read model, so it decodes into
   route table created in such a VPC becomes its main table, and the server
   still deletes it on request, leaving the VPC without one (live). Only
   routes a user added can change.
-- The docs say a new ACL has two default deny rules (inbound and
-  outbound) that cannot change or be deleted, and list an allow-all rule
-  per direction. Live: a new ACL has at least an inbound rule with
-  `seqNumber` 0, `protocol` `ANY`, `port` `"0-65535"`, `source`
-  `0.0.0.0/0`, and `action` `pass`; the rest of its default list was not
-  captured. Rules are evaluated by priority, lowest first, up to 32766,
-  and a priority is unique in an ACL. Protocols are `ANY`, `TCP`, `UDP`,
-  and `ICMP`.
+- Live: a new ACL has four rules, a pass-all at `seqNumber` 0 and a
+  deny-all at `seqNumber` 2000 per direction (`protocol` `ANY`, `port`
+  `"0-65535"`, `source` `0.0.0.0/0`), with no `system` field. A rules PUT
+  that leaves out a priority-0 rule removes it; one that leaves out a
+  priority-2000 rule keeps it. User priorities are 1 to 1999 (2500 gets
+  "The priority is too big"). Protocols are `ANY` (upper case) and `tcp`,
+  `udp`, `icmp` (lower case). Ports are `"22"`, `"53-54"`, or `"0-65535"`;
+  `icmp` takes `"0"` or `"0-65535"`. A rules PUT leaves the ACL busy for
+  about 18 s; a write then gets 400 "... is busy doing something". ACL
+  names can repeat. Whether a deny rule takes effect beside the priority-0
+  pass-all rules is not verified.
 - A subnet belongs to at most one ACL. Associating it with another ACL
-  moves it. An ACL with subnets cannot be deleted.
+  moves it. An ACL with subnets cannot be deleted. Live: a subnets PUT
+  (associate or disassociate) leaves the ACL busy for about 20 s too, but,
+  unlike a rules PUT, `status` stays `ACTIVE` for that whole window; a write
+  sent into it gets 400 "... is being updated" instead of the rules PUT's
+  message, with no status change to mark the window at all. The console
+  shows the same busy window from the other side: a disassociate sent right
+  after an associate gets that same 400 while `status` still reads
+  `ACTIVE`; sent about a minute later it returns 200.
+- Deleting a subnet while a network ACL still lists it in
+  `subnetAssociationList`, instead of disassociating first, leaves that ACL
+  permanently stuck: every later write to it returns 400 "... is being
+  updated", and its own `DELETE` returns 500 even though the ACL itself was
+  never deleted, unlike the ordinary 500 a read gets only after a real
+  delete (see [Reads after a delete](#reads-after-a-delete)). Its VPC can
+  never be deleted (`This network is attached by the network policy`).
+  Only GreenNode support can clear it; `DeleteSubnet` refuses instead of
+  reaching the server whenever it finds the subnet still held this way.
+- Live: a `DELETE` sent into the busy window after a subnets write
+  (associate or disassociate) answers 500 and changes nothing, instead of
+  the 400 "... is being updated" any other write gets in that same window;
+  a repeat `DELETE` sent after the window passes succeeds normally.
+  `DeleteNetworkACL` cannot tell that 500 apart from any other by its
+  status alone, so after any 5xx it never resends the `DELETE`; it polls
+  the list instead, across every page, for up to 60 seconds, and returns
+  the original 500 if the ACL is still listed at the bound, so the caller
+  can wait out the window and call it again.
+- Live: `ListNetworkACLs` can return an ACL's `networkId` empty even though
+  the ACL does belong to a VPC; the ACL's own `GET` still carries that VPC
+  in `interfaceNetworkUuid`. A caller matching ACLs to a VPC by the list's
+  `networkId` alone can miss one this way.
 - Route table and ACL names are 5 to 50 of `a-z A-Z 0-9 _ -`.
 - A server group's policy cannot change after create. Server group names
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK

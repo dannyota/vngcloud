@@ -378,6 +378,7 @@ Each release ships when CI is green on its commit.
 | `v0.33.0` | IAM policy writes and service account attach; see [IAM writes](iam-writes.md) |
 | `v0.34.0` | IAM group writes, membership, and group and user attach; see [IAM writes](iam-writes.md) |
 | `v0.35.0` | Flavor reads and server and volume create quotes; see [vServer paid writes](vserver-paid-writes.md) |
+| `v0.36.0` | Load balancer create and resize quotes; see [vLB writes](lb-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
 before any paid write lands. New code uses the package layout from the

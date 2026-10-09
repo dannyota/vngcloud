@@ -82,6 +82,14 @@ type listInterconnectsResponse struct {
 	TotalItem int            `json:"totalItem"`
 }
 
+type listDHCPOptionsResponse struct {
+	ListData  []DHCPOptions `json:"listData"`
+	Page      int           `json:"page"`
+	PageSize  int           `json:"pageSize"`
+	TotalPage int           `json:"totalPage"`
+	TotalItem int           `json:"totalItem"`
+}
+
 type listEndpointsResponse struct {
 	Data      []Endpoint `json:"data"`
 	Page      int        `json:"page"`
@@ -137,6 +145,23 @@ type VPC struct {
 	MTU            int      `json:"mtu"`
 	ServerCount    int      `json:"serverCount"`
 	VolumeCount    int      `json:"volumeCount"`
+}
+
+// DHCPOptions is a DHCP options set: a list of DNS server addresses and an
+// MTU that a VPC's servers pick up from its subnet's DHCP lease. VPCIDs
+// holds the VPCs the set is currently attached to (associatedNetworks); the
+// server gives no field marking a set as one Private DNS created, so the
+// SDK treats a Name with the dhcpOptionsSystemPrefix as a system set (see
+// dhcp_options_write.go).
+type DHCPOptions struct {
+	UUID       string   `json:"uuid"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	DNSServers []string `json:"dnsServers"`
+	MTU        int      `json:"mtu"`
+	VPCIDs     []string `json:"associatedNetworks"`
+	CreatedAt  string   `json:"createdAt"`
+	UpdatedAt  string   `json:"updatedAt"`
 }
 
 type WANIP struct {
@@ -230,6 +255,10 @@ type Peering struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// ACL is a network ACL. NetworkID and SubnetID come from ListNetworkACLs,
+// which the DefaultACL, VPCID, Rules, and SubnetIDs fields' live source,
+// GetNetworkACL and CreateNetworkACL, does not return; a value read either
+// way leaves the other set's fields at their zero value.
 type ACL struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -239,6 +268,39 @@ type ACL struct {
 	NetworkID   string `json:"networkId"`
 	SubnetID    string `json:"subnetId"`
 	CreatedAt   string `json:"createdAt"`
+
+	DefaultACL bool      `json:"defaultAcl"`
+	VPCID      string    `json:"interfaceNetworkUuid"`
+	Rules      []ACLRule `json:"aclPolicyRules"`
+	SubnetIDs  []string  `json:"subnetAssociationList"`
+}
+
+// ACLRule is one rule of a network ACL's list. Priority orders rules,
+// lowest first; AddNetworkACLRule accepts 1 to 1999 for a rule a caller
+// adds. A rule the server owns and a caller may never remove or rewrite
+// holds Priority 2000 or above, or decodes System true; see
+// isDefaultACLRule. Protocol is one of "ANY" (uppercase only), "tcp",
+// "udp", or "icmp" (lowercase only), confirmed live; any other spelling,
+// including "TCP" or "any", fails on the server, not just this SDK's own
+// input check.
+//
+// A new ACL carries four such rules: an inbound and an outbound pass-all
+// rule at Priority 0, and an inbound and an outbound deny-all rule at
+// Priority 2000, all with Protocol "ANY", Port "0-65535", and CIDR
+// "0.0.0.0/0". Confirmed live, the two Priority-0 rules are not protected
+// by isDefaultACLRule: a caller may remove them like any other rule, and a
+// write that leaves one out removes it. The two Priority-2000 rules are
+// protected: a write that leaves one out still keeps it, and
+// RemoveNetworkACLRule refuses to target one at all.
+type ACLRule struct {
+	UUID      string `json:"uuid"`
+	Direction string `json:"type"`
+	Priority  int    `json:"seqNumber"`
+	Protocol  string `json:"protocol"`
+	Port      string `json:"port"`
+	CIDR      string `json:"source"`
+	Action    string `json:"action"`
+	System    bool   `json:"system"`
 }
 
 type Subnet struct {

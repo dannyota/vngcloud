@@ -198,6 +198,7 @@ func runGenDocs(dir string) error {
 		buildDocService("volume", volumeOps),
 		buildDocService("containerregistry", containerRegistryOps),
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
+		buildDocService("tagging", taggingOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -385,7 +386,15 @@ func renderCLIPage(services []docService) string {
 		"one of these reads first and is safe to run again; see [Volume](CLI-Volume.md#create-volume)), " +
 		"or a volume resize-volume whose wait ran out of time or otherwise failed to read back: check " +
 		"get-volume rather than repeating this paid write, since a repeat risks a second charge; see " +
-		"[Volume](CLI-Volume.md#resize-volume)), `VolumeInUse` (a volume delete-volume was refused " +
+		"[Volume](CLI-Volume.md#resize-volume), or a " +
+		"network ACL rules or subnets PUT, sent once with no retry, failed in a way that may already have " +
+		"reached the server, a 5xx, a network error, or a timeout: the write is not resent automatically, " +
+		"so read the ACL first before trying the command again; see [Network](Network.md#waits)), or a " +
+		"tagging tag-resource or untag-resource whose PUT reached the server but the read to confirm it " +
+		"failed or came back mismatched: the write already replaced the resource's user tags, so read " +
+		"them again before writing once more rather than repeating the command blind; see " +
+		"[Tagging](CLI-Tagging.md#tag-resource)), " +
+		"`VolumeInUse` (a volume delete-volume was refused " +
 		"because a pre-delete read showed the volume attached to a server, before any request), " +
 		"`BootVolume` (a volume detach-volume targeted a server's own boot volume, before any " +
 		"request), `ServerRunning` (a volume detach-volume targeted a server that was not STOPPED " +
@@ -397,7 +406,10 @@ func renderCLIPage(services []docService) string {
 		"nothing was sent or ordered), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
-		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemSecurityGroup` " +
+		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemTag` (a tagging " +
+		"tag-resource or untag-resource refused because --key names a system tag, either its vng. prefix " +
+		"or an existing system tag the pre-write read found, so nothing was sent; see " +
+		"[Tagging](CLI-Tagging.md#tag-resource)), `SystemSecurityGroup` " +
 		"(a network update-security-group or delete-security-group " +
 		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
 		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
@@ -405,18 +417,23 @@ func renderCLIPage(services []docService) string {
 		"delete-server-group was refused because the group has servers attached, found by a pre-delete " +
 		"list scan, or the server itself refused it as in use; see " +
 		"[Compute](CLI-Compute.md#delete-server-group)), `ResourceInUse` (a network delete-vpc, " +
-		"delete-subnet, or delete-route-table was refused because a pre-write read showed it still in use, " +
-		"such as a VPC with subnets, a subnet with servers, or a route table a subnet still names, or " +
-		"because the server's own refusal named it in use, including a VPC delete the server keeps refusing " +
-		"with \"contains the subnet\" for several minutes after that subnet's own delete, or an iam " +
-		"delete-policy targeted a policy still attached to a group, an IAM user, or a service account, or " +
-		"an iam delete-group targeted a group with a member or an attached policy, before any request; " +
-		"see [Network](Network.md#errors), [IAM](CLI-IAM.md#delete-policy)), " +
-		"`DefaultResource` (a network delete-route-table targeted a VPC's " +
-		"main route table while a subnet names no route table of its own and so relies on it; the server " +
-		"itself deletes a main table once no subnet relies on it), `ResourceBusy` (a network add-route or " +
-		"remove-route read a route table that was not ACTIVE and stayed that way past the wait before the " +
-		"write, so nothing was sent), " +
+		"delete-subnet, delete-route-table, or delete-network-acl was refused because a pre-write read " +
+		"showed it still in use, such as a VPC with subnets, a subnet with servers, a route table a subnet " +
+		"still names, or an ACL a subnet is still associated with, or because the server's own refusal " +
+		"named it in use, including a VPC delete the server keeps refusing with \"contains the subnet\" " +
+		"for several minutes after that subnet's own delete, or an iam delete-policy targeted a policy " +
+		"still attached to a group, an IAM user, or a service account, or an iam delete-group targeted a " +
+		"group with a member or an attached policy, before any request; see [Network](Network.md#errors), " +
+		"[IAM](CLI-IAM.md#delete-policy)), " +
+		"`DefaultResource` (a network delete-route-table targeted a VPC's main route table while a subnet " +
+		"names no route table of its own and so relies on it, though the server itself deletes a main " +
+		"table once nothing relies on it; or a write targeted a project's default network ACL or one of " +
+		"an ACL's own default rules), `ResourceBusy` (a network add-route, remove-route, or a network ACL " +
+		"rule or subnet write read a table or ACL that was not ACTIVE and stayed that way past the wait " +
+		"before the write, or saw it change before the send, so nothing was sent; or a network ACL rules " +
+		"or subnets PUT, or a delete-network-acl DELETE, sent once with no retry landed in the ACL's own " +
+		"busy window and got the server's own busy 400 back, which changed nothing, so the command can be " +
+		"run again; see [Network](Network.md#waits)), " +
 		"`RepositoryNotEmpty` (a containerregistry delete-repository was refused because a pre-delete read " +
 		"showed the repository still holds images; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#delete-repository)), " +
@@ -430,13 +447,13 @@ func renderCLIPage(services []docService) string {
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed`, `NotSettled`, " +
 		"and `UserNotFound` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
-		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), and " +
-		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user). " +
+		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
+		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user), and [Tagging](CLI-Tagging.md#tag-resource). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, `SecretFileFailed`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
+		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

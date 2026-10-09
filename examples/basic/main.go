@@ -94,6 +94,7 @@ func main() {
 			showCompute(ctx, cfg, sdkOutputs)
 			showVolume(ctx, cfg, sdkOutputs)
 			showNetwork(ctx, cfg, sdkOutputs)
+			showTagging(ctx, cfg, sdkOutputs)
 			showLoadBalancer(ctx, cfg, sdkOutputs)
 			showGlobalLoadBalancer(ctx, cfg, sdkOutputs)
 			if regionIndex == 0 {

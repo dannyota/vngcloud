@@ -1,0 +1,10 @@
+{
+  "uuid": "dop-1",
+  "name": "<name>",
+  "status": "ACTIVE",
+  "dnsServers": ["10.166.12.196", "10.166.12.197"],
+  "mtu": 1450,
+  "associatedNetworks": ["vpc-1"],
+  "createdAt": "2026-01-01T00:00:00Z",
+  "updatedAt": "2026-01-01T00:00:00Z"
+}
