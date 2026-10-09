@@ -252,8 +252,9 @@ did not confirm it; see
 zone stayed busy past the wait before a write, so nothing was sent),
 `WriteFailed` (a vDNS write went to status `ERROR`, or, per
 [vMonitor Alerts](monitor-alerts.md#errors), a vMonitor log project or
-alarm wait failed), or `NotSettled` (a vDNS, or vMonitor Alerts, write was
-accepted but did not settle within the wait; do not repeat it). vMonitor
+alarm wait failed), or `NotSettled` (a vDNS write, a vMonitor Alerts write,
+or a [vStorage](storage.md#delete-bucket) bucket delete was accepted but did
+not settle within the wait; do not repeat it). vMonitor
 Alerts also adds `OTPRejected` (a channel OTP was wrong or expired, so no
 create was sent) and `PriceAboveMax` (a log project quote exceeded
 `--max-price`, so no order was sent); see
@@ -277,7 +278,7 @@ says the write succeeded, so an agent does not retry it.
 |-|-|
 | 0 | Success |
 | 1 | API or network error, or a cancelled command |
-| 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a literal secret in `configure set`, a missing region, or an ambiguous project |
+| 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a literal secret in `configure set`, a missing region, an ambiguous project, or an input the SDK or server refuses (`ErrInvalidInput`; a server refusal keeps its `APIError.Code`, such as `112`) |
 | 3 | `ErrNoCredentials`, `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
 | 4 | `NotFound` |
 
