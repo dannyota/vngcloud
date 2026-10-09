@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1520,6 +1521,59 @@ func TestDeleteLogAlarmNotFound(t *testing.T) {
 	_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
 	if !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("DeleteLogAlarm() error = %v, want ErrNotFound", err)
+	}
+}
+
+// deleteGoneHandler serves a log alarm whose read still succeeds, whose
+// DELETE answers deleteStatus, and whose list holds listBody.
+func deleteGoneHandler(t *testing.T, deleteStatus int, listBody string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{"id":"alarm-1","type":"LOG","status":"ACTIVE"}}`))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodDelete:
+			w.WriteHeader(deleteStatus)
+			_, _ = w.Write([]byte(`{"message":"refused"}`))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/list" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(listBody))
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	})
+}
+
+const (
+	emptyAlarmList  = `{"lstData":[],"page":1,"pageSize":50,"totalPage":0,"totalItem":0}`
+	listedAlarmList = `{"lstData":[{"id":"alarm-1","type":"LOG","name":"a"}],"page":1,"pageSize":50,"totalPage":1,"totalItem":1}`
+)
+
+// TestDeleteLogAlarmRepeatReadsAsNotFound covers the server answering a
+// repeat delete of a deleted alarm with 400 or 5xx instead of 404: the
+// list no longer holds the alarm, so the error is not-found.
+func TestDeleteLogAlarmRepeatReadsAsNotFound(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusInternalServerError} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			client := newTestClient(t, deleteGoneHandler(t, status, emptyAlarmList))
+			_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
+			if !errors.Is(err, core.ErrNotFound) || !core.IsNotFound(err) {
+				t.Fatalf("DeleteLogAlarm() error = %v, want not-found", err)
+			}
+		})
+	}
+}
+
+// TestDeleteLogAlarmRefusalPassesThroughWhileListed keeps the server's
+// own error when the alarm is still listed.
+func TestDeleteLogAlarmRefusalPassesThroughWhileListed(t *testing.T) {
+	client := newTestClient(t, deleteGoneHandler(t, http.StatusBadRequest, listedAlarmList))
+	_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("DeleteLogAlarm() error = %v, want the 400 APIError", err)
+	}
+	if core.IsNotFound(err) {
+		t.Fatal("DeleteLogAlarm() reads as not-found while the alarm is listed")
 	}
 }
 

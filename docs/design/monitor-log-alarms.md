@@ -225,8 +225,11 @@ match-all.
 `DeleteLogAlarmInput` has `AlarmID` (r). It checks the ID, reads the
 alarm, and refuses with `ErrInvalidInput` unless `Kind` is `Log`, since
 nothing shows the server refuses a metric alarm's ID on this path. It then
-sends one `DELETE` with normal retries; a retry that finds the alarm gone
-returns not-found. There is no wait: the console treats a success as done.
+sends one `DELETE` with normal retries. Live, a repeat delete of a deleted
+alarm answers 400 `BadRequest` or 500 `ServerError`, not 404, and a read of
+the deleted id does not 404 either. When the `DELETE` fails with 400 or a
+5xx, the SDK lists log alarms; if the ID is absent it returns not-found, else
+the server's error. There is no wait: the console treats a success as done.
 
 ### Wait
 

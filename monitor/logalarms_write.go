@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -505,7 +506,41 @@ func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*
 		OK:        []int{200, 204},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+		var apiErr *core.APIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode >= 500) &&
+			c.logAlarmAbsent(ctx, op, in.AlarmID) {
+			return nil, fmt.Errorf("%w: %s: alarm %s", core.ErrNotFound, op, in.AlarmID)
+		}
 		return nil, err
 	}
 	return &DeleteLogAlarmOutput{}, nil
+}
+
+// deleteAbsentCheckPageCap bounds logAlarmAbsent's walk of the log alarm
+// list.
+const deleteAbsentCheckPageCap = 50
+
+// logAlarmAbsent reports whether a full walk of the log alarm list finds no
+// alarm with id. The server answers a repeat delete of a deleted alarm with
+// 400 or 500, not 404, and a read of the deleted id does not 404 either, so
+// only the list can confirm the alarm is gone. A list error reads as not
+// absent.
+func (c *Client) logAlarmAbsent(ctx context.Context, op, id string) bool {
+	seen := 0
+	for page := 1; page <= deleteAbsentCheckPageCap; page++ {
+		out, err := c.listAlarms(ctx, op, &ListAlarmsInput{Kind: AlarmKindLog, Page: page})
+		if err != nil {
+			return false
+		}
+		for _, a := range out.Items {
+			if a.ID == id {
+				return false
+			}
+		}
+		seen += len(out.Items)
+		if len(out.Items) == 0 || seen >= out.TotalItem {
+			return true
+		}
+	}
+	return false
 }

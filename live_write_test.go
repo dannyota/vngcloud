@@ -10975,17 +10975,19 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 		t.Fatalf("step 7 DeleteLogAlarm: %s", safeErr(err))
 	}
 	t.Log("step 7: deleted the alarm")
-	// Step 8: delete it again, to record the second delete's own error
-	// code; only the code is logged, since the message may name the
-	// alarm's id.
+	// Step 8: delete it again; the server answers 400 or 500 for a deleted
+	// alarm, which the SDK confirms against the list and reports as
+	// NotFound. Only codes are logged, since a message may name the id.
 	_, secondDeleteErr := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID})
-	switch {
-	case secondDeleteErr == nil:
-		t.Log("step 8: second delete succeeded without error")
-	case vngcloud.IsNotFound(secondDeleteErr):
-		t.Logf("step 8: second delete returned NotFound, code %s", vngcloud.ErrorCode(secondDeleteErr))
-	default:
-		t.Fatalf("step 8: second delete: unexpected code %s", vngcloud.ErrorCode(secondDeleteErr))
+	if !vngcloud.IsNotFound(secondDeleteErr) {
+		t.Fatalf("step 8: second delete: want NotFound, got code %q", vngcloud.ErrorCode(secondDeleteErr))
+	}
+	t.Logf("step 8: second delete returned NotFound, code %q", vngcloud.ErrorCode(secondDeleteErr))
+	// Record what a read of the deleted id returns, without asserting.
+	if gone, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: alarmID}); err != nil {
+		t.Logf("step 8: GetAlarm of the deleted id: error code %q", vngcloud.ErrorCode(err))
+	} else {
+		t.Logf("step 8: GetAlarm of the deleted id: 200, status %q", gone.Alarm.Status)
 	}
 	// Step 9: confirm no vngcloud-live-* log alarm remains.
 	final, err := listAllLogAlarms(ctx, client)

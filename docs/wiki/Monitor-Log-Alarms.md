@@ -174,10 +174,11 @@ if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: cr
 alarm by id. A 404 on that read returns `vngcloud.IsNotFound(err) == true`
 directly. Past that read, there is no further wait: the console treats a
 successful delete as done at once, and the alarm's history is lost with
-it. `DELETE` is idempotent and keeps the transport's normal retries; a
-retry whose first attempt already reached the server sees the alarm gone
-and returns `vngcloud.IsNotFound(err) == true`, which a caller treats as
-done, the same as a genuine second delete.
+it. `DELETE` keeps the transport's normal retries. The server answers a
+repeat delete of a deleted alarm with 400 or 500, not 404, so when the
+`DELETE` fails with 400 or a 5xx, the SDK lists log alarms: if the alarm is
+absent it returns `vngcloud.IsNotFound(err) == true`, which a caller treats
+as done, and if it is still listed it returns the server's error.
 
 ## What is unverified
 
