@@ -8977,6 +8977,7 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	urlPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
 		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-url",
 		Action: loadbalancer.ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301,
+		Rules: []loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeEqualTo, Value: "/old"}},
 	})
 	if err != nil {
 		t.Fatalf("step 2b CreatePolicy (url): %s", safeErr(err))

@@ -36,6 +36,7 @@ func validCreatePolicyInput() *CreatePolicyInput {
 		Name:           "policy-1",
 		Action:         ActionRedirectToPool,
 		RedirectPoolID: "pool-1",
+		Rules:          []PolicyRuleInput{{Type: PolicyRuleTypePath, CompareType: CompareTypeStartsWith, Value: "/api"}},
 	}
 }
 
@@ -108,6 +109,7 @@ func TestCreatePolicyRequestBodyRedirectToURL(t *testing.T) {
 		Action:           ActionRedirectToURL,
 		RedirectURL:      "https://example.com",
 		RedirectHTTPCode: 301,
+		Rules:            []PolicyRuleInput{{Type: PolicyRuleTypePath, CompareType: CompareTypeEqualTo, Value: "/old"}},
 	}
 	if _, err := c.CreatePolicy(context.Background(), in); err != nil {
 		t.Fatalf("CreatePolicy() error = %v", err)
@@ -150,6 +152,42 @@ func TestCreatePolicyRejectsIncompleteRule(t *testing.T) {
 	in.Rules = []PolicyRuleInput{{Type: PolicyRuleTypePath}}
 	if _, err := c.CreatePolicy(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestCreatePolicyRejectsNoRules(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	in := validCreatePolicyInput()
+	in.Rules = nil
+	if _, err := c.CreatePolicy(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestUpdatePolicyRejectsNoRules(t *testing.T) {
+	var putCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == policyLBPath:
+			policyLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == policyPath:
+			_, _ = w.Write([]byte(`{"data":{"uuid":"policy-1","action":"REDIRECT_TO_POOL","redirectPoolId":"pool-1",` +
+				`"l7Rules":[{"compareType":"EQUAL_TO","ruleValue":"/","ruleType":"PATH"}],"progressStatus":"CREATED"}}`))
+		case r.Method == http.MethodPut:
+			putCalls.Add(1)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+	in := &UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID, Rules: &[]PolicyRuleInput{}}
+	if _, err := c.UpdatePolicy(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if putCalls.Load() != 0 {
+		t.Fatalf("PUT calls = %d, want 0", putCalls.Load())
 	}
 }
 
@@ -534,7 +572,8 @@ func TestCreatePolicyBodyKeysPerAction(t *testing.T) {
 
 	body = nil
 	url := &CreatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, Name: "policy-2",
-		Action: ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301}
+		Action: ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301,
+		Rules: []PolicyRuleInput{{Type: PolicyRuleTypePath, CompareType: CompareTypeEqualTo, Value: "/old"}}}
 	if _, err := c.CreatePolicy(context.Background(), url); err != nil {
 		t.Fatalf("CreatePolicy(url) error = %v", err)
 	}

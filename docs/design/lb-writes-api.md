@@ -117,7 +117,9 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
   `ruleType` (`PATH` or `HOST_NAME`), `compareType` (`CONTAINS`,
   `ENDS_WITH`, `EQUAL_TO`, `REGEX`, `STARTS_WITH`), and `ruleValue`.
   Policy update: the same without `name`; `action` is required and
-  `rules` is the whole list.
+  `rules` is the whole list. Live (2026-10-09, `hcm-3`): a create with no
+  rules is refused with 400 `Missing required rules property;`, so both
+  writes refuse an empty list before sending.
 
 ## Responses
 

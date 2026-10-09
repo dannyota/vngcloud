@@ -365,8 +365,8 @@ if _, err := client.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{
 `ActionRedirectToPool` requires `RedirectPoolID` and refuses `RedirectURL`,
 `RedirectHTTPCode`, and `KeepQueryString`; `ActionRedirectToURL` requires
 `RedirectURL` and refuses `RedirectPoolID`. A write sends only the fields
-its action carries. Another `Action` goes as given. Each rule needs `Type`,
-`CompareType`, and `Value`.
+its action carries. Another `Action` goes as given. A policy needs at least
+one rule, and each rule needs `Type`, `CompareType`, and `Value`.
 
 `UpdatePolicy` needs one field set; a set `Rules` replaces the list.
 

@@ -69,9 +69,18 @@ func policyRuleBodiesFromRead(rules []L7Rule) []policyRuleBody {
 	return bodies
 }
 
-// checkPolicyRules returns core.ErrInvalidInput naming the first rule
-// missing a field, for a rule missing Type, CompareType, or Value.
+// errPolicyNoRules is the refusal for a policy write with no rules: the
+// server requires at least one.
+func errPolicyNoRules(op string) error {
+	return fmt.Errorf("%w: %s: a policy requires at least one rule", core.ErrInvalidInput, op)
+}
+
+// checkPolicyRules returns core.ErrInvalidInput for an empty list or for the
+// first rule missing Type, CompareType, or Value.
 func checkPolicyRules(op string, rules []PolicyRuleInput) error {
+	if len(rules) == 0 {
+		return errPolicyNoRules(op)
+	}
 	for i, r := range rules {
 		if r.Type == "" || r.CompareType == "" || r.Value == "" {
 			return fmt.Errorf("%w: %s: Rules[%d] requires Type, CompareType, and Value", core.ErrInvalidInput, op, i)
@@ -180,8 +189,8 @@ func newPolicyWriteBody(name, action string, f policyRedirectFields, rules []pol
 // accepts as is. ActionRedirectToPool requires RedirectPoolID and refuses
 // RedirectURL, RedirectHTTPCode, and KeepQueryString; ActionRedirectToURL
 // requires RedirectURL and refuses RedirectPoolID. A write sends only the
-// fields its action carries. Every rule in Rules must set Type, CompareType, and
-// Value.
+// fields its action carries. Rules needs at least one rule, and every rule
+// must set Type, CompareType, and Value.
 type CreatePolicyInput struct {
 	LoadBalancerID string `vngcloud:"required"`
 	ListenerID     string `vngcloud:"required"`
@@ -409,6 +418,10 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 		rules = policyRuleBodiesOf(*in.Rules)
 	} else if err := checkReadRulesComplete(op, rules); err != nil {
 		return nil, err
+	}
+
+	if len(rules) == 0 {
+		return nil, errPolicyNoRules(op)
 	}
 
 	body := newPolicyWriteBody("", action, fields, rules)

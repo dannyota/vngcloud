@@ -207,7 +207,7 @@ to `Changed` false, since step 3 already stops that case.
 
 | Operation | Input | Output |
 |-|-|-|
-| `CreatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `Name` (r), `Action` (r), `RedirectPoolID`, `RedirectURL`, `RedirectHTTPCode`, `KeepQueryString`, `Rules []PolicyRuleInput`, `NoWait` | `{Policy}` |
+| `CreatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `Name` (r), `Action` (r), `RedirectPoolID`, `RedirectURL`, `RedirectHTTPCode`, `KeepQueryString`, `Rules []PolicyRuleInput` (at least one), `NoWait` | `{Policy}` |
 | `UpdatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `PolicyID` (r), `Action` *, `RedirectPoolID` *, `RedirectURL` *, `RedirectHTTPCode` *, `KeepQueryString` *, `Rules` *, `NoWait` | `{Policy}` |
 | `DeletePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `PolicyID` (r), `NoWait` | `{}` |
 
@@ -217,7 +217,7 @@ to `Changed` false, since step 3 already stops that case.
   and `KeepQueryString`; `REDIRECT_TO_URL` needs `RedirectURL` and refuses
   `RedirectPoolID`. The body carries only its action's fields. Other
   values go as given.
-- Update reads, merges, and sends the full body; a set `Rules` replaces the list.
+- Update reads, merges, and sends the full body; a set `Rules` replaces the list; an empty merged list is refused.
 
 ## Busy
 
