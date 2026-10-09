@@ -176,17 +176,14 @@ directly. Past that read, there is no further wait: the console treats a
 successful delete as done at once, and the alarm's history is lost with
 it. `DELETE` keeps the transport's normal retries. The server answers a
 repeat delete of a deleted alarm with 400 or 500, not 404, so when the
-`DELETE` fails with 400 or a 5xx, the SDK lists log alarms: if the alarm is
-absent it returns `vngcloud.IsNotFound(err) == true`, which a caller treats
-as done, and if it is still listed it returns the server's error.
+`DELETE` fails with 400 or a 5xx, the SDK lists log alarms every 2 seconds,
+up to 30 seconds, until the alarm is absent: a deleted alarm stays in the list
+for a few seconds. Once it is absent the SDK returns
+`vngcloud.IsNotFound(err) == true`, which a caller treats as done. If the alarm
+is still listed when the 30 seconds end, or a list fails, it returns the
+server's error.
 
 ## What is unverified
 
-No log alarm has been created, updated, or deleted live: the test account
-has no alarm, and a log alarm needs a log project, which the account's
-free-order quota did not allow while this page was written. Every body
-shape above comes from the vMonitor console's own JavaScript, not a live
-capture. In particular: whether the create, update, and delete responses
-carry a body at all (the console itself ignores them); whether the server
-evaluates `Filter` or `QueryString` when both are sent; and whether
-`Resend.Times` `0` means no resend limit or none at all.
+Create, update, and delete have run live. The status sequence an alarm goes
+through after an update is not recorded.

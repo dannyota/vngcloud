@@ -127,7 +127,7 @@ vngcloud monitor delete-check --check-id <check-id> --yes
 
 Kind: Write, destructive.
 
-Reads the alarm first and refuses with InvalidUsage, deleting nothing, when its Kind is not Log: nothing shows the server itself refuses a metric alarm's ID on this DELETE path, so the command checks first. A 404 on that read exits the same as a 404 from the delete itself, NotFound. Past that read, deletes the alarm and its history at once with no wait, unlike delete-log-project. A retry that finds the alarm already gone returns NotFound, the same as a second delete of the same --alarm-id.
+Reads the alarm first and refuses with InvalidUsage, deleting nothing, when its Kind is not Log: nothing shows the server itself refuses a metric alarm's ID on this DELETE path, so the command checks first. A 404 on that read exits the same as a 404 from the delete itself, NotFound. Past that read, deletes the alarm and its history at once with no wait, unlike delete-log-project. A repeat delete of a deleted alarm gets a 400 (sometimes 500) from the server, and the alarm can stay in the log alarm list for a few seconds after the first delete. The command then lists for up to 30 seconds, returns NotFound once the alarm is absent, and returns the server's error if the alarm is still listed at that bound.
 
 | Flag | Type | Required |
 |-|-|-|

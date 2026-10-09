@@ -107,7 +107,7 @@ query parser: the SDK does not build `filter` from `queryString`.
 | Duplicate names | Create refuses a name a log alarm already has |
 | Create | One `POST`, no retry after a 5xx; then the wait |
 | Update | Read, merge the set fields, send the full body |
-| Delete | One `DELETE`, no wait, `--yes` in the CLI |
+| Delete | One `DELETE`, no wait on success, `--yes` in the CLI |
 
 ## SDK
 
@@ -228,8 +228,12 @@ nothing shows the server refuses a metric alarm's ID on this path. It then
 sends one `DELETE` with normal retries. Live, a repeat delete of a deleted
 alarm answers 400 `BadRequest` or 500 `ServerError`, not 404, and a read of
 the deleted id does not 404 either. When the `DELETE` fails with 400 or a
-5xx, the SDK lists log alarms; if the ID is absent it returns not-found, else
-the server's error. There is no wait: the console treats a success as done.
+5xx, the SDK lists log alarms every 2 seconds, up to 30 seconds, until the ID
+is absent, then returns not-found. A deleted alarm stays in the list for a few
+seconds (gone about a minute later), so one immediate list still shows it. If
+the alarm is still listed when the bound ends, or a list fails, it returns the
+server's error. A successful `DELETE` has no wait: the console treats it as
+done.
 
 ### Wait
 
@@ -296,7 +300,8 @@ refusal; joined channel IDs; `reason` for each type and condition; no
 create after a taken name or a project 404; no retry after a 502; the ID
 from the response and by name; each wait outcome; the update merge, a
 project change, and the metric refusal; decode from `alarmLog`, the
-top-level fallback, and a string `thresholdValue`; delete 404; and CLI
+top-level fallback, and a string `thresholdValue`; a repeat delete that reads as not-found once the list drops the alarm, after it
+lingers for two lists, and passes the 400 through while it stays listed; and CLI
 `--yes` and read-only refusal.
 
 ## Live check

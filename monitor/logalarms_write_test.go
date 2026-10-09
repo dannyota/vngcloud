@@ -1554,7 +1554,7 @@ const (
 func TestDeleteLogAlarmRepeatReadsAsNotFound(t *testing.T) {
 	for _, status := range []int{http.StatusBadRequest, http.StatusInternalServerError} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			client := newTestClient(t, deleteGoneHandler(t, status, emptyAlarmList))
+			client := withInstantSleep(newTestClient(t, deleteGoneHandler(t, status, emptyAlarmList)))
 			_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
 			if !errors.Is(err, core.ErrNotFound) || !core.IsNotFound(err) {
 				t.Fatalf("DeleteLogAlarm() error = %v, want not-found", err)
@@ -1566,7 +1566,7 @@ func TestDeleteLogAlarmRepeatReadsAsNotFound(t *testing.T) {
 // TestDeleteLogAlarmRefusalPassesThroughWhileListed keeps the server's
 // own error when the alarm is still listed.
 func TestDeleteLogAlarmRefusalPassesThroughWhileListed(t *testing.T) {
-	client := newTestClient(t, deleteGoneHandler(t, http.StatusBadRequest, listedAlarmList))
+	client := withInstantSleep(newTestClient(t, deleteGoneHandler(t, http.StatusBadRequest, listedAlarmList)))
 	_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
@@ -1574,6 +1574,38 @@ func TestDeleteLogAlarmRefusalPassesThroughWhileListed(t *testing.T) {
 	}
 	if core.IsNotFound(err) {
 		t.Fatal("DeleteLogAlarm() reads as not-found while the alarm is listed")
+	}
+}
+
+// TestDeleteLogAlarmLingeringAlarmReadsAsNotFound covers the deleted alarm
+// staying in the list for the first two reads: the poll waits it out and
+// the 400 reads as not-found.
+func TestDeleteLogAlarmLingeringAlarmReadsAsNotFound(t *testing.T) {
+	var lists atomic.Int32
+	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{"id":"alarm-1","type":"LOG","status":"ACTIVE"}}`))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"refused"}`))
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/list" && r.Method == http.MethodGet:
+			if lists.Add(1) <= 2 {
+				_, _ = w.Write([]byte(listedAlarmList))
+				return
+			}
+			_, _ = w.Write([]byte(emptyAlarmList))
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	})))
+	_, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"})
+	if !core.IsNotFound(err) {
+		t.Fatalf("DeleteLogAlarm() error = %v, want not-found", err)
+	}
+	if got := lists.Load(); got != 3 {
+		t.Fatalf("list reads = %d, want 3", got)
 	}
 }
 

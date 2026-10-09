@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -481,7 +482,10 @@ type DeleteLogAlarmOutput struct{}
 // once; there is no wait, since the console treats a successful delete as
 // done immediately. DELETE is idempotent and keeps the transport's normal
 // retries; a retry that finds the alarm already gone returns the SDK's
-// not-found sentinel, the same as a genuine second delete.
+// not-found sentinel, the same as a genuine second delete. A repeat delete
+// answers 400 or 5xx while the deleted alarm still lingers in the list for
+// a few seconds, so after such an answer DeleteLogAlarm polls the list
+// until the alarm is gone before reading the answer as not-found.
 func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*DeleteLogAlarmOutput, error) {
 	const op = "monitor.DeleteLogAlarm"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -508,7 +512,7 @@ func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
 		var apiErr *core.APIError
 		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode >= 500) &&
-			c.logAlarmAbsent(ctx, op, in.AlarmID) {
+			c.waitLogAlarmAbsent(ctx, op, in.AlarmID) {
 			return nil, fmt.Errorf("%w: %s: alarm %s", core.ErrNotFound, op, in.AlarmID)
 		}
 		return nil, err
@@ -516,31 +520,52 @@ func (c *Client) DeleteLogAlarm(ctx context.Context, in *DeleteLogAlarmInput) (*
 	return &DeleteLogAlarmOutput{}, nil
 }
 
-// deleteAbsentCheckPageCap bounds logAlarmAbsent's walk of the log alarm
-// list.
+// deleteAbsentCheckPageCap bounds one walk of the log alarm list.
 const deleteAbsentCheckPageCap = 50
+
+// deleteAbsentPollInterval and deleteAbsentWaitBound set how often and how
+// long waitLogAlarmAbsent re-lists. A deleted log alarm stays in the list
+// for a few seconds, so one check right after the delete still sees it.
+const (
+	deleteAbsentPollInterval = 2 * time.Second
+	deleteAbsentWaitBound    = 30 * time.Second
+)
+
+// waitLogAlarmAbsent reports whether the log alarm list drops id within
+// deleteAbsentWaitBound. A list error or a cancelled ctx reads as not
+// absent.
+func (c *Client) waitLogAlarmAbsent(ctx context.Context, op, id string) bool {
+	absent := false
+	err := poll(ctx, c.now, c.sleep, deleteAbsentPollInterval, deleteAbsentWaitBound,
+		func(ctx context.Context) (bool, error) {
+			gone, err := c.logAlarmAbsent(ctx, op, id)
+			absent = gone
+			return gone || err != nil, err
+		},
+		func() error { return nil })
+	return err == nil && absent
+}
 
 // logAlarmAbsent reports whether a full walk of the log alarm list finds no
 // alarm with id. The server answers a repeat delete of a deleted alarm with
 // 400 or 500, not 404, and a read of the deleted id does not 404 either, so
-// only the list can confirm the alarm is gone. A list error reads as not
-// absent.
-func (c *Client) logAlarmAbsent(ctx context.Context, op, id string) bool {
+// only the list can confirm the alarm is gone.
+func (c *Client) logAlarmAbsent(ctx context.Context, op, id string) (bool, error) {
 	seen := 0
 	for page := 1; page <= deleteAbsentCheckPageCap; page++ {
 		out, err := c.listAlarms(ctx, op, &ListAlarmsInput{Kind: AlarmKindLog, Page: page})
 		if err != nil {
-			return false
+			return false, err
 		}
 		for _, a := range out.Items {
 			if a.ID == id {
-				return false
+				return false, nil
 			}
 		}
 		seen += len(out.Items)
 		if len(out.Items) == 0 || seen >= out.TotalItem {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
