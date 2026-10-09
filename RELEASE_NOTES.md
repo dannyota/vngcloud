@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.51.1 - vStorage Reads Fix
+
+### Highlights
+
+- Every `storage` call except `ListRegions` now sends the region ID in both
+  the `region` and `region_id` headers. The server scopes results by
+  `region`, so v0.41.0's `ListProjects` returned an empty list and
+  `ListBuckets` failed with code 114 on an account that has a project.
+- `testdata/storage/list_projects.json` now follows the live project shape;
+  the `Project` model is unchanged and `Period` decodes as zero when the API
+  returns null.
+- Verified live on 2026-10-09 in `HCM04` against a Gold 30 GB project:
+  `ListProjects` found it and `ListBuckets` listed zero buckets.
+
 ## v0.51.0 - vMonitor Log Alarm Writes
 
 ### Highlights

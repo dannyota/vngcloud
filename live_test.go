@@ -499,9 +499,9 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 	})
 }
 
-// testLiveStorage reads the vStorage regions and the projects in both
-// vStorage regions. It names its regions explicitly, so it runs once, and
-// logs counts only.
+// testLiveStorage reads the vStorage regions, the projects in both vStorage
+// regions, and the buckets in each region's first project. It names its
+// regions explicitly, so it runs once, and logs counts only.
 func testLiveStorage(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := storage.New(cfg)
 
@@ -518,6 +518,14 @@ func testLiveStorage(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 				t.Fatalf("ListProjects: %v", err)
 			}
 			t.Logf("storage projects: %d", len(res.Items))
+			if len(res.Items) == 0 {
+				return
+			}
+			buckets, err := client.ListBuckets(ctx, &storage.ListBucketsInput{Region: region, ProjectID: res.Items[0].ID})
+			if err != nil {
+				t.Fatalf("ListBuckets: %v", err)
+			}
+			t.Logf("storage buckets in the first project: %d", len(buckets.Items))
 		})
 	}
 }

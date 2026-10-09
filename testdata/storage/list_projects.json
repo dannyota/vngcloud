@@ -1,17 +1,61 @@
 {
   "code": 200,
   "success": true,
+  "action": null,
   "datas": [
     {
-      "projectId": "<project-id>",
-      "projectName": "<account>",
+      "projectId": "00000000000000000000000000000000",
+      "projectName": "<project-name>",
+      "description": null,
+      "userId": "11111111111111111111111111111111",
+      "userName": "PGFjY291bnQ+",
+      "userIdMapping": 1,
+      "status": 1,
+      "projectType": 1,
+      "projectTypeName": "Gold",
+      "purchaseTypeId": 4,
+      "purchaseTypeName": "Pay monthly",
+      "paymentMethod": 1,
+      "startTime": "2026-10-09T14:23:05.933+00:00",
+      "endTime": "2026-10-09T14:23:05.933+00:00",
+      "totalQuota": 30.0,
+      "usage": 0.0,
+      "period": null,
+      "backendQuota": null,
+      "traffic": null,
+      "accountUrl": null,
+      "roleId": "00000000-0000-0000-0000-000000000001",
+      "roleName": "Admin",
       "regionId": "<region-id-2>",
       "regionName": "HCM04",
-      "status": 1,
-      "totalQuota": 30,
-      "startTime": "2026-01-01 00:00:00",
-      "endTime": "2026-02-01 00:00:00",
-      "period": 1
+      "ownerId": "11111111111111111111111111111111",
+      "ownerName": "PGFjY291bnQ+",
+      "disabledTime": null,
+      "disabledBy": null,
+      "deletedTime": null,
+      "lifecycleRules": null,
+      "containers": null,
+      "actions": [
+        {
+          "id": 1,
+          "userIdMapping": 1,
+          "regionId": "<region-id-2>",
+          "projectId": "00000000000000000000000000000000",
+          "projectName": "<project-name>",
+          "action": "Create",
+          "status": 1,
+          "stackTrace": null,
+          "description": null,
+          "createdTime": "2026-10-09T14:23:05.933+00:00",
+          "updatedTime": "2026-10-09T14:23:05.933+00:00"
+        }
+      ],
+      "resourceTags": [
+        {"key": "vng.region", "value": "hcm04"},
+        {"key": "vng.createdBy", "value": "IAMUser:<iam-user-id>"}
+      ],
+      "enableAutoRenew": false,
+      "autoRenewPeriod": 0
     }
   ]
 }

@@ -19,9 +19,7 @@ func TestListBucketsDecodesFixture(t *testing.T) {
 		if got := r.URL.Query().Get("limit"); got != "1000" {
 			t.Errorf("limit = %q", got)
 		}
-		if got := r.Header.Get("region_id"); got != "<region-id-2>" {
-			t.Errorf("region_id = %q", got)
-		}
+		checkRegionHeaders(t, r, "<region-id-2>")
 		testutil.WriteFixture(t, w, fixtures+"list_buckets.json")
 	}))
 	out, err := c.ListBuckets(context.Background(), &ListBucketsInput{ProjectID: "proj-1"})

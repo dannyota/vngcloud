@@ -6,9 +6,9 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
-// Project is a vStorage project, a paid storage package in one region. The
-// fields follow the vStorage API specification; no live project was
-// available to confirm them.
+// Project is a vStorage project, a paid storage package in one region.
+// TotalQuota is in GB. Fields the API leaves null, such as Period, decode as
+// zero.
 type Project struct {
 	ID         string  `json:"projectId"`
 	Name       string  `json:"projectName"`

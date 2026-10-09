@@ -54,7 +54,9 @@ a `Region` field with the vStorage region name, matched without regard to
 case. An empty `Region` maps the config region: `hcm-3` to `HCM04` and
 `han-1` to `HAN02`. Any other config region with an empty `Region` returns
 `vngcloud.ErrInvalidInput`, and nothing is sent. An unknown name returns
-`ErrInvalidInput` too. The client looks up region IDs once and keeps them.
+`ErrInvalidInput` too. The client looks up region IDs once and keeps them,
+and sends the region ID in the `region` and `region_id` headers of every
+other call. The server returns only the projects of that region.
 
 ```go
 regions, err := client.ListRegions(ctx, nil)
@@ -90,8 +92,8 @@ storage calls need a project ID, so they cannot run until the account has
 one.
 
 `Project` has `ID`, `Name`, `RegionID`, `RegionName`, `Status`,
-`TotalQuota`, `StartTime`, `EndTime`, and `Period`. These fields follow the
-API specification and have not been checked against a live project.
+`TotalQuota` (GB), `StartTime`, `EndTime`, and `Period`. `Period` is zero
+when the API returns null.
 
 ## Buckets
 

@@ -55,12 +55,15 @@ type envelope struct {
 	IsNext  bool            `json:"isNext"`
 }
 
-// do sends a GET and returns the decoded envelope. A 2xx with an empty or
-// non-JSON body, with no success key, or with success false, is an *APIError.
+// do sends a GET and returns the decoded envelope. A non-empty regionID goes
+// out as both the region and region_id headers: the server scopes results by
+// region, and a request without it reads as an empty account. A 2xx with an
+// empty or non-JSON body, with no success key, or with success false, is an
+// *APIError.
 func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope, error) {
 	req := transport.Request{Operation: op, Method: http.MethodGet, URL: rawURL, OK: []int{http.StatusOK}}
 	if regionID != "" {
-		req.Headers = map[string]string{"region_id": regionID}
+		req.Headers = map[string]string{"region": regionID, "region_id": regionID}
 	}
 	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)

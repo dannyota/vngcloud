@@ -38,8 +38,10 @@ func TestListRegionsDecodesFixture(t *testing.T) {
 		if r.URL.Path != "/internal/v1/regions" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		if got := r.Header.Get("region_id"); got != "" {
-			t.Errorf("region_id = %q, want none", got)
+		for _, h := range []string{"region", "region_id"} {
+			if got := r.Header.Get(h); got != "" {
+				t.Errorf("%s = %q, want none", h, got)
+			}
 		}
 		testutil.WriteFixture(t, w, fixtures+"list_regions.json")
 	}))
@@ -57,25 +59,65 @@ func TestListRegionsDecodesFixture(t *testing.T) {
 	}
 }
 
-func TestListProjectsSendsRegionIDHeaderOnly(t *testing.T) {
+func TestListProjectsSendsBothRegionHeaders(t *testing.T) {
 	c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internal/v1/projects" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		if got := r.Header.Get("region_id"); got != "<region-id-2>" {
-			t.Errorf("region_id = %q", got)
-		}
-		if r.Header.Get("region") != "" {
-			t.Errorf("region header must not be sent")
-		}
+		checkRegionHeaders(t, r, "<region-id-2>")
 		testutil.WriteFixture(t, w, fixtures+"list_projects.json")
 	}))
 	out, err := c.ListProjects(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Items) != 1 || out.Items[0].ID != "<project-id>" || out.Items[0].TotalQuota != 30 || out.Items[0].Period != 1 {
-		t.Fatalf("unexpected projects: %+v", out.Items)
+	if len(out.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(out.Items))
+	}
+	p := out.Items[0]
+	if p.ID != "00000000000000000000000000000000" || p.Name != "<project-name>" || p.RegionID != "<region-id-2>" ||
+		p.RegionName != "HCM04" || p.Status != 1 || p.TotalQuota != 30 || p.Period != 0 ||
+		p.StartTime != "2026-10-09T14:23:05.933+00:00" || p.EndTime != p.StartTime {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+}
+
+// checkRegionHeaders asserts that r carries region and region_id, both want.
+func checkRegionHeaders(t *testing.T, r *http.Request, want string) {
+	t.Helper()
+	for _, h := range []string{"region", "region_id"} {
+		if got := r.Header.Get(h); got != want {
+			t.Errorf("%s %s header = %q, want %q", r.URL.Path, h, got, want)
+		}
+	}
+}
+
+func TestStorageReadsSendBothRegionHeaders(t *testing.T) {
+	seen := map[string]bool{}
+	c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
+		checkRegionHeaders(t, r, "<region-id-2>")
+		seen[r.URL.Path] = true
+		file := "list_projects_empty.json"
+		switch r.URL.Path {
+		case "/internal/v1/ceph/projects/proj-1":
+			file = "list_buckets.json"
+		case "/internal/v1/ceph/projects/proj-1/b1/details":
+			file = "get_bucket.json"
+		}
+		testutil.WriteFixture(t, w, fixtures+file)
+	}))
+	ctx := context.Background()
+	if _, err := c.ListProjects(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ListBuckets(ctx, &ListBucketsInput{ProjectID: "proj-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetBucket(ctx, &GetBucketInput{ProjectID: "proj-1", Bucket: "b1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("requests seen: %v, want projects, buckets, and bucket details", seen)
 	}
 }
 
@@ -123,9 +165,7 @@ func TestRegionMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
-				if got := r.Header.Get("region_id"); got != tt.want {
-					t.Errorf("region_id = %q, want %q", got, tt.want)
-				}
+				checkRegionHeaders(t, r, tt.want)
 				testutil.WriteFixture(t, w, fixtures+"list_projects_empty.json")
 			}))
 			if _, err := c.ListProjects(context.Background(), &ListProjectsInput{Region: tt.region}); err != nil {
@@ -232,6 +272,7 @@ func TestPermissionArray(t *testing.T) {
 func TestDefaultRegionHan1(t *testing.T) {
 	var got string
 	h := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		checkRegionHeaders(t, r, "<region-id-1>")
 		got = r.Header.Get("region_id")
 		testutil.WriteFixture(t, w, fixtures+"list_projects_empty.json")
 	})
