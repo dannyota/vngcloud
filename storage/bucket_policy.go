@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 )
@@ -25,7 +28,8 @@ type GetBucketPolicyOutput struct {
 
 // GetBucketPolicy returns a bucket's policy, or an empty Policy and no error
 // when the bucket has none. A bucket with no policy is a normal state, so it
-// is not ErrNotFound; a missing bucket is.
+// is not ErrNotFound; a missing bucket is. The server answers a missing
+// bucket with an empty body, so the call reads the bucket once to tell.
 //
 // Policy is the server's string, returned unchanged. The server may change
 // whitespace and key order, so compare decoded documents, not strings.
@@ -38,13 +42,13 @@ func (c *Client) GetBucketPolicy(ctx context.Context, in *GetBucketPolicyInput) 
 	if err != nil {
 		return nil, err
 	}
-	env, err := c.exchange(ctx, call{
+	env, err := c.exchangeBucket(ctx, call{
 		op:       op,
 		method:   http.MethodGet,
 		url:      c.route(policyParts(in.ProjectID, in.Bucket), nil),
 		regionID: id,
 		ok:       []int{http.StatusOK},
-	})
+	}, in.Region, in.ProjectID, in.Bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +93,13 @@ type putBucketPolicyBody struct {
 // object, or lacks a non-empty Effect string, Principal, Action, or Resource.
 // The server accepts a statement with no Principal, and the bucket's console
 // calls and bucket delete then fail until the policy is removed through the
-// S3 data plane.
+// S3 data plane. A statement with only NotPrincipal is refused for that
+// reason. A member name repeated in the document, a statement, or a Principal
+// is also ErrInvalidInput.
+//
+// A Principal of "*" grants anonymous access when the put succeeds. This call
+// does not ask for consent; PolicyHasPublicPrincipal tells a caller whether
+// to.
 //
 // The server refuses a document it cannot parse as an *APIError with code 400
 // and the parser's message, and an empty one with code 114; neither matches a
@@ -115,7 +125,7 @@ func (c *Client) PutBucketPolicy(ctx context.Context, in *PutBucketPolicyInput) 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := c.exchange(ctx, call{
+	if _, err := c.exchangeBucket(ctx, call{
 		op:       op,
 		method:   http.MethodPut,
 		url:      c.route(policyParts(in.ProjectID, in.Bucket), nil),
@@ -123,7 +133,7 @@ func (c *Client) PutBucketPolicy(ctx context.Context, in *PutBucketPolicyInput) 
 		body:     putBucketPolicyBody{Policy: in.Policy},
 		ok:       []int{http.StatusOK, http.StatusNoContent},
 		write:    true,
-	}); err != nil {
+	}, in.Region, in.ProjectID, in.Bucket); err != nil {
 		return nil, err
 	}
 	return &PutBucketPolicyOutput{}, nil
@@ -151,14 +161,14 @@ func (c *Client) DeleteBucketPolicy(ctx context.Context, in *DeleteBucketPolicyI
 	if err != nil {
 		return nil, err
 	}
-	if _, err := c.exchange(ctx, call{
+	if _, err := c.exchangeBucket(ctx, call{
 		op:       op,
 		method:   http.MethodDelete,
 		url:      c.route(policyParts(in.ProjectID, in.Bucket), nil),
 		regionID: id,
 		ok:       []int{http.StatusOK, http.StatusNoContent},
 		write:    true,
-	}); err != nil {
+	}, in.Region, in.ProjectID, in.Bucket); err != nil {
 		return nil, err
 	}
 	return &DeleteBucketPolicyOutput{}, nil
@@ -171,7 +181,10 @@ func policyParts(project, bucket string) []string {
 // checkPolicyDocument requires a JSON object with a non-empty Statement
 // array. The error never quotes the document, which names principals. The
 // member name must match exactly: the server reads "Statement", and a
-// case-folding decoder would accept "statement".
+// case-folding decoder would accept "statement". A repeated member name is
+// refused at the top level, in each statement, and in each Principal: Go
+// keeps the last occurrence and the server's parser reads every one, so a
+// document could look private here and public there.
 func checkPolicyDocument(op, policy string) error {
 	refuse := func(why string) error {
 		return fmt.Errorf("%w: %s requires Policy to be a JSON object with a non-empty Statement array (%s)", core.ErrInvalidInput, op, why)
@@ -186,8 +199,11 @@ func checkPolicyDocument(op, policy string) error {
 	if raw[0] != '{' {
 		return refuse("it is not a JSON object")
 	}
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &members); err != nil {
+	members, err := decodeObject(raw)
+	if errors.Is(err, errRepeatedMember) {
+		return refuse("it repeats a member name")
+	}
+	if err != nil {
 		return refuse("it is not a JSON object")
 	}
 	statements := bytes.TrimSpace(members["Statement"])
@@ -206,22 +222,64 @@ func checkPolicyDocument(op, policy string) error {
 	return nil
 }
 
+var errRepeatedMember = errors.New("repeated member name")
+
+// decodeObject returns the members of one JSON object, each as raw JSON. It
+// returns errRepeatedMember when a name appears twice, and another error when
+// raw is not exactly one object.
+func decodeObject(raw []byte) (map[string]json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, errors.New("not a JSON object")
+	}
+	members := map[string]json.RawMessage{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		name, ok := tok.(string)
+		if !ok {
+			return nil, errors.New("not a JSON object")
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, err
+		}
+		if _, seen := members[name]; seen {
+			return nil, errRepeatedMember
+		}
+		members[name] = value
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil, errors.New("not a JSON object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing data")
+	}
+	return members, nil
+}
+
 // checkStatement returns the first field of one statement that is missing or
 // empty, with the reason, or "" when the statement is complete. The server
 // accepts a statement with no Principal, and the bucket's console calls and
 // bucket delete then fail until the policy is removed through the S3 data
-// plane, so the check is stricter than the server's.
+// plane, so the check is stricter than the server's. A statement with
+// NotPrincipal and no Principal is refused for the same reason.
 func checkStatement(raw json.RawMessage) (field, why string) {
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &members); err != nil || members == nil {
+	members, err := decodeObject(raw)
+	if errors.Is(err, errRepeatedMember) {
+		return "statement", "repeats a member name"
+	}
+	if err != nil || members == nil {
 		return "statement", "is not a JSON object"
 	}
 	var effect string
-	if err := json.Unmarshal(members["Effect"], &effect); err != nil || effect == "" {
+	if err := json.Unmarshal(members["Effect"], &effect); err != nil || strings.TrimSpace(effect) == "" {
 		return "Effect", "is missing or not a non-empty string"
 	}
-	if !nonEmptyPrincipal(members["Principal"]) {
-		return "Principal", "is missing or empty"
+	if why := principalProblem(members["Principal"]); why != "" {
+		return "Principal", why
 	}
 	for _, name := range []string{"Action", "Resource"} {
 		if !nonEmptyStrings(members[name]) {
@@ -231,38 +289,45 @@ func checkStatement(raw json.RawMessage) (field, why string) {
 	return "", ""
 }
 
-// nonEmptyPrincipal accepts a non-empty string, or a non-empty object whose
-// values are each non-empty strings or non-empty arrays of non-empty strings.
-func nonEmptyPrincipal(raw json.RawMessage) bool {
+// principalProblem returns why raw is not a usable Principal, or "". A usable
+// one is a non-blank string, or a non-empty object with no repeated name
+// whose values are each non-blank strings or non-empty arrays of them.
+func principalProblem(raw json.RawMessage) string {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text != ""
+		if strings.TrimSpace(text) == "" {
+			return "is missing or empty"
+		}
+		return ""
 	}
-	var members map[string]json.RawMessage
-	if json.Unmarshal(raw, &members) != nil || len(members) == 0 {
-		return false
+	members, err := decodeObject(raw)
+	if errors.Is(err, errRepeatedMember) {
+		return "repeats a member name"
+	}
+	if err != nil || len(members) == 0 {
+		return "is missing or empty"
 	}
 	for _, v := range members {
 		if !nonEmptyStrings(v) {
-			return false
+			return "is missing or empty"
 		}
 	}
-	return true
+	return ""
 }
 
-// nonEmptyStrings accepts a non-empty string or a non-empty array of
-// non-empty strings.
+// nonEmptyStrings accepts a non-blank string or a non-empty array of
+// non-blank strings.
 func nonEmptyStrings(raw json.RawMessage) bool {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text != ""
+		return strings.TrimSpace(text) != ""
 	}
 	var list []string
 	if json.Unmarshal(raw, &list) != nil || len(list) == 0 {
 		return false
 	}
 	for _, v := range list {
-		if v == "" {
+		if strings.TrimSpace(v) == "" {
 			return false
 		}
 	}

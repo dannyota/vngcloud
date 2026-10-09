@@ -87,6 +87,36 @@ grants the bucket delete and policy changes on that bucket, so a leaked key
 could delete the bucket or rewrite its policy. Whether this server lets a
 non-owner do so is not checked, and the template avoids the question.
 
+## Public read
+
+A bucket policy is the one way to serve objects anonymously: the console's
+public access route answers 403 to an IAM user, and the ACL route opens the
+bucket listing but no object. This policy grants anonymous object reads and no
+listing:
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Sid": "PublicRead", "Effect": "Allow", "Principal": "*",
+   "Action": ["s3:GetObject"],
+   "Resource": ["arn:aws:s3:::<bucket>/*"]}]}
+```
+
+A bucket policy holds one document, so a bucket that also has a per-bucket key
+keeps the key's statements in the same document. Deleting the policy ends
+public reads at once. `GetBucket` reports no public state: `IsPublic` stays
+false whatever the policy says.
+
+`put-bucket-policy` needs `--yes` when the document has a public principal, and
+exits 2 with no request otherwise. A statement has one when its `Effect` is not
+`Deny` and its `Principal` is a string containing `*`, or an object whose `AWS`
+value is such a string or an array holding one. `PolicyHasPublicPrincipal`
+returns that answer for SDK callers, or the error `PutBucketPolicy` would
+return for the document:
+
+```go
+public, err := storage.PolicyHasPublicPrincipal(policy)
+```
+
 ## Rules
 
 - An attached key lists every bucket of the project and can create a bucket,
@@ -106,6 +136,12 @@ non-owner do so is not checked, and the template avoids the question.
   bucket with an empty body (`EmptyResponse`). A policy put by another tool
   can still cause this. The S3 `DeleteBucketPolicy` call, made with an S3 key
   that is not attached, removes the policy and restores the console calls.
+- A `Principal` of `"*"` grants anonymous reads the moment the put succeeds.
+  The CLI asks for `--yes` first; `PutBucketPolicy` does not, so SDK callers
+  can check with `PolicyHasPublicPrincipal`.
+- `PutBucketPolicy` also refuses a document that repeats a member name at the
+  top level, in a statement, or in a `Principal`, because the server reads
+  every occurrence and this SDK would read only the last.
 - Remove a service account from its bucket policies before you delete it: a
   new service account with the same name gets the same principal.
 
@@ -114,10 +150,10 @@ non-owner do so is not checked, and the template avoids the question.
 | Case | Result |
 |---|---|
 | Missing field, bad project ID or bucket name, unmapped region | `vngcloud.ErrInvalidInput`, no call sent |
-| `Policy` is not a JSON object with a non-empty `Statement` array, or a statement lacks a non-empty `Effect`, `Principal`, `Action`, or `Resource` | `vngcloud.ErrInvalidInput`, no call sent |
+| `Policy` is not a JSON object with a non-empty `Statement` array, a statement lacks a non-empty `Effect`, `Principal`, `Action`, or `Resource`, or a member name is repeated | `vngcloud.ErrInvalidInput`, no call sent |
 | The server cannot parse the policy: envelope code `400`, such as an unknown `Version` or `Effect` | `*vngcloud.APIError` with the parser's message, no sentinel |
 | Envelope code `114` | `*vngcloud.APIError` with the server's message, no sentinel |
-| `GetBucketPolicy` on a bucket that does not exist | `*vngcloud.APIError`, code `EmptyResponse`: the server answers HTTP 200 with no body |
+| A policy call on a bucket that does not exist | `vngcloud.ErrNotFound`: the server answers HTTP 200 with no body, so the SDK reads the bucket once. If the bucket exists, the call returns `*vngcloud.APIError`, code `EmptyResponse` |
 | `GetBucketPolicy` data that is not a string | `*vngcloud.APIError`, code `InvalidResponse` |
 | HTTP 403 | `vngcloud.ErrPermission` |
 

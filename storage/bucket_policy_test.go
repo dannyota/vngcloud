@@ -194,6 +194,8 @@ func TestPutBucketPolicyRefusesBadPolicyBeforeAnyRequest(t *testing.T) {
 		"Statement is null":    `{"Statement":null}`,
 		"lower case statement": `{"statement":[{"Effect":"Allow"}]}`,
 		"trailing text":        validPolicy + ` x`,
+		"repeated Statement":   `{"Statement":[],"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"repeated Version":     `{"Version":"2012-10-17","Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
 	}
 	for name, policy := range bad {
 		t.Run(name, func(t *testing.T) {
@@ -245,6 +247,17 @@ func TestPutBucketPolicyRefusesIncompleteStatements(t *testing.T) {
 		{"empty Effect", `{"Effect":"",` + pr + `,` + act + `,` + res + `}`, "Effect"},
 		{"Effect is not a string", `{"Effect":true,` + pr + `,` + act + `,` + res + `}`, "Effect"},
 		{"lower case principal", `{` + eff + `,"principal":"*",` + act + `,` + res + `}`, "Principal"},
+		{"blank Principal string", `{` + eff + `,"Principal":" ",` + act + `,` + res + `}`, "Principal"},
+		{"blank AWS string", `{` + eff + `,"Principal":{"AWS":" "},` + act + `,` + res + `}`, "Principal"},
+		{"blank AWS list entry", `{` + eff + `,"Principal":{"AWS":["a","\t"]},` + act + `,` + res + `}`, "Principal"},
+		{"blank Action", `{` + eff + `,` + pr + `,"Action":" ",` + res + `}`, "Action"},
+		{"blank Resource entry", `{` + eff + `,` + pr + `,` + act + `,"Resource":[" "]}`, "Resource"},
+		{"blank Effect", `{"Effect":" ",` + pr + `,` + act + `,` + res + `}`, "Effect"},
+		{"only NotPrincipal", `{` + eff + `,"NotPrincipal":"*",` + act + `,` + res + `}`, "Principal"},
+		{"repeated Principal, empty then public", `{` + eff + `,"Principal":"","Principal":"*",` + act + `,` + res + `}`, "repeats a member name"},
+		{"repeated Principal, public then private", `{` + eff + `,"Principal":"*",` + act + `,` + res + `,"Principal":{"AWS":["arn:aws:iam:::user/u"]}}`, "repeats a member name"},
+		{"repeated AWS in Principal", `{` + eff + `,"Principal":{"AWS":"*","AWS":["arn:aws:iam:::user/u"]},` + act + `,` + res + `}`, "repeats a member name"},
+		{"repeated Action", `{` + eff + `,` + pr + `,` + act + `,"Action":"s3:*",` + res + `}`, "repeats a member name"},
 		{"statement is a string", `"x"`, "JSON object"},
 		{"statement is null", `null`, "JSON object"},
 		{"statement is an array", `[]`, "JSON object"},

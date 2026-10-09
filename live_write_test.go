@@ -23,6 +23,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11939,11 +11940,9 @@ func TestLiveWriteStorageBucketPolicy(t *testing.T) {
 		t.Fatal("step 2: a new bucket has a policy")
 	}
 	_, err = client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketMissing})
-	var missingErr *vngcloud.APIError
-	if errors.As(err, &missingErr) {
-		t.Logf("step 2: policy of a missing bucket: status=%d code=%s, not found %v", missingErr.StatusCode, missingErr.Code, vngcloud.IsNotFound(err))
-	} else {
-		t.Logf("step 2: policy of a missing bucket: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	t.Logf("step 2: policy of a missing bucket: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	if !vngcloud.IsNotFound(err) {
+		t.Errorf("step 2: the policy of a missing bucket is not ErrNotFound")
 	}
 	_, err = client.DeleteBucketPolicy(ctx, &storage.DeleteBucketPolicyInput{ProjectID: projectID, Bucket: bucketA})
 	t.Logf("step 2: delete of a policy that does not exist: %s", safeErr(err))
@@ -12102,5 +12101,284 @@ func TestLiveWriteStorageBucketPolicy(t *testing.T) {
 	t.Logf("step 5: second delete succeeded; policy is empty %v", after.Policy == "")
 	if after.Policy != "" {
 		t.Error("step 5: the policy is still set after the delete")
+	}
+}
+
+// TestLiveWriteStorageBucketSettings creates one bucket in the vStorage
+// project named by VNGCLOUD_LIVE_STORAGE_PROJECT_ID and checks versioning and
+// CORS on it: the states a put leaves, the rule round trip, the refusals the
+// SDK makes before any request, the server's own refusals, an anonymous
+// preflight before and after the rules are deleted, and the not-found answer
+// for a missing bucket. It deletes the bucket. It logs statuses, codes,
+// counts, and booleans, never a name, an id, or the project id.
+func TestLiveWriteStorageBucketSettings(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket settings write test")
+	}
+	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
+	if projectID == "" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket settings write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	opts := []core.Option{
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_CAPTURE") == "1" {
+		opts = append(opts, liveStorageCapture(t))
+	}
+	cfg, err := vngcloud.LoadConfig(ctx, opts...)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := storage.New(cfg)
+
+	// Step 1: sweep leftovers, and find the region's S3 host and id.
+	buckets, err := client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListBuckets: %s", safeErr(err))
+	}
+	swept := 0
+	for _, b := range buckets.Items {
+		if !strings.HasPrefix(b.Name, liveStorageBucketPrefix) {
+			continue
+		}
+		if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: b.Name}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover bucket (%d objects): %s", b.ObjectCount, safeErr(err))
+		}
+		swept++
+	}
+	regions, err := client.ListRegions(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListRegions: %s", safeErr(err))
+	}
+	s3Host, regionID := "", ""
+	for _, r := range regions.Items {
+		if strings.EqualFold(r.Name, "HCM04") {
+			s3Host, regionID = r.S3Host, r.ID
+		}
+	}
+	base, err := url.Parse(s3Host)
+	if err != nil || base.Scheme != "https" || base.Host == "" || regionID == "" {
+		t.Fatal("step 1: the region list has no usable HCM04 S3 host and id")
+	}
+	t.Logf("step 1: deleted %d leftover bucket(s)", swept)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate name suffix: %v", err)
+	}
+	bucket := liveStorageBucketPrefix + suffix
+	missing := bucket + "-missing"
+	made := false
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if made {
+			if _, err := client.DeleteBucketCORS(cleanupCtx, &storage.DeleteBucketCORSInput{ProjectID: projectID, Bucket: bucket}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete CORS rules: %s", safeErr(err))
+			}
+			if _, err := client.DeleteBucket(cleanupCtx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: bucket}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete bucket: %s", safeErr(err))
+			}
+		}
+		left, err := client.ListBuckets(cleanupCtx, &storage.ListBucketsInput{ProjectID: projectID})
+		if err != nil {
+			t.Errorf("cleanup: list buckets: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, b := range left.Items {
+			if strings.HasPrefix(b.Name, liveStorageBucketPrefix) {
+				remaining++
+			}
+		}
+		t.Logf("cleanup: %d vngcloud-live- bucket(s) remain", remaining)
+		if remaining != 0 {
+			t.Error("cleanup: the test left a bucket behind")
+		}
+	})
+
+	// Step 2: the bucket, and versioning through every state.
+	made = true // set before the call: a failed create may still have made it
+	if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: bucket}); err != nil {
+		t.Fatalf("step 2 CreateBucket: %s", safeErr(err))
+	}
+	readVersioning := func(step string) *storage.GetBucketVersioningOutput {
+		t.Helper()
+		out, err := client.GetBucketVersioning(ctx, &storage.GetBucketVersioningInput{ProjectID: projectID, Bucket: bucket})
+		if err != nil {
+			t.Fatalf("%s GetBucketVersioning: %s", step, safeErr(err))
+		}
+		t.Logf("%s: versioning enabled=%v status=%s", step, out.Enabled, out.Status)
+		return out
+	}
+	if got := readVersioning("step 2 before any put"); got.Enabled || got.Status != "Off" {
+		t.Errorf("step 2: a new bucket reads enabled=%v status=%s, want Off", got.Enabled, got.Status)
+	}
+	for _, step := range []struct {
+		name    string
+		enabled bool
+		status  string
+	}{{"step 2 put true", true, "Enabled"}, {"step 2 put false", false, "Suspended"}} {
+		if _, err := client.PutBucketVersioning(ctx, &storage.PutBucketVersioningInput{ProjectID: projectID, Bucket: bucket, Enabled: &step.enabled}); err != nil {
+			t.Fatalf("%s: %s", step.name, safeErr(err))
+		}
+		if got := readVersioning(step.name); got.Enabled != step.enabled || got.Status != step.status {
+			t.Errorf("%s: reads enabled=%v status=%s, want enabled=%v status=%s", step.name, got.Enabled, got.Status, step.enabled, step.status)
+		}
+	}
+	if _, err := client.PutBucketVersioning(ctx, &storage.PutBucketVersioningInput{ProjectID: projectID, Bucket: bucket}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Errorf("step 2: a put without Enabled returned %s, want ErrInvalidInput", safeErr(err))
+	}
+
+	// Step 3: a missing bucket.
+	_, err = client.GetBucketVersioning(ctx, &storage.GetBucketVersioningInput{ProjectID: projectID, Bucket: missing})
+	t.Logf("step 3: versioning of a missing bucket: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	if !vngcloud.IsNotFound(err) {
+		t.Error("step 3: versioning of a missing bucket is not ErrNotFound")
+	}
+	_, err = client.GetBucketCORS(ctx, &storage.GetBucketCORSInput{ProjectID: projectID, Bucket: missing})
+	t.Logf("step 3: CORS of a missing bucket: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	if !vngcloud.IsNotFound(err) {
+		t.Error("step 3: CORS of a missing bucket is not ErrNotFound")
+	}
+
+	// Step 4: CORS before any rule, then one rule and the read back.
+	readCORS := func(step string) []storage.CORSRule {
+		t.Helper()
+		out, err := client.GetBucketCORS(ctx, &storage.GetBucketCORSInput{ProjectID: projectID, Bucket: bucket})
+		if err != nil {
+			t.Fatalf("%s GetBucketCORS: %s", step, safeErr(err))
+		}
+		if out.Rules == nil {
+			t.Errorf("%s: Rules is nil", step)
+		}
+		t.Logf("%s: %d CORS rule(s)", step, len(out.Rules))
+		return out.Rules
+	}
+	if rules := readCORS("step 4 before any put"); len(rules) != 0 {
+		t.Fatalf("step 4: a new bucket has %d CORS rule(s)", len(rules))
+	}
+	const origin = "https://app.example.com"
+	rule := storage.CORSRule{
+		AllowedOrigins: []string{origin},
+		AllowedMethods: []string{"GET", "PUT"},
+		AllowedHeaders: []string{"x-amz-meta-test"},
+		MaxAgeSeconds:  600,
+	}
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{rule}}); err != nil {
+		t.Fatalf("step 4 PutBucketCORS: %s", safeErr(err))
+	}
+	rules := readCORS("step 4 after the put")
+	if len(rules) != 1 {
+		t.Fatalf("step 4: %d rule(s) read back, want 1", len(rules))
+	}
+	got := rules[0]
+	gotMethods := slices.Clone(got.AllowedMethods)
+	slices.Sort(gotMethods)
+	t.Logf("step 4: origins equal %v, methods equal as a set %v, headers equal %v, max age equal %v, exposed headers equal allowed headers %v",
+		slices.Equal(got.AllowedOrigins, rule.AllowedOrigins), slices.Equal(gotMethods, []string{"GET", "PUT"}),
+		slices.Equal(got.AllowedHeaders, rule.AllowedHeaders), got.MaxAgeSeconds == rule.MaxAgeSeconds,
+		slices.Equal(got.ExposedHeaders, rule.AllowedHeaders))
+	t.Logf("step 4: exposed headers nil %v", got.ExposedHeaders == nil)
+	if !slices.Equal(got.AllowedOrigins, rule.AllowedOrigins) || !slices.Equal(gotMethods, []string{"GET", "PUT"}) ||
+		!slices.Equal(got.AllowedHeaders, rule.AllowedHeaders) || got.MaxAgeSeconds != rule.MaxAgeSeconds {
+		t.Error("step 4: the rule read back differs from the rule put")
+	}
+
+	// Step 5: refusals. The SDK refuses a bad rule before any request. The
+	// server's own refusals, which the SDK never lets through, are sent raw.
+	bad := rule
+	bad.AllowedMethods = []string{"get"}
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{bad}}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Errorf("step 5: a lower-case method returned %s, want ErrInvalidInput", safeErr(err))
+	}
+	if after := readCORS("step 5 after the refused put"); len(after) != 1 {
+		t.Errorf("step 5: %d rule(s) after a refused put, want the 1 put before", len(after))
+	}
+	raw := core.ClientOf(cfg)
+	probe := func(name string, body any) {
+		t.Helper()
+		route := raw.RouteURL(routes.Route{Product: routes.ProductStorage, Version: "internal/v1",
+			Parts: []string{"ceph", "projects", projectID, "buckets", bucket, "cors"}})
+		var out json.RawMessage
+		status, err := raw.DoJSONStatus(ctx, transport.Request{
+			Operation: "storage.RawCORSProbe", Method: http.MethodPut, URL: route, Body: body,
+			Headers: map[string]string{"region": regionID, "region_id": regionID},
+			OK:      []int{http.StatusOK, http.StatusBadRequest}, Once: true,
+		}, &out)
+		var env struct {
+			Success bool            `json:"success"`
+			Code    json.RawMessage `json:"code"`
+		}
+		_ = json.Unmarshal(out, &env)
+		t.Logf("step 5: raw put of %s: status=%d error=%v success=%v code=%s", name, status, err != nil, env.Success, env.Code)
+	}
+	probe("an unknown method", []map[string]any{{"AllowedOrigins": []string{origin}, "AllowedMethods": []string{"FOO"}}})
+	probe("an empty list", []map[string]any{})
+	probe("lower-case keys", []map[string]any{{"allowedOrigins": []string{origin}, "allowedMethods": []string{"GET"}}})
+	if after := readCORS("step 5 after the raw refusals"); len(after) != 1 {
+		t.Errorf("step 5: %d rule(s) after refused puts, want 1", len(after))
+	}
+
+	// Step 6: an anonymous preflight, the delete, a second delete, and the
+	// preflight again.
+	preflight := func() (int, bool) {
+		t.Helper()
+		u := *base
+		u.Path = "/" + bucket + "/preflight.txt"
+		req, err := http.NewRequestWithContext(ctx, http.MethodOptions, u.String(), nil)
+		if err != nil {
+			t.Fatal("build the preflight request")
+		}
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		resp, err := (&http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatalf("preflight failed (%T)", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin") != ""
+	}
+	status, allowed := preflight()
+	t.Logf("step 6: preflight with a rule: status=%d allow-origin present %v", status, allowed)
+	if status != http.StatusOK || !allowed {
+		t.Error("step 6: the preflight with a rule is not 200 with Access-Control-Allow-Origin")
+	}
+	for i := 1; i <= 2; i++ {
+		if _, err := client.DeleteBucketCORS(ctx, &storage.DeleteBucketCORSInput{ProjectID: projectID, Bucket: bucket}); err != nil {
+			t.Fatalf("step 6 DeleteBucketCORS %d: %s", i, safeErr(err))
+		}
+		t.Logf("step 6: delete %d succeeded", i)
+	}
+	if rules := readCORS("step 6 after the delete"); len(rules) != 0 {
+		t.Errorf("step 6: %d rule(s) after the delete", len(rules))
+	}
+	status, allowed = preflight()
+	t.Logf("step 6: preflight after the delete: status=%d allow-origin present %v", status, allowed)
+	if status != http.StatusForbidden || allowed {
+		t.Error("step 6: the preflight after the delete is not 403 without Access-Control-Allow-Origin")
+	}
+
+	// Step 7: delete the bucket, then every call on it is not found.
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: bucket}); err != nil {
+		t.Fatalf("step 7 DeleteBucket: %s", safeErr(err))
+	}
+	_, vErr := client.GetBucketVersioning(ctx, &storage.GetBucketVersioningInput{ProjectID: projectID, Bucket: bucket})
+	_, cErr := client.GetBucketCORS(ctx, &storage.GetBucketCORSInput{ProjectID: projectID, Bucket: bucket})
+	_, pErr := client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucket})
+	t.Logf("step 7: deleted bucket: versioning not found %v, CORS not found %v, policy not found %v",
+		vngcloud.IsNotFound(vErr), vngcloud.IsNotFound(cErr), vngcloud.IsNotFound(pErr))
+	if !vngcloud.IsNotFound(vErr) || !vngcloud.IsNotFound(cErr) || !vngcloud.IsNotFound(pErr) {
+		t.Error("step 7: a call on the deleted bucket is not ErrNotFound")
 	}
 }
