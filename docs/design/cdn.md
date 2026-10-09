@@ -4,8 +4,7 @@ Status: Approved (2026-09-26).
 
 This design adds one read: the list of GreenNode CDN IP ranges that an origin
 must allow. aboutme's deploy reads the list on every run and stops when it
-changes. vCDN management stays out of scope, because vCDN has no API the SDK
-can call.
+changes. vCDN management is in [vCDN API](cdn-api.md).
 
 It builds on [SDK and CLI](sdk-and-cli.md): package per service,
 `Method(ctx, *Input) (*Output, error)`, operation tables, and the error
@@ -13,8 +12,8 @@ model.
 
 ## Source
 
-vCDN has no public API; the API reference at `docs.api.greennode.ai` lists
-none. The CDN IP ranges are published only on the public FAQ page
+The [vCDN API](cdn-api.md) has no IP range call. The CDN IP ranges are
+published only on the public FAQ page
 `https://docs.greennode.ai/faq/vcdn`, in the section whose heading reads
 "[vCDN] I need support to provide GreenNode's CDN IP range". The old
 `docs.vngcloud.vn` FAQ URL redirects there. The page states no update
@@ -40,13 +39,11 @@ Facts about the page that shape the parser (checked 2026-09-26):
 
 ## Non-goals
 
-- vCDN management: cache rules, origin headers, certificates, and the rest of
-  the console. The console at `https://vcdn.greennode.ai/` redirects on the
-  server to `https://sso.greennode.ai/cas/login`, a root-account form with a
-  Google reCAPTCHA and no IAM User option. Root login is already a
-  [non-goal](sdk-and-cli.md#non-goals). aboutme keeps these as console steps.
-  A GreenNode support request for a vCDN API, or IAM User access to the
-  console, would reopen this.
+- vCDN management, which [vCDN API](cdn-api.md) covers with the
+  documented API key. The console at `https://vcdn.greennode.ai/` takes
+  root login only, behind a Google reCAPTCHA, and root login is a
+  [non-goal](sdk-and-cli.md#non-goals), so creating the API key stays a
+  console step.
 - Watching the list or diffing it against a saved copy. aboutme owns its
   diff.
 - IP ranges of other GreenNode services.

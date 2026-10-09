@@ -34,22 +34,32 @@ with both region headers. Every call checks `ProjectID` and `Bucket` as in
 ## CORS
 
 `CORSRule` has `AllowedOrigins`, `AllowedMethods`, and `AllowedHeaders`
-(`[]string`), `MaxAgeSeconds` (`int`), and `ExposedHeaders` (`[]string`,
-read-only).
+(`[]string`), `MaxAgeSeconds` (`int`), `ExposeAllowedHeaders` (`bool`),
+and `ExposedHeaders` (`[]string`, read-only). `ExposeAllowedHeaders` is
+pending owner approval ([decision 50](storage-decisions.md#owner-decisions)).
 
 - `PutBucketCORS` takes `Rules []CORSRule`, required, and replaces every
   rule. The body is a bare JSON array, built from a request type with the
   server's capitalised keys: `AllowedOrigins`, `AllowedMethods`,
-  `AllowedHeaders`, and `MaxAgeSeconds`. Empty `AllowedHeaders` and a zero
-  `MaxAgeSeconds` are omitted. `ExposedHeaders` is never sent.
+  `AllowedHeaders`, `ExposeHeaders`, and `MaxAgeSeconds`. Empty
+  `AllowedHeaders` and a zero `MaxAgeSeconds` are omitted.
+  `ExposeHeaders` is sent, equal to `AllowedHeaders`, only when
+  `ExposeAllowedHeaders` is true. `ExposedHeaders` is never sent.
 - `GetBucketCORS` decodes `data.rules[]` with the response's camel-case
   keys (`allowedOrigins`, `allowedMethods`, `allowedHeaders`,
   `exposedHeaders`, `maxAgeSeconds`); `id` is always null and is dropped.
-  A success with no `data` returns an empty, non-nil `Rules`, so the CLI
-  prints `{"Rules": []}`.
-- The server ignores `ExposeHeaders` and sets the exposed headers to the
-  allowed headers, null when there are none. The doc comment and the wiki
-  call `ExposedHeaders` server-derived.
+  It sets `ExposeAllowedHeaders` when `exposedHeaders` is not empty, so a
+  rule read and put back keeps its exposed headers. A success with no
+  `data` returns an empty, non-nil `Rules`, so the CLI prints
+  `{"Rules": []}`.
+- The server stores exposed headers only when the put names
+  `ExposeHeaders`, and then copies the allowed headers into them, never
+  the value sent. Without `ExposeHeaders`, `exposedHeaders` reads null and
+  the preflight carries no `Access-Control-Expose-Headers`, so a browser
+  reads only the CORS-safelisted response headers. To let a browser read
+  `ETag`, for example after an upload, a rule lists `ETag` in
+  `AllowedHeaders` and sets `ExposeAllowedHeaders`. The doc comment and
+  the wiki say so and call `ExposedHeaders` server-derived.
 - The server returns `allowedMethods` in its own order. The wiki tells
   callers to compare methods as sets.
 - `DeleteBucketCORS` returns `{}`, also when no rules exist. Put and delete
@@ -65,6 +75,8 @@ read-only).
   every rule, call `DeleteBucketCORS`.
 - A rule has no `AllowedOrigins`, or an empty origin, or an origin with
   more than one `*`.
+- A rule sets `ExposeAllowedHeaders` with no `AllowedHeaders`: there is
+  nothing to expose.
 - A rule has no `AllowedMethods`, or a method other than `GET`, `PUT`,
   `POST`, `DELETE`, or `HEAD`, compared exactly. The server refuses
   lower case and `OPTIONS` with a generic code 114, and accepts an empty
@@ -152,11 +164,13 @@ Unit tests use `httptest`:
 - Versioning: the `enable` body for true and false; nil `Enabled` sends
   nothing; fixtures for `Off`, `Enabled`, and `Suspended`; no `data` is an
   error.
-- CORS: the put body is a bare array with capitalised keys and no
-  `ExposeHeaders`; zero `MaxAgeSeconds` and empty headers are omitted; each
-  rule check refuses with no request; the get fixture fills
-  `ExposedHeaders`; no `data` gives an empty, non-nil list; code 114 and
-  `MalformedXML` reach `*APIError.Message`; a second delete is `{}`.
+- CORS: the put body is a bare array with capitalised keys;
+  `ExposeHeaders` equals `AllowedHeaders` when `ExposeAllowedHeaders` is
+  true and is absent otherwise; zero `MaxAgeSeconds` and empty headers are
+  omitted; each rule check refuses with no request; the get fixture fills
+  `ExposedHeaders` and `ExposeAllowedHeaders`; no `data` gives an empty,
+  non-nil list; code 114 and `MalformedXML` reach `*APIError.Message`; a
+  second delete is `{}`.
 - Missing bucket, for each of the eight calls: an empty body then a
   `GetBucket` code 404 gives `ErrNotFound`; an empty body then the bucket
   gives `EmptyResponse`; exactly one `GetBucket`.
@@ -169,11 +183,13 @@ Signature V4 signer. It deletes leftover `vngcloud-live-` buckets, then:
 
 1. Creates bucket A. Versioning reads `Off`; a put of true reads
    `Enabled`; a put of false reads `Suspended`.
-2. Creates bucket B. CORS reads `[]`. A put of one rule, then a get: equal
-   origins, methods as a set, `ExposedHeaders` equal to `AllowedHeaders`.
-   An anonymous `OPTIONS` preflight answers 200 with
-   `Access-Control-Allow-Origin`. A delete, a second delete, and a
-   preflight answering 403.
+2. Creates bucket B. CORS reads `[]`. A put of one rule without
+   `ExposeAllowedHeaders`, then a get: equal origins, methods as a set,
+   empty `ExposedHeaders`. A put of the rule with `ExposeAllowedHeaders`,
+   then a get: `ExposedHeaders` equal to `AllowedHeaders`. An anonymous
+   `OPTIONS` preflight answers 200 with `Access-Control-Allow-Origin` and
+   `Access-Control-Expose-Headers` naming the allowed headers. A delete,
+   a second delete, and a preflight answering 403.
 3. Creates a key written to a temp `--secret-file`, puts an object in B,
    and checks an anonymous `GET` answers 403. Puts the public-read
    template: the `GET` answers 200 within 5 seconds. Deletes the policy:

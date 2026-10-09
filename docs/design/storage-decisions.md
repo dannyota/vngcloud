@@ -29,7 +29,7 @@ command: `put-bucket-policy` gains the `--yes` rule for a public principal
 
 ## Owner decisions
 
-Decisions 1 to 49 are approved as recommended.
+Decisions 1 to 50 are approved as recommended.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -144,8 +144,10 @@ Decisions 1 to 49 are approved as recommended.
 40. Approved: `CORSRule` has `AllowedOrigins`, `AllowedMethods`,
     `AllowedHeaders`, and `MaxAgeSeconds`, plus a read-only
     `ExposedHeaders` that a get fills and a put never sends. The server
-    ignores `ExposeHeaders` and copies `AllowedHeaders` into the exposed
-    list, so a settable field would promise what the server does not do.
+    never stores the `ExposeHeaders` value sent: when a put names it, the
+    server copies `AllowedHeaders` into the exposed list, and when a put
+    omits it, the list is null. A settable list would promise what the
+    server does not do. Decision 50 covers sending `ExposeHeaders`.
 41. Approved: `PutBucketCORS` refuses, before any request, an empty
     rule list, a rule without an origin or a method, an empty origin, an
     origin with more than one `*`, a method outside `GET`, `PUT`, `POST`,
@@ -189,6 +191,14 @@ Decisions 1 to 49 are approved as recommended.
 49. Approved: S6 ships versioning, CORS, the missing-bucket check, and
     the `put-bucket-policy` `--yes` rule together, as one bucket settings
     release.
+50. Approved: `CORSRule` gains `ExposeAllowedHeaders bool`. When it
+    is true, `PutBucketCORS` sends `ExposeHeaders` equal to
+    `AllowedHeaders`, and the server exposes the allowed headers; a get
+    sets it when `exposedHeaders` is not empty. A rule that sets it with
+    no `AllowedHeaders` is refused before any request. Without it, rules
+    put through the SDK expose no headers, and a browser upload cannot
+    read `ETag`. The name says what the server does. The alternative keeps
+    the SDK from ever sending `ExposeHeaders` and documents the limit.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.

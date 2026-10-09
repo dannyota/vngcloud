@@ -371,17 +371,19 @@ Paths are `ceph/projects/{p}/buckets/{b}/cors`.
 | Empty `AllowedMethods`, `MaxAgeSeconds: -1`, an origin without a scheme, unknown fields | Accepted |
 
 - `allowedMethods` comes back in the server's set order, not the order put.
-- The server ignores `ExposeHeaders` and sets `exposedHeaders` to the
-  allowed headers, null when there are none. The data-plane `GET ?cors`
-  agrees.
+- The server sets `exposedHeaders` only when the put names
+  `ExposeHeaders`, and then copies the allowed headers into it, never the
+  value sent. A put without `ExposeHeaders` reads back null. The
+  data-plane `GET ?cors` agrees.
 - A failed put keeps the previous rules.
 - After a delete, the data-plane `GET ?cors` answers 404
   `NoSuchCORSConfiguration`.
 - An anonymous `OPTIONS` with `Origin` and
   `Access-Control-Request-Method: GET` answers 200 with
   `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`,
-  `Access-Control-Max-Age`, `Access-Control-Expose-Headers`, and
-  `Vary: Origin` while a rule matches, and 403 otherwise. A put and a
+  `Access-Control-Max-Age`, and `Vary: Origin` while a rule matches, and
+  403 otherwise. It adds `Access-Control-Expose-Headers` only when the
+  rule has exposed headers. A put and a
   delete take effect on the first request.
 
 ## Public access

@@ -133,7 +133,7 @@ Service packages may import each other for shared models; `network` imports
 | `portal` | Account info, zones, and quotas |
 | `project` | The project listing that `internal/core` keeps for discovery |
 | `billing`, `pricing` | Budgets, cost, balances, and quotes; see [billing](billing.md) |
-| `cdn` | CDN IP ranges; see [CDN](cdn.md) |
+| `cdn` | CDN IP ranges, and vCDN Web Accelerators, certificates, purge, and analytics; see [CDN](cdn.md) and [vCDN API](cdn-api.md) |
 | `monitor` | vMonitor synthetic checks, notification channels, log projects, and alarms; see [vMonitor](monitor.md) |
 | `storage` | vStorage regions, projects, buckets, and S3 keys; see [vStorage](storage.md) |
 | `iam` | Service accounts, groups, and policies; see [IAM writes](iam-writes.md) |
@@ -406,9 +406,9 @@ the SDK and CLI together:
    reads, then bucket writes, S3 keys, service accounts, bucket policy, and
    bucket settings.
 
-vCDN cache rules, the origin header, and the certificate stay console steps
-for aboutme: vCDN has no public API, and its console accepts only root login
-(see [CDN non-goals](cdn.md#non-goals)).
+vCDN cache rules and the certificate move to the documented vCDN API,
+which takes an API key made once in the root-only console; see
+[vCDN API](cdn-api.md).
 
 Discovery found that an IAM User token can call the vMonitor uptime API and
 the vStorage console API. [vMonitor Alerts](monitor-alerts.md) and
