@@ -33,6 +33,10 @@ const (
 	// policies API returns the console's own HTML page with status 200 on
 	// the dashboard host, so the two never share one endpoint field.
 	DefaultIAM = "https://iam.console.greennode.ai/"
+
+	// DefaultStorage is the vStorage console API host root. Paths live under
+	// "internal/v1/" beneath it.
+	DefaultStorage = "https://vstorage.console.greennode.ai/"
 )
 
 type Overrides struct {
@@ -52,6 +56,7 @@ type Overrides struct {
 	CDNDocs            string
 	Monitor            string
 	IAM                string
+	Storage            string
 }
 
 type Set struct {
@@ -70,6 +75,7 @@ type Set struct {
 	CDNDocs   string
 	Monitor   string
 	IAM       string
+	Storage   string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -88,6 +94,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		CDNDocs:   DefaultCDNDocs,
 		Monitor:   DefaultMonitor,
 		IAM:       DefaultIAM,
+		Storage:   DefaultStorage,
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -133,6 +140,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.IAM != "" {
 		set.IAM = overrides.IAM
 	}
+	if overrides.Storage != "" {
+		set.Storage = overrides.Storage
+	}
 	return set.Normalize()
 }
 
@@ -161,6 +171,7 @@ func (s Set) Normalize() Set {
 	s.Billing = normalizeURL(s.Billing)
 	s.Monitor = normalizeURL(s.Monitor)
 	s.IAM = normalizeURL(s.IAM)
+	s.Storage = normalizeURL(s.Storage)
 	return s
 }
 

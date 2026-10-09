@@ -107,6 +107,7 @@ func main() {
 				showMonitor(ctx, cfg, sdkOutputs)
 				showMonitorLocations(ctx, cfg, sdkOutputs)
 				showMonitorChannels(ctx, cfg, sdkOutputs)
+				showStorage(ctx, cfg, sdkOutputs)
 			}
 		}
 	}

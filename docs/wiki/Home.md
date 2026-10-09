@@ -24,6 +24,7 @@ rename; the module keeps the `vngcloud` name.
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
   and alarms.
+- [Storage](Storage.md): vStorage regions, projects, and buckets (reads).
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.

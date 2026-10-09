@@ -41,6 +41,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| Storage | `storage` | vStorage regions and projects, buckets, bucket detail | Typed | Reads only; calls an undocumented console API. See [Storage](Storage.md). |
 
 ## Project
 
@@ -420,3 +421,17 @@ can be read and attached, but never updated or deleted.
 `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
 `RemoveUserFromGroup`, `AttachGroupPolicy`, `DetachGroupPolicy`, their
 guards, and their errors.
+
+## Storage
+
+```go
+storageClient := storage.New(cfg)
+storageClient.ListRegions(ctx, nil)
+storageClient.ListProjects(ctx, in) // Region (optional; defaults from cfg's region)
+storageClient.ListBuckets(ctx, in)  // ProjectID (required), Region
+storageClient.GetBucket(ctx, in)    // ProjectID (required), Bucket (required), Region
+```
+
+`Region` is a vStorage region name, `HCM04` or `HAN02`. Empty maps `hcm-3`
+to `HCM04` and `han-1` to `HAN02`. See [Storage](Storage.md) for the
+console API's envelope errors and the state of an account with no project.

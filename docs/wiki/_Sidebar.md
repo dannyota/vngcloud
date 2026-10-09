@@ -19,6 +19,7 @@
 - [Network ACLs](Network-ACLs.md)
 - [Network DHCP Options](Network-DHCPOptions.md)
 - [Network Virtual IPs](Network-VirtualIPs.md)
+- [Storage](Storage.md)
 - [Security](Security.md)
 - [Limitations](Limitations.md)
 
