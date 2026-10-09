@@ -199,8 +199,8 @@ are:
    may have changed the pool.
 
 `Address` must parse as IPv4 (the reference's pattern); `Port` and
-`MonitorPort` are 1 to 65535, with `MonitorPort` 0 meaning unset. Weight
-0 sends 1. The server's `identical to the existing members` refusal maps
+`MonitorPort` are 1 to 65535; `MonitorPort` 0 sends `Port`. Weight 0
+sends 1. The server's `identical to the existing members` refusal maps
 to `Changed` false, since step 3 already stops that case.
 
 ## Policies

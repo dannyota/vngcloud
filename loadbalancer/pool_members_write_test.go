@@ -691,3 +691,76 @@ func TestPoolMemberRejectsBadPathIDs(t *testing.T) {
 		}
 	}
 }
+
+func memberMonitorPorts(t *testing.T, body map[string]any) map[string]float64 {
+	t.Helper()
+	got := map[string]float64{}
+	for _, m := range body["members"].([]any) {
+		entry := m.(map[string]any)
+		mp, _ := entry["monitorPort"].(float64)
+		got[fmt.Sprintf("%v:%v", entry["ipAddress"], entry["port"])] = mp
+	}
+	return got
+}
+
+func TestAddPoolMemberUnsetMonitorPortSendsPort(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, memberTestHandler(t, &body, ""))
+	withInstantSleep(c)
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080}
+	if _, err := c.AddPoolMember(context.Background(), in); err != nil {
+		t.Fatalf("AddPoolMember() error = %v", err)
+	}
+	got := memberMonitorPorts(t, body)
+	if got["10.0.0.3:8080"] != 8080 {
+		t.Fatalf("new member monitorPort = %v, want 8080", got["10.0.0.3:8080"])
+	}
+	if got["10.0.0.1:80"] != 80 || got["10.0.0.2:80"] != 80 {
+		t.Fatalf("existing members monitorPort = %+v, want 80 (read value 0 becomes the port)", got)
+	}
+}
+
+func TestAddPoolMemberExplicitMonitorPortSentAsGiven(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, memberTestHandler(t, &body, ""))
+	withInstantSleep(c)
+
+	in := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.3", Port: 8080, MonitorPort: 9090}
+	if _, err := c.AddPoolMember(context.Background(), in); err != nil {
+		t.Fatalf("AddPoolMember() error = %v", err)
+	}
+	if got := memberMonitorPorts(t, body)["10.0.0.3:8080"]; got != 9090 {
+		t.Fatalf("monitorPort = %v, want 9090", got)
+	}
+}
+
+func TestUpdatePoolMemberMonitorPortZeroSendsPort(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, memberTestHandler(t, &body, ""))
+	withInstantSleep(c)
+
+	in := &UpdatePoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.2", Port: 80, Weight: vngcloud.Ptr(9)}
+	if _, err := c.UpdatePoolMember(context.Background(), in); err != nil {
+		t.Fatalf("UpdatePoolMember() error = %v", err)
+	}
+	if got := memberMonitorPorts(t, body)["10.0.0.2:80"]; got != 80 {
+		t.Fatalf("monitorPort = %v, want 80 (unset keeps the read value, 0 becomes the port)", got)
+	}
+}
+
+func TestPoolMemberRejectsBadMonitorPort(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, mp := range []int{70000, -1} {
+		add := &AddPoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.1", Port: 80, MonitorPort: mp}
+		if _, err := c.AddPoolMember(context.Background(), add); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("Add MonitorPort=%d err = %v, want ErrInvalidInput", mp, err)
+		}
+		upd := &UpdatePoolMemberInput{LoadBalancerID: memberTestLBID, PoolID: memberTestPoolID, Address: "10.0.0.1", Port: 80, MonitorPort: vngcloud.Ptr(mp)}
+		if _, err := c.UpdatePoolMember(context.Background(), upd); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("Update MonitorPort=%d err = %v, want ErrInvalidInput", mp, err)
+		}
+	}
+}

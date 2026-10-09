@@ -49,6 +49,16 @@ func poolMemberKeyOf(address string, port int) poolMemberKey {
 	return poolMemberKey{address: canonicalIPv4(address), port: port}
 }
 
+// effectiveMonitorPort returns the health check port a member is sent with:
+// monitorPort, or the traffic port when monitorPort is 0, because the API
+// refuses monitorPort 0.
+func effectiveMonitorPort(port, monitorPort int) int {
+	if monitorPort == 0 {
+		return port
+	}
+	return monitorPort
+}
+
 // poolMemberEntriesOf builds the members replace body from members exactly
 // as ListPoolMembers read them, dropping every field but the ones the API
 // lets a caller resend, so a replace never silently drops a member the
@@ -56,7 +66,7 @@ func poolMemberKeyOf(address string, port int) poolMemberKey {
 func poolMemberEntriesOf(members []PoolMember) []poolMemberEntry {
 	entries := make([]poolMemberEntry, len(members))
 	for i, m := range members {
-		entries[i] = poolMemberEntry{Address: m.Address, Port: m.ProtocolPort, Backup: m.Backup, Weight: m.Weight, Name: m.Name, MonitorPort: m.MonitorPort}
+		entries[i] = poolMemberEntry{Address: m.Address, Port: m.ProtocolPort, Backup: m.Backup, Weight: m.Weight, Name: m.Name, MonitorPort: effectiveMonitorPort(m.ProtocolPort, m.MonitorPort)}
 	}
 	return entries
 }
@@ -91,7 +101,7 @@ func poolMembersEqual(members []PoolMember, sent []poolMemberEntry) bool {
 		remaining[e]++
 	}
 	for _, m := range members {
-		e := poolMemberEntry{Address: canonicalIPv4(m.Address), Port: m.ProtocolPort, Backup: m.Backup, Weight: m.Weight, Name: m.Name, MonitorPort: m.MonitorPort}
+		e := poolMemberEntry{Address: canonicalIPv4(m.Address), Port: m.ProtocolPort, Backup: m.Backup, Weight: m.Weight, Name: m.Name, MonitorPort: effectiveMonitorPort(m.ProtocolPort, m.MonitorPort)}
 		if remaining[e] == 0 {
 			return false
 		}
@@ -292,7 +302,8 @@ type AddPoolMemberOutput struct {
 
 // AddPoolMember adds one member to a pool, identified by Address (must
 // parse as IPv4) and Port (1 to 65535); MonitorPort, when set, must also be
-// 1 to 65535. Weight 0 sends 1.
+// 1 to 65535, and 0 sends Port, because the API refuses monitorPort 0.
+// Weight 0 sends 1.
 //
 // The members PUT replaces the whole list, so AddPoolMember is a
 // read-merge write: it waits, within the pre-write bound, until the load
@@ -358,7 +369,7 @@ func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*Ad
 	if weight == 0 {
 		weight = 1
 	}
-	wanted := poolMemberEntry{Address: in.Address, Port: in.Port, Backup: in.Backup, Weight: weight, Name: in.Name, MonitorPort: in.MonitorPort}
+	wanted := poolMemberEntry{Address: in.Address, Port: in.Port, Backup: in.Backup, Weight: weight, Name: in.Name, MonitorPort: effectiveMonitorPort(in.Port, in.MonitorPort)}
 	key := poolMemberKeyOf(in.Address, in.Port)
 	if i := findPoolMemberEntry(entries, key); i >= 0 {
 		if poolMemberFieldsEqual(entries[i], wanted) {
@@ -407,7 +418,7 @@ type UpdatePoolMemberOutput struct {
 // UpdatePoolMember is the same read-merge write AddPoolMember's doc comment
 // describes: it waits for the load balancer and the pool to be ready, reads
 // every member, applies the set fields to the matching one, and sends back
-// the whole list. A Weight of 0 sends 1. When the result has no field
+// the whole list. A Weight of 0 sends 1, and a MonitorPort of 0 sends Port. When the result has no field
 // different from what was read, Changed is false and nothing is sent.
 // Otherwise, without NoWait, it waits and confirms exactly as AddPoolMember
 // does; see its doc comment for the wait, the confirm, and rerun safety.
@@ -474,7 +485,7 @@ func (c *Client) UpdatePoolMember(ctx context.Context, in *UpdatePoolMemberInput
 		updated.Weight = w
 	}
 	if in.MonitorPort != nil {
-		updated.MonitorPort = *in.MonitorPort
+		updated.MonitorPort = effectiveMonitorPort(updated.Port, *in.MonitorPort)
 	}
 	if in.Backup != nil {
 		updated.Backup = *in.Backup

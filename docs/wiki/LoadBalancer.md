@@ -247,7 +247,7 @@ if _, err := client.RemovePoolMember(ctx, &loadbalancer.RemovePoolMemberInput{
 ```
 
 `Address` must parse as IPv4; `Port` and `MonitorPort` (when set) must be 1
-to 65535, and `MonitorPort` 0 means unset. `Weight` 0 sends 1.
+to 65535. An unset `MonitorPort` sends `Port`. `Weight` 0 sends 1.
 
 `AddPoolMember` of a member already present with the same `Name`, `Weight`,
 `MonitorPort`, and `Backup` is a no-op: `Changed` is false and nothing is

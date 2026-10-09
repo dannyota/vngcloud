@@ -108,6 +108,9 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - Replace members: `members`, the whole list, each `ipAddress` (IPv4),
   `port`, `backup` (required), and optional `weight` [1], `name` (5 to 50
   of `a-z A-Z 0-9 _ - .`), and `monitorPort`. No member ID is sent.
+  Live (2026-10-09, `hcm-3`): `monitorPort` 0 is refused with 400
+  `members[0].monitorPort: Invalid port number. The value must be in range
+  from 1 to 65535.`, so a member sends its `port` when none is set.
 - Policy create: `name`, `action` (`REDIRECT_TO_POOL` or
   `REDIRECT_TO_URL`), `redirectPoolId` or `redirectUrl`,
   `redirectHttpCode` (301 or 302), `keepQueryString`, and `rules`, each
