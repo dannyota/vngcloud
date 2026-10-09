@@ -526,6 +526,11 @@ var docOpNotes = map[string]string{
 	"storage get-bucket-policy":                storageGetBucketPolicyNote,
 	"storage put-bucket-policy":                storagePutBucketPolicyNote,
 	"storage delete-bucket-policy":             storageDeleteBucketPolicyNote,
+	"storage get-bucket-versioning":            storageGetBucketVersioningNote,
+	"storage put-bucket-versioning":            storagePutBucketVersioningNote,
+	"storage get-bucket-cors":                  storageGetBucketCORSNote,
+	"storage put-bucket-cors":                  storagePutBucketCORSNote,
+	"storage delete-bucket-cors":               storageDeleteBucketCORSNote,
 	"globalloadbalancer get-load-balancer":     globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":            globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":        globalLoadBalancerShapeUnverifiedNote,
@@ -547,6 +552,7 @@ var docJSONPlaceholders = map[string]string{
 	"Locations":   `["<location-id>"]`,
 	"VPCIDs":      `["<vpc-id>"]`,
 	"Values":      `[{"Value":"<value>"}]`,
+	"Rules":       `[{"AllowedOrigins":["<origin>"],"AllowedMethods":["GET"]}]`,
 	"Permissions": `[{"RepositoryID":"<repository-id>","Actions":["Pull Images"]}]`,
 }
 
@@ -628,6 +634,7 @@ var docExampleExtraFlag = map[string]string{
 // makes a poor placeholder) and, even with one, would print a command that
 // sets Certificate two contradictory ways at once. The override shows the
 // one runnable form: every PEM and key field through its own file flag.
+// storage put-bucket-versioning: a bool flag takes its value only as --enabled=<value>.
 // iam create-policy needs it because Statements is required and viaJSON:
 // buildExample would otherwise need a docJSONPlaceholders entry for it and
 // print an unrunnable --cli-input-json blob, when --document-file is the
@@ -660,6 +667,7 @@ var docExampleExtraFlag = map[string]string{
 // every call.
 var docExampleOverride = map[string]string{
 	"storage put-bucket-policy":        "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",
+	"storage put-bucket-versioning":    "vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true",
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
 	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",

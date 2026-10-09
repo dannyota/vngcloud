@@ -151,22 +151,14 @@ func TestStoragePutBucketPolicyPublicPrincipalNeedsYes(t *testing.T) {
 	}
 }
 
-func TestPolicyIsPublic(t *testing.T) {
-	for policy, want := range map[string]bool{
-		policyStar: true, policyAWSAll: true, policyAWSArr: true, policyNamed: false,
-		strings.Replace(policyStar, "Principal", "principal", 1): true,
-		strings.Replace(policyAWSAll, `"AWS"`, `"aws"`, 1):       true,
-		strings.Replace(policyStar, `"*"`, `["*"]`, 1):           true,
-		`{"Statement":[{"Principal":{"Service":"*"}}]}`:          false,
-		`{"Statement":[{"Principal":{"AWS":{"AWS":"*"}}}]}`:      false,
-		`{"Statement":[{"Effect":"Allow","Resource":"*"}]}`:      false,
-		`{"Statement":"*"}`: false,
-		`not json`:          false,
-	} {
-		if got := policyIsPublic(policy); got != want {
-			t.Errorf("policyIsPublic(%s) = %v, want %v", policy, got, want)
-		}
+func TestStoragePutBucketPolicyDenyOnlyStarNeedsNoYes(t *testing.T) {
+	deny := `{"Statement":[{"Effect":"Deny","Principal":"*","Action":["s3:*"],"Resource":["arn:aws:s3:::bucket-a/*"]}]}`
+	var calls []string
+	r := runStorage(t, policyRoutes(&calls, policyOKBody), putArgs("--policy", deny)...)
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
 	}
+	wantPut(t, calls, deny)
 }
 
 func TestStoragePutBucketPolicyPublicFileNeedsYes(t *testing.T) {

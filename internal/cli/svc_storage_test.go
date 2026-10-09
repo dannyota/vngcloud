@@ -65,6 +65,11 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"get-bucket-policy":                {"bucket"},
 		"put-bucket-policy":                {"bucket", "policy"},
 		"delete-bucket-policy":             {"bucket"},
+		"get-bucket-versioning":            {"bucket"},
+		"put-bucket-versioning":            {"bucket", "enabled"},
+		"get-bucket-cors":                  {"bucket"},
+		"put-bucket-cors":                  {"bucket"},
+		"delete-bucket-cors":               {"bucket"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -79,7 +84,8 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		switch op.name {
 		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
 			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal",
-			"put-bucket-policy", "delete-bucket-policy":
+			"put-bucket-policy", "delete-bucket-policy", "put-bucket-versioning",
+			"put-bucket-cors", "delete-bucket-cors":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {
@@ -246,7 +252,8 @@ func TestStoragePermissionDeniedMapsToItsCode(t *testing.T) {
 
 func TestStorageGetBucketExampleSelectsNoWrapperKey(t *testing.T) {
 	for _, op := range buildDocService("storage", storageOps).ops {
-		if op.queryField != "" {
+		// get-bucket-cors wraps its rule list, which --query Rules selects.
+		if op.queryField != "" && op.name != "get-bucket-cors" {
 			t.Errorf("%s: queryField = %q, want none (the output is flat)", op.name, op.queryField)
 		}
 	}

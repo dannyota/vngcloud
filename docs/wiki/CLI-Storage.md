@@ -69,6 +69,22 @@ Kind: Write, destructive.
 vngcloud storage delete-bucket --project-id <project-id> --bucket <bucket> --yes
 ```
 
+## delete-bucket-cors
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Removes every CORS rule; a bucket with none also succeeds, so a repeat delete succeeds. It needs no `--yes`, since put-bucket-cors restores rules. A browser's next preflight is refused.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage delete-bucket-cors --project-id <project-id> --bucket <bucket>
+```
+
 ## delete-bucket-policy
 
 Kind: Write.
@@ -149,6 +165,22 @@ Kind: Read.
 vngcloud storage get-bucket --project-id <project-id> --bucket <bucket>
 ```
 
+## get-bucket-cors
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prints `{"Rules": [...]}`, and an empty list for a bucket with no rules. Each rule has `AllowedOrigins` and `AllowedMethods` (`GET`, `PUT`, `POST`, `DELETE`, `HEAD`), and optionally `AllowedHeaders` and `MaxAgeSeconds`. `ExposedHeaders` is read-only: the SDK never sends it, so rules put through the CLI read back with it empty.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage get-bucket-cors --project-id <project-id> --bucket <bucket> --query Rules
+```
+
 ## get-bucket-policy
 
 Kind: Read.
@@ -163,6 +195,22 @@ Kind: Read.
 
 ```sh
 vngcloud storage get-bucket-policy --project-id <project-id> --bucket <bucket>
+```
+
+## get-bucket-versioning
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prints `Enabled` and `Status`, the server's `Off`, `Enabled`, or `Suspended`. A bucket reads `Off` only until the first put-bucket-versioning; versioning never returns to `Off` once enabled, and a suspended bucket reads `Suspended`.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage get-bucket-versioning --project-id <project-id> --bucket <bucket>
 ```
 
 ## list-buckets
@@ -221,11 +269,28 @@ Kind: Read.
 vngcloud storage list-s3-keys --project-id <project-id>
 ```
 
+## put-bucket-cors
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. `Rules` come through `--cli-input-json`, inline or `file://<path>`, and replace every rule of the bucket. Each rule has `AllowedOrigins` and `AllowedMethods` (`GET`, `PUT`, `POST`, `DELETE`, `HEAD`), and optionally `AllowedHeaders` and `MaxAgeSeconds`. `ExposedHeaders` is read-only: the SDK never sends it, so rules put through the CLI read back with it empty. The rules are checked before any request: an empty list, a rule with no origin or no method, an origin with more than one `*`, an unknown method, or a negative `MaxAgeSeconds` exits 2. The server's own refusals are error code `114` or `400` (exit 1), and a failed put keeps the previous rules. It needs no `--yes`, since another put or a delete-bucket-cors undoes it. To remove every rule, run delete-bucket-cors.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+| `Rules` (via `--cli-input-json` only) | `[]storage.CORSRule` | yes |
+
+```sh
+vngcloud storage put-bucket-cors --project-id <project-id> --bucket <bucket> --cli-input-json '{"Rules":[{"AllowedOrigins":["<origin>"],"AllowedMethods":["GET"]}]}'
+```
+
 ## put-bucket-policy
 
 Kind: Write.
 
-`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. `--policy` takes the document as JSON text or as `file://<path>`. A put replaces the whole policy. A document that is not a JSON object with a non-empty `Statement` array is refused with exit 2 before any request. The server refuses a document it cannot parse with error code `400` or `114` (exit 1). The server does not check principals: a policy that names no real principal is accepted and grants nothing, so copy `PrincipalARN` from ensure-service-account-principal and check access with the attached key. Needs `--yes` when any statement's `Principal` is `"*"`, `{"AWS": "*"}`, or a list holding `"*"`: that lets anyone on the internet use the bucket as the statement allows. Other policies need no `--yes`, since a repeat put or a delete-bucket-policy undoes them. The data plane follows within about a second. The policy template, which grants object work and nothing on the bucket's settings, is on the SDK page [Bucket policy](Storage-Bucket-Policy.md).
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. `--policy` takes the document as JSON text or as `file://<path>`. A put replaces the whole policy. A document that is not a JSON object with a non-empty `Statement` array is refused with exit 2 before any request. The server refuses a document it cannot parse with error code `400` or `114` (exit 1). The server does not check principals: a policy that names no real principal is accepted and grants nothing, so copy `PrincipalARN` from ensure-service-account-principal and check access with the attached key. Needs `--yes` when an `Allow` statement's `Principal` contains `*` (the string, or the `AWS` string or list): that can let anyone on the internet use the bucket as the statement allows. A `Deny` statement with `*` needs no `--yes`. Other policies need no `--yes`, since a repeat put or a delete-bucket-policy undoes them. The data plane follows within about a second. The policy template, which grants object work and nothing on the bucket's settings, is on the SDK page [Bucket policy](Storage-Bucket-Policy.md).
 
 | Flag | Type | Required |
 |-|-|-|
@@ -236,5 +301,22 @@ Kind: Write.
 
 ```sh
 vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json
+```
+
+## put-bucket-versioning
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--enabled=true` or `--enabled=false`; without it the command exits 2 before any request, so it never suspends versioning by default. `false` means `Suspended`, not `Off`: the stored versions stay. While versioning is on, overwrites and deletes keep old versions, which use quota and make delete-bucket refuse the bucket. It needs no `--yes`, since another put reverses it. The change shows on the next get-bucket-versioning.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+| `--enabled` | `*bool` | yes |
+
+```sh
+vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true
 ```
 

@@ -24,9 +24,17 @@ type CORSRule struct {
 	// MaxAgeSeconds is how long a browser may cache a preflight answer. Zero
 	// sends nothing.
 	MaxAgeSeconds int
-	// ExposedHeaders is set by the server. A get fills it and a put never
-	// sends it. The server derives it itself and leaves it nil for rules put
-	// through this SDK, so a browser sees no Access-Control-Expose-Headers.
+	// ExposeAllowedHeaders makes the server expose the AllowedHeaders to a
+	// browser in Access-Control-Expose-Headers, so a page can read a response
+	// header such as ETag after an upload. It needs AllowedHeaders. A put sends
+	// ExposeHeaders, equal to AllowedHeaders, only when it is true; without it
+	// a browser reads only the CORS-safelisted response headers. A get sets it
+	// when the server holds exposed headers, so a rule read and put back keeps
+	// them.
+	ExposeAllowedHeaders bool
+	// ExposedHeaders is the server's own value. A get fills it, always equal to
+	// the AllowedHeaders when ExposeAllowedHeaders is true and nil otherwise.
+	// A put never sends it.
 	ExposedHeaders []string
 }
 
@@ -42,8 +50,6 @@ type GetBucketCORSOutput struct {
 	Rules []CORSRule
 }
 
-// corsGetData lists its fields in CORSRule's order, which the conversion to
-// CORSRule needs.
 type corsGetData struct {
 	Rules []struct {
 		AllowedOrigins []string `json:"allowedOrigins"`
@@ -85,7 +91,14 @@ func (c *Client) GetBucketCORS(ctx context.Context, in *GetBucketCORSInput) (*Ge
 		return nil, invalidResponse(op, "the response's rules are not a list of CORS rules")
 	}
 	for _, r := range data.Rules {
-		out.Rules = append(out.Rules, CORSRule(r))
+		out.Rules = append(out.Rules, CORSRule{
+			AllowedOrigins:       r.AllowedOrigins,
+			AllowedMethods:       r.AllowedMethods,
+			AllowedHeaders:       r.AllowedHeaders,
+			MaxAgeSeconds:        r.MaxAgeSeconds,
+			ExposeAllowedHeaders: len(r.ExposedHeaders) > 0,
+			ExposedHeaders:       r.ExposedHeaders,
+		})
 	}
 	return out, nil
 }
@@ -101,12 +114,14 @@ type PutBucketCORSInput struct {
 
 type PutBucketCORSOutput struct{}
 
-// corsPutRule is the body the server reads: capitalised keys, and no
-// ExposeHeaders, which it ignores.
+// corsPutRule is the body the server reads: capitalised keys. The server
+// copies the allowed headers into the exposed ones whenever ExposeHeaders is
+// present, whatever its value.
 type corsPutRule struct {
 	AllowedOrigins []string `json:"AllowedOrigins"`
 	AllowedMethods []string `json:"AllowedMethods"`
 	AllowedHeaders []string `json:"AllowedHeaders,omitempty"`
+	ExposeHeaders  []string `json:"ExposeHeaders,omitempty"`
 	MaxAgeSeconds  int      `json:"MaxAgeSeconds,omitempty"`
 }
 
@@ -115,9 +130,10 @@ var corsMethods = []string{"GET", "PUT", "POST", "DELETE", "HEAD"}
 // PutBucketCORS replaces every CORS rule of a bucket. Nothing is sent, and the
 // error is ErrInvalidInput, for an empty Rules, a rule with no origin or no
 // method, an empty origin, an origin with more than one "*", a method other
-// than GET, PUT, POST, DELETE, or HEAD, or a negative MaxAgeSeconds. The server
-// answers these with a generic code 114 or MalformedXML that names no rule.
-// To remove every rule, call DeleteBucketCORS. ExposedHeaders is not sent.
+// than GET, PUT, POST, DELETE, or HEAD, a negative MaxAgeSeconds, or
+// ExposeAllowedHeaders with no AllowedHeaders. The server answers most of these
+// with a generic code 114 or MalformedXML that names no rule. To remove every
+// rule, call DeleteBucketCORS. ExposedHeaders is not sent.
 //
 // The server still owns the rest: it accepts an origin with no scheme and an
 // empty AllowedHeaders entry. Its own refusals, codes 114 and 400, are an
@@ -144,6 +160,9 @@ func (c *Client) PutBucketCORS(ctx context.Context, in *PutBucketCORSInput) (*Pu
 			AllowedMethods: r.AllowedMethods,
 			AllowedHeaders: r.AllowedHeaders,
 			MaxAgeSeconds:  r.MaxAgeSeconds,
+		}
+		if r.ExposeAllowedHeaders {
+			body[i].ExposeHeaders = r.AllowedHeaders
 		}
 	}
 	if _, err := c.exchangeBucket(ctx, call{
@@ -186,6 +205,9 @@ func checkCORSRules(op string, rules []CORSRule) error {
 			if !slices.Contains(corsMethods, method) {
 				return refuse("Rules[%d].AllowedMethods[%d] to be one of %s", i, j, strings.Join(corsMethods, ", "))
 			}
+		}
+		if r.ExposeAllowedHeaders && len(r.AllowedHeaders) == 0 {
+			return refuse("Rules[%d].ExposeAllowedHeaders to be false when AllowedHeaders is empty", i)
 		}
 		if r.MaxAgeSeconds < 0 {
 			return refuse("Rules[%d].MaxAgeSeconds to be at least 0", i)

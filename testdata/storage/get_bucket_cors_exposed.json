@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "rules": [
+      {
+        "id": null,
+        "allowedMethods": ["GET", "PUT"],
+        "allowedOrigins": ["https://app.example.com"],
+        "maxAgeSeconds": 600,
+        "exposedHeaders": ["etag", "x-amz-meta-test"],
+        "allowedHeaders": ["etag", "x-amz-meta-test"]
+      }
+    ]
+  }
+}

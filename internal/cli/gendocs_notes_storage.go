@@ -118,12 +118,43 @@ const storagePutBucketPolicyNote = storageProjectIDNote + storageRegionNote + " 
 	"with a non-empty `Statement` array is refused with exit 2 before any request. The server refuses a document " +
 	"it cannot parse with error code `400` or `114` (exit 1). The server does not check principals: a policy " +
 	"that names no real principal is accepted and grants nothing, so copy `PrincipalARN` from " +
-	"ensure-service-account-principal and check access with the attached key. Needs `--yes` when any " +
-	"statement's `Principal` is `\"*\"`, `{\"AWS\": \"*\"}`, or a list holding `\"*\"`: that lets anyone on the " +
-	"internet use the bucket as the statement allows. Other policies need no `--yes`, since a repeat put or a " +
-	"delete-bucket-policy undoes them. The data plane follows within about a second. " + storagePolicyTemplateNote
+	"ensure-service-account-principal and check access with the attached key. Needs `--yes` when an " +
+	"`Allow` statement's `Principal` contains `*` (the string, or the `AWS` string or list): that can let " +
+	"anyone on the internet use the bucket as the statement allows. A `Deny` statement with `*` needs no " +
+	"`--yes`. Other policies need no `--yes`, since a repeat put or a delete-bucket-policy undoes them. The data plane follows within about a second. " + storagePolicyTemplateNote
 
 const storageDeleteBucketPolicyNote = storageProjectIDNote + storageRegionNote + " Removes the bucket's " +
 	"policy; a bucket with no policy also succeeds, so a repeat delete succeeds. It needs no `--yes`, since " +
 	"put-bucket-policy restores a policy. After it, a key attached to a service account has no rights in the " +
 	"bucket. The data plane follows within about a second."
+
+const storageGetBucketVersioningNote = storageProjectIDNote + storageRegionNote + " Prints `Enabled` and " +
+	"`Status`, the server's `Off`, `Enabled`, or `Suspended`. A bucket reads `Off` only until the first " +
+	"put-bucket-versioning; versioning never returns to `Off` once enabled, and a suspended bucket reads " +
+	"`Suspended`."
+
+const storagePutBucketVersioningNote = storageProjectIDNote + storageRegionNote + " Needs `--enabled=true` " +
+	"or `--enabled=false`; without it the command exits 2 before any request, so it never suspends " +
+	"versioning by default. `false` means `Suspended`, not `Off`: the stored versions stay. While versioning " +
+	"is on, overwrites and deletes keep old versions, which use quota and make delete-bucket refuse the " +
+	"bucket. It needs no `--yes`, since another put reverses it. The change shows on the next " +
+	"get-bucket-versioning."
+
+const storageCORSRulesNote = "Each rule has `AllowedOrigins` and `AllowedMethods` (`GET`, `PUT`, `POST`, " +
+	"`DELETE`, `HEAD`), and optionally `AllowedHeaders` and `MaxAgeSeconds`. `ExposedHeaders` is read-only: " +
+	"the SDK never sends it, so rules put through the CLI read back with it empty."
+
+const storageGetBucketCORSNote = storageProjectIDNote + storageRegionNote + " Prints `{\"Rules\": [...]}`, " +
+	"and an empty list for a bucket with no rules. " + storageCORSRulesNote
+
+const storagePutBucketCORSNote = storageProjectIDNote + storageRegionNote + " `Rules` come through " +
+	"`--cli-input-json`, inline or `file://<path>`, and replace every rule of the bucket. " +
+	storageCORSRulesNote + " The rules are checked before any request: an empty list, a rule with no origin " +
+	"or no method, an origin with more than one `*`, an unknown method, or a negative `MaxAgeSeconds` exits " +
+	"2. The server's own refusals are error code `114` or `400` (exit 1), and a failed put keeps the previous " +
+	"rules. It needs no `--yes`, since another put or a delete-bucket-cors undoes it. To remove every rule, " +
+	"run delete-bucket-cors."
+
+const storageDeleteBucketCORSNote = storageProjectIDNote + storageRegionNote + " Removes every CORS rule; " +
+	"a bucket with none also succeeds, so a repeat delete succeeds. It needs no `--yes`, since " +
+	"put-bucket-cors restores rules. A browser's next preflight is refused."

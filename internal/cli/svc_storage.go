@@ -44,6 +44,17 @@ var storageOps = []Op[storage.Client]{
 	Write[storage.Client, storage.DeleteBucketPolicyInput, storage.DeleteBucketPolicyOutput](
 		kebab("DeleteBucketPolicy"), (*storage.Client).DeleteBucketPolicy,
 		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Read[storage.Client, storage.GetBucketVersioningInput, storage.GetBucketVersioningOutput](
+		kebab("GetBucketVersioning"), (*storage.Client).GetBucketVersioning, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.PutBucketVersioningInput, storage.PutBucketVersioningOutput](
+		kebab("PutBucketVersioning"), (*storage.Client).PutBucketVersioning,
+		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Read[storage.Client, storage.GetBucketCORSInput, storage.GetBucketCORSOutput](
+		kebab("GetBucketCORS"), (*storage.Client).GetBucketCORS, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.PutBucketCORSInput, storage.PutBucketCORSOutput](
+		kebab("PutBucketCORS"), (*storage.Client).PutBucketCORS, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.DeleteBucketCORSInput, storage.DeleteBucketCORSOutput](
+		kebab("DeleteBucketCORS"), (*storage.Client).DeleteBucketCORS, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 }
 
 func newStorageCmd(e *env) *cobra.Command {

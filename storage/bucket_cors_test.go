@@ -87,6 +87,40 @@ func TestGetBucketCORSFillsExposedHeaders(t *testing.T) {
 	}
 }
 
+func TestGetBucketCORSExposedFixtureSetsTheFlag(t *testing.T) {
+	s := &keyServer{status: 200, body: fixture(t, "get_bucket_cors_exposed.json")}
+	out, err := getCORS(newTestClient(t, s.handler(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CORSRule{{
+		AllowedOrigins:       []string{"https://app.example.com"},
+		AllowedMethods:       []string{"GET", "PUT"},
+		AllowedHeaders:       []string{"etag", "x-amz-meta-test"},
+		MaxAgeSeconds:        600,
+		ExposeAllowedHeaders: true,
+		ExposedHeaders:       []string{"etag", "x-amz-meta-test"},
+	}}
+	if !reflect.DeepEqual(out.Rules, want) {
+		t.Fatalf("Rules = %+v, want %+v", out.Rules, want)
+	}
+}
+
+func TestGetBucketCORSFlagFollowsExposedHeaders(t *testing.T) {
+	for name, tt := range map[string]struct {
+		exposed string
+		want    bool
+	}{"null": {"null", false}, "empty list": {"[]", false}, "one header": {`["x-a"]`, true}} {
+		t.Run(name, func(t *testing.T) {
+			s := &keyServer{status: 200, body: `{"code":200,"success":true,"data":{"rules":[{"id":null,"allowedOrigins":["*"],"allowedMethods":["GET"],"allowedHeaders":["x-a"],"exposedHeaders":` + tt.exposed + `,"maxAgeSeconds":0}]}}`}
+			out, err := getCORS(newTestClient(t, s.handler(t)))
+			if err != nil || len(out.Rules) != 1 || out.Rules[0].ExposeAllowedHeaders != tt.want {
+				t.Fatalf("out = %+v, err = %v, want flag %v", out, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetBucketCORSNullHeadersStayNil(t *testing.T) {
 	s := &keyServer{status: 200, body: `{"code":200,"success":true,"data":{"rules":[{"id":null,"allowedOrigins":["*"],"allowedMethods":["GET"],"allowedHeaders":null,"exposedHeaders":null,"maxAgeSeconds":0}]}}`}
 	out, err := getCORS(newTestClient(t, s.handler(t)))
@@ -126,6 +160,17 @@ func TestPutBucketCORSBody(t *testing.T) {
 		{"exposed headers are never sent", []CORSRule{{
 			AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}, ExposedHeaders: []string{"x-amz-id-2"},
 		}}, `[{"AllowedOrigins":["*"],"AllowedMethods":["GET"]}]`},
+		{"expose allowed headers sends them as exposed", []CORSRule{{
+			AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"},
+			AllowedHeaders: []string{"etag", "x-amz-meta-test"}, ExposeAllowedHeaders: true,
+		}}, `[{"AllowedOrigins":["*"],"AllowedMethods":["GET"],"AllowedHeaders":["etag","x-amz-meta-test"],"ExposeHeaders":["etag","x-amz-meta-test"]}]`},
+		{"expose allowed headers sends the allowed headers, not ExposedHeaders", []CORSRule{{
+			AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"},
+			AllowedHeaders: []string{"etag"}, ExposeAllowedHeaders: true, ExposedHeaders: []string{"x-other"},
+		}}, `[{"AllowedOrigins":["*"],"AllowedMethods":["GET"],"AllowedHeaders":["etag"],"ExposeHeaders":["etag"]}]`},
+		{"allowed headers without the flag expose nothing", []CORSRule{{
+			AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}, AllowedHeaders: []string{"etag"},
+		}}, `[{"AllowedOrigins":["*"],"AllowedMethods":["GET"],"AllowedHeaders":["etag"]}]`},
 		{"empty headers omitted", []CORSRule{{
 			AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}, AllowedHeaders: []string{},
 		}}, `[{"AllowedOrigins":["*"],"AllowedMethods":["GET"]}]`},
@@ -175,6 +220,8 @@ func TestPutBucketCORSRefusesBadRulesBeforeAnyRequest(t *testing.T) {
 		{"OPTIONS", with(func(r *CORSRule) { r.AllowedMethods = []string{"OPTIONS"} }), "Rules[1].AllowedMethods[0]"},
 		{"unknown method", with(func(r *CORSRule) { r.AllowedMethods = []string{"FOO"} }), "Rules[1].AllowedMethods[0]"},
 		{"padded method", with(func(r *CORSRule) { r.AllowedMethods = []string{"GET "} }), "Rules[1].AllowedMethods[0]"},
+		{"expose without headers", with(func(r *CORSRule) { r.ExposeAllowedHeaders = true }), "Rules[1].ExposeAllowedHeaders"},
+		{"expose with empty headers", with(func(r *CORSRule) { r.ExposeAllowedHeaders = true; r.AllowedHeaders = []string{} }), "Rules[1].ExposeAllowedHeaders"},
 		{"negative max age", with(func(r *CORSRule) { r.MaxAgeSeconds = -1 }), "Rules[1].MaxAgeSeconds"},
 	}
 	for _, tt := range tests {
@@ -219,6 +266,22 @@ func TestPutBucketCORSDoesNotChangeTheCallersRules(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rules[0].ExposedHeaders, []string{"x"}) {
 		t.Fatalf("rules changed: %+v", rules)
+	}
+}
+
+func TestPutBucketCORSKeepsExposedHeadersOfARuleReadBack(t *testing.T) {
+	get := &keyServer{status: 200, body: fixture(t, "get_bucket_cors_exposed.json")}
+	out, err := getCORS(newTestClient(t, get.handler(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := &keyServer{status: 200, body: okEnvelope}
+	if err := putCORS(newTestClient(t, put.handler(t)), out.Rules...); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"AllowedOrigins":["https://app.example.com"],"AllowedMethods":["GET","PUT"],"AllowedHeaders":["etag","x-amz-meta-test"],"ExposeHeaders":["etag","x-amz-meta-test"],"MaxAgeSeconds":600}]`
+	if got := put.seen().body; got != want {
+		t.Fatalf("body = %s, want %s", got, want)
 	}
 }
 

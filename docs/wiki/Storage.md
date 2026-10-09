@@ -369,54 +369,10 @@ key, since an attached key has no rights in a bucket until a policy names its
 principal. The key is attached before its secret is stored, since a key is
 unrestricted until its attach. [CLI-Storage](CLI-Storage.md) has the commands.
 
-## Versioning
+## Versioning and CORS
 
-```go
-v, err := client.GetBucketVersioning(ctx, &storage.GetBucketVersioningInput{
-	ProjectID: projectID, Bucket: "my-bucket"})
-log.Println(v.Enabled, v.Status) // false Off
-
-on := true
-_, err = client.PutBucketVersioning(ctx, &storage.PutBucketVersioningInput{
-	ProjectID: projectID, Bucket: "my-bucket", Enabled: &on})
-```
-
-`Status` is the server's `Off`, `Enabled`, or `Suspended`, unchanged. A bucket
-reads `Off` only until the first put: a put of `false` gives `Suspended`, also
-on a bucket never versioned, and nothing returns it to `Off`. `Enabled` is a
-`*bool` and required, so a call cannot suspend versioning by leaving it out; a
-nil `Enabled` returns `vngcloud.ErrInvalidInput` and sends nothing. A repeat put
-gives the same result, so the call keeps the transport's retries. With
-versioning on, overwrites and deletes keep old versions, which use quota and
-make `DeleteBucket` refuse the bucket. Suspending keeps the versions already
-stored.
-
-## CORS
-
-```go
-rule := storage.CORSRule{
-	AllowedOrigins: []string{"https://app.example.com"},
-	AllowedMethods: []string{"GET", "PUT"},
-	MaxAgeSeconds:  600,
-}
-_, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{
-	ProjectID: projectID, Bucket: "my-bucket", Rules: []storage.CORSRule{rule}})
-```
-
-`PutBucketCORS` replaces every rule, and a failed put keeps the old ones. It
-returns `vngcloud.ErrInvalidInput`, with no request sent, for an empty `Rules`,
-a rule without an origin or a method, an empty origin, an origin with more than
-one `*`, a method other than `GET`, `PUT`, `POST`, `DELETE`, or `HEAD` (upper
-case), or a negative `MaxAgeSeconds`; the message names the rule and field. To
-remove every rule, call `DeleteBucketCORS`, which also succeeds when there are
-none. The server's own refusals, code `114` or `400` `MalformedXML`, are an
-`*vngcloud.APIError` with no sentinel. A put and a delete keep the transport's
-retries and take effect on the next preflight.
-
-`GetBucketCORS` returns an empty, non-nil `Rules` when the bucket has none. The
-server returns `AllowedMethods` in its own order, so compare methods as a set.
-`ExposedHeaders` is read-only: the server sets it, a put never sends it, and
-rules put through this SDK read back with it nil.
+Bucket versioning and CORS rules are on
+[Storage Bucket Settings](Storage-Bucket-Settings.md).
 
 ## Errors
 

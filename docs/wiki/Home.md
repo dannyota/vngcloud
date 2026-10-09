@@ -35,6 +35,8 @@ rename; the module keeps the `vngcloud` name.
   including bucket and key create and delete.
 - [Storage: Bucket Policy](Storage-Bucket-Policy.md): the per-bucket key
   policy, its template, and the rules.
+- [Storage: Bucket Settings](Storage-Bucket-Settings.md): bucket versioning
+  and CORS rules.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.

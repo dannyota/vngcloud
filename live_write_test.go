@@ -12295,6 +12295,29 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 		t.Error("step 4: the rule read back differs from the rule put")
 	}
 
+	// Second put, with ExposeAllowedHeaders: the server then exposes the
+	// allowed headers, and a get sets the flag on the rule it returns.
+	exposeRule := rule
+	exposeRule.ExposeAllowedHeaders = true
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{exposeRule}}); err != nil {
+		t.Fatalf("step 4 PutBucketCORS with ExposeAllowedHeaders: %s", safeErr(err))
+	}
+	exposed := readCORS("step 4 after the put with ExposeAllowedHeaders")
+	if len(exposed) != 1 {
+		t.Fatalf("step 4: %d rule(s) read back after the expose put, want 1", len(exposed))
+	}
+	t.Logf("step 4: exposed headers equal allowed headers %v, flag set %v",
+		slices.Equal(exposed[0].ExposedHeaders, rule.AllowedHeaders), exposed[0].ExposeAllowedHeaders)
+	if !slices.Equal(exposed[0].ExposedHeaders, rule.AllowedHeaders) || !exposed[0].ExposeAllowedHeaders {
+		t.Error("step 4: the rule put with ExposeAllowedHeaders does not read back with the allowed headers exposed and the flag set")
+	}
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: exposed}); err != nil {
+		t.Fatalf("step 4 PutBucketCORS of the rule read back: %s", safeErr(err))
+	}
+	if again := readCORS("step 4 after putting the rule read back"); len(again) != 1 || !slices.Equal(again[0].ExposedHeaders, rule.AllowedHeaders) {
+		t.Error("step 4: a rule read and put back lost its exposed headers")
+	}
+
 	// Step 5: refusals. The SDK refuses a bad rule before any request. The
 	// server's own refusals, which the SDK never lets through, are sent raw.
 	bad := rule
@@ -12302,8 +12325,13 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{bad}}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Errorf("step 5: a lower-case method returned %s, want ErrInvalidInput", safeErr(err))
 	}
-	if after := readCORS("step 5 after the refused put"); len(after) != 1 {
-		t.Errorf("step 5: %d rule(s) after a refused put, want the 1 put before", len(after))
+	noHeaders := exposeRule
+	noHeaders.AllowedHeaders = nil
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{noHeaders}}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Errorf("step 5: ExposeAllowedHeaders without AllowedHeaders returned %s, want ErrInvalidInput", safeErr(err))
+	}
+	if after := readCORS("step 5 after the refused puts"); len(after) != 1 {
+		t.Errorf("step 5: %d rule(s) after refused puts, want the 1 put before", len(after))
 	}
 	raw := core.ClientOf(cfg)
 	probe := func(name string, body any) {
@@ -12330,10 +12358,23 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 		t.Errorf("step 5: %d rule(s) after refused puts, want 1", len(after))
 	}
 
+	// The design refuses ExposeAllowedHeaders without AllowedHeaders on the
+	// assumption that the server then exposes nothing. This raw put checks it,
+	// and the rule with exposed headers goes back before the preflight.
+	probe("ExposeHeaders with no AllowedHeaders", []map[string]any{{"AllowedOrigins": []string{origin}, "AllowedMethods": []string{"GET"}, "ExposeHeaders": []string{"x-amz-meta-test"}}})
+	if after := readCORS("step 5 after the ExposeHeaders-only put"); len(after) == 1 {
+		t.Logf("step 5: ExposeHeaders-only put reads back %d allowed header(s), %d exposed header(s)", len(after[0].AllowedHeaders), len(after[0].ExposedHeaders))
+	}
+	if _, err := client.PutBucketCORS(ctx, &storage.PutBucketCORSInput{ProjectID: projectID, Bucket: bucket, Rules: []storage.CORSRule{exposeRule}}); err != nil {
+		t.Fatalf("step 5 PutBucketCORS restoring the expose rule: %s", safeErr(err))
+	}
+
 	// Step 6: an anonymous preflight, the delete, a second delete, and the
 	// preflight again.
+	var exposes string
 	preflight := func() (int, bool) {
 		t.Helper()
+		exposes = ""
 		u := *base
 		u.Path = "/" + bucket + "/preflight.txt"
 		req, err := http.NewRequestWithContext(ctx, http.MethodOptions, u.String(), nil)
@@ -12347,12 +12388,16 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 			t.Fatalf("preflight failed (%T)", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
+		exposes = resp.Header.Get("Access-Control-Expose-Headers")
 		return resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin") != ""
 	}
 	status, allowed := preflight()
-	t.Logf("step 6: preflight with a rule: status=%d allow-origin present %v", status, allowed)
+	t.Logf("step 6: preflight with a rule: status=%d allow-origin present %v expose-headers present %v", status, allowed, exposes != "")
 	if status != http.StatusOK || !allowed {
 		t.Error("step 6: the preflight with a rule is not 200 with Access-Control-Allow-Origin")
+	}
+	if !strings.EqualFold(exposes, strings.Join(rule.AllowedHeaders, ",")) && !strings.EqualFold(exposes, strings.Join(rule.AllowedHeaders, ", ")) {
+		t.Error("step 6: the preflight does not carry Access-Control-Expose-Headers naming the allowed headers")
 	}
 	for i := 1; i <= 2; i++ {
 		if _, err := client.DeleteBucketCORS(ctx, &storage.DeleteBucketCORSInput{ProjectID: projectID, Bucket: bucket}); err != nil {
