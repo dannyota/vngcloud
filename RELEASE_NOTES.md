@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.43.0 - Server Writes
+
+### Highlights
+
+- New `compute.CreateServer`, `DeleteServer`, `StartServer`, `StopServer`,
+  `RebootServer`, and `RenameServer`, with `vngcloud compute create-server`,
+  `delete-server`, `start-server`, `stop-server`, `reboot-server`, and
+  `rename-server`. A create quotes first and orders only at or under
+  `MaxPrice` (`--max-price`); the order and each action are sent once. User
+  data comes from `--user-data-file`, never argv, and never reaches the
+  quote, logs, or errors.
+- Waits: create to `ACTIVE`, stop to `STOPPED`, start and reboot to
+  `ACTIVE`, delete to gone; `ERROR` is `compute.ErrFailed`, a timeout
+  `compute.ErrNotSettled`, a status the action cannot start from
+  `compute.ErrUnexpectedStatus`.
+- `DeleteServer` always removes the boot volume with the server;
+  `DeleteVolumes` (`--delete-volumes`) governs only attached data volumes,
+  and `KeptVolumeIDs` lists the ones left behind. `delete-server`,
+  `stop-server`, and `reboot-server` need `--yes`.
+- Verified live on 2026-10-09: an `s2-general-1x2` server (347,800 VND a
+  month) created in 42 s, stopped in 25 s, started in 15 s, rebooted in
+  20 s, deleted in 20 s with a refund of the unused value.
+
 ## v0.42.0 - Volume Writes
 
 ### Highlights
