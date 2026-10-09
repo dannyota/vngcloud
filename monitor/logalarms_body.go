@@ -291,7 +291,7 @@ func checkLogAlarmUpdatable(op, alarmID string, current *Alarm) error {
 		return fmt.Errorf("%w: %s: alarm %s's read carries no log alarm detail to update from", core.ErrInvalidInput, op, alarmID)
 	}
 	d := current.Log
-	if current.Name == "" || current.Severity == "" || d.LogProjectID == "" || d.LogProjectName == "" || d.ThresholdType == "" || d.Condition == "" || d.TimeFrame == 0 {
+	if current.Name == "" || current.Severity == "" || d.ID == "" || d.LogProjectID == "" || d.LogProjectName == "" || d.ThresholdType == "" || d.Condition == "" || d.TimeFrame == 0 {
 		return fmt.Errorf("%w: %s: alarm %s's read is missing a field the create body always sends; refusing a full-replace update", core.ErrInvalidInput, op, alarmID)
 	}
 	return nil

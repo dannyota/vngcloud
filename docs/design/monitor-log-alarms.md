@@ -77,7 +77,8 @@ whose `billingStatus` is `ACTIVE`. It does not convert `thresholdValue` or
 Live read on 2026-10-09: Get's `data` and a List item have `id`, `type`
 (`Log`; the SDK matches `LOG` and `METRIC` in any case), `name`,
 `description`, `severity`, `progressStatus` (`ACTIVE`; the SDK also reads
-`status` when `progressStatus` is absent), `createdAt`, and, for a log
+`status` when `progressStatus` is absent; Get returns `""` right after
+create, which the SDK treats as settled), `createdAt`, and, for a log
 alarm, `alarmLog`. The Delete response's `data` has the same shape. List items carry
 the same `alarmLog`. `alarmLog` holds the log fields under the create body
 names, except `logProject` (the project ID) and `logProjectName`. It also
@@ -201,7 +202,10 @@ then waits.
 
 The update body follows the console's own edit (live, 2026-10-09: the
 create's body gets `500 Update alarm log is failed`). Beyond the create's
-fields it carries `id` (the read's `alarmLog.id`, not the alarm's id),
+fields it carries `id` (the read's `alarmLog.id`, not the alarm's id; the
+server answers 403 `you don't have permission on this resource` to the
+alarm's id, so a read with no `alarmLog.id` returns `ErrInvalidInput`
+before the PUT),
 `logProject`, and `logProjectName`. It always carries `filter`: the read's
 when it has one, else the console's match-all filter for `queryString`
 (`LogAlarmDetail.ID` holds the id). It carries `resendStatus` (`ALARM` when

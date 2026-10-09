@@ -34,7 +34,7 @@ const existingLogAlarmForUpdateJSON = `{
 		"type": "LOG",
 		"status": "OK",
 		"severity": "LOW",
-		"alarmLog": {
+		"alarmLog": {"id": "log-1", 
 			"logProject": "proj-1",
 			"logProjectName": "old-project",
 			"queryString": "status:500",

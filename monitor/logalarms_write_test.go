@@ -759,7 +759,7 @@ const existingLogAlarmRaw = `{
 		"status": "OK",
 		"severity": "LOW",
 		"alarmLog": {
-			"logProject": "proj-1",
+			"id": "log-1", "logProject": "proj-1",
 			"logProjectName": "old-project",
 			"queryString": "status:500",
 			"logSearchQuery": "[{\"field\":\"token\"}]",
@@ -792,7 +792,7 @@ const existingLogAlarmNoFilterRaw = `{
 		"status": "OK",
 		"severity": "LOW",
 		"alarmLog": {
-			"logProject": "proj-1",
+			"id": "log-1", "logProject": "proj-1",
 			"logProjectName": "old-project",
 			"queryString": "status:500",
 			"logSearchQuery": "[]",
@@ -840,7 +840,7 @@ func TestUpdateLogAlarmMergeUnsetFieldsResendReadValues(t *testing.T) {
 // TestUpdateLogAlarmPreservesAbsentReadQueryFields ensures an unrelated
 // update does not turn an alarm with no query fields into a match-all alarm.
 func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
-	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -871,7 +871,7 @@ func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
 // TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults distinguishes an
 // explicit empty query update from leaving the read's empty values untouched.
 func TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults(t *testing.T) {
-	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -1114,7 +1114,7 @@ func TestUpdateLogAlarmRefusesWhenLogAlarmDetailNil(t *testing.T) {
 // the PUT, one at a time, rather than sending a body with that field blank.
 func TestUpdateLogAlarmRefusesIncompleteLogDetail(t *testing.T) {
 	base := map[string]any{
-		"logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
+		"id": "log-1", "logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
 		"logSearchQuery": "[]", "thresholdType": "frequency", "condition": "gt",
 		"thresholdValue": 100, "timeFrame": 5, "inAlarm": "", "ok": "",
 	}
@@ -1164,6 +1164,25 @@ func TestUpdateLogAlarmRefusesIncompleteLogDetail(t *testing.T) {
 	}
 }
 
+// TestUpdateLogAlarmRefusesReadWithoutLogID pins that the update never falls
+// back to the alarm's own id: the server rejects that with 403.
+func TestUpdateLogAlarmRefusesReadWithoutLogID(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-1","name":"a","type":"Log","progressStatus":"ACTIVE","severity":"LOW","alarmLog":{"logProject":"p","logProjectName":"n","queryString":"*","logSearchQuery":"[]","thresholdType":"frequency","condition":"GT","thresholdValue":1,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/vmonitor-api/api/v1/alarms/alarm-1" || r.Method != http.MethodGet {
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(raw))
+	}))
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
+	})
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+	}
+}
+
 // TestUpdateLogAlarmRefusesMissingRequiredReadFields keeps a full-replace
 // update from clearing create-body fields that only the read can provide.
 func TestUpdateLogAlarmRefusesMissingRequiredReadFields(t *testing.T) {
@@ -1178,7 +1197,7 @@ func TestUpdateLogAlarmRefusesMissingRequiredReadFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			alarmLog := map[string]any{
-				"logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
+				"id": "log-1", "logProject": "proj-1", "logProjectName": "old-project", "queryString": "status:500",
 				"logSearchQuery": "[]", "thresholdType": "frequency", "condition": "gt",
 				"thresholdValue": 100, "timeFrame": 5, "inAlarm": "", "ok": "",
 			}
@@ -1219,7 +1238,7 @@ func TestUpdateLogAlarmRefusesWhileCreatingOrUpdating(t *testing.T) {
 	for _, status := range []string{LogAlarmStatusCreating, LogAlarmStatusUpdating} {
 		t.Run(status, func(t *testing.T) {
 			raw := fmt.Sprintf(`{"data":{"id":"alarm-1","name":"existing-alarm","type":"LOG","status":%q,"severity":"LOW",
-				"alarmLog":{"logProject":"proj-1","logProjectName":"old-project","thresholdType":"frequency",
+				"alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","thresholdType":"frequency",
 				"condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`, status)
 			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {

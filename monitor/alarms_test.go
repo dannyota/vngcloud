@@ -549,14 +549,17 @@ func TestSplitChannelIDs(t *testing.T) {
 
 func assertLiveLogAlarm(t *testing.T, got Alarm) {
 	t.Helper()
-	if got.Kind != AlarmKindLog || got.Status != "ACTIVE" || got.Severity != "LOW" {
-		t.Fatalf("kind/status/severity = %q/%q/%q", got.Kind, got.Status, got.Severity)
+	if got.Kind != AlarmKindLog || got.Severity != "LOW" {
+		t.Fatalf("kind/severity = %q/%q", got.Kind, got.Severity)
+	}
+	if got.ID == "<alarm-log-id>" {
+		t.Fatalf("ID = %q, want the alarm's own id", got.ID)
 	}
 	if got.Log == nil {
 		t.Fatal("Log = nil")
 	}
 	l := got.Log
-	if l.ID != "<alarm-log-id>" {
+	if l.ID != "<alarm-log-id>" || l.ID == got.ID {
 		t.Fatalf("Log.ID = %q, want the alarmLog's own id", l.ID)
 	}
 	if l.LogProjectID != "<project-id>" || l.LogProjectName != "vngcloud-live-logalarm" {
