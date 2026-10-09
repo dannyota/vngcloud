@@ -11,7 +11,7 @@
   when the alarm reads `ACTIVE` (up to 120 s). An update reads the alarm
   first, resends every unset field as the console does, and refuses while
   the alarm is still settling (the server answers 403 for about 30 s after
-  a create). `update-log-alarm` and `delete-log-alarm` need `--yes`.
+  a create). `delete-log-alarm` needs `--yes`.
 - Read model: `Alarm.Kind` and `Status` now decode the API's `type` and
   `progressStatus`; `Log.ID` carries the log detail's own id. A deleted
   alarm lingers in the list for a few seconds, and a repeat delete is
