@@ -14,11 +14,10 @@ type deleteServerBody struct {
 	DeleteAllVolume bool `json:"deleteAllVolume"`
 }
 
-// DeleteServerInput identifies the server to delete. With DeleteVolumes
-// false, its attached volumes stay and keep being billed; with it true,
-// every attached volume is deleted with the server, data included. Whether
-// the boot volume stays when DeleteVolumes is false is unverified until the
-// live check.
+// DeleteServerInput identifies the server to delete. The boot volume is
+// always deleted with the server. With DeleteVolumes false, attached data
+// volumes stay and keep being billed; with it true, they are deleted with
+// the server, data included.
 type DeleteServerInput struct {
 	ServerID string `vngcloud:"required"`
 
@@ -29,8 +28,9 @@ type DeleteServerInput struct {
 // DeleteServerOutput names what happened to the server's volumes.
 // DeletedVolumeIDs is set only when Input.DeleteVolumes was true and names
 // volumes requested for deletion, not confirmed deleted; otherwise KeptVolumeIDs
-// names every volume the server still holds, so the caller sees what still costs
-// money.
+// names the attached data volumes the API kept, so the caller sees what still
+// costs money. The boot volume goes with the server and is never kept, with or
+// without NoWait.
 type DeleteServerOutput struct {
 	DeletedVolumeIDs []string
 	KeptVolumeIDs    []string
@@ -63,9 +63,9 @@ type DeleteServerOutput struct {
 // volume.GetVolume, and KeptVolumeIDs names every one whose read did not
 // confirm it gone: only a core.ErrNotFound counts a volume as deleted, so a
 // transient read failure never hides one that may still be billing. NoWait
-// skips both the wait and this reconciliation: DeletedVolumeIDs or
-// KeptVolumeIDs (whichever Input.DeleteVolumes selects) names every volume
-// listed before the delete, unconfirmed.
+// skips both the wait and this reconciliation: DeletedVolumeIDs names every
+// volume listed before the delete, and KeptVolumeIDs every one except the
+// boot volume, unconfirmed.
 func (c *Client) DeleteServer(ctx context.Context, in *DeleteServerInput) (*DeleteServerOutput, error) {
 	const op = "compute.DeleteServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -75,7 +75,8 @@ func (c *Client) DeleteServer(ctx context.Context, in *DeleteServerInput) (*Dele
 		return nil, err
 	}
 
-	if _, err := c.GetServer(ctx, &GetServerInput{ServerID: in.ServerID}); err != nil {
+	server, err := c.GetServer(ctx, &GetServerInput{ServerID: in.ServerID})
+	if err != nil {
 		return nil, err
 	}
 	volumesBefore, err := c.volume.ListVolumesByServer(ctx, &volume.ListVolumesByServerInput{ServerID: in.ServerID})
@@ -84,6 +85,11 @@ func (c *Client) DeleteServer(ctx context.Context, in *DeleteServerInput) (*Dele
 	}
 	volumeIDs := make([]string, 0, len(volumesBefore.Items))
 	for _, v := range volumesBefore.Items {
+		// The boot volume is deleted with the server whatever DeleteVolumes
+		// says, so it is never a candidate for KeptVolumeIDs.
+		if !in.DeleteVolumes && v.UUID == server.Server.BootVolumeID {
+			continue
+		}
 		volumeIDs = append(volumeIDs, v.UUID)
 	}
 

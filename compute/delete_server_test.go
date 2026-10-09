@@ -354,3 +354,26 @@ func TestWaitServerDeletedPollParameters(t *testing.T) {
 		t.Fatalf("sleep calls = %d, want 120 (a 5s interval over a 10-minute bound)", len(sleeps))
 	}
 }
+
+func TestDeleteServerNoWaitOmitsBootVolumeFromKept(t *testing.T) {
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"ACTIVE","bootVolumeId":"boot-1"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/servers/server-1":
+			_, _ = w.Write([]byte(`[{"uuid":"boot-1"},{"uuid":"data-1"}]`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})))
+
+	out, err := c.DeleteServer(context.Background(), &DeleteServerInput{ServerID: "server-1", NoWait: true})
+	if err != nil {
+		t.Fatalf("DeleteServer() error = %v", err)
+	}
+	if len(out.KeptVolumeIDs) != 1 || out.KeptVolumeIDs[0] != "data-1" {
+		t.Fatalf("KeptVolumeIDs = %v, want [data-1]: the boot volume goes with the server", out.KeptVolumeIDs)
+	}
+}

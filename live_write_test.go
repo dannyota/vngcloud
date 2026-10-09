@@ -9055,8 +9055,8 @@ func TestLiveWritePaidServer(t *testing.T) {
 	}
 	t.Logf("step 10: renamed to %s", renamed.Server.Name)
 
-	// Step 11: delete with DeleteVolumes false, so the boot volume stays and
-	// is named in KeptVolumeIDs.
+	// Step 11: delete with DeleteVolumes false. The boot volume is always
+	// deleted with the server, so nothing is kept.
 	bootVolumeID := created.Server.BootVolumeID
 	deleteStart := time.Now()
 	deletedOut, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID})
@@ -9067,24 +9067,17 @@ func TestLiveWritePaidServer(t *testing.T) {
 	if _, err := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: serverID}); !vngcloud.IsNotFound(err) {
 		t.Fatalf("step 11: GetServer after delete = %s, want NotFound", safeErr(err))
 	}
-	if !slices.Contains(deletedOut.KeptVolumeIDs, bootVolumeID) {
-		t.Fatalf("step 11: KeptVolumeIDs = %v, want it to include the boot volume %s", deletedOut.KeptVolumeIDs, bootVolumeID)
+	if len(deletedOut.KeptVolumeIDs) != 0 {
+		t.Fatalf("step 11: KeptVolumeIDs = %v, want none: the boot volume goes with the server", deletedOut.KeptVolumeIDs)
 	}
-	t.Log("step 11: confirmed the server is gone and its boot volume was kept")
-
-	// Step 12: delete every kept volume, and confirm each is gone.
-	for _, id := range deletedOut.KeptVolumeIDs {
-		if err := waitLiveVolumeDetached(ctx, volumeClient, id); err != nil {
-			t.Fatalf("step 12: wait for volume %s to detach: %s", id, safeErr(err))
+	if got, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: bootVolumeID}); err == nil {
+		if got.Volume.Status != "DELETED" {
+			t.Fatalf("step 11: boot volume %s status = %s after the server delete, want DELETED or NotFound", bootVolumeID, got.Volume.Status)
 		}
-		if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil {
-			t.Fatalf("step 12 DeleteVolume(%s): %s", id, safeErr(err))
-		}
-		if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id}); !vngcloud.IsNotFound(err) {
-			t.Fatalf("step 12: GetVolume(%s) after delete = %s, want NotFound", id, safeErr(err))
-		}
+	} else if !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 11: GetVolume(%s): %s", bootVolumeID, safeErr(err))
 	}
-	t.Logf("step 12: deleted %d kept volume(s)", len(deletedOut.KeptVolumeIDs))
+	t.Log("step 11: confirmed the server is gone and its boot volume went with it")
 
 	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }

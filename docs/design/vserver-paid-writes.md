@@ -174,10 +174,10 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
   `ListVolumesByServer` first. It sends `deleteAllVolume` equal to
   `DeleteVolumes`.
 - With `DeleteVolumes` false, attached data volumes stay and keep being
-  billed. Whether the boot volume stays is an open question. After the
-  wait the SDK reads each volume it listed before the delete, and
+  billed. The boot volume is always deleted with the server (live,
+  2026-10-09). After the wait the SDK reads each volume it listed, and
   `KeptVolumeIDs` names those that still exist, so the caller sees what
-  still costs money. With `NoWait` it names every listed volume.
+  still costs money. With `NoWait` it names every listed data volume.
 - With `DeleteVolumes` true, every attached volume is deleted with the
   server, data included. `DeletedVolumeIDs` names them.
 - The server's refusals (`CREATING`, `CREATING-BILLING`, `DELETING`)
@@ -440,7 +440,7 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
   delete refunds servers and volumes to the minute.
 - What a resize quote prices: the new monthly rate or the prorated
   difference.
-- Whether `deleteAllVolume` false keeps the boot volume.
+- Whether `deleteAllVolume` false keeps attached data volumes.
 - What happens when a period ends without renewal, and after how long an
   expired server is deleted.
 - The status and message of a create refused for a zero balance.

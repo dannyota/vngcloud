@@ -129,11 +129,11 @@ log.Println(deleted.DeletedVolumeIDs)
 
 `DeleteServer` reads the server, then lists its volumes with
 `volume.ListVolumesByServer`, before sending anything. With
-`DeleteVolumes` false (the default), its volumes, including the boot
-volume, stay and keep being billed: `KeptVolumeIDs` names every volume
-still attached after the delete settles, since deleting a server should
-never silently lose data on volumes still costing money; pass
-`DeleteVolumes` to delete them with the server (see
+`DeleteVolumes` false (the default), its attached data volumes stay and
+keep being billed: `KeptVolumeIDs` names every one still present after
+the delete settles, since deleting a server should never silently lose
+data on volumes still costing money; pass `DeleteVolumes` to delete them
+with the server (see
 [CLI-Compute](CLI-Compute.md) for the matching CLI command). `DELETE`
 keeps the transport's normal retries. Unless `NoWait` is set,
 `DeleteServer` then waits up to 10 minutes, polling every 5 seconds, for

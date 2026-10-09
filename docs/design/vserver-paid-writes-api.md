@@ -131,7 +131,14 @@ A server whose prepaid period ended reads as expired: VNG Cloud's SDK maps
 ## Server rules
 
 From VNG Cloud's SDK error patterns and the reference. None is verified
-live.
+live except where marked.
+
+- Live (2026-10-09, `hcm-3`): `DeleteServer` with `deleteAllVolume` false
+  deleted the server and its boot volume together. The server read 404
+  after 15 s, `KeptVolumeIDs` was empty, and no volume remained.
+  `deleteAllVolume` governs only attached data volumes. The same run:
+  quote 347,800 VND a month; create settled at `ACTIVE` in 1m13s; stop
+  41 s; start 21 s; reboot 20 s; rename; delete refunded to the minute.
 
 - A server cannot be deleted while `CREATING`, `CREATING-BILLING`,
   `DELETING`, or `CHANGING-SECURITY-GROUP`.
