@@ -62,6 +62,9 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"attach-s3-key":                    {"user-key-id", "service-account-id"},
 		"detach-s3-key":                    {"user-key-id"},
 		"ensure-service-account-principal": {"service-account-id"},
+		"get-bucket-policy":                {"bucket"},
+		"put-bucket-policy":                {"bucket", "policy"},
+		"delete-bucket-policy":             {"bucket"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -75,7 +78,8 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		wantKind := kindRead
 		switch op.name {
 		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
-			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal":
+			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal",
+			"put-bucket-policy", "delete-bucket-policy":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {

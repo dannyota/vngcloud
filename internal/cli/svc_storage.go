@@ -36,6 +36,14 @@ var storageOps = []Op[storage.Client]{
 	Write[storage.Client, storage.EnsureServiceAccountPrincipalInput, storage.EnsureServiceAccountPrincipalOutput](
 		kebab("EnsureServiceAccountPrincipal"), (*storage.Client).EnsureServiceAccountPrincipal,
 		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Read[storage.Client, storage.GetBucketPolicyInput, storage.GetBucketPolicyOutput](
+		kebab("GetBucketPolicy"), (*storage.Client).GetBucketPolicy, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.PutBucketPolicyInput, storage.PutBucketPolicyOutput](
+		kebab("PutBucketPolicy"), (*storage.Client).PutBucketPolicy,
+		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID"), Guard(guardPutBucketPolicy)),
+	Write[storage.Client, storage.DeleteBucketPolicyInput, storage.DeleteBucketPolicyOutput](
+		kebab("DeleteBucketPolicy"), (*storage.Client).DeleteBucketPolicy,
+		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 }
 
 func newStorageCmd(e *env) *cobra.Command {

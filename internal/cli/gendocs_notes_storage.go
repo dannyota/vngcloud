@@ -105,3 +105,25 @@ const storageEnsurePrincipalNote = storageProjectIDNote + storageRegionNote + " 
 	"before deleting it. A response whose sub-user is not a service account's (no `:sa-` segment) is " +
 	"refused with error code `NotServiceAccountPrincipal` (exit 1) and prints nothing, so an IAM user's own " +
 	"principal never reaches a policy."
+
+const storagePolicyTemplateNote = "The policy template, which grants object work and nothing on the bucket's " +
+	"settings, is on the SDK page [Bucket policy](Storage-Bucket-Policy.md)."
+
+const storageGetBucketPolicyNote = storageProjectIDNote + storageRegionNote + " Prints " +
+	"`{\"Policy\": \"<document as a string>\"}`, and an empty string for a bucket with no policy. The server " +
+	"re-serializes the document, so compare decoded documents, not bytes. " + storagePolicyTemplateNote
+
+const storagePutBucketPolicyNote = storageProjectIDNote + storageRegionNote + " `--policy` takes the document " +
+	"as JSON text or as `file://<path>`. A put replaces the whole policy. A document that is not a JSON object " +
+	"with a non-empty `Statement` array is refused with exit 2 before any request. The server refuses a document " +
+	"it cannot parse with error code `400` or `114` (exit 1). The server does not check principals: a policy " +
+	"that names no real principal is accepted and grants nothing, so copy `PrincipalARN` from " +
+	"ensure-service-account-principal and check access with the attached key. Needs `--yes` when any " +
+	"statement's `Principal` is `\"*\"`, `{\"AWS\": \"*\"}`, or a list holding `\"*\"`: that lets anyone on the " +
+	"internet use the bucket as the statement allows. Other policies need no `--yes`, since a repeat put or a " +
+	"delete-bucket-policy undoes them. The data plane follows within about a second. " + storagePolicyTemplateNote
+
+const storageDeleteBucketPolicyNote = storageProjectIDNote + storageRegionNote + " Removes the bucket's " +
+	"policy; a bucket with no policy also succeeds, so a repeat delete succeeds. It needs no `--yes`, since " +
+	"put-bucket-policy restores a policy. After it, a key attached to a service account has no rights in the " +
+	"bucket. The data plane follows within about a second."

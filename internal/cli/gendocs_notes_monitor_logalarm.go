@@ -48,3 +48,15 @@ const monitorDeleteLogAlarmNote = "Reads the alarm first and refuses with Invali
 	"the alarm can stay in the log alarm list for a few seconds after the first delete. The command then " +
 	"lists for up to 30 seconds, returns NotFound once the alarm is absent, and returns the server's error " +
 	"if the alarm is still listed at that bound."
+
+// monitorSendChannelOTPNote documents send-channel-otp's own guard, its
+// cost, and how its Output feeds create-channel and update-channel: the
+// flag table shows Type and Address as plain strings and cannot show any
+// of this.
+const monitorSendChannelOTPNote = "Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a " +
+	"literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack " +
+	"address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets " +
+	"Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as " +
+	"--otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an " +
+	"ambiguous failure, since a retry could message the address a second time. SMS and Email beyond the free " +
+	"20 each spend a paid package, and sending this OTP counts toward it."

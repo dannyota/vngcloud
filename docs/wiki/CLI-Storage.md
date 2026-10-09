@@ -69,6 +69,22 @@ Kind: Write, destructive.
 vngcloud storage delete-bucket --project-id <project-id> --bucket <bucket> --yes
 ```
 
+## delete-bucket-policy
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Removes the bucket's policy; a bucket with no policy also succeeds, so a repeat delete succeeds. It needs no `--yes`, since put-bucket-policy restores a policy. After it, a key attached to a service account has no rights in the bucket. The data plane follows within about a second.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage delete-bucket-policy --project-id <project-id> --bucket <bucket>
+```
+
 ## delete-s3-key
 
 Kind: Write, destructive.
@@ -133,6 +149,22 @@ Kind: Read.
 vngcloud storage get-bucket --project-id <project-id> --bucket <bucket>
 ```
 
+## get-bucket-policy
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prints `{"Policy": "<document as a string>"}`, and an empty string for a bucket with no policy. The server re-serializes the document, so compare decoded documents, not bytes. The policy template, which grants object work and nothing on the bucket's settings, is on the SDK page [Bucket policy](Storage-Bucket-Policy.md).
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage get-bucket-policy --project-id <project-id> --bucket <bucket>
+```
+
 ## list-buckets
 
 Kind: Read.
@@ -187,5 +219,22 @@ Kind: Read.
 
 ```sh
 vngcloud storage list-s3-keys --project-id <project-id>
+```
+
+## put-bucket-policy
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. `--policy` takes the document as JSON text or as `file://<path>`. A put replaces the whole policy. A document that is not a JSON object with a non-empty `Statement` array is refused with exit 2 before any request. The server refuses a document it cannot parse with error code `400` or `114` (exit 1). The server does not check principals: a policy that names no real principal is accepted and grants nothing, so copy `PrincipalARN` from ensure-service-account-principal and check access with the attached key. Needs `--yes` when any statement's `Principal` is `"*"`, `{"AWS": "*"}`, or a list holding `"*"`: that lets anyone on the internet use the bucket as the statement allows. Other policies need no `--yes`, since a repeat put or a delete-bucket-policy undoes them. The data plane follows within about a second. The policy template, which grants object work and nothing on the bucket's settings, is on the SDK page [Bucket policy](Storage-Bucket-Policy.md).
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+| `--policy` | `string` | yes |
+
+```sh
+vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json
 ```
 

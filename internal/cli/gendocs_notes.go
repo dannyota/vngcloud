@@ -46,18 +46,6 @@ const monitorChannelOTPFlowNote = "Email, Slack, SMS, and Telegram need an OTP t
 	"step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs " +
 	"neither flag."
 
-// monitorSendChannelOTPNote documents send-channel-otp's own guard, its
-// cost, and how its Output feeds create-channel and update-channel: the
-// flag table shows Type and Address as plain strings and cannot show any
-// of this.
-const monitorSendChannelOTPNote = "Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a " +
-	"literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack " +
-	"address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets " +
-	"Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as " +
-	"--otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an " +
-	"ambiguous failure, since a retry could message the address a second time. SMS and Email beyond the free " +
-	"20 each spend a paid package, and sending this OTP counts toward it."
-
 // monitorCheckNotificationsNote documents Notifications' own nested shape
 // for create-check and update-check: the flag table shows it only as a Go
 // type, monitor.CheckNotifications, with no field-level detail, since
@@ -535,6 +523,9 @@ var docOpNotes = map[string]string{
 	"storage attach-s3-key":                    storageAttachS3KeyNote,
 	"storage detach-s3-key":                    storageDetachS3KeyNote,
 	"storage ensure-service-account-principal": storageEnsurePrincipalNote,
+	"storage get-bucket-policy":                storageGetBucketPolicyNote,
+	"storage put-bucket-policy":                storagePutBucketPolicyNote,
+	"storage delete-bucket-policy":             storageDeleteBucketPolicyNote,
 	"globalloadbalancer get-load-balancer":     globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":            globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":        globalLoadBalancerShapeUnverifiedNote,
@@ -668,6 +659,7 @@ var docExampleExtraFlag = map[string]string{
 // (svc_network_dhcp.go) each refuse their own command without --yes on
 // every call.
 var docExampleOverride = map[string]string{
+	"storage put-bucket-policy":        "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
 	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",

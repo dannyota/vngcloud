@@ -178,7 +178,9 @@ func extraDocFields(extraFlags func(cmd *cobra.Command)) []docField {
 // anything that is not a Get (a List's Output holds Items, plus page fields
 // for a PagedList) or whose Output does not wrap exactly one field, such as
 // pricing.GetQuoteOutput, which returns the quote's fields directly rather
-// than wrapping one resource.
+// than wrapping one resource. A single string field, such as storage's
+// GetBucketPolicyOutput.Policy, is the value itself and prints as one plain
+// cell, so it is not queried either.
 func wrappedResourceField(methodName string, newOutput func() any) string {
 	if !strings.HasPrefix(methodName, "Get") {
 		return ""
@@ -187,16 +189,17 @@ func wrappedResourceField(methodName string, newOutput func() any) string {
 	if t.Kind() != reflect.Struct {
 		return ""
 	}
-	name, count := "", 0
+	name, count, isString := "", 0, false
 	for i := range t.NumField() {
 		// An embedded struct flattens into the output, so it names no key
 		// --query could select.
 		if f := t.Field(i); f.IsExported() && !f.Anonymous {
 			count++
 			name = f.Name
+			isString = f.Type.Kind() == reflect.String
 		}
 	}
-	if count != 1 {
+	if count != 1 || isString {
 		return ""
 	}
 	return name
