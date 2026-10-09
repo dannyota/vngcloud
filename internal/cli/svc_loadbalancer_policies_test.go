@@ -117,8 +117,9 @@ func TestLoadBalancerCreatePolicyRedirectFieldMismatchExitsWithZeroRequests(t *t
 }
 
 // TestLoadBalancerUpdatePolicySendsMergedBody drives update-policy end to
-// end with --no-wait: --action alone still resends the read redirect pool,
-// KeepQueryString, and Rules unchanged.
+// end with --no-wait: a redirect-http-code change on a REDIRECT_TO_URL policy
+// resends the read redirect URL, KeepQueryString, and Rules unchanged, and
+// sends no redirectPoolId, which that action does not carry.
 func TestLoadBalancerUpdatePolicySendsMergedBody(t *testing.T) {
 	var body map[string]any
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -126,8 +127,8 @@ func TestLoadBalancerUpdatePolicySendsMergedBody(t *testing.T) {
 		"/v2/proj-1/loadBalancers/lb-1/listeners/listener-1/l7policies/policy-1": func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				jsonHandler(http.StatusOK, `{"data":{"uuid":"policy-1","action":"REDIRECT_TO_POOL",`+
-					`"redirectPoolId":"pool-1","keepQueryString":true,`+
+				jsonHandler(http.StatusOK, `{"data":{"uuid":"policy-1","action":"REDIRECT_TO_URL",`+
+					`"redirectUrl":"https://example.com/new","redirectHttpCode":302,"keepQueryString":true,`+
 					`"l7Rules":[{"compareType":"EQUAL_TO","ruleValue":"/","ruleType":"PATH"}],`+
 					`"progressStatus":"CREATED"}}`)(w, r)
 			case http.MethodPut:
@@ -154,12 +155,56 @@ func TestLoadBalancerUpdatePolicySendsMergedBody(t *testing.T) {
 	if body["redirectHttpCode"] != 301.0 {
 		t.Fatalf("body[redirectHttpCode] = %v, want 301", body["redirectHttpCode"])
 	}
-	if body["action"] != "REDIRECT_TO_POOL" || body["redirectPoolId"] != "pool-1" || body["keepQueryString"] != true {
-		t.Fatalf("body = %+v, want the read action, redirectPoolId, and keepQueryString resent", body)
+	if body["action"] != "REDIRECT_TO_URL" || body["redirectUrl"] != "https://example.com/new" || body["keepQueryString"] != true {
+		t.Fatalf("body = %+v, want the read action, redirectUrl, and keepQueryString resent", body)
+	}
+	if _, ok := body["redirectPoolId"]; ok {
+		t.Fatalf("body[redirectPoolId] sent for a REDIRECT_TO_URL policy: %+v", body)
 	}
 	rules, ok := body["rules"].([]any)
 	if !ok || len(rules) != 1 {
 		t.Fatalf("body[rules] = %+v, want the read rule resent", body["rules"])
+	}
+}
+
+// TestLoadBalancerUpdatePolicyRedirectHTTPCodeOnPoolPolicyExitsWithoutPUT
+// checks that --redirect-http-code on a REDIRECT_TO_POOL policy is refused
+// with InvalidUsage and sends no PUT.
+func TestLoadBalancerUpdatePolicyRedirectHTTPCodeOnPoolPolicyExitsWithoutPUT(t *testing.T) {
+	var putCalled bool
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/loadBalancers/lb-1": jsonHandler(http.StatusOK, policyLBReadyJSON),
+		"/v2/proj-1/loadBalancers/lb-1/listeners/listener-1/l7policies/policy-1": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				jsonHandler(http.StatusOK, `{"data":{"uuid":"policy-1","action":"REDIRECT_TO_POOL",`+
+					`"redirectPoolId":"pool-1","progressStatus":"CREATED"}}`)(w, r)
+			case http.MethodPut:
+				putCalled = true
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "update-policy",
+		"--load-balancer-id", "lb-1", "--listener-id", "listener-1", "--policy-id", "policy-1",
+		"--redirect-http-code", "301", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an InvalidUsage refusal")
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if putCalled {
+		t.Fatal("unexpected PUT request")
 	}
 }
 

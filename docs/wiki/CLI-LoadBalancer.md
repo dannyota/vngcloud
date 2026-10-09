@@ -76,7 +76,7 @@ vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-i
 
 Kind: Write.
 
-Rules comes only through --cli-input-json, a list of objects each with Type, CompareType, and Value all required, for example '{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'. --action REDIRECT_TO_POOL requires --redirect-pool-id and refuses --redirect-url; REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Another --action value reaches the server as given.
+Rules comes only through --cli-input-json, a list of objects each with Type, CompareType, and Value all required, for example '{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'. --action REDIRECT_TO_POOL requires --redirect-pool-id and refuses --redirect-url, --redirect-http-code, and --keep-query-string; REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Each write sends only the redirect fields its action carries. Another --action value reaches the server as given.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -527,7 +527,7 @@ vngcloud loadbalancer update-listener --load-balancer-id <load-balancer-id> --li
 
 Kind: Write.
 
-At least one field must be set, checked before any request (InvalidUsage). Reads the policy, applies every set field, and sends the full body with the read values for the rest. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as create-policy checks them.
+At least one field must be set, checked before any request (InvalidUsage). Reads the policy, applies every set field, and sends the body for the merged action with the read values for the rest. A REDIRECT_TO_POOL action sends only redirectPoolId, and REDIRECT_TO_URL sends only redirectUrl, redirectHttpCode, and keepQueryString. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as create-policy checks them, so --redirect-http-code on a pool policy is refused.
 
 | Flag | Type | Required |
 |-|-|-|
