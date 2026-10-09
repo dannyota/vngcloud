@@ -104,8 +104,8 @@ type createdS3Key struct {
 // The request is sensitive: no capture hook sees the response, and a decode
 // failure never quotes it. It is sent once, with no retry, no resend after a
 // 401, and no redirect, so a key is never made twice by the SDK. After a
-// 5xx, a network error, or a response that fails to decode, a key may exist
-// whose secret is lost: list the keys and delete any UserKeyID you do not
+// 5xx, a 2xx other than 200 or 201, a network error, or a response that fails
+// to decode, a key may exist whose secret is lost: list the keys and delete any UserKeyID you do not
 // know. The SDK lists nothing itself, since a key another client made at the
 // same time would look the same. A 4xx, an envelope refusal, a 429, or a
 // failed dial made no key and passes through unchanged.
@@ -198,17 +198,28 @@ func (c *Client) checkKeyPaths(ctx context.Context, op, region, project string) 
 const keyMayExistHint = "; a key may exist: list the keys and delete any UserKeyID you do not know, since its secret is lost"
 
 // keyMayExist adds the list-and-delete advice to an error that leaves the
-// create unknown: a 5xx, a network failure, or a response with no usable
-// body. A refusal that proves no key was made passes through unchanged: a
+// create unknown: a 5xx, a 2xx the create does not accept, a network failure,
+// or a response with no usable body. A refusal that proves no key was made passes through unchanged: a
 // 4xx, an envelope refusal, a 429, or a failed dial.
 func keyMayExist(err error) error {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.Retryable {
 		return err
 	}
-	if apiErr.StatusCode != 0 && apiErr.StatusCode < http.StatusInternalServerError && apiErr.Code != "EmptyResponse" {
+	unknown := apiErr.StatusCode == 0 || apiErr.StatusCode >= http.StatusInternalServerError ||
+		unacceptedSuccess(apiErr.StatusCode) || apiErr.Code == "EmptyResponse"
+	if !unknown {
 		return err
 	}
-	apiErr.Message = apiErr.Error() + keyMayExistHint
+	if apiErr.Message == "" {
+		apiErr.Message = "request failed"
+	}
+	apiErr.Message += keyMayExistHint
 	return err
+}
+
+// unacceptedSuccess reports a 2xx status the create does not list as ok. The
+// listed ones reach keyMayExist only as an envelope refusal, which made no key.
+func unacceptedSuccess(status int) bool {
+	return status/100 == 2 && status != http.StatusOK && status != http.StatusCreated
 }

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -363,10 +364,41 @@ func TestCreateS3KeyIsSentOnce(t *testing.T) {
 			if has := strings.Contains(apiErr.Message, "delete any UserKeyID"); has != tt.wantHint {
 				t.Fatalf("message %q: advice = %v, want %v", apiErr.Message, has, tt.wantHint)
 			}
+			if tt.wantHint {
+				rendered := err.Error()
+				for _, want := range []string{"storage.CreateS3Key:", fmt.Sprintf("(status %d)", tt.status), "delete any UserKeyID"} {
+					if n := strings.Count(rendered, want); n != 1 {
+						t.Fatalf("rendered error %q has %q %d times, want 1", rendered, want, n)
+					}
+				}
+			}
 			if tt.status == http.StatusTooManyRequests && !apiErr.Retryable {
 				t.Fatal("429 not marked retryable")
 			}
 		})
+	}
+}
+
+// TestCreateS3KeyOtherSuccessStatus proves a 2xx outside the create's ok list
+// gets the advice, since the server most likely made a key, and is not retried.
+func TestCreateS3KeyOtherSuccessStatus(t *testing.T) {
+	for _, status := range []int{http.StatusAccepted, http.StatusNoContent} {
+		s := &keyServer{status: status}
+		c := New(testutil.NewRetryConfig(t, s.handler(t)))
+		out, err := c.CreateS3Key(context.Background(), &CreateS3KeyInput{ProjectID: "proj-1"})
+		var apiErr *vngcloud.APIError
+		if out != nil || !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: out = %+v, err = %v", status, out, err)
+		}
+		if n := strings.Count(err.Error(), "delete any UserKeyID"); n != 1 {
+			t.Fatalf("status %d: rendered error %q has the advice %d times, want 1", status, err, n)
+		}
+		if errors.Is(err, ErrNoSecret) {
+			t.Fatalf("status %d: err = %v, want no ErrNoSecret", status, err)
+		}
+		if got := s.calls.Load(); got != 1 {
+			t.Fatalf("status %d: %d POSTs, want 1", status, got)
+		}
 	}
 }
 
@@ -386,6 +418,9 @@ func TestCreateS3KeyNetworkErrorIsSentOnce(t *testing.T) {
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "delete any UserKeyID") {
 		t.Fatalf("err = %v, want the list-and-delete advice", err)
+	}
+	if n := strings.Count(err.Error(), "delete any UserKeyID"); n != 1 {
+		t.Fatalf("rendered error %q has the advice %d times, want 1", err, n)
 	}
 	if posts.Load() != 1 {
 		t.Fatalf("%d POSTs, want 1", posts.Load())
