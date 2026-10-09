@@ -127,17 +127,15 @@ From the product docs, unless marked live:
   treats both as free. The bill for 2026-09-25 to 2026-10-09, read on
   2026-10-09 after the probes and the live runs, shows no vServer line and
   no cost, which confirms it.
-- Private virtual IPs: unknown. The pricing API accepts these resource
-  types (live): `volume`, `server`, `elastic-ip`, `image`, `container`,
+- Private virtual IPs: free. The pricing API accepts these resource types
+  (live): `volume`, `server`, `elastic-ip`, `image`, `container`,
   `load-balancer`, `mp-server`, `snapshot`, `bandwidth`, `public-vip`, and
-  AI Platform types. None is a private virtual IP. A `public-vip` quote
-  returns 120,000 VND a month whatever `resourceInfo.type` says, including
-  `private`, so it cannot price a private one. Public virtual IPs have their
-  own create call (`POST public-vips`) with a `type` of `public-vm` or
-  `public-mkp`, which suggests the private create is the free base, but no
-  source says so. The
-  [cost probe](vserver-network-writes-2-checks.md#probes-the-manager-runs)
-  decides.
+  AI Platform types. None is a private virtual IP, and a `public-vip` quote
+  returns 120,000 VND a month whatever `resourceInfo.type` says, so a quote
+  cannot price one. Public virtual IPs have their own create call
+  (`POST public-vips`). The cost probe's creates on 2026-09-29 and the live
+  runs since were accepted with a zero balance, and the bill for 2026-09-25
+  to 2026-10-09 shows no virtual IP line and no cost.
 
 ## Tag resource types
 

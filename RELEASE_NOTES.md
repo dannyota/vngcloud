@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.39.0 - Private Virtual IPs
+
+### Highlights
+
+- New `network.CreateVirtualIPAddress`, `UpdateVirtualIPAddress`, and
+  `DeleteVirtualIPAddress`, with matching `vngcloud network` commands. A
+  private virtual IP is free; `Mode` is required on create, and the
+  address is the server's choice when left empty.
+- `UpdateVirtualIPAddress` reads the virtual IP first and resends every
+  field the caller left unset, since the API replaces all of them on each
+  `PUT`. `DeleteVirtualIPAddress` refuses with `network.ErrInUse` while
+  an address pair still binds the address, and with
+  `vngcloud.ErrInvalidInput` for any virtual IP whose type is not
+  `private`, so a public virtual IP is never deleted through it.
+- New [Network Virtual IPs](https://github.com/dannyota/vngcloud/wiki/Network-VirtualIPs)
+  wiki page.
+
 ## v0.38.0 - DHCP Options Sets
 
 ### Highlights
