@@ -209,6 +209,32 @@ On the Layer 7 load balancer with an HTTP listener and two pools:
 3. `DeletePool` on the redirect pool: the server's refusal message.
 4. Delete both policies.
 
+### Results
+
+L2 to L6 passed on 2026-10-09 in `hcm-3` on the test account. Server rules
+the runs found are in [the API notes](lb-writes-api.md#server-rules).
+
+- L2: `ALB_Small` `Internal` quoted 400,000 VND a month and reached
+  `CREATED` in 1m54s. The duplicate create was refused by the guard. The
+  read carries a `zone` object, and package IDs are zone-specific.
+- L3: the resize to `ALB_Medium` quoted 399,916 VND, the new package
+  prorated for the rest of the period, and settled in 2m7s. The same
+  package was a no-op. The resize back quoted -399,898 VND, a refund, and
+  settled in 1m56s.
+- L4: pool create, algorithm update, two member adds, a repeat add (no-op),
+  a weight update, a member remove, and a pool delete all passed.
+- L5: HTTP listener, timeout update, throwaway certificate import, HTTPS
+  listener (certificate `inUse` false), then both listeners and the
+  certificate deleted, in 2m12s in all. The optional `Internet` NLB step
+  was not run.
+- L6: both policies created, rules replaced, `DeletePool` on a pool a
+  policy uses refused with 400, then both policies, the listener, and the
+  pool deleted.
+- Teardown: `DeleteLoadBalancer` on the kept load balancer settled in about
+  11 s and refunded its unused value. The kept load balancer and its VPC
+  were torn down the same day. Deletes refund to the minute, and the
+  balance ended within 574 VND of its start.
+
 ### Cleanup
 
 The live write test first deletes leftovers whose names start with

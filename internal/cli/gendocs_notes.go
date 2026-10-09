@@ -383,51 +383,6 @@ const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE,
 	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
 	"deleting it would move traffic."
 
-// loadbalancerImportCertificateNote documents import-certificate's file
-// flags and their rules, none of which the flag table can show on its own:
-// --name and --type still take ordinary flags, but every field that can
-// hold PEM or key text comes from a file instead.
-const loadbalancerImportCertificateNote = "Certificate, CertificateChain, PrivateKey, and Passphrase all come " +
-	"from a file: --certificate-file (required), --certificate-chain-file, --private-key-file, and " +
-	"--passphrase-file; none of the four has a plain string flag, and --cli-input-json refuses PrivateKey and " +
-	"Passphrase outright, inline or file://, though Certificate and CertificateChain may still be set that " +
-	"way instead of by file. Each file is read whole, at most 64 KiB, and an empty file is refused; " +
-	"--passphrase-file additionally drops one trailing newline. PrivateKey is required for Type TLS/SSL; for " +
-	"any other Type, PrivateKey, Passphrase, and CertificateChain must all be empty. GreenNode keeps the key, " +
-	"and the printed Certificate holds no key field. A failing import withholds the server's own error " +
-	"message entirely, since it could otherwise quote the rejected key or passphrase back. Keep the private " +
-	"key file readable only by its owner (chmod 600)."
-
-// loadbalancerDeleteCertificateNote documents delete-certificate's
-// pre-delete guard and why it needs --yes: the flag table shows only
-// --certificate-id.
-const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certificate a listener still uses " +
-	"(error code ResourceInUse), read first with get-certificate. A deleted certificate needs its key again " +
-	"to re-import, and the key may no longer exist anywhere else, so this needs --yes."
-
-// loadbalancerQuoteCreateLoadBalancerNote documents quote-create-load-balancer's
-// own price guard exemptions and unit, and that the billing gateway prices
-// only PackageID and ZoneID: the flag table shows every
-// CreateLoadBalancerInput field the same way create-load-balancer itself
-// will, with no hint that this command never orders anything or that most
-// of those fields do nothing here.
-const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices the load balancer " +
-	"CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND " +
-	"a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets " +
-	"them: both govern only an actual create. The billing gateway also ignores every key it does not price, " +
-	"such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price."
-
-// loadbalancerQuoteResizeLoadBalancerNote documents quote-resize-load-balancer's
-// own price guard exemptions, unit, and its not-found status, which differs
-// from every other load-balancer command's: the flag table shows only
-// --load-balancer-id and --package-id, with no hint of any of this.
-const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices the package change " +
-	"ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND " +
-	"a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
-	"only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the " +
-	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
-	"checks this request's shape before it checks the ID."
-
 // network's own DHCP options doc notes (create-dhcp-options through
 // clear-vpc-dhcp-options) live in gendocs_notes_network_dhcp.go, kept apart
 // from this file so neither grows past the length limit.
@@ -542,6 +497,21 @@ var docOpNotes = map[string]string{
 	"loadbalancer delete-certificate":         loadbalancerDeleteCertificateNote,
 	"loadbalancer quote-create-load-balancer": loadbalancerQuoteCreateLoadBalancerNote,
 	"loadbalancer quote-resize-load-balancer": loadbalancerQuoteResizeLoadBalancerNote,
+	"loadbalancer create-load-balancer":       loadbalancerCreateLoadBalancerNote,
+	"loadbalancer delete-load-balancer":       loadbalancerDeleteLoadBalancerNote,
+	"loadbalancer resize-load-balancer":       loadbalancerResizeLoadBalancerNote,
+	"loadbalancer create-pool":                loadbalancerCreatePoolNote,
+	"loadbalancer update-pool":                loadbalancerUpdatePoolNote,
+	"loadbalancer delete-pool":                loadbalancerDeletePoolNote,
+	"loadbalancer add-pool-member":            loadbalancerAddPoolMemberNote,
+	"loadbalancer update-pool-member":         loadbalancerUpdatePoolMemberNote,
+	"loadbalancer remove-pool-member":         loadbalancerRemovePoolMemberNote,
+	"loadbalancer create-listener":            loadbalancerCreateListenerNote,
+	"loadbalancer update-listener":            loadbalancerUpdateListenerNote,
+	"loadbalancer delete-listener":            loadbalancerDeleteListenerNote,
+	"loadbalancer create-policy":              loadbalancerCreatePolicyNote,
+	"loadbalancer update-policy":              loadbalancerUpdatePolicyNote,
+	"loadbalancer delete-policy":              loadbalancerDeletePolicyNote,
 	"containerregistry list-repositories":     containerRegistryListRepositoriesNote,
 	"containerregistry get-repository":        containerRegistryGetRepositoryNote,
 	"containerregistry create-repository":     containerRegistryCreateRepositoryNote,
@@ -597,13 +567,19 @@ var docJSONPlaceholders = map[string]string{
 // Mode to change. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
-// required-fields loop below picks up.
+// required-fields loop below picks up. loadbalancer's update-pool,
+// update-pool-member, update-listener, and update-policy are the same shape
+// again: each requires at least one field to change beyond its path IDs.
 var docExampleExtraFlag = map[string]string{
 	"compute update-server-group":       "name",
 	"dns update-hosted-zone":            "description",
 	"dns update-record":                 "ttl",
 	"monitor update-check":              "name",
 	"network update-virtual-ip-address": "name",
+	"loadbalancer update-pool":          "algorithm",
+	"loadbalancer update-pool-member":   "weight",
+	"loadbalancer update-listener":      "timeout-client",
+	"loadbalancer update-policy":        "action",
 }
 
 // docExampleOverride gives a full example command line for "service
@@ -657,6 +633,24 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
+// loadbalancer create-load-balancer needs one because MaxPrice is not a
+// required field, so buildExample's own loop would otherwise leave
+// --max-price out of the example entirely, even though a bare create orders
+// nothing until it is given (loadbalancerCreateLoadBalancerNote,
+// gendocs_notes_loadbalancer.go); the override also picks Scheme Internal,
+// the one value requireYesUnlessSchemeInternal (svc_loadbalancer_create.go)
+// needs no --yes for, so the example stays runnable without one.
+// loadbalancer create-listener gets one for a friendlier reason: Protocol
+// has no fixed value buildExample could guess, and the generic derivation
+// would print the unhelpful placeholders --protocol <protocol> and
+// --allowed-cidrs <allowed-cidrs>; the override shows a real protocol and a
+// real private CIDR instead. AllowedCIDRs itself needs no override to stay
+// runnable: it is NoFlag'd only so its own comma-separated --allowed-cidrs
+// flag (createListenerOp, svc_loadbalancer_listeners.go) can replace
+// flags.go's default repeatable one, and docFieldsFor (gendocs.go) leaves it
+// out of the field table entirely once it sees that flag, so buildExample's
+// loop reaches --allowed-cidrs through extraDocFields like any other
+// flag-settable required field, never through docJSONPlaceholders.
 // network set-vpc-dhcp-options and clear-vpc-dhcp-options need it for the
 // same reason as add-route: neither is Destructive either, but
 // requireYesToSetVPCDHCPOptions and requireYesToClearVPCDHCPOptions
@@ -670,10 +664,14 @@ var docExampleOverride = map[string]string{
 	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
 	"monitor list-alarms":              "vngcloud monitor list-alarms --kind Log",
 	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
-	"network add-route":                "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
-	"network remove-route":             "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
+	"loadbalancer create-load-balancer": "vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> " +
+		"--type <type> --scheme Internal --subnet-id <subnet-id> --zone-id <zone-id> --max-price 400000",
+	"network add-route":    "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",
+	"network remove-route": "vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes",
 	"loadbalancer import-certificate": "vngcloud loadbalancer import-certificate --name example-com " +
 		"--type TLS/SSL --certificate-file cert.pem --certificate-chain-file chain.pem --private-key-file key.pem",
+	"loadbalancer create-listener": "vngcloud loadbalancer create-listener --load-balancer-id <load-balancer-id> " +
+		"--name <name> --protocol HTTP --port <port> --allowed-cidrs 10.0.0.0/24",
 	"network add-network-acl-rule": "vngcloud network add-network-acl-rule --network-acl-id <network-acl-id> " +
 		"--direction <direction> --priority <priority> --protocol tcp --cidr <cidr> --action <action> " +
 		"--port-range-min 22 --port-range-max 22 --yes",

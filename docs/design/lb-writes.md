@@ -46,18 +46,28 @@ takes the same Input, and each quotes before it sends:
 
 1. Check the Input's shape, and that `MaxPrice` is finite and not
    negative (`ErrInvalidInput`).
-2. Quote with the same builder the write uses. A quote with no price is
-   an error, as `pricing.GetQuote` already returns.
-3. When `OptimumPrice` is above `MaxPrice`, return `ErrPriceAboveMax`
-   naming both amounts, sending nothing.
-4. Send the write once. Never send it again after a failure that may have
-   reached the server.
+2. Quote with the same builder the write uses, reading the response
+   itself rather than through `pricing.GetQuote`: `GetQuoteOutput`'s
+   `OptimumPrice` is a plain `float64`, so a JSON `null` there silently
+   becomes 0, indistinguishable from a genuine zero price. The guard
+   reads the raw quote body and refuses a missing `optimumPrice` key, a
+   null one, or a NaN or infinite number, whatever pricing.GetQuote would
+   have done with the same response.
+3. A create's quote of 0 or less, and a resize's quote of exactly 0,
+   returns `ErrUnpriced`, sending nothing, whatever `MaxPrice` is: nothing
+   in vLB is free, so the gateway could not price the input. A resize's
+   negative quote is a downsize refund and is allowed.
+4. When the price is above `MaxPrice`, return `ErrPriceAboveMax` naming
+   both amounts, sending nothing.
+5. Send the write once. Never send it again after a failure that may have
+   reached the server: the create `POST` sets `Once`, and the resize
+   `PUT` already did.
 
 `MaxPrice` is VND and defaults to 0, so a bare create orders nothing: the
 cheapest package quotes 400,000 VND a month. A create quote uses
-`period` 1, so it is the first month's price. What a resize quote prices
-(the difference for the rest of the period, or a full month) is a live
-check; the guard compares whatever the quote says. The price can change
+`period` 1, so it is the first month's price. A resize quote prices the
+new package prorated for the rest of the period, negative for a downsize;
+the guard compares whatever the quote says. The price can change
 between the quote and the write; the gap is one request.
 
 `pricing.GetQuoteInput` gains `Action` (empty sends `create`, as today)
@@ -82,12 +92,14 @@ Constants: `TypeLayer4` (`Layer 4`), `TypeLayer7` (`Layer 7`),
 sends them as given (ADR 0002 rule 5).
 
 - `Scheme` has no default, unlike the console's `Internet`. An internet
-  address is an exposure the caller names; see
-  [Security](#security).
+  address is an exposure the caller names; see [Security](#security). It
+  must be exactly `SchemeInternet` or `SchemeInternal`: any other value,
+  including padding, a different case, or an invented value such as
+  `Public`, is `ErrInvalidInput` before any request, quote included.
 - `ZoneID` is required and goes to both the quote and the create. The
   SDK picks no default, since a vServer VPC create showed the server's
-  default zone can be one the account cannot use. Whether it must match
-  the subnet's zone is a live check.
+  default zone can be one the account cannot use. A package must come from the
+  same zone.
 - The create body is `name`, `packageId`, `scheme`, `subnetId`, `type`,
   `zoneId`, `autoScalable` false, and `isPoc` false. The quote body is
   `packageId`, `zoneId`, `period` 1, `isPoc` false, and `isBuyMorePoc`
@@ -142,12 +154,12 @@ Constants: `ProtocolHTTP`, `ProtocolHTTPS`, `ProtocolTCP`, `ProtocolUDP`.
 - The health monitor is flat in the Input, so each field is a CLI flag.
   Its reads stay `GetPoolHealthMonitor`.
 - Empty `Algorithm` sends `ROUND_ROBIN`; 0 thresholds, interval, and
-  timeout send 3, 3, 30, and 5. `Stickiness` and `TLSEncryption` are sent
-  only when set, since Layer 4 pools lack them.
+  timeout send 3, 3, 30, and 5. An `HTTP` pool always sends `stickiness` and
+  `tlsEncryption` (`false` when nil); other pools send each only when set.
 - The HTTP fields are sent only for `HTTP` and `HTTPS` checks; with any
-  other check protocol, setting one is `ErrInvalidInput`. The SDK invents
-  no `domainName` for HTTP/1.1, unlike VNG Cloud's SDK (`nip.io`); the
-  server refuses a missing one.
+  other protocol, setting one is `ErrInvalidInput`. An `HTTP` check sends
+  `/`, `GET`, `200`, and `1.1` for an empty path, method, success code, and
+  version, in `UpdatePool` too; `domainName` only when set.
 - Update reads the pool and its health monitor, merges, and sends the full
   body. The check protocol cannot change after create; the update body has
   no field for it.
@@ -187,25 +199,25 @@ are:
    may have changed the pool.
 
 `Address` must parse as IPv4 (the reference's pattern); `Port` and
-`MonitorPort` are 1 to 65535, with `MonitorPort` 0 meaning unset. Weight
-0 sends 1. The server's `identical to the existing members` refusal maps
+`MonitorPort` are 1 to 65535; `MonitorPort` 0 sends `Port`. Weight 0
+sends 1. The server's `identical to the existing members` refusal maps
 to `Changed` false, since step 3 already stops that case.
 
 ## Policies
 
 | Operation | Input | Output |
 |-|-|-|
-| `CreatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `Name` (r), `Action` (r), `RedirectPoolID`, `RedirectURL`, `RedirectHTTPCode`, `KeepQueryString`, `Rules []PolicyRuleInput`, `NoWait` | `{Policy}` |
+| `CreatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `Name` (r), `Action` (r), `RedirectPoolID`, `RedirectURL`, `RedirectHTTPCode`, `KeepQueryString`, `Rules []PolicyRuleInput` (at least one), `NoWait` | `{Policy}` |
 | `UpdatePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `PolicyID` (r), `Action` *, `RedirectPoolID` *, `RedirectURL` *, `RedirectHTTPCode` *, `KeepQueryString` *, `Rules` *, `NoWait` | `{Policy}` |
 | `DeletePolicy` | `LoadBalancerID` (r), `ListenerID` (r), `PolicyID` (r), `NoWait` | `{}` |
 
 - `PolicyRuleInput` has `Type`, `CompareType`, and `Value`, all required.
   Rules come through `--cli-input-json`, as check locations do.
-- `REDIRECT_TO_POOL` needs `RedirectPoolID` and refuses the URL fields;
-  `REDIRECT_TO_URL` needs `RedirectURL` and refuses `RedirectPoolID`.
-  Other values go to the server as given.
-- Update reads, merges, and sends the full body; a set `Rules` replaces
-  the rule list, and an unset one resends the rules read.
+- `REDIRECT_TO_POOL` needs `RedirectPoolID` and refuses the URL fields
+  and `KeepQueryString`; `REDIRECT_TO_URL` needs `RedirectURL` and refuses
+  `RedirectPoolID`. The body carries only its action's fields. Other
+  values go as given.
+- Update reads, merges, and sends the full body; a set `Rules` replaces the list; an empty merged list is refused.
 
 ## Busy
 
@@ -269,7 +281,10 @@ by amending this table.
 - A create response without `uuid` is an `*APIError` that says the
   resource may exist and names the list.
 - Updates and deletes keep the transport's retries. The resize `PUT` uses
-  `Once`. The CLI never retries a write.
+  `Once`: after a 5xx, a network error, or a timeout, the error advises
+  reading the load balancer (`GetLoadBalancer`) and comparing its package to
+  the one requested before any rerun, since a rerun could send a second paid
+  resize. The CLI never retries a write.
 
 ## Security
 
@@ -299,24 +314,27 @@ by amending this table.
 | Command | Kind | `--yes` | Release |
 |-|-|-|-|
 | `loadbalancer quote-create-load-balancer`, `quote-resize-load-balancer` | Read | No | L1 |
-| `loadbalancer create-load-balancer` | Write, paid | For `--scheme Internet` | L2 |
+| `loadbalancer create-load-balancer` | Write, paid | Unless `--scheme Internal` | L2 |
 | `loadbalancer delete-load-balancer` | Write, destructive | Yes | L2 |
 | `loadbalancer resize-load-balancer` | Write, paid | No | L3 |
 | `loadbalancer create-pool`, `update-pool` | Write | No | L4 |
 | `loadbalancer delete-pool` | Write, destructive | Yes | L4 |
 | `loadbalancer add-pool-member`, `update-pool-member` | Write | No | L4 |
 | `loadbalancer remove-pool-member` | Write, changes traffic | Yes | L4 |
-| `loadbalancer create-listener`, `update-listener` | Write | When `--allowed-cidrs` has a `/0` prefix | L5 |
+| `loadbalancer create-listener`, `update-listener` | Write | Unless every `--allowed-cidrs` entry is inside a private range | L5 |
 | `loadbalancer delete-listener` | Write, destructive | Yes | L5 |
 | `loadbalancer create-policy`, `update-policy` | Write | No | L6 |
 | `loadbalancer delete-policy` | Write, destructive | Yes | L6 |
 
-- Paid writes take `--max-price <vnd>`; without it only a free order
-  would be sent, and none exists. `NaN`, `Inf`, or a negative value exits
-  2 before any request.
+- Paid writes take `--max-price <vnd>`; without it every order is
+  refused, since a real quote is above 0. `NaN`, `Inf`, or a negative
+  value exits 2 before any request.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request. The quotes are reads and run.
-- `--allowed-cidrs` is a comma-separated list, as the API takes it.
+- `--allowed-cidrs` is a comma-separated list, as the API takes it. `--yes`
+  is required unless every entry lies entirely inside a private range
+  (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`); several
+  prefixes that together cover a public address cannot avoid it.
 - Nested fields (`InsertHeaders`, `CertificateIDs`, policy `Rules`) come
   through `--cli-input-json`.
 - A deleted load balancer loses its address and its prepaid time, and a
@@ -376,9 +394,11 @@ the quotes.
    beyond the price. Recommend the first: the caller names the exposure,
    and an agent cannot add a public address by leaving a flag out.
 3. Open listener guard. Options: `AllowedCIDRs` required in the SDK and
-   `--yes` in the CLI when it has a `/0` prefix; `--yes` on every
-   listener create; none. Recommend the first: an input check with no
-   extra read, and an internal load balancer pays only the `--yes`.
+   `--yes` in the CLI unless every entry lies inside a private range (see
+   [CLI](#cli)); `--yes` only when an entry has a `/0` prefix; `--yes` on
+   every listener create; none. Recommend the private-range check: unlike
+   the `/0` check, several prefixes that together cover a public address
+   cannot pass without it.
 4. `MaxPrice` default. Options: 0, so every paid write needs
    `--max-price`; no default, a required flag. Recommend 0, as
    `create-log-project` does.
@@ -414,15 +434,14 @@ the quotes.
 
 ## Open questions
 
-- Billing: whether a create charges a whole month at once, whether a
-  delete refunds, what a resize quote prices, and whether the public
-  address costs extra (no quote line names one).
+- Billing: whether the public address costs extra (no quote line names
+  one).
 - How the server refuses an order without credit, and what state it
   leaves.
 - `progressStatus` values, the failed status, and real times.
 - The busy refusal's status and body, including `errorCode`.
-- Whether `zoneId` must match the subnet's zone, and whether load
-  balancer names are unique.
+- Whether load balancer names are unique. Package IDs are zone-specific,
+  so `zoneId` must match the package's zone.
 - Whether a Layer 7 package takes TCP and UDP listeners, and a Layer 4
   one HTTP.
 - Whether the listener `PUT` clears a field it does not carry, and what

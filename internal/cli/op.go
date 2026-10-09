@@ -14,6 +14,7 @@ import (
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/iam"
+	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/tagging"
 	"danny.vn/vngcloud/volume"
@@ -447,13 +448,18 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		// others: TagResource's or UntagResource's PUT already replaced the
 		// resource's user tags, so the last tags a read returned are worth
 		// printing even though the confirm read itself failed or mismatched.
+		// loadbalancer.ErrFailed and loadbalancer.ErrNotSettled join it too:
+		// create-load-balancer's and delete-load-balancer's own post-write
+		// waits (and every child write's) still carry the last resource a
+		// read returned.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
 			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
 			errors.Is(callErr, compute.ErrFailed) || errors.Is(callErr, compute.ErrNotSettled) ||
 			errors.Is(callErr, containerregistry.ErrNotSettled) ||
 			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled) ||
 			errors.Is(callErr, tagging.ErrNotSettled) ||
-			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled)) {
+			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
+			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled)) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

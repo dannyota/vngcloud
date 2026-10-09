@@ -20,8 +20,11 @@ rename; the module keeps the `vngcloud` name.
   importing and creating them.
 - [Container Registry](Container-Registry.md): repositories and users,
   including writes and secret handling.
+- [DNS](DNS.md): hosted zones and records, including writes and waits.
 - [IAM](IAM.md): service account writes, and their self-change and
   privileged-change guards.
+- [Load Balancer](LoadBalancer.md): load balancers, pools, listeners, and L7
+  policies, including the price guard, writes, and waits.
 - [Monitor](Monitor.md): vMonitor synthetic checks, and pausing and resuming
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,

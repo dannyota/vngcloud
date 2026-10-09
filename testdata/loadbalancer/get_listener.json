@@ -6,6 +6,7 @@
     "protocolPort": 443,
     "defaultPoolId": "pool-1",
     "allowedCidrs": "<cidr>",
-    "displayStatus": "ACTIVE"
+    "displayStatus": "ACTIVE",
+    "progressStatus": "CREATED"
   }
 }

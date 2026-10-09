@@ -135,8 +135,9 @@ type errorEnvelope struct {
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (a paid write's own quote priced
 // the order above --max-price, so nothing was sent; create-log-project,
-// compute create-server and resize-server, and volume create-volume and
-// resize-volume reach this), Unpriced (the same paid writes, when the
+// compute create-server and resize-server, volume create-volume and
+// resize-volume, and loadbalancer create-load-balancer and
+// resize-load-balancer reach this), Unpriced (the same paid writes, when the
 // quote is 0, so nothing was sent whatever --max-price says),
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
@@ -157,9 +158,10 @@ type errorEnvelope struct {
 // names, or an ACL a subnet is still associated with, or because the
 // server's own refusal named it in use, including a VPC delete the server
 // keeps refusing with "contains the subnet" for several minutes after that
-// subnet's own delete, or a loadbalancer delete-certificate refused because
-// a pre-delete read showed the certificate still in use by a listener, or
-// because the server's own refusal named it in use; or an iam delete-policy
+// subnet's own delete, or a loadbalancer delete-certificate or delete-pool
+// refused because a pre-delete read showed the certificate still in use by a
+// listener, or the pool still named as a listener's default pool, or because
+// the server's own refusal named it in use; or an iam delete-policy
 // targeted a policy still attached to a group, an IAM user, or a service
 // account, before any request), DefaultResource (a network delete-route-table
 // targeted a VPC's main route table while a subnet names no route table of
@@ -168,7 +170,10 @@ type errorEnvelope struct {
 // network ACL or one of an ACL's own default rules), ResourceBusy (a
 // network add-route, remove-route, or a network ACL rule or subnet write
 // read a table or ACL that was not ACTIVE and stayed that way past the wait
-// before the write, or saw it change before the send), SecretFileFailed
+// before the write, or saw it change before the send, or a loadbalancer
+// write found the load balancer, or the child it targets, still busy past
+// the pre-write wait, or a resize's own write was refused because the load
+// balancer was busy), SecretFileFailed
 // (create-ssh-key's own create succeeded but writing --secret-file failed
 // afterward, so the CLI deleted the new key), or SystemTag (a tagging
 // tag-resource or untag-resource refused because Key names a system tag,
@@ -210,8 +215,10 @@ func classify(err error) errorEnvelope {
 	// network.ErrFailed here: a vServer paid write's own post-write wait
 	// (server create, delete, start, stop, reboot, or resize; volume
 	// create, delete, resize, attach, or detach) reaching ERROR reports the
-	// same WriteFailed class.
-	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) {
+	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
+	// write's post-write wait.
+	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
+		errors.Is(err, loadbalancer.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
@@ -223,10 +230,11 @@ func classify(err error) errorEnvelope {
 	// confirm read after their PUT, can each wrap an inner *core.APIError or a
 	// canceled context, and this check must win over the generic *APIError
 	// branch below. volume.ErrNotSettled joins them for the same vServer
-	// paid write wait bound reason ErrFailed does above.
+	// paid write wait bound reason ErrFailed does above, and
+	// loadbalancer.ErrNotSettled for the vLB writes' own post-write waits.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, volume.ErrNotSettled) ||
-		errors.Is(err, tagging.ErrNotSettled) {
+		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	// volume.ErrVolumeInUse is always returned bare, from DeleteVolume's own
@@ -282,11 +290,12 @@ func classify(err error) errorEnvelope {
 	// that inner error first and report its own status-derived code instead.
 	// compute.ErrServerGroupInUse joins it for the same reason:
 	// wrapServerGroupInUse (compute/server_groups_write.go) can wrap the
-	// server's own refusal the same way. loadbalancer.ErrCertificateInUse
-	// joins it too: wrapCertificateDeleteErr
-	// (loadbalancer/certificates_write.go) can wrap the server's own refusal
-	// of a delete the same way, on top of the plain sentinel
-	// DeleteCertificate itself returns from its own pre-delete read.
+	// server's own refusal the same way. loadbalancer.ErrCertificateInUse and
+	// loadbalancer.ErrInUse join it too: wrapCertificateDeleteErr
+	// (loadbalancer/certificates_write.go) and wrapPoolInUse
+	// (loadbalancer/pools_write.go) can each wrap the server's own refusal of
+	// a delete the same way, on top of the plain sentinel DeleteCertificate's
+	// and DeletePool's own pre-delete reads already return.
 	if errors.Is(err, network.ErrSystemGroup) {
 		return errorEnvelope{Code: "SystemSecurityGroup", Message: err.Error()}
 	}
@@ -296,7 +305,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, compute.ErrServerGroupInUse) {
 		return errorEnvelope{Code: "ServerGroupInUse", Message: err.Error()}
 	}
-	if errors.Is(err, network.ErrInUse) || errors.Is(err, loadbalancer.ErrCertificateInUse) {
+	if errors.Is(err, network.ErrInUse) || errors.Is(err, loadbalancer.ErrCertificateInUse) || errors.Is(err, loadbalancer.ErrInUse) {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	// network.ErrDefaultResource and network.ErrBusy join this same early
@@ -310,11 +319,14 @@ func classify(err error) errorEnvelope {
 	// server's own 400 when an ACL rules or subnets PUT lands in the ACL's
 	// busy window, so this check must win over the generic *APIError branch
 	// below for that case too, the same reason ErrSecurityGroupInUse and
-	// ErrInUse are checked here rather than after it.
+	// ErrInUse are checked here rather than after it. loadbalancer.ErrBusy
+	// joins network.ErrBusy under the same code: both mean a pre-write wait
+	// ran out, or, only for loadbalancer's own resize, that the write itself
+	// was refused because the load balancer was busy.
 	if errors.Is(err, network.ErrDefaultResource) {
 		return errorEnvelope{Code: "DefaultResource", Message: err.Error()}
 	}
-	if errors.Is(err, network.ErrBusy) {
+	if errors.Is(err, network.ErrBusy) || errors.Is(err, loadbalancer.ErrBusy) {
 		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
 	}
 	// vngcloud.ErrPriceAboveMax is the root sentinel a compute or volume paid
@@ -462,8 +474,9 @@ func exitCode(err error) int {
 	// compute.ErrUnexpectedStatus, containerregistry.ErrNotSettled,
 	// containerregistry.ErrUserNotFound, iam.ErrNotSettled,
 	// tagging.ErrNotSettled, monitor.ErrOTPRejected, volume.ErrFailed,
-	// volume.ErrNotSettled, volume.ErrVolumeInUse, and
-	// volume.ErrUnexpectedStatus join the same early return for the same
+	// volume.ErrNotSettled, volume.ErrVolumeInUse,
+	// volume.ErrUnexpectedStatus, loadbalancer.ErrFailed, and
+	// loadbalancer.ErrNotSettled join the same early return for the same
 	// reason: per the vDNS, network, vServer, vCR writes, and iam designs, a
 	// not-settled write, and a create-user whose own create already
 	// succeeded, must exit the same way even after a canceled context,
@@ -479,7 +492,8 @@ func exitCode(err error) int {
 		errors.Is(err, compute.ErrFailed) || errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
 		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) ||
-		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) {
+		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) ||
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, loadbalancer.ErrNotSettled) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
