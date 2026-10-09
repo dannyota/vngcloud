@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.51.0 - vMonitor Log Alarm Writes
+
+### Highlights
+
+- New `monitor.CreateLogAlarm`, `UpdateLogAlarm`, and `DeleteLogAlarm`,
+  with `vngcloud monitor create-log-alarm`, `update-log-alarm`, and
+  `delete-log-alarm`. A create needs an `ACTIVE` log project, a threshold,
+  and at least one channel; the POST is sent once and the wait settles only
+  when the alarm reads `ACTIVE` (up to 120 s). An update reads the alarm
+  first, resends every unset field as the console does, and refuses while
+  the alarm is still settling (the server answers 403 for about 30 s after
+  a create). `update-log-alarm` and `delete-log-alarm` need `--yes`.
+- Read model: `Alarm.Kind` and `Status` now decode the API's `type` and
+  `progressStatus`; `Log.ID` carries the log detail's own id. A deleted
+  alarm lingers in the list for a few seconds, and a repeat delete is
+  refused by the server; the SDK confirms by listing and reports NotFound.
+- Verified live on 2026-10-09 on a Pro log project: create settled in 4 s,
+  update and delete passed, the project was deleted the same day and its
+  unused month refunded (637 VND net).
+
 ## v0.50.0 - Load Balancer Policies
 
 ### Highlights
