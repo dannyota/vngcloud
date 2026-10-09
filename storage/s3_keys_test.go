@@ -184,6 +184,8 @@ var keyOps = map[string]func(c *Client) error{
 		_, err := c.DeleteS3Key(context.Background(), &DeleteS3KeyInput{ProjectID: "proj-1", UserKeyID: "key-1"})
 		return err
 	},
+	"AttachS3Key": attach,
+	"DetachS3Key": detach,
 }
 
 func TestS3KeyErrorStatuses(t *testing.T) {

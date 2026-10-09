@@ -1,0 +1,5 @@
+{
+  "code": 114,
+  "success": false,
+  "errorMsg": "This S3 key is already attached with another service account"
+}

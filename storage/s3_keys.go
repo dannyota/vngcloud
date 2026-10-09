@@ -18,8 +18,12 @@ import (
 var ErrNoSecret = errors.New("storage: no secret returned")
 
 // S3Key is a vStorage S3 key without its secret. A key has the rights of the
-// IAM user that made it, on every bucket of its project. Fields the API
-// leaves null, such as SubUserID, decode as zero.
+// IAM user that made it, on every bucket of its project, until it is attached
+// to a service account. Fields the API leaves null decode as zero.
+//
+// SubUserID is the key's restriction state. Empty means the key is
+// unrestricted. "<account user>:sa-<service account name>" means the key is
+// attached to that service account (AttachS3Key) and acts as it.
 type S3Key struct {
 	UserKeyID   string `json:"userKeyId"`
 	AccessKey   string `json:"accessKey"`
@@ -157,8 +161,8 @@ type DeleteS3KeyInput struct {
 
 type DeleteS3KeyOutput struct{}
 
-// DeleteS3Key deletes an S3 key. It stops working at once and cannot be
-// restored. The server answers success for a UserKeyID it does not know,
+// DeleteS3Key deletes an S3 key, attached or not. It stops working at once
+// and cannot be restored. The server answers success for a UserKeyID it does not know,
 // and a repeat delete of a deleted key as envelope code 114.
 func (c *Client) DeleteS3Key(ctx context.Context, in *DeleteS3KeyInput) (*DeleteS3KeyOutput, error) {
 	const op = "storage.DeleteS3Key"

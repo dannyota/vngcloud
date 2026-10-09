@@ -3,9 +3,9 @@
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages vStorage object storage: it reads the vStorage regions
 and the projects in a region, it lists, creates, and deletes the buckets in
-a project, and it lists, creates, and deletes the project's S3 keys. It covers
-the management plane only. To read or write objects, use an S3 client such as
-rclone with an S3 key.
+a project, it lists, creates, and deletes the project's S3 keys, and it
+attaches a key to an IAM service account. It covers the management plane only.
+To read or write objects, use an S3 client such as rclone with an S3 key.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -209,8 +209,8 @@ An S3 key is an access key and a secret for one project. An S3 client signs
 its requests with it. The key has the rights of the IAM user that made it, on
 every bucket of the project, so make keys only with an IAM user that is
 scoped to vStorage. The server takes no name for a key, and an account holds
-at most 10. The target for an application is a key scoped to one bucket, made
-through a service account and a bucket policy; the SDK does not do that yet.
+at most 10. A key made this way is unrestricted. To scope a key, attach it to a
+service account ([below](#service-account-keys)).
 
 ```go
 created, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{
@@ -260,10 +260,11 @@ nothing about one. At the key limit the server answers HTTP 200 with
 envelope code `114` and the message `Key number is reached to maximum value
 10`.
 
-`DeleteS3Key` ends the key at once and cannot be undone. It keeps the
-transport's retries. The server answers success for a `UserKeyID` it does not
-know, and a repeat delete of a deleted key as envelope code `114`
-(`Could not delete s3 keys. InvalidAccessKeyId`), not `ErrNotFound`.
+`DeleteS3Key` ends the key at once and cannot be undone, and it works on an
+attached key. It keeps the transport's retries. The server answers success for
+a `UserKeyID` it does not know, and a repeat delete of a deleted key as
+envelope code `114` (`Could not delete s3 keys. InvalidAccessKeyId`), not
+`ErrNotFound`.
 
 A key works on the data plane. With the AWS CLI, put the access key and
 secret in a credentials file and point `AWS_SHARED_CREDENTIALS_FILE` at it,
@@ -272,6 +273,97 @@ then use the endpoint from `Region.S3Host` and the region name:
 ```sh
 AWS_DEFAULT_REGION=HCM04 aws s3 ls --endpoint-url https://hcm04.vstorage.vngcloud.vn
 ```
+
+## Service account keys
+
+A key attached to a service account loses its creator's rights and acts as the
+service account. The service account's rights on a bucket come only from bucket
+policies that name its principal. The calls are `AttachS3Key`, `DetachS3Key`,
+and `EnsureServiceAccountPrincipal`.
+
+```go
+principal, err := client.EnsureServiceAccountPrincipal(ctx,
+	&storage.EnsureServiceAccountPrincipalInput{
+		ProjectID:        projectID,
+		ServiceAccountID: serviceAccountID, // as iam returns it, no "sa-" prefix
+	})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(principal.PrincipalARN) // put this in the bucket policy
+
+_, err = client.AttachS3Key(ctx, &storage.AttachS3KeyInput{
+	ProjectID:        projectID,
+	UserKeyID:        created.UserKeyID,
+	ServiceAccountID: serviceAccountID,
+})
+```
+
+`DetachS3Key` takes `ProjectID` and `UserKeyID` and makes the key unrestricted
+again: it has its creator's rights on every bucket of the project at once.
+Neither call returns data. Read the state back with `ListS3Keys`: `SubUserID`
+is empty for an unrestricted key, and `<account user>:sa-<service account
+name>` for a key attached to that service account. The data plane follows
+within 3 seconds.
+
+`EnsureServiceAccountPrincipal` returns `SubUserID` and `PrincipalARN`
+(`arn:aws:iam:::user/` and the `SubUserID`). It is a write although it sends a
+`GET`: the server makes the service account's storage sub-user on the first
+call, and a repeat returns the same one. The sub-user cannot be deleted and has
+no rights until a bucket policy names it. A response without a `subUserId`, or
+with one that lacks a `:sa-` segment, is an error with no Output, so the IAM
+user's own principal never reaches a policy.
+
+A key is unrestricted from its create until its attach. If you create a key to
+restrict it, attach it before you store the secret, and delete the key if the
+attach fails for any reason.
+
+An attached key can still list the project's buckets and create buckets, since
+no bucket policy governs those. Make keys only with an IAM user scoped to
+vStorage.
+
+`AttachS3Key` and `DetachS3Key` are not idempotent, so each is sent once, with
+no retry, no resend after a 401, and no redirect. A 429 or a failed dial
+returns an `*vngcloud.APIError` with `Retryable` true, and you may rerun. After
+a 5xx, a network error, or an unreadable response, the error says the change
+may have happened: list the keys and read `SubUserID`. A rerun that answers
+"already attached with this service account", or for a detach "not attached",
+means the first try took effect.
+
+The server refuses with HTTP 200, envelope code `114`, and a message. Each is
+an `*vngcloud.APIError` with `Code` `"114"` and that message, and none matches
+a sentinel such as `ErrNotFound`:
+
+| Case | Message |
+|---|---|
+| Attach to the account the key is already attached to | `This S3 key is already attached with this service account` |
+| Attach of a key attached to another account | `This S3 key is already attached with another service account` |
+| Attach to an unknown service account | `StatusCode=404` |
+| Attach or detach of an unknown key | `S3 key not found` |
+| Detach of an unattached key | `This S3 key is not attached to any service account.` |
+
+The server checks "attached elsewhere" before the service account, so any
+attach of an attached key gives one of the first two messages.
+
+The sub-user is named from the service account's name, not its ID. A new
+service account with the name of a deleted one gets the same principal, so it
+inherits any bucket policy that still names it. Remove a service account from
+every bucket policy before you delete it.
+
+For one key per bucket, run the steps in this order:
+
+1. Create the bucket.
+2. Create the service account with `iam`.
+3. Call `EnsureServiceAccountPrincipal`.
+4. Write a bucket policy that allows the principal on the bucket. The SDK has no
+   bucket policy call yet.
+5. Create the key, then attach it to the service account, then store its
+   secret.
+
+The principal exists before the policy names it. The policy exists before the
+key, since an attached key has no rights in a bucket until a policy names its
+principal. The key is attached before its secret is stored, since a key is
+unrestricted until its attach. [CLI-Storage](CLI-Storage.md) has the commands.
 
 ## Errors
 
@@ -294,5 +386,8 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | `CreateS3Key` got a 5xx, a network error, or no decodable response | Error that says a key may exist: list the keys and delete any unknown `UserKeyID` |
 | `CreateS3Key` response holds a key but no secret | The key and an error wrapping `storage.ErrNoSecret`; delete the key |
 | `CreateS3Key` at the 10-key limit, or a repeat `DeleteS3Key` | `*vngcloud.APIError` with envelope code `114`, no sentinel |
+| `AttachS3Key` or `DetachS3Key` refused | `*vngcloud.APIError` with envelope code `114` and the server's message, listed under [Service account keys](#service-account-keys) |
+| `AttachS3Key` or `DetachS3Key` got a 5xx or a network error | `*vngcloud.APIError` that says the change may have happened; list the keys and read `SubUserID` |
+| `EnsureServiceAccountPrincipal` response without a `:sa-` sub-user | `*vngcloud.APIError`, no Output |
 
 See [Errors](Errors.md) for `APIError` itself.

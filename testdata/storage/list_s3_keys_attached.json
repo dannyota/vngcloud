@@ -1,0 +1,17 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "regionId": "<region-id-2>",
+      "projectId": "<project-id>",
+      "userId": "<account>",
+      "subUserId": "<account-user>:sa-<name>",
+      "userKeyId": "<user-key-id-1>",
+      "accessKey": "<access-key-1>",
+      "secretKey": null,
+      "createdDate": "01/01/2026 00:00",
+      "status": 1
+    }
+  ]
+}
