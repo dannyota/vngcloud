@@ -9555,7 +9555,7 @@ func TestLiveWriteTagging(t *testing.T) {
 // positive number. Every paid live write test checks its planned quotes
 // against this cap and sends nothing once their sum exceeds it, per the
 // design's live-run budget rule.
-func liveMaxVND(t *testing.T) float64 {
+func liveMonitorMaxVND(t *testing.T) float64 {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
 	if raw == "" {
@@ -9618,7 +9618,7 @@ func TestLiveWritePaidVolume(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_PAID_VOLUME=1 to run the live paid volume test; " +
 			"it orders a real, billed volume and needs the owner's approval and credit on the test account")
 	}
-	budgetCap := liveMaxVND(t)
+	budgetCap := liveMonitorMaxVND(t)
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -9914,7 +9914,7 @@ func TestLiveWritePaidServer(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_PAID_SERVER=1 to run the live paid server test; " +
 			"it orders a real, billed server and needs the owner's approval and credit on the test account")
 	}
-	budgetCap := liveMaxVND(t)
+	budgetCap := liveMonitorMaxVND(t)
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -10159,7 +10159,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_PAID_ATTACH=1 to run the live paid attach and detach test; " +
 			"it orders a real, billed server and volume and needs the owner's approval and credit on the test account")
 	}
-	budgetCap := liveMaxVND(t)
+	budgetCap := liveMonitorMaxVND(t)
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -10398,7 +10398,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_PAID_RESIZE=1 to run the live paid resize test; " +
 			"it orders and resizes a real, billed server and volume and needs the owner's approval and credit on the test account")
 	}
-	budgetCap := liveMaxVND(t)
+	budgetCap := liveMonitorMaxVND(t)
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -10633,4 +10633,375 @@ func TestLiveWritePaidResize(t *testing.T) {
 	t.Log("step 9: deleted the data volume and the server with its boot volume")
 
 	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
+}
+
+// listAllLogAlarmsPageCap bounds listAllLogAlarms' page walk, the same rule
+// listAllChannels applies to its own paging: a server that never returns an
+// empty page and never reports a TotalItem the walk can reach would
+// otherwise turn a cleanup helper into an infinite loop.
+const listAllLogAlarmsPageCap = 1000
+
+// listAllLogAlarms pages through every Log alarm the account has.
+func listAllLogAlarms(ctx context.Context, client *monitor.Client) ([]monitor.Alarm, error) {
+	var all []monitor.Alarm
+	for page := 1; page <= listAllLogAlarmsPageCap; page++ {
+		out, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: monitor.AlarmKindLog, Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if len(out.Items) == 0 || len(all) >= out.TotalItem {
+			return all, nil
+		}
+	}
+	return all, nil
+}
+
+// liveLogAlarmPollInterval and liveLogAlarmPollBound are
+// TestLiveWriteMonitorLogAlarm's own cadence and bound for
+// pollLogAlarmSettled, matching CreateLogAlarm's own wait so the test's
+// direct poll and the SDK's wait describe the same real-world timing.
+const (
+	liveLogAlarmPollInterval = 2 * time.Second
+	liveLogAlarmPollBound    = 120 * time.Second
+)
+
+// pollLogAlarmSettled polls for a Log alarm's Status to become ACTIVE, by id
+// when id is not empty, else by exact name, up to liveLogAlarmPollBound. It exists because CreateLogAlarm's own
+// NoWait skips that wait entirely, and the test needs to look at the create
+// response's own id separately from whichever alarm the poll eventually
+// finds. It returns the last alarm read, whether it settled within the
+// bound, and any read error.
+func pollLogAlarmSettled(ctx context.Context, client *monitor.Client, id, name string) (monitor.Alarm, bool, error) {
+	deadline := time.Now().Add(liveLogAlarmPollBound)
+	for {
+		var found *monitor.Alarm
+		if id != "" {
+			out, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: id})
+			if err != nil {
+				return monitor.Alarm{}, false, err
+			}
+			found = &out.Alarm
+		} else {
+			list, err := listAllLogAlarms(ctx, client)
+			if err != nil {
+				return monitor.Alarm{}, false, err
+			}
+			for i := range list {
+				if list[i].Name == name {
+					found = &list[i]
+					break
+				}
+			}
+		}
+		if found != nil && found.Status == monitor.LogAlarmStatusActive {
+			return *found, true, nil
+		}
+		if !time.Now().Before(deadline) {
+			if found != nil {
+				return *found, false, nil
+			}
+			return monitor.Alarm{}, false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return monitor.Alarm{}, false, ctx.Err()
+		case <-time.After(liveLogAlarmPollInterval):
+		}
+	}
+}
+
+// liveLogAlarmNamePattern is TestLiveWriteMonitorLogAlarm's own naming
+// scheme: vngcloud-live-<8 lowercase hex>, exactly, matching the pattern
+// every other live monitor write test uses for its own leftovers.
+var liveLogAlarmNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func isLiveLogAlarmName(name string) bool {
+	return liveLogAlarmNamePattern.MatchString(name)
+}
+
+// deleteLogAlarmByName lists Log alarms and deletes any whose Name matches
+// name. It is used after a CreateLogAlarm failure, since a POST that
+// returned an error may still have reached the server (the design's own
+// no-retry rule for that POST is exactly why). It runs on its own timeout,
+// not the calling test step's context, so it can still clean up after that
+// step's own context is the reason the step failed.
+func deleteLogAlarmByName(t *testing.T, client *monitor.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	list, err := listAllLogAlarms(ctx, client)
+	if err != nil {
+		t.Errorf("cleanup: list log alarms by name: %s", safeErr(err))
+		return
+	}
+	for _, a := range list {
+		if a.Name != name {
+			continue
+		}
+		if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: a.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete log alarm by name: %s", safeErr(err))
+		}
+	}
+}
+
+// TestLiveWriteMonitorLogAlarm exercises CreateLogAlarm, GetAlarm,
+// ListAlarms, UpdateLogAlarm, and DeleteLogAlarm against the account named
+// in .env.
+//
+// Unlike the design's own live check, this test never orders a log
+// project: the account's Basic class allows only a few log project orders
+// or recoveries a month (see monitor-log-alarms.md), so
+// VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID must name an existing ACTIVE log
+// project instead. The test creates, reads, updates, and deletes a log
+// alarm and a webhook channel on that project; it never creates, deletes,
+// or purges the project itself.
+//
+// VNGCLOUD_LIVE_MONITOR_LOG_ALARM must be set to "1" in addition to
+// VNGCLOUD_LIVE_WRITE, so this test never runs alongside the account's
+// other live write tests by accident. VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL
+// names the webhook URL the created channel notifies.
+//
+// It deletes every leftover vngcloud-live-* log alarm and channel first
+// (step 1); creates a webhook channel (step 2); creates a frequency log
+// alarm named vngcloud-live-<8 hex> with the match-all query, threshold
+// 1000, and that channel in InAlarm, with NoWait so the test can see the
+// create response's own AlarmID before any wait, then polls and settles it
+// itself with pollLogAlarmSettled, recording both that presence and how
+// long the poll took (step 3); reads it back and records the alarmLog
+// shape: whether Log is set, whether Filter is present, and the threshold
+// fields (step 4); lists it back to confirm ListAlarms decodes the same
+// alarmLog shape a Get does (step 5); updates ThresholdValue and Name,
+// confirming LogProjectID round-trips unchanged (step 6); deletes it
+// (step 7); deletes it again to record the second delete's error code
+// (step 8); and confirms no vngcloud-live-* alarm remains (step 9). Every
+// step logs only counts, statuses, field presence, and timings, never the
+// alarm's, channel's, or project's id.
+func TestLiveWriteMonitorLogAlarm(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor log alarm write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_MONITOR_LOG_ALARM") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_LOG_ALARM=1 to run the live log alarm write test")
+	}
+	projectID := os.Getenv("VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID")
+	if projectID == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID to an existing ACTIVE log project's id to run the live log alarm write test; this test never orders one")
+	}
+	webhookURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL")
+	if webhookURL == "" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL to the approved webhook URL to run the live monitor log alarm write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := monitor.New(cfg)
+	// Step 1: delete every leftover vngcloud-live-* log alarm and channel
+	// from a previous run.
+	leftoverAlarms, err := listAllLogAlarms(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListAlarms: %s", safeErr(err))
+	}
+	deletedAlarms := 0
+	for _, a := range leftoverAlarms {
+		if !isLiveLogAlarmName(a.Name) {
+			continue
+		}
+		if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: a.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover log alarm: %s", safeErr(err))
+		}
+		deletedAlarms++
+	}
+	leftoverChannels, err := listAllChannels(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListChannels: %s", safeErr(err))
+	}
+	deletedChannels := 0
+	for _, ch := range leftoverChannels {
+		if !isLiveChannelName(ch.Name) {
+			continue
+		}
+		if _, err := client.DeleteChannel(ctx, &monitor.DeleteChannelInput{ChannelID: ch.ID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover channel: %s", safeErr(err))
+		}
+		deletedChannels++
+	}
+	t.Logf("step 1: deleted %d leftover log alarm(s) and %d leftover channel(s)", deletedAlarms, deletedChannels)
+	// Step 2: create the webhook channel the alarm's InAlarm will name.
+	channelSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate channel name suffix: %v", err)
+	}
+	channelName := "vngcloud-live-" + channelSuffix
+	createdChannel, err := client.CreateChannel(ctx, &monitor.CreateChannelInput{
+		Name: channelName, Type: monitor.ChannelTypeWebhook, Address: webhookURL,
+	})
+	if err != nil {
+		deleteChannelByName(t, client, channelName)
+		t.Fatalf("step 2 CreateChannel: %s", safeErr(err))
+	}
+	channelID := createdChannel.Channel.ID
+	if channelID == "" {
+		deleteChannelByName(t, client, channelName)
+		t.Fatal("step 2: CreateChannel returned an empty id")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteChannel(cleanupCtx, &monitor.DeleteChannelInput{ChannelID: channelID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete channel: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created the webhook channel")
+	// Step 3: create the log alarm: frequency (the default), match-all
+	// query (QueryString and Filter both left empty), threshold 1000, this
+	// channel in InAlarm, with NoWait, then poll and settle it here, so
+	// created.AlarmID reflects only what the create response itself
+	// carried.
+	alarmSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate alarm name suffix: %v", err)
+	}
+	alarmName := "vngcloud-live-" + alarmSuffix
+	created, err := client.CreateLogAlarm(ctx, &monitor.CreateLogAlarmInput{
+		Name: alarmName, LogProjectID: projectID, ThresholdValue: vngcloud.Ptr(1000.0),
+		InAlarm: []string{channelID}, NoWait: true,
+	})
+	if err != nil {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3 CreateLogAlarm: %s", safeErr(err))
+	}
+	t.Logf("step 3: create response carried an id: %v", created.AlarmID != "")
+	pollStart := time.Now()
+	settled, ok, err := pollLogAlarmSettled(ctx, client, created.AlarmID, alarmName)
+	pollElapsed := time.Since(pollStart)
+	if err != nil {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3 poll for settle: %s", safeErr(err))
+	}
+	if !ok {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3: alarm did not settle within %s", liveLogAlarmPollBound)
+	}
+	if settled.Status != monitor.LogAlarmStatusActive {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3: alarm settled at status %q, want %s", settled.Status, monitor.LogAlarmStatusActive)
+	}
+	if settled.ID == "" {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatal("step 3: settled alarm has no id")
+	}
+	alarmID := settled.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteLogAlarm(cleanupCtx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete log alarm: %s", safeErr(err))
+		}
+	})
+	t.Logf("step 3: settled after %s, status %s", pollElapsed, settled.Status)
+	// Step 4: read the alarm back and record its shape.
+	read, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: alarmID})
+	if err != nil {
+		t.Fatalf("step 4 GetAlarm: %s", safeErr(err))
+	}
+	t.Logf("step 4: Kind=%q, Log present: %v", read.Alarm.Kind, read.Alarm.Log != nil)
+	if read.Alarm.Log != nil {
+		t.Logf("step 4: LogProjectID matches input: %v, Filter present: %v, ThresholdType=%q, Condition=%q, ThresholdValue=%v, TimeFrame=%v",
+			read.Alarm.Log.LogProjectID == projectID, len(read.Alarm.Log.Filter) > 0,
+			read.Alarm.Log.ThresholdType, read.Alarm.Log.Condition, read.Alarm.Log.ThresholdValue, read.Alarm.Log.TimeFrame)
+	}
+	// Step 5: list it back to confirm ListAlarms decodes the same alarmLog
+	// shape a Get does.
+	listed, err := client.ListAlarms(ctx, &monitor.ListAlarmsInput{Kind: monitor.AlarmKindLog, Name: alarmName})
+	if err != nil {
+		t.Fatalf("step 5 ListAlarms: %s", safeErr(err))
+	}
+	foundInList := false
+	for _, item := range listed.Items {
+		if item.Name == alarmName {
+			foundInList = true
+			t.Logf("step 5: list item Log present: %v", item.Log != nil)
+		}
+	}
+	if !foundInList {
+		t.Fatal("step 5: created alarm not found in ListAlarms by name")
+	}
+	// Step 6: update the threshold and the name; confirm LogProjectID
+	// round-trips unchanged.
+	renameSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 6 generate rename suffix: %v", err)
+	}
+	newName := "vngcloud-live-" + renameSuffix
+	updated, err := client.UpdateLogAlarm(ctx, &monitor.UpdateLogAlarmInput{
+		AlarmID: alarmID, Name: &newName, ThresholdValue: vngcloud.Ptr(2000.0),
+	})
+	if err != nil {
+		t.Fatalf("step 6 UpdateLogAlarm: %s", safeErr(err))
+	}
+	if updated.Alarm.Name != newName {
+		t.Fatal("step 6: UpdateLogAlarm did not change Name")
+	}
+	if updated.Alarm.Log == nil || updated.Alarm.Log.ThresholdValue != 2000 {
+		t.Fatal("step 6: ThresholdValue did not change to 2000")
+	}
+	if updated.Alarm.Log.LogProjectID != projectID {
+		t.Fatal("step 6: LogProjectID changed, want unchanged")
+	}
+	t.Log("step 6: updated threshold and name; LogProjectID unchanged")
+	// Step 7: delete the alarm explicitly, so the cleanup above finds it
+	// already gone.
+	if _, err := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7 DeleteLogAlarm: %s", safeErr(err))
+	}
+	t.Log("step 7: deleted the alarm")
+	// Step 8: delete it again; the server answers 400 or 500 for a deleted
+	// alarm, which the SDK confirms against the list and reports as
+	// NotFound. Only codes are logged, since a message may name the id.
+	_, secondDeleteErr := client.DeleteLogAlarm(ctx, &monitor.DeleteLogAlarmInput{AlarmID: alarmID})
+	if !vngcloud.IsNotFound(secondDeleteErr) {
+		t.Fatalf("step 8: second delete: want NotFound, got code %q", vngcloud.ErrorCode(secondDeleteErr))
+	}
+	t.Logf("step 8: second delete returned NotFound, code %q", vngcloud.ErrorCode(secondDeleteErr))
+	// Record what a read of the deleted id returns, without asserting.
+	if gone, err := client.GetAlarm(ctx, &monitor.GetAlarmInput{AlarmID: alarmID}); err != nil {
+		t.Logf("step 8: GetAlarm of the deleted id: error code %q", vngcloud.ErrorCode(err))
+	} else {
+		t.Logf("step 8: GetAlarm of the deleted id: 200, status %q", gone.Alarm.Status)
+	}
+	// Step 9: confirm no vngcloud-live-* log alarm remains.
+	final, err := listAllLogAlarms(ctx, client)
+	if err != nil {
+		t.Fatalf("step 9 final ListAlarms: %s", safeErr(err))
+	}
+	remaining := 0
+	for _, a := range final {
+		if isLiveLogAlarmName(a.Name) {
+			remaining++
+		}
+	}
+	t.Logf("step 9: vngcloud-live log alarms remaining: %d", remaining)
+	if remaining != 0 {
+		t.Fatalf("step 9: expected 0 vngcloud-live log alarms, found %d", remaining)
+	}
 }

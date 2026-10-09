@@ -1,0 +1,41 @@
+{
+  "lstData": [
+    {
+      "id": "alarm-4",
+      "name": "example-log-alarm-nested",
+      "type": "LOG",
+      "status": "OK",
+      "severity": "MEDIUM",
+      "alarmLog": {
+        "logProject": "proj-1",
+        "logProjectName": "example-project",
+        "queryString": "status:500",
+        "logSearchQuery": "[]",
+        "filter": {
+          "type": "bool",
+          "value": {
+            "filter": [],
+            "should": [],
+            "must": [{"query_string": {"query": "status:500"}}],
+            "mustNot": []
+          }
+        },
+        "thresholdType": "frequency",
+        "condition": "gt",
+        "thresholdValue": 100,
+        "timeFrame": 5,
+        "groupByField": null,
+        "inAlarm": "channel-1,channel-2,",
+        "ok": "channel-1,",
+        "resendEnabled": false,
+        "resendPeriod": 30,
+        "resendTimes": 0,
+        "resendStatus": "ALARM"
+      }
+    }
+  ],
+  "page": 1,
+  "pageSize": 10000,
+  "totalPage": 1,
+  "totalItem": 1
+}

@@ -29,7 +29,7 @@ type clockFunc func() time.Time
 // and bound per operation (vDNS's single pollInterval and pollBound cover
 // every one of its own waits), and neither service package imports the
 // other for this.
-func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error { //nolint:unparam // interval is 2s for every current caller, but each wait's own design states its own cadence, so it stays a parameter rather than a shared constant.
 	deadline := now().Add(bound)
 	for {
 		stop, err := step(ctx)

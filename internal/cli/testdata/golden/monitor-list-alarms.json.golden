@@ -3,23 +3,43 @@
     {
       "ID": "alarm-1",
       "Name": "example-log-alarm",
+      "Description": "",
       "Kind": "Log",
       "Status": "OK",
       "Severity": "MEDIUM",
       "MetricMappingID": "",
       "Log": {
+        "ID": "",
+        "LogProjectID": "",
+        "LogProjectName": "",
+        "QueryString": "",
+        "Filter": [],
+        "ThresholdType": "",
+        "Condition": "",
+        "ThresholdValue": 0,
+        "TimeFrame": 0,
+        "GroupByField": "",
+        "AggField": "",
+        "AggType": "",
         "InAlarm": [
           "channel-1",
           "channel-2"
         ],
         "OK": [
           "channel-1"
-        ]
+        ],
+        "Resend": {
+          "Enabled": false,
+          "Statuses": [],
+          "Period": 0,
+          "Times": 0
+        }
       }
     },
     {
       "ID": "alarm-2",
       "Name": "example-metric-alarm",
+      "Description": "",
       "Kind": "Metric",
       "Status": "In-alarm",
       "Severity": "HIGH",
