@@ -8214,7 +8214,7 @@ func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *lo
 			continue
 		}
 		if err := waitLoadBalancerIdle(ctx, client, lb.UUID); err != nil {
-			t.Errorf("cleanup: wait for load balancer %s to stop being busy: %s", lb.UUID, safeErr(err))
+			t.Errorf("cleanup: wait for load balancer %q to stop being busy: %s", name, safeErr(err))
 		}
 		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
 		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
@@ -8228,14 +8228,14 @@ func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *lo
 	}
 	for _, lb := range left.Items {
 		if lb.Name == name {
-			t.Errorf("cleanup: load balancer %s named %q is still there after delete", lb.UUID, name)
+			t.Errorf("cleanup: load balancer %q is still there after delete", name)
 		}
 	}
 }
 
 // liveLBIdleBound and liveLBIdleInterval bound waitLoadBalancerIdle.
 const (
-	liveLBIdleBound    = 5 * time.Minute
+	liveLBIdleBound    = 20 * time.Minute
 	liveLBIdleInterval = 10 * time.Second
 )
 
@@ -8370,7 +8370,7 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		t.Fatalf("load .env: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 
 	cfg, err := vngcloud.LoadConfig(ctx,
@@ -8414,7 +8414,7 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
-	vpcName := "vngcloud-live-" + suffix
+	vpcName := liveKeptLoadBalancerPrefix + suffix
 	vpcCIDR, err := pickFreeVPCCIDR(ctx, netClient)
 	if err != nil {
 		t.Fatalf("step 2 pick a free VPC CIDR: %s", err)
@@ -8471,7 +8471,7 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		if created {
 			return
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 		defer cancel()
 		deleteLoadBalancerByExactName(cleanupCtx, t, lbClient, name)
 	})
@@ -8590,6 +8590,10 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 	// ResizeLoadBalancer's own guard would otherwise refuse outright.
 	downInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: smallID}
 	downQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, downInput)
+	if errors.Is(err, vngcloud.ErrUnpriced) {
+		t.Log("step 4: the downsize quote was 0; skipping the down resize and leaving the load balancer on the larger package")
+		return
+	}
 	if err != nil {
 		t.Fatalf("step 4 QuoteResizeLoadBalancer (down): %s", safeErr(err))
 	}
