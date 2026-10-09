@@ -3756,7 +3756,7 @@ func createLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.C
 // writes to it: the same shape every live network test's own VPC create
 // uses, so an unrelated VPC id pasted into that variable by mistake is
 // refused rather than silently written to.
-var liveReuseVPCNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+var liveReuseVPCNamePattern = regexp.MustCompile(`^vngcloud-live-(keep-)?[0-9a-f]{8}$`)
 
 // useLiveVPCAndSubnet reads the VPC named by vpcID and creates a /24 subnet
 // of the test's own inside it, for a run where the account's VPC quota
@@ -8860,6 +8860,7 @@ func TestLiveWritePaidServer(t *testing.T) {
 	computeClient := compute.New(cfg)
 	volumeClient := volume.New(cfg)
 	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
 
 	// Step 1: sweep leftovers from an earlier aborted run first.
 	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
@@ -8872,35 +8873,10 @@ func TestLiveWritePaidServer(t *testing.T) {
 	}
 	name := "vngcloud-live-" + suffix
 
-	// Step 2: create the parents: a VPC, a subnet in it, a security group
+	// Step 2: create the parents: a VPC and subnet (the subnet only, in the VPC
+	// named by VNGCLOUD_LIVE_NETWORK_VPC_ID, when that is set), a security group
 	// with no ingress rule, and an imported throwaway RSA key.
-	vpc, err := networkClient.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: "10.251.0.0/16"})
-	if err != nil {
-		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
-	}
-	vpcID := vpc.VPC.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteVPC(cleanupCtx, &network.DeleteVPCInput{VPCID: vpcID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteVPC: %s", safeErr(err))
-		}
-	})
-
-	subnet, err := networkClient.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name, CIDR: "10.251.1.0/24",
-	})
-	if err != nil {
-		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
-	}
-	subnetID := subnet.Subnet.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteSubnet(cleanupCtx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteSubnet: %s", safeErr(err))
-		}
-	})
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
 
 	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live paid server test"})
 	if err != nil {
@@ -9129,6 +9105,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	computeClient := compute.New(cfg)
 	volumeClient := volume.New(cfg)
 	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
 
 	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
 	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
@@ -9140,30 +9117,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	}
 	name := "vngcloud-live-" + suffix
 
-	vpc, err := networkClient.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: "10.252.0.0/16"})
-	if err != nil {
-		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
-	}
-	vpcID := vpc.VPC.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteVPC(cleanupCtx, &network.DeleteVPCInput{VPCID: vpcID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteVPC: %s", safeErr(err))
-		}
-	})
-	subnet, err := networkClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: name, CIDR: "10.252.1.0/24"})
-	if err != nil {
-		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
-	}
-	subnetID := subnet.Subnet.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteSubnet(cleanupCtx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteSubnet: %s", safeErr(err))
-		}
-	})
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
 	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live attach/detach test"})
 	if err != nil {
 		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
@@ -9391,6 +9345,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 	computeClient := compute.New(cfg)
 	volumeClient := volume.New(cfg)
 	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
 
 	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
 	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
@@ -9402,30 +9357,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 	}
 	name := "vngcloud-live-" + suffix
 
-	vpc, err := networkClient.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: "10.253.0.0/16"})
-	if err != nil {
-		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
-	}
-	vpcID := vpc.VPC.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteVPC(cleanupCtx, &network.DeleteVPCInput{VPCID: vpcID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteVPC: %s", safeErr(err))
-		}
-	})
-	subnet, err := networkClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: name, CIDR: "10.253.1.0/24"})
-	if err != nil {
-		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
-	}
-	subnetID := subnet.Subnet.UUID
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if _, err := networkClient.DeleteSubnet(cleanupCtx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: DeleteSubnet: %s", safeErr(err))
-		}
-	})
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
 	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live resize test"})
 	if err != nil {
 		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
