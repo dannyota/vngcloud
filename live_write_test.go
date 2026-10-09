@@ -9024,10 +9024,10 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 // separately from every other test here so a run of L2 through L6 never
 // deletes a kept load balancer by accident.
 //
-// Each kept load balancer, the paid resource, is deleted before this test
-// ever does a free read that could fail and abort it, such as reading its
-// subnet for the VPC to delete next: a read failing must never leave a paid
-// load balancer behind. If more than one kept load balancer somehow exists,
+// Each kept load balancer's subnet is read for its VPC before the delete,
+// since the subnet no longer reads afterward. A failed read is reported but
+// never stops the delete: a read failing must never leave a paid load
+// balancer behind. If more than one kept load balancer somehow exists,
 // every one matching the name pattern is deleted, not just the first found.
 // Deletion is confirmed by checking the load balancers a fresh list
 // actually returns, not merely that the list call itself succeeded.
@@ -9072,22 +9072,22 @@ func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
 
 	var vpcIDs []string
 	for _, lb := range kept {
-		// Delete the paid resource itself first, before the free subnet
-		// read below, which could fail and abort the test with the load
-		// balancer still undeleted.
+		// The subnet is unreadable once the load balancer is gone, so read
+		// its VPC first. A failed read only skips the VPC delete: the paid
+		// load balancer is still deleted below.
+		subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: lb.PrivateSubnetID})
+		if err != nil {
+			t.Errorf("read subnet for kept load balancer %s: %s", lb.Name, safeErr(err))
+		} else {
+			vpcIDs = append(vpcIDs, subnetOut.Subnet.NetworkUUID)
+		}
+
 		deleteLoadBalancerChildren(ctx, t, lbClient, lb.UUID)
 		if _, err := lbClient.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("delete kept load balancer %s: %s", lb.Name, safeErr(err))
 			continue
 		}
 		t.Logf("deleted kept load balancer %s", lb.Name)
-
-		subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: lb.PrivateSubnetID})
-		if err != nil {
-			t.Errorf("read subnet for kept load balancer %s: %s", lb.Name, safeErr(err))
-			continue
-		}
-		vpcIDs = append(vpcIDs, subnetOut.Subnet.NetworkUUID)
 	}
 
 	// Confirm every kept load balancer is actually gone by checking what a

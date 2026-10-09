@@ -221,18 +221,17 @@ Live quotes for a create, `period` 1, on 2026-09-28, the same in all four
 - A quote with an unknown or missing `packageId` returns 500 `Internal
   Server Error`, so the SDK checks `PackageID` before quoting.
 - A resize quote for a missing load balancer returns 400 `The resource is
-  not found.`: the server accepts the shape and checks the ID. A resize
-  quote on a real load balancer, and whether it prices the difference for
-  the rest of the month, is a live check.
+  not found.`: the server accepts the shape and checks the ID. Live: a
+  resize quote on a real load balancer prices the new package prorated for
+  the rest of the period, and is negative for a downsize.
 
 ## Server rules
 
 From the reference and the product pages on `docs.greennode.ai`:
 
 - The package is the main factor in the price. The console's order
-  carries a `period` in months and an auto-renew flag. Whether the create
-  charges a whole month at once, and whether a delete refunds any of it,
-  is a live check.
+  carries a `period` in months and an auto-renew flag. Live: a create charges
+  a month at once, and a delete refunds the unused value to the minute.
 - An `Internet` load balancer gets a public address; an `Internal` one
   answers only inside the VPC. The scheme cannot change after create.
 - The package's `lbType` (`L4` or `L7`) must match `type`. `Layer 7`

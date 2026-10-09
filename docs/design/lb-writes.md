@@ -65,9 +65,9 @@ takes the same Input, and each quotes before it sends:
 
 `MaxPrice` is VND and defaults to 0, so a bare create orders nothing: the
 cheapest package quotes 400,000 VND a month. A create quote uses
-`period` 1, so it is the first month's price. What a resize quote prices
-(the difference for the rest of the period, or a full month) is a live
-check; the guard compares whatever the quote says. The price can change
+`period` 1, so it is the first month's price. A resize quote prices the
+new package prorated for the rest of the period, negative for a downsize;
+the guard compares whatever the quote says. The price can change
 between the quote and the write; the gap is one request.
 
 `pricing.GetQuoteInput` gains `Action` (empty sends `create`, as today)
@@ -98,8 +98,8 @@ sends them as given (ADR 0002 rule 5).
   `Public`, is `ErrInvalidInput` before any request, quote included.
 - `ZoneID` is required and goes to both the quote and the create. The
   SDK picks no default, since a vServer VPC create showed the server's
-  default zone can be one the account cannot use. Whether it must match
-  the subnet's zone is a live check.
+  default zone can be one the account cannot use. A package must come from the
+  same zone.
 - The create body is `name`, `packageId`, `scheme`, `subnetId`, `type`,
   `zoneId`, `autoScalable` false, and `isPoc` false. The quote body is
   `packageId`, `zoneId`, `period` 1, `isPoc` false, and `isBuyMorePoc`
@@ -434,15 +434,14 @@ the quotes.
 
 ## Open questions
 
-- Billing: whether a create charges a whole month at once, whether a
-  delete refunds, what a resize quote prices, and whether the public
-  address costs extra (no quote line names one).
+- Billing: whether the public address costs extra (no quote line names
+  one).
 - How the server refuses an order without credit, and what state it
   leaves.
 - `progressStatus` values, the failed status, and real times.
 - The busy refusal's status and body, including `errorCode`.
-- Whether `zoneId` must match the subnet's zone, and whether load
-  balancer names are unique.
+- Whether load balancer names are unique. Package IDs are zone-specific,
+  so `zoneId` must match the package's zone.
 - Whether a Layer 7 package takes TCP and UDP listeners, and a Layer 4
   one HTTP.
 - Whether the listener `PUT` clears a field it does not carry, and what
