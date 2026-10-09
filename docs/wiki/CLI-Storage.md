@@ -2,6 +2,38 @@
 
 # CLI: Storage
 
+## create-bucket
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Sends the console body for a bucket without object lock, then reads the bucket back and prints it. A name must be lowercase letters, digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way that may have reached the server, the message says the bucket may exist: check with get-bucket before running it again.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
+```
+
+## delete-bucket
+
+Kind: Write, destructive.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--yes`: a deleted bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code `BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. There is no force option.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage delete-bucket --project-id <project-id> --bucket <bucket> --yes
+```
+
 ## get-bucket
 
 Kind: Read.

@@ -527,6 +527,8 @@ var docOpNotes = map[string]string{
 	"storage list-projects":                   storageListProjectsNote,
 	"storage list-buckets":                    storageListBucketsNote,
 	"storage get-bucket":                      storageGetBucketNote,
+	"storage create-bucket":                   storageCreateBucketNote,
+	"storage delete-bucket":                   storageDeleteBucketNote,
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,

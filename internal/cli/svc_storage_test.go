@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -46,6 +47,8 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"list-projects": {},
 		"list-buckets":  {},
 		"get-bucket":    {"bucket"},
+		"create-bucket": {"bucket"},
+		"delete-bucket": {"bucket"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -56,8 +59,15 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 			t.Errorf("unexpected op %q", op.name)
 			continue
 		}
-		if op.kind != kindRead {
-			t.Errorf("%s is not a read", op.name)
+		wantKind := kindRead
+		if op.name == "create-bucket" || op.name == "delete-bucket" {
+			wantKind = kindWrite
+		}
+		if op.kind != wantKind {
+			t.Errorf("%s has the wrong kind", op.name)
+		}
+		if op.destructive != (op.name == "delete-bucket") {
+			t.Errorf("%s destructive = %v", op.name, op.destructive)
 		}
 		specs, err := flagSpecsFor(op.newInput())
 		if err != nil {
@@ -210,5 +220,140 @@ func TestStorageGetBucketExampleSelectsNoWrapperKey(t *testing.T) {
 		if op.queryField != "" {
 			t.Errorf("%s: queryField = %q, want none (the output is flat)", op.name, op.queryField)
 		}
+	}
+}
+
+const (
+	storageBucketPath  = "/internal/v1/ceph/projects/proj-s1/buckets/bucket-a"
+	storageDetailsPath = "/internal/v1/ceph/projects/proj-s1/bucket-a/details"
+	storageEmptyBucket = `{"code":200,"success":true,"data":{"name":"bucket-a","count":0,"size":0,"type":"ceph"}}`
+)
+
+// storageWriteRoutes serves a bucket path that records the method and body of
+// each write and answers the details read with body.
+func storageWriteRoutes(details string, writes *[]string) map[string]func(http.ResponseWriter, *http.Request) {
+	return map[string]func(http.ResponseWriter, *http.Request){
+		storageBucketPath: func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			*writes = append(*writes, r.Method+" "+string(b))
+			jsonHandler(http.StatusOK, `{"code":200,"success":true}`)(w, r)
+		},
+		storageDetailsPath: jsonHandler(http.StatusOK, details),
+	}
+}
+
+func TestStorageCreateBucketSendsConsoleBodyAndReadsBack(t *testing.T) {
+	var writes []string
+	r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+		"--project-id", "proj-s1", "storage", "create-bucket", "--bucket", "bucket-a")
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
+	}
+	if want := []string{`POST {"status":"Disabled"}`}; !slices.Equal(writes, want) {
+		t.Fatalf("writes = %q, want %q", writes, want)
+	}
+	if !strings.Contains(r.stdout, `"Name": "bucket-a"`) {
+		t.Fatalf("stdout = %s", r.stdout)
+	}
+	if m, _ := r.fixture.methodFor(storageDetailsPath); m != http.MethodGet {
+		t.Fatalf("the bucket was not read back: method = %q", m)
+	}
+}
+
+func TestStorageDeleteBucketSendsDelete(t *testing.T) {
+	var writes []string
+	r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
+	}
+	if want := []string{"DELETE "}; !slices.Equal(writes, want) {
+		t.Fatalf("writes = %q, want %q", writes, want)
+	}
+}
+
+func TestStorageDeleteBucketRequiresYes(t *testing.T) {
+	var writes []string
+	r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+		"--project-id", "proj-s1", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err == nil || exitCode(r.err) != 2 || !strings.Contains(r.err.Error(), "--yes") {
+		t.Fatalf("err = %v, exit = %d, want exit 2 naming --yes", r.err, exitCode(r.err))
+	}
+	if n := r.fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
+	}
+}
+
+func TestStorageDeleteBucketRefusesANonEmptyBucket(t *testing.T) {
+	var writes []string
+	full := `{"code":200,"success":true,"data":{"name":"bucket-a","count":3,"size":10,"type":"ceph"}}`
+	r := runStorage(t, storageWriteRoutes(full, &writes),
+		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err == nil || exitCode(r.err) != 1 {
+		t.Fatalf("err = %v, exit = %d, want exit 1", r.err, exitCode(r.err))
+	}
+	if env := classify(r.err); env.Code != "BucketNotEmpty" {
+		t.Fatalf("code = %q, want BucketNotEmpty", env.Code)
+	}
+	if len(writes) != 0 {
+		t.Fatalf("writes = %q, want none", writes)
+	}
+}
+
+func TestStorageWritesMissingProjectIDStopBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"--yes", "storage", "create-bucket", "--bucket", "bucket-a"},
+		{"--yes", "storage", "delete-bucket", "--bucket", "bucket-a"},
+	} {
+		var writes []string
+		r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes), args...)
+		if r.err == nil || exitCode(r.err) != 2 || !strings.Contains(r.err.Error(), "--project-id") {
+			t.Fatalf("%v: err = %v, exit = %d, want exit 2 naming --project-id", args, r.err, exitCode(r.err))
+		}
+		if n := r.fixture.requestCount(); n != 0 {
+			t.Errorf("%v: requestCount = %d, want 0", args, n)
+		}
+	}
+}
+
+func TestStorageWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
+	for _, op := range []string{"create-bucket", "delete-bucket"} {
+		t.Run(op, func(t *testing.T) {
+			var writes []string
+			r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+				"--read-only", "--yes", "--project-id", "proj-s1", "storage", op, "--bucket", "bucket-a")
+			if r.err == nil || exitCode(r.err) != 2 || classify(r.err).Code != "ReadOnly" {
+				t.Fatalf("err = %v, exit = %d, want ReadOnly exit 2", r.err, exitCode(r.err))
+			}
+			if n := r.fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
+	}
+}
+
+func TestStorageCreateBucketInvalidNameServerErrorExitsOne(t *testing.T) {
+	routes := map[string]func(http.ResponseWriter, *http.Request){
+		storageBucketPath: jsonHandler(http.StatusOK, `{"code":112,"success":false,`+
+			`"errorMsg":"Invalid input error (Bucket name must be all lowercase letters, numbers or hyphens)"}`),
+	}
+	r := runStorage(t, routes, "--project-id", "proj-s1", "storage", "create-bucket", "--bucket", "bucket-a")
+	if r.err == nil || exitCode(r.err) != 1 {
+		t.Fatalf("err = %v, exit = %d, want exit 1", r.err, exitCode(r.err))
+	}
+	if env := classify(r.err); env.Code != "112" {
+		t.Fatalf("code = %q, want 112", env.Code)
+	}
+}
+
+func TestStorageBucketNameShapeIsAUsageErrorBeforeTheWrite(t *testing.T) {
+	var writes []string
+	r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+		"--project-id", "proj-s1", "storage", "create-bucket", "--bucket", "bad/name")
+	if r.err == nil || exitCode(r.err) != 2 {
+		t.Fatalf("err = %v, exit = %d, want exit 2", r.err, exitCode(r.err))
+	}
+	if len(writes) != 0 {
+		t.Fatalf("writes = %q, want none", writes)
 	}
 }

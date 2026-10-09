@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
 	"danny.vn/vngcloud/volume"
 )
@@ -127,7 +128,9 @@ type errorEnvelope struct {
 // server that was not STOPPED without --allow-running, before any request),
 // RepositoryNotEmpty (a
 // containerregistry delete-repository was refused because a pre-delete
-// read showed the repository still holds images), UserNotFound (a
+// read showed the repository still holds images), BucketNotEmpty (a storage
+// delete-bucket was refused because a pre-delete read showed the bucket holds
+// objects, so nothing was sent), UserNotFound (a
 // containerregistry create-user's own create succeeded but a follow-up
 // list could not confirm the new user by name; the new secret is still
 // written to --secret-file either way), OTPRejected (a channel OTP
@@ -271,6 +274,11 @@ func classify(err error) errorEnvelope {
 	// pre-write and pre-delete guards below, for the same grouping reason.
 	if errors.Is(err, containerregistry.ErrRepositoryNotEmpty) {
 		return errorEnvelope{Code: "RepositoryNotEmpty", Message: err.Error()}
+	}
+	// storage.ErrBucketNotEmpty is returned from delete-bucket's own pre-delete
+	// read, before any DELETE, and joins the same group for the same reason.
+	if errors.Is(err, storage.ErrBucketNotEmpty) {
+		return errorEnvelope{Code: "BucketNotEmpty", Message: err.Error()}
 	}
 	// containerregistry.ErrUserNotFound joins this same early group for the
 	// same reason ErrNotSettled above does: findCreatedUser's own lookup

@@ -53,13 +53,15 @@ type Op[C any] struct {
 }
 
 // writeOption configures a Write operation. Destructive, Guard, WriteRedact,
-// and WriteNoFlag are the four today; cli.WaitFor (for an asynchronous
+// WriteNoFlag, and WriteGlobalProjectID are the five today; cli.WaitFor (for an asynchronous
 // write) is undefined until the first such write needs it.
 type writeOption struct {
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
 	redact      func(out any)
 	noFlag      map[string]bool
+	// globalProject is set by WriteGlobalProjectID.
+	globalProject string
 }
 
 // Destructive marks a Write operation as not undoable by one more command:
@@ -105,6 +107,13 @@ func WriteNoFlag(fields ...string) writeOption {
 // that error path.
 func WriteRedact[Out any](fn func(*Out)) writeOption {
 	return writeOption{redact: func(out any) { fn(out.(*Out)) }}
+}
+
+// WriteGlobalProjectID is GlobalProjectID for a Write operation: the global
+// --project-id flag fills the named Input field, which gets no flag of its
+// own, and an empty result exits 2 before any request.
+func WriteGlobalProjectID(field string) writeOption {
+	return writeOption{noFlag: map[string]bool{field: true}, globalProject: field}
 }
 
 // readOption configures a Read operation: NoFlag, Redact, or both.
@@ -216,6 +225,9 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 		}
 		if o.redact != nil {
 			redact = o.redact
+		}
+		if o.globalProject != "" {
+			op.globalProject = o.globalProject
 		}
 		for f := range o.noFlag {
 			if op.noFlag == nil {

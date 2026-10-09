@@ -20,6 +20,10 @@ var storageOps = []Op[storage.Client]{
 		kebab("ListBuckets"), (*storage.Client).ListBuckets, NoFlag("Region"), GlobalProjectID("ProjectID")),
 	Read[storage.Client, storage.GetBucketInput, storage.GetBucketOutput](
 		kebab("GetBucket"), (*storage.Client).GetBucket, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.CreateBucketInput, storage.CreateBucketOutput](
+		kebab("CreateBucket"), (*storage.Client).CreateBucket, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.DeleteBucketInput, storage.DeleteBucketOutput](
+		kebab("DeleteBucket"), (*storage.Client).DeleteBucket, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 }
 
 func newStorageCmd(e *env) *cobra.Command {

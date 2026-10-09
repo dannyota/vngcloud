@@ -18,6 +18,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/storage"
 )
 
 // realStatusUnconfirmedErr drives one real monitor.PauseCheck call to the
@@ -236,6 +237,7 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: repository repo-1 has 1 image(s); delete them first", containerregistry.ErrRepositoryNotEmpty),
 			1,
 		},
+		{"storage bucket not empty", fmt.Errorf("%w: storage.DeleteBucket: bucket holds 3 objects", storage.ErrBucketNotEmpty), 1},
 		{"containerregistry not settled", fmt.Errorf("%w: repository repo-1 was accepted", containerregistry.ErrNotSettled), 1},
 		{
 			// A Ctrl-C during a vCR repository create's or delete's
@@ -473,6 +475,11 @@ func TestClassify(t *testing.T) {
 			"containerregistry repository not empty",
 			fmt.Errorf("%w: repository repo-1 has 1 image(s); delete them first", containerregistry.ErrRepositoryNotEmpty),
 			"RepositoryNotEmpty", 0, "",
+		},
+		{
+			"storage bucket not empty",
+			fmt.Errorf("%w: storage.DeleteBucket: bucket holds 3 objects", storage.ErrBucketNotEmpty),
+			"BucketNotEmpty", 0, "",
 		},
 		{
 			"containerregistry not settled",

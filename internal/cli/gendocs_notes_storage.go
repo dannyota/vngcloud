@@ -20,3 +20,14 @@ const storageListBucketsNote = storageProjectIDNote + storageRegionNote + " The 
 const storageGetBucketNote = storageProjectIDNote + storageRegionNote
 
 const storageListRegionsNote = "Lists the regions vStorage serves, with their S3 hosts. Needs no project."
+
+const storageCreateBucketNote = storageProjectIDNote + storageRegionNote + " Sends the console body for a " +
+	"bucket without object lock, then reads the bucket back and prints it. A name must be lowercase letters, " +
+	"digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way " +
+	"that may have reached the server, the message says the bucket may exist: check with get-bucket before " +
+	"running it again."
+
+const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`: a deleted " +
+	"bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code " +
+	"`BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. " +
+	"There is no force option."

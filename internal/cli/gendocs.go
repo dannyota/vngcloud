@@ -466,6 +466,8 @@ func renderCLIPage(services []docService) string {
 		"`RepositoryNotEmpty` (a containerregistry delete-repository was refused because a pre-delete read " +
 		"showed the repository still holds images; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#delete-repository)), " +
+		"`BucketNotEmpty` (a storage delete-bucket was refused because a pre-delete read showed the bucket " +
+		"holds objects, so nothing was sent; see [Storage](CLI-Storage.md#delete-bucket)), " +
 		"`UserNotFound` (a containerregistry create-user's own create succeeded but a follow-up list could " +
 		"not confirm the new user by name; the new secret is still written to --secret-file either way; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
@@ -482,7 +484,7 @@ func renderCLIPage(services []docService) string {
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
+		"`BucketNotEmpty`, `UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
