@@ -204,7 +204,7 @@ func TestEnvelopeMessageCut(t *testing.T) {
 }
 
 func TestEmptyAndNonJSONBody(t *testing.T) {
-	for name, body := range map[string]string{"empty": "", "html": "<html>hi</html>"} {
+	for name, body := range map[string]string{"empty": "", "html": "<html>hi</html>", "null": "null", "object": "{}"} {
 		t.Run(name, func(t *testing.T) {
 			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte(body))
@@ -226,5 +226,79 @@ func TestPermissionArray(t *testing.T) {
 	_, err := c.ListRegions(context.Background(), nil)
 	if !errors.Is(err, vngcloud.ErrPermission) || vngcloud.ErrorCode(err) != "IAM_PERMISSION_DENIED" {
 		t.Fatalf("err = %v, code %q", err, vngcloud.ErrorCode(err))
+	}
+}
+
+func TestDefaultRegionHan1(t *testing.T) {
+	var got string
+	h := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("region_id")
+		testutil.WriteFixture(t, w, fixtures+"list_projects_empty.json")
+	})
+	server := httptest.NewServer(h)
+	t.Cleanup(server.Close)
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("x"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Storage: server.URL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(cfg).ListProjects(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got != "<region-id-1>" {
+		t.Fatalf("region_id = %q, want HAN02's id", got)
+	}
+}
+
+func TestRegionWithoutIDIsNotCached(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/v1/regions" {
+			t.Errorf("unexpected request to %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"success":true,"datas":[{"regionName":"HCM04"},{"regionId":"x","regionName":""}]}`))
+	}))
+	for _, region := range []string{"HCM04", ""} {
+		_, err := c.ListProjects(context.Background(), &ListProjectsInput{Region: region})
+		if !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("region %q: err = %v, want ErrInvalidInput", region, err)
+		}
+	}
+}
+
+func TestReadHTTPStatusErrors(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusNotFound, vngcloud.ErrNotFound},
+		{http.StatusInternalServerError, nil},
+	}
+	calls := map[string]func(*Client) error{
+		"GetBucket": func(c *Client) error {
+			_, err := c.GetBucket(context.Background(), &GetBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
+			return err
+		},
+		"ListProjects": func(c *Client) error {
+			_, err := c.ListProjects(context.Background(), nil)
+			return err
+		},
+	}
+	for name, call := range calls {
+		for _, tt := range tests {
+			t.Run(name+"/"+http.StatusText(tt.status), func(t *testing.T) {
+				c := newTestClient(t, serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(tt.status)
+					_, _ = w.Write([]byte(`{"message":"x"}`))
+				}))
+				err := call(c)
+				var apiErr *vngcloud.APIError
+				if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status {
+					t.Fatalf("err = %v, want *APIError with status %d", err, tt.status)
+				}
+				if tt.want != nil && !errors.Is(err, tt.want) {
+					t.Fatalf("err = %v, want %v", err, tt.want)
+				}
+			})
+		}
 	}
 }

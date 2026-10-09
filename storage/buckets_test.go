@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -45,8 +46,9 @@ func TestListBucketsIsNextFails(t *testing.T) {
 		testutil.WriteFixture(t, w, fixtures+"list_buckets_next.json")
 	}))
 	_, err := c.ListBuckets(context.Background(), &ListBucketsInput{ProjectID: "proj-1"})
-	if err == nil {
-		t.Fatal("want error when isNext is true")
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "isNext") {
+		t.Fatalf("err = %v, want *APIError mentioning isNext", err)
 	}
 }
 

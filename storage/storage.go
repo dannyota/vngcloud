@@ -56,7 +56,7 @@ type envelope struct {
 }
 
 // do sends a GET and returns the decoded envelope. A 2xx with an empty or
-// non-JSON body, or with success false, is an *APIError.
+// non-JSON body, with no success key, or with success false, is an *APIError.
 func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope, error) {
 	req := transport.Request{Operation: op, Method: http.MethodGet, URL: rawURL, OK: []int{http.StatusOK}}
 	if regionID != "" {
@@ -78,7 +78,10 @@ func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, emptyResponse(op, status)
 	}
-	if env.Success != nil && !*env.Success {
+	if env.Success == nil {
+		return nil, emptyResponse(op, status)
+	}
+	if !*env.Success {
 		return nil, envelopeError(op, status, &env)
 	}
 	return &env, nil
@@ -178,6 +181,9 @@ func (c *Client) regionID(ctx context.Context, op, name string) (string, error) 
 		c.regionIDs = map[string]string{}
 	}
 	for _, r := range out.Items {
+		if r.ID == "" || r.Name == "" {
+			continue
+		}
 		c.regionIDs[strings.ToUpper(r.Name)] = r.ID
 	}
 	id, ok = c.regionIDs[strings.ToUpper(name)]
