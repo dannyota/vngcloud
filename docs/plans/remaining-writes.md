@@ -9,7 +9,7 @@ Continue the accepted designs. Release one feature per tag. Do not run paid or u
 
 ## Shipped
 
-On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resource tags (v0.40.0), vStorage S1 reads (v0.41.0), the paid vServer writes P2 to P5 (v0.42.0 to v0.45.0), the paid load balancer writes L2 to L6 (v0.46.0 to v0.50.0), and the vMonitor log alarm writes (v0.51.0, checked on a Pro log project bought and deleted the same day for 637 VND net). Every paid write was checked live on the test account with 2,000,000 VND of credit; deletes refunded the unused value and the day cost about 574 VND net. Both paid designs' checks docs hold the results. v0.51.1 (same day) made every vStorage call send the `region` header, so the S1 reads find the project. v0.52.0 (same day) shipped S2: bucket create and delete with the delete wait, checked live on the test project.
+On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resource tags (v0.40.0), vStorage S1 reads (v0.41.0), the paid vServer writes P2 to P5 (v0.42.0 to v0.45.0), the paid load balancer writes L2 to L6 (v0.46.0 to v0.50.0), and the vMonitor log alarm writes (v0.51.0, checked on a Pro log project bought and deleted the same day for 637 VND net). Every paid write was checked live on the test account with 2,000,000 VND of credit; deletes refunded the unused value and the day cost about 574 VND net. Both paid designs' checks docs hold the results. v0.51.1 (same day) made every vStorage call send the `region` header, so the S1 reads find the project. v0.52.0 (same day) shipped S2: bucket create and delete with the delete wait, checked live on the test project. v0.52.1 decodes the IAM accounts API errors wrapper into the error code.
 
 ## Work order
 
