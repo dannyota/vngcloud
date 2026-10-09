@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.47.0 - Load Balancer Resize
+
+### Highlights
+
+- New `loadbalancer.ResizeLoadBalancer`, with `vngcloud loadbalancer
+  resize-load-balancer`. It reads the load balancer first and returns
+  `Changed` false, sending nothing, when the package already matches;
+  otherwise it quotes and orders only at or under `MaxPrice`, sending the
+  PUT once, then waits for the load balancer to settle. `resize-load-balancer`
+  needs `--yes`.
+- A resize quote prices the new package for the rest of the current
+  period; a downsize quotes a negative amount (a refund) and is allowed. A
+  package from another zone is refused by the server; use the load
+  balancer's zone when listing packages.
+- Verified live on 2026-10-09: `ALB_Small` to `ALB_Medium` quoted 399,916
+  VND and settled in 2m7s; back down quoted -399,898 VND and settled in
+  1m56s.
+
 ## v0.46.0 - Load Balancer Create and Delete
 
 ### Highlights
