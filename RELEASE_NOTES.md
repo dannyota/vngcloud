@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.46.0 - Load Balancer Create and Delete
+
+### Highlights
+
+- New `loadbalancer.CreateLoadBalancer` and `DeleteLoadBalancer`, with
+  `vngcloud loadbalancer create-load-balancer` and `delete-load-balancer`.
+  A create quotes first and orders only at or under `MaxPrice`
+  (`--max-price`; a 0 quote is refused as `Unpriced`); the order is sent
+  once. `create-load-balancer` needs `--yes` unless `Scheme` is `Internal`,
+  since an Internet load balancer gets a public address; `delete-load-balancer`
+  always needs `--yes`.
+- Package IDs are zone-specific: list packages with the load balancer's
+  zone. `LoadBalancer.ZoneID` now decodes the API's `zone` object.
+- Waits: create to `ACTIVE`, delete to gone; `ERROR` is
+  `loadbalancer.ErrFailed`, a timeout `ErrNotSettled`. A 4xx "busy" refusal
+  while the load balancer settles an earlier write is `ErrBusy`; nothing
+  changed, so calling again later is safe.
+- Verified live on 2026-10-09: an Internal `ALB_Small` (400,000 VND a
+  month) created in 1m54s and deleted in 11 s, with the delete refunding
+  the unused value to the wallet.
+
 ## v0.45.0 - Server and Volume Resize
 
 ### Highlights
