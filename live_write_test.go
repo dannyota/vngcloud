@@ -8544,12 +8544,8 @@ func TestLiveWritePaidVolume(t *testing.T) {
 		t.Fatalf("load .env: %v", err)
 	}
 
-	region := "hcm-3"
-	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
-		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
-			region = first
-		}
-	}
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -8574,13 +8570,12 @@ func TestLiveWritePaidVolume(t *testing.T) {
 	t.Logf("step 1: deleted %d leftover volume(s)", swept)
 
 	// Step 2: find the zone's default volume type.
-	defaultType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{})
+	defaultType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
 	if err != nil {
 		t.Fatalf("step 2 GetDefaultVolumeType: %s", safeErr(err))
 	}
-	zoneID := defaultType.VolumeType.ZoneID
 	volumeTypeID := defaultType.VolumeType.ID
-	t.Logf("step 2: zone %s, volume type %s", zoneID, volumeTypeID)
+	t.Logf("step 2: volume type %s", volumeTypeID)
 
 	suffix, err := randomHex(4)
 	if err != nil {
@@ -8608,7 +8603,7 @@ func TestLiveWritePaidVolume(t *testing.T) {
 	// Step 4: register cleanup by name before ordering, since a POST that
 	// fails ambiguously may still have reached the server.
 	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		swept := deleteLiveVolumes(cleanupCtx, t, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
@@ -8699,9 +8694,12 @@ func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client
 		out, err := client.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: s.UUID})
 		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("sweep: DeleteServer(%s): %s", s.UUID, safeErr(err))
-			continue
+			if out == nil {
+				continue
+			}
+		} else {
+			deleted++
 		}
-		deleted++
 		if out == nil {
 			continue
 		}
@@ -8716,12 +8714,44 @@ func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client
 			if !strings.HasPrefix(got.Volume.Name, "vngcloud-live-") {
 				continue
 			}
+			if err := waitLiveVolumeDetached(ctx, volumeClient, id); err != nil {
+				t.Errorf("sweep: wait for volume %s to detach: %s", id, safeErr(err))
+				continue
+			}
 			if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil && !vngcloud.IsNotFound(err) {
 				t.Errorf("sweep: DeleteVolume(%s): %s", id, safeErr(err))
 			}
 		}
 	}
 	return deleted
+}
+
+// waitLiveVolumeDetached polls GetVolume every 2 seconds, for up to 2
+// minutes, until id is AVAILABLE with no server, or is gone. A kept volume
+// can still read IN-USE or carry a serverId briefly after its server's
+// delete returns, and DeleteVolume refuses it until then.
+func waitLiveVolumeDetached(ctx context.Context, client *volume.Client, id string) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		out, err := client.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id})
+		if vngcloud.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if out.Volume.ServerID == "" && strings.EqualFold(out.Volume.Status, "AVAILABLE") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("volume %s is still %s after 2m", id, out.Volume.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // waitLiveServerLeavesCreating polls GetServer until id's Status is no
@@ -8761,7 +8791,7 @@ func assertNoLiveServersOrVolumesRemain(ctx context.Context, t *testing.T, compu
 	}
 	serverCount := 0
 	for _, s := range servers.Items {
-		if strings.HasPrefix(s.Name, "vngcloud-live-") {
+		if strings.HasPrefix(s.Name, "vngcloud-live-") && !strings.EqualFold(s.Status, "DELETED") {
 			serverCount++
 		}
 	}
@@ -8772,7 +8802,7 @@ func assertNoLiveServersOrVolumesRemain(ctx context.Context, t *testing.T, compu
 	}
 	volumeCount := 0
 	for _, v := range volumes.Items {
-		if strings.HasPrefix(v.Name, "vngcloud-live-") {
+		if strings.HasPrefix(v.Name, "vngcloud-live-") && !strings.EqualFold(v.Status, "DELETED") {
 			volumeCount++
 		}
 	}
@@ -9044,6 +9074,9 @@ func TestLiveWritePaidServer(t *testing.T) {
 
 	// Step 12: delete every kept volume, and confirm each is gone.
 	for _, id := range deletedOut.KeptVolumeIDs {
+		if err := waitLiveVolumeDetached(ctx, volumeClient, id); err != nil {
+			t.Fatalf("step 12: wait for volume %s to detach: %s", id, safeErr(err))
+		}
 		if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil {
 			t.Fatalf("step 12 DeleteVolume(%s): %s", id, safeErr(err))
 		}

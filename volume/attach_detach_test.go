@@ -517,6 +517,9 @@ func TestVolumeWriteErrorStatuses(t *testing.T) {
 				if status == 404 && !core.IsNotFound(err) {
 					t.Fatalf("err = %v, want not found", err)
 				}
+				if want := tc.sentOnce && status >= 500; errors.Is(err, ErrNotSettled) != want {
+					t.Fatalf("errors.Is(err, ErrNotSettled) = %v, want %v", !want, want)
+				}
 				if tc.sentOnce && writes.Load() != 1 {
 					t.Fatalf("writes = %d, want 1", writes.Load())
 				}
