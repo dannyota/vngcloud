@@ -31,6 +31,14 @@ does not, including a null code or one that is just the HTTP status repeated,
 | 5xx | `ServerError` |
 | Other 4xx | `ClientError` |
 
+The SDK reads three error body shapes into `Code` and `Message`: an object
+`{"code","message"}`, an array `[{"code","message"}]`, and the IAM accounts API
+wrapper `{"errors":[{"code","message"}]}`. In the wrapper, the first object
+entry gives `Code` and the messages of all object entries are joined with
+`; `. An empty list or a list with only `null` or non-object entries leaves the
+status text as `Message` and the status-derived `Code`. No other body field
+reaches the error.
+
 `Err` wraps a sentinel matching the failure, so `errors.Is` works without
 inspecting `Code` or `StatusCode` directly:
 

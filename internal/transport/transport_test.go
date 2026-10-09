@@ -1162,3 +1162,74 @@ func TestDecodeErrorEnvelopeCode(t *testing.T) {
 		t.Fatalf("array form: Code = %q", apiErr.Code)
 	}
 }
+
+func TestDecodeErrorAccountsWrapper(t *testing.T) {
+	req := Request{Operation: "IAM.GetS3Key", Method: http.MethodGet}
+	cases := []struct {
+		name        string
+		status      int
+		body        string
+		wantCode    string
+		wantMessage string
+	}{
+		{"one entry", 404, `{"errors":[{"code":"NOT_FOUND_S3_KEY","message":"S3 key not found"}]}`, "NOT_FOUND_S3_KEY", "S3 key not found"},
+		{"two entries", 400, `{"errors":[{"code":"A","message":"first"},{"code":"B","message":"second"}]}`, "A", "first; second"},
+		{"three entries skip empty message", 400, `{"errors":[{"code":"A","message":"first"},{"code":"B"},{"code":"C","message":"third"}]}`, "A", "first; third"},
+		{"empty list", 500, `{"errors":[]}`, "", "Internal Server Error"},
+		{"null entry", 400, `{"errors":[null]}`, "", "Bad Request"},
+		{"non-object entry", 403, `{"errors":["boom"]}`, "", "Forbidden"},
+		{"number entry", 403, `{"errors":[7]}`, "", "Forbidden"},
+		{"null then object", 404, `{"errors":[null,{"code":"X","message":"second"}]}`, "X", "second"},
+		{"errors is not a list", 404, `{"errors":"boom"}`, "", "Not Found"},
+		{"top-level message wins", 404, `{"code":"TOP","message":"top","errors":[{"code":"IN","message":"inner"}]}`, "TOP", "top"},
+		{"extra fields ignored", 404, `{"errors":[{"code":"X","message":"m","detail":"secret-detail","extra":"secret-extra"}],"trace":"secret-trace"}`, "X", "m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := decodeError(req, tc.status, []byte(tc.body))
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected *APIError, got %T", err)
+			}
+			if apiErr.StatusCode != tc.status {
+				t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, tc.status)
+			}
+			if apiErr.Code != tc.wantCode {
+				t.Fatalf("Code = %q, want %q", apiErr.Code, tc.wantCode)
+			}
+			if apiErr.Message != tc.wantMessage {
+				t.Fatalf("Message = %q, want %q", apiErr.Message, tc.wantMessage)
+			}
+			if strings.Contains(apiErr.Error(), "secret-") {
+				t.Fatalf("error leaked body content: %q", apiErr.Error())
+			}
+		})
+	}
+}
+
+func TestDecodeErrorAccountsWrapperRedacts(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, Redact: []string{"AKIA-SECRET-VALUE"}}
+	err := decodeError(req, 400, []byte(`{"errors":[{"code":"A","message":"bad AKIA-SECRET-VALUE"},{"code":"B","message":"again AKIA-SECRET-VALUE"}]}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if strings.Contains(apiErr.Message, "AKIA-SECRET-VALUE") {
+		t.Fatalf("Message leaked a redacted value: %q", apiErr.Message)
+	}
+	if apiErr.Message != "bad [redacted]; again [redacted]" {
+		t.Fatalf("Message = %q", apiErr.Message)
+	}
+}
+
+func TestDecodeErrorAccountsWrapperWithholdsMessage(t *testing.T) {
+	req := Request{Operation: "Op", Method: http.MethodPost, WithholdMessage: "withheld"}
+	err := decodeError(req, 400, []byte(`{"errors":[{"code":"A","message":"secret text"}]}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "withheld" || apiErr.Code != "A" {
+		t.Fatalf("unexpected error fields: %+v", apiErr)
+	}
+}

@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.52.1 - IAM Accounts API Error Codes
+
+### Highlights
+
+- Errors from the IAM accounts API arrive as `{"errors":[{"code","message"}]}`;
+  the SDK now reads that wrapper, so `*APIError.Code` carries codes such as
+  `NOT_FOUND_S3_KEY` and the CLI prints them instead of the bare HTTP status
+  text. An empty or null list still falls back to the status text, and
+  sentinel mapping is unchanged.
+
 ## v0.52.0 - vStorage Bucket Create and Delete
 
 ### Highlights

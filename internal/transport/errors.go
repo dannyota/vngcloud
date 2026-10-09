@@ -52,6 +52,48 @@ type errorBody struct {
 	Error   string          `json:"error"`
 	Message string          `json:"message"`
 	Detail  string          `json:"detail"`
+	Errors  json.RawMessage `json:"errors"`
+}
+
+// text returns the first non-empty of message, error, and detail.
+func (eb errorBody) text() string {
+	for _, s := range []string{eb.Message, eb.Error, eb.Detail} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// unwrapEntries reads the accounts API wrapper {"errors":[{"code","message"}]}.
+// The first object entry gives the code; the messages of all object entries
+// are joined with "; ". A null, non-object, or empty list gives the zero
+// errorBody, so the caller falls back to the status text.
+func unwrapEntries(raw json.RawMessage) errorBody {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return errorBody{}
+	}
+	var first errorBody
+	var msgs []string
+	found := false
+	for _, entry := range entries {
+		trimmed := bytes.TrimSpace(entry)
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			continue
+		}
+		var eb errorBody
+		_ = json.Unmarshal(trimmed, &eb)
+		if !found {
+			first, found = eb, true
+		}
+		if m := eb.text(); m != "" {
+			msgs = append(msgs, m)
+		}
+	}
+	first.Message = strings.Join(msgs, "; ")
+	first.Error, first.Detail, first.Errors = "", "", nil
+	return first
 }
 
 // codeString renders an envelope code as decimal text: null or an empty
@@ -85,13 +127,10 @@ func decodeError(req Request, status int, body []byte) error {
 			_ = json.Unmarshal(trimmed, &eb)
 		}
 	}
-	msg := eb.Message
-	if msg == "" {
-		msg = eb.Error
+	if len(eb.Errors) > 0 && eb.text() == "" && codeString(eb.Code) == "" {
+		eb = unwrapEntries(eb.Errors)
 	}
-	if msg == "" {
-		msg = eb.Detail
-	}
+	msg := eb.text()
 	if msg == "" {
 		msg = http.StatusText(status)
 	}

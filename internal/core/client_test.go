@@ -286,3 +286,51 @@ func TestClientEndpointReturnsStorage(t *testing.T) {
 		t.Fatalf("Endpoint(ProductStorage) = %s, want https://vstorage.example/", got)
 	}
 }
+
+// TestDoJSONAccountsWrapperErrors drives the accounts API error wrapper
+// through the transport and wrapTransportErr, so Code, Message, and the
+// sentinel are checked as a caller sees them.
+func TestDoJSONAccountsWrapperErrors(t *testing.T) {
+	cases := []struct {
+		name        string
+		status      int
+		body        string
+		wantCode    string
+		wantMessage string
+		wantErr     error
+	}{
+		{"not found", 404, `{"errors":[{"code":"NOT_FOUND_S3_KEY","message":"S3 key not found"}]}`, "NOT_FOUND_S3_KEY", "S3 key not found", ErrNotFound},
+		{"permission", 403, `{"errors":[{"code":"IAM_PERMISSION_DENIED","message":"denied"},{"code":"B","message":"more"}]}`, "IAM_PERMISSION_DENIED", "denied; more", ErrPermission},
+		{"empty list", 500, `{"errors":[]}`, "ServerError", "Internal Server Error", nil},
+		{"null entry", 404, `{"errors":[null]}`, "NotFound", "Not Found", ErrNotFound},
+		{"non-object entry", 400, `{"errors":["boom"]}`, "BadRequest", "Bad Request", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			c := NewTestClient("hcm-3", "", endpoints.Set{},
+				transport.New(transport.Config{HTTPClient: server.Client()}))
+			err := c.DoJSON(context.Background(), transport.Request{
+				Operation: "iam.GetS3Key",
+				Method:    http.MethodGet,
+				URL:       server.URL,
+				OK:        []int{200},
+				SkipAuth:  true,
+			}, nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("DoJSON() error = %v, want *APIError", err)
+			}
+			if apiErr.StatusCode != tc.status || apiErr.Code != tc.wantCode || apiErr.Message != tc.wantMessage {
+				t.Fatalf("error = %+v, want status %d code %q message %q", apiErr, tc.status, tc.wantCode, tc.wantMessage)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("errors.Is(%v, %v) = false", err, tc.wantErr)
+			}
+		})
+	}
+}
