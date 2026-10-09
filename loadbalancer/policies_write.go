@@ -97,25 +97,39 @@ func checkReadRulesComplete(op string, rules []policyRuleBody) error {
 	return nil
 }
 
+// policyRedirectFields are the redirect fields of a policy write, after any
+// read-merge.
+type policyRedirectFields struct {
+	PoolID   string
+	URL      string
+	HTTPCode int
+	Keep     bool
+}
+
+// carriesPool and carriesURL report which redirect fields an action sends.
+// An action other than the two named reaches the server as given, with
+// every field it is given (ADR 0002 rule 5).
+func carriesPool(action string) bool { return action != ActionRedirectToURL }
+func carriesURL(action string) bool  { return action != ActionRedirectToPool }
+
 // checkPolicyRedirectFields returns core.ErrInvalidInput when action is
-// ActionRedirectToPool but redirectPoolID is empty or redirectURL is set,
-// or when action is ActionRedirectToURL but redirectURL is empty or
-// redirectPoolID is set. Any other action reaches the server as given (ADR
-// 0002 rule 5).
-func checkPolicyRedirectFields(op, action, redirectPoolID, redirectURL string) error {
+// ActionRedirectToPool but PoolID is empty or any URL field is set, or when
+// action is ActionRedirectToURL but URL is empty or PoolID is set. The
+// server refuses a field its action cannot carry, even at its zero value.
+func checkPolicyRedirectFields(op, action string, f policyRedirectFields) error {
 	switch action {
 	case ActionRedirectToPool:
-		if redirectPoolID == "" {
+		if f.PoolID == "" {
 			return fmt.Errorf("%w: %s: RedirectPoolID is required when Action is %s", core.ErrInvalidInput, op, ActionRedirectToPool)
 		}
-		if redirectURL != "" {
-			return fmt.Errorf("%w: %s: RedirectURL must be empty when Action is %s", core.ErrInvalidInput, op, ActionRedirectToPool)
+		if f.URL != "" || f.HTTPCode != 0 || f.Keep {
+			return fmt.Errorf("%w: %s: RedirectURL, RedirectHTTPCode, and KeepQueryString must be unset when Action is %s", core.ErrInvalidInput, op, ActionRedirectToPool)
 		}
 	case ActionRedirectToURL:
-		if redirectURL == "" {
+		if f.URL == "" {
 			return fmt.Errorf("%w: %s: RedirectURL is required when Action is %s", core.ErrInvalidInput, op, ActionRedirectToURL)
 		}
-		if redirectPoolID != "" {
+		if f.PoolID != "" {
 			return fmt.Errorf("%w: %s: RedirectPoolID must be empty when Action is %s", core.ErrInvalidInput, op, ActionRedirectToURL)
 		}
 	}
@@ -124,22 +138,49 @@ func checkPolicyRedirectFields(op, action, redirectPoolID, redirectURL string) e
 
 // policyWriteBody is CreatePolicy and UpdatePolicy's shared body. Name is
 // left empty, and dropped by omitempty, for an update: the API has no call
-// to rename a policy.
+// to rename a policy. KeepQueryString is nil, and so omitted, for an action
+// that cannot carry it.
 type policyWriteBody struct {
 	Name             string           `json:"name,omitempty"`
 	Action           string           `json:"action"`
 	RedirectPoolID   string           `json:"redirectPoolId,omitempty"`
 	RedirectURL      string           `json:"redirectUrl,omitempty"`
 	RedirectHTTPCode int              `json:"redirectHttpCode,omitempty"`
-	KeepQueryString  bool             `json:"keepQueryString"`
+	KeepQueryString  *bool            `json:"keepQueryString,omitempty"`
 	Rules            []policyRuleBody `json:"rules"`
+}
+
+// mergeRedirect returns the caller's value when set, else the value read
+// when the action carries the field, else the zero value.
+func mergeRedirect[T any](carried bool, set *T, read T) T {
+	var zero T
+	switch {
+	case set != nil:
+		return *set
+	case carried:
+		return read
+	}
+	return zero
+}
+
+// newPolicyWriteBody keeps only the redirect fields action carries.
+func newPolicyWriteBody(name, action string, f policyRedirectFields, rules []policyRuleBody) policyWriteBody {
+	b := policyWriteBody{Name: name, Action: action, Rules: rules}
+	if carriesPool(action) {
+		b.RedirectPoolID = f.PoolID
+	}
+	if carriesURL(action) {
+		b.RedirectURL, b.RedirectHTTPCode, b.KeepQueryString = f.URL, f.HTTPCode, &f.Keep
+	}
+	return b
 }
 
 // CreatePolicyInput creates an L7 policy on a listener. Action is
 // ActionRedirectToPool or ActionRedirectToURL, or another value the server
 // accepts as is. ActionRedirectToPool requires RedirectPoolID and refuses
-// RedirectURL; ActionRedirectToURL requires RedirectURL and refuses
-// RedirectPoolID. Every rule in Rules must set Type, CompareType, and
+// RedirectURL, RedirectHTTPCode, and KeepQueryString; ActionRedirectToURL
+// requires RedirectURL and refuses RedirectPoolID. A write sends only the
+// fields its action carries. Every rule in Rules must set Type, CompareType, and
 // Value.
 type CreatePolicyInput struct {
 	LoadBalancerID string `vngcloud:"required"`
@@ -191,7 +232,8 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 			return nil, err
 		}
 	}
-	if err := checkPolicyRedirectFields(op, in.Action, in.RedirectPoolID, in.RedirectURL); err != nil {
+	createRedirectFields := policyRedirectFields{PoolID: in.RedirectPoolID, URL: in.RedirectURL, HTTPCode: in.RedirectHTTPCode, Keep: in.KeepQueryString}
+	if err := checkPolicyRedirectFields(op, in.Action, createRedirectFields); err != nil {
 		return nil, err
 	}
 	if err := checkPolicyRules(op, in.Rules); err != nil {
@@ -208,15 +250,7 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 		return nil, err
 	}
 
-	body := policyWriteBody{
-		Name:             in.Name,
-		Action:           in.Action,
-		RedirectPoolID:   in.RedirectPoolID,
-		RedirectURL:      in.RedirectURL,
-		RedirectHTTPCode: in.RedirectHTTPCode,
-		KeepQueryString:  in.KeepQueryString,
-		Rules:            policyRuleBodiesOf(in.Rules),
-	}
+	body := newPolicyWriteBody(in.Name, in.Action, createRedirectFields, policyRuleBodiesOf(in.Rules))
 
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -302,7 +336,8 @@ func updatePolicyAnySet(in *UpdatePolicyInput) bool {
 // before any request (core.ErrInvalidInput). It waits, within the
 // pre-write bound, until the load balancer and the policy are both not busy
 // (ErrBusy, nothing sent, past that bound), reads the policy, applies every
-// set field, and sends the full body with the read values for the rest. The
+// set field, and sends the full body with the read values for the rest,
+// keeping a read redirect field only when the merged Action carries it. The
 // merged Action and redirect fields are checked exactly as CreatePolicy
 // checks them.
 //
@@ -359,9 +394,13 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 	}
 
 	action := stringOr(in.Action, policy.Action)
-	redirectPoolID := stringOr(in.RedirectPoolID, policy.RedirectPoolID)
-	redirectURL := stringOr(in.RedirectURL, policy.RedirectURL)
-	if err := checkPolicyRedirectFields(op, action, redirectPoolID, redirectURL); err != nil {
+	fields := policyRedirectFields{
+		PoolID:   mergeRedirect(carriesPool(action), in.RedirectPoolID, policy.RedirectPoolID),
+		URL:      mergeRedirect(carriesURL(action), in.RedirectURL, policy.RedirectURL),
+		HTTPCode: mergeRedirect(carriesURL(action), in.RedirectHTTPCode, policy.RedirectHTTPCode),
+		Keep:     mergeRedirect(carriesURL(action), in.KeepQueryString, policy.KeepQueryString),
+	}
+	if err := checkPolicyRedirectFields(op, action, fields); err != nil {
 		return nil, err
 	}
 
@@ -371,19 +410,8 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 	} else if err := checkReadRulesComplete(op, rules); err != nil {
 		return nil, err
 	}
-	keepQueryString := policy.KeepQueryString
-	if in.KeepQueryString != nil {
-		keepQueryString = *in.KeepQueryString
-	}
 
-	body := policyWriteBody{
-		Action:           action,
-		RedirectPoolID:   redirectPoolID,
-		RedirectURL:      redirectURL,
-		RedirectHTTPCode: intOr(in.RedirectHTTPCode, policy.RedirectHTTPCode),
-		KeepQueryString:  keepQueryString,
-		Rules:            rules,
-	}
+	body := newPolicyWriteBody("", action, fields, rules)
 
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -404,8 +432,8 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 
 	if in.NoWait {
 		fallback := *policy
-		fallback.Action, fallback.RedirectPoolID, fallback.RedirectURL = action, redirectPoolID, redirectURL
-		fallback.RedirectHTTPCode, fallback.KeepQueryString = body.RedirectHTTPCode, keepQueryString
+		fallback.Action, fallback.RedirectPoolID, fallback.RedirectURL = action, body.RedirectPoolID, body.RedirectURL
+		fallback.RedirectHTTPCode, fallback.KeepQueryString = body.RedirectHTTPCode, fields.Keep
 		return &UpdatePolicyOutput{Policy: fallback}, nil
 	}
 

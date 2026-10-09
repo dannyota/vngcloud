@@ -213,11 +213,11 @@ to `Changed` false, since step 3 already stops that case.
 
 - `PolicyRuleInput` has `Type`, `CompareType`, and `Value`, all required.
   Rules come through `--cli-input-json`, as check locations do.
-- `REDIRECT_TO_POOL` needs `RedirectPoolID` and refuses the URL fields;
-  `REDIRECT_TO_URL` needs `RedirectURL` and refuses `RedirectPoolID`.
-  Other values go to the server as given.
-- Update reads, merges, and sends the full body; a set `Rules` replaces
-  the rule list, and an unset one resends the rules read.
+- `REDIRECT_TO_POOL` needs `RedirectPoolID` and refuses the URL fields
+  and `KeepQueryString`; `REDIRECT_TO_URL` needs `RedirectURL` and refuses
+  `RedirectPoolID`. The body carries only its action's fields. Other
+  values go as given.
+- Update reads, merges, and sends the full body; a set `Rules` replaces the list.
 
 ## Busy
 

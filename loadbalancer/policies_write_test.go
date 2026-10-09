@@ -266,15 +266,17 @@ func TestUpdatePolicyReadMergeResendsUnsetFields(t *testing.T) {
 	}))
 	withInstantSleep(c)
 
-	in := &UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID, KeepQueryString: vngcloud.Ptr(false)}
+	in := &UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID, Action: vngcloud.Ptr(ActionRedirectToPool)}
 	if _, err := c.UpdatePolicy(context.Background(), in); err != nil {
 		t.Fatalf("UpdatePolicy() error = %v", err)
 	}
 	if body["action"] != "REDIRECT_TO_POOL" || body["redirectPoolId"] != "pool-1" {
 		t.Fatalf("body = %+v, want the read action and pool resent", body)
 	}
-	if body["keepQueryString"] != false {
-		t.Fatalf("keepQueryString = %v, want false (the set field)", body["keepQueryString"])
+	for _, k := range []string{"redirectUrl", "redirectHttpCode", "keepQueryString"} {
+		if _, ok := body[k]; ok {
+			t.Fatalf("body = %+v, want no %s key on a pool redirect", body, k)
+		}
 	}
 	rules := body["rules"].([]any)
 	if len(rules) != 1 || rules[0].(map[string]any)["ruleValue"] != "/" {
@@ -479,5 +481,144 @@ func TestDeletePolicyWriteStatusesPassThrough(t *testing.T) {
 		if got := deletes.Load(); got != 1 {
 			t.Fatalf("status %d: DELETE calls = %d, want 1", status, got)
 		}
+	}
+}
+
+func policyBodyCapture(t *testing.T, body *map[string]any) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == policyLBPath:
+			policyLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == policyPath:
+			_, _ = w.Write([]byte(`{"data":{"uuid":"policy-1","action":"REDIRECT_TO_URL","redirectUrl":"https://a.example",` +
+				`"redirectHttpCode":302,"keepQueryString":true,"redirectPoolId":"stale",` +
+				`"l7Rules":[{"compareType":"EQUAL_TO","ruleValue":"/","ruleType":"PATH"}],"progressStatus":"CREATED"}}`))
+		case r.Method == http.MethodPost || r.Method == http.MethodPut:
+			data, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(data, body)
+			if r.Method == http.MethodPost {
+				_, _ = fmt.Fprintf(w, `{"uuid":%q}`, policyTestPolicyID)
+			}
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+}
+
+func policyKeys(body map[string]any) map[string]bool {
+	keys := map[string]bool{}
+	for k := range body {
+		keys[k] = true
+	}
+	return keys
+}
+
+func TestCreatePolicyBodyKeysPerAction(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, policyBodyCapture(t, &body))
+	withInstantSleep(c)
+
+	in := validCreatePolicyInput()
+	if _, err := c.CreatePolicy(context.Background(), in); err != nil {
+		t.Fatalf("CreatePolicy(pool) error = %v", err)
+	}
+	for _, k := range []string{"redirectUrl", "redirectHttpCode", "keepQueryString"} {
+		if policyKeys(body)[k] {
+			t.Fatalf("pool body = %+v, want no %s key", body, k)
+		}
+	}
+	if !policyKeys(body)["redirectPoolId"] {
+		t.Fatalf("pool body = %+v, want redirectPoolId", body)
+	}
+
+	body = nil
+	url := &CreatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, Name: "policy-2",
+		Action: ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301}
+	if _, err := c.CreatePolicy(context.Background(), url); err != nil {
+		t.Fatalf("CreatePolicy(url) error = %v", err)
+	}
+	if policyKeys(body)["redirectPoolId"] || !policyKeys(body)["redirectUrl"] ||
+		!policyKeys(body)["redirectHttpCode"] || body["keepQueryString"] != false {
+		t.Fatalf("url body = %+v, want redirectUrl, redirectHttpCode, keepQueryString and no redirectPoolId", body)
+	}
+}
+
+func TestCreatePolicyRefusesFieldsTheActionCannotCarry(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	mutations := map[string]func(*CreatePolicyInput){
+		"code on pool": func(in *CreatePolicyInput) { in.RedirectHTTPCode = 301 },
+		"keep on pool": func(in *CreatePolicyInput) { in.KeepQueryString = true },
+		"pool on url":  func(in *CreatePolicyInput) { in.Action, in.RedirectURL = ActionRedirectToURL, "https://x.example" },
+		"url missing":  func(in *CreatePolicyInput) { in.Action, in.RedirectPoolID = ActionRedirectToURL, "" },
+	}
+	for name, mutate := range mutations {
+		in := validCreatePolicyInput()
+		mutate(in)
+		if _, err := c.CreatePolicy(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+}
+
+func TestUpdatePolicyBodyFollowsMergedAction(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, policyBodyCapture(t, &body))
+	withInstantSleep(c)
+	base := UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID}
+
+	// Read action is a URL redirect: the stale pool id from the read is dropped.
+	in := base
+	in.KeepQueryString = vngcloud.Ptr(false)
+	if _, err := c.UpdatePolicy(context.Background(), &in); err != nil {
+		t.Fatalf("UpdatePolicy(url) error = %v", err)
+	}
+	if policyKeys(body)["redirectPoolId"] || body["redirectUrl"] != "https://a.example" ||
+		body["redirectHttpCode"] != float64(302) || body["keepQueryString"] != false {
+		t.Fatalf("url body = %+v, want the read URL and code, set keepQueryString, no pool", body)
+	}
+
+	// Switch to a pool redirect: the read URL fields are dropped.
+	body = nil
+	in = base
+	in.Action, in.RedirectPoolID = vngcloud.Ptr(ActionRedirectToPool), vngcloud.Ptr("pool-2")
+	if _, err := c.UpdatePolicy(context.Background(), &in); err != nil {
+		t.Fatalf("UpdatePolicy(pool) error = %v", err)
+	}
+	for _, k := range []string{"redirectUrl", "redirectHttpCode", "keepQueryString"} {
+		if policyKeys(body)[k] {
+			t.Fatalf("pool body = %+v, want no %s key", body, k)
+		}
+	}
+	if body["redirectPoolId"] != "pool-2" {
+		t.Fatalf("pool body = %+v, want redirectPoolId pool-2", body)
+	}
+}
+
+func TestUpdatePolicyRefusesFieldsTheActionCannotCarry(t *testing.T) {
+	var puts atomic.Int32
+	inner := policyBodyCapture(t, new(map[string]any))
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			puts.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	withInstantSleep(c)
+	base := UpdatePolicyInput{LoadBalancerID: policyTestLBID, ListenerID: policyTestListenerID, PolicyID: policyTestPolicyID}
+
+	pool := base
+	pool.RedirectPoolID = vngcloud.Ptr("pool-2") // read action is a URL redirect
+	toPool := base
+	toPool.Action, toPool.RedirectURL = vngcloud.Ptr(ActionRedirectToPool), vngcloud.Ptr("https://b.example")
+	for name, in := range map[string]UpdatePolicyInput{"pool id on url": pool, "url on pool": toPool} {
+		if _, err := c.UpdatePolicy(context.Background(), &in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+	if puts.Load() != 0 {
+		t.Fatalf("PUT count = %d, want 0", puts.Load())
 	}
 }

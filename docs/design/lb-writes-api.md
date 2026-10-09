@@ -239,6 +239,11 @@ From the reference and the product pages on `docs.greennode.ai`:
   `Layer 7` load balancer is refused with 400 `Invalid listener's
   protocol for Application load balancer. Valid protocols are: [HTTP,
   HTTPS]`, so `CreateListener` refuses it before sending.
+- Live (`hcm-3`): a `REDIRECT_TO_POOL` policy that sends `redirectUrl`,
+  `redirectHttpCode`, or `keepQueryString`, even at a zero value, is
+  refused with 400 `Cannot specify redirectUrl, redirectHttpCode, or
+  keepQueryString  for action REDIRECT_TO_POOL.`, so the SDK omits all
+  three for that action and `redirectPoolId` for `REDIRECT_TO_URL`.
 - Listener, pool, member, and policy names are 5 to 50 characters.
   Listener and pool names are unique within a load balancer, and a
   listener's protocol and port are unique too.
