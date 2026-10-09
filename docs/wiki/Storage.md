@@ -157,21 +157,50 @@ if errors.Is(err, storage.ErrBucketNotEmpty) {
 `GetBucket` reads it. If that read fails, the error says the bucket was
 created. A repeated create of a name you already own succeeds with the same
 answer. The server refuses a name that is not all lowercase letters, numbers,
-and hyphens, as an `*vngcloud.APIError` with code `112`.
+and hyphens. That refusal is an `*vngcloud.APIError` with code `112` and the
+server's message, and it matches `vngcloud.ErrInvalidInput`: the server
+received the request and rejected the input.
 
 `CreateBucket` is a `POST`, so the SDK retries it only after a 429 or a failed
 dial. After a 5xx or a network error the bucket may exist: the error names
 `GetBucket` as the check.
 
-`DeleteBucket` reads the bucket first. If `ObjectCount` is above 0 it returns
-`storage.ErrBucketNotEmpty` and sends no delete. There is no force option:
-empty the bucket with an S3 client. A missing bucket returns
-`vngcloud.ErrNotFound`.
+`DeleteBucket` reads the bucket first. It returns `storage.ErrBucketNotEmpty`
+and sends no delete when the object count is above 0, when the count is null
+or missing, or when the size or used capacity is above 0. There is no force
+option: empty the bucket with an S3 client. A missing bucket returns
+`vngcloud.ErrNotFound`. A failure of that first read is returned as it is,
+named as the read before the delete. The server's own refusal of a bucket
+that holds objects is unverified until a live check can put an object.
 
-The server answers a delete before the bucket is gone. For a moment after
-`DeleteBucket` returns, `GetBucket` and `ListBuckets` can still show the
-bucket, and a read can fail with code `-1` or `EmptyResponse`. Poll
-`GetBucket` until it returns `vngcloud.ErrNotFound` before you reuse the name.
+The server answers a delete before the bucket is gone. For about a second
+after the `DELETE`, `GetBucket` and `ListBuckets` can still show the bucket,
+and a read can fail with code `-1` or `EmptyResponse`. Unless `NoWait` is
+set, `DeleteBucket` waits for this: it calls `GetBucket` every second for up
+to 30 seconds.
+
+- `vngcloud.ErrNotFound` ends the wait, and the call returns.
+- The bucket still readable, code `-1`, or `EmptyResponse` means it is still
+  deleting, so the wait reads again.
+- Any other read error is returned at once, with a note that the delete was
+  accepted.
+- If the bucket outlasts 30 seconds, the error wraps `storage.ErrNotSettled`.
+  The delete was accepted: do not send it again. Read the bucket later to
+  confirm.
+
+```go
+_, err = client.DeleteBucket(ctx, &storage.DeleteBucketInput{
+	ProjectID: projectID,
+	Bucket:    "my-bucket",
+	NoWait:    true,
+})
+```
+
+With `NoWait`, `DeleteBucket` returns once the server accepts the `DELETE`
+and does not read the bucket again. Poll `GetBucket` until it returns
+`vngcloud.ErrNotFound` before you reuse the name, and treat code `-1` and
+`EmptyResponse` as still deleting. A repeat `DeleteBucket` inside that window
+can stop at its first read's error, sending no `DELETE`.
 
 ## Errors
 
@@ -183,11 +212,13 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 
 | Case | Result |
 |---|---|
-| Missing field, bad project ID or bucket name, unmapped or unknown region | `vngcloud.ErrInvalidInput`, no request |
+| Missing field, bad project ID or bucket name, unmapped or unknown region | `vngcloud.ErrInvalidInput`, found before the call, so no call to the bucket is sent |
 | Envelope `success: false` | `*vngcloud.APIError` with the envelope code |
+| Envelope code `112`, the server refused an input | `*vngcloud.APIError` that matches `vngcloud.ErrInvalidInput`; the request was sent |
 | HTTP 200 with an empty or non-JSON body | `*vngcloud.APIError`, code `EmptyResponse` |
 | HTTP 403 | `vngcloud.ErrPermission`, with the code the API names, such as `IAM_PERMISSION_DENIED` |
-| `DeleteBucket` on a bucket with objects | `storage.ErrBucketNotEmpty`, no delete sent |
+| `DeleteBucket` on a bucket with objects, or one whose count the read did not report | `storage.ErrBucketNotEmpty`, no delete sent |
+| `DeleteBucket` accepted, bucket still readable after 30 seconds | Error wrapping `storage.ErrNotSettled`; do not repeat the delete |
 | A write answered with an empty body | `*vngcloud.APIError`, code `EmptyResponse`; the change may have happened |
 
 See [Errors](Errors.md) for `APIError` itself.

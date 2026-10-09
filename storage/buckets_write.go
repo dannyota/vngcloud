@@ -9,10 +9,6 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
-// ErrBucketNotEmpty means DeleteBucket refused a bucket that holds objects.
-// Nothing was deleted. Emptying a bucket is object work for an S3 client.
-var ErrBucketNotEmpty = errors.New("vngcloud: bucket is not empty")
-
 // createBucketBody is the console body for a bucket without object lock.
 type createBucketBody struct {
 	Status string `json:"status"`
@@ -79,47 +75,6 @@ func mayHaveCreated(err error) error {
 	}
 	apiErr.Message += "; the bucket may exist, check with GetBucket"
 	return err
-}
-
-type DeleteBucketInput struct {
-	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
-	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
-}
-
-type DeleteBucketOutput struct{}
-
-// DeleteBucket deletes an empty bucket. It reads the bucket first and
-// returns ErrBucketNotEmpty, sending no DELETE, when ObjectCount is above 0.
-// There is no force option.
-func (c *Client) DeleteBucket(ctx context.Context, in *DeleteBucketInput) (*DeleteBucketOutput, error) {
-	const op = "storage.DeleteBucket"
-	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
-	}
-	id, err := c.checkBucketPaths(ctx, op, in.Region, in.ProjectID, in.Bucket)
-	if err != nil {
-		return nil, err
-	}
-	got, err := c.GetBucket(ctx, &GetBucketInput{Region: in.Region, ProjectID: in.ProjectID, Bucket: in.Bucket})
-	if err != nil {
-		return nil, err
-	}
-	if got.ObjectCount > 0 {
-		return nil, fmt.Errorf("%w: %s: bucket holds %d objects; empty it with an S3 client first", ErrBucketNotEmpty, op, got.ObjectCount)
-	}
-	if _, err := c.exchange(ctx, call{
-		op:       op,
-		method:   http.MethodDelete,
-		url:      c.route([]string{"ceph", "projects", in.ProjectID, "buckets", in.Bucket}, nil),
-		regionID: id,
-		ok:       []int{http.StatusOK},
-		write:    true,
-	}); err != nil {
-		return nil, err
-	}
-	return &DeleteBucketOutput{}, nil
 }
 
 // checkBucketPaths validates the project and bucket before any request and

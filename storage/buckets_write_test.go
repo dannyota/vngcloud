@@ -30,6 +30,7 @@ type bucketServer struct {
 	detail   func(w http.ResponseWriter)
 	writes   atomic.Int32
 	lastBody atomic.Value
+	deleted  atomic.Bool
 }
 
 func (s *bucketServer) handler(t *testing.T) http.Handler {
@@ -41,10 +42,17 @@ func (s *bucketServer) handler(t *testing.T) http.Handler {
 				s.detail(w)
 				return
 			}
+			if s.deleted.Load() {
+				testutil.WriteFixture(t, w, fixtures+"error_envelope_not_found.json")
+				return
+			}
 			_, _ = w.Write([]byte(`{"code":200,"success":true,"data":{"name":"my-bucket","count":` +
 				strconv.Itoa(s.count) + `,"size":0,"type":"ceph"}}`))
 		case r.URL.Path == bucketsPath:
 			s.writes.Add(1)
+			if r.Method == http.MethodDelete && s.status < 300 {
+				s.deleted.Store(true)
+			}
 			b, _ := io.ReadAll(r.Body)
 			s.lastBody.Store(string(b))
 			w.Header().Set("Content-Type", "application/json")
@@ -202,7 +210,7 @@ func TestDeleteBucketRequest(t *testing.T) {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 	})
-	if _, err := newTestClient(t, h).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"}); err != nil {
+	if _, err := newDeleteClient(t, h).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !sawDelete {
@@ -212,7 +220,7 @@ func TestDeleteBucketRequest(t *testing.T) {
 
 func TestDeleteBucketWithObjectsSendsNoDelete(t *testing.T) {
 	s := &bucketServer{count: 3, status: 200, body: okEnvelope}
-	_, err := newTestClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
+	_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	if !errors.Is(err, ErrBucketNotEmpty) {
 		t.Fatalf("err = %v, want ErrBucketNotEmpty", err)
 	}
@@ -225,7 +233,7 @@ func TestDeleteBucketMissingBucketSendsNoDelete(t *testing.T) {
 	s := &bucketServer{status: 200, body: okEnvelope, detail: func(w http.ResponseWriter) {
 		testutil.WriteFixture(t, w, fixtures+"error_envelope_not_found.json")
 	}}
-	_, err := newTestClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
+	_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	if !vngcloud.IsNotFound(err) {
 		t.Fatalf("err = %v, want not found", err)
 	}
@@ -241,6 +249,7 @@ func TestDeleteBucketStatuses(t *testing.T) {
 		want    error
 	}{
 		{http.StatusOK, false, nil},
+		{http.StatusNoContent, false, nil},
 		{http.StatusBadRequest, true, nil},
 		{http.StatusForbidden, true, vngcloud.ErrPermission},
 		{http.StatusNotFound, true, vngcloud.ErrNotFound},
@@ -253,7 +262,7 @@ func TestDeleteBucketStatuses(t *testing.T) {
 			if tt.wantErr {
 				s.body = `{"message":"x"}`
 			}
-			_, err := newTestClient(t, s.handler(t)).DeleteBucket(context.Background(),
+			_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(),
 				&DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 			if !tt.wantErr {
 				if err != nil {
@@ -274,7 +283,7 @@ func TestDeleteBucketStatuses(t *testing.T) {
 
 func TestDeleteBucketEnvelopeFailure(t *testing.T) {
 	s := &bucketServer{status: 200, body: `{"code":114,"success":false,"errorMsg":"<message>"}`}
-	_, err := newTestClient(t, s.handler(t)).DeleteBucket(context.Background(),
+	_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(),
 		&DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.Code != "114" || apiErr.StatusCode != 200 {
@@ -284,7 +293,7 @@ func TestDeleteBucketEnvelopeFailure(t *testing.T) {
 
 func TestDeleteBucketEmptyResponse(t *testing.T) {
 	s := &bucketServer{status: 200, body: ""}
-	_, err := newTestClient(t, s.handler(t)).DeleteBucket(context.Background(),
+	_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(),
 		&DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.Code != "EmptyResponse" {
@@ -351,14 +360,23 @@ func newUnmappedRegionClient(t *testing.T, calls *atomic.Int32) *Client {
 }
 
 // fixtureServer answers the create and delete with the named fixtures and the
-// bucket read with getFixture, counting the writes.
+// bucket read with getFixture until a delete arrives, then with not found. It
+// counts the writes.
 func fixtureServer(t *testing.T, getFixture, writeFixture string, writes *atomic.Int32) http.Handler {
+	var deleted atomic.Bool
 	return serve(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == detailsPath:
+			if deleted.Load() {
+				testutil.WriteFixture(t, w, fixtures+"error_envelope_not_found.json")
+				return
+			}
 			testutil.WriteFixture(t, w, fixtures+getFixture)
 		case r.URL.Path == bucketsPath:
 			writes.Add(1)
+			if r.Method == http.MethodDelete {
+				deleted.Store(true)
+			}
 			testutil.WriteFixture(t, w, fixtures+writeFixture)
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -400,7 +418,7 @@ func TestCreateBucketInvalidNameEnvelope(t *testing.T) {
 
 func TestDeleteBucketDecodesFixture(t *testing.T) {
 	var writes atomic.Int32
-	c := newTestClient(t, fixtureServer(t, "get_bucket_created.json", "delete_bucket.json", &writes))
+	c := newDeleteClient(t, fixtureServer(t, "get_bucket_created.json", "delete_bucket.json", &writes))
 	if _, err := c.DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"}); err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +429,7 @@ func TestDeleteBucketDecodesFixture(t *testing.T) {
 
 func TestDeleteBucketNotFoundOnDelete(t *testing.T) {
 	var writes atomic.Int32
-	c := newTestClient(t, fixtureServer(t, "get_bucket_created.json", "error_envelope_not_found.json", &writes))
+	c := newDeleteClient(t, fixtureServer(t, "get_bucket_created.json", "error_envelope_not_found.json", &writes))
 	_, err := c.DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	if !vngcloud.IsNotFound(err) {
 		t.Fatalf("err = %v, want not found", err)
@@ -422,7 +440,7 @@ func TestDeleteBucketNotFoundOnDelete(t *testing.T) {
 // read's error must stop DeleteBucket before it sends a second DELETE.
 func TestDeleteBucketReadDuringDeletionSendsNoDelete(t *testing.T) {
 	var writes atomic.Int32
-	c := newTestClient(t, fixtureServer(t, "error_envelope_unknown.json", "delete_bucket.json", &writes))
+	c := newDeleteClient(t, fixtureServer(t, "error_envelope_unknown.json", "delete_bucket.json", &writes))
 	_, err := c.DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	if vngcloud.ErrorCode(err) != "-1" {
 		t.Fatalf("err = %v, want code -1", err)

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"danny.vn/vngcloud"
@@ -20,6 +21,10 @@ import (
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+// codeInvalidInput is the envelope code the server uses for each input check
+// it reports; errorMsg names the rule.
+const codeInvalidInput = 112
 
 // maxEnvelopeMessage caps the envelope errorMsg copied into an error.
 const maxEnvelopeMessage = 256
@@ -32,12 +37,17 @@ type Client struct {
 	// first ListRegions call fills. It is filled once per Client and kept.
 	regionMu  sync.Mutex
 	regionIDs map[string]string
+
+	// sleep and now drive the delete wait; tests replace them with fakes so
+	// the wait never really elapses.
+	sleep sleepFunc
+	now   clockFunc
 }
 
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg)}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
 // route builds a URL under the Storage endpoint's console API prefix.
@@ -93,6 +103,9 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		}
 		return nil, err
 	}
+	if status == http.StatusNoContent {
+		return &envelope{}, nil
+	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return nil, emptyResponse(k, status)
 	}
@@ -118,11 +131,14 @@ func emptyResponse(k call, status int) error {
 }
 
 // envelopeError turns a success:false envelope into an *APIError. A code
-// from 400 to 599 also matches that status's sentinel.
+// from 400 to 599 also matches that status's sentinel, and code 112, the
+// server's input check, matches ErrInvalidInput.
 func envelopeError(op string, status int, env *envelope) error {
 	code := codeText(env.Code)
 	apiErr := &core.APIError{Operation: op, StatusCode: status, Code: code, Message: cut(env.ErrMsg, maxEnvelopeMessage)}
-	if n, err := strconv.Atoi(code); err == nil && n >= 400 && n <= 599 {
+	if n, err := strconv.Atoi(code); err == nil && n == codeInvalidInput {
+		apiErr.Err = core.ErrInvalidInput
+	} else if err == nil && n >= 400 && n <= 599 {
 		switch n {
 		case http.StatusUnauthorized:
 			apiErr.Err = core.ErrAuth

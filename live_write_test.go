@@ -356,6 +356,8 @@ var sdkSentinelErrs = []error{
 	containerregistry.ErrUserNotFound,
 	containerregistry.ErrRepositoryNotEmpty,
 	containerregistry.ErrNotSettled,
+	storage.ErrBucketNotEmpty,
+	storage.ErrNotSettled,
 	loadbalancer.ErrCertificateInUse,
 	monitor.ErrOTPRejected,
 	monitor.ErrUnexpectedStatus,
@@ -11014,8 +11016,8 @@ const liveStorageBucketPrefix = "vngcloud-live-"
 // TestLiveWriteStorageBucket creates one empty bucket in the vStorage
 // project named by VNGCLOUD_LIVE_STORAGE_PROJECT_ID, reads it back, creates
 // it again, reads and deletes a missing bucket, tries a name the server
-// refuses, deletes it, and polls until it is gone, because the server
-// answers a delete before the bucket disappears. It never touches the
+// refuses, deletes it with the wait, and deletes a second bucket with NoWait
+// and polls until it is gone. It never touches the
 // project, and logs only statuses and counts, never the project id or a
 // bucket name.
 func TestLiveWriteStorageBucket(t *testing.T) {
@@ -11144,33 +11146,15 @@ func TestLiveWriteStorageBucket(t *testing.T) {
 		})
 	}
 
-	// Step 6: delete the bucket. The server answers before the bucket is
-	// gone, so poll for it to disappear and record how long that takes.
+	// Step 6: delete the bucket. DeleteBucket waits for the bucket to
+	// disappear, so a read right after it must already be not found.
+	deleteStart := time.Now()
 	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
 		t.Fatalf("step 6 DeleteBucket: %s", safeErr(err))
 	}
-	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
-		t.Logf("step 6: immediate second delete: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
-	} else {
-		t.Log("step 6: immediate second delete succeeded")
-	}
-	pollStart := time.Now()
-	gone := false
-	attempts := 0
-	for !gone && time.Since(pollStart) < 2*time.Minute {
-		attempts++
-		_, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: name})
-		gone = vngcloud.IsNotFound(err)
-		if err != nil && !gone {
-			t.Fatalf("step 6 GetBucket: %s", safeErr(err))
-		}
-		if !gone {
-			time.Sleep(time.Second)
-		}
-	}
-	t.Logf("step 6: gone after %d read(s), %s: %v", attempts, time.Since(pollStart).Round(time.Second), gone)
-	if !gone {
-		t.Fatal("step 6: deleted bucket still readable after 2 minutes")
+	t.Logf("step 6: delete returned after %s", time.Since(deleteStart).Round(time.Second))
+	if _, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: name}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 6: read after the waiting delete: %s, want not found", safeErr(err))
 	}
 	listed, err = client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
 	if err != nil {
@@ -11182,6 +11166,48 @@ func TestLiveWriteStorageBucket(t *testing.T) {
 		}
 	}
 	t.Logf("step 6: %d bucket(s) listed, none is the test bucket", len(listed.Items))
+
+	// Step 6b: delete a second bucket with NoWait, then poll for it to
+	// disappear. Code -1 and an empty response mean it is still deleting.
+	nwName := name + "-nw"
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteBucket(cleanupCtx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: nwName}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete no-wait bucket: %s", safeErr(err))
+		}
+	})
+	if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: nwName}); err != nil {
+		t.Fatalf("step 6b CreateBucket: %s", safeErr(err))
+	}
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: nwName, NoWait: true}); err != nil {
+		t.Fatalf("step 6b DeleteBucket NoWait: %s", safeErr(err))
+	}
+	pollStart := time.Now()
+	gone := false
+	attempts, minusOne, empty := 0, 0, 0
+	for !gone && time.Since(pollStart) < 2*time.Minute {
+		attempts++
+		_, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: nwName})
+		switch {
+		case vngcloud.IsNotFound(err):
+			gone = true
+		case vngcloud.ErrorCode(err) == "-1":
+			minusOne++
+		case vngcloud.ErrorCode(err) == "EmptyResponse":
+			empty++
+		case err != nil:
+			t.Fatalf("step 6b GetBucket: %s", safeErr(err))
+		}
+		if !gone {
+			time.Sleep(time.Second)
+		}
+	}
+	t.Logf("step 6b: gone after %d read(s), %s: %v; code -1 reads %d, empty reads %d",
+		attempts, time.Since(pollStart).Round(time.Second), gone, minusOne, empty)
+	if !gone {
+		t.Fatal("step 6b: no-wait deleted bucket still readable after 2 minutes")
+	}
 
 	// Step 7: delete it again.
 	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
