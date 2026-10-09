@@ -12,80 +12,8 @@ It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
 
 ## Source
 
-Public docs (`docs.greennode.ai/vstorage`), the OpenAPI specs on
-`docs.api.greennode.ai` (`vstorage-hcm04-api`, `accounts-api`), the public
-vStorage console bundle and its `config.prod.json`, and live reads on the
-test account on 2026-09-26. VNG Cloud's Go SDK and Terraform provider have
-no vStorage code.
-
-### Model
-
-- A vStorage project is a paid storage package in one vStorage region,
-  `HCM04` or `HAN02`, each with a UUID region ID and an S3 host such as
-  `https://hcm04.vstorage.vngcloud.vn`. The Swift farm `HCM03` is out of
-  scope.
-- An S3 key is an access key and secret for one project, with the rights of
-  the user who made it. The secret is shown once.
-- An IAM service account starts with no rights. A key attached to it acts
-  as the service account, whose bucket rights come from a bucket policy
-  that names its storage principal, `arn:aws:iam:::user/<subUserId>`. This
-  is the per-bucket key: one service account, one bucket policy, one key.
-
-### Management APIs
-
-| API | Base | Auth | Result |
-|-|-|-|-|
-| vStorage console API | `https://vstorage.console.greennode.ai/internal/v1/` | IAM User token | Works |
-| vStorage external API | `https://hcm04-api.vstorage.vngcloud.vn/api/v1/` | Service account token | IAM User token gets an empty 200 |
-| IAM accounts API | `https://dashboard.console.greennode.ai/accounts-api/v1/` | IAM User token | Works |
-
-The console API has the external API's paths and bodies
-(`ceph/projects/{projectId}/buckets/{bucket}`) under another prefix, and
-takes the vStorage region in a `region_id` header; adding a `region` header
-got an empty 200. The documented IAM accounts API covers service accounts,
-S3 keys, and attaching a key to a service account.
-
-### Live reads
-
-| Call | Result |
-|-|-|
-| `GET internal/v1/regions` | 200, `HCM04` and `HAN02` |
-| `GET internal/v1/projects` with `region_id` | 200, `datas: null`: no project in either region |
-| `GET internal/v1/users/s3_keys` | 403 `[{"code":"IAM_PERMISSION_DENIED","message":"IAM denied action"}]` |
-| `GET internal/v1/ceph/projects/external` | 200 with `success: false`, `code: 114`, `errorMsg` |
-| `GET internal/v1/billing/project_types` | 200, the price table |
-| `GET accounts-api/v1/s3-keys`, `service-accounts` | 200, empty pages |
-
-Console API responses use one envelope: `success`, `code`, `errorMsg`,
-`action`, and `data` (one item) or `datas` (a list). Errors arrive as HTTP
-200 with `success: false`. Field names and types:
-
-| Model | Fields |
-|-|-|
-| Region | `regionId`, `regionName`, `regionDisplayingName`, `backendType`, `s3Host`, `vosApiHost`, `accountUrl`, `authHost`, `status` (number) |
-| Project (spec) | `projectId`, `projectName`, `regionId`, `regionName`, `status`, `totalQuota`, `startTime`, `endTime`, `period` |
-| Bucket (spec) | `name`, `count`, `size`, `isPublic`, `isVersioned`, `createdDate`, `lastModified`, `type`, `versionLocation` |
-| S3 key (spec) | `id`, `name`, `accessKey`, `projectId`, `regionId`, `createdAt`; create adds `secretKey` |
-| Service account page | `data`, `pageNumber`, `pageSize`, `totalItems`, `totalPages` |
-
-### Data plane
-
-The data plane is S3-compatible (Signature V4, path-style, regions `HCM04`
-and `HAN02`, HTTPS only). This SDK covers the management plane; objects go
-through any S3 client. The wiki recommends **rclone**: GreenNode documents
-its setup, and it ships as one static binary with a plain S3 mode. Recent
-AWS CLI v2 releases send checksum headers by default that S3-compatible
-servers often refuse; whether vStorage does is a live check.
-
-### Cost
-
-- A project is a paid package: Gold 1,000 VND per GB per month from 30 GB,
-  or pay as you go at 1,400 VND per GB per month from 1 GB.
-- Buckets, S3 keys, and service accounts cost nothing to create. Requests
-  are free; download traffic is free up to ten times the stored size.
-- Limits: 10 S3 keys per root account, 1000 buckets per project.
-- The test account has no project and no credit, so no bucket write can run
-  on it yet; see [Owner decisions](#owner-decisions).
+The calls, shapes, region headers, storage users, and costs this design
+rests on are in [vStorage: API](storage-api.md), with their sources.
 
 ## Non-goals
 
@@ -104,10 +32,14 @@ servers often refuse; whether vStorage does is a live check.
 the existing `Dashboard` endpoint with `accounts-api/v1/...`, not the old
 documented `iamapis.vngcloud.vn` host.
 
-Every storage request sends `region_id: <region UUID>` and never a `region`
-header. The client resolves a region name to its UUID with `ListRegions`
-once per `storage.Client` and caches the result. An empty `Region` maps
-`hcm-3` to `HCM04` and `han-1` to `HAN02`; any other config region with an
+Every storage request except `ListRegions` sends `region: <region UUID>` and
+`region_id: <region UUID>`, the same UUID in both, as the console does. The
+server scopes results by `region`; without it a project list is empty and a
+bucket list fails with code 114; see
+[region headers](storage-api.md#region-headers). The SDK sends no `user_id`
+or `portal-user-id`. The client resolves a region name to its UUID with
+`ListRegions` once per `storage.Client` and caches the result. An empty `Region`
+maps `hcm-3` to `HCM04` and `han-1` to `HAN02`; any other config region with an
 empty `Region` is `ErrInvalidInput`, and nothing is sent.
 
 ## SDK
@@ -195,10 +127,13 @@ A bucket policy names a service account as
 `arn:aws:iam:::user/<subUserId>`. The console reads the sub-user from
 `GET internal/v1/users/details` with `generated=true`, `project_id`, and
 `iam_account_id=sa-<id>`, and creates one with
-`POST internal/v1/users/ceph_sub_users`. What `generated=true` does is
-unknown, so `GetServiceAccountPrincipal` sends `generated=false`. If the
-sub-user exists only after a write, the design adds an explicit write
-rather than let a `GET` create state.
+`POST internal/v1/users/ceph_sub_users`, which returns the same record when
+repeated ([storage users](storage-api.md#storage-users)). With a project,
+`generated=true` and `generated=false` answered alike for the IAM user, so
+`GetServiceAccountPrincipal` sends `generated=false`. The SDK does not call
+`ceph_sub_users`: S2 does not need it. If S4 or S5 finds a service account
+has no sub-user until that POST, the design adds an explicit, idempotent
+write rather than let a `GET` create state.
 
 ### Envelope errors
 
@@ -333,19 +268,19 @@ The CLI error codes list in [CLI](cli.md#errors-and-exit-codes) gains
 ## Security
 
 - Every write gets an adversarial review before its release. It checks: the
-  secret never reaches stdout, stderr, `--debug`, an error, a response
-  capture, or a fixture; `--secret-file` refuses existing paths and
-  symlinks and creates mode 0600; the orphan key is deleted after a failed
-  write; no create retry after a 5xx; path checks on every call; no
-  `region` header; no `DELETE` for a non-empty bucket; `--yes` where the
+  secret never reaches stdout, stderr, `--debug`, an error, a response capture,
+  or a fixture; `--secret-file` refuses existing paths and symlinks and creates
+  mode 0600; the orphan key is deleted after a failed write; no create retry
+  after a 5xx; path checks on every call; the `region` and `region_id` headers
+  on every storage call; no `DELETE` for a non-empty bucket; `--yes` where the
   table says; read-only refusal; and no state created by a read.
 - A key has its creator's rights. The wiki says to scope app keys through a
   service account and a bucket policy, never a broad user or the root.
 - Bucket names, project IDs, access keys, service accounts, and policies are
   account data. Fixtures use `<id>`, `<account>`, `<access-key>`, and
   `<secret>`.
-- The console API is undocumented and may change; fixed models make a
-  changed field fail a fixture test.
+- The console API is undocumented and may change; fixed models make a changed
+  field fail a fixture test.
 
 ## Testing
 
@@ -354,7 +289,8 @@ Unit tests use `httptest`:
 - Sanitized fixtures and decode tests in `testdata/storage/` and
   `testdata/iam/` for every read and create, plus a `success: false`
   envelope, the 403 array, and an empty 200.
-- Request bodies for every write; `region_id` sent and `region` never; the
+- Request bodies for every write; `region` and `region_id` both sent with
+  the same UUID on every call except `ListRegions`, which sends neither; the
   region mapping and its unmapped case; `limit=1000` and `isNext`.
 - `DeleteBucket` sends no `DELETE` when the count is above 0.
 - Secrets: `fmt` verbs, `slog`, and `json.Marshal` give `[redacted]`; no
@@ -372,36 +308,41 @@ run needs the owner's approval naming the account, region, and project.
 - `make live` adds `ListRegions`, `ListProjects` in both regions,
   `ListS3Keys`, and `ListServiceAccounts`, logging counts only.
 - The live write test skips unless `VNGCLOUD_LIVE_STORAGE_PROJECT_ID` is
-  set, and never logs it. It deletes leftover `vngcloud-live-` resources,
-  then creates `vngcloud-live-<8 hex>` as a bucket, a service account, a
-  policy, and a key written to a temp `--secret-file`, and attaches the key.
+  set, and never logs it. It deletes leftover `vngcloud-live-` buckets,
+  service accounts, and keys, never a project, then creates
+  `vngcloud-live-<8 hex>` as a bucket, a service account, a policy, and a
+  key written to a temp `--secret-file`, and attaches the key.
   `t.Cleanup`, registered as each ID is known, detaches and deletes the
   key, deletes the policy, the bucket, and the service account, and asserts
   none remain. It logs only statuses and counts.
 
 ## Live checks before code
 
-Reads need a `vstorage` IAM policy on the test IAM user; the 403 above shows
-it lacks one. Writes need a project and the owner's approval.
+The test IAM user has vStorage access, and the test account has a project
+in `HCM04`. Writes need the owner's approval.
 
-1. With the policy, `ListProjects` on an account with a project, so
-   `datas: null` means none rather than denied.
-2. `ListBuckets` and `GetBucket` shapes, dates, and paging; whether writes
-   need the console's `user_id` or `portal-user-id` header.
-3. Envelope codes for an unknown project and bucket.
-4. `CreateBucket`: response, sync or async, duplicate and invalid names,
+Answered: `ListProjects` returns the project once `region` is sent, so an
+empty list means none; the headers the server needs; the empty bucket list.
+
+1. `ListBuckets` and `GetBucket` with a bucket: shapes, dates, and paging;
+   whether writes need `user_id` or `portal-user-id`.
+2. Envelope codes for an unknown project and an unknown bucket, with
+   `region` sent.
+3. `CreateBucket`: response, sync or async, duplicate and invalid names,
    and whether names are unique across accounts.
-5. `DeleteBucket`: empty, holding one object, and repeated.
-6. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
+4. `DeleteBucket`: empty, holding one object, and repeated.
+5. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
    11th-key error, delete and repeat, and `rclone lsd` with the key.
-7. Attach a key to a service account, repeat the attach, and detach.
-8. Principal: `users/details` with `generated=false` before and after
-   attach, and whether `ceph_sub_users` must run first.
-9. Scope, the core claim: with a policy for the principal on bucket A, the
+6. Attach a key to a service account, repeat the attach, and detach.
+7. Principal: `users/details` with `generated=false` for a service account
+   before and after attach, and whether its `ceph_sub_users` must run
+   first. For the IAM user, the shapes are known and the POST is
+   idempotent.
+8. Scope, the core claim: with a policy for the principal on bucket A, the
    attached key reads and writes A and is denied on bucket B; whether
    `restricted: true` is needed.
-10. Policy, versioning, CORS, and public access bodies and errors.
-11. The next day's bill shows nothing beyond the project package.
+9. Policy, versioning, CORS, and public access bodies and errors.
+10. The next month's bill shows nothing beyond the project package.
 
 ## Releases
 
@@ -410,29 +351,30 @@ Each release ships the SDK and CLI together, with its wiki pages.
 | Release | Content |
 |-|-|
 | S1 | `storage` reads: `ListRegions`, `ListProjects`, `ListBuckets`, `GetBucket`; the `Storage` endpoint, region lookup, and envelope errors |
+| S1.1 | Fix: every storage call except `ListRegions` sends `region` and `region_id`; a `ListProjects` fixture from the live shape; unit tests for both headers; a live `ListProjects` that finds the project |
 | S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty` |
 | S3 | `iam` S3 keys: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`; `vngcloud.Secret`, `transport.Request.Sensitive`, and `--secret-file` |
 | S4 | `iam` S3 keys on service accounts: `ListServiceAccountS3Keys`, `AttachS3Key`, `DetachS3Key`; needs IAM writes I2 |
 | S5 | Bucket policy get, put, and delete, and `GetServiceAccountPrincipal`: the per-bucket key works end to end |
 | S6 | Bucket versioning, CORS, and public access |
 
-S1 needs only the policy grant; S2 and later need a project. None changes an
-existing method or command. Keys ship before key attach because a
-project-wide key already unblocks aboutme; service accounts themselves ship
-in [IAM writes](iam-writes.md) I2.
+S1.1 ships before S2, since no storage read finds data without it. S2 and later
+use the test project. None changes an existing method or command. Keys ship
+before key attach because a project-wide key already unblocks aboutme; service
+accounts themselves ship in [IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
-All 12 are approved as recommended.
+Decisions 1 to 12 are approved as recommended; 13 awaits the owner.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
 2. Approved: two packages, `storage` and `iam`: keys and service accounts
    live in the IAM API, as in AWS.
 3. Approved: projects stay a console step; a project is a paid checkout.
-4. Approved: the test IAM user has vStorage access. Live writes wait for
-   credit to buy the smallest pay-as-you-go project, about 1,400 VND per
-   month. Until then only S1 verifies live.
+4. Approved: the test IAM user has vStorage access. The owner bought the
+   test project in the console (Gold, 30 GB, pay monthly, 30,000 VND a
+   month), so S2 and later verify live.
 5. Approved: `Region` Input, `hcm-3` defaults to `HCM04`, `han-1` to `HAN02`.
 6. Approved: the secret goes only to `--secret-file`, an AWS credentials
    file; no stdout option, which would reach transcripts and CI logs.
@@ -443,6 +385,9 @@ All 12 are approved as recommended.
 10. Approved: `--yes` when making a bucket public.
 11. Approved: rclone as the S3 client; no object commands in the CLI.
 12. Approved: the release order above.
+13. Recommended: every storage call except `ListRegions` sends both
+    `region` and `region_id` with the region UUID, and S1.1 ships that fix
+    before S2.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.
