@@ -311,8 +311,9 @@ within 3 seconds.
 `GET`: the server makes the service account's storage sub-user on the first
 call, and a repeat returns the same one. The sub-user cannot be deleted and has
 no rights until a bucket policy names it. A response without a `subUserId`, or
-with one that lacks a `:sa-` segment, is an error with no Output, so the IAM
-user's own principal never reaches a policy.
+with one that is not exactly `<user>:sa-<name>`, is an error with no Output, so
+the IAM user's own principal never reaches a policy. A well-formed ID that
+matches no service account gets a code `114` refusal and no Output.
 
 A key is unrestricted from its create until its attach. If you create a key to
 restrict it, attach it before you store the secret, and delete the key if the
@@ -348,7 +349,9 @@ attach of an attached key gives one of the first two messages.
 The sub-user is named from the service account's name, not its ID. A new
 service account with the name of a deleted one gets the same principal, so it
 inherits any bucket policy that still names it. Remove a service account from
-every bucket policy before you delete it.
+every bucket policy before you delete it. Detach its keys first too: a key
+stays attached to a deleted service account, and `ListS3Keys` still shows its
+`SubUserID` until you call `DetachS3Key` (which succeeds) or `DeleteS3Key`.
 
 For one key per bucket, run the steps in this order:
 

@@ -46,9 +46,9 @@ const principalARNPrefix = "arn:aws:iam:::user/"
 // and so inherit any bucket policy that still names it: remove a service
 // account from its bucket policies before deleting it.
 //
-// A response whose subUserId is null, empty, or lacks a ":sa-" segment is an
-// error and returns no Output, so a caller never puts the IAM user's own
-// ":iam-" principal in a policy.
+// A response whose subUserId is null, empty, or not exactly
+// "<user>:sa-<name>" is an error and returns no Output, so a caller never puts
+// the IAM user's own ":iam-" principal in a policy.
 func (c *Client) EnsureServiceAccountPrincipal(ctx context.Context, in *EnsureServiceAccountPrincipalInput) (*EnsureServiceAccountPrincipalOutput, error) {
 	const op = "storage.EnsureServiceAccountPrincipal"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -88,12 +88,13 @@ func (c *Client) EnsureServiceAccountPrincipal(ctx context.Context, in *EnsureSe
 		}
 	}
 	sub := *data.SubUserID
-	if i := strings.Index(sub, ":sa-"); i < 1 || len(sub) == i+len(":sa-") {
+	user, rest, ok := strings.Cut(sub, ":")
+	if !ok || user == "" || !strings.HasPrefix(rest, "sa-") || len(rest) <= len("sa-") || strings.Contains(rest, ":") {
 		return nil, &core.APIError{
 			Operation:  op,
 			StatusCode: http.StatusOK,
 			Code:       "NotServiceAccountPrincipal",
-			Message:    "the response subUserId is not a service account sub-user (no \":sa-\" segment); it is not returned",
+			Message:    "the response subUserId is not a service account sub-user (not \"<user>:sa-<name>\"); it is not returned",
 		}
 	}
 	return &EnsureServiceAccountPrincipalOutput{SubUserID: sub, PrincipalARN: principalARNPrefix + sub}, nil

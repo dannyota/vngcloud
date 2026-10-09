@@ -11342,15 +11342,6 @@ const liveStorageServiceAccount = "vngcloud-live-storage"
 // copy into testdata/.
 const liveStorageCaptureDir = "examples/basic/output/raw/storage/live-write"
 
-// liveTail4 returns the last four characters of an id, the most a live test
-// logs of one.
-func liveTail4(id string) string {
-	if len(id) <= 4 {
-		return "****"
-	}
-	return id[len(id)-4:]
-}
-
 // liveStorageCapture appends each storage response to a file named for its
 // operation. Key and service account creates are sensitive, so the hook never
 // sees them.
@@ -11416,10 +11407,11 @@ func liveStorageRefusal(t *testing.T, step string, err error, want string) {
 // vStorage project named by VNGCLOUD_LIVE_STORAGE_PROJECT_ID, using one
 // service account named liveStorageServiceAccount. It checks the principal,
 // the restriction state in the key list, each code 114 refusal, a delete of an
-// attached key, and whether a same-name recreate gets the same principal.
-// Keys have no name, so it deletes only keys it made and keys attached to its
-// own service account. It logs statuses, codes, counts, booleans, and the last
-// four characters of ids, never a name, secret, or the project id.
+// attached key, an ensure for an unknown service account, a service account
+// deleted while a key is attached to it, and whether a same-name recreate gets
+// the same principal. Keys have no name, so it deletes only keys it made and
+// keys attached to its own service account. It logs statuses, codes, counts,
+// and booleans, never an id, a name, a secret, or the project id.
 func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage service account key write test")
@@ -11490,14 +11482,14 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 			if _, err := client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: k.UserKeyID}); err != nil {
 				t.Fatalf("step 1 delete leftover key: %s", safeErr(err))
 			}
-			t.Logf("step 1: deleted a leftover attached key ending %s", liveTail4(k.UserKeyID))
+			t.Log("step 1: deleted a leftover attached key")
 		}
 	}
 	for _, sa := range namedAccounts(ctx) {
 		if _, err := accounts.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: sa.ID}); err != nil {
 			t.Fatalf("step 1 delete leftover service account: %s", safeErr(err))
 		}
-		t.Logf("step 1: deleted a leftover service account ending %s", liveTail4(sa.ID))
+		t.Log("step 1: deleted a leftover service account")
 	}
 	before := listKeys(ctx)
 	t.Logf("step 1: %d key(s) at the start", len(before))
@@ -11538,14 +11530,14 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 					return
 				}
 				if _, found := findKey(left.Items, id); found {
-					t.Errorf("cleanup: key ending %s is still listed", liveTail4(id))
+					t.Error("cleanup: a key made by the test is still listed")
 				}
 			})
 		}
 		if err != nil {
 			t.Fatalf("%s CreateS3Key: %s", step, safeErr(err))
 		}
-		t.Logf("%s: created key ending %s", step, liveTail4(created.UserKeyID))
+		t.Logf("%s: created a key", step)
 		return created.UserKeyID
 	}
 
@@ -11557,7 +11549,7 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 2 CreateServiceAccount: %s", safeErr(err))
 	}
-	t.Logf("step 2: created service account ending %s", liveTail4(saID))
+	t.Log("step 2: created the service account")
 	first, err := client.EnsureServiceAccountPrincipal(ctx, &storage.EnsureServiceAccountPrincipalInput{ProjectID: projectID, ServiceAccountID: saID})
 	if err != nil {
 		t.Fatalf("step 2 first ensure: %s", safeErr(err))
@@ -11609,11 +11601,24 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	_, err = client.AttachS3Key(ctx, &storage.AttachS3KeyInput{ProjectID: projectID, UserKeyID: unknownID, ServiceAccountID: saID})
 	liveStorageRefusal(t, "step 6 attach of an unknown key", err, "S3 key not found")
 	_, err = client.DetachS3Key(ctx, &storage.DetachS3KeyInput{ProjectID: projectID, UserKeyID: unknownID})
-	var apiErr *vngcloud.APIError
-	if errors.As(err, &apiErr) {
-		t.Logf("step 6 detach of an unknown key: status=%d code=%s, message is \"S3 key not found\" %v", apiErr.StatusCode, apiErr.Code, apiErr.Message == "S3 key not found")
-	} else {
-		t.Logf("step 6 detach of an unknown key: %s", safeErr(err))
+	liveStorageRefusal(t, "step 6 detach of an unknown key", err, "S3 key not found")
+
+	// Step 6b: ensure for a well-formed service account id that matches
+	// nothing: the id of the real account with its last character changed.
+	ghostID := saID[:len(saID)-1] + "0"
+	if ghostID == saID {
+		ghostID = saID[:len(saID)-1] + "1"
+	}
+	ghost, err := client.EnsureServiceAccountPrincipal(ctx, &storage.EnsureServiceAccountPrincipalInput{ProjectID: projectID, ServiceAccountID: ghostID})
+	var ghostErr *vngcloud.APIError
+	switch {
+	case ghost != nil && ghost.PrincipalARN != "":
+		t.Errorf("step 6b: an unknown service account got a principal (sub-user ends with the test name %v)", strings.HasSuffix(ghost.SubUserID, suffix))
+	case errors.As(err, &ghostErr):
+		t.Logf("step 6b: ensure for an unknown service account: status=%d code=%s, no principal returned %v, NoPrincipal refusal %v",
+			ghostErr.StatusCode, ghostErr.Code, ghost == nil, ghostErr.Code == "NoPrincipal")
+	default:
+		t.Logf("step 6b: ensure for an unknown service account: %s, no principal returned %v", safeErr(err), ghost == nil)
 	}
 
 	// Step 7: delete a key while it is attached.
@@ -11627,27 +11632,54 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	_, still := findKey(listKeys(ctx), attachedKey)
 	t.Logf("step 7: attached key deleted; still listed %v", still)
 
-	// Step 8: delete the account and recreate it under the same name.
+	// Step 8: delete the service account while a key is attached to it, then
+	// read the key, detach it, and delete it.
+	orphan := newKey("step 8")
+	if _, err := client.AttachS3Key(ctx, &storage.AttachS3KeyInput{ProjectID: projectID, UserKeyID: orphan, ServiceAccountID: saID}); err != nil {
+		t.Fatalf("step 8 AttachS3Key: %s", safeErr(err))
+	}
 	if _, err := accounts.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: saID}); err != nil {
 		t.Fatalf("step 8 DeleteServiceAccount: %s", safeErr(err))
 	}
 	saID = ""
 	t.Logf("step 8: deleted; %d account(s) of the name remain", len(namedAccounts(ctx)))
+	orphaned, found := findKey(listKeys(ctx), orphan)
+	t.Logf("step 8: key of the deleted account listed %v, SubUserID still set %v", found, orphaned.SubUserID != "")
+	_, err = client.DetachS3Key(ctx, &storage.DetachS3KeyInput{ProjectID: projectID, UserKeyID: orphan})
+	var detachErr *vngcloud.APIError
+	if errors.As(err, &detachErr) {
+		t.Logf("step 8 detach after the account is gone: status=%d code=%s", detachErr.StatusCode, detachErr.Code)
+	} else {
+		t.Logf("step 8 detach after the account is gone: succeeded %v", err == nil)
+	}
+	afterKey, after := findKey(listKeys(ctx), orphan)
+	t.Logf("step 8: after the detach attempt, key listed %v, SubUserID still set %v", after, afterKey.SubUserID != "")
+	if _, err := client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: orphan}); err != nil {
+		t.Errorf("step 8 DeleteS3Key of a key whose account is gone: %s", safeErr(err))
+	}
+	_, still = findKey(listKeys(ctx), orphan)
+	t.Logf("step 8: key deleted; still listed %v", still)
+
+	// Step 9: recreate the account under the same name.
 	again, err := accounts.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{Name: liveStorageServiceAccount})
 	if again != nil && again.ServiceAccount.ID != "" {
 		saID = again.ServiceAccount.ID
 	}
 	if err != nil {
-		t.Fatalf("step 8 recreate: %s", safeErr(err))
+		t.Fatalf("step 9 recreate: %s", safeErr(err))
 	}
 	third, err := client.EnsureServiceAccountPrincipal(ctx, &storage.EnsureServiceAccountPrincipalInput{ProjectID: projectID, ServiceAccountID: saID})
 	if err != nil {
-		t.Fatalf("step 8 ensure after recreate: %s", safeErr(err))
+		t.Fatalf("step 9 ensure after recreate: %s", safeErr(err))
 	}
-	t.Logf("step 8: recreated with a new id ending %s; principal equals the first %v", liveTail4(saID), third.SubUserID == first.SubUserID)
+	same := third.SubUserID == first.SubUserID
+	t.Logf("step 9: recreated; principal equals the first %v", same)
+	if !same {
+		t.Errorf("step 9: a same-name recreate got a different principal; the design and wiki say it gets the same one")
+	}
 	if _, err := accounts.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: saID}); err != nil {
-		t.Fatalf("step 8 delete after recreate: %s", safeErr(err))
+		t.Fatalf("step 9 delete after recreate: %s", safeErr(err))
 	}
 	saID = ""
-	t.Logf("step 8: %d key(s) listed before the cleanup, %d at the start", len(listKeys(ctx)), len(before))
+	t.Logf("step 9: %d key(s) listed before the cleanup, %d at the start", len(listKeys(ctx)), len(before))
 }

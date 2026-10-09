@@ -63,15 +63,19 @@ func TestEnsureServiceAccountPrincipalRegion(t *testing.T) {
 
 func TestEnsureServiceAccountPrincipalRefusesBadSubUserID(t *testing.T) {
 	bodies := map[string]string{
-		"null":      fixture(t, "service_account_principal_null.json"),
-		"empty":     `{"code":200,"success":true,"data":{"subUserId":""}}`,
-		"missing":   `{"code":200,"success":true,"data":{}}`,
-		"no data":   `{"code":200,"success":true}`,
-		"null data": `{"code":200,"success":true,"data":null}`,
-		"iam user":  `{"code":200,"success":true,"data":{"subUserId":"<account-user>:iam-<name>"}}`,
-		"bare":      `{"code":200,"success":true,"data":{"subUserId":"<account-user>"}}`,
-		"prefix":    `{"code":200,"success":true,"data":{"subUserId":"sa-<name>"}}`,
-		"not text":  `{"code":200,"success":true,"data":{"subUserId":7}}`,
+		"null":          fixture(t, "service_account_principal_null.json"),
+		"empty":         `{"code":200,"success":true,"data":{"subUserId":""}}`,
+		"missing":       `{"code":200,"success":true,"data":{}}`,
+		"no data":       `{"code":200,"success":true}`,
+		"null data":     `{"code":200,"success":true,"data":null}`,
+		"iam user":      `{"code":200,"success":true,"data":{"subUserId":"<account-user>:iam-<name>"}}`,
+		"bare":          `{"code":200,"success":true,"data":{"subUserId":"<account-user>"}}`,
+		"prefix":        `{"code":200,"success":true,"data":{"subUserId":"sa-<name>"}}`,
+		"not text":      `{"code":200,"success":true,"data":{"subUserId":7}}`,
+		"extra segment": `{"code":200,"success":true,"data":{"subUserId":"a:iam-x:sa-y"}}`,
+		"two users":     `{"code":200,"success":true,"data":{"subUserId":"a:b:sa-y"}}`,
+		"no user":       `{"code":200,"success":true,"data":{"subUserId":":sa-y"}}`,
+		"no name":       `{"code":200,"success":true,"data":{"subUserId":"a:sa-"}}`,
 	}
 	for name, body := range bodies {
 		t.Run(name, func(t *testing.T) {
