@@ -54,14 +54,13 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 // computeDeleteServerNote documents delete-server's own volume disposition,
 // its wait bound, and that it destroys the server: the flag table shows
 // --delete-volumes as a plain, optional bool, with no hint of any of this.
-// Whether the boot volume stays when --delete-volumes is left unset is
-// unverified until the live check (see DeleteServerInput), so the note
-// hedges that claim rather than stating it as fact, and DeletedVolumeIDs
-// printed alongside a wait error is only what the delete requested, not a
-// confirmed deletion (see DeleteServerOutput).
+// The boot volume always goes with the server; --delete-volumes governs
+// only attached data volumes. DeletedVolumeIDs printed alongside a wait
+// error is only what the delete requested, not a confirmed deletion (see
+// DeleteServerOutput).
 const computeDeleteServerNote = "Destroys the server; there is no undo. Without --delete-volumes, every " +
-	"attached volume stays and keeps being billed; whether the boot volume also stays this way is unverified " +
-	"until the live check, so treat it as billed too until confirmed otherwise. Without --no-wait, this command " +
+	"attached data volume stays and keeps being billed. The boot volume always goes with the server, with or " +
+	"without --delete-volumes. Without --no-wait, this command " +
 	"reads each kept volume back after the delete settles and prints the still-existing ones as KeptVolumeIDs, " +
 	"so nothing costing money goes unnoticed; with --no-wait, KeptVolumeIDs instead names every volume the " +
 	"server held before the delete, unconfirmed. With --delete-volumes, every attached volume is sent for " +
