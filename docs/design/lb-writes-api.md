@@ -83,7 +83,10 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - Pool create: `poolName`, `poolProtocol` (`HTTP`, `TCP`, `UDP`,
   `PROXY`), `algorithm` [`ROUND_ROBIN`] (or `LEAST_CONNECTIONS`,
   `SOURCE_IP`), `healthMonitor` (required), and optional `stickiness`,
-  `tlsEncryption` (Layer 7 only), and `members`. A Layer 7 load balancer
+  `tlsEncryption` (Layer 7 only), and `members`. An `HTTP` pool must send
+  `stickiness`; omitting it is refused with 400 `Stickiness must be
+  specified for HTTP pools` (verified live on `hcm-3`). The SDK sends both
+  keys as `false` for an `HTTP` pool when unset. A Layer 7 load balancer
   accepts only `HTTP` pools (a `TCP` pool is refused with 400 `Invalid
   pool's protocol for Application load balancer. Valid values: [HTTP]`),
   so `CreatePool` refuses any other protocol there before sending. The

@@ -70,8 +70,8 @@ func TestCreatePoolRequestBodyDefaults(t *testing.T) {
 	if body["poolName"] != "pool-1" || body["poolProtocol"] != "HTTP" || body["algorithm"] != "ROUND_ROBIN" {
 		t.Fatalf("body = %+v, want defaults", body)
 	}
-	if _, ok := body["stickiness"]; ok {
-		t.Fatalf("body = %+v, want no stickiness key when unset", body)
+	if body["stickiness"] != false || body["tlsEncryption"] != false {
+		t.Fatalf("body = %+v, want stickiness and tlsEncryption false for an unset HTTP pool", body)
 	}
 	hm, ok := body["healthMonitor"].(map[string]any)
 	if !ok {
@@ -153,6 +153,87 @@ func TestCreatePoolSendsStickinessOnlyWhenSet(t *testing.T) {
 	}
 	if body["stickiness"] != true {
 		t.Fatalf("body[stickiness] = %v, want true", body["stickiness"])
+	}
+}
+
+func createPoolBodyFor(t *testing.T, in *CreatePoolInput) map[string]any {
+	t.Helper()
+	var body map[string]any
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodPost:
+			data, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(data, &body)
+			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, poolTestPoolID)
+		case r.Method == http.MethodGet && r.URL.Path == poolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"progressStatus":%q}}`, poolTestPoolID, lbStatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+	if _, err := c.CreatePool(context.Background(), in); err != nil {
+		t.Fatalf("CreatePool() error = %v", err)
+	}
+	return body
+}
+
+func TestCreatePoolHTTPAlwaysSendsStickinessAndTLS(t *testing.T) {
+	body := createPoolBodyFor(t, validCreatePoolInput())
+	if v, ok := body["stickiness"]; !ok || v != false {
+		t.Fatalf("stickiness = %v (present %v), want false", v, ok)
+	}
+	if v, ok := body["tlsEncryption"]; !ok || v != false {
+		t.Fatalf("tlsEncryption = %v (present %v), want false", v, ok)
+	}
+	in := validCreatePoolInput()
+	in.Stickiness = vngcloud.Ptr(true)
+	in.TLSEncryption = vngcloud.Ptr(true)
+	body = createPoolBodyFor(t, in)
+	if body["stickiness"] != true || body["tlsEncryption"] != true {
+		t.Fatalf("body = %+v, want explicit true sent", body)
+	}
+}
+
+func TestCreatePoolNonHTTPOmitsStickinessAndTLS(t *testing.T) {
+	in := validCreatePoolInput()
+	in.Protocol = PoolProtocolTCP
+	in.HealthCheckProtocol = HealthCheckProtocolTCP
+	body := createPoolBodyFor(t, in)
+	for _, k := range []string{"stickiness", "tlsEncryption"} {
+		if _, ok := body[k]; ok {
+			t.Fatalf("body = %+v, want no %s for a TCP pool", body, k)
+		}
+	}
+}
+
+func TestUpdatePoolHTTPPoolSendsFalseWhenReadHasNoValue(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == poolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"protocol":"HTTP","loadBalanceMethod":"ROUND_ROBIN","progressStatus":%q}}`, poolTestPoolID, lbStatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == poolPath+"/healthMonitor":
+			_, _ = w.Write([]byte(`{"data":{"healthCheckProtocol":"TCP","healthyThreshold":3,"unhealthyThreshold":3,"interval":30,"timeout":5}}`))
+		case r.Method == http.MethodPut:
+			data, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(data, &body)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	in := &UpdatePoolInput{LoadBalancerID: poolTestLBID, PoolID: poolTestPoolID, HealthyThreshold: vngcloud.Ptr(5)}
+	if _, err := c.UpdatePool(context.Background(), in); err != nil {
+		t.Fatalf("UpdatePool() error = %v", err)
+	}
+	if body["stickiness"] != false || body["tlsEncryption"] != false {
+		t.Fatalf("body = %+v, want stickiness and tlsEncryption false", body)
 	}
 }
 

@@ -78,11 +78,21 @@ type createPoolBody struct {
 	HealthMonitor poolHealthMonitorBody `json:"healthMonitor"`
 }
 
+// boolOrFalse returns b, or a pointer to false when b is nil.
+func boolOrFalse(b *bool) *bool {
+	if b != nil {
+		return b
+	}
+	f := false
+	return &f
+}
+
 // CreatePoolInput creates a pool with its health monitor. Empty Algorithm
 // sends AlgorithmRoundRobin; a zero HealthyThreshold, UnhealthyThreshold,
 // HealthCheckInterval, or HealthCheckTimeout sends the server's own default
-// (3, 3, 30, and 5). Stickiness and TLSEncryption are sent only when set,
-// since a Layer 4 pool has no use for either.
+// (3, 3, 30, and 5). An HTTP pool always sends Stickiness and TLSEncryption,
+// false when nil, because the server refuses an HTTP pool without them; any
+// other pool sends each only when set.
 //
 // The HTTP health check fields (HealthCheckPath, HealthCheckMethod,
 // HealthCheckHTTPVersion, HealthCheckDomainName, HealthCheckSuccessCode) are
@@ -229,12 +239,16 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 	if algorithm == "" {
 		algorithm = defaultAlgorithm
 	}
+	stickiness, tlsEncryption := in.Stickiness, in.TLSEncryption
+	if in.Protocol == PoolProtocolHTTP {
+		stickiness, tlsEncryption = boolOrFalse(stickiness), boolOrFalse(tlsEncryption)
+	}
 	body := createPoolBody{
 		Name:          in.Name,
 		Protocol:      in.Protocol,
 		Algorithm:     algorithm,
-		Stickiness:    in.Stickiness,
-		TLSEncryption: in.TLSEncryption,
+		Stickiness:    stickiness,
+		TLSEncryption: tlsEncryption,
 		HealthMonitor: buildPoolHealthMonitorBody(in.HealthCheckProtocol, in.HealthCheckPath, in.HealthCheckMethod, in.HealthCheckHTTPVersion, in.HealthCheckDomainName, in.HealthCheckSuccessCode, in.HealthyThreshold, in.UnhealthyThreshold, in.HealthCheckInterval, in.HealthCheckTimeout),
 	}
 
@@ -413,11 +427,10 @@ func (c *Client) UpdatePool(ctx context.Context, in *UpdatePoolInput) (*UpdatePo
 	}
 
 	algorithm := stringOr(in.Algorithm, pool.LoadBalanceMethod)
-	// Stickiness and TLSEncryption are sent only when set (design), even on
-	// an update: an unset field that read false is left out of the body
-	// rather than resent as an explicit false, since a Layer 4 pool may
-	// reject either key outright. A read of true is carried forward so an
-	// update that touches other fields never silently turns either off.
+	// An HTTP pool always sends both keys, since the server refuses it
+	// without them. Any other pool leaves out an unset field that read false,
+	// since a Layer 4 pool may reject either key. A read of true is carried
+	// forward so an update that touches other fields never turns either off.
 	stickiness := in.Stickiness
 	if stickiness == nil && pool.Stickiness {
 		stickiness = &pool.Stickiness
@@ -425,6 +438,9 @@ func (c *Client) UpdatePool(ctx context.Context, in *UpdatePoolInput) (*UpdatePo
 	tlsEncryption := in.TLSEncryption
 	if tlsEncryption == nil && pool.TLSEncryption {
 		tlsEncryption = &pool.TLSEncryption
+	}
+	if pool.Protocol == PoolProtocolHTTP {
+		stickiness, tlsEncryption = boolOrFalse(stickiness), boolOrFalse(tlsEncryption)
 	}
 
 	readPath := deref(monitor.HealthCheckPath)

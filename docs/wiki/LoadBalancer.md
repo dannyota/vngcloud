@@ -192,8 +192,8 @@ if _, err := client.DeletePool(ctx, &loadbalancer.DeletePoolInput{
 Empty `Algorithm` sends `AlgorithmRoundRobin`; a zero `HealthyThreshold`,
 `UnhealthyThreshold`, `HealthCheckInterval`, or `HealthCheckTimeout` sends
 the server's own default (3, 3, 30, and 5). `Stickiness` and
-`TLSEncryption` are `*bool` and sent only when set, since a Layer 4 pool
-has no use for either. The HTTP health check fields (`HealthCheckPath`,
+`TLSEncryption` are `*bool`; an `HTTP` pool always sends both (`false`
+when nil, as the server requires), other pools only when set. The HTTP health check fields (`HealthCheckPath`,
 `HealthCheckMethod`, `HealthCheckHTTPVersion`, `HealthCheckDomainName`,
 `HealthCheckSuccessCode`) are refused with `vngcloud.ErrInvalidInput`,
 before any request, unless `HealthCheckProtocol` is `HealthCheckProtocolHTTP`

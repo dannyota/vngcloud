@@ -154,8 +154,8 @@ Constants: `ProtocolHTTP`, `ProtocolHTTPS`, `ProtocolTCP`, `ProtocolUDP`.
 - The health monitor is flat in the Input, so each field is a CLI flag.
   Its reads stay `GetPoolHealthMonitor`.
 - Empty `Algorithm` sends `ROUND_ROBIN`; 0 thresholds, interval, and
-  timeout send 3, 3, 30, and 5. `Stickiness` and `TLSEncryption` are sent
-  only when set, since Layer 4 pools lack them.
+  timeout send 3, 3, 30, and 5. An `HTTP` pool always sends `stickiness` and
+  `tlsEncryption` (`false` when nil); other pools send each only when set.
 - The HTTP fields are sent only for `HTTP` and `HTTPS` checks; with any
   other check protocol, setting one is `ErrInvalidInput`. The SDK invents
   no `domainName` for HTTP/1.1, unlike VNG Cloud's SDK (`nip.io`); the
