@@ -629,3 +629,30 @@ func TestDeletePoolRejectsMissingFields(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
+
+// TestCreatePool5xxWithBusyTextNoResend checks that busy text in a 5xx body
+// is not a busy refusal: a 5xx may have reached the server, so the create is
+// never resent.
+func TestCreatePool5xxWithBusyTextNoResend(t *testing.T) {
+	var postCalls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == poolLBPath+"/pools":
+			postCalls.Add(1)
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"load balancer id lb-1 is updating"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+
+	if _, err := c.CreatePool(context.Background(), validCreatePoolInput()); err == nil {
+		t.Fatal("CreatePool() error = nil, want an error")
+	}
+	if got := postCalls.Load(); got != 1 {
+		t.Fatalf("POST calls = %d, want 1", got)
+	}
+}

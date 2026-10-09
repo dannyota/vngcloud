@@ -189,3 +189,32 @@ func TestDeleteLoadBalancerRejectsBadPathID(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteLoadBalancerAlreadyErrorIsDeletedAndConfirmed checks that a load
+// balancer already ERROR before the delete is still deleted, and that ERROR
+// reads during the wait keep it polling until 404 instead of failing.
+func TestDeleteLoadBalancerAlreadyErrorIsDeletedAndConfirmed(t *testing.T) {
+	var deleteCalls atomic.Int32
+	c := newTestClient(t, deleteLoadBalancerHandler([]string{lbStatusError, lbStatusError, lbStatusDeleting, "404"}, &deleteCalls))
+	withInstantSleep(c)
+
+	if _, err := c.DeleteLoadBalancer(context.Background(), &DeleteLoadBalancerInput{LoadBalancerID: deleteLoadBalancerID}); err != nil {
+		t.Fatalf("DeleteLoadBalancer() error = %v", err)
+	}
+	if deleteCalls.Load() != 1 {
+		t.Fatalf("DELETE calls = %d, want 1", deleteCalls.Load())
+	}
+}
+
+// TestDeleteLoadBalancerAlreadyErrorNeverGoneIsNotSettled checks that a load
+// balancer that stays ERROR past the bound is reported as not settled, not
+// as a fresh failure.
+func TestDeleteLoadBalancerAlreadyErrorNeverGoneIsNotSettled(t *testing.T) {
+	c := newTestClient(t, deleteLoadBalancerHandler([]string{lbStatusError}, nil))
+	withInstantSleep(c)
+
+	_, err := c.DeleteLoadBalancer(context.Background(), &DeleteLoadBalancerInput{LoadBalancerID: deleteLoadBalancerID})
+	if !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("err = %v, want ErrNotSettled", err)
+	}
+}

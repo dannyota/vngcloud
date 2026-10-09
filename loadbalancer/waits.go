@@ -137,15 +137,16 @@ func isLoadBalancerBusy(status string) bool {
 	}
 }
 
-// isBusyRefusal reports whether err is a *core.APIError whose message
-// matches one of the server's busy refusals (case-insensitive), whatever
-// its status: "... is not ready" (load balancer or listener), "... is
+// isBusyRefusal reports whether err is a 4xx *core.APIError whose message
+// matches one of the server's busy refusals (case-insensitive). A 5xx never
+// qualifies, even with busy text: it may have reached the server. The
+// messages are "... is not ready" (load balancer or listener), "... is
 // updating" (load balancer or pool), "... is creating", or "... is
 // deleting" (load balancer). It is the trigger for the one busy resend a
 // free write gets, and for ResizeLoadBalancer's immediate ErrBusy.
 func isBusyRefusal(err error) bool {
 	var apiErr *core.APIError
-	if !errors.As(err, &apiErr) {
+	if !errors.As(err, &apiErr) || apiErr.StatusCode < 400 || apiErr.StatusCode >= 500 {
 		return false
 	}
 	msg := strings.ToLower(apiErr.Message)

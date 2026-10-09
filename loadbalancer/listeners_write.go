@@ -366,6 +366,14 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 		}
 	}
 
+	var requestedCertificateIDs []string
+	if in.CertificateIDs != nil {
+		requestedCertificateIDs = *in.CertificateIDs
+	}
+	if err := checkListenerCertificateIDs(op, requestedCertificateIDs, deref(in.DefaultCertificateID), deref(in.ClientCertificateID)); err != nil {
+		return nil, err
+	}
+
 	unlock, err := c.lockLoadBalancer(ctx, in.LoadBalancerID)
 	if err != nil {
 		return nil, err

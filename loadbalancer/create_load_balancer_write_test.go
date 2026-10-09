@@ -670,3 +670,38 @@ func TestCreateLoadBalancerRejectsBadBodyIDs(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateLoadBalancerWriteStatusesPassThrough checks that each documented
+// error status on the create POST reaches the caller as a *vngcloud.APIError
+// naming that status, after exactly one POST. A 4xx is returned unwrapped; a
+// 5xx carries the list-load-balancers hint.
+func TestCreateLoadBalancerWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{400, 404, 409, 500, 502, 503} {
+		var postCalls atomic.Int32
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/price":
+				_, _ = w.Write([]byte(`{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+			case "/v2/project-1/loadBalancers":
+				postCalls.Add(1)
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		in := validCreateLoadBalancerInput()
+		in.MaxPrice = 400000
+		_, err := c.CreateLoadBalancer(context.Background(), in)
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+		if got := postCalls.Load(); got != 1 {
+			t.Fatalf("status %d: POST calls = %d, want 1", status, got)
+		}
+		if hint := strings.Contains(err.Error(), "list-load-balancers --name"); hint != (status >= 500) {
+			t.Fatalf("status %d: list hint present = %v, err = %v", status, hint, err)
+		}
+	}
+}

@@ -427,3 +427,20 @@ func TestResizeLoadBalancerRejectsBadPathIDs(t *testing.T) {
 		}
 	}
 }
+
+// TestResizeLoadBalancer5xxWithBusyTextIsNotErrBusy checks that busy text in
+// a 5xx body is not a busy refusal: a 5xx may have reached the server, so
+// the error keeps its resize advice and is not ErrBusy.
+func TestResizeLoadBalancer5xxWithBusyTextIsNotErrBusy(t *testing.T) {
+	var putCalls atomic.Int32
+	statuses, packages := fixedStatusPackage(lbStatusCreated)
+	c := newTestClient(t, resizeLoadBalancerHandler(statuses, packages, &putCalls, http.StatusBadGateway, `{"message":"load balancer id lb-1 is not ready"}`))
+
+	_, err := c.ResizeLoadBalancer(context.Background(), validResizeInput())
+	if err == nil || errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want a non-nil error that is not ErrBusy", err)
+	}
+	if putCalls.Load() != 1 {
+		t.Fatalf("PUT calls = %d, want exactly 1", putCalls.Load())
+	}
+}

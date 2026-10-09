@@ -8143,16 +8143,18 @@ func newLiveSpend(cap float64) *liveSpend {
 
 // checkAndAdd refuses quote when spent so far plus quote would pass the
 // cap, naming both amounts; a negative quote (a resize-down refund) is
-// never refused, and is added as given, so a refund can only lower the
-// running total. On success it records quote against the running total and
-// returns it, so a caller can pass the result straight to MaxPrice.
+// never refused and never lowers the running total, so a refund cannot buy
+// room for a later order. On success it records a positive quote against the
+// running total and returns quote, so a caller can pass the result straight to MaxPrice.
 func (s *liveSpend) checkAndAdd(t *testing.T, step string, quote float64) (float64, bool) {
 	t.Helper()
 	if quote > 0 && s.spent+quote > s.cap {
 		t.Errorf("%s: quote %.0f VND plus %.0f VND already spent would exceed this run's budget %.0f VND; refusing", step, quote, s.spent, s.cap)
 		return 0, false
 	}
-	s.spent += quote
+	if quote > 0 {
+		s.spent += quote
+	}
 	return quote, true
 }
 
@@ -8195,7 +8197,11 @@ func findSmallestLayer7PackageID(ctx context.Context, client *loadbalancer.Clien
 // a create that names a load balancer this run has not looked up yet, and
 // after a create failure, since a POST that returned an error may still
 // have reached the server: either way, a load balancer under this name
-// would otherwise never be found again once this run moves on.
+// would otherwise never be found again once this run moves on. Each
+// delete first waits, up to liveLBIdleBound, for the load balancer to stop
+// being busy, since the server refuses a delete while it is; ctx must
+// outlast that bound plus the delete's own 15-minute wait. Afterward it
+// lists by exact name again and reports any load balancer still there.
 func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *loadbalancer.Client, name string) {
 	t.Helper()
 	list, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Name: name})
@@ -8207,9 +8213,58 @@ func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *lo
 		if lb.Name != name {
 			continue
 		}
+		if err := waitLoadBalancerIdle(ctx, client, lb.UUID); err != nil {
+			t.Errorf("cleanup: wait for load balancer %s to stop being busy: %s", lb.UUID, safeErr(err))
+		}
 		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
 		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("cleanup: delete load balancer by name: %s", safeErr(err))
+		}
+	}
+	left, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: re-list load balancers by name: %s", safeErr(err))
+		return
+	}
+	for _, lb := range left.Items {
+		if lb.Name == name {
+			t.Errorf("cleanup: load balancer %s named %q is still there after delete", lb.UUID, name)
+		}
+	}
+}
+
+// liveLBIdleBound and liveLBIdleInterval bound waitLoadBalancerIdle.
+const (
+	liveLBIdleBound    = 5 * time.Minute
+	liveLBIdleInterval = 10 * time.Second
+)
+
+// waitLoadBalancerIdle polls GetLoadBalancer until progressStatus is not
+// CREATING, CREATING-BILLING, UPDATING, or DELETING, a NotFound read, or
+// liveLBIdleBound has passed, which returns an error naming the last status.
+func waitLoadBalancerIdle(ctx context.Context, client *loadbalancer.Client, lbID string) error {
+	deadline := time.Now().Add(liveLBIdleBound)
+	for {
+		out, err := client.GetLoadBalancer(ctx, &loadbalancer.GetLoadBalancerInput{LoadBalancerID: lbID})
+		if err != nil {
+			if vngcloud.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		status := out.LoadBalancer.ProgressStatus
+		switch status {
+		case "CREATING", "CREATING-BILLING", "UPDATING", "DELETING":
+		default:
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("still %s after %s", status, liveLBIdleBound)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(liveLBIdleInterval):
 		}
 	}
 }
@@ -8416,7 +8471,7 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		if created {
 			return
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
 		deleteLoadBalancerByExactName(cleanupCtx, t, lbClient, name)
 	})

@@ -522,3 +522,51 @@ func TestDeleteListenerRejectsBadPathIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateListenerRejectsBadCertificateIDsSendsNothing(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	bad := vngcloud.Ptr("..")
+	for name, in := range map[string]*UpdateListenerInput{
+		"CertificateIDs":       {CertificateIDs: &[]string{"cert-1", ".."}},
+		"DefaultCertificateID": {DefaultCertificateID: bad},
+		"ClientCertificateID":  {ClientCertificateID: bad},
+	} {
+		in.LoadBalancerID, in.ListenerID = listenerTestLBID, listenerTestID
+		if _, err := c.UpdateListener(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("%s: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+}
+
+// TestDeleteListenerWriteStatusesPassThrough checks that each documented
+// error status on the DELETE itself reaches the caller as a *vngcloud.APIError
+// naming that status, after exactly one DELETE.
+func TestDeleteListenerWriteStatusesPassThrough(t *testing.T) {
+	for _, status := range []int{400, 404, 409, 500, 502, 503} {
+		var deletes atomic.Int32
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == listenerLBPath:
+				listenerLBHandler(w, r)
+			case r.Method == http.MethodGet && r.URL.Path == listenerPath:
+				listenerGetHandler(w, r)
+			case r.Method == http.MethodDelete:
+				deletes.Add(1)
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		_, err := c.DeleteListener(context.Background(), &DeleteListenerInput{LoadBalancerID: listenerTestLBID, ListenerID: listenerTestID})
+		var apiErr *vngcloud.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+			t.Fatalf("status %d: err = %v, want *vngcloud.APIError with that status", status, err)
+		}
+		if got := deletes.Load(); got != 1 {
+			t.Fatalf("status %d: DELETE calls = %d, want 1", status, got)
+		}
+	}
+}

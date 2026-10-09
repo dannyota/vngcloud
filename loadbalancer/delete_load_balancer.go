@@ -41,7 +41,9 @@ type DeleteLoadBalancerOutput struct{}
 // lbStatusError instead, the returned error wraps ErrFailed; if the bound
 // runs out, or a read or a sleep fails, such as from a canceled ctx, it
 // wraps ErrNotSettled, whose message says a rerun is safe: DeleteLoadBalancer
-// always reads first.
+// always reads first. A load balancer that was already ERROR when the call
+// began is not failed by that status: it is deleted like any other and the
+// wait ends at 404.
 func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerInput) (*DeleteLoadBalancerOutput, error) {
 	const op = "loadbalancer.DeleteLoadBalancer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -81,7 +83,7 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 	if in.NoWait {
 		return &DeleteLoadBalancerOutput{}, nil
 	}
-	if err := c.waitLoadBalancerDeleted(ctx, op, in.LoadBalancerID); err != nil {
+	if err := c.waitLoadBalancerDeleted(ctx, op, in.LoadBalancerID, current.LoadBalancer.ProgressStatus == lbStatusError); err != nil {
 		return &DeleteLoadBalancerOutput{}, err
 	}
 	return &DeleteLoadBalancerOutput{}, nil
@@ -91,7 +93,9 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 // NoWait is set: it reads id with GetLoadBalancer until that read reports
 // core.ErrNotFound (settled) or the load balancer's ProgressStatus is
 // lbStatusError (failed); any other status, or any other read outcome,
-// keeps it polling.
+// keeps it polling. When wasError is true, the load balancer was already
+// ERROR before the delete (for example it ended ERROR on create), so ERROR
+// reads are not a failure and keep it polling until 404 or the bound.
 //
 // ERROR stops the wait at once rather than being polled through to the
 // bound: the design's wait table names it as a delete's own failed status,
@@ -99,7 +103,7 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 // resolve to 404 on its own. Whether that holds, and what the real failed
 // status is, is unverified until the live check; until then this follows
 // the table as written rather than assuming ERROR here is transient.
-func (c *Client) waitLoadBalancerDeleted(ctx context.Context, op, id string) error {
+func (c *Client) waitLoadBalancerDeleted(ctx context.Context, op, id string, wasError bool) error {
 	err := poll(ctx, c.now, c.sleep, 0, lbDeletePollInterval, lbDeleteBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: id})
@@ -109,7 +113,7 @@ func (c *Client) waitLoadBalancerDeleted(ctx context.Context, op, id string) err
 				}
 				return true, err
 			}
-			if out.LoadBalancer.ProgressStatus == lbStatusError {
+			if out.LoadBalancer.ProgressStatus == lbStatusError && !wasError {
 				return true, fmt.Errorf("%w: %s: load balancer %s is ERROR", ErrFailed, op, id)
 			}
 			return false, nil
