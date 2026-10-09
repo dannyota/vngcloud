@@ -129,17 +129,23 @@ both region headers ([Bucket policy](storage-api.md#bucket-policy)).
   A response with no `data`, or `data` null, means the bucket has no
   policy: `Policy` is `""` and the error is nil. A `data` that is not a
   JSON string is a decode error.
-- The server re-serializes the document: object keys sorted, array order
-  kept. The SDK does not reformat it. The doc comment and the wiki tell
+- The server may change whitespace and key order; array order is kept.
+  The SDK does not reformat the document. The doc comment and the wiki tell
   callers to compare decoded documents, not bytes. The CLI prints
   `{"Policy": "<document as a string>"}`, as `aws s3api get-bucket-policy`
   does.
 - `PutBucketPolicy` checks `Policy` before any request: valid JSON, a
   top-level object, and a `Statement` member that is an array with at least
-  one element. Anything else is `ErrInvalidInput` with no request. This
-  catches the empty string, which the server refuses only with a generic
-  code 114, and JSON that is not an object. To remove every statement, call
-  `DeleteBucketPolicy`.
+  one element, each an object with a non-empty `Effect`, `Principal`,
+  `Action`, and `Resource` (a non-empty string, array, or object). Anything
+  else is `ErrInvalidInput` with no request. This catches the empty string,
+  which the server refuses only with a generic code 114, JSON that is not an
+  object, and a statement without a principal, which the server accepts and
+  which then blocks the console's policy reads, policy delete, and bucket
+  delete with empty bodies until a data-plane `DELETE /<bucket>?policy`
+  removes it ([Bucket policy](storage-api.md#bucket-policy)). The server
+  checks `Version` and the `Effect` value, with code 400. To remove every
+  statement, call `DeleteBucketPolicy`.
 - `PutBucketPolicy` sends `{"policy": "<Policy>"}`, the caller's text
   unchanged as a JSON string. A put replaces the whole policy. Success is
   the envelope's `success: true`; the Output is `{}`.
@@ -156,6 +162,10 @@ both region headers ([Bucket policy](storage-api.md#bucket-policy)).
   wiki say so, and tell callers to copy `PrincipalARN` from
   `EnsureServiceAccountPrincipal` and to check access with the attached key.
 - The data plane follows a put or delete within about a second.
+- An empty 2xx body on any policy call leads to one `GetBucket`, as in
+  [Missing bucket](storage-settings.md#missing-bucket).
+- A policy with a public principal needs `--yes` in the CLI; the
+  public-read template is in [Public read](storage-settings.md#public-read).
 
 ### Template
 
@@ -192,8 +202,8 @@ The SDK and CLI storage pages state:
 - An attach makes the service account's sub-user. Run
   `EnsureServiceAccountPrincipal` only to get `PrincipalARN` for a policy.
 - A policy that names no real sub-user is accepted and grants nothing.
-- `GetBucketPolicy` returns the document re-serialized; compare decoded
-  documents.
+- The server may change whitespace and key order in the document
+  `GetBucketPolicy` returns; compare decoded documents.
 - The template above, and the reason it avoids `s3:*`.
 
 ## Retries
@@ -288,8 +298,8 @@ V4 signer in the live test, standard library only, against the region's
 buckets, then:
 
 1. Creates buckets A and B. `GetBucketPolicy` on A returns `""`.
-   `GetBucketPolicy` on a missing bucket is expected to return
-   `ErrNotFound` (code 404); the test logs the code it gets.
+   `GetBucketPolicy` on a missing bucket returns `ErrNotFound` once the
+   missing-bucket check ships in S6; until then it returns `EmptyResponse`.
 2. Creates the service account, calls `EnsureServiceAccountPrincipal`, and
    puts the [template](#template) on A. `GetBucketPolicy` returns a
    document that decodes equal to the one put.
@@ -305,7 +315,9 @@ buckets, then:
 Unit tests for the policy calls cover: the path and region headers; the put
 body as a JSON string; each client-side refusal (empty, invalid JSON, an
 array, an object without `Statement`, an empty `Statement`) with no request;
-no `data` and null `data` as `""`; code 400 and code 114 reaching
+a statement that is not an object or lacks a non-empty `Effect`,
+`Principal`, `Action`, or `Resource`, with no request; no `data` and null
+`data` as `""`; code 400 and code 114 reaching
 `*APIError.Message`; and a second delete as `{}`.
 
 ## Live checks
@@ -320,5 +332,7 @@ the policy delete. The results are in [S3 keys](storage-api.md#s3-keys),
 [Bucket policy](storage-api.md#bucket-policy), and
 [Data plane](storage-api.md#data-plane).
 
-Open: the S5 live write test repeats the policy-with-key check with the
-[template](#template) instead of `s3:*`.
+The S5 live write test ran the policy-with-key check with the
+[template](#template); the results added the byte-for-byte document, the
+principal-less statement, and the missing-bucket empty body to
+[Bucket policy](storage-api.md#bucket-policy).

@@ -21,17 +21,23 @@ included. Flags follow the Input fields; `Rules` comes through
 | `storage attach-s3-key`, `detach-s3-key` | Write | Yes |
 | `storage ensure-service-account-principal` | Write | No |
 | `storage get-bucket-policy` | Read | No |
-| `storage put-bucket-policy`, `delete-bucket-policy` | Write | No |
-| `storage get-bucket-versioning`, `get-bucket-cors`, `get-bucket-public-access` | Read | No |
+| `storage put-bucket-policy` | Write | Yes for a public principal |
+| `storage delete-bucket-policy` | Write | No |
+| `storage get-bucket-versioning`, `get-bucket-cors` | Read | No |
 | `storage put-bucket-versioning`, `put-bucket-cors`, `delete-bucket-cors` | Write | No |
-| `storage put-bucket-public-access` | Write | Yes when `--public` |
 
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request.
 - A deleted bucket or key cannot be restored by one more command (ADR 0002
   rule 6); a deleted policy or CORS set can, by a put.
-- Making a bucket public needs `--yes`: exposure cannot be undone, because
-  anyone may copy the objects while it lasts.
+- A policy with a public principal needs `--yes`
+  ([Public principal](storage-settings.md#public-principal)): exposure
+  cannot be undone, because anyone may copy the objects while it lasts.
+  Without `--yes` the command exits 2 with no request.
+- `put-bucket-versioning` needs `--enabled=true` or `--enabled=false`; a
+  bare command exits 2, so it never suspends versioning by default.
+  `get-bucket-versioning` prints `Enabled` and `Status`.
+- `get-bucket-cors` prints `{"Rules": []}` for a bucket without rules.
 - Attach and detach can be undone by one more command, so ADR 0002 rule 6
   does not require `--yes`. They need it anyway: a detach widens a key to
   its creator's rights on the whole project at once, and an attach cuts

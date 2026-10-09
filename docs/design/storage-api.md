@@ -10,8 +10,9 @@ Public docs (`docs.greennode.ai/vstorage`), the OpenAPI specs on
 vStorage console bundle and its `config.prod.json`, live reads on the test
 account on 2026-09-26, the console's own calls with the test IAM user
 on 2026-10-09, after the owner bought a project, and live bucket, S3 key,
-service account key, and bucket policy writes on the test project the same
-day; every bucket, key, and service account made was deleted. VNG Cloud's
+service account key, bucket policy, versioning, CORS, and ACL writes on the
+test project the same day; every bucket, key, and service account made was
+deleted. VNG Cloud's
 Go SDK and Terraform provider have no vStorage code.
 
 ## Model
@@ -175,14 +176,19 @@ Live on the test project, with `region` sent. Every answer was HTTP 200;
 | `GET ceph/projects/{p}/{b}/details` right after the create | The full bucket |
 | `DELETE ceph/projects/{p}/buckets/{b}`, empty bucket | `{"code":200,"success":true}` |
 | `GET .../details` or `DELETE` of a missing bucket | `success: false`, `code: 404` |
+| `DELETE` of a bucket holding objects, or versions and delete markers | `{"code":200,"success":true}`; the bucket and its contents are gone within a second |
 
 The delete is asynchronous. For up to about a second after its 200,
 `GetBucket` and `ListBuckets` still show the bucket, and a `GetBucket` can
 answer `code: -1` with `errorMsg` `Unknown error`, or an empty body. Then
 the bucket is gone and reads answer code 404.
 
-Not yet checked: a delete of a bucket holding objects, which needs an S3
-key to put one; an unknown project; and whether names are unique across
+The server never refuses a bucket delete for its contents. `details.count`
+counts object versions: 2 for two versions of one key, unchanged by a
+delete marker, and 0 once the versions are deleted by ID, even with a
+marker left.
+
+Not yet checked: an unknown project, and whether names are unique across
 accounts.
 
 ## S3 keys
@@ -317,10 +323,97 @@ was HTTP 200.
 | `PUT` `{"policy":""}` | `success: false`, code 114, `Error occurred when updating bucket policy.` |
 | `PUT` naming a sub-user that does not exist | `data: true`: the principal is not checked |
 
-The document a `GET` returns is equal to the one put, but re-serialized:
-object keys sorted (`Statement` before `Version`; `Action`, `Effect`,
-`Principal`, `Resource`, `Sid`), array order kept, `Resource` order
-included. A byte comparison with the document put fails.
+| `PUT` with a `Version` other than `2008-10-17` or `2012-10-17`, a bad `Effect`, or a statement that is not an object | `success: false`, code 400 |
+| `PUT` with a statement that has no `Principal`, or `Principal: {}` | `data: true`; then policy `GET`, policy `DELETE`, and bucket `DELETE` answer HTTP 200 with an empty body |
+| Any policy call on a missing bucket | HTTP 200, empty body |
+
+The document a `GET` returns decodes equal to the one put. One run saw it
+re-serialized with object keys sorted; another got it back byte for byte,
+a pretty-printed document with a scalar `Action` and `Resource` included.
+The server may change whitespace and key order; array order is kept.
+
+A policy with a statement without a principal blocks the console's policy
+and bucket calls. Only the data plane removes it: `DELETE /<bucket>?policy`
+signed with a key of the project.
+
+## Versioning
+
+Paths are `ceph/projects/{p}/buckets/{b}/versioning`. Every answer was
+HTTP 200 with the envelope unless the table says otherwise.
+
+| Call | Result |
+|-|-|
+| `GET` before any put | `data {"versioning":false,"versioningStatus":"Off"}` |
+| `PUT {"enable":true}` | `data: true`; a `GET` shows `Enabled` |
+| `PUT {"enable":false}` | `data: true`; a `GET` shows `Suspended`, also on a bucket never versioned |
+| `PUT {}` or `{"status":true}` | Accepted as `enable: false` |
+| `PUT {"enable":"x"}` or an empty body | HTTP 400, a Spring JSON error, not the envelope |
+
+No put returns a bucket to `Off`. `GET ceph/projects/{p}/{b}/details`
+mirrors the state: `versioningStatus` `Off`, `Enabled`, or `Suspended`,
+`enableVersioning` true or null, and `isVersioned` always null. A change
+shows on the first read.
+
+## CORS
+
+Paths are `ceph/projects/{p}/buckets/{b}/cors`.
+
+| Call | Result |
+|-|-|
+| `GET` with no rules | The envelope, no `data` |
+| `PUT` a bare JSON array of rules with keys `AllowedOrigins`, `AllowedMethods`, `AllowedHeaders`, `ExposeHeaders`, `MaxAgeSeconds` | `data: true` |
+| `GET` after the put | `data.rules[]`: `allowedHeaders`, `allowedMethods`, `allowedOrigins`, `exposedHeaders`, `id` (null), `maxAgeSeconds` |
+| `DELETE`, and a second and third | `data: true` |
+| `PUT {"rules":[...]}` or a body that is not JSON | HTTP 400, Spring JSON |
+| `PUT` with lower-case keys | `success: false`, code 400, `MalformedXML` |
+| Method `FOO`, `get`, or `OPTIONS` | Code 114, `Error occurred when updating bucket CORS.` |
+| `AllowedOrigins` empty or missing, `[]`, or origin `https://*.*.example.com` | Code 400, `MalformedXML` |
+| Empty `AllowedMethods`, `MaxAgeSeconds: -1`, an origin without a scheme, unknown fields | Accepted |
+
+- `allowedMethods` comes back in the server's set order, not the order put.
+- The server ignores `ExposeHeaders` and sets `exposedHeaders` to the
+  allowed headers, null when there are none. The data-plane `GET ?cors`
+  agrees.
+- A failed put keeps the previous rules.
+- After a delete, the data-plane `GET ?cors` answers 404
+  `NoSuchCORSConfiguration`.
+- An anonymous `OPTIONS` with `Origin` and
+  `Access-Control-Request-Method: GET` answers 200 with
+  `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`,
+  `Access-Control-Max-Age`, `Access-Control-Expose-Headers`, and
+  `Vary: Origin` while a rule matches, and 403 otherwise. A put and a
+  delete take effect on the first request.
+
+## Public access
+
+- `GET` and `PUT ceph/projects/{p}/buckets/{b}/public_access` answer 403
+  `IAM_PERMISSION_DENIED` for every body tried, with an IAM user holding
+  `vstorage:*`. The console bundle defines `getPublicAccessBlock` and
+  `updatePublicAccessBlock` on that route but never calls them. An unknown
+  route, such as `.../buckets/{b}/nonexistent`, and `.../lifecycle` answer
+  the same 403, so an unmapped route and a missing grant look alike.
+- The console makes a bucket public through the ACL. `PUT .../acl` with
+  this body answers `data: true`:
+
+  ```json
+  {"ownerCanonical":["FULL_CONTROL"],"accountCanonicals":[],
+   "groups":[{"grantee":"ALL_USERS","permission":"READ"}]}
+  ```
+
+  `GET .../acl` returns `grants`, `grantsAsList` (the owner's
+  `FullControl`, then `{"grantee":"AllUsers","permission":"Read"}`),
+  `owner`, and `requesterCharged`. `groups: []` removes the grant.
+- With the ACL grant, an anonymous bucket listing answers 200 and an
+  anonymous object `GET` stays 403.
+- A bucket policy with `Principal: "*"` allowing `s3:GetObject` on
+  `arn:aws:s3:::<bucket>/*` makes an anonymous object `GET` answer 200.
+  Deleting the policy returns 403 at once.
+- `details.isPublic` stays null and `allowPublicAccess` false throughout.
+
+## Missing bucket
+
+Every `GET`, `PUT`, and `DELETE` on a bucket's versioning, CORS, and policy
+routes answers HTTP 200 with an empty body once the bucket is gone.
 
 ## Purchase
 
