@@ -121,7 +121,9 @@ From the product docs, unless marked live:
 
 - DHCP sets and tags: no pricing page, calculator item, quote type, or
   package names them, and neither body has a size or period. The design
-  treats both as free; the next day's bill confirms it.
+  treats both as free. The bill for 2026-09-25 to 2026-10-09, read on
+  2026-10-09 after the probes and the live runs, shows no vServer line and
+  no cost, which confirms it.
 - Private virtual IPs: unknown. The pricing API accepts these resource
   types (live): `volume`, `server`, `elastic-ip`, `image`, `container`,
   `load-balancer`, `mp-server`, `snapshot`, `bandwidth`, `public-vip`, and

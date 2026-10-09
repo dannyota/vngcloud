@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.38.0 - DHCP Options Sets
+
+### Highlights
+
+- New `network.ListDHCPOptions`, `GetDHCPOptions`, `CreateDHCPOptions`,
+  `DeleteDHCPOptions`, `SetVPCDHCPOptions`, and `ClearVPCDHCPOptions`, with
+  matching `vngcloud network` commands. A set holds up to four IPv4
+  resolvers and an optional MTU; the SDK never adds a region's default
+  resolvers on its own.
+- `SetVPCDHCPOptions` and `ClearVPCDHCPOptions` read the VPC first and
+  return `Changed` false, sending nothing, when the VPC already uses that
+  set. `DeleteDHCPOptions` refuses with `network.ErrInUse`, naming the
+  VPCs, while any VPC still uses the set.
+- New [Network DHCP Options](https://github.com/dannyota/vngcloud/wiki/Network-DHCPOptions)
+  wiki page.
+
+### Behavior changes
+
+`CreateDHCPOptions` refuses a name starting with `dhcp-option-dns-`, which
+the API reserves for the set it creates when Private DNS is enabled, with
+`vngcloud.ErrInvalidInput`.
+
 ## v0.37.0 - Network ACLs
 
 ### Highlights
