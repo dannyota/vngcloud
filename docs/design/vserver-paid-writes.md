@@ -66,7 +66,8 @@ the write's own Input (ADR 0002 rule 8):
   The server ignores keys it does not price
   ([quote requests](vserver-paid-writes-api.md#quote-requests)).
 - The quote's Output is `pricing.GetQuoteOutput`. `OptimumPrice` is VND a
-  month for a create. For a resize, what it prices is an open question;
+  month. For a resize it is the new configuration's price for the rest of
+  the current period ([billing model](vserver-paid-writes-api.md#billing-model));
   the guard compares it the same way.
 - `pricing.GetQuoteInput` gains `Action`; empty sends `create`, so
   existing callers are unchanged. The quote request is built by one
@@ -436,10 +437,7 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
 
 ## Open questions
 
-- Whether the direct create charges one month at once, and whether a
-  delete refunds servers and volumes to the minute.
-- What a resize quote prices: the new monthly rate or the prorated
-  difference.
+- Whether the direct create charges one month at once.
 - Whether `deleteAllVolume` false keeps attached data volumes.
 - What happens when a period ends without renewal, and after how long an
   expired server is deleted.

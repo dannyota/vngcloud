@@ -230,7 +230,9 @@ something.
 
 `computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
 a flavor change or a grow the same way, from `compute.ResizeServerInput`
-and `volume.ResizeVolumeInput`. `QuoteResizeVolume` reads the volume fresh
+and `volume.ResizeVolumeInput`. A resize quote is the new configuration's
+price for the rest of the current period, prorated to the minute, not the
+difference from the old one. `QuoteResizeVolume` reads the volume fresh
 on every call to learn its current size and type, independently of
 `ResizeVolume`'s own read, the same way `QuoteCreateLogProject` always
 rereads its own class list rather than sharing a read with its create.
