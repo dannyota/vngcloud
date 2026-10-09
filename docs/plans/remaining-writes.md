@@ -15,7 +15,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vStorage S3 to S6 | S3 in progress | S3 keys, key attach, bucket policy, bucket settings | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
+| vStorage S3 to S6 | S3 in progress | S3 keys on the console API (the IAM accounts API create answers 500 for the IAM user), then the S4 probes for service account keys, bucket policy, bucket settings | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
 
 ## Open on the account
 
