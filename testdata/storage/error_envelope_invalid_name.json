@@ -1,0 +1,5 @@
+{
+  "errorMsg": "Invalid input error (Bucket name must be all lowercase letters, numbers or hyphens)",
+  "code": 112,
+  "success": false
+}

@@ -50,6 +50,7 @@ import (
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
+	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
 	"danny.vn/vngcloud/volume"
 )
@@ -11003,5 +11004,189 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 	t.Logf("step 9: vngcloud-live log alarms remaining: %d", remaining)
 	if remaining != 0 {
 		t.Fatalf("step 9: expected 0 vngcloud-live log alarms, found %d", remaining)
+	}
+}
+
+// liveStorageBucketPrefix marks every bucket TestLiveWriteStorageBucket
+// creates, so a later run can sweep leftovers without touching other buckets.
+const liveStorageBucketPrefix = "vngcloud-live-"
+
+// TestLiveWriteStorageBucket creates one empty bucket in the vStorage
+// project named by VNGCLOUD_LIVE_STORAGE_PROJECT_ID, reads it back, creates
+// it again, reads and deletes a missing bucket, tries a name the server
+// refuses, deletes it, and polls until it is gone, because the server
+// answers a delete before the bucket disappears. It never touches the
+// project, and logs only statuses and counts, never the project id or a
+// bucket name.
+func TestLiveWriteStorageBucket(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket write test")
+	}
+	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
+	if projectID == "" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := storage.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live- bucket from a previous run.
+	listed, err := client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListBuckets: %s", safeErr(err))
+	}
+	swept := 0
+	for _, b := range listed.Items {
+		if !strings.HasPrefix(b.Name, liveStorageBucketPrefix) {
+			continue
+		}
+		if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: b.Name}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover bucket (%d objects): %s", b.ObjectCount, safeErr(err))
+		}
+		swept++
+	}
+	t.Logf("step 1: listed %d bucket(s), deleted %d leftover", len(listed.Items), swept)
+
+	// Step 2: create the bucket.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := liveStorageBucketPrefix + suffix
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteBucket(cleanupCtx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete bucket: %s", safeErr(err))
+		}
+	})
+	created, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: name})
+	if err != nil {
+		t.Fatalf("step 2 CreateBucket: %s", safeErr(err))
+	}
+	t.Logf("step 2: created; name matches: %v, objects %d, public %v, versioned %v, type %q",
+		created.Name == name, created.ObjectCount, created.IsPublic, created.IsVersioned, created.Type)
+
+	// Step 3: read it back and find it in the list.
+	got, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: name})
+	if err != nil {
+		t.Fatalf("step 3 GetBucket: %s", safeErr(err))
+	}
+	if got.Name != name || got.ObjectCount != 0 {
+		t.Fatalf("step 3: read back name matches %v, objects %d", got.Name == name, got.ObjectCount)
+	}
+	listed, err = client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 3 ListBuckets: %s", safeErr(err))
+	}
+	inList := false
+	for _, b := range listed.Items {
+		inList = inList || b.Name == name
+	}
+	t.Logf("step 3: read back; created date present %v; in list of %d: %v", got.CreatedDate != "", len(listed.Items), inList)
+	if !inList {
+		t.Fatal("step 3: created bucket missing from ListBuckets")
+	}
+
+	// Step 4: create it again; record what the server says.
+	if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
+		t.Logf("step 4: duplicate create failed: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	} else {
+		t.Log("step 4: duplicate create succeeded")
+	}
+
+	// Step 5: read and delete a bucket that does not exist.
+	missing := liveStorageBucketPrefix + suffix + "-missing"
+	if _, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: missing}); err != nil {
+		t.Logf("step 5: get missing: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	} else {
+		t.Log("step 5: get missing succeeded")
+	}
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: missing}); err != nil {
+		t.Logf("step 5: delete missing: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	} else {
+		t.Log("step 5: delete missing succeeded")
+	}
+
+	// Step 5b: a name the server may refuse. Record the answer, and delete
+	// the bucket if the server accepted it.
+	oddName := liveStorageBucketPrefix + suffix + "-ODD_x"
+	if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: oddName}); err != nil {
+		t.Logf("step 5b: create with an upper-case name: %s", safeErr(err))
+	} else {
+		t.Log("step 5b: create with an upper-case name succeeded")
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := client.DeleteBucket(cleanupCtx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: oddName}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete odd-name bucket: %s", safeErr(err))
+			}
+		})
+	}
+
+	// Step 6: delete the bucket. The server answers before the bucket is
+	// gone, so poll for it to disappear and record how long that takes.
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
+		t.Fatalf("step 6 DeleteBucket: %s", safeErr(err))
+	}
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
+		t.Logf("step 6: immediate second delete: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	} else {
+		t.Log("step 6: immediate second delete succeeded")
+	}
+	pollStart := time.Now()
+	gone := false
+	attempts := 0
+	for !gone && time.Since(pollStart) < 2*time.Minute {
+		attempts++
+		_, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projectID, Bucket: name})
+		gone = vngcloud.IsNotFound(err)
+		if err != nil && !gone {
+			t.Fatalf("step 6 GetBucket: %s", safeErr(err))
+		}
+		if !gone {
+			time.Sleep(time.Second)
+		}
+	}
+	t.Logf("step 6: gone after %d read(s), %s: %v", attempts, time.Since(pollStart).Round(time.Second), gone)
+	if !gone {
+		t.Fatal("step 6: deleted bucket still readable after 2 minutes")
+	}
+	listed, err = client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 6 ListBuckets: %s", safeErr(err))
+	}
+	for _, b := range listed.Items {
+		if b.Name == name {
+			t.Fatal("step 6: deleted bucket still in ListBuckets")
+		}
+	}
+	t.Logf("step 6: %d bucket(s) listed, none is the test bucket", len(listed.Items))
+
+	// Step 7: delete it again.
+	if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil {
+		t.Logf("step 7: second delete: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	} else {
+		t.Log("step 7: second delete succeeded")
 	}
 }

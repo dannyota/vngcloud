@@ -1,9 +1,10 @@
 # Storage
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
-`New(cfg)`. It reads vStorage object storage: the vStorage regions, the
-projects in a region, and the buckets in a project. It reads the management
-plane only. To read or write objects, use an S3 client such as rclone.
+`New(cfg)`. It manages vStorage object storage: it reads the vStorage regions
+and the projects in a region, and it lists, creates, and deletes the buckets in
+a project. It covers the management plane only. To read or write objects, use
+an S3 client such as rclone.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -127,8 +128,50 @@ characters; the server applies the full S3 naming rules.
 
 `Bucket` has `Name`, `ObjectCount`, `SizeBytes`, `IsPublic`, `IsVersioned`,
 `CreatedDate`, `LastModified`, `Type`, and `VersionLocation`. Dates stay
-strings. The bucket fields follow the API specification and have not been
-checked against a live bucket.
+strings. Live buckets send `null` for most of these fields, so they decode to
+their zero values; `ObjectCount` is set. `ListBuckets` gives `CreatedDate` as
+`dd/mm/yyyy hh:mm`, and `GetBucket` gives it as `null`.
+
+### Create and delete
+
+```go
+created, err := client.CreateBucket(ctx, &storage.CreateBucketInput{
+	ProjectID: projectID,
+	Bucket:    "my-bucket",
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(created.Name)
+
+_, err = client.DeleteBucket(ctx, &storage.DeleteBucketInput{
+	ProjectID: projectID,
+	Bucket:    "my-bucket",
+})
+if errors.Is(err, storage.ErrBucketNotEmpty) {
+	log.Println("empty the bucket with an S3 client first")
+}
+```
+
+`CreateBucket` makes a bucket without object lock and returns it as
+`GetBucket` reads it. If that read fails, the error says the bucket was
+created. A repeated create of a name you already own succeeds with the same
+answer. The server refuses a name that is not all lowercase letters, numbers,
+and hyphens, as an `*vngcloud.APIError` with code `112`.
+
+`CreateBucket` is a `POST`, so the SDK retries it only after a 429 or a failed
+dial. After a 5xx or a network error the bucket may exist: the error names
+`GetBucket` as the check.
+
+`DeleteBucket` reads the bucket first. If `ObjectCount` is above 0 it returns
+`storage.ErrBucketNotEmpty` and sends no delete. There is no force option:
+empty the bucket with an S3 client. A missing bucket returns
+`vngcloud.ErrNotFound`.
+
+The server answers a delete before the bucket is gone. For a moment after
+`DeleteBucket` returns, `GetBucket` and `ListBuckets` can still show the
+bucket, and a read can fail with code `-1` or `EmptyResponse`. Poll
+`GetBucket` until it returns `vngcloud.ErrNotFound` before you reuse the name.
 
 ## Errors
 
@@ -144,5 +187,7 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | Envelope `success: false` | `*vngcloud.APIError` with the envelope code |
 | HTTP 200 with an empty or non-JSON body | `*vngcloud.APIError`, code `EmptyResponse` |
 | HTTP 403 | `vngcloud.ErrPermission`, with the code the API names, such as `IAM_PERMISSION_DENIED` |
+| `DeleteBucket` on a bucket with objects | `storage.ErrBucketNotEmpty`, no delete sent |
+| A write answered with an empty body | `*vngcloud.APIError`, code `EmptyResponse`; the change may have happened |
 
 See [Errors](Errors.md) for `APIError` itself.

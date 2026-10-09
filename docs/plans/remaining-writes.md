@@ -15,7 +15,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vStorage S2 to S6 | S2 in progress | Buckets, S3 keys, key attach, bucket policy, bucket settings | None: project `vngcloud-live-s2` (id `baa489b3c534843d810ec8d3c63bde92`, HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
+| vStorage S2 to S6 | S2 in progress | Buckets, S3 keys, key attach, bucket policy, bucket settings | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
 
 ## Open on the account
 

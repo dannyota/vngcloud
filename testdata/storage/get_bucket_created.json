@@ -1,0 +1,62 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "name": "<bucket>",
+    "shortName": null,
+    "size": 0,
+    "type": null,
+    "lastModified": null,
+    "createdDate": null,
+    "isPublic": null,
+    "path": null,
+    "access": null,
+    "count": 0,
+    "versionLocation": null,
+    "isVersioned": null,
+    "containerUrl": null,
+    "storagePolicyIndex": 0,
+    "storagePolicy": "Gold",
+    "storageClass": {
+      "id": 0,
+      "storagePolicy": "Gold",
+      "title": "Gold",
+      "status": null,
+      "configs": {
+        "id": null,
+        "storageClassId": null,
+        "regionName": null,
+        "status": null,
+        "isArchiveDelete": null,
+        "archiveDeleteMinDay": null,
+        "archiveDeleteMaxDay": null,
+        "bulkDeletePageSize": null,
+        "allowUpdateTags": null,
+        "allowUpdateMetadata": null,
+        "allowVersioning": null,
+        "locationConstraint": "default:GOLD_S01"
+      },
+      "placement": null
+    },
+    "roleId": null,
+    "roleName": null,
+    "roleDescription": null,
+    "permissions": null,
+    "allowPublicAccess": false,
+    "owner": {
+      "userIdMapping": 0,
+      "userId": "<user-id>",
+      "userName": "<account>"
+    },
+    "tempUrlKey": null,
+    "processingAction": null,
+    "enableObjectLock": null,
+    "objectLockMode": null,
+    "objectLockDays": 0,
+    "enableEncryption": false,
+    "enableVersioning": null,
+    "versioningStatus": "Off",
+    "usedCapacity": 0,
+    "projectId": null
+  }
+}

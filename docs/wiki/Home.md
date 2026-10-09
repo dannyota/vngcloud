@@ -31,7 +31,8 @@ rename; the module keeps the `vngcloud` name.
   and alarms.
 - [Monitor Log Alarms](Monitor-Log-Alarms.md): creating, updating, and
   deleting log alarms.
-- [Storage](Storage.md): vStorage regions, projects, and buckets (reads).
+- [Storage](Storage.md): vStorage regions, projects, and buckets, including
+  bucket create and delete.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.

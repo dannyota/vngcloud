@@ -1,5 +1,5 @@
-// Package storage reads vStorage object storage: regions, projects, and the
-// buckets in a project. It uses the vStorage console API, which wraps every
+// Package storage manages vStorage object storage: regions, projects, and
+// the buckets in a project. It uses the vStorage console API, which wraps every
 // response in one envelope and reports many failures as HTTP 200.
 package storage
 
@@ -55,44 +55,66 @@ type envelope struct {
 	IsNext  bool            `json:"isNext"`
 }
 
-// do sends a GET and returns the decoded envelope. A non-empty regionID goes
-// out as both the region and region_id headers: the server scopes results by
-// region, and a request without it reads as an empty account. A 2xx with an
-// empty or non-JSON body, with no success key, or with success false, is an
-// *APIError.
+// call describes one console API request.
+type call struct {
+	op       string
+	method   string
+	url      string
+	regionID string
+	body     any
+	ok       []int
+
+	// write marks a request that changes state, so an empty response says the
+	// change may have happened.
+	write bool
+}
+
+// do sends a GET and returns the decoded envelope; see exchange.
 func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope, error) {
-	req := transport.Request{Operation: op, Method: http.MethodGet, URL: rawURL, OK: []int{http.StatusOK}}
-	if regionID != "" {
-		req.Headers = map[string]string{"region": regionID, "region_id": regionID}
+	return c.exchange(ctx, call{op: op, method: http.MethodGet, url: rawURL, regionID: regionID, ok: []int{http.StatusOK}})
+}
+
+// exchange sends k and returns the decoded envelope. A non-empty regionID
+// goes out as both the region and region_id headers: the server scopes
+// results by region, and a request without it reads as an empty account. A
+// 2xx with an empty or non-JSON body, with no success key, or with success
+// false, is an *APIError.
+func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
+	req := transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok}
+	if k.regionID != "" {
+		req.Headers = map[string]string{"region": k.regionID, "region_id": k.regionID}
 	}
 	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
 	if err != nil {
 		var syn *json.SyntaxError
 		if status > 0 && (errors.As(err, &syn)) {
-			return nil, emptyResponse(op, status)
+			return nil, emptyResponse(k, status)
 		}
 		return nil, err
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return nil, emptyResponse(op, status)
+		return nil, emptyResponse(k, status)
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, emptyResponse(op, status)
+		return nil, emptyResponse(k, status)
 	}
 	if env.Success == nil {
-		return nil, emptyResponse(op, status)
+		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		return nil, envelopeError(op, status, &env)
+		return nil, envelopeError(k.op, status, &env)
 	}
 	return &env, nil
 }
 
-func emptyResponse(op string, status int) error {
-	return &core.APIError{Operation: op, StatusCode: status, Code: "EmptyResponse",
-		Message: "response body was empty or not a JSON envelope"}
+func emptyResponse(k call, status int) error {
+	msg := "response body was empty or not a JSON envelope"
+	if k.write {
+		msg += "; the change may have happened"
+	}
+	return &core.APIError{Operation: k.op, StatusCode: status, Code: "EmptyResponse", Message: msg}
 }
 
 // envelopeError turns a success:false envelope into an *APIError. A code
