@@ -8,7 +8,8 @@ to one bucket. aboutme creates its buckets and per-bucket keys at setup
 ([First user](sdk-and-cli.md#first-user)).
 
 It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
-[ADR 0002](../adr/0002-write-api-conventions.md).
+[ADR 0002](../adr/0002-write-api-conventions.md). The commands and the
+per-bucket key setup are in [vStorage: CLI](storage-cli.md).
 
 ## Source
 
@@ -28,9 +29,9 @@ rests on are in [vStorage: API](storage-api.md), with their sources.
 
 `endpoints.Set` and `Overrides` gain `Storage`, default
 `https://vstorage.console.greennode.ai/`, and `internal/routes` gains
-`ProductStorage`; storage paths are `internal/v1/...` under it. `iam` uses
-the existing `Dashboard` endpoint with `accounts-api/v1/...`, not the old
-documented `iamapis.vngcloud.vn` host.
+`ProductStorage`; storage paths are `internal/v1/...` under it. S3 keys use
+this endpoint too. The IAM accounts API on the `Dashboard` endpoint holds no
+call of this design today; see [Service account keys](#service-account-keys).
 
 Every storage request except `ListRegions` sends `region: <region UUID>` and
 `region_id: <region UUID>`, the same UUID in both, as the console does. The
@@ -58,6 +59,9 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 | `GetBucket` | `GET ceph/projects/{p}/{b}/details` | `ProjectID` (r), `Bucket` (r) | `{Bucket}` |
 | `CreateBucket` | `POST ceph/projects/{p}/buckets/{b}` | `ProjectID` (r), `Bucket` (r) | `{Bucket}` |
 | `DeleteBucket` | `DELETE ceph/projects/{p}/buckets/{b}` | `ProjectID` (r), `Bucket` (r), `NoWait` | `{}` |
+| `ListS3Keys` | `GET users/s3_keys?projectId={p}` | `ProjectID` (r) | L[S3Key] |
+| `CreateS3Key` | `POST users/s3_keys` | `ProjectID` (r) | `{S3Key; SecretKey vngcloud.Secret}` |
+| `DeleteS3Key` | `DELETE users/s3_keys/{k}` | `ProjectID` (r), `UserKeyID` (r) | `{}` |
 | `GetBucketPolicy` | `GET .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{Policy string}` |
 | `PutBucketPolicy` | `PUT .../buckets/{b}/policy` | plus `Policy` (r) | `{}` |
 | `DeleteBucketPolicy` | `DELETE .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{}` |
@@ -91,34 +95,44 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
   gives null, so it is empty there. Numeric `status` values reach the caller
   unchanged.
 
-### iam
+### S3 keys
 
-Operation names are `iam.<Method>`. Paths are under `accounts-api/v1/`.
-List Inputs carry `Page` and `Size`, sent as `pageNumber` and `pageSize`;
-`pageNumber` starts at 0. Service account calls without S3 are in
-[IAM writes](iam-writes.md).
+The calls are the console's own ([S3 keys](storage-api.md#s3-keys)). They
+live in `storage` because they use its host, region headers, envelope, and
+`ProjectID`; `iam` does not import `storage`.
 
-| Operation | Method and path | Input | Output |
-|-|-|-|-|
-| `ListS3Keys` | `GET s3-keys` | `Search` | L[S3Key] |
-| `CreateS3Key` | `POST s3-keys` | `Name` (r), `ProjectID` (r), `Region` | `{S3Key; SecretKey vngcloud.Secret}` |
-| `DeleteS3Key` | `DELETE s3-keys/{id}` | `S3KeyID` (r) | `{}` |
-| `ListServiceAccountS3Keys` | `GET service-accounts/{id}/s3-keys` | `ServiceAccountID` (r) | L[S3Key] |
-| `AttachS3Key` | `POST service-accounts/{id}/s3-keys/{keyId}` | `ServiceAccountID` (r), `S3KeyID` (r) | `{}` |
-| `DetachS3Key` | `DELETE service-accounts/{id}/s3-keys/{keyId}` | `ServiceAccountID` (r), `S3KeyID` (r) | `{}` |
+- `CreateS3Key` and `DeleteS3Key` send `{"projectId": "<ProjectID>"}`. The
+  server takes no name, so the Input has none.
+- `S3Key` has `UserKeyID` (`userKeyId`) and `AccessKey` (`accessKey`), plus
+  the other list fields under their API tags, taken from the sanitized
+  fixture. No field holds the secret. If the live list shape carries one,
+  `ListS3Keys` sets `Sensitive` and the model leaves the field out.
+- `CreateS3Key` sets `Sensitive` and `Once`. Its Output comes from the
+  create response, with `ProjectID` from the Input. A response without
+  `userKeyId` or `accessKey` is an error that says a key may exist. A
+  response without `secretKey` returns the key with an error wrapping
+  `storage.ErrNoSecret`: the key exists but is unusable.
+- A key has the IAM user's rights on the whole project. Keys made through
+  the IAM accounts API are a separate store that these calls do not see.
 
-- `CreateS3Key` resolves `Region` through the `storage` region lookup, which
-  `iam` imports, and sends `name`, `regionId`, and `projectId`. `Name` is
-  required, unlike in the API, so a key whose response was lost can be found.
-- `ClientSecret` is set only when the create response holds one.
-- If the live checks show an attached key also needs `PATCH s3-keys/{id}`
-  with `restricted: true`, `AttachS3Key` sends it.
+### Service account keys
+
+S4 gives a key the rights of a service account, so a bucket policy can
+scope it to one bucket. No call is chosen yet: the accounts API's attach
+calls work on its own key store, whose create answers HTTP 500
+([accounts API](storage-api.md#accounts-api)), and whether the console API
+can make a key for a service account is unknown. S4 starts with the
+[probes](#live-checks-before-code), and this design then names the calls
+and their package. The accounts API candidates are
+`GET service-accounts/{id}/s3-keys`, `POST` and `DELETE`
+`service-accounts/{id}/s3-keys/{keyId}`, and `PATCH s3-keys/{id}` with
+`restricted`.
 
 ### Identifiers
 
 Every path ID is checked before any request, reads included:
 
-- `ProjectID`, `S3KeyID`, and `ServiceAccountID`: `core.CheckPathID`
+- `ProjectID`, `UserKeyID`, and `ServiceAccountID`: `core.CheckPathID`
   (`^[A-Za-z0-9-]+$`). The live checks confirm their shape.
 - `Bucket`: `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, a path-safety check only.
   It rejects `/`, `?`, `%`, `.`, and `..`. The S3 naming rules stay on the
@@ -161,21 +175,24 @@ write rather than let a `GET` create state.
 `vngcloud.Secret` is a string type in the root package. Its `String`,
 `GoString`, `Format`, `LogValue`, `MarshalJSON`, and `MarshalText` all give
 `[redacted]`; only `Reveal()` returns the value, so printing or encoding an
-Output leaks nothing. `transport.Request` gains `Sensitive bool`, set by
-both creates: the `WithResponseCapture` hook never sees such a response, and
-a decode error never quotes its body. `--debug` already logs no body.
+Output leaks nothing. `transport.Request.Sensitive` is set by
+`CreateS3Key`: the `WithResponseCapture` hook never sees such a response,
+and a decode error never quotes its body. `--debug` already logs no body.
 
 ### Retries
 
-- Creates and `AttachS3Key` are `POST`: retried only after a 429 or a
-  failed dial (ADR 0002 rule 2). After a 5xx or a network error the
-  resource may exist; the error names the check (`get-bucket`, or a list by
-  name). A bucket create can then be rerun. A key found that way has lost
-  its secret: delete it.
-- A repeated attach returns 409 `Conflict`, which the SDK does not hide.
+- `CreateBucket` is a `POST`, retried only after a 429 or a failed dial
+  (ADR 0002 rule 2). After a 5xx or a network error the bucket may exist;
+  the error names `get-bucket`, and the create can be rerun.
+- `CreateS3Key` sets `Once`: it is sent once, with no retry, no resend
+  after a 401, and no redirect. After a 5xx, a network error, or a
+  response that fails to decode, the error says a key may exist: list the
+  keys and delete any `UserKeyID` the caller does not know, since it has
+  lost its secret. A 4xx `*APIError` passes through unchanged. The SDK
+  lists nothing itself: a key another client made at the same time would
+  look the same.
 - Deletes and puts keep the transport's retries; a retried delete that
-  finds nothing returns `NotFound`. A create response without an ID or
-  name is an error.
+  finds nothing returns `NotFound`.
 
 ### Delete bucket
 
@@ -213,81 +230,6 @@ After a settled delete, `ListBuckets` omits the bucket and a repeat
 can stop at the first read's error, sending no `DELETE`. The CLI
 `delete-bucket` waits; `--no-wait` sets `NoWait`.
 
-## Per-bucket key
-
-aboutme's setup, per bucket. `policy.json` allows the principal `s3:*` on
-`arn:aws:s3:::<b>` and `arn:aws:s3:::<b>/*`; the wiki gives the template.
-
-```sh
-vngcloud storage create-bucket --project-id <p> --bucket <b>
-vngcloud iam create-service-account --name <b>-app --secret-file <path>
-vngcloud storage get-service-account-principal --project-id <p> \
-  --service-account-id <sa>
-vngcloud storage put-bucket-policy --project-id <p> --bucket <b> \
-  --policy file://policy.json
-vngcloud iam create-s3-key --name <b>-app --project-id <p> \
-  --secret-file <path>
-vngcloud iam attach-s3-key --service-account-id <sa> --s3-key-id <k>
-```
-
-Until the attach, the key has the creating user's rights, so the app starts
-only after it.
-
-## CLI
-
-`svc_storage.go` and `svc_iam.go` register the tables. Flags follow the
-Input fields; `Rules` comes through `--cli-input-json`, and `Policy` accepts
-`file://` like `--cli-input-json`.
-
-| Command | Kind | Needs `--yes` |
-|-|-|-|
-| `storage list-regions`, `list-projects`, `list-buckets`, `get-bucket` | Read | No |
-| `storage create-bucket` | Write | No |
-| `storage delete-bucket` | Write, destructive | Yes |
-| `storage get-bucket-policy`, `get-service-account-principal` | Read | No |
-| `storage put-bucket-policy`, `delete-bucket-policy` | Write | No |
-| `storage get-bucket-versioning`, `get-bucket-cors`, `get-bucket-public-access` | Read | No |
-| `storage put-bucket-versioning`, `put-bucket-cors`, `delete-bucket-cors` | Write | No |
-| `storage put-bucket-public-access` | Write | Yes when `--public` |
-| `iam list-s3-keys`, `list-service-account-s3-keys` | Read | No |
-| `iam create-s3-key`, `attach-s3-key`, `detach-s3-key` | Write | No |
-| `iam delete-s3-key` | Write, destructive | Yes |
-
-- A [read-only](cli.md#read-only) profile refuses every write with exit 2
-  before any request.
-- A deleted bucket, key, or service account cannot be restored by one more
-  command (ADR 0002 rule 6); a deleted policy or CORS set can, by a put.
-- Making a bucket public needs `--yes`: exposure cannot be undone, because
-  anyone may copy the objects while it lasts.
-
-The global `--project-id` flag supplies a vStorage `ProjectID`. Only the flag
-counts: the environment and profile project is the vServer project and is
-never used here. The flag overrides a `ProjectID` in `--cli-input-json`, and a
-missing one exits 2 before any request.
-
-### create-s3-key
-
-`iam create-s3-key` needs `--secret-file <path>` and cannot print the secret:
-
-1. Before any request, the parent directory must exist and nothing may exist
-   at the path, symlinks included; otherwise it exits 2.
-2. After the create, it opens the path with `O_CREATE|O_EXCL|O_NOFOLLOW`
-   and mode 0600, writes, syncs, and closes. The file is an AWS shared
-   credentials file, which rclone and the AWS CLI read through
-   `AWS_SHARED_CREDENTIALS_FILE`:
-
-   ```ini
-   [default]
-   aws_access_key_id = <access key>
-   aws_secret_access_key = <secret key>
-   ```
-
-3. If the write fails, the CLI removes any partial file, deletes the new key
-   (the secret is lost anyway), and exits 1. If that delete fails, the
-   error names the key ID so a person can delete it.
-4. Stdout gets the key without the secret: `SecretKey` prints as
-   `[redacted]`, and a `SecretFile` field names the path.
-
 ## Errors
 
 | Case | Result | CLI code and exit |
@@ -296,11 +238,12 @@ missing one exits 2 before any request.
 | Server refuses an input, envelope code 112 | `ErrInvalidInput` | `112`, 2 |
 | Bucket delete not settled in 30 s | `storage.ErrNotSettled` | `NotSettled`, 1 |
 | `--secret-file` exists or its directory is missing | No request | `InvalidUsage`, 2 |
+| Key create got a 5xx, a network error, or no decodable response | Error says a key may exist | 1 |
+| Key create response held no secret | `storage.ErrNoSecret`, key returned | `SecretFileFailed`, 1, key deleted |
 | Bucket holds objects or data, or its count is not reported | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
 | IAM policy denies the action | `ErrPermission` | `IAM_PERMISSION_DENIED`, 1 |
 | Envelope `success: false` | `*APIError`, envelope code | That code, 1 or 4 |
 | Empty 2xx body | `*APIError` `EmptyResponse` | 1 |
-| Key attached twice | `Conflict` | 1 |
 | Secret file write failed after create | Key deleted | `SecretFileFailed`, 1 |
 
 The CLI error codes list in [CLI](cli.md#errors-and-exit-codes) gains
@@ -310,13 +253,16 @@ The CLI error codes list in [CLI](cli.md#errors-and-exit-codes) gains
 
 - Every write gets an adversarial review before its release. It checks: the
   secret never reaches stdout, stderr, `--debug`, an error, a response capture,
-  or a fixture; `--secret-file` refuses existing paths and symlinks and creates
-  mode 0600; the orphan key is deleted after a failed write; no create retry
-  after a 5xx; path checks on every call; the `region` and `region_id` headers
-  on every storage call; no `DELETE` for a non-empty bucket; `--yes` where the
-  table says; read-only refusal; and no state created by a read.
-- A key has its creator's rights. The wiki says to scope app keys through a
-  service account and a bucket policy, never a broad user or the root.
+  or a fixture; `--secret-file` refuses existing paths and symlinks and
+  creates mode 0600; the orphan key is deleted after a failed write or a
+  missing secret; no key create resend of any kind; path checks on every
+  call; the `region` and `region_id` headers on every storage call; no
+  `DELETE` for a non-empty bucket; `--yes` where the table says; read-only
+  refusal; and no state created by a read.
+- A key has its creator's rights on the whole project. Until S4, the wiki
+  says so and gives the
+  [per-bucket key](storage-cli.md#per-bucket-key) as the target; it never
+  advises a key made by a broad user or the root.
 - Bucket names, project IDs, access keys, service accounts, and policies are
   account data, and so is the `GetBucket` `owner` object (the account email
   in base64 and the storage user ID). Fixtures use `<id>`, `<account>`,
@@ -328,9 +274,9 @@ The CLI error codes list in [CLI](cli.md#errors-and-exit-codes) gains
 
 Unit tests use `httptest`:
 
-- Sanitized fixtures and decode tests in `testdata/storage/` and
-  `testdata/iam/` for every read and create, plus a `success: false`
-  envelope, the 403 array, and an empty 200.
+- Sanitized fixtures and decode tests in `testdata/storage/` for every
+  read and create, plus a `success: false` envelope, the 403 array, and an
+  empty 200.
 - Request bodies for every write; `region` and `region_id` both sent with
   the same UUID on every call except `ListRegions`, which sends neither; the
   region mapping and its unmapped case; `limit=1000` and `isNext`.
@@ -342,6 +288,11 @@ Unit tests use `httptest`:
   injected clock; `NoWait` sends one `DELETE` and no poll.
 - Code 112 matches `ErrInvalidInput`; a duplicate create returns the
   bucket.
+- S3 keys: the `projectId` query and bodies; a create response without
+  `userKeyId` or `accessKey` is an error; one without `secretKey` returns
+  the key and `ErrNoSecret`; one `POST` after a 502, a network error, and
+  a failed dial; the CLI deletes the key after `ErrNoSecret` and after a
+  failed file write.
 - Secrets: `fmt` verbs, `slog`, and `json.Marshal` give `[redacted]`; no
   capture hook sees a sensitive response; `--debug`, errors, stdout, and
   stderr never hold the fixture secret.
@@ -354,16 +305,16 @@ Unit tests use `httptest`:
 Live tests follow [live data](../../instructions/live-data.md); each write
 run needs the owner's approval naming the account, region, and project.
 
-- `make live` adds `ListRegions`, `ListProjects` in both regions,
-  `ListS3Keys`, and `ListServiceAccounts`, logging counts only.
+- `make live` adds `ListRegions`, `ListProjects` in both regions, and,
+  when the project is set, `ListS3Keys`, logging counts only.
 - The live write test skips unless `VNGCLOUD_LIVE_STORAGE_PROJECT_ID` is
   set, and never logs it. It deletes leftover `vngcloud-live-` buckets,
-  service accounts, and keys, never a project, then creates
-  `vngcloud-live-<8 hex>` as a bucket, a service account, a policy, and a
-  key written to a temp `--secret-file`, and attaches the key.
-  `t.Cleanup`, registered as each ID is known, detaches and deletes the
-  key, deletes the policy, the bucket, and the service account, and asserts
-  none remain. It logs only statuses and counts.
+  never a project, then creates `vngcloud-live-<8 hex>` as a bucket and
+  a key written to a temp `--secret-file`, and checks that the list holds
+  the key's access key. Keys have no name, so the test deletes only the
+  keys it made: `t.Cleanup`, registered as each ID is known, deletes the
+  key and the bucket and asserts neither remains. It logs only statuses
+  and counts. Later releases add their resources the same way.
 
 ## Live checks before code
 
@@ -373,25 +324,36 @@ in `HCM04`. Writes need the owner's approval.
 Answered: `ListProjects` returns the project once `region` is sent, so an
 empty list means none; the headers the server needs; the empty bucket list;
 bucket shapes and dates; an unknown bucket; create, duplicate, and invalid
-name; and empty and repeated delete. The results are in
-[bucket writes](storage-api.md#bucket-writes).
+name; and empty and repeated delete; console S3 key create, list, delete,
+and data-plane use; and the accounts API create's 500. The results are in
+[bucket writes](storage-api.md#bucket-writes) and
+[S3 keys](storage-api.md#s3-keys).
 
-1. Pending until S3, which can put an object: `DeleteBucket` on a bucket
-   holding one object, and the server's refusal code when the count reads
-   0 but versions remain. Also open: an unknown project's code, and whether
+1. Before S3 code: the list's field names and whether any holds the
+   secret; a repeat delete and an unknown `UserKeyID`; the 11th-key answer,
+   with every probe key deleted after.
+2. Once S3 can put an object: `DeleteBucket` on a bucket holding one
+   object, and the server's refusal code when the count reads 0 but
+   versions remain. Also open: an unknown project's code, and whether
    bucket names are unique across accounts.
-2. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
-   11th-key error, delete and repeat, and `rclone lsd` with the key.
-3. Attach a key to a service account, repeat the attach, and detach.
-4. Principal: `users/details` with `generated=false` for a service account
-   before and after attach, and whether its `ceph_sub_users` must run
-   first. For the IAM user, the shapes are known and the POST is
-   idempotent.
-5. Scope, the core claim: with a policy for the principal on bucket A, the
-   attached key reads and writes A and is denied on bucket B; whether
-   `restricted: true` is needed.
-6. Policy, versioning, CORS, and public access bodies and errors.
-7. The next month's bill shows nothing beyond the project package.
+3. S4 probes, in order, each key deleted after:
+   1. `POST users/s3_keys` with `iamAccountId` `sa-<id>` and the
+      `iamUserType` the console bundle uses for a service account: does it
+      make a key, does `GET users/s3_keys` list it, and is it denied on a
+      bucket whose policy does not name the service account.
+   2. `POST users/ceph_sub_users` and `users/details` with
+      `generated=false` for the service account, before and after, to find
+      when its principal exists.
+   3. `POST accounts-api/v1/service-accounts/{id}/s3-keys/{userKeyId}`
+      with a console key, a repeat, and the `DELETE`.
+   4. `PATCH accounts-api/v1/s3-keys/{id}` with `restricted`, and what the
+      console's "Restriction by IAM" column shows for each key.
+   5. The accounts API `POST s3-keys` again; a working create reopens
+      [decision 17](#owner-decisions).
+4. Scope, the core claim, for S5: with a policy for the principal on
+   bucket A, the S4 key reads and writes A and is denied on bucket B.
+5. Policy, versioning, CORS, and public access bodies and errors.
+6. The next month's bill shows nothing beyond the project package.
 
 ## Releases
 
@@ -402,25 +364,27 @@ Each release ships the SDK and CLI together, with its wiki pages.
 | S1 | `storage` reads: `ListRegions`, `ListProjects`, `ListBuckets`, `GetBucket`; the `Storage` endpoint, region lookup, and envelope errors |
 | S1.1 | Fix: every storage call except `ListRegions` sends `region` and `region_id`; a `ListProjects` fixture from the live shape; unit tests for both headers; a live `ListProjects` that finds the project |
 | S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty`, the delete wait and `NoWait`, and envelope code 112 as `ErrInvalidInput` |
-| S3 | `iam` S3 keys: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`; `vngcloud.Secret`, `transport.Request.Sensitive`, and `--secret-file` |
-| S4 | `iam` S3 keys on service accounts: `ListServiceAccountS3Keys`, `AttachS3Key`, `DetachS3Key`; needs IAM writes I2 |
-| S5 | Bucket policy get, put, and delete, and `GetServiceAccountPrincipal`: the per-bucket key works end to end |
+| S3 | `storage` S3 keys on the console API: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`, `storage.ErrNoSecret`; `storage list-s3-keys`, `create-s3-key` with `--secret-file`, and `delete-s3-key` |
+| S4 | Service account keys: the S4 probes first, then a design update naming the calls, then the code |
+| S5 | Bucket policy get, put, and delete, and `GetServiceAccountPrincipal`: the per-bucket key works end to end; after S4 |
 | S6 | Bucket versioning, CORS, and public access |
 
 S1.1 ships before S2, since no storage read finds data without it. S2 is
 not tagged yet, so the delete wait and code 112 ship in it. S2 and later
-use the test project. None changes an existing method or command. Keys ship
-before key attach because a project-wide key already unblocks aboutme; service
-accounts themselves ship in [IAM writes](iam-writes.md) I2.
+use the test project. None changes an existing method or command. S3 ships
+before S4 because a project-wide key already unblocks aboutme, and S4 and S5
+wait on the probes; service accounts themselves shipped in
+[IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
-Decisions 1 to 15 are approved as recommended.
+Decisions 1 to 15 are approved as recommended. Decisions 16 to 19 await
+the owner.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
-2. Approved: two packages, `storage` and `iam`: keys and service accounts
-   live in the IAM API, as in AWS.
+2. Approved: two packages, `storage` and `iam`, with service accounts in
+   `iam`. Decision 16 moves S3 keys to `storage`.
 3. Approved: projects stay a console step; a project is a paid checkout.
 4. Approved: the test IAM user has vStorage access. The owner bought the
    test project in the console (Gold, 30 GB, pay monthly, 30,000 VND a
@@ -445,6 +409,19 @@ Decisions 1 to 15 are approved as recommended.
     second, until `GetBucket` reports `NotFound`, with `NoWait` to skip it,
     so a following `ListBuckets` is accurate and a repeat delete reports
     `NotFound`.
+16. Recommended: S3 ships keys on the vStorage console API, in `storage`,
+    with `ProjectID` required and no `Name`. The accounts API create
+    answers 500 and its console dialog cannot create one either; the
+    console API key works on the data plane.
+17. Recommended: the accounts API key code is removed, not shipped
+    unreleased. Its facts and the 500 stay in
+    [accounts API](storage-api.md#accounts-api), and probe 3.5 reopens
+    the choice.
+18. Recommended: S4 starts with the probes, and S4 and S5 wait on them.
+    The per-bucket key stays the target.
+19. Recommended: after an ambiguous key create, the error tells the caller
+    to list and delete unknown keys; the SDK does not list before and after
+    the create, since another client's key would look like the orphan.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.

@@ -132,9 +132,9 @@ hang an agent. Create and update commands run without `--yes`.
 
 A command that would otherwise print a secret instead writes it to a file
 named by a `--secret-file <path>` flag, refuses an existing path or a
-symlink, and creates the file at mode 0600. `iam create-s3-key`,
+symlink, and creates the file at mode 0600. `storage create-s3-key`,
 `create-service-account`, and `reset-service-account-secret` are such
-commands; see [vStorage](storage.md#create-s3-key) and
+commands; see [vStorage](storage-cli.md#create-s3-key) and
 [IAM writes](iam-writes.md).
 
 ## Read-only

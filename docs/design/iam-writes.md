@@ -18,15 +18,16 @@ and live checks are in [IAM writes: checks](iam-writes-checks.md).
 
 ## Ownership
 
-[vStorage](storage.md#iam) already plans `iam` with S3 keys and service
-accounts (releases S3 and S4). This design takes over the service
-account calls that do not involve S3; vStorage keeps S3 keys and the key
-attach.
+[vStorage](storage.md) plans S3 keys (release S3, in `storage`) and keys
+for service accounts (S4). This design takes over the service account
+calls that do not involve S3; vStorage keeps S3 keys and the key attach,
+whose calls and package wait on its
+[S4 probes](storage.md#service-account-keys).
 
 | Call | Owner |
 |-|-|
 | `ListS3Keys`, `CreateS3Key`, `DeleteS3Key` | vStorage S3 |
-| `ListServiceAccountS3Keys`, `AttachS3Key`, `DetachS3Key` | vStorage S4 |
+| Service account key calls | vStorage S4 |
 | `GetServiceAccountPrincipal` | vStorage S5 |
 | `ListServiceAccounts`, `GetServiceAccount`, `CreateServiceAccount`, `DeleteServiceAccount` | This design (moved from vStorage S4) |
 | `UpdateServiceAccount`, `ResetServiceAccountSecret` | This design |
@@ -265,7 +266,8 @@ When a target is both the caller and protected, `ErrSelfChange` wins.
   detach, add, remove, and policy update can be undone by one more
   command, so ADR 0002 rule 6 does not require it; they need it anyway
   because a grant is usable at once and a removal can break a running
-  app, as public bucket access needs it in [vStorage](storage.md#cli).
+  app, as public bucket access needs it in
+  [vStorage](storage-cli.md#commands).
 - A [read-only](cli.md#read-only) profile refuses every write with exit
   2 before any request.
 - `create-policy` and `update-policy` take `--document-file`.
@@ -312,7 +314,7 @@ review. Each is numbered when it ships.
 
 I1 is read-only. I2 carries the secret handling and the guard code. I3
 adds the privileged check, and I4 the group and user paths. vStorage S4
-then adds only the S3 key calls on top of I2. No release changes an
+then adds only the service account key calls on top of I2. No release changes an
 existing method or command.
 
 ## Owner decisions
@@ -340,7 +342,7 @@ existing method or command.
    server's rights are the boundary; refuse attaching a policy the
    caller does not itself hold, compared by ID. Recommend accept: the ID
    rule would refuse every customer policy, including the per-bucket
-   policies [vStorage](storage.md#per-bucket-key) needs.
+   policies [vStorage](storage-cli.md#per-bucket-key) needs.
 6. **Protecting profiles and the owner.** Options: read-only as today,
    the protected-principal rule, and the wiki advice above; also refuse
    changes to any principal with a `protected` tag. Recommend the first:

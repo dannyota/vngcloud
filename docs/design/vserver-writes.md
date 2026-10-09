@@ -337,7 +337,7 @@ vngcloud network create-security-group-rule --security-group-id <id> \
 
 `compute create-ssh-key` needs `--secret-file <path>` and cannot print the
 private key. It follows [CLI secret files](cli.md#secret-files) and the
-steps of [create-s3-key](storage.md#create-s3-key):
+steps of [create-s3-key](storage-cli.md#create-s3-key):
 
 1. Before any request, the parent directory must exist and nothing may
    exist at the path, symlinks included; otherwise it exits 2.

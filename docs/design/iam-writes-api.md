@@ -174,7 +174,7 @@ the first page, and `Size` defaults to `DefaultPageSize`.
 - `GetCallerIdentity` keeps no root email and no two-factor fields.
 - `ListPolicyAttachments` makes the three `policies/{id}/...` reads.
 - `ListServiceAccounts` and `GetServiceAccount` move here from
-  [vStorage](storage.md#iam); see [ownership](iam-writes.md#ownership).
+  [vStorage](storage.md); see [ownership](iam-writes.md#ownership).
 
 ### Writes
 
@@ -272,7 +272,7 @@ section says.
   `list-policy-attachments`, or `get-group`. A service account found that
   way lost its secret: reset it.
 - A repeated attach or add returns the server's `Conflict`, which the SDK
-  does not hide, as `AttachS3Key` does in [vStorage](storage.md#retries).
+  does not hide.
 - `PATCH` updates send full values and are safe to repeat, so they set
   `Idempotent`. `PUT` and `DELETE` keep the transport's retries; a
   retried delete, detach, or remove that finds nothing returns `NotFound`.

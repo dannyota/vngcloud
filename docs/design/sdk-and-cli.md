@@ -135,8 +135,8 @@ Service packages may import each other for shared models; `network` imports
 | `billing`, `pricing` | Budgets, cost, balances, and quotes; see [billing](billing.md) |
 | `cdn` | CDN IP ranges; see [CDN](cdn.md) |
 | `monitor` | vMonitor synthetic checks, notification channels, log projects, and alarms; see [vMonitor](monitor.md) |
-| `storage` | vStorage regions, projects, and buckets; see [vStorage](storage.md) |
-| `iam` | Service accounts, groups, policies, and S3 keys; see [IAM writes](iam-writes.md) and [vStorage](storage.md) |
+| `storage` | vStorage regions, projects, buckets, and S3 keys; see [vStorage](storage.md) |
+| `iam` | Service accounts, groups, and policies; see [IAM writes](iam-writes.md) |
 
 Every operation has one signature:
 
