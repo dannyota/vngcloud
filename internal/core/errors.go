@@ -25,6 +25,10 @@ var (
 	// Input.MaxPrice. Nothing was ordered.
 	ErrPriceAboveMax = errors.New("vngcloud: quoted price is above MaxPrice")
 
+	// ErrUnpriced means a paid write's quote priced the order at 0, so the
+	// gateway could not price the input. Nothing was ordered.
+	ErrUnpriced = errors.New("vngcloud: quote priced the order at 0; refusing to order an unpriced paid resource")
+
 	// ErrNoCredentials is LoadConfig's error when no source (options,
 	// environment variables, or the resolved profile) sets any credential
 	// value. It wraps ErrInvalidConfig, so errors.Is(err, ErrInvalidConfig)
