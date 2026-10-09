@@ -122,3 +122,14 @@ func TestVNetworkRegionalGateway(t *testing.T) {
 		t.Fatalf("expected empty gateway for empty region, got %s", got)
 	}
 }
+
+func TestResolveIAMUserStorage(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{})
+	if got.Storage != "https://vstorage.console.greennode.ai/" {
+		t.Fatalf("unexpected storage endpoint: %s", got.Storage)
+	}
+	got = ResolveIAMUser("hcm-3", Overrides{Storage: "http://example.test/storage"})
+	if got.Storage != "http://example.test/storage/" {
+		t.Fatalf("unexpected storage override: %s", got.Storage)
+	}
+}

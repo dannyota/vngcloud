@@ -29,6 +29,7 @@ import (
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/project"
+	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -117,6 +118,7 @@ func TestLive(t *testing.T) {
 	t.Run("monitor-alarms", func(t *testing.T) { testLiveMonitorAlarms(ctx, t, firstCfg) })
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 	t.Run("iam", func(t *testing.T) { testLiveIAM(ctx, t, firstCfg) })
+	t.Run("storage", func(t *testing.T) { testLiveStorage(ctx, t, firstCfg) })
 
 	for i, region := range regions {
 		cfg := firstCfg
@@ -495,6 +497,29 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 		}
 		t.Logf("usage histories: %d", len(res.Items))
 	})
+}
+
+// testLiveStorage reads the vStorage regions and the projects in both
+// vStorage regions. It names its regions explicitly, so it runs once, and
+// logs counts only.
+func testLiveStorage(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := storage.New(cfg)
+
+	regions, err := client.ListRegions(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRegions: %v", err)
+	}
+	t.Logf("storage regions: %d", len(regions.Items))
+
+	for _, region := range []string{"HCM04", "HAN02"} {
+		t.Run(region, func(t *testing.T) {
+			res, err := client.ListProjects(ctx, &storage.ListProjectsInput{Region: region})
+			if err != nil {
+				t.Fatalf("ListProjects: %v", err)
+			}
+			t.Logf("storage projects: %d", len(res.Items))
+		})
+	}
 }
 
 // testLiveIAM reads the caller's identity, the account's IAM users, the

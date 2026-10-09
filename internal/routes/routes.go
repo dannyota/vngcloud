@@ -26,6 +26,8 @@ const (
 	// operations that are not billing- or portal-specific, such as the IAM
 	// accounts API.
 	ProductDashboard Product = "dashboard"
+	// ProductStorage is the vStorage console API host.
+	ProductStorage Product = "storage"
 )
 
 type Endpoints interface {

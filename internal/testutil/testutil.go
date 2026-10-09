@@ -77,6 +77,7 @@ func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.C
 		Monitor:   server.URL + "/",
 		Dashboard: server.URL + "/",
 		IAM:       server.URL + "/",
+		Storage:   server.URL + "/",
 	}, transport.New(tcfg))
 }
 

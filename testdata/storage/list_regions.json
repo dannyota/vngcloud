@@ -1,0 +1,34 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "regionId": "<region-id-1>",
+      "regionName": "HAN02",
+      "regionDisplayingName": "HAN02",
+      "status": 1,
+      "description": null,
+      "accountUrl": "<internal-url>",
+      "s3Host": "https://han02.vstorage.vngcloud.vn",
+      "authHost": "<internal-url>",
+      "tenantId": null,
+      "userIdMapping": null,
+      "vosApiHost": "<internal-url>",
+      "backendType": "ceph"
+    },
+    {
+      "regionId": "<region-id-2>",
+      "regionName": "HCM04",
+      "regionDisplayingName": "HCM04",
+      "status": 1,
+      "description": null,
+      "accountUrl": "<internal-url>",
+      "s3Host": "https://hcm04.vstorage.vngcloud.vn",
+      "authHost": "<internal-url>",
+      "tenantId": null,
+      "userIdMapping": null,
+      "vosApiHost": "<internal-url>",
+      "backendType": "ceph"
+    }
+  ]
+}

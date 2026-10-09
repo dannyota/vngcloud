@@ -1,0 +1,29 @@
+{
+  "code": 200,
+  "success": true,
+  "isNext": false,
+  "datas": [
+    {
+      "name": "<bucket>",
+      "count": 12,
+      "size": 3456,
+      "isPublic": false,
+      "isVersioned": true,
+      "createdDate": "2026-01-01T00:00:00Z",
+      "lastModified": "2026-01-02T00:00:00Z",
+      "type": "ceph",
+      "versionLocation": null
+    },
+    {
+      "name": "<bucket-2>",
+      "count": 0,
+      "size": 0,
+      "isPublic": true,
+      "isVersioned": false,
+      "createdDate": "2026-01-03T00:00:00Z",
+      "lastModified": "2026-01-03T00:00:00Z",
+      "type": "ceph",
+      "versionLocation": null
+    }
+  ]
+}

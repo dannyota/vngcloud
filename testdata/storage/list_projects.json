@@ -1,0 +1,17 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "projectId": "<project-id>",
+      "projectName": "<account>",
+      "regionId": "<region-id-2>",
+      "regionName": "HCM04",
+      "status": 1,
+      "totalQuota": 30,
+      "startTime": "2026-01-01 00:00:00",
+      "endTime": "2026-02-01 00:00:00",
+      "period": 1
+    }
+  ]
+}

@@ -278,3 +278,11 @@ func TestNewClientWithStaticToken(t *testing.T) {
 		t.Fatalf("unexpected Authorization header: %q", gotAuth)
 	}
 }
+
+func TestClientEndpointReturnsStorage(t *testing.T) {
+	c := NewTestClient("hcm-3", "", endpoints.Set{Storage: "https://vstorage.example/"},
+		transport.New(transport.Config{}))
+	if got := c.Endpoint(routes.ProductStorage); got != "https://vstorage.example/" {
+		t.Fatalf("Endpoint(ProductStorage) = %s, want https://vstorage.example/", got)
+	}
+}
