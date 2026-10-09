@@ -104,14 +104,16 @@ live in `storage` because they use its host, region headers, envelope, and
 - `CreateS3Key` and `DeleteS3Key` send `{"projectId": "<ProjectID>"}`. The
   server takes no name, so the Input has none.
 - `S3Key` has `UserKeyID` (`userKeyId`) and `AccessKey` (`accessKey`), plus
-  the other list fields under their API tags, taken from the sanitized
-  fixture. No field holds the secret. If the live list shape carries one,
+  the other list fields under their API tags. No field holds the secret.
+  The list shape carries `secretKey`, null on every key seen, so
   `ListS3Keys` sets `Sensitive` and the model leaves the field out.
 - `CreateS3Key` sets `Sensitive` and `Once`. Its Output comes from the
   create response, with `ProjectID` from the Input. A response without
   `userKeyId` or `accessKey` is an error that says a key may exist. A
   response without `secretKey` returns the key with an error wrapping
   `storage.ErrNoSecret`: the key exists but is unusable.
+- `DeleteS3Key` of a deleted key is an `*APIError` with code 114, not
+  `ErrNotFound`. A well-formed unknown `UserKeyID` answers success.
 - A key has the IAM user's rights on the whole project. Keys made through
   the IAM accounts API are a separate store that these calls do not see.
 
@@ -176,7 +178,8 @@ write rather than let a `GET` create state.
 `GoString`, `Format`, `LogValue`, `MarshalJSON`, and `MarshalText` all give
 `[redacted]`; only `Reveal()` returns the value, so printing or encoding an
 Output leaks nothing. `transport.Request.Sensitive` is set by
-`CreateS3Key`: the `WithResponseCapture` hook never sees such a response,
+`CreateS3Key` and `ListS3Keys`: the `WithResponseCapture` hook never sees
+such a response,
 and a decode error never quotes its body. `--debug` already logs no body.
 
 ### Retries
@@ -191,8 +194,9 @@ and a decode error never quotes its body. `--debug` already logs no body.
   lost its secret. A 4xx `*APIError` passes through unchanged. The SDK
   lists nothing itself: a key another client made at the same time would
   look the same.
-- Deletes and puts keep the transport's retries; a retried delete that
-  finds nothing returns `NotFound`.
+- Deletes and puts keep the transport's retries. A retried bucket delete
+  that finds nothing returns `NotFound`; a retried `DeleteS3Key` whose
+  first attempt took effect returns code 114.
 
 ### Delete bucket
 
@@ -240,6 +244,8 @@ can stop at the first read's error, sending no `DELETE`. The CLI
 | `--secret-file` exists or its directory is missing | No request | `InvalidUsage`, 2 |
 | Key create got a 5xx, a network error, or no decodable response | Error says a key may exist | 1 |
 | Key create response held no secret | `storage.ErrNoSecret`, key returned | `SecretFileFailed`, 1, key deleted |
+| 11th key in the account, envelope code 114 | `*APIError` | `114`, 1 |
+| Key delete of a deleted key, envelope code 114 | `*APIError`, not `ErrNotFound` | `114`, 1 |
 | Bucket holds objects or data, or its count is not reported | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
 | IAM policy denies the action | `ErrPermission` | `IAM_PERMISSION_DENIED`, 1 |
 | Envelope `success: false` | `*APIError`, envelope code | That code, 1 or 4 |
@@ -288,7 +294,10 @@ Unit tests use `httptest`:
   injected clock; `NoWait` sends one `DELETE` and no poll.
 - Code 112 matches `ErrInvalidInput`; a duplicate create returns the
   bucket.
-- S3 keys: the `projectId` query and bodies; a create response without
+- S3 keys: the `projectId` query and bodies; the list fixture's
+  `secretKey` never reaches the model or a capture hook; the create
+  fixture is synthesized from the recorded field shape, since a sensitive
+  response is never captured; a create response without
   `userKeyId` or `accessKey` is an error; one without `secretKey` returns
   the key and `ErrNoSecret`; one `POST` after a 502, a network error, and
   a failed dial; the CLI deletes the key after `ErrNoSecret` and after a
@@ -324,19 +333,17 @@ in `HCM04`. Writes need the owner's approval.
 Answered: `ListProjects` returns the project once `region` is sent, so an
 empty list means none; the headers the server needs; the empty bucket list;
 bucket shapes and dates; an unknown bucket; create, duplicate, and invalid
-name; and empty and repeated delete; console S3 key create, list, delete,
-and data-plane use; and the accounts API create's 500. The results are in
+name; and empty and repeated delete; console S3 key create, list, list
+fields, repeat and unknown delete, the 11th key, and data-plane use; and
+the accounts API create's 500. The results are in
 [bucket writes](storage-api.md#bucket-writes) and
 [S3 keys](storage-api.md#s3-keys).
 
-1. Before S3 code: the list's field names and whether any holds the
-   secret; a repeat delete and an unknown `UserKeyID`; the 11th-key answer,
-   with every probe key deleted after.
-2. Once S3 can put an object: `DeleteBucket` on a bucket holding one
+1. Once S3 can put an object: `DeleteBucket` on a bucket holding one
    object, and the server's refusal code when the count reads 0 but
    versions remain. Also open: an unknown project's code, and whether
    bucket names are unique across accounts.
-3. S4 probes, in order, each key deleted after:
+2. S4 probes, in order, each key deleted after:
    1. `POST users/s3_keys` with `iamAccountId` `sa-<id>` and the
       `iamUserType` the console bundle uses for a service account: does it
       make a key, does `GET users/s3_keys` list it, and is it denied on a
@@ -350,10 +357,10 @@ and data-plane use; and the accounts API create's 500. The results are in
       console's "Restriction by IAM" column shows for each key.
    5. The accounts API `POST s3-keys` again; a working create reopens
       [decision 17](#owner-decisions).
-4. Scope, the core claim, for S5: with a policy for the principal on
+3. Scope, the core claim, for S5: with a policy for the principal on
    bucket A, the S4 key reads and writes A and is denied on bucket B.
-5. Policy, versioning, CORS, and public access bodies and errors.
-6. The next month's bill shows nothing beyond the project package.
+4. Policy, versioning, CORS, and public access bodies and errors.
+5. The next month's bill shows nothing beyond the project package.
 
 ## Releases
 
@@ -378,8 +385,7 @@ wait on the probes; service accounts themselves shipped in
 
 ## Owner decisions
 
-Decisions 1 to 15 are approved as recommended. Decisions 16 to 19 await
-the owner.
+Decisions 1 to 21 are approved as recommended.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -409,19 +415,25 @@ the owner.
     second, until `GetBucket` reports `NotFound`, with `NoWait` to skip it,
     so a following `ListBuckets` is accurate and a repeat delete reports
     `NotFound`.
-16. Recommended: S3 ships keys on the vStorage console API, in `storage`,
+16. Approved: S3 ships keys on the vStorage console API, in `storage`,
     with `ProjectID` required and no `Name`. The accounts API create
     answers 500 and its console dialog cannot create one either; the
     console API key works on the data plane.
-17. Recommended: the accounts API key code is removed, not shipped
+17. Approved: the accounts API key code is removed, not shipped
     unreleased. Its facts and the 500 stay in
-    [accounts API](storage-api.md#accounts-api), and probe 3.5 reopens
+    [accounts API](storage-api.md#accounts-api), and probe 2.5 reopens
     the choice.
-18. Recommended: S4 starts with the probes, and S4 and S5 wait on them.
+18. Approved: S4 starts with the probes, and S4 and S5 wait on them.
     The per-bucket key stays the target.
-19. Recommended: after an ambiguous key create, the error tells the caller
+19. Approved: after an ambiguous key create, the error tells the caller
     to list and delete unknown keys; the SDK does not list before and after
     the create, since another client's key would look like the orphan.
+20. Approved: `ListS3Keys` stays sensitive, since its shape can carry a
+    secret. The cost is that a capture hook never sees the list.
+21. Approved: a repeat key delete is code 114, not `NotFound`, so the
+    CLI rule that `NotFound` counts as done does not apply to keys.
+    `delete-s3-key` on a deleted key exits 1 with code 114, and the
+    `--secret-file` cleanup takes success or code 114 as "key gone".
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.

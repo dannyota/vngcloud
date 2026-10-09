@@ -63,7 +63,8 @@ cannot print the secret:
 4. If the create returns `storage.ErrNoSecret`, the CLI writes no file,
    deletes the key, which is unusable, and exits 1 with `SecretFileFailed`.
    The cleanup delete runs on a context detached from the command's, with
-   its own short timeout; a `NotFound` from it counts as done.
+   its own short timeout. Success or envelope code 114, which the server
+   gives for a key already deleted, counts as done.
 5. Stdout gets the key without the secret: `SecretKey` prints as
    `[redacted]`, and a `SecretFile` field names the path.
 

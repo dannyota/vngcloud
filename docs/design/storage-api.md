@@ -82,7 +82,8 @@ Console API responses use one envelope: `success`, `code`, `errorMsg`,
 | Region | `regionId`, `regionName`, `regionDisplayingName`, `backendType`, `s3Host`, `vosApiHost`, `accountUrl`, `authHost`, `status` (number) |
 | Project | See [Project](#project) |
 | Bucket (spec) | `name`, `count`, `size`, `isPublic`, `isVersioned`, `createdDate`, `lastModified`, `type`, `versionLocation` |
-| S3 key, console create | `data.userKeyId`, `data.accessKey`, `data.secretKey` |
+| S3 key, console list | `regionId`, `projectId`, `userId`, `subUserId`, `userKeyId`, `accessKey`, `secretKey` (null), `createdDate` (`dd/mm/yyyy hh:mm`), `status` (number, 1) |
+| S3 key, console create | `data.userKeyId`, `data.accessKey`, `data.secretKey`; the other list fields null |
 | S3 key, accounts API spec | `id`, `name`, `accessKey`, `projectId`, `regionId`, `createdAt` (RFC 3339 text); create adds `secretKey` |
 | Service account page | `data`, `pageNumber`, `pageSize`, `totalItems`, `totalPages` |
 
@@ -178,10 +179,14 @@ Paths are under `internal/v1/`.
 | `POST users/s3_keys`, body `{"projectId":"<p>"}` | 200, `data` with `userKeyId`, `accessKey`, and `secretKey`; no name |
 | `GET users/s3_keys?projectId=<p>` | 200, the keys, the new one included |
 | `DELETE users/s3_keys/{userKeyId}`, body `{"projectId":"<p>"}` | 200 |
+| `POST users/s3_keys` for the 11th key | 200, `success: false`, `code: 114`, `Key number is reached to maximum value 10` |
+| `DELETE` of a deleted key, at once and 5 s later | 200, `success: false`, `code: 114`, `Could not delete s3 keys. InvalidAccessKeyId` |
+| `DELETE` of a well-formed unknown `userKeyId` | 200, success, the id echoed |
 
-The secret appears only in the create response. A key made this way did
-not appear in the accounts API list. Not yet checked: the list's field
-names, a repeat delete, an unknown `userKeyId`, and the 11th key.
+The secret appears only in the create response. The list carries a
+`secretKey` field, null on every key seen. A key made this way did not
+appear in the accounts API list. A key passed `aws s3 ls` on the data
+plane; see [Data plane](#data-plane).
 
 The console's `ceph_sub_users` body takes `iamAccountId` and `iamUserType`
 ([storage users](#storage-users)). Whether `users/s3_keys` takes them too,
@@ -204,9 +209,9 @@ region and user headers. The IAM console's "Create a new S3 Key" dialog
 shows an empty Region list for the IAM user and sends no request, so the
 console cannot create one either.
 
-Errors arrive as `{"errors":[{"code","message"}]}`. The transport reads a
-top-level object or array, not this wrapper, so an error from this API
-carries only the HTTP status text.
+Errors arrive as `{"errors":[{"code","message"}]}`. The transport takes
+the code and message from the first entry; an empty or null list leaves
+the HTTP status text.
 
 The spec names the list search parameter `searchByNameOrAccessKey`, has
 `PATCH s3-keys/{id}`, and lists the attach calls under
@@ -220,10 +225,10 @@ and `HAN02`, HTTPS only). This SDK covers the management plane; objects go
 through any S3 client. The wiki recommends **rclone**: GreenNode documents
 its setup, and it ships as one static binary with a plain S3 mode. Recent
 AWS CLI v2 releases send checksum headers by default that S3-compatible
-servers often refuse. With default settings, `aws s3 ls` with
-`--endpoint-url https://hcm04.vstorage.vngcloud.vn` and region `HCM04`
-exited 0 with a console API key and 255 with a bogus key; uploads are not
-yet checked.
+servers often refuse. With default settings, including checksums,
+`aws s3 ls` with `--endpoint-url https://hcm04.vstorage.vngcloud.vn` and
+`AWS_DEFAULT_REGION=HCM04` exited 0 with a console API key and 255 with a
+bogus key; uploads are not yet checked.
 
 ## Purchase
 
@@ -245,7 +250,8 @@ The SDK does not make these calls; see [Non-goals](storage.md#non-goals).
   VND a month.
 - Buckets, S3 keys, and service accounts cost nothing to create. Requests
   are free; download traffic is free up to ten times the stored size.
-- Limits: 10 S3 keys per root account, 1000 buckets per project. Which key
-  store the key limit counts is unknown.
+- Limits: 10 S3 keys per root account, 1000 buckets per project. The
+  console API refuses the 11th key with code 114; whether the limit also
+  counts accounts API keys is unknown.
 - The test account has one Gold 30 GB project in `HCM04`, bought monthly
   with auto-renew off, so bucket writes can run live.
