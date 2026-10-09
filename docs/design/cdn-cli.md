@@ -1,6 +1,6 @@
 # vCDN CLI and Releases
 
-Status: Proposed.
+Status: Accepted.
 
 The CLI commands, tests, live checks, releases, and owner decisions for
 [vCDN API](cdn-api.md). The SDK surface, errors, and write rules are in
@@ -133,11 +133,13 @@ Live tests follow [live data](../../instructions/live-data.md). They skip
 unless `VNGCLOUD_VCDN_API_KEY` is set, and they log statuses and counts
 only, never names, domains, emails, or IDs.
 
-- `make live` adds `ListWebAccelerators`, `ListCertificates`, and
-  `ListAPIKeys`, asserting exactly one key has `Current: true`. When a CDN
-  exists, it adds `GetWebAccelerator` and the five analytics reads over
-  `24h` on the first CDN; on an empty account it logs that they were
-  skipped. The live CLI test runs `cdn list-web-accelerators`.
+- C1: `make live` adds `ListCertificates` and `ListAPIKeys`, asserting
+  exactly one key has `Current: true`, and one call with a wrong key that
+  must fail with the fixed 401 message.
+- C1b: `make live` adds `ListWebAccelerators`. When a CDN exists, it adds
+  `GetWebAccelerator` and the five analytics reads over `24h` on the
+  first CDN; on an empty account it logs that they were skipped. The live
+  CLI test runs `cdn list-web-accelerators`.
 - The C2 write test needs `VNGCLOUD_LIVE_CDN=1` and
   `VNGCLOUD_LIVE_CDN_DOMAIN`, a parent domain the owner controls, never
   logged. It deletes leftover `vngcloud-live-` CDNs, creates
@@ -165,7 +167,7 @@ Before any create, by the owner in the portal:
 2. Whether the account must own the domain, and whether the package's CDN
    limit leaves a slot for the live test beside aboutme's CDN.
 
-Before C1 code, one real CDN must exist: the owner creates it in the
+Before C1b code, one real CDN must exist: the owner creates it in the
 portal after check 1, or runs one create by hand on `POST cdn/create` with
 the reference body. Then, by hand, read-only, printing field names,
 statuses, and counts only:
@@ -194,8 +196,8 @@ statuses and how long toggles take, a repeat delete, a duplicate create, a
 documentation-range origin, purge answers, and a certificate in use on
 delete.
 
-Cost: C1 is reads, free, once the CDN exists. The CDN is free only if
-check 1 says so; traffic stays zero. C3 purges use two of the daily
+Cost: C1 and C1b are reads and free; C1b needs the CDN. The CDN is free
+only if check 1 says so; traffic stays zero. C3 purges use two of the daily
 purges. C4 certificates are free (50 per package).
 
 ## Releases
@@ -204,21 +206,22 @@ Each release ships the SDK and CLI together, with the `cdn` wiki pages.
 
 | Release | Content |
 |-|-|
-| C1 | The `CDN` endpoint, `transport.Request.APIKey`, `WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, the `vcdn_api_key` file and `configure` key, the vCDN error rules, and the reads: Web Accelerators on `cdn/*`, certificates, API keys, and five analytics calls. Ships after checks 3 to 10 pass on a real CDN |
+| C1 | Shipped in v0.56.0. The `CDN` endpoint, `transport.Request.APIKey`, `WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, the `vcdn_api_key` file key and `configure set vcdn_api_key -`, the envelope and problem+json error rules, `ListCertificates`, `GetCertificate`, and `ListAPIKeys`. Needs no CDN |
+| C1b | `ListWebAccelerators`, `GetWebAccelerator`, and the five analytics reads. Ships after checks 3 to 10 pass on a real CDN |
 | C2 | Web Accelerator create, update, delete, enable, and disable |
 | C3 | Cache purge: paths, pattern, and all |
 | C4 | Certificate import, enable, disable, and delete |
 | Deferred | Video On Demand, Object Download (its S3 origin holds an access key and secret, so it needs its own secret rules), the other analytics calls, and API key writes. Each waits for a need from aboutme or the owner |
 
 C1 changes no existing method or command; `cdn list-ip-ranges` is
-unchanged. C2 to C4 add commands only. C3 needs C1's reads but not C2: it
-works on a CDN made in the portal, so it can ship before C2 if aboutme
-needs purge sooner.
+unchanged. C1b to C4 add methods and commands only. C3 needs C1b's reads
+but not C2: it works on a CDN made in the portal, so it can ship before C2
+if aboutme needs purge sooner.
 
 ## Owner decisions
 
-1 to 18 are approved as recommended; 17 is a gate the owner clears in the
-portal before any create. 19 to 27 are Recommended and wait for the owner.
+1 to 27 are approved; 17 is a gate the owner clears in the portal before
+any create. 28 is Recommended and waits for the owner.
 
 1. Approved: the API key resolves on its own, from `WithCDNAPIKey`,
    `VNGCLOUD_VCDN_API_KEY`, or `vcdn_api_key` in the credentials file, with
@@ -249,7 +252,7 @@ portal before any create. 19 to 27 are Recommended and wait for the owner.
     with confirm reads at 0, 2, 4, and 8 seconds.
 13. Approved: purge shape checks in the SDK, since the server answers a
     bad shape with a 200.
-14. Approved: C1 ships five analytics reads; the rest wait for a need.
+14. Approved: C1b ships five analytics reads; the rest wait for a need.
 15. Approved: `ImportCertificate` finds the new certificate with one
     list and returns nil, not an error, when the match is not unique.
 16. Approved: certificate and API key reads set `Sensitive`, and their
@@ -282,6 +285,9 @@ portal before any create. 19 to 27 are Recommended and wait for the owner.
     `ListAPIKeys` accepts only the envelope list.
 27. Approved: the analytics reads ship only after check 7 confirms the
     `fromTime` and `toTime` format and time zone on a real domain.
+28. Approved: C1 ships the reads that need no CDN, and C1b holds
+    the Web Accelerator and analytics reads, so a release never waits on
+    an owner-side step it does not need.
 
 ## Open items
 

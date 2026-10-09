@@ -1,6 +1,6 @@
 # vCDN API Design
 
-Status: Proposed.
+Status: Accepted.
 
 This design adds GreenNode vCDN management to the `cdn` package: Web
 Accelerator CDNs, certificates, cache purge, API key reads, and traffic
