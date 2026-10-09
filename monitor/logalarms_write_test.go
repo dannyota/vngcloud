@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -20,13 +22,10 @@ import (
 // log project or creating anything.
 const noExistingLogAlarmsPage = `{"lstData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`
 
-// logAlarmListPage builds one ListAlarms page holding a single item named
-// name at status, or none when name is "".
-func logAlarmListPage(id, name, status string) string {
-	if name == "" {
-		return noExistingLogAlarmsPage
-	}
-	return fmt.Sprintf(`{"lstData":[{"id":%q,"name":%q,"status":%q,"type":"LOG"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`, id, name, status)
+// logAlarmListPage builds one ListAlarms page holding a single alarm named
+// my-alarm at status.
+func logAlarmListPage(id, status string) string {
+	return fmt.Sprintf(`{"lstData":[{"id":%q,"name":"my-alarm","status":%q,"type":"LOG"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`, id, status)
 }
 
 // exampleLogProjectBody is a getLogProject response, standing in for the
@@ -312,7 +311,7 @@ func TestCreateLogAlarmRefusesExistingName(t *testing.T) {
 		switch r.URL.Path {
 		case "/vmonitor-api/api/v1/alarms/list":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(logAlarmListPage("alarm-0", "my-alarm", "OK")))
+			_, _ = w.Write([]byte(logAlarmListPage("alarm-0", "OK")))
 		default:
 			t.Fatalf("unexpected request to %s after a taken name: %s", r.Method, r.URL.Path)
 		}
@@ -507,12 +506,15 @@ func TestCreateLogAlarmWaitByIDSettles(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":"alarm-1"}`))
 		case "/vmonitor-api/api/v1/alarms/alarm-1":
 			n := getCalls.Add(1)
-			status := "OK"
-			if n == 1 {
+			status := LogAlarmStatusActive
+			switch n {
+			case 1:
+				status = ""
+			case 2:
 				status = LogAlarmStatusCreating
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","status":%q}}`, status)
+			_, _ = fmt.Fprintf(w, `{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","progressStatus":%q}}`, status)
 		default:
 			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
 		}
@@ -524,11 +526,11 @@ func TestCreateLogAlarmWaitByIDSettles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLogAlarm() error = %v", err)
 	}
-	if out.AlarmID != "alarm-1" || out.Alarm.Status != "OK" {
+	if out.AlarmID != "alarm-1" || out.Alarm.Status != LogAlarmStatusActive {
 		t.Fatalf("unexpected output: %+v", out)
 	}
-	if getCalls.Load() != 2 {
-		t.Fatalf("get calls = %d, want 2", getCalls.Load())
+	if getCalls.Load() != 3 {
+		t.Fatalf("get calls = %d, want 3", getCalls.Load())
 	}
 }
 
@@ -544,10 +546,12 @@ func TestCreateLogAlarmWaitByNameWhenNoID(t *testing.T) {
 				_, _ = w.Write([]byte(noExistingLogAlarmsPage))
 			case 2: // first wait poll: not visible yet
 				_, _ = w.Write([]byte(noExistingLogAlarmsPage))
-			case 3: // second wait poll: creating
-				_, _ = w.Write([]byte(logAlarmListPage("alarm-1", "my-alarm", LogAlarmStatusCreating)))
-			default: // third wait poll: settled
-				_, _ = w.Write([]byte(logAlarmListPage("alarm-1", "my-alarm", "OK")))
+			case 3: // second wait poll: empty status
+				_, _ = w.Write([]byte(logAlarmListPage("alarm-1", "")))
+			case 4: // third wait poll: creating
+				_, _ = w.Write([]byte(logAlarmListPage("alarm-1", LogAlarmStatusCreating)))
+			default: // fourth wait poll: settled
+				_, _ = w.Write([]byte(logAlarmListPage("alarm-1", LogAlarmStatusActive)))
 			}
 		case "/log-api/v1/projects/proj-1":
 			w.Header().Set("Content-Type", "application/json")
@@ -566,42 +570,81 @@ func TestCreateLogAlarmWaitByNameWhenNoID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLogAlarm() error = %v", err)
 	}
-	if out.AlarmID != "alarm-1" || out.Alarm.Status != "OK" {
+	if out.AlarmID != "alarm-1" || out.Alarm.Status != LogAlarmStatusActive {
 		t.Fatalf("unexpected output: %+v", out)
 	}
-	if listCalls.Load() != 4 {
-		t.Fatalf("list calls = %d, want 4", listCalls.Load())
+	if listCalls.Load() != 5 {
+		t.Fatalf("list calls = %d, want 5", listCalls.Load())
 	}
 }
 
 func TestCreateLogAlarmWaitTimesOut(t *testing.T) {
-	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/vmonitor-api/api/v1/alarms/list":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(noExistingLogAlarmsPage))
-		case "/log-api/v1/projects/proj-1":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(exampleLogProjectBody("proj-1", "example-project")))
-		case "/vmonitor-api/api/v1/alarms/logs":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"alarm-1"}`))
-		case "/vmonitor-api/api/v1/alarms/alarm-1":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","status":"CREATING"}}`))
-		default:
-			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
-		}
-	})))
+	for _, status := range []string{"", LogAlarmStatusCreating, "OK"} {
+		t.Run("status="+status, func(t *testing.T) {
+			client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/vmonitor-api/api/v1/alarms/list":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(noExistingLogAlarmsPage))
+				case "/log-api/v1/projects/proj-1":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(exampleLogProjectBody("proj-1", "example-project")))
+				case "/vmonitor-api/api/v1/alarms/logs":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"id":"alarm-1"}`))
+				case "/vmonitor-api/api/v1/alarms/alarm-1":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","progressStatus":%q}}`, status)
+				default:
+					t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+				}
+			})))
 
-	out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
-		Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
-	})
-	if !errors.Is(err, dns.ErrNotSettled) {
-		t.Fatalf("CreateLogAlarm() error = %v, want ErrNotSettled", err)
+			out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
+				Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
+			})
+			if !errors.Is(err, dns.ErrNotSettled) {
+				t.Fatalf("CreateLogAlarm() error = %v, want ErrNotSettled", err)
+			}
+			if out == nil || out.Alarm.Status != status {
+				t.Fatalf("unexpected output: %+v", out)
+			}
+		})
 	}
-	if out == nil || out.Alarm.Status != LogAlarmStatusCreating {
-		t.Fatalf("unexpected output: %+v", out)
+}
+
+func TestCreateLogAlarmWaitFailedStatus(t *testing.T) {
+	for _, status := range []string{"ERROR", "FAILED"} {
+		t.Run(status, func(t *testing.T) {
+			client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/vmonitor-api/api/v1/alarms/list":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(noExistingLogAlarmsPage))
+				case "/log-api/v1/projects/proj-1":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(exampleLogProjectBody("proj-1", "example-project")))
+				case "/vmonitor-api/api/v1/alarms/logs":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"id":"alarm-1"}`))
+				case "/vmonitor-api/api/v1/alarms/alarm-1":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"data":{"id":"alarm-1","name":"my-alarm","type":"LOG","progressStatus":%q}}`, status)
+				default:
+					t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+				}
+			})))
+
+			out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
+				Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
+			})
+			if !errors.Is(err, dns.ErrFailed) {
+				t.Fatalf("CreateLogAlarm() error = %v, want ErrFailed", err)
+			}
+			if out == nil || out.Alarm.Status != status {
+				t.Fatalf("unexpected output: %+v", out)
+			}
+		})
 	}
 }
 
@@ -756,7 +799,7 @@ const existingLogAlarmRaw = `{
 		"name": "existing-alarm",
 		"description": "old description",
 		"type": "LOG",
-		"status": "OK",
+		"status": "ACTIVE",
 		"severity": "LOW",
 		"alarmLog": {
 			"id": "log-1", "logProject": "proj-1",
@@ -789,7 +832,7 @@ const existingLogAlarmNoFilterRaw = `{
 		"id": "alarm-1",
 		"name": "existing-alarm",
 		"type": "LOG",
-		"status": "OK",
+		"status": "ACTIVE",
 		"severity": "LOW",
 		"alarmLog": {
 			"id": "log-1", "logProject": "proj-1",
@@ -840,7 +883,7 @@ func TestUpdateLogAlarmMergeUnsetFieldsResendReadValues(t *testing.T) {
 // TestUpdateLogAlarmPreservesAbsentReadQueryFields ensures an unrelated
 // update does not turn an alarm with no query fields into a match-all alarm.
 func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
-	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"ACTIVE","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -871,7 +914,7 @@ func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
 // TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults distinguishes an
 // explicit empty query update from leaving the read's empty values untouched.
 func TestUpdateLogAlarmExplicitEmptyQueryUsesCreateDefaults(t *testing.T) {
-	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"OK","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
+	const raw = `{"data":{"id":"alarm-1","name":"existing-alarm","description":"old description","type":"LOG","status":"ACTIVE","severity":"LOW","alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","queryString":"","logSearchQuery":"","thresholdType":"frequency","condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -1090,7 +1133,7 @@ func TestUpdateLogAlarmRejectsNaNOrInfThresholdValue(t *testing.T) {
 // sending the body anyway would replace the alarm with mostly blank
 // fields.
 func TestUpdateLogAlarmRefusesWhenLogAlarmDetailNil(t *testing.T) {
-	const raw = `{"data":{"id":"alarm-1","name":"legacy-alarm","type":"LOG","status":"OK","severity":"LOW"}}`
+	const raw = `{"data":{"id":"alarm-1","name":"legacy-alarm","type":"LOG","status":"ACTIVE","severity":"LOW"}}`
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
@@ -1139,7 +1182,7 @@ func TestUpdateLogAlarmRefusesIncompleteLogDetail(t *testing.T) {
 				delete(alarmLog, tc.strip)
 			}
 			raw, err := json.Marshal(map[string]any{"data": map[string]any{
-				"id": "alarm-1", "name": "partial-alarm", "type": "LOG", "status": "OK", "severity": "LOW",
+				"id": "alarm-1", "name": "partial-alarm", "type": "LOG", "status": "ACTIVE", "severity": "LOW",
 				"alarmLog": alarmLog,
 			}})
 			if err != nil {
@@ -1202,7 +1245,7 @@ func TestUpdateLogAlarmRefusesMissingRequiredReadFields(t *testing.T) {
 				"thresholdValue": 100, "timeFrame": 5, "inAlarm": "", "ok": "",
 			}
 			alarm := map[string]any{
-				"id": "alarm-1", "name": "existing-alarm", "type": "LOG", "status": "OK", "severity": "LOW",
+				"id": "alarm-1", "name": "existing-alarm", "type": "LOG", "status": "ACTIVE", "severity": "LOW",
 				"alarmLog": alarmLog,
 			}
 			if tc.field == "logProjectName" {
@@ -1232,12 +1275,13 @@ func TestUpdateLogAlarmRefusesMissingRequiredReadFields(t *testing.T) {
 	}
 }
 
-// TestUpdateLogAlarmRefusesWhileCreatingOrUpdating covers the console's own
-// rule: it blocks edits while an alarm's Status is CREATING or UPDATING.
-func TestUpdateLogAlarmRefusesWhileCreatingOrUpdating(t *testing.T) {
-	for _, status := range []string{LogAlarmStatusCreating, LogAlarmStatusUpdating} {
+// TestUpdateLogAlarmRefusesUnlessActive covers the server's rule: it refuses
+// an update with 403 until the read shows ACTIVE, which includes the empty
+// status right after create.
+func TestUpdateLogAlarmRefusesUnlessActive(t *testing.T) {
+	for _, status := range []string{"", LogAlarmStatusCreating, LogAlarmStatusUpdating, "OK"} {
 		t.Run(status, func(t *testing.T) {
-			raw := fmt.Sprintf(`{"data":{"id":"alarm-1","name":"existing-alarm","type":"LOG","status":%q,"severity":"LOW",
+			raw := fmt.Sprintf(`{"data":{"id":"alarm-1","name":"existing-alarm","type":"LOG","progressStatus":%q,"severity":"LOW",
 				"alarmLog":{"id":"log-1","logProject":"proj-1","logProjectName":"old-project","thresholdType":"frequency",
 				"condition":"gt","thresholdValue":100,"timeFrame":5,"inAlarm":"","ok":""}}}`, status)
 			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1252,8 +1296,8 @@ func TestUpdateLogAlarmRefusesWhileCreatingOrUpdating(t *testing.T) {
 			_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
 				AlarmID: "alarm-1", NoWait: true, Description: ptrStr("x"),
 			})
-			if !errors.Is(err, core.ErrInvalidInput) {
-				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput", err)
+			if !errors.Is(err, core.ErrInvalidInput) || !strings.Contains(err.Error(), "still settling") {
+				t.Fatalf("UpdateLogAlarm() error = %v, want ErrInvalidInput saying the alarm is still settling", err)
 			}
 		})
 	}
@@ -1298,7 +1342,7 @@ func TestUpdateLogAlarmWaitSettles(t *testing.T) {
 				_, _ = w.Write([]byte(existingLogAlarmRaw))
 				return
 			}
-			status := "OK"
+			status := LogAlarmStatusActive
 			if n == 2 {
 				status = LogAlarmStatusUpdating
 			}
@@ -1317,8 +1361,8 @@ func TestUpdateLogAlarmWaitSettles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateLogAlarm() error = %v", err)
 	}
-	if out.Alarm.Status != "OK" {
-		t.Fatalf("Alarm.Status = %q, want OK", out.Alarm.Status)
+	if out.Alarm.Status != LogAlarmStatusActive {
+		t.Fatalf("Alarm.Status = %q, want ACTIVE", out.Alarm.Status)
 	}
 	if getCalls.Load() != 3 {
 		t.Fatalf("get calls = %d, want 3", getCalls.Load())
@@ -1511,7 +1555,14 @@ func liveLogAlarmHandler(t *testing.T, onPut func(map[string]any)) http.Handler 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
-			testutil.WriteFixture(t, w, "../testdata/monitor/GetAlarmLogLive.json")
+			// The recorded read was taken right after create, with an empty
+			// progressStatus; an update needs the ACTIVE read.
+			raw, err := os.ReadFile("../testdata/monitor/GetAlarmLogLive.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(strings.Replace(string(raw), `"progressStatus": ""`, `"progressStatus": "ACTIVE"`, 1)))
 		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
 			onPut(decodeLogProjectBody(t, r))
 			w.WriteHeader(http.StatusOK)

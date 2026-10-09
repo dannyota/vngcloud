@@ -93,9 +93,10 @@ retried after a failure that may have already reached the server: after
 any error that is not a 4xx `*vngcloud.APIError`, the alarm may exist, and
 the returned error says to list log alarms by `Name` before creating again.
 
-Unless `NoWait` is set, `CreateLogAlarm` waits up to 60 seconds for the
-alarm's `Status` to settle (anything but `CREATING` or `UPDATING`, an
-empty status included): by `AlarmID` when the create response carried one,
+Unless `NoWait` is set, `CreateLogAlarm` waits up to 120 seconds for the
+alarm's `Status` to read `ACTIVE`, which takes about 30 seconds (the empty
+status right after create and `CREATING` keep it polling; `ERROR` or
+`FAILED` returns an error wrapping `dns.ErrFailed`): by `AlarmID` when the create response carried one,
 else by listing log alarms for an exact `Name` match, the same way
 `CreateLogProject`'s own wait works before an id is known. The wait
 running out, or a read inside it failing, returns an error wrapping
@@ -124,8 +125,9 @@ Every field but `AlarmID` is a pointer; a field left `nil` keeps the
 alarm's current value. `UpdateLogAlarm` reads the alarm first with
 `GetAlarm` and refuses with `vngcloud.ErrInvalidInput`, sending no `PUT`,
 when its `Kind` is not `monitor.AlarmKindLog`; when its `Status` is
-`CREATING` or `UPDATING`, the same rule the console's own edit page
-enforces; or when the read carries no log alarm detail at all, or one
+not `ACTIVE` (the server refuses an update with 403 until it is, so the
+empty status right after create is refused too; retry once it reads
+`ACTIVE`); or when the read carries no log alarm detail at all, or one
 missing `LogProjectID`, `ThresholdType`, `Condition`, or a nonzero
 `TimeFrame`, since a full-replace `PUT` built from that read would send
 those fields blank. `LogProjectID`, when set, is re-read with

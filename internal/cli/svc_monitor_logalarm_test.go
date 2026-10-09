@@ -32,9 +32,9 @@ const existingLogAlarmForUpdateJSON = `{
 		"name": "existing-alarm",
 		"description": "old description",
 		"type": "LOG",
-		"status": "OK",
+		"status": "ACTIVE",
 		"severity": "LOW",
-		"alarmLog": {"id": "log-1", 
+		"alarmLog": {"id": "log-1",
 			"logProject": "proj-1",
 			"logProjectName": "old-project",
 			"queryString": "status:500",
@@ -379,6 +379,34 @@ func TestMonitorUpdateLogAlarmSendsMergedBody(t *testing.T) {
 	}
 	if projectCalls.Load() != 0 {
 		t.Fatalf("GetLogProject called %d times, want 0: LogProjectID was not touched", projectCalls.Load())
+	}
+}
+
+// TestMonitorUpdateLogAlarmRefusesEmptyStatusWithoutPUT checks the status
+// guard: a read whose status is empty is refused with InvalidUsage, sending
+// no PUT, since only ACTIVE lets an update through.
+func TestMonitorUpdateLogAlarmRefusesEmptyStatusWithoutPUT(t *testing.T) {
+	emptyStatus := strings.Replace(existingLogAlarmForUpdateJSON, `"status": "ACTIVE"`, `"status": ""`, 1)
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-api/api/v1/alarms/alarm-1": jsonHandler(http.StatusOK, emptyStatus),
+		"/vmonitor-api/api/v1/alarms/logs/alarm-1": func(_ http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		},
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "monitor", "update-log-alarm",
+		"--alarm-id", "alarm-1", "--description", "x", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an invalid-input refusal for an alarm with an empty status")
+	}
+	if got := classify(err).Code; got != "InvalidUsage" {
+		t.Fatalf("Code = %q, want InvalidUsage (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 2 {
+		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", got, stderr.String())
 	}
 }
 

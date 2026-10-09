@@ -40,10 +40,12 @@ const (
 	LogAlarmConditionLTE = "lte"
 )
 
-// LogAlarmStatusCreating and LogAlarmStatusUpdating are the two Alarm.Status
-// values CreateLogAlarm and UpdateLogAlarm's own wait treats as unsettled;
-// any other status, including empty, counts as settled.
+// LogAlarmStatusActive, LogAlarmStatusCreating, and LogAlarmStatusUpdating
+// are Alarm.Status values for a log alarm. Only ACTIVE counts as settled:
+// right after a create the read shows an empty status for about 30 seconds,
+// and the server refuses an update (403) until it shows ACTIVE.
 const (
+	LogAlarmStatusActive   = "ACTIVE"
 	LogAlarmStatusCreating = "CREATING"
 	LogAlarmStatusUpdating = "UPDATING"
 )
@@ -52,7 +54,7 @@ const (
 // UpdateLogAlarm's own wait cadence and bound.
 const (
 	logAlarmPollInterval = 2 * time.Second
-	logAlarmWaitBound    = 60 * time.Second
+	logAlarmWaitBound    = 120 * time.Second
 )
 
 // logAlarmDefaultResendPeriod is the console's own default resendPeriod
@@ -368,11 +370,24 @@ func (c *Client) refuseIfLogAlarmNameExists(ctx context.Context, op, name string
 	return nil
 }
 
-// logAlarmSettled reports whether status counts as settled: neither
-// LogAlarmStatusCreating nor LogAlarmStatusUpdating, including an empty
-// status.
+// logAlarmSettled reports whether status counts as settled: only
+// LogAlarmStatusActive does, so the empty status keeps a wait polling.
 func logAlarmSettled(status string) bool {
-	return status != LogAlarmStatusCreating && status != LogAlarmStatusUpdating
+	return status == LogAlarmStatusActive
+}
+
+// logAlarmFailed reports whether status is a terminal failure.
+func logAlarmFailed(status string) bool {
+	return status == "ERROR" || status == "FAILED"
+}
+
+// logAlarmWaitStep turns one read of a log alarm into a poll step result:
+// stop on ACTIVE, stop with dns.ErrFailed on a failed status, else go on.
+func logAlarmWaitStep(op, ref string, status string) (bool, error) {
+	if logAlarmFailed(status) {
+		return true, fmt.Errorf("%w: %s: log alarm %s reached status %s", dns.ErrFailed, op, ref, status)
+	}
+	return logAlarmSettled(status), nil
 }
 
 // waitLogAlarmByID polls GetAlarm(id) every logAlarmPollInterval, up to
@@ -389,13 +404,13 @@ func (c *Client) waitLogAlarmByID(ctx context.Context, op, id string) (*Alarm, e
 				return true, err
 			}
 			found = alarm
-			return logAlarmSettled(alarm.Status), nil
+			return logAlarmWaitStep(op, id, alarm.Status)
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: log alarm %s was accepted; do not send the same write again", dns.ErrNotSettled, op, id)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) {
+	if err != nil && !errors.Is(err, dns.ErrNotSettled) && !errors.Is(err, dns.ErrFailed) {
 		err = fmt.Errorf("%w: %s: log alarm %s: %w", dns.ErrNotSettled, op, id, err)
 	}
 	return found, err
@@ -417,13 +432,13 @@ func (c *Client) waitLogAlarmByName(ctx context.Context, op, name string) (*Alar
 				return false, nil
 			}
 			found = alarm
-			return logAlarmSettled(alarm.Status), nil
+			return logAlarmWaitStep(op, strconv.Quote(name), alarm.Status)
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: log alarm %q was accepted; do not send the same write again", dns.ErrNotSettled, op, name)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) {
+	if err != nil && !errors.Is(err, dns.ErrNotSettled) && !errors.Is(err, dns.ErrFailed) {
 		err = fmt.Errorf("%w: %s: log alarm %q: %w", dns.ErrNotSettled, op, name, err)
 	}
 	return found, err

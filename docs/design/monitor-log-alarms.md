@@ -78,7 +78,7 @@ Live read on 2026-10-09: Get's `data` and a List item have `id`, `type`
 (`Log`; the SDK matches `LOG` and `METRIC` in any case), `name`,
 `description`, `severity`, `progressStatus` (`ACTIVE`; the SDK also reads
 `status` when `progressStatus` is absent; Get returns `""` right after
-create, which the SDK treats as settled), `createdAt`, and, for a log
+create, which the SDK treats as not yet settled), `createdAt`, and, for a log
 alarm, `alarmLog`. The Delete response's `data` has the same shape. List items carry
 the same `alarmLog`. `alarmLog` holds the log fields under the create body
 names, except `logProject` (the project ID) and `logProjectName`. It also
@@ -88,7 +88,8 @@ trailing comma, `""` for none), and the resend fields once set.
 
 The console edits a log alarm by sending the read `alarmLog`, with the
 edited fields replaced and `name`, `description`, and `severity` from the
-top level. It disables edits while `status` is `CREATING` or `UPDATING`.
+top level. It disables edits while `status` is `CREATING` or `UPDATING`; the server
+also refuses them until the read shows `ACTIVE`.
 The detail page reads the Status call instead: `data.status`, shown as
 `CREATING` when null, and `data.updated_on` in epoch seconds.
 
@@ -191,8 +192,12 @@ clears), and `Resend`*.
 
 It checks `AlarmID` and any new channel or project ID, reads the alarm,
 and refuses with `ErrInvalidInput` when `Kind` is not `Log`, when the read
-lacks a field the create always sends, or when `status` is `CREATING` or
-`UPDATING`. `QueryString` and `Filter` must be set together or both left
+lacks a field the create always sends, or when `status` is not `ACTIVE`
+(the message says the alarm is still settling and to retry once it reads
+`ACTIVE`). Live, `PUT alarms/logs/{id}` returns 403 `you don't have
+permission on this resource` for about 30 seconds after create, while the
+read shows `progressStatus` `""`; once it shows `ACTIVE` the same update
+succeeds. Delete works on any status. `QueryString` and `Filter` must be set together or both left
 unset; new values follow the create's pairing rule. It applies the set
 fields to the read and builds the body with the create's builder. A new
 `LogProjectID` gets `projectName` from `GetLogProject`; otherwise the read's
@@ -225,11 +230,12 @@ returns not-found. There is no wait: the console treats a success as done.
 
 ### Wait
 
-Create and update poll `GetAlarm` every 2 seconds, up to 60 seconds, with
-the injected clock, until `status` is neither `CREATING` nor `UPDATING`;
-an empty `status` counts as settled. Before the ID is known, create polls
-the list by exact name. The bound returns `ErrNotSettled` (the vDNS
-sentinel): the write was accepted and must not be repeated. `NoWait`
+Create and update poll `GetAlarm` every 2 seconds, up to 120 seconds, with
+the injected clock, until `status` is `ACTIVE`. An empty `status` and
+`CREATING` keep polling: live, a created alarm reads `""` for about 30
+seconds (30 s in each of three tries) before `ACTIVE`. `ERROR` or `FAILED`
+returns `ErrFailed`. Before the ID is known, create polls the list by exact
+name. The bound returns `ErrNotSettled` (the vDNS sentinel): the write was accepted and must not be repeated. `NoWait`
 returns at once.
 
 ### Retries

@@ -72,9 +72,9 @@ type CreateLogAlarmOutput struct {
 // any error that is not a 4xx *core.APIError, the alarm may exist, and the
 // returned error says to list log alarms by Name before creating again.
 //
-// Without NoWait, CreateLogAlarm waits up to 60 seconds for the alarm's
-// Status to settle (anything but LogAlarmStatusCreating or
-// LogAlarmStatusUpdating): by AlarmID when the create response carried one,
+// Without NoWait, CreateLogAlarm waits up to 120 seconds for the alarm's
+// Status to become LogAlarmStatusActive (the empty status and CREATING keep
+// it polling; ERROR or FAILED returns an error wrapping dns.ErrFailed): by AlarmID when the create response carried one,
 // else by listing log alarms for an exact Name match, the same way
 // CreateLogProject's own wait works before an id is known. If the bound
 // runs out, or a read in that wait fails, the returned error wraps
@@ -237,8 +237,8 @@ type UpdateLogAlarmOutput struct {
 // CreateLogAlarm does, and the QueryString/Filter pairing rule above. It
 // then reads the alarm with GetAlarm and refuses with core.ErrInvalidInput,
 // sending no PUT, when the read's Kind is not AlarmKindLog; when its
-// Status is CREATING or UPDATING, the same rule the console's own edit
-// page enforces; or when its Log is nil, or missing LogProjectID,
+// Status is not ACTIVE, since the server refuses an update with 403 until the
+// read shows ACTIVE, which the empty status right after create does not; or when its Log is nil, or missing LogProjectID,
 // ThresholdType, Condition, or a nonzero TimeFrame, any of which the create
 // body always sends and a full-replace PUT built from an incomplete read
 // would otherwise send blank.
@@ -304,7 +304,7 @@ func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*
 		return nil, fmt.Errorf("%w: %s: alarm %s is not a log alarm", core.ErrInvalidInput, op, in.AlarmID)
 	}
 	if !logAlarmSettled(current.Status) {
-		return nil, fmt.Errorf("%w: %s: alarm %s's status is %s; the console blocks edits until it settles", core.ErrInvalidInput, op, in.AlarmID, current.Status)
+		return nil, fmt.Errorf("%w: %s: alarm %s is still settling (status %q); retry once it reads %s", core.ErrInvalidInput, op, in.AlarmID, current.Status, LogAlarmStatusActive)
 	}
 	if err := checkLogAlarmUpdatable(op, in.AlarmID, current); err != nil {
 		return nil, err

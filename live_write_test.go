@@ -10663,12 +10663,11 @@ func listAllLogAlarms(ctx context.Context, client *monitor.Client) ([]monitor.Al
 // direct poll and the SDK's wait describe the same real-world timing.
 const (
 	liveLogAlarmPollInterval = 2 * time.Second
-	liveLogAlarmPollBound    = 60 * time.Second
+	liveLogAlarmPollBound    = 120 * time.Second
 )
 
-// pollLogAlarmSettled polls for a Log alarm's Status to settle (anything
-// but CREATING or UPDATING), by id when id is not empty, else by exact
-// name, up to liveLogAlarmPollBound. It exists because CreateLogAlarm's own
+// pollLogAlarmSettled polls for a Log alarm's Status to become ACTIVE, by id
+// when id is not empty, else by exact name, up to liveLogAlarmPollBound. It exists because CreateLogAlarm's own
 // NoWait skips that wait entirely, and the test needs to look at the create
 // response's own id separately from whichever alarm the poll eventually
 // finds. It returns the last alarm read, whether it settled within the
@@ -10695,7 +10694,7 @@ func pollLogAlarmSettled(ctx context.Context, client *monitor.Client, id, name s
 				}
 			}
 		}
-		if found != nil && found.Status != monitor.LogAlarmStatusCreating && found.Status != monitor.LogAlarmStatusUpdating {
+		if found != nil && found.Status == monitor.LogAlarmStatusActive {
 			return *found, true, nil
 		}
 		if !time.Now().Before(deadline) {
@@ -10902,6 +10901,10 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 	if !ok {
 		deleteLogAlarmByName(t, client, alarmName)
 		t.Fatalf("step 3: alarm did not settle within %s", liveLogAlarmPollBound)
+	}
+	if settled.Status != monitor.LogAlarmStatusActive {
+		deleteLogAlarmByName(t, client, alarmName)
+		t.Fatalf("step 3: alarm settled at status %q, want %s", settled.Status, monitor.LogAlarmStatusActive)
 	}
 	if settled.ID == "" {
 		deleteLogAlarmByName(t, client, alarmName)
