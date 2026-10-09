@@ -9,8 +9,9 @@ Public docs (`docs.greennode.ai/vstorage`), the OpenAPI specs on
 `docs.api.greennode.ai` (`vstorage-hcm04-api`, `accounts-api`), the public
 vStorage console bundle and its `config.prod.json`, live reads on the test
 account on 2026-09-26, the console's own calls with the test IAM user
-on 2026-10-09, after the owner bought a project, and live bucket and S3 key
-writes on the test project the same day. VNG Cloud's Go SDK and
+on 2026-10-09, after the owner bought a project, and live bucket, S3 key,
+and service account key writes on the test project the same day; every
+key and service account made was deleted. VNG Cloud's Go SDK and
 Terraform provider have no vStorage code.
 
 ## Model
@@ -22,10 +23,11 @@ Terraform provider have no vStorage code.
 - An S3 key is an access key and secret for one project, with the rights of
   the user who made it. The secret is shown once. The console API and the
   IAM accounts API keep separate key stores; see [S3 keys](#s3-keys).
-- An IAM service account starts with no rights. A key attached to it acts
-  as the service account, whose bucket rights come from a bucket policy
-  that names its storage principal, `arn:aws:iam:::user/<subUserId>`. This
-  is the per-bucket key: one service account, one bucket policy, one key.
+- An IAM service account starts with no rights. A console key attached to
+  it acts as the service account, whose bucket rights come from a bucket
+  policy that names its storage principal,
+  `arn:aws:iam:::user/<subUserId>`. This is the per-bucket key: one service
+  account, one bucket policy, one key. See [Attach](#attach).
 
 ## Management APIs
 
@@ -33,12 +35,13 @@ Terraform provider have no vStorage code.
 |-|-|-|-|
 | vStorage console API | `https://vstorage.console.greennode.ai/internal/v1/` | IAM User token | Works |
 | vStorage external API | `https://hcm04-api.vstorage.vngcloud.vn/api/v1/` | Service account token | IAM User token gets an empty 200 |
-| IAM accounts API | `https://dashboard.console.greennode.ai/accounts-api/v1/` | IAM User token | Reads work; S3 key create answers 500 |
+| IAM accounts API | `https://dashboard.console.greennode.ai/accounts-api/v1/` | IAM User token | Reads work; S3 key create answers 500; attach answers 404 for console keys |
 
 The console API has the external API's paths and bodies
 (`ceph/projects/{projectId}/buckets/{bucket}`) under another prefix. The
 documented IAM accounts API covers service accounts, S3 keys, and attaching
-a key to a service account. The console API also has S3 key calls.
+a key to a service account, on its own key store. The console API has its
+own S3 key and attach calls.
 
 ## Region headers
 
@@ -82,7 +85,7 @@ Console API responses use one envelope: `success`, `code`, `errorMsg`,
 | Region | `regionId`, `regionName`, `regionDisplayingName`, `backendType`, `s3Host`, `vosApiHost`, `accountUrl`, `authHost`, `status` (number) |
 | Project | See [Project](#project) |
 | Bucket (spec) | `name`, `count`, `size`, `isPublic`, `isVersioned`, `createdDate`, `lastModified`, `type`, `versionLocation` |
-| S3 key, console list | `regionId`, `projectId`, `userId`, `subUserId`, `userKeyId`, `accessKey`, `secretKey` (null), `createdDate` (`dd/mm/yyyy hh:mm`), `status` (number, 1) |
+| S3 key, console list | `regionId`, `projectId`, `userId`, `subUserId` (null, or the attached service account's sub-user), `userKeyId`, `accessKey`, `secretKey` (null), `createdDate` (`dd/mm/yyyy hh:mm`), `status` (number, 1) |
 | S3 key, console create | `data.userKeyId`, `data.accessKey`, `data.secretKey`; the other list fields null |
 | S3 key, accounts API spec | `id`, `name`, `accessKey`, `projectId`, `regionId`, `createdAt` (RFC 3339 text); create adds `secretKey` |
 | Service account page | `data`, `pageNumber`, `pageSize`, `totalItems`, `totalPages` |
@@ -138,11 +141,24 @@ It answers the project's storage user in `data`: `userId`
 record. Whether a bucket list fails before this POST is unknown: the user
 already existed when the headers were tested.
 
+The server ignores `iamAccountId` and `iamUserType`: every variant tried
+returns the caller's own IAM user sub-user. The console bundle's enum is
+`iam-user`, `root-user`, and `user-sa`, and the console calls it only with
+`iam-user`.
+
 `GET users/details` with `generated=true` answered code 114 `Error occurred
 in adding storage user <root email>` while the account had no project.
 With a project, both `generated=true` and `generated=false` answer the
 account-level user `<root local part>-<account ID>`, with `subUserId`
 `<that>:iam-<IAM user name>` and the same endpoint fields.
+
+For a service account, `GET users/details` with `generated=true`,
+`project_id=<p>`, and `iam_account_id=sa-<service account id>` answers
+`subUserId` `<account user>:sa-<service account name>`. With
+`generated=false`, or with the ID without `sa-`, `subUserId` is null. The
+console's own sub-user create sends exactly this: `sa-` or `iam-` plus the
+ID, with `generated=true`. The sub-user name comes from the service
+account's name, not its ID. No console call deletes a sub-user.
 
 ## Bucket writes
 
@@ -188,9 +204,29 @@ The secret appears only in the create response. The list carries a
 appear in the accounts API list. A key passed `aws s3 ls` on the data
 plane; see [Data plane](#data-plane).
 
-The console's `ceph_sub_users` body takes `iamAccountId` and `iamUserType`
-([storage users](#storage-users)). Whether `users/s3_keys` takes them too,
-and so can make a key for a service account, is unknown.
+`POST users/s3_keys` ignores `iamAccountId` and `iamUserType` too: every
+key it makes is an ordinary project key, with `subUserId` null and
+`userId` the account-level user.
+
+### Attach
+
+Live on the test project, with a console key and a new service account:
+
+| Call | Result |
+|-|-|
+| `PUT users/s3_keys/{userKeyId}/attach`, body `{"projectId":"<p>","serviceAccountId":"<sa>"}` | 200 `{"code":200,"success":true}`, no `data`; the list then shows the key's `subUserId` as `<account user>:sa-<service account name>` |
+| `PUT users/s3_keys/{userKeyId}/detach`, body `{"projectId":"<p>"}` | 200, success; `subUserId` null again |
+| Attach again to the same account | `success: false`, code 114, `This S3 key is already attached with this service account` |
+| Attach of a key attached to another account | Code 114, `This S3 key is already attached with another service account` |
+| Attach of an attached key without `serviceAccountId` | The same "another service account" message |
+| Attach to an unknown service account | Code 114, `StatusCode=404` |
+| Attach of an unknown key | Code 114, `S3 key not found` |
+| Detach of an unattached key | Code 114, `This S3 key is not attached to any service account.` |
+
+Every answer is HTTP 200. The "attached elsewhere" check runs before the
+service account check. Neither call is idempotent. The console shows
+`subUserId` in its "Restriction by IAM" column. Untested: an attach before
+the service account's sub-user exists, and a delete of an attached key.
 
 ### Accounts API
 
@@ -203,6 +239,9 @@ Live under `accounts-api/v1/` with the IAM user token:
 | `POST s3-keys` with `name`, `regionId` (UUID), and `projectId` | 500 `{"errors":[]}` |
 | `POST s3-keys` with `regionId` or `projectId` missing or empty | 400, code `S3_KEY_PROJECT_ID_INVALID` |
 | `DELETE s3-keys/{id}`, unknown id | 404, code `NOT_FOUND_S3_KEY` |
+| `POST` or `DELETE service-accounts/{id}/s3-keys/{keyId}` with a console key | 404, code `NOT_FOUND_S3_KEY` |
+| `PATCH s3-keys/{id}` with `{"restricted": true}` and a console key | 404, code `NOT_FOUND_S3_KEY` |
+| `GET service-accounts/{id}/s3-keys` without `pageNumber` and `pageSize` | 400 |
 
 The 500 held on a retry, with a lower-case region name, and with extra
 region and user headers. The IAM console's "Create a new S3 Key" dialog
@@ -213,10 +252,9 @@ Errors arrive as `{"errors":[{"code","message"}]}`. The transport takes
 the code and message from the first entry; an empty or null list leaves
 the HTTP status text.
 
-The spec names the list search parameter `searchByNameOrAccessKey`, has
-`PATCH s3-keys/{id}`, and lists the attach calls under
-`service-accounts/{id}/s3-keys`. The console shows a "Restriction by IAM"
-column for keys.
+The spec names the list search parameter `searchByNameOrAccessKey`. The
+accounts API's attach and `restricted` calls work only on its own key
+store, which it cannot create keys in.
 
 ## Data plane
 
@@ -228,7 +266,17 @@ AWS CLI v2 releases send checksum headers by default that S3-compatible
 servers often refuse. With default settings, including checksums,
 `aws s3 ls` with `--endpoint-url https://hcm04.vstorage.vngcloud.vn` and
 `AWS_DEFAULT_REGION=HCM04` exited 0 with a console API key and 255 with a
-bogus key; uploads are not yet checked.
+bogus key.
+
+With SigV4 against `hcm04.vstorage.vngcloud.vn`, one console key:
+
+| Step | List buckets | Create bucket | List, put, delete objects in the owner's bucket |
+|-|-|-|-|
+| Before attach | Yes | Yes | Yes |
+| 3 s and 30 s after attach | Yes | Yes | 403 `AccessDenied` |
+| After detach | Yes | Yes | Yes |
+
+A bucket policy that grants the principal was not tested.
 
 ## Purchase
 

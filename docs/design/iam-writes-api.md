@@ -127,7 +127,7 @@ specs and the console until the [probes](iam-writes-checks.md#probes).
   policy `name`, `description`, and `statements`.
 - Reset returns `{"clientSecret": ...}`.
 - Policy, group, and IAM user IDs are UUIDs. The service account ID form
-  is unknown; [vStorage](storage.md#principal) saw `sa-<id>` in a
+  is unknown; [vStorage](storage-keys.md#principal) saw `sa-<id>` in a
   console query.
 - Quotas from the console's quota reads: 20 customer policies, 20 groups,
   and 20 service accounts per account.

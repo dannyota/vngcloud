@@ -18,24 +18,22 @@ and live checks are in [IAM writes: checks](iam-writes-checks.md).
 
 ## Ownership
 
-[vStorage](storage.md) plans S3 keys (release S3, in `storage`) and keys
-for service accounts (S4). This design takes over the service account
-calls that do not involve S3; vStorage keeps S3 keys and the key attach,
-whose calls and package wait on its
-[S4 probes](storage.md#service-account-keys).
+[vStorage](storage.md) owns S3 keys (release S3, in `storage`) and keys
+for service accounts (S4, in `storage`). This design takes over the
+service account calls that do not involve S3; vStorage keeps S3 keys, the
+key attach, and the principal
+([vStorage: keys](storage-keys.md#service-account-keys)).
 
 | Call | Owner |
 |-|-|
 | `ListS3Keys`, `CreateS3Key`, `DeleteS3Key` | vStorage S3 |
-| Service account key calls | vStorage S4 |
-| `GetServiceAccountPrincipal` | vStorage S5 |
+| `AttachS3Key`, `DetachS3Key`, `EnsureServiceAccountPrincipal` | vStorage S4 |
 | `ListServiceAccounts`, `GetServiceAccount`, `CreateServiceAccount`, `DeleteServiceAccount` | This design (moved from vStorage S4) |
 | `UpdateServiceAccount`, `ResetServiceAccountSecret` | This design |
 | Groups, policies, attachments, caller identity, user reads | This design |
 
-vStorage S4 needs a paid vStorage project and waits for credit; service
-accounts do not, so moving them lets them ship and be checked live now.
-The storage design text changes listed in the report go with approval.
+Service accounts need no vStorage project, so they ship and are checked
+live on their own.
 
 ## Non-goals
 
