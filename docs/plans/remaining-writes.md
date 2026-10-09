@@ -15,7 +15,8 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vStorage S5 to S6 | S5 scope probe running | Bucket policy (after the live scope check), bucket versioning, CORS, public access | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
+| vStorage S5 to S6 | S5 coded and reviewed, S6 in progress | Bucket policy (v0.55.0 after the review fixes), versioning and CORS (v0.56.0); public access dropped, see the design |
+| vCDN | Not started | A `cdn` package on the documented vCDN API (`https://vcdn-api.vngcloud.vn/vcdn-api`, `Authorization: Bearer <API key>` from `VNGCLOUD_VCDN_API_KEY`): web accelerator domains, origins, certificates, purge, statistics | An architect design first; the API key is created once in the root-only vCDN Portal | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
 
 ## Open on the account
 
