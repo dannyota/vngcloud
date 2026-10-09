@@ -31,8 +31,9 @@ type AttachVolumeOutput struct {
 // sending nothing. Attached elsewhere, the PUT reaches the server, which
 // refuses it with its own error.
 //
-// The PUT keeps the transport's normal retries: a repeat is refused as
-// already attached, never a second charge.
+// The PUT sends an empty JSON object as its body; the gateway refuses it
+// with 400 and a null message when it has none. It keeps the transport's
+// normal retries: a repeat is refused as already attached, never a second charge.
 //
 // Without NoWait, AttachVolume then waits up to 5 minutes, polling
 // GetVolume every 2 seconds, for the volume to read IN-USE with ServerID
@@ -68,6 +69,7 @@ func (c *Client) AttachVolume(ctx context.Context, in *AttachVolumeInput) (*Atta
 		Operation: op,
 		Method:    http.MethodPut,
 		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "servers", in.ServerID, "attach"}, nil),
+		Body:      struct{}{},
 		OK:        []int{202},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
@@ -124,8 +126,9 @@ type DetachVolumeOutput struct {
 // only this status check, not the read itself, which the boot-volume guard
 // above still needs.
 //
-// The PUT keeps the transport's normal retries: a repeat is refused as
-// already available, never a second charge.
+// The PUT sends an empty JSON object as its body; the gateway refuses it
+// with 400 and a null message when it has none. It keeps the transport's
+// normal retries: a repeat is refused as already available, never a second charge.
 //
 // Without NoWait, DetachVolume then waits up to 5 minutes, polling
 // GetVolume every 2 seconds, for the volume to read AVAILABLE. ERROR wraps
@@ -176,6 +179,7 @@ func (c *Client) DetachVolume(ctx context.Context, in *DetachVolumeInput) (*Deta
 		Operation: op,
 		Method:    http.MethodPut,
 		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "servers", in.ServerID, "detach"}, nil),
+		Body:      struct{}{},
 		OK:        []int{202},
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {

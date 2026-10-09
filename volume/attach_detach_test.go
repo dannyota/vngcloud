@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -548,5 +549,44 @@ func TestResizeVolume429SentOnce(t *testing.T) {
 	}
 	if writes.Load() != 1 {
 		t.Fatalf("writes = %d, want 1", writes.Load())
+	}
+}
+
+// The vServer gateway refuses a bodiless attach or detach PUT with 400.
+func TestAttachDetachSendEmptyJSONObjectBody(t *testing.T) {
+	for _, action := range []string{"attach", "detach"} {
+		t.Run(action, func(t *testing.T) {
+			var gotBody, gotType string
+			var puts int
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/volumes/volume-1":
+					if action == "attach" {
+						_, _ = w.Write([]byte(volumeBody("AVAILABLE", "")))
+					} else {
+						_, _ = w.Write([]byte(volumeBody("IN-USE", "server-1")))
+					}
+				case r.Method == http.MethodGet:
+					_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
+				case r.Method == http.MethodPut:
+					puts++
+					b, _ := io.ReadAll(r.Body)
+					gotBody, gotType = string(b), r.Header.Get("Content-Type")
+					w.WriteHeader(http.StatusAccepted)
+				}
+			}))
+			var err error
+			if action == "attach" {
+				_, err = c.AttachVolume(context.Background(), &AttachVolumeInput{VolumeID: "volume-1", ServerID: "server-1", NoWait: true})
+			} else {
+				_, err = c.DetachVolume(context.Background(), &DetachVolumeInput{VolumeID: "volume-1", ServerID: "server-1", NoWait: true})
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if puts != 1 || gotBody != "{}" || gotType != "application/json" {
+				t.Fatalf("puts=%d body=%q content-type=%q, want 1, {}, application/json", puts, gotBody, gotType)
+			}
+		})
 	}
 }

@@ -86,8 +86,10 @@ them; the SDK sends `zoneId` only on creates.
   `encryptionType`, `createdFrom`, `configVolumeRestore`, `imageId`,
   `persistentVolume`, and `poolName`; the SDK never sends them.
 - Volume resize: `newSize` and `newVolumeTypeId`, both required.
-- Attach and detach: an empty object. The reference lists an optional
-  `persistentVolume`, which the SDK never sends.
+- Attach and detach: an empty object `{}` with the JSON content type. A
+  bodiless PUT is refused with 400 and the body `{"message":null}` (live).
+  The reference lists an optional `persistentVolume`, which the SDK never
+  sends.
 
 ## Responses (inferred)
 
