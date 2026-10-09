@@ -15,13 +15,13 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vStorage | Done pending the v0.55.0 tag | Bucket policy, versioning, and CORS ship together as v0.55.0; public access is a non-goal (the console route answers 403) |
-| vCDN | Design revised from live probes | A `cdn` package on the documented vCDN API (`https://vcdn-api.vngcloud.vn/vcdn-api`, `Authorization: Bearer <API key>` from `VNGCLOUD_VCDN_API_KEY`): web accelerator domains, origins, certificates, purge, statistics | An architect design first; the API key is created once in the root-only vCDN Portal | None: project `vngcloud-live-s2` (HCM04, Gold, 30 GB, Pay monthly, 30,000 VND, no auto-renew, bought 2026-10-09, ends 2026-11-08) |
+| vCDN | Design revised from live probes | A `cdn` package on the documented vCDN API (`https://vcdn-api.vngcloud.vn/vcdn-api`, `Authorization: Bearer <API key>` from `VNGCLOUD_VCDN_API_KEY`): web accelerator domains, origins, certificates, purge, statistics | One real Web Accelerator on the account for the C1 reads; the owner's cost check before C2 |
 
 ## Open on the account
 
 - vStorage project purchase works for the IAM user once the project name is filled: the console form shows Billing method (Pay monthly only; no pay-as-you-go on this account), project type (Gold or Instant Archive), and a 30 GB minimum. The `users/details?generated=true` code 114 error is unrelated and harmless. The create flow is `POST billing-api/v2/price` then `POST internal/v2/orders` (`resourceType: object_storage`, `action: create`, `paymentType: manual`, `resourceInfo: {projectName, purchaseTypeId: 4, projectType: 1, quota, archivePeriod: 0, billingTimeType: block}`), which redirects to the payment console checkout; untick Auto-renew there. The console lists projects with `GET internal/v1/projects?reload=false&load_all=true`; the server fills results only when the request carries the console's `region: <region id>` header, which v0.51.1 added.
 - The VPC quota is 2 and one slot is held by `stuck-acl-vpc-*`, which the server cannot delete (needs a support ticket). Live tests that need a VPC borrow an existing one through `VNGCLOUD_LIVE_NETWORK_VPC_ID` when the quota is full.
+- vStorage shipped through v0.55.0; the test project was deleted on 2026-10-09 and the unused value was refunded at once (balance 1,968,789 to 1,998,684 VND). A later vStorage live run needs a new project (console purchase, 30,000 VND, refunded on delete).
 - vCDN C1 needs one real Web Accelerator to confirm the `cdn/*` body shape (the documented `webacc/*` routes answer 404): the owner creates one in the vCDN Portal, or clears the cost check and C2 creates one.
 - The budget `vngcloud-live-cap` (1,000,000 VND a month, alert at 50%) stays on the account for later paid runs.
 
