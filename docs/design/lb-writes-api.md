@@ -115,8 +115,10 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - The listener read has no `blockedCidrs`, `defaultAction`,
   `alpnProtocols`, or `tlsSecurityPolicy`, and names the client
   certificate `clientCertificateAuthentication`, not `clientCertificate`.
-- VNG Cloud's SDK decodes a load balancer's zone as an object (`zone`
-  with `uuid`), while the model here has `zoneId`. The live read decides.
+- Live: a load balancer read and list send its zone as an object under
+  `zone` (`uuid`, `name`, `zoneType`, `isDefault`, `isEnabled`, and
+  counts), with no flat `zoneId`. The model's `ZoneID` is the zone's
+  `uuid`.
 - Live: `GetLoadBalancer`, `GetListener`, `GetPool`, and `ListPools` on a
   missing load balancer return 404 with `Cannot get load balancer with id
   <id>`. The transport already maps it to `NotFound`.
@@ -192,6 +194,13 @@ Live quotes for a create, `period` 1, on 2026-09-28, the same in all four
   1,200,000 for a small package.
 - Every package is `ACTIVE/STANDBY`. All 11 are offered in zones 1A, 1B,
   and 1C; the Bangkok zone `HCM03-BKK-01` lists 8.
+- Package IDs are zone-specific. `ListPackages` without a zone returns
+  zone `HCM03-1A`'s IDs, and `HCM03-1B` and `HCM03-1C` each have their
+  own, so the same package name has a different ID in each zone. A
+  create must use a package from its own `zoneId`.
+- A resize with another zone's package ID fails with 400 `Invalid
+  package id (lbp-...)`, after the quote and before any charge. List
+  packages with the load balancer's `zone` `uuid`.
 - A quote with an unknown or missing `packageId` returns 500 `Internal
   Server Error`, so the SDK checks `PackageID` before quoting.
 - A resize quote for a missing load balancer returns 400 `The resource is

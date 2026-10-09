@@ -2,6 +2,7 @@ package loadbalancer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +36,26 @@ func TestLoadBalancerListLoadBalancers(t *testing.T) {
 	}
 	if len(out.Items) != 1 || out.Items[0].UUID != "lb-1" || len(out.Items[0].Nodes) != 1 {
 		t.Fatalf("unexpected load balancers: %+v", out)
+	}
+	if out.Items[0].ZoneID != "zone-a" {
+		t.Fatalf("ZoneID = %q, want zone-a from the zone object", out.Items[0].ZoneID)
+	}
+}
+
+func TestLoadBalancerZoneDecode(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"zone object", `{"uuid":"lb-1","zone":{"uuid":"zone-a"}}`, "zone-a"},
+		{"flat zoneId", `{"uuid":"lb-1","zoneId":"zone-b"}`, "zone-b"},
+		{"zone object wins", `{"uuid":"lb-1","zoneId":"zone-b","zone":{"uuid":"zone-a"}}`, "zone-a"},
+		{"no zone", `{"uuid":"lb-1"}`, ""},
+	} {
+		var lb LoadBalancer
+		if err := json.Unmarshal([]byte(tc.body), &lb); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if lb.ZoneID != tc.want || lb.UUID != "lb-1" {
+			t.Errorf("%s: ZoneID = %q, UUID = %q, want %q", tc.name, lb.ZoneID, lb.UUID, tc.want)
+		}
 	}
 }
 
@@ -104,7 +125,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_load_balancer.json"),
 			call: func(c *Client) error {
 				out, err := c.GetLoadBalancer(context.Background(), &GetLoadBalancerInput{LoadBalancerID: "lb-1"})
-				if err == nil && (out.LoadBalancer.UUID != "lb-1" || out.LoadBalancer.ProgressStatus != lbStatusCreated) {
+				if err == nil && (out.LoadBalancer.UUID != "lb-1" || out.LoadBalancer.ProgressStatus != lbStatusCreated || out.LoadBalancer.ZoneID != "zone-a") {
 					t.Fatalf("unexpected load balancer: %+v", out.LoadBalancer)
 				}
 				return err

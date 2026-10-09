@@ -532,11 +532,13 @@ type LoadBalancer struct {
 	BackendSubnetID    string `json:"backendSubnetId"`
 	Internal           bool   `json:"internal"`
 	AutoScalable       bool   `json:"autoScalable"`
-	ZoneID             string `json:"zoneId"`
-	MinSize            int    `json:"minSize"`
-	MaxSize            int    `json:"maxSize"`
-	TotalNodes         int    `json:"totalNodes"`
-	Nodes              []Node `json:"nodes"`
+	// ZoneID is the zone's ID, such as HCM03-1C. The API sends it as the
+	// uuid of a zone object; UnmarshalJSON fills it from there.
+	ZoneID     string `json:"zoneId"`
+	MinSize    int    `json:"minSize"`
+	MaxSize    int    `json:"maxSize"`
+	TotalNodes int    `json:"totalNodes"`
+	Nodes      []Node `json:"nodes"`
 }
 
 type Node struct {

@@ -12,6 +12,6 @@
     "packageId": "pkg-1",
     "status": "ACTIVE",
     "progressStatus": "CREATED",
-    "zoneId": "zone-a"
+    "zone": {"uuid": "zone-a", "name": "<name>", "zoneType": "AVAILABILITY", "isDefault": true, "isEnabled": true}
   }
 }

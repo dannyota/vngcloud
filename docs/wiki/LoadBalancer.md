@@ -156,6 +156,11 @@ resend could race a resize already in progress. A busy refusal from that
 the write is paid; a rerun is safe because `ResizeLoadBalancer` always reads
 first. Without `NoWait`, it then waits for `CREATED` with the new
 `PackageID`.
+Package IDs belong to one zone. Take the new `PackageID` from
+`ListPackages` with `ZoneID` set to the load balancer's own `ZoneID` (read
+it with `GetLoadBalancer`), never from a list without a zone. The SDK does
+not check this: a package from another zone is refused by the server with a
+400 `Invalid package id`, and nothing is charged.
 
 ## Pools and health monitors
 

@@ -24,7 +24,9 @@ const (
 // own code.
 type ResizeLoadBalancerInput struct {
 	LoadBalancerID string `vngcloud:"required"`
-	// PackageID is the package to change to.
+	// PackageID is the package to change to. Package IDs are zone-specific:
+	// take it from ListPackages with the load balancer's own ZoneID, or the
+	// server refuses the resize with a 400.
 	PackageID string `vngcloud:"required"`
 
 	// MaxPrice is VND; a paid ResizeLoadBalancer refuses to order above it.

@@ -8549,6 +8549,11 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
 	}
 
+	// Package IDs are zone-specific, and a resize refuses another zone's
+	// package, so ALB_Medium comes from the kept load balancer's own zone.
+	if kept.ZoneID == "" {
+		t.Fatal("step 1: the kept load balancer's read has no zone")
+	}
 	mediumID, err := findPackageIDByName(ctx, lbClient, kept.ZoneID, "ALB_Medium")
 	if err != nil {
 		t.Fatalf("step 1 find ALB_Medium package: %s", safeErr(err))
