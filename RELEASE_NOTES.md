@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.54.0 - vStorage Service Account Keys
+
+### Highlights
+
+- New `storage.AttachS3Key`, `DetachS3Key`, and
+  `EnsureServiceAccountPrincipal`, with `vngcloud storage attach-s3-key`,
+  `detach-s3-key` (both `--yes`), `ensure-service-account-principal`, and
+  `create-s3-key --service-account-id`, which creates the key, attaches it,
+  and only then writes the secret file. An attached key carries the service
+  account's principal in `S3Key.SubUserID` (the console's "Restriction by
+  IAM") and has no bucket rights until a bucket policy names that
+  principal; it can still list and create buckets.
+- The principal is created explicitly: `EnsureServiceAccountPrincipal`
+  sends the console's `generated=true` read for `sa-<id>` and returns
+  `SubUserID` and `PrincipalARN`; it refuses anything that is not a service
+  account principal.
+- Attach and detach are sent once; the server refuses a repeat attach, an
+  attach of a key bound elsewhere, and a detach of an unbound key with code
+  `114` and a message the CLI prints.
+- Verified live on 2026-10-09 on the test project with a service account
+  created and deleted for the run.
+
 ## v0.53.0 - vStorage S3 Keys
 
 ### Highlights
