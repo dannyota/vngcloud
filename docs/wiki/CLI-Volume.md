@@ -24,7 +24,7 @@ vngcloud volume attach-volume --volume-id <volume-id> --server-id <server-id>
 
 Kind: Write.
 
-Orders nothing above --max-price, default 0: a bare create-volume orders only a free volume, and the smallest real SSD volume already prices above that, so it always refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, a volume already named --name exactly. The order itself is never retried after a failure that may have already reached the server; list volumes by name before ordering again rather than repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.
+Orders nothing above --max-price, default 0: a bare create-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a volume already named --name exactly. The order itself is never retried after a failure that may have already reached the server; list volumes by name before ordering again rather than repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.
 
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 

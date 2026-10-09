@@ -238,9 +238,9 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now twenty-three,
+// closing the error-classes list names every exit-1 code (now twenty-four,
 // with the three vDNS wait codes, monitor's own OTPRejected and
-// PriceAboveMax, iam's own SelfChange, PrivilegedChange, and ManagedPolicy,
+// PriceAboveMax, the root Unpriced, iam's own SelfChange, PrivilegedChange, and ManagedPolicy,
 // network's SystemSecurityGroup, SecurityGroupInUse, ResourceInUse,
 // DefaultResource, and ResourceBusy, compute's own ServerGroupInUse,
 // containerregistry's own RepositoryNotEmpty, UserNotFound, and
@@ -254,7 +254,7 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1"

@@ -14,9 +14,9 @@ const vserverDriftNote = "If this resource is managed by OpenTofu or Terraform, 
 // its duplicate-name guard, the unretried order, and the post-order wait
 // bound: the flag table shows --max-price as a plain, optional float, with
 // no hint that leaving it unset orders nothing at all.
-const volumeCreateVolumeNote = "Orders nothing above --max-price, default 0: a bare create-volume orders " +
-	"only a free volume, and the smallest real SSD volume already prices above that, so it always refuses " +
-	"with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before " +
+const volumeCreateVolumeNote = "Orders nothing above --max-price, default 0: a bare create-volume refuses " +
+	"with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 " +
+	"is refused as Unpriced whatever --max-price says. Refuses, before " +
 	"any request, a volume already named --name exactly. The order itself is never retried after a failure " +
 	"that may have already reached the server; list volumes by name before ordering again rather than " +
 	"repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, " +
@@ -37,9 +37,9 @@ const volumeDeleteVolumeNote = "Destroys the volume's data; there is no undo. Re
 // and the post-order wait bound: the flag table shows --max-price as a
 // plain, optional float and lists no UserData field at all, with no hint of
 // any of this.
-const computeCreateServerNote = "Orders nothing above --max-price, default 0: a bare create-server orders " +
-	"only a free server, and the smallest real flavor already prices above that, so it always refuses with " +
-	"error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any " +
+const computeCreateServerNote = "Orders nothing above --max-price, default 0: a bare create-server refuses with " +
+	"error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is " +
+	"refused as Unpriced whatever --max-price says. Refuses, before any " +
 	"request, a server already named --name exactly. Needs at least one --security-group-id; the SDK picks no " +
 	"default, so the project's own default group (open to the world on several ports) is only used when named " +
 	"explicitly. Cloud-init user data comes only from --user-data-file <path>, read once at most 64 KiB: it " +

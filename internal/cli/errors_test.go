@@ -247,6 +247,11 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{
+			"root unpriced",
+			fmt.Errorf("%w: volume.CreateVolume", vngcloud.ErrUnpriced),
+			1,
+		},
+		{
 			"monitor otp rejected",
 			fmt.Errorf("%w: monitor.CreateChannel: the otp for Email was wrong or expired", monitor.ErrOTPRejected),
 			1,

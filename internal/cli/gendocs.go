@@ -403,7 +403,8 @@ func renderCLIPage(services []docService) string {
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's, a compute create-server's or resize-server's, or a " +
 		"volume create-volume's or resize-volume's own quote priced its order above --max-price, so " +
-		"nothing was sent or ordered), `SelfChange` (an iam write refused because its target is the caller itself, " +
+		"nothing was sent or ordered), `Unpriced` (the same paid writes, when the quote is 0: refused whatever " +
+		"--max-price says, so nothing was sent or ordered), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
 		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemTag` (a tagging " +
@@ -450,7 +451,7 @@ func renderCLIPage(services []docService) string {
 		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user), and [Tagging](CLI-Tagging.md#tag-resource). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")

@@ -134,8 +134,10 @@ type errorEnvelope struct {
 // create-channel or update-channel
 // sent to SendChannelOTP's Validate OTP step was wrong or expired, so no
 // create or update was sent), PriceAboveMax (a paid write's own quote priced
-// the order above --max-price, so nothing was sent; create-log-project and
-// volume create-volume both reach this),
+// the order above --max-price, so nothing was sent; create-log-project,
+// compute create-server and resize-server, and volume create-volume and
+// resize-volume reach this), Unpriced (the same paid writes, when the
+// quote is 0, so nothing was sent whatever --max-price says),
 // SelfChange (an iam write refused because its target is the caller
 // itself, before any request), PrivilegedChange (an iam write refused
 // because its target holds, or would gain, an IAM write right, before any
@@ -322,6 +324,11 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, vngcloud.ErrPriceAboveMax) {
 		return errorEnvelope{Code: "PriceAboveMax", Message: err.Error()}
 	}
+	// vngcloud.ErrUnpriced is a separate sentinel: a quote of 0 is refused
+	// whatever MaxPrice says, so raising --max-price never clears it.
+	if errors.Is(err, vngcloud.ErrUnpriced) {
+		return errorEnvelope{Code: "Unpriced", Message: err.Error()}
+	}
 	// iam.ErrSelfChange and iam.ErrPrivilegedChange are always returned bare,
 	// never wrapping an inner *APIError: the guard in iam/guard.go refuses a
 	// write before any request ever reaches the server. They still join this
@@ -506,7 +513,7 @@ func exitCode(err error) int {
 		return 2
 	}
 	// vngcloud.ErrPriceAboveMax (and monitor.ErrPriceAboveMax, the same
-	// value) also exits 1 here, through this default: a paid write's price
+	// value) and vngcloud.ErrUnpriced also exit 1 here, through this default: a paid write's price
 	// guard returns it directly, before any request, never wrapped alongside
 	// a canceled context the way dns.ErrNotSettled can be, so it needs no
 	// earlier special-case check.

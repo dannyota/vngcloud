@@ -67,6 +67,20 @@ func TestGoldenComputeStartServer(t *testing.T) {
 	checkGolden(t, "compute-start-server.table.golden", "table", "", v)
 }
 
+// TestGoldenComputeStopServer checks stop-server's exact output shape.
+func TestGoldenComputeStopServer(t *testing.T) {
+	v := &compute.StopServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "STOPPED"}, Changed: true}
+	checkGolden(t, "compute-stop-server.json.golden", "json", "", v)
+	checkGolden(t, "compute-stop-server.table.golden", "table", "", v)
+}
+
+// TestGoldenComputeRebootServer checks reboot-server's exact output shape.
+func TestGoldenComputeRebootServer(t *testing.T) {
+	v := &compute.RebootServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE"}}
+	checkGolden(t, "compute-reboot-server.json.golden", "json", "", v)
+	checkGolden(t, "compute-reboot-server.table.golden", "table", "", v)
+}
+
 // TestGoldenComputeRenameServer checks rename-server's exact output shape.
 func TestGoldenComputeRenameServer(t *testing.T) {
 	v := &compute.RenameServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-2", Status: "ACTIVE"}}

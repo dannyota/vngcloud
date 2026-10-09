@@ -131,6 +131,51 @@ func TestVolumeCreateVolumeDefaultMaxPriceRefusesAboveZero(t *testing.T) {
 	}
 }
 
+// TestVolumeCreateVolumeZeroQuoteRefusesAsUnpriced checks that a quote of 0
+// is refused with error code Unpriced, whatever --max-price says, sends no
+// order, and prints the JSON error envelope.
+func TestVolumeCreateVolumeZeroQuoteRefusesAsUnpriced(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/volumes": func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(volumeEmptyListJSON))
+			default:
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		},
+		"/v1/price": jsonHandler(http.StatusOK, volumeQuoteJSON(0)),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "volume", "create-volume",
+		"--name", "data", "--zone-id", "zone-1", "--size", "10", "--volume-type-id", "voltype-1",
+		"--max-price", "1000000", "--no-wait",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an Unpriced refusal")
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
+	var buf bytes.Buffer
+	printError(&buf, err)
+	var decoded struct {
+		Error errorEnvelope `json:"error"`
+	}
+	if jerr := json.Unmarshal(buf.Bytes(), &decoded); jerr != nil {
+		t.Fatalf("envelope is not valid JSON: %v (%q, stderr=%s)", jerr, buf.String(), stderr.String())
+	}
+	if decoded.Error.Code != "Unpriced" || decoded.Error.Message == "" {
+		t.Fatalf("envelope = %+v, want Code Unpriced with a message", decoded.Error)
+	}
+	if n := fixture.requestCount(); n != 2 {
+		t.Fatalf("requestCount = %d, want 2 (name check and quote only, no order)", n)
+	}
+}
+
 // TestVolumeCreateVolumeAmbiguous502KeepsListAdviceInMessage checks that a
 // 502 on the order POST reaches the CLI's error envelope with
 // wrapAmbiguousVolumeCreateErr's own advice folded into Message, not just
