@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"danny.vn/vngcloud/internal/core"
 )
@@ -94,8 +95,9 @@ type putBucketPolicyBody struct {
 // The server accepts a statement with no Principal, and the bucket's console
 // calls and bucket delete then fail until the policy is removed through the
 // S3 data plane. A statement with only NotPrincipal is refused for that
-// reason. A member name repeated in the document, a statement, or a Principal
-// is also ErrInvalidInput.
+// reason. So is a member name repeated in the document, a statement, or a
+// Principal, and a member whose name matches a known name such as Statement,
+// Effect, Principal, or AWS under case folding but is not spelled exactly.
 //
 // A Principal of "*" grants anonymous access when the put succeeds. This call
 // does not ask for consent; PolicyHasPublicPrincipal tells a caller whether
@@ -179,12 +181,14 @@ func policyParts(project, bucket string) []string {
 }
 
 // checkPolicyDocument requires a JSON object with a non-empty Statement
-// array. The error never quotes the document, which names principals. The
-// member name must match exactly: the server reads "Statement", and a
-// case-folding decoder would accept "statement". A repeated member name is
-// refused at the top level, in each statement, and in each Principal: Go
-// keeps the last occurrence and the server's parser reads every one, so a
-// document could look private here and public there.
+// array. The error never quotes the document, which names principals. Member
+// names must match exactly: AWS policy grammar is case-sensitive, and a
+// parser that folds case would read "aws" as "AWS" where this check does not.
+// So a member whose name matches a known name under case folding but is not
+// spelled exactly is refused, and so is a repeated name, compared under case
+// folding. Both are refused at the top level, in each statement, and in each
+// Principal: Go keeps the last occurrence and the server's parser reads every
+// one, so a document could look private here and public there.
 func checkPolicyDocument(op, policy string) error {
 	refuse := func(why string) error {
 		return fmt.Errorf("%w: %s requires Policy to be a JSON object with a non-empty Statement array (%s)", core.ErrInvalidInput, op, why)
@@ -200,8 +204,12 @@ func checkPolicyDocument(op, policy string) error {
 		return refuse("it is not a JSON object")
 	}
 	members, err := decodeObject(raw)
+	var misspelled *misspelledMemberError
 	if errors.Is(err, errRepeatedMember) {
 		return refuse("it repeats a member name")
+	}
+	if errors.As(err, &misspelled) {
+		return refuse("it " + misspelled.describe())
 	}
 	if err != nil {
 		return refuse("it is not a JSON object")
@@ -224,15 +232,64 @@ func checkPolicyDocument(op, policy string) error {
 
 var errRepeatedMember = errors.New("repeated member name")
 
+// knownMembers are the member names of the policy grammar that this package
+// reads, in their one accepted spelling.
+var knownMembers = []string{
+	"Version", "Statement", "Sid", "Effect", "Principal", "NotPrincipal",
+	"Action", "NotAction", "Resource", "NotResource", "Condition",
+	"AWS", "Service", "Federated", "CanonicalUser",
+}
+
+// misspelledMemberError reports a member name that matches a known name under
+// case folding without being spelled exactly.
+type misspelledMemberError struct{ name, want string }
+
+func (e *misspelledMemberError) Error() string {
+	return "member name is not spelled as the policy grammar requires"
+}
+
+// describe is the reason a caller shows. A name that folds to a known name
+// holds only letters of that name, so it never carries policy content.
+func (e *misspelledMemberError) describe() string {
+	return fmt.Sprintf("has the member %q, which must be spelled %q", e.name, e.want)
+}
+
+// foldKey maps every name that EqualFold treats as equal to the same string.
+func foldKey(s string) string {
+	runes := []rune(s)
+	for i, r := range runes {
+		low := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			low = min(low, f)
+		}
+		runes[i] = low
+	}
+	return string(runes)
+}
+
+// canonicalMember returns the known spelling that name matches under case
+// folding, or "" when name matches none.
+func canonicalMember(name string) string {
+	key := foldKey(name)
+	for _, known := range knownMembers {
+		if foldKey(known) == key {
+			return known
+		}
+	}
+	return ""
+}
+
 // decodeObject returns the members of one JSON object, each as raw JSON. It
-// returns errRepeatedMember when a name appears twice, and another error when
-// raw is not exactly one object.
+// returns errRepeatedMember when a name appears twice under case folding, a
+// *misspelledMemberError for a known name in the wrong case, and another
+// error when raw is not exactly one object.
 func decodeObject(raw []byte) (map[string]json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
 		return nil, errors.New("not a JSON object")
 	}
 	members := map[string]json.RawMessage{}
+	folded := map[string]bool{}
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
@@ -246,8 +303,13 @@ func decodeObject(raw []byte) (map[string]json.RawMessage, error) {
 		if err := dec.Decode(&value); err != nil {
 			return nil, err
 		}
-		if _, seen := members[name]; seen {
+		key := foldKey(name)
+		if folded[key] {
 			return nil, errRepeatedMember
+		}
+		folded[key] = true
+		if want := canonicalMember(name); want != "" && want != name {
+			return nil, &misspelledMemberError{name: name, want: want}
 		}
 		members[name] = value
 	}
@@ -268,8 +330,12 @@ func decodeObject(raw []byte) (map[string]json.RawMessage, error) {
 // NotPrincipal and no Principal is refused for the same reason.
 func checkStatement(raw json.RawMessage) (field, why string) {
 	members, err := decodeObject(raw)
+	var misspelled *misspelledMemberError
 	if errors.Is(err, errRepeatedMember) {
 		return "statement", "repeats a member name"
+	}
+	if errors.As(err, &misspelled) {
+		return "statement", misspelled.describe()
 	}
 	if err != nil || members == nil {
 		return "statement", "is not a JSON object"
@@ -301,8 +367,12 @@ func principalProblem(raw json.RawMessage) string {
 		return ""
 	}
 	members, err := decodeObject(raw)
+	var misspelled *misspelledMemberError
 	if errors.Is(err, errRepeatedMember) {
 		return "repeats a member name"
+	}
+	if errors.As(err, &misspelled) {
+		return misspelled.describe()
 	}
 	if err != nil || len(members) == 0 {
 		return "is missing or empty"

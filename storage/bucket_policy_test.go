@@ -179,23 +179,27 @@ func TestBucketPolicyRegion(t *testing.T) {
 
 func TestPutBucketPolicyRefusesBadPolicyBeforeAnyRequest(t *testing.T) {
 	bad := map[string]string{
-		"empty":                "",
-		"spaces":               "  \n",
-		"not JSON":             `{"Statement":[`,
-		"JSON array":           `[{"Effect":"Allow"}]`,
-		"JSON string":          `"{}"`,
-		"JSON null":            `null`,
-		"JSON number":          `1`,
-		"no Statement":         `{"Version":"2012-10-17"}`,
-		"empty object":         `{}`,
-		"empty Statement":      `{"Version":"2012-10-17","Statement":[]}`,
-		"Statement is object":  `{"Statement":{"Effect":"Allow"}}`,
-		"Statement is string":  `{"Statement":"x"}`,
-		"Statement is null":    `{"Statement":null}`,
-		"lower case statement": `{"statement":[{"Effect":"Allow"}]}`,
-		"trailing text":        validPolicy + ` x`,
-		"repeated Statement":   `{"Statement":[],"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
-		"repeated Version":     `{"Version":"2012-10-17","Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"empty":                                 "",
+		"spaces":                                "  \n",
+		"not JSON":                              `{"Statement":[`,
+		"JSON array":                            `[{"Effect":"Allow"}]`,
+		"JSON string":                           `"{}"`,
+		"JSON null":                             `null`,
+		"JSON number":                           `1`,
+		"no Statement":                          `{"Version":"2012-10-17"}`,
+		"empty object":                          `{}`,
+		"empty Statement":                       `{"Version":"2012-10-17","Statement":[]}`,
+		"Statement is object":                   `{"Statement":{"Effect":"Allow"}}`,
+		"Statement is string":                   `{"Statement":"x"}`,
+		"Statement is null":                     `{"Statement":null}`,
+		"lower case statement":                  `{"statement":[{"Effect":"Allow"}]}`,
+		"trailing text":                         validPolicy + ` x`,
+		"repeated Statement":                    `{"Statement":[],"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"repeated Version":                      `{"Version":"2012-10-17","Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"lower case version":                    `{"version":"2012-10-17","Statement":[` + goodStatement + `]}`,
+		"upper case STATEMENT":                  `{"STATEMENT":[` + goodStatement + `]}`,
+		"lower case statement beside Statement": `{"Statement":[` + goodStatement + `],"statement":[]}`,
+		"repeated Id differing in case":         `{"Id":"a","id":"b","Statement":[` + goodStatement + `]}`,
 	}
 	for name, policy := range bad {
 		t.Run(name, func(t *testing.T) {
@@ -210,6 +214,48 @@ func TestPutBucketPolicyRefusesBadPolicyBeforeAnyRequest(t *testing.T) {
 			}
 			if doc := strings.TrimSpace(policy); doc != "" && strings.Contains(err.Error(), doc) {
 				t.Fatalf("the error quotes the policy: %v", err)
+			}
+		})
+	}
+}
+
+const goodStatement = `{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}`
+
+// TestPutBucketPolicyNamesTheMisspelledMember checks that a member whose name
+// matches a known name under case folding, but is not spelled exactly, is
+// refused before any request, and that the error names it and the spelling.
+func TestPutBucketPolicyNamesTheMisspelledMember(t *testing.T) {
+	tests := map[string]struct{ policy, member, spelling string }{
+		"Statement":         {`{"statement":[` + goodStatement + `]}`, "statement", "Statement"},
+		"Version":           {`{"VERSION":"2012-10-17","Statement":[` + goodStatement + `]}`, "VERSION", "Version"},
+		"Effect":            {`{"Statement":[{"effect":"allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`, "effect", "Effect"},
+		"Principal":         {`{"Statement":[{"Effect":"Allow","principal":"*","Action":"s3:GetObject","Resource":"*"}]}`, "principal", "Principal"},
+		"NotPrincipal":      {`{"Statement":[{"Effect":"Allow","Principal":"*","NOTPRINCIPAL":"x","Action":"s3:GetObject","Resource":"*"}]}`, "NOTPRINCIPAL", "NotPrincipal"},
+		"Action":            {`{"Statement":[{"Effect":"Allow","Principal":"*","ACTION":"s3:GetObject","Resource":"*"}]}`, "ACTION", "Action"},
+		"NotAction":         {`{"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","notaction":"s3:*","Resource":"*"}]}`, "notaction", "NotAction"},
+		"Resource":          {`{"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","resource":"*"}]}`, "resource", "Resource"},
+		"NotResource":       {`{"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*","notresource":"x"}]}`, "notresource", "NotResource"},
+		"Sid":               {`{"Statement":[{"sid":"x","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`, "sid", "Sid"},
+		"Condition":         {`{"Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*","condition":{}}]}`, "condition", "Condition"},
+		"AWS":               {`{"Statement":[{"Effect":"Allow","Principal":{"aws":"*"},"Action":"s3:GetObject","Resource":"*"}]}`, "aws", "AWS"},
+		"Service":           {`{"Statement":[{"Effect":"Allow","Principal":{"AWS":"a","service":"s"},"Action":"s3:GetObject","Resource":"*"}]}`, "service", "Service"},
+		"Federated":         {`{"Statement":[{"Effect":"Allow","Principal":{"AWS":"a","FEDERATED":"s"},"Action":"s3:GetObject","Resource":"*"}]}`, "FEDERATED", "Federated"},
+		"CanonicalUser":     {`{"Statement":[{"Effect":"Allow","Principal":{"AWS":"a","canonicaluser":"s"},"Action":"s3:GetObject","Resource":"*"}]}`, "canonicaluser", "CanonicalUser"},
+		"AWS after a valid": {`{"Statement":[` + goodStatement + `,{"Effect":"Deny","Principal":{"Aws":"*"},"Action":"s3:*","Resource":"*"}]}`, "Aws", "AWS"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var sent atomic.Int32
+			c := newTestClient(t, serve(t, func(http.ResponseWriter, *http.Request) { sent.Add(1) }))
+			err := putPolicy(c, tt.policy)
+			if !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+			if want := `"` + tt.member + `"`; !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), `"`+tt.spelling+`"`) {
+				t.Fatalf("err = %v, want it to name %s and the spelling %q", err, want, tt.spelling)
+			}
+			if sent.Load() != 0 {
+				t.Fatalf("%d request(s) sent, want 0", sent.Load())
 			}
 		})
 	}
@@ -246,7 +292,11 @@ func TestPutBucketPolicyRefusesIncompleteStatements(t *testing.T) {
 		{"no Effect", `{` + pr + `,` + act + `,` + res + `}`, "Effect"},
 		{"empty Effect", `{"Effect":"",` + pr + `,` + act + `,` + res + `}`, "Effect"},
 		{"Effect is not a string", `{"Effect":true,` + pr + `,` + act + `,` + res + `}`, "Effect"},
-		{"lower case principal", `{` + eff + `,"principal":"*",` + act + `,` + res + `}`, "Principal"},
+		{"lower case principal", `{` + eff + `,"principal":"*",` + act + `,` + res + `}`, `member "principal"`},
+		{"lower case effect", `{"effect":"Allow",` + pr + `,` + act + `,` + res + `}`, `member "effect"`},
+		{"lower case aws in Principal", `{` + eff + `,"Principal":{"aws":"*"},` + act + `,` + res + `}`, `member "aws"`},
+		{"repeated AWS differing in case", `{` + eff + `,"Principal":{"AWS":["arn:aws:iam:::user/u"],"aws":"*"},` + act + `,` + res + `}`, "repeats a member name"},
+		{"repeated Effect differing in case", `{` + eff + `,"EFFECT":"Deny",` + pr + `,` + act + `,` + res + `}`, "repeats a member name"},
 		{"blank Principal string", `{` + eff + `,"Principal":" ",` + act + `,` + res + `}`, "Principal"},
 		{"blank AWS string", `{` + eff + `,"Principal":{"AWS":" "},` + act + `,` + res + `}`, "Principal"},
 		{"blank AWS list entry", `{` + eff + `,"Principal":{"AWS":["a","\t"]},` + act + `,` + res + `}`, "Principal"},

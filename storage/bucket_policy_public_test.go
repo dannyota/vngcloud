@@ -62,6 +62,11 @@ func TestPolicyHasPublicPrincipalRefusesWhatPutRefuses(t *testing.T) {
 			`"Principal":{"AWS":["arn:aws:iam:::user/u"]}}]}`,
 		"repeated Statement": `{"Statement":[],"Statement":[` +
 			`{"Effect":"Allow","Principal":"*","Action":"s3:*","Resource":"*"}]}`,
+		"lower case aws":       `{"Statement":[{"Effect":"Allow","Principal":{"aws":"*"},"Action":"s3:GetObject","Resource":"*"}]}`,
+		"lower case principal": `{"Statement":[{"Effect":"Allow","principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"lower case statement": `{"statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"lower case effect":    `{"Statement":[{"effect":"allow","Principal":"*","Action":"s3:GetObject","Resource":"*"}]}`,
+		"AWS repeated in case": `{"Statement":[{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam:::user/u"],"aws":"*"},"Action":"s3:GetObject","Resource":"*"}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := PolicyHasPublicPrincipal(policy)

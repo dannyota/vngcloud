@@ -58,6 +58,13 @@ func TestSettingCallsOnAMissingBucketAreNotFound(t *testing.T) {
 			if !errors.Is(err, vngcloud.ErrNotFound) || !vngcloud.IsNotFound(err) {
 				t.Fatalf("err = %v, want ErrNotFound", err)
 			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) || apiErr.Operation != "storage."+name {
+				t.Fatalf("err = %v, want an *APIError whose Operation is storage.%s", err, name)
+			}
+			if apiErr.Code == "" || apiErr.Message == "" || !errors.Is(apiErr.Err, vngcloud.ErrNotFound) {
+				t.Fatalf("err = %+v, want the read's Code, Message, and ErrNotFound kept", apiErr)
+			}
 			if m.reads.Load() != 1 || m.writes.Load() != 1 {
 				t.Fatalf("settings calls %d, bucket reads %d, want 1 and 1", m.writes.Load(), m.reads.Load())
 			}

@@ -13,9 +13,10 @@ import (
 // exchange reports as EmptyResponse, and a bucket whose policy has a
 // statement without a principal answers the same while it exists. So that
 // error leads to one GetBucket with the same fields: its ErrNotFound is
-// returned, and any other result returns the EmptyResponse error, since the
-// read's own failure says nothing about the call. The read runs under ctx and
-// is not retried by this function.
+// returned with the caller's operation in place of "storage.GetBucket", so
+// the error names the call that failed. Any other result returns the
+// EmptyResponse error, since the read's own failure says nothing about the
+// call. The read runs under ctx and is not retried by this function.
 func (c *Client) exchangeBucket(ctx context.Context, k call, region, project, bucket string) (*envelope, error) {
 	env, err := c.exchange(ctx, k)
 	if err == nil {
@@ -25,8 +26,15 @@ func (c *Client) exchangeBucket(ctx context.Context, k call, region, project, bu
 	if !errors.As(err, &apiErr) || apiErr.Code != "EmptyResponse" || apiErr.StatusCode/100 != http.StatusOK/100 {
 		return nil, err
 	}
-	if _, gerr := c.GetBucket(ctx, &GetBucketInput{Region: region, ProjectID: project, Bucket: bucket}); errors.Is(gerr, core.ErrNotFound) {
+	_, gerr := c.GetBucket(ctx, &GetBucketInput{Region: region, ProjectID: project, Bucket: bucket})
+	var missing *core.APIError
+	if !errors.Is(gerr, core.ErrNotFound) {
+		return nil, err
+	}
+	if !errors.As(gerr, &missing) {
 		return nil, gerr
 	}
-	return nil, err
+	renamed := *missing
+	renamed.Operation = k.op
+	return nil, &renamed
 }

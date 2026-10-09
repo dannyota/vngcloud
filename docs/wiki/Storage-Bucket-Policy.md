@@ -141,7 +141,22 @@ public, err := storage.PolicyHasPublicPrincipal(policy)
   can check with `PolicyHasPublicPrincipal`.
 - `PutBucketPolicy` also refuses a document that repeats a member name at the
   top level, in a statement, or in a `Principal`, because the server reads
-  every occurrence and this SDK would read only the last.
+  every occurrence and this SDK would read only the last. Names are compared
+  without regard to case.
+- Policy member names must be spelled exactly: `Version`, `Statement`, `Sid`,
+  `Effect`, `Principal`, `NotPrincipal`, `Action`, `NotAction`, `Resource`,
+  `NotResource`, `Condition`, `AWS`, `Service`, `Federated`, and
+  `CanonicalUser`. `PutBucketPolicy` and `PolicyHasPublicPrincipal` return
+  `vngcloud.ErrInvalidInput` for a member that matches one of them in another
+  case, such as `aws` or `principal`, and name the member. The server also
+  refuses non-canonical names with code 400 (checked for `aws`, `effect`,
+  `principal`, `statement`, and a lower case `allow` value), so the check is a
+  second guard.
+- A policy whose only statement allows `s3:GetObject` to `{"AWS": "*"}` makes
+  the console's `DeleteBucketPolicy` and `DeleteBucket` answer code 403, while
+  `"Principal": "*"` does not. The S3 `DeleteBucketPolicy` call, made with an
+  S3 key that is not attached, removes it. Prefer `"Principal": "*"` for
+  public reads.
 - Remove a service account from its bucket policies before you delete it: a
   new service account with the same name gets the same principal.
 
@@ -150,7 +165,7 @@ public, err := storage.PolicyHasPublicPrincipal(policy)
 | Case | Result |
 |---|---|
 | Missing field, bad project ID or bucket name, unmapped region | `vngcloud.ErrInvalidInput`, no call sent |
-| `Policy` is not a JSON object with a non-empty `Statement` array, a statement lacks a non-empty `Effect`, `Principal`, `Action`, or `Resource`, or a member name is repeated | `vngcloud.ErrInvalidInput`, no call sent |
+| `Policy` is not a JSON object with a non-empty `Statement` array, a statement lacks a non-empty `Effect`, `Principal`, `Action`, or `Resource`, a member name is repeated, or a known member name is not spelled exactly | `vngcloud.ErrInvalidInput`, no call sent |
 | The server cannot parse the policy: envelope code `400`, such as an unknown `Version` or `Effect` | `*vngcloud.APIError` with the parser's message, no sentinel |
 | Envelope code `114` | `*vngcloud.APIError` with the server's message, no sentinel |
 | A policy call on a bucket that does not exist | `vngcloud.ErrNotFound`: the server answers HTTP 200 with no body, so the SDK reads the bucket once. If the bucket exists, the call returns `*vngcloud.APIError`, code `EmptyResponse` |
