@@ -30,6 +30,7 @@ rename; the module keeps the `vngcloud` name.
 - [Network ACLs](Network-ACLs.md): ACLs, rules, and subnet associations.
 - [Network DHCP Options](Network-DHCPOptions.md): DHCP options sets and the
   set a VPC uses.
+- [Network Virtual IPs](Network-VirtualIPs.md): private virtual IP writes.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
 - [Limitations](Limitations.md): GreenNode server behaviors the SDK works
   around but cannot fix.

@@ -173,6 +173,24 @@ Kind: Write.
 vngcloud network create-subnet --vpc-id <vpc-id> --zone-id <zone-id> --name <name> --cidr <cidr>
 ```
 
+## create-virtual-ip-address
+
+Kind: Write.
+
+Never resent after a failure that may have already reached the server: list-virtual-ip-addresses and match --name exactly, or --ip-address if one was given, before creating again, rather than retrying blind. Waits up to 60 seconds for ACTIVE only when the create response itself is not already there; whether the server ever actually returns an intermediate status, so this wait ever runs at all, has not been confirmed live.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--subnet-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--mode` | `string` | yes |
+| `--ip-address` | `string` |  |
+| `--description` | `string` |  |
+
+```sh
+vngcloud network create-virtual-ip-address --subnet-id <subnet-id> --name <name> --mode <mode>
+```
+
 ## create-vpc
 
 Kind: Write.
@@ -275,6 +293,20 @@ Refuses, before any request, with error code ResourceInUse when a network ACL in
 
 ```sh
 vngcloud network delete-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --yes
+```
+
+## delete-virtual-ip-address
+
+Kind: Write, destructive.
+
+After its read and before any DELETE, refuses with error code InvalidUsage a virtual IP whose type is not "private" (a public virtual IP has its own delete call), and with error code ResourceInUse, one that still has an address pair, found either on its own read or by list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and deleting it would move traffic.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--virtual-ip-address-id` | `string` | yes |
+
+```sh
+vngcloud network delete-virtual-ip-address --virtual-ip-address-id <virtual-ip-address-id> --yes
 ```
 
 ## delete-vpc
@@ -786,6 +818,21 @@ Kind: Write.
 
 ```sh
 vngcloud network update-subnet --vpc-id <vpc-id> --subnet-id <subnet-id> --name <name>
+```
+
+## update-virtual-ip-address
+
+Kind: Write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--virtual-ip-address-id` | `string` | yes |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+| `--mode` | `*string` |  |
+
+```sh
+vngcloud network update-virtual-ip-address --virtual-ip-address-id <virtual-ip-address-id> --name <name>
 ```
 
 ## update-vpc

@@ -18,6 +18,7 @@
 - [Network Route Tables](Network-RouteTables.md)
 - [Network ACLs](Network-ACLs.md)
 - [Network DHCP Options](Network-DHCPOptions.md)
+- [Network Virtual IPs](Network-VirtualIPs.md)
 - [Security](Security.md)
 - [Limitations](Limitations.md)
 

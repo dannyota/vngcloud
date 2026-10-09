@@ -2,14 +2,14 @@
 
 `network` is `danny.vn/vngcloud/network`, with its own `New(cfg)`. It reads
 VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
-ACLs, interconnects, and endpoints; see the [Network section of
-Services](Services.md#network) for that full read list. This page covers
-security groups and their rules, VPCs, subnets, and Private DNS, the
-network resources this SDK writes here. See [Network Route
-Tables](Network-RouteTables.md) for route tables and routes, [Network
-ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations, and
-[Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets.
-Servers, volumes, and floating IPs stay read-only.
+ACLs, interconnects, and endpoints; see [Services](Services.md#network) for
+that full read list. This page covers security groups and their rules, VPCs,
+subnets, and Private DNS, the network resources this SDK writes here. See
+[Network Route Tables](Network-RouteTables.md) for route tables and routes,
+[Network ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations,
+[Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets, and
+[Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs. Servers,
+volumes, and floating IPs stay read-only.
 
 If a VPC, subnet, route table, ACL, or security group is managed by
 OpenTofu or Terraform, a write made here drifts from that state; keep such

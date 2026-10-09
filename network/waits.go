@@ -9,10 +9,10 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
-// pollInterval and pollBound set CreateSecurityGroup's post-create wait, as
-// in vDNS's own waits: a plain GetSecurityGroup at once and then every
-// pollInterval, honoring ctx, until pollBound has elapsed since the wait
-// began.
+// pollInterval and pollBound set CreateSecurityGroup and
+// CreateVirtualIPAddress's post-create waits, as in vDNS's own waits: a
+// plain read at once and then every pollInterval, honoring ctx, until
+// pollBound has elapsed since the wait began.
 const (
 	pollInterval = 2 * time.Second
 	pollBound    = 60 * time.Second

@@ -8,11 +8,13 @@ import (
 
 // networkOps is network's operation table. Every Get and List operation
 // reads. CreateSecurityGroup, UpdateSecurityGroup, CreateSecurityGroupRule,
-// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, CreateRouteTable, and
-// CreateNetworkACL are Write. DeleteSecurityGroup, DeleteSecurityGroupRule,
-// DeleteVPC, DeleteSubnet, DeleteRouteTable, and DeleteNetworkACL are Write
-// and Destructive, since a deleted group, rule, VPC, subnet, table, or ACL
-// cannot be restored by one more command, so each needs --yes.
+// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, CreateRouteTable,
+// CreateNetworkACL, CreateVirtualIPAddress, and UpdateVirtualIPAddress are
+// Write. DeleteSecurityGroup, DeleteSecurityGroupRule, DeleteVPC,
+// DeleteSubnet, DeleteRouteTable, DeleteNetworkACL, and
+// DeleteVirtualIPAddress are Write and Destructive, since a deleted group,
+// rule, VPC, subnet, table, ACL, or virtual IP cannot be restored by one
+// more command, so each needs --yes.
 // EnableVPCPrivateDNS is also Write and Destructive: the API has no call
 // that disables Private DNS again, so enabling it is not undoable by one
 // more command either. CreateSecurityGroupRule also carries a Guard,
@@ -124,6 +126,12 @@ var networkOps = []Op[network.Client]{
 		kebab("GetVirtualIPAddress"), (*network.Client).GetVirtualIPAddress),
 	Read[network.Client, network.ListAddressPairsByVirtualIPAddressInput, network.ListAddressPairsByVirtualIPAddressOutput](
 		kebab("ListAddressPairsByVirtualIPAddress"), (*network.Client).ListAddressPairsByVirtualIPAddress),
+	Write[network.Client, network.CreateVirtualIPAddressInput, network.CreateVirtualIPAddressOutput](
+		kebab("CreateVirtualIPAddress"), (*network.Client).CreateVirtualIPAddress),
+	Write[network.Client, network.UpdateVirtualIPAddressInput, network.UpdateVirtualIPAddressOutput](
+		kebab("UpdateVirtualIPAddress"), (*network.Client).UpdateVirtualIPAddress),
+	Write[network.Client, network.DeleteVirtualIPAddressInput, network.DeleteVirtualIPAddressOutput](
+		kebab("DeleteVirtualIPAddress"), (*network.Client).DeleteVirtualIPAddress, Destructive()),
 	Read[network.Client, network.ListAddressPairsByVirtualSubnetInput, network.ListAddressPairsByVirtualSubnetOutput](
 		kebab("ListAddressPairsByVirtualSubnet"), (*network.Client).ListAddressPairsByVirtualSubnet),
 	Read[network.Client, network.ListAllVirtualIPAddressAddressPairsInput, network.ListAllVirtualIPAddressAddressPairsOutput](

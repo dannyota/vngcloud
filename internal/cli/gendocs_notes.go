@@ -282,41 +282,6 @@ const monitorDeleteLogProjectNote = "Moves the project to trash, stopping its bi
 	"each either succeed or 404. --purge in one call has not run live; a purge sent right after a " +
 	"delete returned 409 Conflict once.\n\n" + logProjectDeleteResponseUnverifiedNote
 
-// networkCreateSecurityGroupNote documents create-security-group's
-// confirmed-live wait behavior and its duplicate-name status: the flag
-// table shows only --name and --description, with no hint that the wait
-// this command runs afterward never really polls in practice.
-const networkCreateSecurityGroupNote = "Confirmed live: the new group is already ACTIVE in the create " +
-	"response itself, so the wait this command runs afterward settles on its first read. A duplicate " +
-	"--name fails with the server's own message at status 400."
-
-// networkCreateSecurityGroupRuleNote documents create-security-group-rule's
-// confirmed-live no-wait behavior, its duplicate and overlap statuses, that
-// a prefix with host bits set is stored exactly as given rather than masked
-// to its network address, and the CLI's own world-open guard, which the
-// flag table cannot show since --direction and --remote-ip-prefix are each
-// listed as a plain, unconditional string.
-const networkCreateSecurityGroupRuleNote = "Confirmed live: the new rule is already ACTIVE in the create " +
-	"response, so this command takes no wait. A rule that exactly duplicates an existing one fails with " +
-	"status 409; a rule that overlaps an existing one without duplicating it fails with status 400. " +
-	"--remote-ip-prefix is stored exactly as sent, host bits included: 203.0.113.5/24 is not masked to " +
-	"203.0.113.0/24. A rule whose --direction is not egress and whose --remote-ip-prefix has prefix length " +
-	"0, such as 0.0.0.0/0 or ::/0, needs --yes: it opens every port the rule names to the entire internet."
-
-// networkDeleteSecurityGroupNote documents delete-security-group's pre-read
-// guards and its unverified in-use status: the flag table shows only
-// --security-group-id, with no hint of the reads this command makes before
-// its own DELETE.
-const networkDeleteSecurityGroupNote = "Refuses, before any write, a system group or a group with any " +
-	"server attached. A repeat delete of an already-deleted group returns NotFound. The status of a delete " +
-	"the server itself refuses as in use for some other reason has not been confirmed live."
-
-// networkDeleteSecurityGroupRuleNote documents delete-security-group-rule's
-// pre-read guard and repeat-delete status: the flag table shows only the
-// two IDs, with no hint that this command lists the group's rules first.
-const networkDeleteSecurityGroupRuleNote = "Refuses, before any write, a rule that does not belong to " +
-	"the named group. A repeat delete of an already-deleted rule also returns NotFound."
-
 // networkCreateVPCNote documents that the server ignores CreateVPC's own
 // zone, since CreateVPCInput carries no ZoneID field at all and a reader would
 // otherwise have no way to learn that a VPC's zone is decided elsewhere.
@@ -398,6 +363,25 @@ var networkAddRouteNote = networkChangeRouteNote("add-route", "Adding a route to
 var networkRemoveRouteNote = networkChangeRouteNote("remove-route", "Removing a --destination-cidr the table "+
 	"does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its "+
 	"parsed prefix is refused, nothing sent.")
+
+// networkCreateVirtualIPAddressNote documents create-virtual-ip-address's
+// own retry advice and its wait, neither of which the flag table can show:
+// Mode is a plain, required string with no hint that a create must never be
+// retried blind, or that its post-create wait has never been seen to poll at
+// all.
+const networkCreateVirtualIPAddressNote = "Never resent after a failure that may have already reached the " +
+	"server: list-virtual-ip-addresses and match --name exactly, or --ip-address if one was given, before " +
+	"creating again, rather than retrying blind. Waits up to 60 seconds for ACTIVE only when the create " +
+	"response itself is not already there; whether the server ever actually returns an intermediate status, " +
+	"so this wait ever runs at all, has not been confirmed live."
+
+// networkDeleteVirtualIPAddressNote documents delete-virtual-ip-address's
+// pre-delete guards: a type check and an address pair check.
+const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE, refuses with error code InvalidUsage a " +
+	"virtual IP whose type is not \"private\" (a public virtual IP has its own delete call), and with " +
+	"error code ResourceInUse, one that still has an address pair, found either on its own read or by " +
+	"list-address-pairs-by-virtual-ip-address, since a pair binds the address to a server interface and " +
+	"deleting it would move traffic."
 
 // loadbalancerImportCertificateNote documents import-certificate's file
 // flags and their rules, none of which the flag table can show on its own:
@@ -505,6 +489,8 @@ var docOpNotes = map[string]string{
 	"network delete-dhcp-options":             networkDeleteDHCPOptionsNote,
 	"network set-vpc-dhcp-options":            networkSetVPCDHCPOptionsNote,
 	"network clear-vpc-dhcp-options":          networkClearVPCDHCPOptionsNote,
+	"network create-virtual-ip-address":       networkCreateVirtualIPAddressNote,
+	"network delete-virtual-ip-address":       networkDeleteVirtualIPAddressNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -584,15 +570,19 @@ var docJSONPlaceholders = map[string]string{
 // to change. monitor update-check is the same shape again: CheckID is its
 // only required field, but UpdateCheck also requires at least one other
 // field to change. compute update-server-group is the same shape: it also
-// requires Name or Description. compute create-ssh-key does not need an entry here even
+// requires Name or Description. network update-virtual-ip-address is the
+// same shape again: VirtualIPAddressID is its only required field, but
+// UpdateVirtualIPAddress also requires at least one of Name, Description, or
+// Mode to change. compute create-ssh-key does not need an entry here even
 // though --secret-file backs no Input field: extraDocFields (gendocs.go)
 // already gives it a required docField of its own, which the same
 // required-fields loop below picks up.
 var docExampleExtraFlag = map[string]string{
-	"compute update-server-group": "name",
-	"dns update-hosted-zone":      "description",
-	"dns update-record":           "ttl",
-	"monitor update-check":        "name",
+	"compute update-server-group":       "name",
+	"dns update-hosted-zone":            "description",
+	"dns update-record":                 "ttl",
+	"monitor update-check":              "name",
+	"network update-virtual-ip-address": "name",
 }
 
 // docExampleOverride gives a full example command line for "service
