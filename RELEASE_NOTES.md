@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.49.0 - Load Balancer Listeners
+
+### Highlights
+
+- New `loadbalancer.CreateListener`, `UpdateListener`, and
+  `DeleteListener` for HTTP, HTTPS, TCP, and UDP, with the matching
+  `vngcloud loadbalancer` commands. `AllowedCIDRs` is required and must be
+  IPv4 prefixes without host bits; certificate fields are accepted on HTTPS
+  only, and every certificate ID is checked before any request.
+- `create-listener` and `update-listener` need `--yes` when any allowed
+  CIDR is public (such as `0.0.0.0/0`); `delete-listener` always needs it.
+  A Layer 7 load balancer accepts HTTP and HTTPS listeners only; the SDK
+  refuses the others before sending.
+- Verified live on 2026-10-09 on an `ALB_Small`: an HTTP listener created
+  and its client timeout updated, a throwaway certificate imported, an
+  HTTPS listener created with it, and all three deleted, in 2m12s.
+
 ## v0.48.0 - Load Balancer Pools and Members
 
 ### Highlights
