@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.52.0 - vStorage Bucket Create and Delete
+
+### Highlights
+
+- New `storage.CreateBucket` and `DeleteBucket`, with `vngcloud storage
+  create-bucket` and `delete-bucket` (`--yes`, global `--project-id`). The
+  create sends the console body for a bucket without object lock and
+  returns the bucket as read back; a repeat create of a name the account
+  owns is idempotent. The delete reads the bucket first and refuses with
+  `storage.ErrBucketNotEmpty` (CLI code `BucketNotEmpty`) when the object
+  count is above 0, null, or the size is above 0, sending nothing.
+- The server deletes asynchronously, so `DeleteBucket` polls `GetBucket`
+  every second for up to 30 s until the bucket is gone; `NoWait`
+  (`--no-wait`) skips the wait, and the bound returns
+  `storage.ErrNotSettled` (CLI code `NotSettled`).
+- Envelope code 112, the server's input refusal (for example an upper-case
+  bucket name), now matches `vngcloud.ErrInvalidInput`; the CLI prints code
+  `112` and exits 2.
+- Verified live on 2026-10-09 on a Gold 30 GB project in `HCM04`: create,
+  read back, duplicate create, invalid name, delete, and repeat delete.
+
 ## v0.51.1 - vStorage Reads Fix
 
 ### Highlights

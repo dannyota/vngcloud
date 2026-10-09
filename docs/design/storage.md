@@ -180,15 +180,24 @@ a decode error never quotes its body. `--debug` already logs no body.
 ### Delete bucket
 
 `DeleteBucket` reads the bucket first and returns `ErrBucketNotEmpty`,
-sending nothing, when `ObjectCount` is above 0. The server's own refusal
-maps to the same sentinel once the live checks name its code; it is the
-final guard, since `count` may omit old versions. There is no force flag:
-emptying a bucket is object work for an S3 client.
+sending no `DELETE`, unless the bucket is provably empty. The read decodes
+`count`, `size`, and `usedCapacity` as nullable, and refuses when:
+
+- `count` is null or absent, since some answers null most bucket fields;
+- `count` is above 0;
+- `size` or `usedCapacity` is above 0, since old versions can leave
+  `count` at 0.
+
+A null `size` or `usedCapacity` with `count` 0 passes. A failed read is
+wrapped as "reading the bucket before the delete". The server's refusal of
+a non-empty bucket is unverified; it maps to the same sentinel once the
+live checks name its code. No force flag: emptying is S3 client work.
 
 The server deletes asynchronously: the `DELETE` answers 200 at once, and
-for about a second reads still show the bucket or fail. Unless `NoWait` is
-set, `DeleteBucket` then calls `GetBucket` every second for up to 30
-seconds:
+for about a second reads still show the bucket or fail. `DeleteBucket`
+accepts 200 and 204; a 204 has no body and counts as success. Unless
+`NoWait` is set, `DeleteBucket` then calls `GetBucket` every second for up
+to 30 seconds:
 
 - `ErrNotFound`: settled; the call returns `{}`.
 - The bucket, envelope code `-1`, or `EmptyResponse`: still deleting; poll
@@ -287,7 +296,7 @@ missing one exits 2 before any request.
 | Server refuses an input, envelope code 112 | `ErrInvalidInput` | `112`, 2 |
 | Bucket delete not settled in 30 s | `storage.ErrNotSettled` | `NotSettled`, 1 |
 | `--secret-file` exists or its directory is missing | No request | `InvalidUsage`, 2 |
-| Bucket holds objects | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
+| Bucket holds objects or data, or its count is not reported | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
 | IAM policy denies the action | `ErrPermission` | `IAM_PERMISSION_DENIED`, 1 |
 | Envelope `success: false` | `*APIError`, envelope code | That code, 1 or 4 |
 | Empty 2xx body | `*APIError` `EmptyResponse` | 1 |
@@ -325,7 +334,9 @@ Unit tests use `httptest`:
 - Request bodies for every write; `region` and `region_id` both sent with
   the same UUID on every call except `ListRegions`, which sends neither; the
   region mapping and its unmapped case; `limit=1000` and `isNext`.
-- `DeleteBucket` sends no `DELETE` when the count is above 0. The wait
+- `DeleteBucket` sends no `DELETE` when `count` is above 0, null, or
+  absent, or when `size` or `usedCapacity` is above 0; a null `size` or
+  `usedCapacity` with `count` 0 passes; a 204 `DELETE` succeeds. The wait
   polls through the bucket, code `-1`, and an empty body, settles on code
   404, returns another error at once, and reaches `ErrNotSettled` on an
   injected clock; `NoWait` sends one `DELETE` and no poll.
@@ -404,7 +415,7 @@ accounts themselves ship in [IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
-Decisions 1 to 12 are approved as recommended; 13 to 15 await the owner.
+Decisions 1 to 15 are approved as recommended.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -424,13 +435,13 @@ Decisions 1 to 12 are approved as recommended; 13 to 15 await the owner.
 10. Approved: `--yes` when making a bucket public.
 11. Approved: rclone as the S3 client; no object commands in the CLI.
 12. Approved: the release order above.
-13. Recommended: every storage call except `ListRegions` sends both
+13. Approved: every storage call except `ListRegions` sends both
     `region` and `region_id` with the region UUID, and S1.1 ships that fix
     before S2.
-14. Recommended: envelope code 112 matches `ErrInvalidInput` on every
+14. Approved: envelope code 112 matches `ErrInvalidInput` on every
     storage call, since the server uses it for each input check it
     reports.
-15. Recommended: `DeleteBucket` waits up to 30 seconds, polling every
+15. Approved: `DeleteBucket` waits up to 30 seconds, polling every
     second, until `GetBucket` reports `NotFound`, with `NoWait` to skip it,
     so a following `ListBuckets` is accurate and a repeat delete reports
     `NotFound`.
