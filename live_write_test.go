@@ -11683,3 +11683,424 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	saID = ""
 	t.Logf("step 9: %d key(s) listed before the cleanup, %d at the start", len(listKeys(ctx)), len(before))
 }
+
+// liveStatement is one statement of the documented bucket policy template.
+// The field order is the template's; the server returns its own sorted order.
+type liveStatement struct {
+	Sid       string
+	Effect    string
+	Principal struct{ AWS []string }
+	Action    []string
+	Resource  []string
+}
+
+// liveStoragePolicy returns the documented bucket policy template for one
+// bucket and one principal, as JSON text in the template's key order.
+func liveStoragePolicy(t *testing.T, principalARN, bucket string) string {
+	t.Helper()
+	statement := func(sid string, actions []string, resource string) liveStatement {
+		s := liveStatement{Sid: sid, Effect: "Allow", Action: actions, Resource: []string{resource}}
+		s.Principal.AWS = []string{principalARN}
+		return s
+	}
+	doc := struct {
+		Version   string
+		Statement []liveStatement
+	}{
+		Version: "2012-10-17",
+		Statement: []liveStatement{
+			statement("Bucket", []string{"s3:ListBucket", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads"}, "arn:aws:s3:::"+bucket),
+			statement("Objects", []string{
+				"s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+				"s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
+			}, "arn:aws:s3:::"+bucket+"/*"),
+		},
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("encode the policy template: %v", err)
+	}
+	return string(out)
+}
+
+// TestLiveWriteStorageBucketPolicy runs the per-bucket key end to end on the
+// vStorage project named by VNGCLOUD_LIVE_STORAGE_PROJECT_ID: two buckets, the
+// service account liveStorageServiceAccount, the policy template on bucket A,
+// and a key attached to the account. Signed data plane calls show the key
+// working in A and refused in B, and refused in A again after the policy
+// delete. Cleanup removes the policies, the key, both buckets, and the account
+// and asserts none remains. It logs statuses, codes, counts, and booleans,
+// never an id, a name, a key, a secret, or the project id.
+func TestLiveWriteStorageBucketPolicy(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket policy write test")
+	}
+	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
+	if projectID == "" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket policy write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	opts := []core.Option{
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_CAPTURE") == "1" {
+		opts = append(opts, liveStorageCapture(t))
+	}
+	cfg, err := vngcloud.LoadConfig(ctx, opts...)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := storage.New(cfg)
+	accounts := iam.New(cfg)
+	suffix := ":sa-" + liveStorageServiceAccount
+
+	namedAccounts := func(ctx context.Context) []iam.ServiceAccount {
+		t.Helper()
+		out, err := accounts.ListServiceAccounts(ctx, &iam.ListServiceAccountsInput{Name: liveStorageServiceAccount, Size: 100})
+		if err != nil {
+			t.Fatalf("ListServiceAccounts: %s", safeErr(err))
+		}
+		var exact []iam.ServiceAccount
+		for _, sa := range out.Items {
+			if sa.Name == liveStorageServiceAccount {
+				exact = append(exact, sa)
+			}
+		}
+		return exact
+	}
+
+	// Step 1: sweep leftovers: keys attached to the test account, the account
+	// itself, and vngcloud-live- buckets.
+	keys, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListS3Keys: %s", safeErr(err))
+	}
+	for _, k := range keys.Items {
+		if strings.HasSuffix(k.SubUserID, suffix) {
+			if _, err := client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: k.UserKeyID}); err != nil {
+				t.Fatalf("step 1 delete leftover key: %s", safeErr(err))
+			}
+			t.Log("step 1: deleted a leftover attached key")
+		}
+	}
+	for _, sa := range namedAccounts(ctx) {
+		if _, err := accounts.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{ServiceAccountID: sa.ID}); err != nil {
+			t.Fatalf("step 1 delete leftover service account: %s", safeErr(err))
+		}
+		t.Log("step 1: deleted a leftover service account")
+	}
+	keys, err = client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListS3Keys: %s", safeErr(err))
+	}
+	if len(keys.Items) >= storageKeyLimit {
+		t.Skipf("the project holds %d keys, the limit", len(keys.Items))
+	}
+	buckets, err := client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListBuckets: %s", safeErr(err))
+	}
+	swept := 0
+	for _, b := range buckets.Items {
+		if !strings.HasPrefix(b.Name, liveStorageBucketPrefix) {
+			continue
+		}
+		if _, err := client.DeleteBucket(ctx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: b.Name}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Fatalf("step 1 delete leftover bucket (%d objects): %s", b.ObjectCount, safeErr(err))
+		}
+		swept++
+	}
+	t.Logf("step 1: %d key(s) at the start, deleted %d leftover bucket(s)", len(keys.Items), swept)
+
+	regions, err := client.ListRegions(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRegions: %s", safeErr(err))
+	}
+	s3Host := ""
+	for _, r := range regions.Items {
+		if strings.EqualFold(r.Name, "HCM04") {
+			s3Host = r.S3Host
+		}
+	}
+	if s3Host == "" {
+		t.Fatal("the region list has no HCM04 S3 host")
+	}
+
+	hex4, err := randomHex(2)
+	if err != nil {
+		t.Fatalf("generate name suffix: %v", err)
+	}
+	bucketA := liveStorageBucketPrefix + "a-" + hex4
+	bucketB := liveStorageBucketPrefix + "b-" + hex4
+	bucketMissing := liveStorageBucketPrefix + "m-" + hex4
+	object := "vngcloud-live-object-" + hex4 + ".txt"
+
+	// State the cleanup reads. It is one closure so the order is explicit:
+	// the test object, the policies, the key, the buckets, the account.
+	var (
+		saID, keyID, principalARN, templateA string
+		madeA, madeB, objectInA              bool
+		objects                              *liveObjects
+	)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+		defer cancel()
+		if objectInA && objects != nil && templateA != "" {
+			_, _ = client.PutBucketPolicy(cleanupCtx, &storage.PutBucketPolicyInput{ProjectID: projectID, Bucket: bucketA, Policy: templateA})
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				status, err := objects.remove(cleanupCtx, bucketA, object)
+				if err == nil && status == http.StatusNoContent {
+					objectInA = false
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+			t.Logf("cleanup: test object removed %v", !objectInA)
+		}
+		for name, made := range map[string]bool{bucketA: madeA, bucketB: madeB} {
+			if !made {
+				continue
+			}
+			if _, err := client.DeleteBucketPolicy(cleanupCtx, &storage.DeleteBucketPolicyInput{ProjectID: projectID, Bucket: name}); err != nil {
+				t.Errorf("cleanup: delete bucket policy: %s", safeErr(err))
+			}
+		}
+		if keyID != "" {
+			if _, err := client.DeleteS3Key(cleanupCtx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: keyID}); err != nil && vngcloud.ErrorCode(err) != "114" {
+				t.Errorf("cleanup: delete key: %s", safeErr(err))
+			}
+		}
+		for name, made := range map[string]bool{bucketA: madeA, bucketB: madeB} {
+			if !made {
+				continue
+			}
+			if _, err := client.DeleteBucket(cleanupCtx, &storage.DeleteBucketInput{ProjectID: projectID, Bucket: name}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete bucket: %s", safeErr(err))
+			}
+		}
+		if saID != "" {
+			if _, err := accounts.DeleteServiceAccount(cleanupCtx, &iam.DeleteServiceAccountInput{ServiceAccountID: saID}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete service account: %s", safeErr(err))
+			}
+		}
+		left, err := client.ListBuckets(cleanupCtx, &storage.ListBucketsInput{ProjectID: projectID})
+		if err != nil {
+			t.Errorf("cleanup: list buckets: %s", safeErr(err))
+			return
+		}
+		remaining := 0
+		for _, b := range left.Items {
+			if strings.HasPrefix(b.Name, liveStorageBucketPrefix) {
+				remaining++
+			}
+		}
+		leftKeys, err := client.ListS3Keys(cleanupCtx, &storage.ListS3KeysInput{ProjectID: projectID})
+		if err != nil {
+			t.Errorf("cleanup: list keys: %s", safeErr(err))
+			return
+		}
+		keyLeft := false
+		for _, k := range leftKeys.Items {
+			keyLeft = keyLeft || (keyID != "" && k.UserKeyID == keyID)
+		}
+		accountsLeft := len(namedAccounts(cleanupCtx))
+		t.Logf("cleanup: %d vngcloud-live- bucket(s), test key listed %v, %d service account(s) of the test name remain", remaining, keyLeft, accountsLeft)
+		if remaining != 0 || keyLeft || accountsLeft != 0 {
+			t.Error("cleanup: the test left resources behind")
+		}
+	})
+
+	// Step 2: buckets, and the policy reads before any put.
+	for _, b := range []struct {
+		name string
+		made *bool
+	}{{bucketA, &madeA}, {bucketB, &madeB}} {
+		*b.made = true // set before the call: a failed create may still have made it
+		if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{ProjectID: projectID, Bucket: b.name}); err != nil {
+			t.Fatalf("step 2 CreateBucket: %s", safeErr(err))
+		}
+	}
+	empty, err := client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketA})
+	if err != nil {
+		t.Fatalf("step 2 GetBucketPolicy before any put: %s", safeErr(err))
+	}
+	t.Logf("step 2: two buckets created; policy before any put is empty %v", empty.Policy == "")
+	if empty.Policy != "" {
+		t.Fatal("step 2: a new bucket has a policy")
+	}
+	_, err = client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketMissing})
+	var missingErr *vngcloud.APIError
+	if errors.As(err, &missingErr) {
+		t.Logf("step 2: policy of a missing bucket: status=%d code=%s, not found %v", missingErr.StatusCode, missingErr.Code, vngcloud.IsNotFound(err))
+	} else {
+		t.Logf("step 2: policy of a missing bucket: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	}
+	_, err = client.DeleteBucketPolicy(ctx, &storage.DeleteBucketPolicyInput{ProjectID: projectID, Bucket: bucketA})
+	t.Logf("step 2: delete of a policy that does not exist: %s", safeErr(err))
+	if err != nil {
+		t.Errorf("step 2: delete with no policy failed")
+	}
+
+	// Step 3: service account, principal, and the template on A.
+	made, err := accounts.CreateServiceAccount(ctx, &iam.CreateServiceAccountInput{Name: liveStorageServiceAccount})
+	if made != nil && made.ServiceAccount.ID != "" {
+		saID = made.ServiceAccount.ID
+	}
+	if err != nil {
+		t.Fatalf("step 3 CreateServiceAccount: %s", safeErr(err))
+	}
+	principal, err := client.EnsureServiceAccountPrincipal(ctx, &storage.EnsureServiceAccountPrincipalInput{ProjectID: projectID, ServiceAccountID: saID})
+	if err != nil {
+		t.Fatalf("step 3 EnsureServiceAccountPrincipal: %s", safeErr(err))
+	}
+	principalARN = principal.PrincipalARN
+	templateA = liveStoragePolicy(t, principalARN, bucketA)
+	if _, err := client.PutBucketPolicy(ctx, &storage.PutBucketPolicyInput{ProjectID: projectID, Bucket: bucketA, Policy: templateA}); err != nil {
+		t.Fatalf("step 3 PutBucketPolicy: %s", safeErr(err))
+	}
+	got, err := client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketA})
+	if err != nil {
+		t.Fatalf("step 3 GetBucketPolicy: %s", safeErr(err))
+	}
+	var wantDoc, gotDoc any
+	if err := json.Unmarshal([]byte(templateA), &wantDoc); err != nil {
+		t.Fatalf("step 3 decode the template: %v", err)
+	}
+	if err := json.Unmarshal([]byte(got.Policy), &gotDoc); err != nil {
+		t.Fatalf("step 3 decode the returned policy: %v", err)
+	}
+	t.Logf("step 3: policy put and read back; decoded equal %v, byte equal %v, returned policy sorted with Statement first %v",
+		reflect.DeepEqual(wantDoc, gotDoc), got.Policy == templateA, strings.HasPrefix(got.Policy, `{"Statement":`))
+	if !reflect.DeepEqual(wantDoc, gotDoc) {
+		t.Error("step 3: the policy read back differs from the one put")
+	}
+
+	// Step 3b: refusals. The SDK refuses an empty policy and invalid JSON
+	// before any request. A document that passes the SDK check but names an
+	// unknown Version goes to B, which has no key rights, and reaches the
+	// server's parser: it answers code 400 and stores nothing.
+	_, err = client.PutBucketPolicy(ctx, &storage.PutBucketPolicyInput{ProjectID: projectID, Bucket: bucketA, Policy: ""})
+	t.Logf("step 3b: empty policy refused client-side %v", errors.Is(err, vngcloud.ErrInvalidInput))
+	_, err2 := client.PutBucketPolicy(ctx, &storage.PutBucketPolicyInput{ProjectID: projectID, Bucket: bucketA, Policy: `{"Statement":[`})
+	t.Logf("step 3b: invalid JSON refused client-side %v", errors.Is(err2, vngcloud.ErrInvalidInput))
+	if !errors.Is(err, vngcloud.ErrInvalidInput) || !errors.Is(err2, vngcloud.ErrInvalidInput) {
+		t.Error("step 3b: the SDK sent a policy it should have refused")
+	}
+	badVersion := strings.Replace(liveStoragePolicy(t, principalARN, bucketB), "2012-10-17", "1999-01-01", 1)
+	_, err = client.PutBucketPolicy(ctx, &storage.PutBucketPolicyInput{ProjectID: projectID, Bucket: bucketB, Policy: badVersion})
+	var badErr *vngcloud.APIError
+	if errors.As(err, &badErr) {
+		t.Logf("step 3b: server parser on an unknown Version: status=%d code=%s, message present %v, matches a sentinel %v",
+			badErr.StatusCode, badErr.Code, badErr.Message != "", errors.Is(err, vngcloud.ErrInvalidInput))
+		if badErr.Code != "400" {
+			t.Error("step 3b: the server did not answer code 400")
+		}
+	} else {
+		t.Errorf("step 3b: the server accepted an unknown Version: %s", safeErr(err))
+	}
+	onB, err := client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketB})
+	if err != nil || onB.Policy != "" {
+		t.Errorf("step 3b: B has a policy after the refused put (err %s)", safeErr(err))
+	}
+
+	// Step 4: a key attached to the account, and the data plane.
+	created, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{ProjectID: projectID})
+	if created != nil && created.UserKeyID != "" {
+		keyID = created.UserKeyID
+	}
+	if err != nil {
+		t.Fatalf("step 4 CreateS3Key: %s", safeErr(err))
+	}
+	if _, err := client.AttachS3Key(ctx, &storage.AttachS3KeyInput{ProjectID: projectID, UserKeyID: keyID, ServiceAccountID: saID}); err != nil {
+		t.Fatalf("step 4 AttachS3Key: %s", safeErr(err))
+	}
+	objects, err = newLiveObjects(s3Host, "HCM04", created.AccessKey, created.SecretKey.Reveal())
+	if err != nil {
+		t.Fatalf("step 4 S3 client: %v", err)
+	}
+	payload := []byte("vngcloud live policy test " + hex4)
+	poll := func(want int, try func() (int, error)) (int, int, time.Duration) {
+		t.Helper()
+		start := time.Now()
+		attempts := 0
+		for {
+			attempts++
+			status, err := try()
+			if err != nil {
+				t.Fatalf("data plane call: %v", err)
+			}
+			if status == want || time.Since(start) > 5*time.Second {
+				return status, attempts, time.Since(start)
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	putA := func() (int, error) {
+		status, err := objects.put(ctx, bucketA, object, payload)
+		if status == http.StatusOK {
+			objectInA = true
+		}
+		return status, err
+	}
+	status, attempts, took := poll(http.StatusOK, putA)
+	t.Logf("step 4: put in A: status=%d after %d attempt(s), %s", status, attempts, took.Round(100*time.Millisecond))
+	if status != http.StatusOK {
+		t.Fatal("step 4: the attached key cannot put in A within 5 seconds")
+	}
+	status, body, err := objects.get(ctx, bucketA, object)
+	if err != nil {
+		t.Fatalf("step 4 get in A: %v", err)
+	}
+	t.Logf("step 4: get in A: status=%d, content matches %v", status, bytes.Equal(body, payload))
+	status, listed, err := objects.list(ctx, bucketA)
+	if err != nil {
+		t.Fatalf("step 4 list in A: %v", err)
+	}
+	t.Logf("step 4: list in A: status=%d, %d object(s)", status, len(listed))
+	status, err = objects.remove(ctx, bucketA, object)
+	if err != nil {
+		t.Fatalf("step 4 delete in A: %v", err)
+	}
+	objectInA = status != http.StatusNoContent
+	t.Logf("step 4: delete in A: status=%d", status)
+	status, err = objects.put(ctx, bucketB, object, payload)
+	if err != nil {
+		t.Fatalf("step 4 put in B: %v", err)
+	}
+	t.Logf("step 4: put in B: status=%d", status)
+	if status == http.StatusOK {
+		t.Error("step 4: the attached key put an object in B")
+		_, _ = objects.remove(ctx, bucketB, object)
+	}
+
+	// Step 5: delete A's policy; A is denied again; a second delete succeeds.
+	if _, err := client.DeleteBucketPolicy(ctx, &storage.DeleteBucketPolicyInput{ProjectID: projectID, Bucket: bucketA}); err != nil {
+		t.Fatalf("step 5 DeleteBucketPolicy: %s", safeErr(err))
+	}
+	status, attempts, took = poll(http.StatusForbidden, putA)
+	t.Logf("step 5: put in A after the policy delete: status=%d after %d attempt(s), %s", status, attempts, took.Round(100*time.Millisecond))
+	if status != http.StatusForbidden {
+		t.Error("step 5: the key can still put in A within 5 seconds of the policy delete")
+	}
+	if _, err := client.DeleteBucketPolicy(ctx, &storage.DeleteBucketPolicyInput{ProjectID: projectID, Bucket: bucketA}); err != nil {
+		t.Errorf("step 5 second DeleteBucketPolicy: %s", safeErr(err))
+	}
+	after, err := client.GetBucketPolicy(ctx, &storage.GetBucketPolicyInput{ProjectID: projectID, Bucket: bucketA})
+	if err != nil {
+		t.Fatalf("step 5 GetBucketPolicy: %s", safeErr(err))
+	}
+	t.Logf("step 5: second delete succeeded; policy is empty %v", after.Policy == "")
+	if after.Policy != "" {
+		t.Error("step 5: the policy is still set after the delete")
+	}
+}

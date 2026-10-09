@@ -2,10 +2,10 @@
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages vStorage object storage: it reads the vStorage regions
-and the projects in a region, it lists, creates, and deletes the buckets in
-a project, it lists, creates, and deletes the project's S3 keys, and it
-attaches a key to an IAM service account. It covers the management plane only.
-To read or write objects, use an S3 client such as rclone with an S3 key.
+and the projects in a region, lists, creates, and deletes the buckets in a
+project and the project's S3 keys, attaches a key to an IAM service account,
+and reads, sets, and deletes a bucket's policy. It covers the management plane
+only. To read or write objects, use an S3 client such as rclone with an S3 key.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -358,8 +358,8 @@ For one key per bucket, run the steps in this order:
 1. Create the bucket.
 2. Create the service account with `iam`.
 3. Call `EnsureServiceAccountPrincipal`.
-4. Write a bucket policy that allows the principal on the bucket. The SDK has no
-   bucket policy call yet.
+4. Write a bucket policy that allows the principal on the bucket, with
+   `PutBucketPolicy` ([Storage Bucket Policy](Storage-Bucket-Policy.md)).
 5. Create the key, then attach it to the service account, then store its
    secret.
 
@@ -392,5 +392,6 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | `AttachS3Key` or `DetachS3Key` refused | `*vngcloud.APIError` with envelope code `114` and the server's message, listed under [Service account keys](#service-account-keys) |
 | `AttachS3Key` or `DetachS3Key` got a 5xx or a network error | `*vngcloud.APIError` that says the change may have happened; list the keys and read `SubUserID` |
 | `EnsureServiceAccountPrincipal` response without a `:sa-` sub-user | `*vngcloud.APIError`, no Output |
+| A bucket policy call refused, or a `Policy` that is not a JSON object with a non-empty `Statement` array | See [Storage Bucket Policy](Storage-Bucket-Policy.md#errors) |
 
 See [Errors](Errors.md) for `APIError` itself.

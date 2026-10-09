@@ -1,0 +1,5 @@
+{
+  "code": 400,
+  "success": false,
+  "errorMsg": "At character offset 23, `1999-01-01` is not a valid version. Valid versions are `2008-10-17` and `2012-10-17`."
+}
