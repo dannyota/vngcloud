@@ -1,4 +1,5 @@
 {
+  "AlarmID": "alarm-1",
   "Alarm": {
     "ID": "alarm-1",
     "Name": "example-log-alarm",

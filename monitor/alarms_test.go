@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud/internal/core"
@@ -208,7 +209,9 @@ func TestListAlarmsSetsLogAndMetricMappingIDFromKind(t *testing.T) {
 
 // TestGetAlarmDecodesFixture uses a synthetic fixture: the design's Get
 // alarm call is console code only, never seen live, so GetAlarm.json is
-// hand-built to exercise the decode, not a sanitized live capture.
+// hand-built to exercise the decode, not a sanitized live capture. It
+// covers the corrected read model: Kind decoded from the top-level type,
+// and every log field nested under alarmLog rather than at the top level.
 func TestGetAlarmDecodesFixture(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -228,23 +231,218 @@ func TestGetAlarmDecodesFixture(t *testing.T) {
 	if got.ID != "alarm-1" || got.Name != "example-log-alarm" {
 		t.Fatalf("unexpected identity: %+v", got)
 	}
-	// GetAlarm takes no Kind filter, and the API sends no field confirmed to
-	// name the kind itself, so Kind stays empty rather than being guessed
-	// from which of Log or MetricMappingID the response happens to carry.
-	if got.Kind != "" {
-		t.Fatalf("Kind = %q, want empty", got.Kind)
+	if got.Description != "Alerts when error logs spike" {
+		t.Fatalf("Description = %q", got.Description)
+	}
+	// GetAlarm sets no Kind filter of its own, so Kind comes from the
+	// response's own type field rather than staying empty.
+	if got.Kind != AlarmKindLog {
+		t.Fatalf("Kind = %q, want %q", got.Kind, AlarmKindLog)
+	}
+	if got.Status != "OK" || got.Severity != "MEDIUM" {
+		t.Fatalf("unexpected status/severity: %+v", got)
 	}
 	if got.Log == nil {
 		t.Fatal("Log = nil, want non-nil")
 	}
-	if want := []string{"channel-1"}; !slices.Equal(got.Log.InAlarm, want) {
-		t.Fatalf("Log.InAlarm = %v, want %v", got.Log.InAlarm, want)
+	log := got.Log
+	if log.LogProjectID != "proj-1" || log.LogProjectName != "example-project" {
+		t.Fatalf("unexpected project reference: %+v", log)
+	}
+	if log.QueryString != "status:500" {
+		t.Fatalf("QueryString = %q", log.QueryString)
+	}
+	if len(log.Filter) == 0 || !strings.Contains(string(log.Filter), "status:500") {
+		t.Fatalf("Filter = %s, want it to carry the query", log.Filter)
+	}
+	if log.ThresholdType != "frequency" || log.Condition != "gt" {
+		t.Fatalf("unexpected threshold shape: %+v", log)
+	}
+	if log.ThresholdValue != 100 || log.TimeFrame != 5 {
+		t.Fatalf("ThresholdValue = %v, TimeFrame = %v", log.ThresholdValue, log.TimeFrame)
+	}
+	if log.GroupByField != "" {
+		t.Fatalf("GroupByField = %q, want empty", log.GroupByField)
+	}
+	if want := []string{"channel-1"}; !slices.Equal(log.InAlarm, want) {
+		t.Fatalf("Log.InAlarm = %v, want %v", log.InAlarm, want)
 	}
 	// ok is an empty string in the fixture: no channel alerts on leaving the
 	// alarm state, which must decode to nil rather than a slice with an
 	// empty element.
-	if got.Log.OK != nil {
-		t.Fatalf("Log.OK = %v, want nil", got.Log.OK)
+	if log.OK != nil {
+		t.Fatalf("Log.OK = %v, want nil", log.OK)
+	}
+	wantResend := LogAlarmResend{Enabled: false, Statuses: []string{"ALARM"}, Period: 30, Times: 0}
+	if log.Resend.Enabled != wantResend.Enabled || log.Resend.Period != wantResend.Period ||
+		log.Resend.Times != wantResend.Times || !slices.Equal(log.Resend.Statuses, wantResend.Statuses) {
+		t.Fatalf("Resend = %+v, want %+v", log.Resend, wantResend)
+	}
+}
+
+// TestGetAlarmFallsBackWithoutAlarmLog covers a response with no alarmLog
+// at all: the design's fallback for a shape that has not been fully
+// confirmed. Only InAlarm and OK decode; every other LogAlarmDetail field
+// stays zero, and Kind stays empty since this raw response also sends no
+// type.
+func TestGetAlarmFallsBackWithoutAlarmLog(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-2","name":"legacy-alarm","status":"OK","severity":"LOW","inAlarm":"channel-1,channel-2,","ok":"channel-1,"}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(raw))
+	}))
+
+	out, err := client.GetAlarm(context.Background(), &GetAlarmInput{AlarmID: "alarm-2"})
+	if err != nil {
+		t.Fatalf("GetAlarm() error = %v", err)
+	}
+	got := out.Alarm
+	if got.Kind != "" {
+		t.Fatalf("Kind = %q, want empty: no type field in this response", got.Kind)
+	}
+	if got.Log == nil {
+		t.Fatal("Log = nil, want non-nil from the top-level fallback")
+	}
+	if want := []string{"channel-1", "channel-2"}; !slices.Equal(got.Log.InAlarm, want) {
+		t.Fatalf("Log.InAlarm = %v, want %v", got.Log.InAlarm, want)
+	}
+	if want := []string{"channel-1"}; !slices.Equal(got.Log.OK, want) {
+		t.Fatalf("Log.OK = %v, want %v", got.Log.OK, want)
+	}
+	if got.Log.QueryString != "" || got.Log.ThresholdType != "" || len(got.Log.Filter) != 0 {
+		t.Fatalf("unexpected non-zero fallback fields: %+v", got.Log)
+	}
+}
+
+// TestAlarmKindFromType covers Kind decoding from the top-level type field:
+// LOG and METRIC map to the two AlarmKind constants, and any other value,
+// including a missing type, leaves Kind empty rather than guessed.
+func TestAlarmKindFromType(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{`{"id":"a","type":"LOG"}`, AlarmKindLog},
+		{`{"id":"a","type":"METRIC"}`, AlarmKindMetric},
+		{`{"id":"a","type":"other"}`, ""},
+		{`{"id":"a"}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			var a Alarm
+			if err := json.Unmarshal([]byte(tc.raw), &a); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if a.Kind != tc.want {
+				t.Fatalf("Kind = %q, want %q", a.Kind, tc.want)
+			}
+		})
+	}
+}
+
+// TestLogAlarmDetailDecodesStringThresholdValueAndTimeFrame covers the
+// design's note that thresholdValue and timeFrame may arrive as a JSON
+// number or a numeric string, since the console's own create form does not
+// convert either to a number before sending it.
+func TestLogAlarmDetailDecodesStringThresholdValueAndTimeFrame(t *testing.T) {
+	const raw = `{"thresholdValue":"12.5","timeFrame":"10"}`
+	var d LogAlarmDetail
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if d.ThresholdValue != 12.5 {
+		t.Fatalf("ThresholdValue = %v, want 12.5", d.ThresholdValue)
+	}
+	if d.TimeFrame != 10 {
+		t.Fatalf("TimeFrame = %v, want 10", d.TimeFrame)
+	}
+}
+
+// TestLogAlarmDetailDecodesOddNumericAndGroupByFieldShapes covers fields
+// that used to fail LogAlarmDetail's whole decode: an empty thresholdValue,
+// a string resendPeriod/resendTimes, and a non-string groupByField. None of
+// them fail the decode now; each falls back to its zero value instead.
+func TestLogAlarmDetailDecodesOddNumericAndGroupByFieldShapes(t *testing.T) {
+	const raw = `{"thresholdValue":"","resendPeriod":"15","resendTimes":"abc","groupByField":true}`
+	var d LogAlarmDetail
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("Unmarshal() error = %v, want no error", err)
+	}
+	if d.ThresholdValue != 0 {
+		t.Fatalf("ThresholdValue = %v, want 0", d.ThresholdValue)
+	}
+	if d.Resend.Period != 15 {
+		t.Fatalf("Resend.Period = %v, want 15", d.Resend.Period)
+	}
+	if d.Resend.Times != 0 {
+		t.Fatalf("Resend.Times = %v, want 0", d.Resend.Times)
+	}
+	if d.GroupByField != "" {
+		t.Fatalf("GroupByField = %q, want empty", d.GroupByField)
+	}
+}
+
+// TestGetAlarmDecodesOddNumericFieldsWithoutFailing covers the same odd
+// shapes at the GetAlarm level: a single alarm with a blank thresholdValue,
+// a string resendPeriod, a non-numeric resendTimes, and a numeric
+// groupByField must not fail the read.
+func TestGetAlarmDecodesOddNumericFieldsWithoutFailing(t *testing.T) {
+	const raw = `{"data":{"id":"alarm-5","name":"odd-alarm","type":"LOG","status":"OK","severity":"LOW",
+		"alarmLog":{"logProject":"proj-1","logProjectName":"p","thresholdType":"frequency","condition":"gt",
+		"thresholdValue":"","timeFrame":5,"groupByField":123,"resendPeriod":"","resendTimes":"n/a","inAlarm":"","ok":""}}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(raw))
+	}))
+	out, err := client.GetAlarm(context.Background(), &GetAlarmInput{AlarmID: "alarm-5"})
+	if err != nil {
+		t.Fatalf("GetAlarm() error = %v, want no error for odd numeric fields", err)
+	}
+	if out.Alarm.Log.ThresholdValue != 0 {
+		t.Fatalf("ThresholdValue = %v, want 0", out.Alarm.Log.ThresholdValue)
+	}
+	if out.Alarm.Log.Resend.Period != 0 || out.Alarm.Log.Resend.Times != 0 {
+		t.Fatalf("Resend = %+v, want zero", out.Alarm.Log.Resend)
+	}
+	// groupByField:123 is a JSON number, which flexibleString keeps as its
+	// exact digit string rather than treating it as empty.
+	if out.Alarm.Log.GroupByField != "123" {
+		t.Fatalf("GroupByField = %q, want %q", out.Alarm.Log.GroupByField, "123")
+	}
+}
+
+// TestListAlarmsDecodesLogNestedFixture covers a list item whose Log field
+// nests under alarmLog, the shape GetAlarm's own fixture uses, rather than
+// the top-level inAlarm/ok fallback TestListAlarmsDecodesLogFixture covers.
+// The fixture is synthetic, for the same reason that one is.
+func TestListAlarmsDecodesLogNestedFixture(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/monitor/ListAlarmsLogNested.json")
+	}))
+
+	out, err := client.ListAlarms(context.Background(), &ListAlarmsInput{Kind: AlarmKindLog})
+	if err != nil {
+		t.Fatalf("ListAlarms() error = %v", err)
+	}
+	if len(out.Items) != 1 {
+		t.Fatalf("unexpected items: %+v", out.Items)
+	}
+	got := out.Items[0]
+	if got.Log == nil {
+		t.Fatal("Log = nil, want non-nil for a Log alarm")
+	}
+	if got.Log.LogProjectID != "proj-1" || got.Log.LogProjectName != "example-project" {
+		t.Fatalf("unexpected project reference: %+v", got.Log)
+	}
+	if got.Log.ThresholdType != "frequency" || got.Log.Condition != "gt" ||
+		got.Log.ThresholdValue != 100 || got.Log.TimeFrame != 5 {
+		t.Fatalf("unexpected threshold fields: %+v", got.Log)
+	}
+	if len(got.Log.Filter) == 0 {
+		t.Fatalf("Filter = %v, want present", got.Log.Filter)
+	}
+	if want := []string{"channel-1", "channel-2"}; !slices.Equal(got.Log.InAlarm, want) {
+		t.Fatalf("Log.InAlarm = %v, want %v", got.Log.InAlarm, want)
 	}
 }
 

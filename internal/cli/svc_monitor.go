@@ -87,6 +87,23 @@ import (
 // exitCode's default case already returns 1 rather than the 4 a real 404
 // gets; docOpNotes states this for the wiki page since the flag table
 // cannot show it.
+//
+// CreateLogAlarm, UpdateLogAlarm, and DeleteLogAlarm carry no Guard or
+// WriteRedact either, unlike create-channel and update-channel: the monitor
+// design's Security section states a log alarm body holds channel IDs, not
+// addresses, and no secret, so nothing here needs the CLI-level literal-flag
+// refusal a channel Address does. CreateLogAlarmInput's Filter, InAlarm, OK,
+// and Resend, and UpdateLogAlarmInput's pointer-to-those, have no
+// flag-settable type, so flags.go's reflection reaches them only through
+// --cli-input-json; every other field of both Inputs gets a flag, including
+// ThresholdValue and *ThresholdValue, the design's own reason for adding
+// float64 and *float64 flag support. CreateLogAlarm and UpdateLogAlarm are
+// Write but not Destructive: an unwanted create is cleaned up by
+// delete-log-alarm, one more command away, and update never removes data
+// update-log-alarm alone can restore. DeleteLogAlarm is Write and
+// Destructive, needing --yes: a deleted alarm's history is lost, and a new
+// alarm gets a new ID. A read-only profile refuses all three, before any
+// request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
@@ -156,6 +173,12 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("ListAlarms"), (*monitor.Client).ListAlarms),
 	Read[monitor.Client, monitor.GetAlarmInput, monitor.GetAlarmOutput](
 		kebab("GetAlarm"), (*monitor.Client).GetAlarm),
+	Write[monitor.Client, monitor.CreateLogAlarmInput, monitor.CreateLogAlarmOutput](
+		kebab("CreateLogAlarm"), (*monitor.Client).CreateLogAlarm),
+	Write[monitor.Client, monitor.UpdateLogAlarmInput, monitor.UpdateLogAlarmOutput](
+		kebab("UpdateLogAlarm"), (*monitor.Client).UpdateLogAlarm),
+	Write[monitor.Client, monitor.DeleteLogAlarmInput, monitor.DeleteLogAlarmOutput](
+		kebab("DeleteLogAlarm"), (*monitor.Client).DeleteLogAlarm, Destructive()),
 }
 
 // literalCLIInputJSONFields returns the top-level key set of cmd's

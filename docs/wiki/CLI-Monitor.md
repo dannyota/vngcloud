@@ -49,6 +49,36 @@ Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which cha
 vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
 ```
 
+## create-log-alarm
+
+Kind: Write.
+
+Unverified live: the create response's own shape has never been captured, since the console ignores it; the create trusts an id at data.id or a top-level id, printed as AlarmID, or otherwise finds the alarm by its exact --name once it settles. Refuses a NaN or infinite --threshold-value, with InvalidUsage, before any request. It then refuses a --name a log alarm already has, with InvalidUsage, creating nothing. --query-string and an inline or file Filter (set only through --cli-input-json) must both be given or both left out; leaving both out sends a match-all query. The create POST is never retried after a failure that may have already reached the server: list-alarms by --name before creating again, rather than repeating this command. Without --no-wait, waits up to 60 seconds, polling every 2 seconds, for the new alarm's status to leave CREATING; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only AlarmID set.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--log-project-id` | `string` | yes |
+| `--threshold-value` | `*float64` | yes |
+| `--description` | `string` |  |
+| `--severity` | `string` |  |
+| `--query-string` | `string` |  |
+| `Filter` (via `--cli-input-json` only) | `jsontext.Value` |  |
+| `--threshold-type` | `string` |  |
+| `--condition` | `string` |  |
+| `--time-frame` | `int` |  |
+| `--group-by-field` | `string` |  |
+| `--agg-field` | `string` |  |
+| `--agg-type` | `string` |  |
+| `InAlarm` (via `--cli-input-json` only) | `[]string` |  |
+| `OK` (via `--cli-input-json` only) | `[]string` |  |
+| `Resend` (via `--cli-input-json` only) | `*monitor.LogAlarmResend` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor create-log-alarm --name <name> --log-project-id <log-project-id> --threshold-value <threshold-value>
+```
+
 ## create-log-project
 
 Kind: Write.
@@ -91,6 +121,20 @@ Kind: Write, destructive.
 
 ```sh
 vngcloud monitor delete-check --check-id <check-id> --yes
+```
+
+## delete-log-alarm
+
+Kind: Write, destructive.
+
+Reads the alarm first and refuses with InvalidUsage, deleting nothing, when its Kind is not Log: nothing shows the server itself refuses a metric alarm's ID on this DELETE path, so the command checks first. A 404 on that read exits the same as a 404 from the delete itself, NotFound. Past that read, deletes the alarm and its history at once with no wait, unlike delete-log-project. A retry that finds the alarm already gone returns NotFound, the same as a second delete of the same --alarm-id.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--alarm-id` | `string` | yes |
+
+```sh
+vngcloud monitor delete-log-alarm --alarm-id <alarm-id> --yes
 ```
 
 ## delete-log-project
@@ -361,5 +405,36 @@ Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which cha
 
 ```sh
 vngcloud monitor update-check --check-id <check-id> --name <name>
+```
+
+## update-log-alarm
+
+Kind: Write.
+
+Refuses a NaN or infinite --threshold-value, and --query-string set without an inline or file --cli-input-json Filter (or the reverse), both with InvalidUsage, before any request. Reads the alarm first and refuses with InvalidUsage, sending no PUT, when its Kind is not Log, since this command never updates a metric alarm; when its Status is CREATING or UPDATING, the same rule the console's own edit page enforces; or when the read is missing a field the create body always sends (LogProjectID, ThresholdType, Condition, or a nonzero TimeFrame). Past that read, sends every field the command line left unset back unchanged, so update-log-alarm --alarm-id <id> --name <name> changes only the name. A set --query-string/Filter pair follows create-log-alarm's own pairing rule; leaving both unset resends the read's own pairing unchanged, even if it was never valid to create. A new --log-project-id is always re-read for its current name, even when it names the same project the alarm already has. Without --no-wait, waits the same way create-log-alarm does; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--alarm-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+| `--name` | `*string` |  |
+| `--description` | `*string` |  |
+| `--severity` | `*string` |  |
+| `--log-project-id` | `*string` |  |
+| `--query-string` | `*string` |  |
+| `Filter` (via `--cli-input-json` only) | `*jsontext.Value` |  |
+| `--threshold-type` | `*string` |  |
+| `--condition` | `*string` |  |
+| `--threshold-value` | `*float64` |  |
+| `--time-frame` | `*int` |  |
+| `--group-by-field` | `*string` |  |
+| `--agg-field` | `*string` |  |
+| `--agg-type` | `*string` |  |
+| `InAlarm` (via `--cli-input-json` only) | `*[]string` |  |
+| `OK` (via `--cli-input-json` only) | `*[]string` |  |
+| `Resend` (via `--cli-input-json` only) | `*monitor.LogAlarmResend` |  |
+
+```sh
+vngcloud monitor update-log-alarm --alarm-id <alarm-id>
 ```
 

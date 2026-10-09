@@ -7,15 +7,16 @@ projects, and log alarms to the SDK and CLI. aboutme needs its app-down
 check to alert someone, a log project for its logs, and alarms on those
 logs. It extends [vMonitor](monitor.md) and follows [SDK and
 CLI](sdk-and-cli.md) and [ADR 0002](../adr/0002-write-api-conventions.md).
+Log alarm writes are in [vMonitor Log Alarms](monitor-log-alarms.md).
 
 ## Source
 
 No public API reference covers channels or alarms. The calls below come
-from the vMonitor console's public JavaScript and from live reads on
-2026-09-26 with an SDK-issued IAM User token and no extra header. Every
-read returned 200, so the IAM User token works here as it does for checks.
-No write was sent. All paths are under the existing `Monitor` endpoint
-root, `https://vmonitor.console.greennode.ai/`:
+from the vMonitor console's public JavaScript and from live calls on the
+test account in September 2026 with an SDK-issued IAM User token and no
+extra header, which works here as it does for checks. "Console code only"
+marks a call not yet sent live. All paths are under the existing
+`Monitor` endpoint root, `https://vmonitor.console.greennode.ai/`:
 
 | Prefix | Serves |
 |-|-|
@@ -66,32 +67,47 @@ A check body carries `notifications` with `In-alarm`, `Up`, and
 ### Log projects
 
 A log project is a vMonitor log quota: the order creates the project, and
-both share one ID. That comes from a public third-party vMonitor MCP
-server and is unverified.
+both share one ID. A delete by the project ID on the quota path removed
+the project, which confirms the shared ID.
 
 | Call | Method and path | Seen |
 |-|-|-|
-| List | `GET log-api/v1/projects?page=0&size=10` | 200: `content`, `currentPage`, `pageSize`, `totalElements`, `totalPages`; empty |
-| Get | `GET log-api/v1/projects/{id}` | Console code only |
+| List | `GET log-api/v1/projects?page=0&size=10` | 200: `content`, `currentPage`, `pageSize`, `totalElements`, `totalPages` |
+| Get | `GET log-api/v1/projects/{id}` | 200, below |
 | Classes | `GET billing-api/v2/log/quota-class` | 200 |
 | Quote | `POST billing-api/v2/log/prices/created-price` | 200 |
-| Create | `POST billing-api/v2/log/quotas` | Console code only |
-| Delete | `DELETE billing-api/v1/log/quotas/{id}` | Console code only; to trash |
-| Purge | `DELETE billing-api/v1/trash/log/quotas/{id}` | Console code only |
+| Create | `POST billing-api/v2/log/quotas` | 200: `amount`, `orderId`, `paymentUrl` |
+| Delete | `DELETE billing-api/v1/log/quotas/{id}` | 200, below |
+| Purge | `DELETE billing-api/v1/trash/log/quotas/{id}` | 404 once, 409 once, below |
 
-The list's `page` is 0-based; it also filters on `query`,
-`billing_status`, `project_type`, and `status`. Classes are `Basic`,
+A project has `id`, `name`, `projectType`, `description`, `status`,
+`billingStatus`, `createdAt`, and `extra` (search field mappings); list
+items add `certInfos`. There is no `zone`.
+
+The list's `page` is 0-based and its `size` is at most 100. It also
+filters on `query`, `billing_status`, `project_type`, and `status`; any of
+the last three sent empty filters out every project. Classes are `Basic`,
 `Pro`, and a disabled `Enterprise`. Each active class lists retention
 options: `amount` (days), `minSize`, `maxSize`, `step` (GB per day), and a
 `packageId`. Basic is free: 1 day, 10 GB. Pro offers 7 to 90 days. A quote
 returned 0 VND for Basic and 917,000 VND a month for Pro at 7 days and
-20 GB a day. Billing settings cap a free quota at one month.
+20 GB a day. Billing settings cap a free quota at one month. The Basic
+class allows 3 orders or recoveries a month; the next one gets 409
+"Exceeded quota...".
 
 The create body is `redirectUrl`, `packageId`, `quantity` (GB per day
 times days), `buyWith` (optional email and SMS package IDs), `monthPeriod`
 (1), `projectName`, `projectDescription`, and `pay`, which the console
-sets true for IAM users. The console checks the name against
+sets true for IAM users. `redirectUrl` must be
+`https://vmonitor.console.vngcloud.vn/quota-usages/log`, or the order gets
+400. The console checks the name against
 `^[a-z]$|^[a-z](?:[a-z\d-]){0,61}[a-z\d]$`.
+
+A free order returned an empty `orderId`, and the project was `ACTIVE`
+about 25 seconds later. A plain delete of a free project removed it from
+the log list, the billing list, and trash within a few seconds; a separate
+purge after that got 404 once and 409 once. A delete and purge in one call
+has not run live.
 
 ### Alarms
 
@@ -99,15 +115,13 @@ sets true for IAM users. The console checks the name against
 |-|-|-|
 | List | `GET /alarms/list?type-alarm=Metric\|Log&name=&status=&severity=&page=1&size=10` | 200: `lstData` and paging; empty |
 | Get | `GET /alarms/{id}`, result in `data` | Console code only |
-| Create log alarm | `POST /alarms/logs` | Console code only |
-| Update log alarm | `PUT /alarms/logs/{id}` | Console code only |
-| Delete log alarm | `DELETE /alarms/logs/{id}` | Console code only |
+| Log alarm writes | `/alarms/logs` | Console code only |
 | Metric alarm writes | `/alarms/metrics`, v1 and v2 | Console code only |
 
-The log alarm body is in [Alarms](#alarms-1). Its `inAlarm` and `ok` are
-channel IDs, each followed by a comma, in one string. Metric alarms name a
-channel by its `metricMappingId`, not its ID. The console shows alarm
-statuses OK, In-alarm, Undetermined, and Creating.
+Log alarm bodies and the read shape are in [vMonitor Log
+Alarms](monitor-log-alarms.md#source). Metric alarms name a channel by its
+`metricMappingId`, not its ID. The console shows alarm statuses OK,
+In-alarm, Undetermined, Creating, and Updating.
 
 ## Non-goals
 
@@ -209,10 +223,16 @@ sends `quantity` = `GBPerDay` x `RetentionDays`, `monthPeriod` 1,
 `buyWith` `{}`, `pay` true, and the console's `redirectUrl`. One builder
 makes the quote and the create body (ADR 0002 rule 8).
 
-`CreateLogProject` quotes first. When `optimumPrice` exceeds `MaxPrice`,
+`CreateLogProject` returns `ErrInvalidInput` and sends nothing when
+`MaxPrice` is NaN, infinite, or negative, or when a project already has
+the name. It reads the classes once, builds one body, and sends that body
+to the quote and then the order. When `optimumPrice` exceeds `MaxPrice`,
 it returns `ErrPriceAboveMax` naming both amounts and orders nothing, so
-`CreateLogProjectInput{Name: "app"}` buys only a free Basic project. The
-price can change in the one request between quote and order.
+`CreateLogProjectInput{Name: "app"}` buys only a free Basic project. A
+quote without a price returns an `*APIError` and orders nothing. The price
+can change in the one request between quote and order. The Output holds
+`OrderID`, which a free order leaves empty, and the project after the
+wait.
 
 `pay: true` charges the account balance at once, as the console does for
 IAM users. `pay: false` returns a payment URL for a browser, which an
@@ -221,7 +241,9 @@ retry it after a 5xx (ADR 0002 rule 2); the caller lists projects by name
 before ordering again.
 
 `DeleteLogProject` moves the project to trash and stops its billing; its
-logs are lost. `Purge` then deletes it from trash.
+logs are lost. `Purge` then deletes it from trash, and a 404 from either
+step counts as gone unless both 404. A purge can get 409, which the SDK
+returns unchanged.
 
 ### Alarms
 
@@ -229,25 +251,11 @@ logs are lost. `Purge` then deletes it from trash.
 |-|-|-|
 | `ListAlarms` | List | `Kind` (r: `Metric` or `Log`), `Name`, `Status`, `Severity`, `Page`, `Size` |
 | `GetAlarm` | Get | `AlarmID` (r) |
-| `CreateLogAlarm` | Create log alarm | see below |
-| `UpdateLogAlarm` | `GetAlarm`, then Update log alarm | `AlarmID` (r) and each create field as * |
-| `DeleteLogAlarm` | Delete log alarm | `AlarmID` (r) |
 
 `ListAlarms` always sends all five query keys, empty when unset, as the
 console does. `Alarm` holds the common fields and a `Log` part for log
-alarms; its exact shape waits for the live read.
-
-`CreateLogAlarmInput` has `Name` (r), `LogProjectID` (r),
-`ThresholdValue` (r, `float64`), `Severity` (`LOW`, `MEDIUM`, or `HIGH`;
-empty sends `LOW`), `Description`, `Filter` (`json.RawMessage`; empty
-sends `{"type":"match_all","value":{}}`), `QueryString`, `ThresholdType`
-(empty sends `frequency`), `Condition` (`gt`, `gte`, `lt`, or `lte`;
-empty sends `gt`), `TimeFrame` (minutes; 0 sends 5), `GroupByField`,
-`InAlarm` and `OK` (channel IDs), `Resend` (`Enabled`, `Statuses`,
-`Period`, `Times`), and `NoWait`. The SDK reads the project to send
-`projectName` and `zone`, and fills `reason`, `logSearchQuery`,
-`metricAggKey`, and `metricAggType` as the console does. The live check
-confirms each console-derived value before code.
+alarms. [vMonitor Log Alarms](monitor-log-alarms.md) defines the read
+model, `CreateLogAlarm`, `UpdateLogAlarm`, and `DeleteLogAlarm`.
 
 ### Identifiers
 
@@ -274,8 +282,7 @@ injected clock, and keeps polling on a status it does not know.
 | Operation | Settled when | Bound |
 |-|-|-|
 | `CreateLogProject` | The project, found by name, is `ACTIVE` | 120 s |
-| `DeleteLogProject` | Get is 404, or the project is in trash | 60 s |
-| `CreateLogAlarm`, `UpdateLogAlarm` | Status is no longer Creating | 60 s |
+| `DeleteLogProject` | Get is 404, or its status or billing status changed | 60 s |
 
 Settled returns the last read; a failed status returns the Output and
 `ErrFailed`; the bound returns the Output, when known, and `ErrNotSettled`,
@@ -302,17 +309,15 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
 
 | Command | Kind | `--yes` | Release |
 |-|-|-|-|
-| `monitor list-channel-types`, `list-channels`, `get-channel` | Read | No | M1 |
-| `monitor create-channel`, `update-channel` | Write | No | M2 |
-| `monitor delete-channel` | Write, destructive | Yes | M2 |
-| `monitor update-check` | Write | No | M3 |
-| `monitor send-channel-otp` | Write | No | M4 |
-| `monitor list-log-projects`, `get-log-project`, `list-log-project-classes`, `quote-create-log-project` | Read | No | M5 |
-| `monitor create-log-project` | Write | No | M6 |
-| `monitor delete-log-project` | Write, destructive | Yes | M6 |
-| `monitor list-alarms`, `get-alarm` | Read | No | M7 |
-| `monitor create-log-alarm`, `update-log-alarm` | Write | No | M8 |
-| `monitor delete-log-alarm` | Write, destructive | Yes | M8 |
+| `monitor list-channel-types`, `list-channels`, `get-channel` | Read | No | `v0.11.0` |
+| `monitor create-channel`, `update-channel` | Write | No | `v0.15.0` |
+| `monitor delete-channel` | Write, destructive | Yes | `v0.15.0` |
+| `monitor update-check` | Write | No | `v0.19.0` |
+| `monitor send-channel-otp` | Write | No | `v0.21.0` |
+| `monitor list-log-projects`, `get-log-project`, `list-log-project-classes`, `quote-create-log-project` | Read | No | `v0.20.0` |
+| `monitor create-log-project` | Write | No | `v0.22.0` |
+| `monitor delete-log-project` | Write, destructive | Yes | `v0.22.0` |
+| `monitor list-alarms`, `get-alarm` | Read | No | `v0.20.0` |
 
 - A read-only profile refuses every write, `send-channel-otp` included.
 - Deletes need `--yes`. A new channel has a new ID that every check and
@@ -352,7 +357,7 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
 - Each write release gets an adversarial review. It checks: no resend of
   a create, Send OTP, Validate OTP, or the order; the price guard runs
   before the order on the create's own body; redaction in output, errors,
-  and `--debug`; path ID checks; `--yes` on the three deletes; and
+  and `--debug`; path ID checks; `--yes` on every delete; and
   read-only refusal of every write.
 - Fixtures replace addresses, headers, and chat IDs with `<secret>` or
   `<account>`, and IDs with `<id>`.
@@ -364,7 +369,7 @@ Unit tests use `httptest` and the injected clock:
 - A sanitized fixture and decode test per operation, including valid and
   malformed channel header strings.
 - Every write body, with defaults and with all fields, including the
-  merged `UpdateCheck` body and a log alarm's joined channel IDs.
+  merged `UpdateCheck` body.
 - `CreateChannel`: a null `code` sends no create; no retry after a 502.
   `GetChannel` across two pages and with no match.
 - `CreateLogProject`: a 0 quote orders; a higher one does not; quote and
@@ -398,31 +403,24 @@ manager records only field names, types, statuses, and timings.
 3. Email channel to an address the owner reads: Send OTP, Validate, and
    create, then delete. The owner relays the code. Also whether an email
    alert needs an email package.
-4. Free Basic log project `vngcloud-live-<hex>`: quote, order with
-   `pay: true` (does the response hold the ID?), time to `ACTIVE`, the raw
-   project, delete, purge, and whether a second free project can then be
-   ordered. If purge fails, stop and tell the owner: the account may lose
-   its one free project.
-5. Log alarm on that project with the webhook channel: create, get (the
-   read shape against the body), update, and delete; the status after
-   create; whether the joined IDs need the trailing comma.
+4. Free Basic log project `vngcloud-live-<hex>`: done; the results are in
+   [Log projects](#log-projects). Still open: a delete with `Purge` in one
+   call.
 
 ## Releases
 
 | Release | Content |
 |-|-|
-| M1 | `ListChannelTypes`, `ListChannels`, `GetChannel`, and `Check.Notifications`, with CLI reads and redaction |
-| M2 | Webhook `CreateChannel`, `UpdateChannel`, and `DeleteChannel`, and the literal-address refusal |
-| M3 | `CreateCheckInput.Notifications` and `UpdateCheck`, with `update-check` |
-| M4 | `SendChannelOTP` and the OTP fields, for Email, Slack, SMS, and Telegram |
-| M5 | Log project reads, `ListLogProjectClasses`, and `QuoteCreateLogProject` |
-| M6 | `CreateLogProject` with the price guard and wait, and `DeleteLogProject` with `Purge` |
-| M7 | `ListAlarms` and `GetAlarm` for both kinds |
-| M8 | `CreateLogAlarm`, `UpdateLogAlarm`, and `DeleteLogAlarm`, with waits |
+| `v0.11.0` | `ListChannelTypes`, `ListChannels`, `GetChannel`, and `Check.Notifications`, with CLI reads and redaction |
+| `v0.15.0` | Webhook `CreateChannel`, `UpdateChannel`, and `DeleteChannel`, and the literal-address refusal |
+| `v0.19.0` | `CreateCheckInput.Notifications` and `UpdateCheck`, with `update-check` |
+| `v0.20.0` | Log project reads, `ListLogProjectClasses`, `QuoteCreateLogProject`, `ListAlarms`, and `GetAlarm` |
+| `v0.21.0` | `SendChannelOTP` and the OTP fields, for Email, Slack, SMS, and Telegram |
+| `v0.22.0` | `CreateLogProject` with the price guard and wait, and `DeleteLogProject` with `Purge` |
+| Next | Log alarm writes, in [vMonitor Log Alarms](monitor-log-alarms.md#release) |
 
-M1 to M3 give aboutme's app-down check a webhook alert, which needs no OTP
-or package. Log projects come before log alarms, which need one. No
-release changes an existing method or command.
+The first three give aboutme's app-down check a webhook alert, which needs
+no OTP or package. Log projects come before log alarms, which need one.
 
 ## Owner decisions
 
@@ -440,8 +438,9 @@ All 13 are approved as recommended.
 9. Approved: the log project quote lives in `monitor`, not `pricing`.
 10. Approved: `DeleteLogProject` has `Purge`; the command needs `--yes`.
 11. Approved: no metric alarm writes or quotas until aboutme names one.
-12. Approved: releases M1 to M8 in this order.
-13. Approved: the owner relays one email OTP for live check 3, before M4.
+12. Approved: the release order above.
+13. Approved: the owner relays one email OTP for live check 3, before the
+    OTP release.
 
 ## Open questions
 

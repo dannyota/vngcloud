@@ -14,6 +14,7 @@
 - [IAM](IAM.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
+- [Monitor Log Alarms](Monitor-Log-Alarms.md)
 - [Network](Network.md)
 - [Network Route Tables](Network-RouteTables.md)
 - [Network ACLs](Network-ACLs.md)
