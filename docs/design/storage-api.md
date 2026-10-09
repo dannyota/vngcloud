@@ -8,8 +8,9 @@ surface built on them is in that design.
 Public docs (`docs.greennode.ai/vstorage`), the OpenAPI specs on
 `docs.api.greennode.ai` (`vstorage-hcm04-api`, `accounts-api`), the public
 vStorage console bundle and its `config.prod.json`, live reads on the test
-account on 2026-09-26, and the console's own calls with the test IAM user
-on 2026-10-09, after the owner bought a project. VNG Cloud's Go SDK and
+account on 2026-09-26, the console's own calls with the test IAM user
+on 2026-10-09, after the owner bought a project, and a live bucket create
+and delete on the test project the same day. VNG Cloud's Go SDK and
 Terraform provider have no vStorage code.
 
 ## Model
@@ -82,6 +83,13 @@ Console API responses use one envelope: `success`, `code`, `errorMsg`,
 | S3 key (spec) | `id`, `name`, `accessKey`, `projectId`, `regionId`, `createdAt`; create adds `secretKey` |
 | Service account page | `data`, `pageNumber`, `pageSize`, `totalItems`, `totalPages` |
 
+Bucket fields as served:
+
+- `ListBuckets` gives `createdDate` as `dd/mm/yyyy hh:mm`, with no time
+  zone. `GetBucket` gives `createdDate` null.
+- `GetBucket` adds an `owner` object holding the account email in base64
+  and the storage user ID. Both are account data; fixtures replace them.
+
 ### Project
 
 A live project, with account data replaced:
@@ -131,6 +139,29 @@ in adding storage user <root email>` while the account had no project.
 With a project, both `generated=true` and `generated=false` answer the
 account-level user `<root local part>-<account ID>`, with `subUserId`
 `<that>:iam-<IAM user name>` and the same endpoint fields.
+
+## Bucket writes
+
+Live on the test project, with `region` sent. Every answer was HTTP 200;
+201, 400, 403, 404, and 409 did not occur.
+
+| Call | Result |
+|-|-|
+| `POST ceph/projects/{p}/buckets/{b}`, new name | `data` with `name`, `count: 0`, and null elsewhere |
+| The same `POST` again, a name the account owns | The same 200 and body: idempotent |
+| `POST` with an upper-case name | `success: false`, `code: 112`, `Invalid input error (Bucket name must be all lowercase letters, numbers or hyphens)` |
+| `GET ceph/projects/{p}/{b}/details` right after the create | The full bucket |
+| `DELETE ceph/projects/{p}/buckets/{b}`, empty bucket | `{"code":200,"success":true}` |
+| `GET .../details` or `DELETE` of a missing bucket | `success: false`, `code: 404` |
+
+The delete is asynchronous. For up to about a second after its 200,
+`GetBucket` and `ListBuckets` still show the bucket, and a `GetBucket` can
+answer `code: -1` with `errorMsg` `Unknown error`, or an empty body. Then
+the bucket is gone and reads answer code 404.
+
+Not yet checked: a delete of a bucket holding objects, which needs an S3
+key to put one; an unknown project; and whether names are unique across
+accounts.
 
 ## Data plane
 

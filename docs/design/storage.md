@@ -57,7 +57,7 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 | `ListBuckets` | `GET ceph/projects/{p}?limit=1000` | `ProjectID` (r) | L[Bucket] |
 | `GetBucket` | `GET ceph/projects/{p}/{b}/details` | `ProjectID` (r), `Bucket` (r) | `{Bucket}` |
 | `CreateBucket` | `POST ceph/projects/{p}/buckets/{b}` | `ProjectID` (r), `Bucket` (r) | `{Bucket}` |
-| `DeleteBucket` | `DELETE ceph/projects/{p}/buckets/{b}` | `ProjectID` (r), `Bucket` (r) | `{}` |
+| `DeleteBucket` | `DELETE ceph/projects/{p}/buckets/{b}` | `ProjectID` (r), `Bucket` (r), `NoWait` | `{}` |
 | `GetBucketPolicy` | `GET .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{Policy string}` |
 | `PutBucketPolicy` | `PUT .../buckets/{b}/policy` | plus `Policy` (r) | `{}` |
 | `DeleteBucketPolicy` | `DELETE .../buckets/{b}/policy` | `ProjectID` (r), `Bucket` (r) | `{}` |
@@ -71,8 +71,10 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 | `PutBucketPublicAccess` | `PUT .../buckets/{b}/public_access` | plus `Public bool` | `{}` |
 
 - `CreateBucket` sends `{"status":"Disabled"}`, the console body for a
-  bucket without object lock. The Output comes from a read after the create;
-  if that read fails, the error says the bucket was created.
+  bucket without object lock. The server answers 200 with only `name` and
+  `count` set, so the Output comes from a `GetBucket` after the create; if
+  that read fails, the error says the bucket was created. A create of a name
+  the account already owns answers the same 200, so a rerun is safe.
 - `PutBucketPolicy` sends `{"policy": "<Policy>"}`. `Policy` is the JSON
   document as a string; the SDK checks only that it is valid JSON. A put
   replaces the whole policy.
@@ -84,8 +86,10 @@ and "L[T]" is `core.List[T]`. Every Input except `ListRegionsInput` has
 - `ListBuckets` sends `limit=1000`, the per-project cap, so one call returns
   every bucket. A response with `isNext: true` fails the call.
 - Models keep their API JSON tags. `Bucket` maps `count` and `size` to
-  `ObjectCount` and `SizeBytes`. Dates stay strings until a fixture shows
-  their format, and numeric `status` values reach the caller unchanged.
+  `ObjectCount` and `SizeBytes`. `CreatedDate` stays the server's string:
+  `ListBuckets` gives `dd/mm/yyyy hh:mm` with no time zone, and `GetBucket`
+  gives null, so it is empty there. Numeric `status` values reach the caller
+  unchanged.
 
 ### iam
 
@@ -118,8 +122,9 @@ Every path ID is checked before any request, reads included:
   (`^[A-Za-z0-9-]+$`). The live checks confirm their shape.
 - `Bucket`: `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, a path-safety check only.
   It rejects `/`, `?`, `%`, `.`, and `..`. The S3 naming rules stay on the
-  server (ADR 0002 rule 5). The SDK escapes the name with
-  `url.PathEscape`, as the console escapes it.
+  server (ADR 0002 rule 5): upper case and `_` pass this check, and the
+  server refuses them with code 112 (see [Envelope errors](#envelope-errors)).
+  The SDK escapes the name with `url.PathEscape`, as the console escapes it.
 
 ### Principal
 
@@ -141,6 +146,11 @@ write rather than let a `GET` create state.
   status, `Code` set to the envelope `code` as text, and `Message` set to
   `errorMsg` cut to 256 bytes. An envelope `code` from 400 to 599 also
   matches that status's sentinel, so `NotFound` exits 4.
+- Envelope code 112 matches `ErrInvalidInput` on every storage call: the
+  server uses it for each input check it reports, and `errorMsg` names the
+  rule. The CLI prints code `112` and exits 2.
+- Envelope code `-1` (`Unknown error`) has no sentinel. Outside the delete
+  wait it is an ordinary `*APIError`.
 - A 2xx with an empty or non-JSON body is an `*APIError` with Code
   `EmptyResponse`; for a write, the message says it may have happened.
 - A 403 with a JSON array of `{code, message}` takes `Code` from the first
@@ -160,7 +170,8 @@ a decode error never quotes its body. `--debug` already logs no body.
 - Creates and `AttachS3Key` are `POST`: retried only after a 429 or a
   failed dial (ADR 0002 rule 2). After a 5xx or a network error the
   resource may exist; the error names the check (`get-bucket`, or a list by
-  name). A key found that way has lost its secret: delete it.
+  name). A bucket create can then be rerun. A key found that way has lost
+  its secret: delete it.
 - A repeated attach returns 409 `Conflict`, which the SDK does not hide.
 - Deletes and puts keep the transport's retries; a retried delete that
   finds nothing returns `NotFound`. A create response without an ID or
@@ -173,6 +184,25 @@ sending nothing, when `ObjectCount` is above 0. The server's own refusal
 maps to the same sentinel once the live checks name its code; it is the
 final guard, since `count` may omit old versions. There is no force flag:
 emptying a bucket is object work for an S3 client.
+
+The server deletes asynchronously: the `DELETE` answers 200 at once, and
+for about a second reads still show the bucket or fail. Unless `NoWait` is
+set, `DeleteBucket` then calls `GetBucket` every second for up to 30
+seconds:
+
+- `ErrNotFound`: settled; the call returns `{}`.
+- The bucket, envelope code `-1`, or `EmptyResponse`: still deleting; poll
+  again.
+- Any other error: returned at once, with a message that the delete was
+  accepted.
+- Bound reached: an error wrapping `storage.ErrNotSettled`, which says the
+  delete was accepted and must not be repeated. The CLI prints
+  `NotSettled`, exit 1, as for the other packages' `ErrNotSettled`.
+
+After a settled delete, `ListBuckets` omits the bucket and a repeat
+`DeleteBucket` returns `NotFound`. With `NoWait`, a repeat inside the window
+can stop at the first read's error, sending no `DELETE`. The CLI
+`delete-bucket` waits; `--no-wait` sets `NoWait`.
 
 ## Per-bucket key
 
@@ -254,6 +284,8 @@ missing one exits 2 before any request.
 | Case | Result | CLI code and exit |
 |-|-|-|
 | Missing field, bad ID or bucket shape, unmapped region | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Server refuses an input, envelope code 112 | `ErrInvalidInput` | `112`, 2 |
+| Bucket delete not settled in 30 s | `storage.ErrNotSettled` | `NotSettled`, 1 |
 | `--secret-file` exists or its directory is missing | No request | `InvalidUsage`, 2 |
 | Bucket holds objects | `ErrBucketNotEmpty`, no delete sent | `BucketNotEmpty`, 1 |
 | IAM policy denies the action | `ErrPermission` | `IAM_PERMISSION_DENIED`, 1 |
@@ -277,8 +309,9 @@ The CLI error codes list in [CLI](cli.md#errors-and-exit-codes) gains
 - A key has its creator's rights. The wiki says to scope app keys through a
   service account and a bucket policy, never a broad user or the root.
 - Bucket names, project IDs, access keys, service accounts, and policies are
-  account data. Fixtures use `<id>`, `<account>`, `<access-key>`, and
-  `<secret>`.
+  account data, and so is the `GetBucket` `owner` object (the account email
+  in base64 and the storage user ID). Fixtures use `<id>`, `<account>`,
+  `<access-key>`, and `<secret>`, and sanitize `owner`.
 - The console API is undocumented and may change; fixed models make a changed
   field fail a fixture test.
 
@@ -292,7 +325,12 @@ Unit tests use `httptest`:
 - Request bodies for every write; `region` and `region_id` both sent with
   the same UUID on every call except `ListRegions`, which sends neither; the
   region mapping and its unmapped case; `limit=1000` and `isNext`.
-- `DeleteBucket` sends no `DELETE` when the count is above 0.
+- `DeleteBucket` sends no `DELETE` when the count is above 0. The wait
+  polls through the bucket, code `-1`, and an empty body, settles on code
+  404, returns another error at once, and reaches `ErrNotSettled` on an
+  injected clock; `NoWait` sends one `DELETE` and no poll.
+- Code 112 matches `ErrInvalidInput`; a duplicate create returns the
+  bucket.
 - Secrets: `fmt` verbs, `slog`, and `json.Marshal` give `[redacted]`; no
   capture hook sees a sensitive response; `--debug`, errors, stdout, and
   stderr never hold the fixture secret.
@@ -322,27 +360,27 @@ The test IAM user has vStorage access, and the test account has a project
 in `HCM04`. Writes need the owner's approval.
 
 Answered: `ListProjects` returns the project once `region` is sent, so an
-empty list means none; the headers the server needs; the empty bucket list.
+empty list means none; the headers the server needs; the empty bucket list;
+bucket shapes and dates; an unknown bucket; create, duplicate, and invalid
+name; and empty and repeated delete. The results are in
+[bucket writes](storage-api.md#bucket-writes).
 
-1. `ListBuckets` and `GetBucket` with a bucket: shapes, dates, and paging;
-   whether writes need `user_id` or `portal-user-id`.
-2. Envelope codes for an unknown project and an unknown bucket, with
-   `region` sent.
-3. `CreateBucket`: response, sync or async, duplicate and invalid names,
-   and whether names are unique across accounts.
-4. `DeleteBucket`: empty, holding one object, and repeated.
-5. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
+1. Pending until S3, which can put an object: `DeleteBucket` on a bucket
+   holding one object, and the server's refusal code when the count reads
+   0 but versions remain. Also open: an unknown project's code, and whether
+   bucket names are unique across accounts.
+2. `CreateS3Key`: 201 body, the `projectId` and `regionId` it wants, the
    11th-key error, delete and repeat, and `rclone lsd` with the key.
-6. Attach a key to a service account, repeat the attach, and detach.
-7. Principal: `users/details` with `generated=false` for a service account
+3. Attach a key to a service account, repeat the attach, and detach.
+4. Principal: `users/details` with `generated=false` for a service account
    before and after attach, and whether its `ceph_sub_users` must run
    first. For the IAM user, the shapes are known and the POST is
    idempotent.
-8. Scope, the core claim: with a policy for the principal on bucket A, the
+5. Scope, the core claim: with a policy for the principal on bucket A, the
    attached key reads and writes A and is denied on bucket B; whether
    `restricted: true` is needed.
-9. Policy, versioning, CORS, and public access bodies and errors.
-10. The next month's bill shows nothing beyond the project package.
+6. Policy, versioning, CORS, and public access bodies and errors.
+7. The next month's bill shows nothing beyond the project package.
 
 ## Releases
 
@@ -352,20 +390,21 @@ Each release ships the SDK and CLI together, with its wiki pages.
 |-|-|
 | S1 | `storage` reads: `ListRegions`, `ListProjects`, `ListBuckets`, `GetBucket`; the `Storage` endpoint, region lookup, and envelope errors |
 | S1.1 | Fix: every storage call except `ListRegions` sends `region` and `region_id`; a `ListProjects` fixture from the live shape; unit tests for both headers; a live `ListProjects` that finds the project |
-| S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty` |
+| S2 | `CreateBucket` and `DeleteBucket` with `ErrBucketNotEmpty`, the delete wait and `NoWait`, and envelope code 112 as `ErrInvalidInput` |
 | S3 | `iam` S3 keys: `ListS3Keys`, `CreateS3Key`, `DeleteS3Key`; `vngcloud.Secret`, `transport.Request.Sensitive`, and `--secret-file` |
 | S4 | `iam` S3 keys on service accounts: `ListServiceAccountS3Keys`, `AttachS3Key`, `DetachS3Key`; needs IAM writes I2 |
 | S5 | Bucket policy get, put, and delete, and `GetServiceAccountPrincipal`: the per-bucket key works end to end |
 | S6 | Bucket versioning, CORS, and public access |
 
-S1.1 ships before S2, since no storage read finds data without it. S2 and later
+S1.1 ships before S2, since no storage read finds data without it. S2 is
+not tagged yet, so the delete wait and code 112 ship in it. S2 and later
 use the test project. None changes an existing method or command. Keys ship
 before key attach because a project-wide key already unblocks aboutme; service
 accounts themselves ship in [IAM writes](iam-writes.md) I2.
 
 ## Owner decisions
 
-Decisions 1 to 12 are approved as recommended; 13 awaits the owner.
+Decisions 1 to 12 are approved as recommended; 13 to 15 await the owner.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -388,6 +427,13 @@ Decisions 1 to 12 are approved as recommended; 13 awaits the owner.
 13. Recommended: every storage call except `ListRegions` sends both
     `region` and `region_id` with the region UUID, and S1.1 ships that fix
     before S2.
+14. Recommended: envelope code 112 matches `ErrInvalidInput` on every
+    storage call, since the server uses it for each input check it
+    reports.
+15. Recommended: `DeleteBucket` waits up to 30 seconds, polling every
+    second, until `GetBucket` reports `NotFound`, with `NoWait` to skip it,
+    so a following `ListBuckets` is accurate and a repeat delete reports
+    `NotFound`.
 
 Open beyond the live checks: whether GreenNode will publish the console API
 or accept IAM User tokens on the external API.
