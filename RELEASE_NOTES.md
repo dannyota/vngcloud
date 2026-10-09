@@ -1,5 +1,58 @@
 # Release Notes
 
+## v0.55.0 - vStorage Bucket Policy, Versioning, and CORS
+
+### Highlights
+
+- New `storage.GetBucketPolicy`, `PutBucketPolicy`, and `DeleteBucketPolicy`,
+  with `vngcloud storage get-bucket-policy`, `put-bucket-policy`
+  (`--policy` takes the document or `file://path`), and
+  `delete-bucket-policy`. The put refuses anything that is not a JSON
+  object with a non-empty `Statement` array before any request; the server
+  re-serializes the stored document, so compare decoded documents, not
+  strings. A delete with no policy present succeeds. `put-bucket-policy`
+  needs `--yes` when a statement names a public principal (`"*"` or
+  `{"AWS":"*"}`), since that exposes the bucket to anonymous readers. A
+  statement without a non-empty `Effect`, `Principal`, `Action`, and
+  `Resource` is refused before any request: the server accepts one and
+  the bucket's console policy and delete calls then answer empty bodies.
+  Member names must be spelled canonically (`Principal`, not
+  `principal`): the server refuses other spellings with code 400 and the
+  SDK refuses them first. For a public read use `"Principal": "*"`; the
+  `{"AWS": "*"}` form makes the console refuse the policy and bucket
+  deletes with code 403 until the policy is removed through S3.
+- The per-bucket key now works end to end: a policy that names a service
+  account's principal grants its attached key that bucket and nothing
+  else. The wiki gives a template with named object actions (not `s3:*`)
+  and the order: bucket, service account, principal, policy, key with
+  `--service-account-id`. A policy naming no real principal is accepted by
+  the server and grants nothing; an attached key can still list and create
+  buckets but cannot use a bucket it creates.
+- Verified live on 2026-10-09 on the test project with Signature V4
+  requests: allowed on the named bucket, denied elsewhere, denied again
+  after the policy was deleted.
+- New `storage.GetBucketVersioning`, `PutBucketVersioning`, `GetBucketCORS`,
+  `PutBucketCORS`, and `DeleteBucketCORS`, with the matching `vngcloud
+  storage` commands. Versioning reads `Enabled` and `Status` (`Off`,
+  `Enabled`, or `Suspended`; the server never returns to `Off`), and the
+  put requires an explicit value. CORS rules are checked before any
+  request (origins, methods within GET, PUT, POST, DELETE, HEAD, max age);
+  `ExposedHeaders` is read-only: the server exposes headers only when a
+  rule sets `ExposeAllowedHeaders`, and then exposes the allowed headers
+  (so browsers can read `ETag` after an upload). A CORS delete with no
+  rules succeeds.
+- A versioning, CORS, or policy call on a bucket that no longer exists
+  answers an empty body on this server; the SDK now confirms with one
+  bucket read and returns `NotFound`.
+- `storage.PolicyHasPublicPrincipal` tells whether a policy document's
+  Allow statements name a public principal; `put-bucket-policy` uses it
+  for its `--yes` rule.
+- Public access and ACL routes are not covered: the console's
+  `public_access` endpoint answers 403 for an IAM user, and public reads
+  are granted with a bucket policy instead (template in the wiki).
+- Verified live on 2026-10-09 on the test project, including a CORS
+  preflight before and after the rule delete.
+
 ## v0.54.0 - vStorage Service Account Keys
 
 ### Highlights
@@ -357,64 +410,5 @@ after the deletes refunded the unused value.
 `CreateDHCPOptions` refuses a name starting with `dhcp-option-dns-`, which
 the API reserves for the set it creates when Private DNS is enabled, with
 `vngcloud.ErrInvalidInput`.
-
-## v0.37.0 - Network ACLs
-
-### Highlights
-
-- New `network.GetNetworkACL`, `CreateNetworkACL`, `DeleteNetworkACL`,
-  `AddNetworkACLRule`, `RemoveNetworkACLRule`, `AssociateNetworkACLSubnet`,
-  and `DisassociateNetworkACLSubnet`, with matching `vngcloud network`
-  commands. Rule and subnet writes need `--yes`, re-read the ACL right
-  before sending, and send each write once.
-- `network.ErrBusy`, CLI code `ResourceBusy`, now also covers an ACL still
-  settling an earlier write; nothing changed, so waiting and calling again
-  is safe.
-- New [Limitations](https://github.com/dannyota/vngcloud/wiki/Limitations)
-  wiki page listing GreenNode server behaviors the SDK cannot change, such
-  as the ACL busy window and overlapping VPC CIDRs.
-
-### Behavior changes
-
-- `network.DeleteSubnet` refuses with `ErrInUse`, sending nothing, while a
-  network ACL still holds the subnet, since that delete leaves the ACL
-  stuck for good. It also refuses when the subnet belongs to a VPC other
-  than `VPCID`.
-- `network.DeleteNetworkACL` sends the DELETE once and, after a 5xx,
-  checks the ACL list for up to 60 seconds before reporting the result.
-
-## v0.36.0 - Load Balancer Quotes
-
-### Highlights
-
-- New `loadbalancer.QuoteCreateLoadBalancer` and `QuoteResizeLoadBalancer`,
-  with `vngcloud loadbalancer quote-create-load-balancer` and
-  `quote-resize-load-balancer`. A quote orders nothing; prices are VND a
-  month (400,000 for the smallest package).
-- `loadbalancer.Pool` gains `ProgressStatus`.
-
-### Behavior changes
-
-Every load balancer, listener, pool, member, policy, and tag read refuses a
-malformed ID before any request.
-
-## v0.35.0 - Flavors and Create Quotes
-
-### Highlights
-
-- New `compute.ListFlavorZones`, `ListFlavors`, and `QuoteCreateServer`,
-  and `volume.ListVolumesByServer` and `QuoteCreateVolume`, with matching
-  commands. A quote orders nothing; prices are VND a month with VAT.
-- `pricing.GetQuoteInput` gains `Action` (`create` when empty, or
-  `resize`). `volume get-default-volume-type` gains `--zone-id`.
-- New `vngcloud.ErrPriceAboveMax`, CLI code `PriceAboveMax`, for paid
-  writes; `monitor.ErrPriceAboveMax` is the same value.
-- A list Input field now makes a repeatable flag, such as
-  `--security-group-id`.
-
-### Behavior changes
-
-`compute.GetServer`, `volume.GetVolume`, and `volume.ListSnapshots` refuse
-a malformed ID before any request.
 
 Older releases are in [docs/release-notes-archive.md](docs/release-notes-archive.md).
