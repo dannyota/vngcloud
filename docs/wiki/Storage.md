@@ -2,9 +2,10 @@
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages vStorage object storage: it reads the vStorage regions
-and the projects in a region, and it lists, creates, and deletes the buckets in
-a project. It covers the management plane only. To read or write objects, use
-an S3 client such as rclone.
+and the projects in a region, it lists, creates, and deletes the buckets in
+a project, and it lists, creates, and deletes the project's S3 keys. It covers
+the management plane only. To read or write objects, use an S3 client such as
+rclone with an S3 key.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -202,6 +203,76 @@ and does not read the bucket again. Poll `GetBucket` until it returns
 `EmptyResponse` as still deleting. A repeat `DeleteBucket` inside that window
 can stop at its first read's error, sending no `DELETE`.
 
+## S3 keys
+
+An S3 key is an access key and a secret for one project. An S3 client signs
+its requests with it. The key has the rights of the IAM user that made it, on
+every bucket of the project, so make keys only with an IAM user that is
+scoped to vStorage. The server takes no name for a key, and an account holds
+at most 10. The target for an application is a key scoped to one bucket, made
+through a service account and a bucket policy; the SDK does not do that yet.
+
+```go
+created, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{
+	ProjectID: projectID,
+})
+if err != nil {
+	log.Fatal(err)
+}
+access := created.AccessKey
+secret := created.SecretKey.Reveal() // save this now; it is never shown again
+
+keys, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(len(keys.Items))
+
+_, err = client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{
+	ProjectID: projectID,
+	UserKeyID: created.UserKeyID,
+})
+```
+
+`ProjectID` is required on all three calls, and `Region` works as above.
+`UserKeyID` is the key's ID, not its access key. `S3Key` has `UserKeyID`,
+`AccessKey`, `ProjectID`, `RegionID`, `UserID`, `SubUserID`, `CreatedDate`,
+and `Status`. `CreatedDate` is the server's `dd/mm/yyyy hh:mm` text. The
+list never holds a secret.
+
+`SecretKey` is a `vngcloud.Secret`: printing, logging, or JSON-encoding it
+gives `"[redacted]"`, and `Reveal()` is the only way to read the value. See
+[Compute](Compute.md#the-private-key-is-a-secret) for the full contract. The
+create and list responses never reach a response-capture hook, and a decode
+failure never quotes the response.
+
+If a create response holds a key but no secret, `CreateS3Key` returns the key
+and an error wrapping `storage.ErrNoSecret`. The key exists but cannot be
+used: delete it with `DeleteS3Key`.
+
+`CreateS3Key` is sent once, with no retry, no resend after a 401, and no
+redirect. After a 5xx, a network error, or a response that fails to decode,
+the error says a key may exist. Call `ListS3Keys` and delete any `UserKeyID`
+you do not know, since its secret is lost. The SDK lists nothing itself: a
+key another client made at the same time would look the same. A 4xx, a 429,
+a failed dial, and an envelope refusal made no key, and the error says
+nothing about one. At the key limit the server answers HTTP 200 with
+envelope code `114` and the message `Key number is reached to maximum value
+10`.
+
+`DeleteS3Key` ends the key at once and cannot be undone. It keeps the
+transport's retries. The server answers success for a `UserKeyID` it does not
+know, and a repeat delete of a deleted key as envelope code `114`
+(`Could not delete s3 keys. InvalidAccessKeyId`), not `ErrNotFound`.
+
+A key works on the data plane. With the AWS CLI, put the access key and
+secret in a credentials file and point `AWS_SHARED_CREDENTIALS_FILE` at it,
+then use the endpoint from `Region.S3Host` and the region name:
+
+```sh
+AWS_DEFAULT_REGION=HCM04 aws s3 ls --endpoint-url https://hcm04.vstorage.vngcloud.vn
+```
+
 ## Errors
 
 The console API reports many failures as HTTP 200 with `"success": false`.
@@ -220,5 +291,8 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | `DeleteBucket` on a bucket with objects, or one whose count the read did not report | `storage.ErrBucketNotEmpty`, no delete sent |
 | `DeleteBucket` accepted, bucket still readable after 30 seconds | Error wrapping `storage.ErrNotSettled`; do not repeat the delete |
 | A write answered with an empty body | `*vngcloud.APIError`, code `EmptyResponse`; the change may have happened |
+| `CreateS3Key` got a 5xx, a network error, or no decodable response | Error that says a key may exist: list the keys and delete any unknown `UserKeyID` |
+| `CreateS3Key` response holds a key but no secret | The key and an error wrapping `storage.ErrNoSecret`; delete the key |
+| `CreateS3Key` at the 10-key limit, or a repeat `DeleteS3Key` | `*vngcloud.APIError` with envelope code `114`, no sentinel |
 
 See [Errors](Errors.md) for `APIError` itself.

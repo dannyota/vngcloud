@@ -1,0 +1,28 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "regionId": "<region-id-2>",
+      "projectId": "<project-id>",
+      "userId": "<account>",
+      "subUserId": null,
+      "userKeyId": "<user-key-id-1>",
+      "accessKey": "<access-key-1>",
+      "secretKey": null,
+      "createdDate": "01/01/2026 00:00",
+      "status": 1
+    },
+    {
+      "regionId": "<region-id-2>",
+      "projectId": "<project-id>",
+      "userId": "<account>",
+      "subUserId": null,
+      "userKeyId": "<user-key-id-2>",
+      "accessKey": "<access-key-2>",
+      "secretKey": null,
+      "createdDate": "01/01/2026 00:00",
+      "status": 1
+    }
+  ]
+}

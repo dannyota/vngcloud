@@ -1,0 +1,15 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "userId": null,
+    "subUserId": null,
+    "regionId": null,
+    "projectId": null,
+    "userKeyId": "<user-key-id-1>",
+    "accessKey": "<access-key-1>",
+    "secretKey": "<secret>",
+    "createdDate": null,
+    "status": null
+  }
+}

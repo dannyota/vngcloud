@@ -1,5 +1,5 @@
-// Package storage manages vStorage object storage: regions, projects, and
-// the buckets in a project. It uses the vStorage console API, which wraps every
+// Package storage manages vStorage object storage: regions, projects, the
+// buckets in a project, and the project's S3 keys. It uses the vStorage console API, which wraps every
 // response in one envelope and reports many failures as HTTP 200.
 package storage
 
@@ -77,6 +77,13 @@ type call struct {
 	// write marks a request that changes state, so an empty response says the
 	// change may have happened.
 	write bool
+
+	// sensitive keeps the response from the capture hook and from decode
+	// errors, since it may carry a secret. once sends the request a single
+	// time, with no retry, resend, or redirect, for a create that must not
+	// run twice.
+	sensitive bool
+	once      bool
 }
 
 // do sends a GET and returns the decoded envelope; see exchange.
@@ -90,7 +97,10 @@ func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope
 // 2xx with an empty or non-JSON body, with no success key, or with success
 // false, is an *APIError.
 func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
-	req := transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok}
+	req := transport.Request{
+		Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
+		Sensitive: k.sensitive, Once: k.once,
+	}
 	if k.regionID != "" {
 		req.Headers = map[string]string{"region": k.regionID, "region_id": k.regionID}
 	}
@@ -98,7 +108,7 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
 	if err != nil {
 		var syn *json.SyntaxError
-		if status > 0 && (errors.As(err, &syn)) {
+		if status > 0 && (errors.As(err, &syn) || (k.sensitive && withheldDecode(status, err))) {
 			return nil, emptyResponse(k, status)
 		}
 		return nil, err
@@ -120,6 +130,13 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		return nil, envelopeError(k.op, status, &env)
 	}
 	return &env, nil
+}
+
+// withheldDecode reports whether err is the transport's decode failure for a
+// sensitive 2xx response, which carries no status or cause of its own.
+func withheldDecode(status int, err error) bool {
+	var apiErr *core.APIError
+	return status/100 == 2 && errors.As(err, &apiErr) && apiErr.StatusCode == 0 && apiErr.Err == nil
 }
 
 func emptyResponse(k call, status int) error {

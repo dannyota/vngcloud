@@ -500,8 +500,9 @@ func testLiveGlobalLoadBalancer(ctx context.Context, t *testing.T, cfg vngcloud.
 }
 
 // testLiveStorage reads the vStorage regions, the projects in both vStorage
-// regions, and the buckets in each region's first project. It names its
-// regions explicitly, so it runs once, and logs counts only.
+// regions, the buckets in each region's first project, and, when
+// VNGCLOUD_LIVE_STORAGE_PROJECT_ID is set, that project's S3 keys. It names
+// its regions explicitly, so it runs once, and logs counts only.
 func testLiveStorage(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := storage.New(cfg)
 
@@ -527,6 +528,15 @@ func testLiveStorage(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			}
 			t.Logf("storage buckets in the first project: %d", len(buckets.Items))
 		})
+	}
+
+	// S3 keys need a project id, which the log never shows.
+	if projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID"); projectID != "" {
+		keys, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+		if err != nil {
+			t.Fatalf("ListS3Keys: %v", err)
+		}
+		t.Logf("storage s3 keys: %d", len(keys.Items))
 	}
 }
 

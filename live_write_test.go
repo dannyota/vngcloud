@@ -11216,3 +11216,118 @@ func TestLiveWriteStorageBucket(t *testing.T) {
 		t.Log("step 7: second delete succeeded")
 	}
 }
+
+// storageKeyLimit is the most S3 keys the server lets one account hold.
+const storageKeyLimit = 10
+
+// TestLiveWriteStorageS3Key creates one S3 key in the vStorage project named
+// by VNGCLOUD_LIVE_STORAGE_PROJECT_ID, finds it in the key list, deletes it,
+// deletes it again, and deletes an id the server does not know. Keys have no
+// name, so it cannot tell its own leftovers from other keys: it logs how many
+// keys it found at the start, deletes only the key it made, and skips when
+// the account is at the key limit. It logs only statuses, counts, and
+// booleans: never a key id, access key, secret, or the project id.
+func TestLiveWriteStorageS3Key(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage S3 key write test")
+	}
+	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
+	if projectID == "" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage S3 key write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := storage.New(cfg)
+
+	// Step 1: count the keys already there. Unknown keys are never deleted.
+	before, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 1 ListS3Keys: %s", safeErr(err))
+	}
+	t.Logf("step 1: %d key(s) found at the start", len(before.Items))
+	if len(before.Items) >= storageKeyLimit {
+		t.Skipf("the project already holds %d keys, the limit", len(before.Items))
+	}
+
+	// Step 2: create. The cleanup is registered as soon as the id is known.
+	created, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{ProjectID: projectID})
+	if created != nil && created.UserKeyID != "" {
+		keyID := created.UserKeyID
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := client.DeleteS3Key(cleanupCtx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: keyID}); err != nil && !vngcloud.IsNotFound(err) && vngcloud.ErrorCode(err) != "114" {
+				t.Errorf("cleanup: delete key: %s", safeErr(err))
+			}
+			left, err := client.ListS3Keys(cleanupCtx, &storage.ListS3KeysInput{ProjectID: projectID})
+			if err != nil {
+				t.Errorf("cleanup: list keys: %s", safeErr(err))
+				return
+			}
+			t.Logf("cleanup: %d key(s) remain, %d at the start", len(left.Items), len(before.Items))
+			for _, k := range left.Items {
+				if k.UserKeyID == keyID {
+					t.Errorf("cleanup: the test key is still listed")
+				}
+			}
+		})
+	}
+	if err != nil {
+		t.Fatalf("step 2 CreateS3Key: %s", safeErr(err))
+	}
+	t.Logf("step 2: created; access key present %v, secret present %v, project matches %v",
+		created.AccessKey != "", created.SecretKey.Reveal() != "", created.ProjectID == projectID)
+
+	// Step 3: find it in the list.
+	listed, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 3 ListS3Keys: %s", safeErr(err))
+	}
+	found := false
+	for _, k := range listed.Items {
+		if k.UserKeyID == created.UserKeyID {
+			found = true
+			t.Logf("step 3: found; access key matches %v, project matches %v, created date present %v, status %d",
+				k.AccessKey == created.AccessKey, k.ProjectID == projectID, k.CreatedDate != "", k.Status)
+		}
+	}
+	if !found {
+		t.Fatal("step 3: the created key is missing from ListS3Keys")
+	}
+	t.Logf("step 3: %d key(s) listed, %d at the start", len(listed.Items), len(before.Items))
+
+	// Step 4: delete, delete again, and delete an id the server does not know.
+	if _, err := client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: created.UserKeyID}); err != nil {
+		t.Fatalf("step 4 DeleteS3Key: %s", safeErr(err))
+	}
+	_, err = client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: created.UserKeyID})
+	t.Logf("step 4: repeat delete: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+	_, err = client.DeleteS3Key(ctx, &storage.DeleteS3KeyInput{ProjectID: projectID, UserKeyID: "00000000-0000-0000-0000-000000000000"})
+	t.Logf("step 4: unknown id delete: %s, not found %v", safeErr(err), vngcloud.IsNotFound(err))
+
+	// Step 5: the key is gone from the list.
+	listed, err = client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("step 5 ListS3Keys: %s", safeErr(err))
+	}
+	for _, k := range listed.Items {
+		if k.UserKeyID == created.UserKeyID {
+			t.Fatal("step 5: the deleted key is still listed")
+		}
+	}
+	t.Logf("step 5: %d key(s) listed, %d at the start", len(listed.Items), len(before.Items))
+}
