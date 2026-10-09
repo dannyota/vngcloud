@@ -12,6 +12,7 @@
 - [Compute](Compute.md)
 - [Compute Servers](Compute-Servers.md)
 - [DNS](DNS.md)
+- [Container Registry](Container-Registry.md)
 - [IAM](IAM.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
