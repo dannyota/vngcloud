@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.48.0 - Load Balancer Pools and Members
+
+### Highlights
+
+- New `loadbalancer.CreatePool`, `UpdatePool`, `DeletePool`,
+  `AddPoolMember`, `UpdatePoolMember`, and `RemovePoolMember`, with the
+  matching `vngcloud loadbalancer` commands. Member writes read the pool,
+  send the whole member list once with the one change applied, and read
+  again to confirm; a repeat add is a no-op. `delete-pool` and
+  `remove-pool-member` need `--yes`.
+- Server rules the SDK now applies before sending: a Layer 7 load balancer
+  accepts HTTP pools only; an HTTP pool always sends `stickiness` and
+  `tlsEncryption` (default false); an HTTP health check defaults its path
+  to `/`, method to `GET`, success code to `200`, and HTTP version to
+  `1.1`; a member's monitor port defaults to its port. `DeletePool`
+  refuses, sending nothing, a pool a listener or policy still uses.
+- Verified live on 2026-10-09 on an `ALB_Small`: pool create, algorithm
+  update, two member adds, a weight update, a member removal, and the
+  delete, all settling within the design's bounds.
+
 ## v0.47.0 - Load Balancer Resize
 
 ### Highlights
