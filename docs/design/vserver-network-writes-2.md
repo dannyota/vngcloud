@@ -188,12 +188,13 @@ either write.
 ### Tag writes
 
 `PUT tag/resource/{resourceId}` takes `resourceId`, `resourceType`, and
-`tagRequestList`. The survey read it as a full replace; VNG Cloud's Go SDK
-says it upserts by key and leaves unlisted keys alone. The design is safe
-under both readings:
+`tagRequestList`. Live, from the GreenNode web console: the `PUT` replaces
+the resource's whole user tag set, and an empty list removes every user
+tag. System tags (`vng.zone`, `vng.region`, `vng.createdBy`, on every
+resource) are never sent and never change.
 
-1. Read the tags. If any is a system tag: `ErrSystemTag`, nothing sent
-   ([decision 8](#owner-decisions)).
+1. Read the tags. A `Key` that starts with `vng.` or names a system tag:
+   `ErrSystemTag`, nothing sent ([decision 8](#owner-decisions)).
 2. Build the list from every user tag read, then apply the change.
    - Tag: key present with the same value: `Changed` false, nothing sent.
      Key present with another value: the value is replaced.
@@ -280,7 +281,7 @@ each bound is short.
 | Set on a Private DNS VPC, or to or from a system set | `network.ErrDefaultResource`, no request | `DefaultResource`, 1 |
 | Clear on a Private DNS VPC, or of a system set | `network.ErrDefaultResource`, no request | `DefaultResource`, 1 |
 | Target set not `ACTIVE` | `network.ErrBusy`, no request | `ResourceBusy`, 1 |
-| Resource with a system tag | `tagging.ErrSystemTag`, no request | `SystemTag`, 1 |
+| Key that is a system tag key | `tagging.ErrSystemTag`, no request | `SystemTag`, 1 |
 | `ERROR` after a write | `network.ErrFailed`, with Output | `WriteFailed`, 1 |
 | Bound reached, or confirm read differs | `ErrNotSettled` of the package, with Output | `NotSettled`, 1 |
 | Set limit, tag quota, used address, unknown resource type, payment refused | The server's `*APIError` | 1 |
@@ -331,13 +332,10 @@ live checks pass before its code merges.
 6. Tag package. Options: a `tagging` package for every type; tag methods
    in each service package. Recommend `tagging`: one call serves every
    type, and per-service methods would repeat the read-merge.
-7. `UntagResource` under upsert semantics. Options: ship it only if the
-   probe shows a `PUT` drops unlisted keys; ship `TagResource` alone
-   otherwise, and look for a removal call in a later design. Recommend
-   that rule.
-8. Resources with system tags. Options: refuse any tag write; resend the
-   system tags as read. Recommend refuse until a live check on a resource
-   with a system tag shows the `PUT`'s effect. The test account has none.
+7. `UntagResource`. Settled live: the `PUT` drops unlisted user keys, so
+   `UntagResource` ships.
+8. Resources with system tags. Settled live: send only the user tags;
+   the server keeps system tags. A write to a system tag key is refused.
 9. `--yes` on tag writes. Options: none; always. Recommend none.
 10. `--yes` on `set-vpc-dhcp-options` and `clear-vpc-dhcp-options` now that
     both are reversible. Options: every call; none. Recommend every call:

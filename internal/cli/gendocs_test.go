@@ -43,7 +43,7 @@ func TestGenDocsWritesExpectedFiles(t *testing.T) {
 	if err := runGenDocs(dir); err != nil {
 		t.Fatalf("runGenDocs: %v", err)
 	}
-	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-IAM.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md", "CLI-GlobalLoadBalancer.md"} {
+	for _, name := range []string{"CLI.md", "CLI-Billing.md", "CLI-Pricing.md", "CLI-Compute.md", "CLI-IAM.md", "CLI-Network.md", "CLI-DNS.md", "CLI-CDN.md", "CLI-Monitor.md", "CLI-Project.md", "CLI-Portal.md", "CLI-Volume.md", "CLI-GlobalLoadBalancer.md", "CLI-Tagging.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
@@ -78,6 +78,7 @@ func TestGenDocsEveryOpAppears(t *testing.T) {
 	check("CLI-Portal.md", opNames(portalOps))
 	check("CLI-Volume.md", opNames(volumeOps))
 	check("CLI-GlobalLoadBalancer.md", opNames(globalLoadBalancerOps))
+	check("CLI-Tagging.md", opNames(taggingOps))
 }
 
 func TestGenDocsStartsWithTheGeneratedMarker(t *testing.T) {
@@ -237,14 +238,14 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now nineteen,
-// with the three vDNS wait codes, monitor's own OTPRejected and
-// PriceAboveMax, iam's own SelfChange, PrivilegedChange, and ManagedPolicy,
-// network's SystemSecurityGroup, SecurityGroupInUse, ResourceInUse,
-// DefaultResource, and ResourceBusy, compute's own ServerGroupInUse, and
-// containerregistry's own RepositoryNotEmpty, UserNotFound, and
-// SecretFileFailed) rather than a vague "exit 1", which would read as
-// ambiguous after a list of classes.
+// closing the error-classes list names every exit-1 code (now twenty, with
+// the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
+// iam's own SelfChange, PrivilegedChange, and ManagedPolicy, network's
+// SystemSecurityGroup, SecurityGroupInUse, ResourceInUse, DefaultResource,
+// and ResourceBusy, compute's own ServerGroupInUse, containerregistry's own
+// RepositoryNotEmpty, UserNotFound, and SecretFileFailed, and tagging's own
+// SystemTag) rather than a vague "exit 1", which would read as ambiguous
+// after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -255,12 +256,33 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, and `SecretFileFailed` all exit 1"
+		"`UserNotFound`, `SecretFileFailed`, and `SystemTag` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}
 	if strings.Contains(data, "Both exit 1") {
 		t.Errorf("error class text still has the ambiguous \"Both exit 1\":\n%s", data)
+	}
+}
+
+// TestGenDocsErrorClassesMentionTaggingCodes checks that the error-classes
+// list documents SystemTag, and that NotSettled's own text names
+// tag-resource and untag-resource alongside every other write this file
+// gives the read-merge-send-confirm shape.
+func TestGenDocsErrorClassesMentionTaggingCodes(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	data := string(mustReadGenDocsCLIMD(t, dir))
+	for _, want := range []string{
+		"`SystemTag`",
+		"tagging tag-resource or untag-resource refused because --key names a system tag",
+		"tagging tag-resource or untag-resource whose PUT reached the server but the read to confirm it",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("error class text is missing %q:\n%s", want, data)
+		}
 	}
 }
 

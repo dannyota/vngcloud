@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/tagging"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -100,7 +101,11 @@ type errorEnvelope struct {
 // a rerun is safe, or an iam create-policy or update-policy whose write
 // reached the server but its own confirm read failed: create-policy must
 // not be sent again, since a repeat risks a second policy, but
-// update-policy may be sent again the same way), RepositoryNotEmpty (a
+// update-policy may be sent again the same way, or a tagging tag-resource or
+// untag-resource whose PUT reached the server but its own confirm read
+// failed or came back mismatched: the write already replaced the resource's
+// user tags, so read the tags again before writing once more rather than
+// repeating the same call blind), RepositoryNotEmpty (a
 // containerregistry delete-repository was refused because a pre-delete
 // read showed the repository still holds images), UserNotFound (a
 // containerregistry create-user's own create succeeded but a follow-up
@@ -141,9 +146,12 @@ type errorEnvelope struct {
 // network ACL or one of an ACL's own default rules), ResourceBusy (a
 // network add-route, remove-route, or a network ACL rule or subnet write
 // read a table or ACL that was not ACTIVE and stayed that way past the wait
-// before the write, or saw it change before the send), or SecretFileFailed
+// before the write, or saw it change before the send), SecretFileFailed
 // (create-ssh-key's own create succeeded but writing --secret-file failed
-// afterward, so the CLI deleted the new key).
+// afterward, so the CLI deleted the new key), or SystemTag (a tagging
+// tag-resource or untag-resource refused because Key names a system tag,
+// either its "vng." prefix or an existing system tag the pre-write read
+// found, so nothing was sent).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -172,17 +180,29 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
-	// compute.ErrNotSettled, containerregistry.ErrNotSettled, and
-	// iam.ErrNotSettled join dns.ErrNotSettled and network.ErrNotSettled
-	// here for the same reason they all do: UpdateServerGroup's confirm
-	// read, GetRepository's own 5xx-confirm path inside the
-	// containerregistry wait, and CreatePolicy's and UpdatePolicy's own
-	// confirm GetPolicy read, can each wrap an inner *core.APIError or a
+	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
+	// iam.ErrNotSettled, and tagging.ErrNotSettled join dns.ErrNotSettled and
+	// network.ErrNotSettled here for the same reason they all do:
+	// UpdateServerGroup's confirm read, GetRepository's own 5xx-confirm path
+	// inside the containerregistry wait, CreatePolicy's and UpdatePolicy's own
+	// confirm GetPolicy read, and TagResource's and UntagResource's own
+	// confirm read after their PUT, can each wrap an inner *core.APIError or a
 	// canceled context, and this check must win over the generic *APIError
 	// branch below.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) {
+		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, tagging.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	// tagging.ErrSystemTag is always returned bare, never wrapping an inner
+	// *core.APIError: it comes either from the "vng." prefix check, before
+	// any request, or from the pre-write read's own system-tag match, never
+	// from the write itself. It still joins this early group, ahead of the
+	// generic *APIError branch below, for the same reason iam.ErrSelfChange
+	// and the others below do: consistent placement for every sentinel this
+	// file classifies by errors.Is rather than by an *APIError's own
+	// status-derived code.
+	if errors.Is(err, tagging.ErrSystemTag) {
+		return errorEnvelope{Code: "SystemTag", Message: err.Error()}
 	}
 	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
 	// delete-repository's own pre-delete image count check, never wrapping a
@@ -368,19 +388,22 @@ func exitCode(err error) int {
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
 	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
 	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound,
-	// iam.ErrNotSettled, and monitor.ErrOTPRejected join the same early
-	// return for the same reason: per the vDNS, network, vCR writes, and
-	// iam designs, a not-settled write, and a create-user whose own create
-	// already succeeded, must exit the same way even after a canceled
-	// context, because the write already landed, and the others join it
-	// for consistency.
+	// iam.ErrNotSettled, tagging.ErrNotSettled, and monitor.ErrOTPRejected
+	// join the same early return for the same reason: per the vDNS, network,
+	// vCR writes, and iam designs, a not-settled write, and a create-user
+	// whose own create already succeeded, must exit the same way even after a
+	// canceled context, because the write already landed, and the others
+	// join it for consistency. tagging's own confirm read can also fail with
+	// a wrapped *core.APIError of any status, including 404, so this check
+	// must win over the later NotFound check too, the same reason it wins
+	// over classify's generic *APIError branch.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
-		errors.Is(err, monitor.ErrOTPRejected) {
+		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

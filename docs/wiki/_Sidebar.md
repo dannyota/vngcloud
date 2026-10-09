@@ -19,6 +19,7 @@
 - [Network ACLs](Network-ACLs.md)
 - [Network DHCP Options](Network-DHCPOptions.md)
 - [Network Virtual IPs](Network-VirtualIPs.md)
+- [Tagging](Tagging.md)
 - [Security](Security.md)
 - [Limitations](Limitations.md)
 
@@ -39,3 +40,4 @@
 - [CLI: Volume](CLI-Volume.md)
 - [CLI: ContainerRegistry](CLI-ContainerRegistry.md)
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
+- [CLI: Tagging](CLI-Tagging.md)

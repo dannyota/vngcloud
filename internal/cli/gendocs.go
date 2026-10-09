@@ -197,6 +197,7 @@ func runGenDocs(dir string) error {
 		buildDocService("volume", volumeOps),
 		buildDocService("containerregistry", containerRegistryOps),
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
+		buildDocService("tagging", taggingOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -365,14 +366,21 @@ func renderCLIPage(services []docService) string {
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), or a " +
 		"network ACL rules or subnets PUT, sent once with no retry, failed in a way that may already have " +
 		"reached the server, a 5xx, a network error, or a timeout: the write is not resent automatically, " +
-		"so read the ACL first before trying the command again; see [Network](Network.md#waits)), " +
+		"so read the ACL first before trying the command again; see [Network](Network.md#waits)), or a " +
+		"tagging tag-resource or untag-resource whose PUT reached the server but the read to confirm it " +
+		"failed or came back mismatched: the write already replaced the resource's user tags, so read " +
+		"them again before writing once more rather than repeating the command blind; see " +
+		"[Tagging](CLI-Tagging.md#tag-resource)), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
 		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
 		"order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
-		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemSecurityGroup` " +
+		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemTag` (a tagging " +
+		"tag-resource or untag-resource refused because --key names a system tag, either its vng. prefix " +
+		"or an existing system tag the pre-write read found, so nothing was sent; see " +
+		"[Tagging](CLI-Tagging.md#tag-resource)), `SystemSecurityGroup` " +
 		"(a network update-security-group or delete-security-group " +
 		"targeted a project's system group, so nothing was sent; see [Network](Network.md#errors)), " +
 		"`SecurityGroupInUse` (a network delete-security-group was refused because the group has servers " +
@@ -410,13 +418,13 @@ func renderCLIPage(services []docService) string {
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed`, `NotSettled`, " +
 		"and `UserNotFound` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
-		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), and " +
-		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user). " +
+		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
+		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user), and [Tagging](CLI-Tagging.md#tag-resource). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, and `SecretFileFailed` all exit 1.\n\n")
+		"`UserNotFound`, `SecretFileFailed`, and `SystemTag` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
