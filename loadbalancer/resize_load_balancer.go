@@ -94,9 +94,10 @@ type resizeLoadBalancerBody struct {
 //
 // It then quotes with QuoteResizeLoadBalancer's own fields. The quote is
 // read and checked independently of pricing.Client.GetQuote (quotedPrice),
-// refusing a missing, null, or non-finite price; a negative one is allowed,
-// since a downsize may legitimately refund. When the price exceeds
-// Input.MaxPrice (default 0, so never exceeded by a negative price), returns
+// refusing a missing, null, or non-finite price, and a price of exactly 0
+// with ErrUnpriced, whatever MaxPrice is; a negative one is allowed, since a
+// downsize may legitimately refund. When the price exceeds Input.MaxPrice
+// (default 0, so never exceeded by a negative price), it returns
 // ErrPriceAboveMax naming both amounts, sending nothing.
 //
 // The resize PUT is sent with transport.Request.Once: it is never resent,
@@ -160,7 +161,7 @@ func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerI
 	// separately, keeps its own independent behavior. The shape checks
 	// above already cover everything QuoteResizeLoadBalancer would check.
 	// quotedPrice reads and checks the quote itself (missing, null,
-	// non-finite), regardless of what pricing.Client.GetQuote would have
+	// non-finite, 0), regardless of what pricing.Client.GetQuote would have
 	// done with the same response; allowNegative is true here, since a
 	// downsize's quote may legitimately price below zero as a refund, which
 	// never exceeds MaxPrice (checkMaxPrice above already refused a

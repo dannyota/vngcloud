@@ -24,8 +24,9 @@ type quotedPriceBody struct {
 }
 
 // quotedPrice prices a load balancer create or resize and returns its
-// optimumPrice, refusing a response with no price, a null one, or one that
-// is not a finite number, and, unless allowNegative, one that is negative.
+// optimumPrice, refusing a response with no price, a null one, one that is
+// not a finite number, and an unpriced one (core.ErrUnpriced): 0, or, unless
+// allowNegative, anything negative.
 //
 // CreateLoadBalancer and ResizeLoadBalancer's price guard must refuse an
 // unpriced quote regardless of how pricing.Client.GetQuote itself decodes
@@ -33,9 +34,11 @@ type quotedPriceBody struct {
 // JSON null there silently becomes 0 with no error, indistinguishable from a
 // genuine zero price. quotedPrice sends its own request and reads the raw
 // body itself instead, so this guard never depends on that decode.
-// allowNegative is true only for a resize, whose quote may legitimately
-// price a downsize below zero as a refund; a create's negative quote is
-// always refused, since acting on it would order for less than nothing.
+// Nothing in vLB is free, so a quote of 0 means the gateway could not price
+// the input. allowNegative is true only for a resize, whose quote may
+// legitimately price a downsize below zero as a refund; a create's negative
+// quote is always refused, since acting on it would order for less than
+// nothing.
 func (c *Client) quotedPrice(ctx context.Context, op, action string, resourceInfo map[string]any, allowNegative bool) (float64, error) {
 	var raw json.RawMessage
 	req := transport.Request{
@@ -90,14 +93,14 @@ func decodeQuotedPrice(op string, raw json.RawMessage) (float64, error) {
 // checkQuotedPrice refuses a price CreateLoadBalancer or ResizeLoadBalancer
 // must never act on: NaN or infinite, whatever produced it (a valid JSON
 // number can never decode to either, but this stays a defense in depth
-// rather than an assumption about how a price arrived), or, unless
-// allowNegative, negative.
+// rather than an assumption about how a price arrived), or unpriced: 0, or
+// negative unless allowNegative, which wraps core.ErrUnpriced.
 func checkQuotedPrice(op string, price float64, allowNegative bool) error {
 	if math.IsNaN(price) || math.IsInf(price, 0) {
 		return &core.APIError{Operation: op, Message: fmt.Sprintf("quote optimumPrice must be a finite number, got %v", price)}
 	}
-	if !allowNegative && price < 0 {
-		return &core.APIError{Operation: op, Message: fmt.Sprintf("quote optimumPrice %.0f VND is negative", price)}
+	if price == 0 || (!allowNegative && price < 0) {
+		return fmt.Errorf("%w: %s: quote %.0f VND", core.ErrUnpriced, op, price)
 	}
 	return nil
 }

@@ -208,6 +208,37 @@ func TestResizeLoadBalancerQuoteNullPriceRefusesOrder(t *testing.T) {
 	}
 }
 
+// TestResizeLoadBalancerUnpricedQuoteRefusesPUT checks that a quote of 0
+// refuses the resize with ErrUnpriced and sends no PUT, even when MaxPrice
+// would allow it.
+func TestResizeLoadBalancerUnpricedQuoteRefusesPUT(t *testing.T) {
+	for _, quote := range []string{"0"} {
+		var putCalls atomic.Int32
+		statuses, packages := fixedStatusPackage(lbStatusCreated)
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/price" {
+				_, _ = fmt.Fprintf(w, `{"optimumPrice":%s}`, quote)
+				return
+			}
+			resizeLoadBalancerHandler(statuses, packages, &putCalls, 0, "")(w, r)
+		}))
+		for _, maxPrice := range []float64{0, 800000} {
+			in := validResizeInput()
+			in.MaxPrice = maxPrice
+			_, err := c.ResizeLoadBalancer(context.Background(), in)
+			if !errors.Is(err, vngcloud.ErrUnpriced) {
+				t.Fatalf("quote %s MaxPrice %v: err = %v, want ErrUnpriced", quote, maxPrice, err)
+			}
+			if !strings.Contains(err.Error(), "loadbalancer.ResizeLoadBalancer") {
+				t.Fatalf("err = %v, want the operation name", err)
+			}
+		}
+		if putCalls.Load() != 0 {
+			t.Fatalf("quote %s: PUT calls = %d, want 0", quote, putCalls.Load())
+		}
+	}
+}
+
 // TestResizeLoadBalancerQuoteNegativePriceAllowed checks that a resize's
 // negative quote, unlike a create's, is allowed through: a downsize can
 // legitimately refund, so it must never be refused as though it were an

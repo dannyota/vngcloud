@@ -237,7 +237,11 @@ server's own error unchanged, since the price guard checks input shape, not
 that the resource exists.
 
 A paid write refuses to order above its own `MaxPrice` (VND a month, default
-0), with an error wrapping `vngcloud.ErrPriceAboveMax`:
+0), with an error wrapping `vngcloud.ErrPriceAboveMax`. The load balancer
+writes also refuse a create quote of 0 or less, or a resize quote of
+exactly 0 (a negative resize quote is a refund and passes), whatever
+`MaxPrice` is, with an error wrapping `vngcloud.ErrUnpriced`: nothing in
+vLB is free, so such a quote means the gateway could not price the input.
 
 ```go
 if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.ErrPriceAboveMax) {

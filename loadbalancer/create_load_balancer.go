@@ -156,13 +156,13 @@ type createLoadBalancerBody struct {
 // prices (createLoadBalancerQuoteInfo), so the quote and the order always
 // describe the same resource; QuoteCreateLoadBalancer, called separately,
 // keeps its own independent behavior. The quote is read and checked by
-// quotedPrice, which refuses a missing, null, non-finite, or negative price
-// on its own, regardless of what pricing.Client.GetQuote would have done
-// with the same response. When the price exceeds Input.MaxPrice (default
+// quotedPrice, which refuses a missing, null, non-finite, or unpriced (0 or
+// less, ErrUnpriced) price on its own, regardless of what
+// pricing.Client.GetQuote would have done with the same response. When the price exceeds Input.MaxPrice (default
 // 0), CreateLoadBalancer returns ErrPriceAboveMax naming both amounts,
-// ordering nothing: a bare CreateLoadBalancerInput therefore only ever
-// orders a load balancer whose package prices at 0 VND, which none does
-// today.
+// ordering nothing. A bare CreateLoadBalancerInput therefore orders nothing:
+// a quote of 0 or less returns ErrUnpriced, whatever MaxPrice is, and any
+// real price is above the default MaxPrice.
 //
 // The order is a POST sent with Once, so it reaches the server at most
 // once: it is never retried after a failure that may have already reached

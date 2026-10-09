@@ -60,7 +60,9 @@ quotes again with its own code before sending anything, and refuses with
 `loadbalancer.ErrPriceAboveMax`, naming both amounts, when the quote's
 `OptimumPrice` is above `Input.MaxPrice`. `MaxPrice` defaults to 0, so a
 bare `CreateLoadBalancerInput{}` orders nothing: every package prices above
-0 VND today. Set `MaxPrice` to what `QuoteCreateLoadBalancer` returned, or
+0 VND today. A create quote of 0 or less, or a resize quote of exactly 0,
+refuses with `vngcloud.ErrUnpriced` whatever `MaxPrice` is, since nothing in vLB is free and such a quote means
+the gateway could not price the input. Set `MaxPrice` to what `QuoteCreateLoadBalancer` returned, or
 higher, to let the order through:
 
 ```go
@@ -423,7 +425,9 @@ var ErrNotSettled    = errors.New("loadbalancer: write accepted but not settled"
 ```
 
 `ErrPriceAboveMax` means a create or resize quoted above `MaxPrice`;
-nothing was ordered. `ErrBusy` means a write found the load balancer, or
+nothing was ordered. `vngcloud.ErrUnpriced` means a create quoted 0 or less, or a
+resize quoted 0; nothing was ordered. A negative resize quote is a refund
+and is allowed. `ErrBusy` means a write found the load balancer, or
 the child it targets, still busy past the pre-write wait's bound, or the
 server refused a resize because the load balancer was busy; see
 [Busy and waits](#busy-and-waits). `ErrInUse` means `DeletePool` was

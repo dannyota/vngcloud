@@ -503,30 +503,38 @@ func TestCreateLoadBalancerQuoteMissingPriceRefusesOrder(t *testing.T) {
 	}
 }
 
-// TestCreateLoadBalancerQuoteNegativePriceRefusesOrder checks that a
-// create's negative quote is refused outright, per the design: unlike a
-// resize, a create has no downsize to refund, so a negative price is never
-// legitimate.
-func TestCreateLoadBalancerQuoteNegativePriceRefusesOrder(t *testing.T) {
-	var postCalls atomic.Int32
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/v1/price":
-			_, _ = w.Write([]byte(`{"optimumPrice":-100}`))
-		case "/v2/project-1/loadBalancers":
-			postCalls.Add(1)
-			_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+// TestCreateLoadBalancerUnpricedQuoteRefusesOrder checks that a quote of 0
+// or less refuses the order with ErrUnpriced, even when MaxPrice would allow
+// it: nothing in vLB is free, so such a quote means the gateway could not
+// price the input.
+func TestCreateLoadBalancerUnpricedQuoteRefusesOrder(t *testing.T) {
+	for _, quote := range []string{"0", "-100"} {
+		var postCalls atomic.Int32
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/price":
+				_, _ = fmt.Fprintf(w, `{"optimumPrice":%s}`, quote)
+			case "/v2/project-1/loadBalancers":
+				postCalls.Add(1)
+				_, _ = fmt.Fprintf(w, `{"uuid":%q}`, createLoadBalancerUUID)
+			default:
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		for _, maxPrice := range []float64{0, 400000} {
+			in := validCreateLoadBalancerInput()
+			in.MaxPrice = maxPrice
+			_, err := c.CreateLoadBalancer(context.Background(), in)
+			if !errors.Is(err, vngcloud.ErrUnpriced) {
+				t.Fatalf("quote %s MaxPrice %v: err = %v, want ErrUnpriced", quote, maxPrice, err)
+			}
+			if !strings.Contains(err.Error(), "loadbalancer.CreateLoadBalancer") {
+				t.Fatalf("err = %v, want the operation name", err)
+			}
 		}
-	}))
-	in := validCreateLoadBalancerInput()
-	in.MaxPrice = 400000
-	if _, err := c.CreateLoadBalancer(context.Background(), in); err == nil {
-		t.Fatal("CreateLoadBalancer() error = nil, want an error for a negative quote price")
-	}
-	if postCalls.Load() != 0 {
-		t.Fatalf("create POST calls = %d, want 0", postCalls.Load())
+		if postCalls.Load() != 0 {
+			t.Fatalf("quote %s: create POST calls = %d, want 0", quote, postCalls.Load())
+		}
 	}
 }
 

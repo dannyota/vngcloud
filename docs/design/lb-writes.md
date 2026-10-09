@@ -53,10 +53,10 @@ takes the same Input, and each quotes before it sends:
    reads the raw quote body and refuses a missing `optimumPrice` key, a
    null one, or a NaN or infinite number, whatever pricing.GetQuote would
    have done with the same response.
-3. A create's negative quote is refused the same way: a create never
-   spends less than nothing. A resize's negative quote is a refund for a
-   downsize and spends nothing, so it is allowed; it is always at or
-   under `MaxPrice`, which is at least 0.
+3. A create's quote of 0 or less, and a resize's quote of exactly 0,
+   returns `ErrUnpriced`, sending nothing, whatever `MaxPrice` is: nothing
+   in vLB is free, so the gateway could not price the input. A resize's
+   negative quote is a downsize refund and is allowed.
 4. When the price is above `MaxPrice`, return `ErrPriceAboveMax` naming
    both amounts, sending nothing.
 5. Send the write once. Never send it again after a failure that may have
@@ -326,9 +326,9 @@ by amending this table.
 | `loadbalancer create-policy`, `update-policy` | Write | No | L6 |
 | `loadbalancer delete-policy` | Write, destructive | Yes | L6 |
 
-- Paid writes take `--max-price <vnd>`; without it only a free order
-  would be sent, and none exists. `NaN`, `Inf`, or a negative value exits
-  2 before any request.
+- Paid writes take `--max-price <vnd>`; without it every order is
+  refused, since a real quote is above 0. `NaN`, `Inf`, or a negative
+  value exits 2 before any request.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request. The quotes are reads and run.
 - `--allowed-cidrs` is a comma-separated list, as the API takes it. `--yes`
