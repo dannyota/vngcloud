@@ -33,6 +33,8 @@ rename; the module keeps the `vngcloud` name.
   deleting log alarms.
 - [Storage](Storage.md): vStorage regions, projects, buckets, and S3 keys,
   including bucket and key create and delete.
+- [Storage: Bucket Policy](Storage-Bucket-Policy.md): the per-bucket key
+  policy, its template, and the rules.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
