@@ -23,6 +23,11 @@ var renameTable = map[string]string{
 	"SecurityGroupIDs":    "security-group-id",
 	"SetVPCDHCPOptions":   "set-vpc-dhcp-options",
 	"ClearVPCDHCPOptions": "clear-vpc-dhcp-options",
+	// kebab splits a digit from the capital before it ("s-3"), so the S3
+	// key operations are named here.
+	"ListS3Keys":  "list-s3-keys",
+	"CreateS3Key": "create-s3-key",
+	"DeleteS3Key": "delete-s3-key",
 }
 
 // flagNameFor returns the flag name for an Input field's Go name.

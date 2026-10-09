@@ -72,3 +72,15 @@ func TestCheckOpName(t *testing.T) {
 		t.Fatalf("unexpected error with a table override: %v", err)
 	}
 }
+
+func TestS3KeyOperationNamesKeepTheDigitWithItsWord(t *testing.T) {
+	for method, want := range map[string]string{
+		"ListS3Keys":  "list-s3-keys",
+		"CreateS3Key": "create-s3-key",
+		"DeleteS3Key": "delete-s3-key",
+	} {
+		if err := checkOpName(method, want); err != nil {
+			t.Errorf("checkOpName(%q, %q): %v", method, want, err)
+		}
+	}
+}

@@ -35,3 +35,25 @@ const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Nee
 	"it is gone; `--no-wait` skips the wait and returns once the server accepts the delete. If the bucket is " +
 	"still readable when the wait ends, the error code is `NotSettled` (exit 1): the delete was accepted, so " +
 	"do not repeat it, and check with get-bucket later."
+
+const storageKeyRightsNote = "A key has the rights of the IAM user that made it on every bucket of the " +
+	"project, until per-bucket keys exist. Make keys only with an IAM user scoped to vStorage. A project holds " +
+	"at most ten keys."
+
+const storageListS3KeysNote = storageProjectIDNote + storageRegionNote + " Lists the project's keys by " +
+	"`UserKeyID` and `AccessKey`. No secret is listed or printed. " + storageKeyRightsNote
+
+const storageCreateS3KeyNote = storageProjectIDNote + storageRegionNote + " Needs `--secret-file <path>`: " +
+	"the server returns the secret once, and the command writes it only to that file, at mode 0600, in the " +
+	"AWS shared credentials format (`[default]` with `aws_access_key_id` and `aws_secret_access_key`), which " +
+	"rclone and the AWS CLI read through `AWS_SHARED_CREDENTIALS_FILE`. The file holds no region or endpoint. " +
+	"The path must not exist, symlink included, and its directory must exist; both are checked before any " +
+	"request. The printed `SecretKey` is always `[redacted]` and `SecretFile` names the path. If writing the " +
+	"file fails, or the response holds no secret, the command deletes the new key and exits 1 with error " +
+	"code `SecretFileFailed`; if that delete also fails, the message names the key by its ID so it can be " +
+	"deleted with delete-s3-key. If the create fails in a way that may have reached the server, the message " +
+	"says a key may exist: list the keys and delete any `UserKeyID` you do not know. " + storageKeyRightsNote
+
+const storageDeleteS3KeyNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`: a deleted key " +
+	"stops working at once and cannot be restored. The server answers success for a `UserKeyID` it does not " +
+	"know, and refuses a repeat delete of a deleted key with error code `114` (exit 1)."

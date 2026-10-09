@@ -55,6 +55,9 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"get-bucket":    {"bucket"},
 		"create-bucket": {"bucket"},
 		"delete-bucket": {"bucket", "no-wait"},
+		"list-s3-keys":  {},
+		"create-s3-key": {"secret-file"},
+		"delete-s3-key": {"user-key-id"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -66,13 +69,14 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 			continue
 		}
 		wantKind := kindRead
-		if op.name == "create-bucket" || op.name == "delete-bucket" {
+		switch op.name {
+		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {
 			t.Errorf("%s has the wrong kind", op.name)
 		}
-		if op.destructive != (op.name == "delete-bucket") {
+		if op.destructive != (op.name == "delete-bucket" || op.name == "delete-s3-key") {
 			t.Errorf("%s destructive = %v", op.name, op.destructive)
 		}
 		specs, err := flagSpecsFor(op.newInput())
@@ -82,6 +86,9 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		got := []string{}
 		for _, s := range withoutNoFlag(specs, op.noFlag) {
 			got = append(got, s.flagName)
+		}
+		if op.extraFlags != nil {
+			got = append(got, "secret-file")
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s flags = %v, want %v", op.name, got, want)

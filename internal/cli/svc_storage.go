@@ -24,6 +24,11 @@ var storageOps = []Op[storage.Client]{
 		kebab("CreateBucket"), (*storage.Client).CreateBucket, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 	Write[storage.Client, storage.DeleteBucketInput, storage.DeleteBucketOutput](
 		kebab("DeleteBucket"), (*storage.Client).DeleteBucket, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Read[storage.Client, storage.ListS3KeysInput, storage.ListS3KeysOutput](
+		"list-s3-keys", (*storage.Client).ListS3Keys, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	createS3KeyOp(),
+	Write[storage.Client, storage.DeleteS3KeyInput, storage.DeleteS3KeyOutput](
+		"delete-s3-key", (*storage.Client).DeleteS3Key, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 }
 
 func newStorageCmd(e *env) *cobra.Command {

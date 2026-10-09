@@ -471,9 +471,10 @@ func renderCLIPage(services []docService) string {
 		"`UserNotFound` (a containerregistry create-user's own create succeeded but a follow-up list could " +
 		"not confirm the new user by name; the new secret is still written to --secret-file either way; see " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
-		"`SecretFileFailed` (create-ssh-key's or create-user's own " +
+		"`SecretFileFailed` (create-ssh-key's, create-user's, or storage create-s3-key's own " +
 		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key or user; " +
-		"see [Compute](CLI-Compute.md#create-ssh-key) and [ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
+		"see [Compute](CLI-Compute.md#create-ssh-key), [ContainerRegistry](CLI-ContainerRegistry.md#create-user), " +
+		"and [Storage](CLI-Storage.md#create-s3-key)), " +
 		"or `NotFound` (a not-found result that " +
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed`, `NotSettled`, " +

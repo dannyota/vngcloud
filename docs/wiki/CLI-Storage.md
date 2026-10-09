@@ -18,6 +18,22 @@ Kind: Write.
 vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
 ```
 
+## create-s3-key
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--secret-file <path>`: the server returns the secret once, and the command writes it only to that file, at mode 0600, in the AWS shared credentials format (`[default]` with `aws_access_key_id` and `aws_secret_access_key`), which rclone and the AWS CLI read through `AWS_SHARED_CREDENTIALS_FILE`. The file holds no region or endpoint. The path must not exist, symlink included, and its directory must exist; both are checked before any request. The printed `SecretKey` is always `[redacted]` and `SecretFile` names the path. If writing the file fails, or the response holds no secret, the command deletes the new key and exits 1 with error code `SecretFileFailed`; if that delete also fails, the message names the key by its ID so it can be deleted with delete-s3-key. If the create fails in a way that may have reached the server, the message says a key may exist: list the keys and delete any `UserKeyID` you do not know. A key has the rights of the IAM user that made it on every bucket of the project, until per-bucket keys exist. Make keys only with an IAM user scoped to vStorage. A project holds at most ten keys.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--secret-file` | `string` | yes |
+
+```sh
+vngcloud storage create-s3-key --project-id <project-id> --secret-file <secret-file>
+```
+
 ## delete-bucket
 
 Kind: Write, destructive.
@@ -33,6 +49,22 @@ Kind: Write, destructive.
 
 ```sh
 vngcloud storage delete-bucket --project-id <project-id> --bucket <bucket> --yes
+```
+
+## delete-s3-key
+
+Kind: Write, destructive.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--yes`: a deleted key stops working at once and cannot be restored. The server answers success for a `UserKeyID` it does not know, and refuses a repeat delete of a deleted key with error code `114` (exit 1).
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--user-key-id` | `string` | yes |
+
+```sh
+vngcloud storage delete-s3-key --project-id <project-id> --user-key-id <user-key-id> --yes
 ```
 
 ## get-bucket
@@ -90,5 +122,20 @@ No fields.
 
 ```sh
 vngcloud storage list-regions
+```
+
+## list-s3-keys
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Lists the project's keys by `UserKeyID` and `AccessKey`. No secret is listed or printed. A key has the rights of the IAM user that made it on every bucket of the project, until per-bucket keys exist. Make keys only with an IAM user scoped to vStorage. A project holds at most ten keys.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+
+```sh
+vngcloud storage list-s3-keys --project-id <project-id>
 ```
 
