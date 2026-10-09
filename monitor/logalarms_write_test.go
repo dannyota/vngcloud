@@ -1530,3 +1530,36 @@ func TestDeleteLogAlarmOnLiveReadShape(t *testing.T) {
 		t.Fatalf("DeleteLogAlarm() error = %v", err)
 	}
 }
+
+// The API accepts only lowercase condition values on a write but returns
+// them uppercase on a read.
+func TestUpdateLogAlarmSendsConditionLowercase(t *testing.T) {
+	for name, cond := range map[string]*string{"from the read": nil, "from the caller": ptrStr("LTE")} {
+		want := "gt"
+		if cond != nil {
+			want = "lte"
+		}
+		t.Run(name, func(t *testing.T) {
+			var got map[string]any
+			client := newTestClient(t, liveLogAlarmHandler(t, func(b map[string]any) { got = b }))
+			_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+				AlarmID: "alarm-1", NoWait: true, Condition: cond,
+			})
+			if err != nil {
+				t.Fatalf("UpdateLogAlarm() error = %v", err)
+			}
+			if got["condition"] != want {
+				t.Fatalf("condition = %v, want %q", got["condition"], want)
+			}
+		})
+	}
+}
+
+func TestDefaultLogAlarmConditionLowercases(t *testing.T) {
+	if got := defaultLogAlarmCondition("GT", LogAlarmThresholdTypeFrequency); got != "gt" {
+		t.Fatalf("defaultLogAlarmCondition(GT) = %q, want gt", got)
+	}
+	if got := defaultLogAlarmCondition("Lte", LogAlarmThresholdTypeFlatline); got != "lte" {
+		t.Fatalf("defaultLogAlarmCondition(Lte) = %q, want lte", got)
+	}
+}

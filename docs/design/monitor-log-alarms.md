@@ -129,6 +129,12 @@ a JSON number or a numeric string, and read any other shape as 0;
 `GroupByField` reads a non-string as empty. One odd alarm never fails a
 list.
 
+The read returns `condition` uppercase (`GT`) although the write accepts
+only lowercase (`gt`) and refuses `GT` with a 400; `thresholdType` comes back
+lowercase. `Condition` on the read model is the wire value as read.
+`CreateLogAlarm` and `UpdateLogAlarm` lowercase the condition they send,
+whether it comes from the caller or from the read.
+
 `LogAlarmResend` has `Enabled`, `Statuses` (`[]string`, split from
 `resendStatus`), `Period` (minutes), and `Times`. Constants name the
 threshold types, the conditions, and the severities; each field is a plain

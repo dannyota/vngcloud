@@ -264,12 +264,13 @@ func checkLogAlarmUpdatable(op, alarmID string, current *Alarm) error {
 	return nil
 }
 
-// defaultLogAlarmCondition returns condition unchanged when set, else
+// defaultLogAlarmCondition returns condition lowercased when set (the API
+// accepts only lowercase on a write, though a read returns it uppercase), else
 // LogAlarmConditionLT for a flatline threshold or LogAlarmConditionGT for
 // every other threshold type, per the create body's own default.
 func defaultLogAlarmCondition(condition, thresholdType string) string {
 	if condition != "" {
-		return condition
+		return strings.ToLower(condition)
 	}
 	if thresholdType == LogAlarmThresholdTypeFlatline {
 		return LogAlarmConditionLT

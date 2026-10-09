@@ -25,6 +25,10 @@ since the console's own create form sends either. A response with no
 `alarmLog` at all still decodes `InAlarm` and `OK` from top-level `inAlarm`
 and `ok` keys; every other field then stays zero.
 
+A read returns `Condition` uppercase (`GT`). `CreateLogAlarm` and
+`UpdateLogAlarm` lowercase the condition they send, so `GT` and `gt` both
+send `gt`.
+
 `LogAlarmResend` holds `Enabled`, `Statuses` (`[]string`, split from the
 wire's comma-joined `resendStatus`, such as `"OK,ALARM"`), `Period`
 (minutes), and `Times`.

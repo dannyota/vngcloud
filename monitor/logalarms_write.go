@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -390,6 +391,8 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 	if in.Condition != nil {
 		condition = *in.Condition
 	}
+	// The read returns the condition uppercase; the API rejects that on write.
+	condition = strings.ToLower(condition)
 	thresholdValue := logDetail.ThresholdValue
 	if in.ThresholdValue != nil {
 		thresholdValue = *in.ThresholdValue
