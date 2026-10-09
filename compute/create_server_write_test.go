@@ -909,3 +909,26 @@ func TestWaitServerActivePollParameters(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateServerZeroQuoteRefusesAndSendsNoOrder(t *testing.T) {
+	var orderCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers":
+			_, _ = w.Write([]byte(emptyListServersPage))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+			_, _ = w.Write([]byte(`{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+		default:
+			orderCalls.Add(1)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	in := validCreateServerInput()
+	in.MaxPrice = 1000000
+	if _, err := c.CreateServer(context.Background(), in); !errors.Is(err, vngcloud.ErrUnpriced) {
+		t.Fatalf("err = %v, want ErrUnpriced", err)
+	}
+	if orderCalls.Load() != 0 {
+		t.Fatalf("order calls = %d, want 0", orderCalls.Load())
+	}
+}

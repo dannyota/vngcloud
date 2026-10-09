@@ -8612,6 +8612,7 @@ func TestLiveWritePaidVolume(t *testing.T) {
 		defer cancel()
 		swept := deleteLiveVolumes(cleanupCtx, t, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
 	})
 
 	// Step 5: order at the quoted price, so a price change between step 3
@@ -8666,15 +8667,17 @@ func TestLiveWritePaidVolume(t *testing.T) {
 }
 
 // deleteLiveServers deletes every server named with the "vngcloud-live-"
-// prefix, along with its volumes, and reports how many servers it deleted,
-// for the pre-test sweep and the cleanup of TestLiveWritePaidServer. It
+// prefix and reports how many servers it deleted, for the pre-test sweep and
+// the cleanup of the paid server tests. It deletes each server with its
+// volumes kept, then deletes only the kept volumes named with the same
+// prefix, so an unprefixed volume is never removed. It
 // waits for each delete to settle, so a caller relying on the servers being
 // fully gone (such as a subsequent VPC or security group delete) does not
 // need its own extra wait. A server still CREATING or CREATING-BILLING
 // cannot be deleted at all, per the design's server rules, so this waits
 // for it to leave that status first rather than let the delete fail and
 // leave it billing.
-func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client) int {
+func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client, volumeClient *volume.Client) int {
 	t.Helper()
 	list, err := client.ListServers(ctx, nil)
 	if err != nil {
@@ -8693,11 +8696,30 @@ func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client
 				continue
 			}
 		}
-		if _, err := client.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: s.UUID, DeleteVolumes: true}); err != nil && !vngcloud.IsNotFound(err) {
+		out, err := client.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: s.UUID})
+		if err != nil && !vngcloud.IsNotFound(err) {
 			t.Errorf("sweep: DeleteServer(%s): %s", s.UUID, safeErr(err))
 			continue
 		}
 		deleted++
+		if out == nil {
+			continue
+		}
+		for _, id := range out.KeptVolumeIDs {
+			got, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id})
+			if err != nil {
+				if !vngcloud.IsNotFound(err) {
+					t.Errorf("sweep: GetVolume(%s): %s", id, safeErr(err))
+				}
+				continue
+			}
+			if !strings.HasPrefix(got.Volume.Name, "vngcloud-live-") {
+				continue
+			}
+			if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("sweep: DeleteVolume(%s): %s", id, safeErr(err))
+			}
+		}
 	}
 	return deleted
 }
@@ -8810,7 +8832,7 @@ func TestLiveWritePaidServer(t *testing.T) {
 	networkClient := network.New(cfg)
 
 	// Step 1: sweep leftovers from an earlier aborted run first.
-	sweptServers := deleteLiveServers(ctx, t, computeClient)
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
 	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
 	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
 
@@ -8944,10 +8966,11 @@ func TestLiveWritePaidServer(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		swept := deleteLiveServers(cleanupCtx, t, computeClient)
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
 		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
 	})
 
 	// Step 6: order at the quoted price.
@@ -9081,7 +9104,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	volumeClient := volume.New(cfg)
 	networkClient := network.New(cfg)
 
-	sweptServers := deleteLiveServers(ctx, t, computeClient)
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
 	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
 	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
 
@@ -9209,10 +9232,11 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		swept := deleteLiveServers(cleanupCtx, t, computeClient)
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
 		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
 	})
 
 	// Step 5: order the server and the volume, each at its own quote.
@@ -9342,7 +9366,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 	volumeClient := volume.New(cfg)
 	networkClient := network.New(cfg)
 
-	sweptServers := deleteLiveServers(ctx, t, computeClient)
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
 	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
 	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
 
@@ -9479,10 +9503,11 @@ func TestLiveWritePaidResize(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
-		swept := deleteLiveServers(cleanupCtx, t, computeClient)
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
 		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
 		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
 	})
 
 	// Step 5: order the server and the data volume, attach the volume.

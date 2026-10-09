@@ -308,8 +308,8 @@ package gets a poll helper with the injected clock and sleep that
 | `volume resize-volume` | Paid write | Yes | P5 |
 
 - A paid create needs no `--yes`: `--max-price <vnd>` is its consent.
-  Without the flag, `MaxPrice` is 0 and the command orders only a free
-  resource, so it refuses with `PriceAboveMax` after the quote.
+  Without the flag, `MaxPrice` is 0 and the command refuses with
+  `PriceAboveMax` after the quote; a quote of 0 is refused as `ErrUnpriced`.
 - Stop and reboot need `--yes` although start undoes them: they cut off
   what runs on the server and lose what it holds only in memory, as route
   writes need `--yes` for cutting traffic

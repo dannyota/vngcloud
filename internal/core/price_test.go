@@ -47,3 +47,11 @@ func TestCheckPriceAboveMax(t *testing.T) {
 		t.Fatal("expected a non-empty message naming both amounts")
 	}
 }
+
+func TestCheckPriceAboveMaxRefusesUnpricedQuote(t *testing.T) {
+	for _, quoted := range []float64{0, -1} {
+		if err := CheckPriceAboveMax("op", quoted, 100); !errors.Is(err, ErrUnpriced) {
+			t.Fatalf("quoted %v: err = %v, want ErrUnpriced", quoted, err)
+		}
+	}
+}

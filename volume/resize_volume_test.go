@@ -483,3 +483,27 @@ func TestWaitVolumeResizedPollParameters(t *testing.T) {
 		t.Fatalf("sleep calls = %d, want 150 (a 2s interval over a 5-minute bound)", len(sleeps))
 	}
 }
+
+func TestResizeVolumeZeroQuoteRefusesAndSendsNoResize(t *testing.T) {
+	var resizeCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeVolumeRequest(t, w, r,
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				resizeCalls.Add(1)
+				t.Error("no resize expected for a 0 quote")
+			},
+		)
+	}))
+	if _, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000}); !errors.Is(err, vngcloud.ErrUnpriced) {
+		t.Fatalf("err = %v, want ErrUnpriced", err)
+	}
+	if resizeCalls.Load() != 0 {
+		t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
+	}
+}

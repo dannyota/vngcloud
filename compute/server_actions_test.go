@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -371,5 +372,100 @@ func TestRenameServerPathIDRejection(t *testing.T) {
 		if _, err := c.RenameServer(context.Background(), &RenameServerInput{ServerID: bad, Name: "web-2"}); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("ServerID=%q err = %v, want ErrInvalidInput", bad, err)
 		}
+	}
+}
+
+// checkWriteStatusError asserts err is the mapping of a write that got
+// status. A 4xx is the raw APIError. A 5xx on a write sent once means the
+// outcome is unknown, so it wraps ErrNotSettled and still carries the status.
+func checkWriteStatusError(t *testing.T, err error, status int, sentOnce bool) {
+	t.Helper()
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+		t.Fatalf("err = %v, want an *core.APIError with status %d", err, status)
+	}
+	if status == 404 && !core.IsNotFound(err) {
+		t.Fatalf("err = %v, want not found", err)
+	}
+	if want := sentOnce && status >= 500; errors.Is(err, ErrNotSettled) != want {
+		t.Fatalf("errors.Is(err, ErrNotSettled) = %v, want %v", !want, want)
+	}
+}
+
+func TestServerWriteErrorStatuses(t *testing.T) {
+	statuses := []int{400, 404, 409, 500, 502, 503}
+	cases := []struct {
+		name     string
+		sentOnce bool
+		call     func(c *Client) error
+		get      string
+	}{
+		{"StopServer", true, func(c *Client) error {
+			_, err := c.StopServer(context.Background(), &StopServerInput{ServerID: "server-1"})
+			return err
+		}, serverBody("ACTIVE")},
+		{"RebootServer", true, func(c *Client) error {
+			_, err := c.RebootServer(context.Background(), &RebootServerInput{ServerID: "server-1"})
+			return err
+		}, serverBody("ACTIVE")},
+		{"RenameServer", false, func(c *Client) error {
+			_, err := c.RenameServer(context.Background(), &RenameServerInput{ServerID: "server-1", Name: "web-2"})
+			return err
+		}, serverBody("ACTIVE")},
+		{"ResizeServer", true, func(c *Client) error {
+			in := validResizeServerInput()
+			in.MaxPrice = 1000000
+			_, err := c.ResizeServer(context.Background(), in)
+			return err
+		}, serverBodyWithFlavor("ACTIVE", "flavor-1")},
+	}
+	for _, tc := range cases {
+		for _, status := range statuses {
+			t.Run(fmt.Sprintf("%s/%d", tc.name, status), func(t *testing.T) {
+				var writes atomic.Int64
+				c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodGet:
+						_, _ = w.Write([]byte(tc.get))
+					case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+						_, _ = w.Write([]byte(quoteServerFixture))
+					default:
+						writes.Add(1)
+						w.WriteHeader(status)
+						_, _ = w.Write([]byte(`{"message":"failed"}`))
+					}
+				})))
+				err := tc.call(c)
+				checkWriteStatusError(t, err, status, tc.sentOnce)
+				if tc.sentOnce && writes.Load() != 1 {
+					t.Fatalf("writes = %d, want 1", writes.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestResizeServer429SentOnce(t *testing.T) {
+	var writes atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeServerRequest(t, w, r,
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+			}, nil,
+			func(w http.ResponseWriter, r *http.Request) {
+				writes.Add(1)
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"message":"slow down"}`))
+			},
+		)
+	}))
+	in := validResizeServerInput()
+	in.MaxPrice = 1000000
+	_, err := c.ResizeServer(context.Background(), in)
+	if !core.IsRateLimited(err) {
+		t.Fatalf("err = %v, want rate limited", err)
+	}
+	if writes.Load() != 1 {
+		t.Fatalf("writes = %d, want 1", writes.Load())
 	}
 }

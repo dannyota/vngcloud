@@ -3,12 +3,14 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 func volumeBody(status string, serverID string) string {
@@ -465,5 +467,83 @@ func TestWaitVolumeAttachedPollParameters(t *testing.T) {
 	}
 	if len(sleeps) != 150 {
 		t.Fatalf("sleep calls = %d, want 150 (a 2s interval over a 5-minute bound)", len(sleeps))
+	}
+}
+
+func TestVolumeWriteErrorStatuses(t *testing.T) {
+	statuses := []int{400, 404, 409, 500, 502, 503}
+	cases := []struct {
+		name     string
+		sentOnce bool
+		get      string
+		call     func(c *Client) error
+	}{
+		{"AttachVolume", false, volumeBody("AVAILABLE", ""), func(c *Client) error {
+			_, err := c.AttachVolume(context.Background(), &AttachVolumeInput{VolumeID: "volume-1", ServerID: "server-1", NoWait: true})
+			return err
+		}},
+		{"DetachVolume", false, volumeBody("IN-USE", "server-1"), func(c *Client) error {
+			_, err := c.DetachVolume(context.Background(), &DetachVolumeInput{VolumeID: "volume-1", ServerID: "server-1", NoWait: true})
+			return err
+		}},
+		{"ResizeVolume", true, volumeBodyWithSize("AVAILABLE", 10), func(c *Client) error {
+			_, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000, NoWait: true})
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		for _, status := range statuses {
+			t.Run(fmt.Sprintf("%s/%d", tc.name, status), func(t *testing.T) {
+				var writes atomic.Int64
+				c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers/server-1":
+						_, _ = w.Write([]byte(`{"data":{"uuid":"server-1","status":"STOPPED","bootVolumeId":"boot-volume-1"}}`))
+					case r.Method == http.MethodGet:
+						_, _ = w.Write([]byte(tc.get))
+					case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+						_, _ = w.Write([]byte(quoteVolumeFixture))
+					default:
+						writes.Add(1)
+						w.WriteHeader(status)
+						_, _ = w.Write([]byte(`{"message":"failed"}`))
+					}
+				})))
+				err := tc.call(c)
+				var apiErr *core.APIError
+				if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+					t.Fatalf("err = %v, want an *core.APIError with status %d", err, status)
+				}
+				if status == 404 && !core.IsNotFound(err) {
+					t.Fatalf("err = %v, want not found", err)
+				}
+				if tc.sentOnce && writes.Load() != 1 {
+					t.Fatalf("writes = %d, want 1", writes.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestResizeVolume429SentOnce(t *testing.T) {
+	var writes atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeVolumeRequest(t, w, r,
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+			}, nil,
+			func(w http.ResponseWriter, r *http.Request) {
+				writes.Add(1)
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"message":"slow down"}`))
+			},
+		)
+	}))
+	_, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000})
+	if !core.IsRateLimited(err) {
+		t.Fatalf("err = %v, want rate limited", err)
+	}
+	if writes.Load() != 1 {
+		t.Fatalf("writes = %d, want 1", writes.Load())
 	}
 }

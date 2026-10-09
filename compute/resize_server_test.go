@@ -431,3 +431,29 @@ func TestWaitServerResizedPollParameters(t *testing.T) {
 		t.Fatalf("sleep calls = %d, want 180 (a 5s interval over a 15-minute bound)", len(sleeps))
 	}
 }
+
+func TestResizeServerZeroQuoteRefusesAndSendsNoResize(t *testing.T) {
+	var resizeCalls atomic.Int64
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeServerRequest(t, w, r,
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				resizeCalls.Add(1)
+				t.Error("no resize expected for a 0 quote")
+			},
+		)
+	}))
+	in := validResizeServerInput()
+	in.MaxPrice = 1000000
+	if _, err := c.ResizeServer(context.Background(), in); !errors.Is(err, vngcloud.ErrUnpriced) {
+		t.Fatalf("err = %v, want ErrUnpriced", err)
+	}
+	if resizeCalls.Load() != 0 {
+		t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
+	}
+}

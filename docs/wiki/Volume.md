@@ -83,7 +83,8 @@ if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{
 always refuses with `vngcloud.ErrPriceAboveMax` and orders nothing: raising
 `MaxPrice` to the quote's own `OptimumPrice` is the caller's explicit
 consent to pay that price, the same role the CLI command plays (see
-[CLI-Volume](CLI-Volume.md)). Before any request,
+[CLI-Volume](CLI-Volume.md)). A quote of 0 also orders nothing: it refuses
+with `vngcloud.ErrUnpriced`, since no volume is free. Before any request,
 `CreateVolume` also rejects a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice`
 with `vngcloud.ErrInvalidInput`, since none of those compares safely
 against a quote. It then lists volumes by `Name` and refuses, also with

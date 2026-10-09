@@ -20,10 +20,15 @@ func CheckMaxPrice(op string, maxPrice float64) error {
 	return nil
 }
 
-// CheckPriceAboveMax returns an error wrapping ErrPriceAboveMax naming both
-// amounts when quoted is above maxPrice. Nothing is sent when this returns
+// CheckPriceAboveMax returns an error wrapping ErrUnpriced when quoted is 0
+// or less, and one wrapping ErrPriceAboveMax naming both amounts when quoted
+// is above maxPrice. Nothing in vServer is free, so a 0 quote means the
+// gateway could not price the input. Nothing is sent when this returns
 // non-nil.
 func CheckPriceAboveMax(op string, quoted, maxPrice float64) error {
+	if quoted <= 0 {
+		return fmt.Errorf("%w: %s", ErrUnpriced, op)
+	}
 	if quoted > maxPrice {
 		return fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, quoted, maxPrice)
 	}

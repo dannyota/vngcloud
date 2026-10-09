@@ -274,7 +274,9 @@ guarantee:
 Every paid create or resize in `compute` and `volume` refuses to send a
 write priced above its own `MaxPrice`, which defaults to 0: setting
 `MaxPrice` is the caller's explicit consent to pay up to that amount, the
-role the CLI's `--max-price` flag plays for the matching command. A
+role the CLI's `--max-price` flag plays for the matching command. A quote
+of 0 is refused with `vngcloud.ErrUnpriced`: nothing in vServer is free, so
+the gateway could not price the input. A
 destructive write, such as deleting a server or a volume, needs no price
 consent, since it does not order anything; the CLI instead requires its
 `--yes` flag there, since a delete cannot be undone.
