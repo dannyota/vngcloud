@@ -8771,26 +8771,27 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 	}
 	lbID := kept.UUID
 
-	// Step 1: a TCP listener with a /24 AllowedCIDRs.
-	tcpListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
-		LoadBalancerID: lbID, Name: "vngcloud-live-tcp", Protocol: loadbalancer.ProtocolTCP, Port: 8080,
+	// Step 1: an HTTP listener with a /24 AllowedCIDRs. TCP and UDP
+	// listeners need a Network load balancer; the kept one is Layer 7.
+	httpListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8080,
 		AllowedCIDRs: []string{liveListenerAllowedCIDR},
 	})
 	if err != nil {
-		t.Fatalf("step 1 CreateListener (TCP): %s", safeErr(err))
+		t.Fatalf("step 1 CreateListener (HTTP): %s", safeErr(err))
 	}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
-			t.Errorf("cleanup: delete TCP listener: %s", safeErr(err))
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete HTTP listener: %s", safeErr(err))
 		}
 	})
-	t.Log("step 1: created a TCP listener")
+	t.Log("step 1: created a HTTP listener")
 
 	// Step 2: update its TimeoutClient only.
 	if _, err := lbClient.UpdateListener(ctx, &loadbalancer.UpdateListenerInput{
-		LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID, TimeoutClient: vngcloud.Ptr(30),
+		LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID, TimeoutClient: vngcloud.Ptr(30),
 	}); err != nil {
 		t.Fatalf("step 2 UpdateListener: %s", safeErr(err))
 	}
@@ -8856,8 +8857,8 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil {
 		t.Fatalf("step 4 DeleteListener (HTTPS): %s", safeErr(err))
 	}
-	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: tcpListener.Listener.UUID}); err != nil {
-		t.Fatalf("step 4 DeleteListener (TCP): %s", safeErr(err))
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID}); err != nil {
+		t.Fatalf("step 4 DeleteListener (HTTP): %s", safeErr(err))
 	}
 	if _, err := lbClient.DeleteCertificate(ctx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil {
 		t.Fatalf("step 4 DeleteCertificate: %s", safeErr(err))

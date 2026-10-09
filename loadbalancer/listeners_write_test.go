@@ -570,3 +570,29 @@ func TestDeleteListenerWriteStatusesPassThrough(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateListenerRefusesNonHTTPProtocolOnLayer7(t *testing.T) {
+	for _, protocol := range []string{ProtocolTCP, ProtocolUDP} {
+		t.Run(protocol, func(t *testing.T) {
+			var other atomic.Int32
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == listenerLBPath {
+					_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"type":%q,"progressStatus":%q}}`, listenerTestLBID, TypeLayer7, lbStatusCreated)
+					return
+				}
+				other.Add(1)
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}))
+			withInstantSleep(c)
+
+			in := validCreateListenerInput()
+			in.Protocol = protocol
+			if _, err := c.CreateListener(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+			if other.Load() != 0 {
+				t.Fatalf("sent %d other requests, want none", other.Load())
+			}
+		})
+	}
+}

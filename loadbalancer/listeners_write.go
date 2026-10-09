@@ -179,7 +179,9 @@ func timeoutOrDefault(timeout, fallback int) int {
 
 // CreateListener creates a listener on a load balancer. It waits, within
 // the pre-write bound, until the load balancer is not busy (ErrBusy,
-// nothing sent, past that bound), then sends the create.
+// nothing sent, past that bound), then sends the create. When that read
+// shows a Layer 7 load balancer and Protocol is not HTTP or HTTPS, it
+// returns core.ErrInvalidInput and sends nothing.
 //
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError, the
@@ -220,8 +222,14 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 	}
 	defer unlock()
 
-	if err := c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID); err != nil {
+	lb, err := c.readLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID)
+	if err != nil {
 		return nil, err
+	}
+	// A Layer 7 load balancer refuses every listener protocol but HTTP and HTTPS.
+	if lb.Type == TypeLayer7 && in.Protocol != ProtocolHTTP && in.Protocol != ProtocolHTTPS {
+		return nil, fmt.Errorf("%w: %s: a %s load balancer accepts only %s and %s listeners, got %q",
+			core.ErrInvalidInput, op, TypeLayer7, ProtocolHTTP, ProtocolHTTPS, in.Protocol)
 	}
 
 	body := createListenerBody{

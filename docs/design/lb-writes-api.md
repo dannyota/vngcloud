@@ -235,7 +235,10 @@ From the reference and the product pages on `docs.greennode.ai`:
   answers only inside the VPC. The scheme cannot change after create.
 - The package's `lbType` (`L4` or `L7`) must match `type`. `Layer 7`
   offers HTTP and HTTPS listeners and policies; whether `Layer 4` offers
-  only TCP and UDP is a live check.
+  only TCP and UDP is a live check. Live (`hcm-3`): a TCP listener on a
+  `Layer 7` load balancer is refused with 400 `Invalid listener's
+  protocol for Application load balancer. Valid protocols are: [HTTP,
+  HTTPS]`, so `CreateListener` refuses it before sending.
 - Listener, pool, member, and policy names are 5 to 50 characters.
   Listener and pool names are unique within a load balancer, and a
   listener's protocol and port are unique too.

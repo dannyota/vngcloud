@@ -299,13 +299,13 @@ if _, err := client.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{
 }
 ```
 
-`AllowedCIDRs` is required with no default, unlike some other SDKs, which
-send `0.0.0.0/0`: an open listener on an internet-facing load balancer
-serves the whole internet, so the caller names its own list. Each entry
-must parse as an IPv4 CIDR prefix with no host bits set; the SDK joins them
-with commas on the wire and splits them back on a read-merge update. A
-`TimeoutClient`, `TimeoutMember`, or `TimeoutConnection` of 0 sends the
-server's default (50, 50, and 5 seconds).
+A `Layer 7` load balancer takes only `HTTP` and `HTTPS` listeners;
+`CreateListener` refuses `TCP` or `UDP` there with `ErrInvalidInput`.
+`AllowedCIDRs` is required with no default, because an open listener on an
+internet-facing load balancer serves the whole internet. Each entry must be an
+IPv4 CIDR prefix with no host bits set; the SDK joins them with commas and
+splits them back on a read-merge update. A `TimeoutClient`, `TimeoutMember`, or
+`TimeoutConnection` of 0 sends the server's default (50, 50, and 5 seconds).
 
 `ProtocolHTTP` on a `SchemeInternet` load balancer carries every request in
 cleartext to whatever `AllowedCIDRs` allows to reach it; use `ProtocolHTTPS`
