@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.44.0 - Volume Attach and Detach
+
+### Highlights
+
+- New `volume.AttachVolume` and `DetachVolume`, with `vngcloud volume
+  attach-volume` and `detach-volume`. Each reads the volume first and
+  returns `Changed` false, sending nothing, when it is already in the
+  requested state; the PUT then waits for `IN-USE` or `AVAILABLE`.
+- `DetachVolume` refuses, before any request, a server's boot volume
+  (`volume.ErrBootVolume`), a volume not attached to the named server, and
+  a running server unless `AllowRunning` (`--allow-running`) is set
+  (`volume.ErrServerRunning`); `detach-volume` needs `--yes`.
+- Verified live on 2026-10-09: attach settled in 8 s and detach in 6 s on
+  an `s2-general-1x2` server; every guard refused as designed.
+
 ## v0.43.0 - Server Writes
 
 ### Highlights
