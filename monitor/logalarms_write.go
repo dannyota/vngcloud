@@ -532,7 +532,7 @@ const (
 )
 
 // waitLogAlarmAbsent reports whether the log alarm list drops id within
-// deleteAbsentWaitBound. A list error or a cancelled ctx reads as not
+// deleteAbsentWaitBound. A list error or a canceled ctx reads as not
 // absent.
 func (c *Client) waitLogAlarmAbsent(ctx context.Context, op, id string) bool {
 	absent := false
