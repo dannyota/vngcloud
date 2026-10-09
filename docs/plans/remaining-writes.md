@@ -19,7 +19,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 ## Open on the account
 
-- vStorage S2 to S6 need a vStorage project. The IAM user cannot buy one: the vStorage console's `purchase_types` call fails for it (code 114), so the owner buys it with the root account (Project, Create a project, pay as you go, 1 GB, HCM04) or opens a ticket.
+- vStorage S2 to S6 need a vStorage project. The account has no vStorage storage user record and the vStorage backend cannot create one: `/internal/v1/users/details?generated=true` answers code 114 "Error occurred in adding storage user <root email>" for the IAM user in both regions, so the console's create-project form stays empty and disabled. No IAM policy fixes it (the user already holds `vstorage:*` and `billing:*`). The owner signs in as root and opens vStorage, Project, Create a project once; if the form fills, buys the smallest Pay monthly project in HCM04; if the same error shows, opens a ticket quoting that endpoint and code.
 - The VPC quota is 2 and one slot is held by `stuck-acl-vpc-*`, which the server cannot delete (needs a support ticket). Live tests that need a VPC borrow an existing one through `VNGCLOUD_LIVE_NETWORK_VPC_ID` when the quota is full.
 - The budget `vngcloud-live-cap` (1,000,000 VND a month, alert at 50%) stays on the account for later paid runs.
 
