@@ -81,45 +81,57 @@ toggle from, nothing sent) and `StatusUnconfirmed`, both exit 1, mapped
 from `cdn.ErrUnexpectedStatus` and `cdn.ErrStatusUnconfirmed`.
 `cdn.ErrNoAPIKey` prints `NoCredentials` and exits 3. A rejected key
 prints `Unauthorized` and exits 3. A 400 prints `BadRequest` and exits 2.
+A detail read of an unknown ID prints `NotFound` and exits 4. An envelope
+failure prints its envelope code, usually `500`, and exits 1
+([vCDN errors](cdn-api.md#errors)).
 
 ## Testing
 
 Unit tests use `httptest`, with fixtures in `testdata/cdn/`:
 
-- The request carries `Authorization: Bearer <key>` and no IAM token; the
-  credentials provider fails the test if called. A 401 is not retried and
-  invalidates no token.
+- The request carries `Authorization: Bearer <key>`, no IAM token, and no
+  `Origin` header; the credentials provider fails the test if called. A
+  401 is not retried and invalidates no token.
 - Key resolution: option, environment, and file in order; the explicit
   profile skips the environment; a bad key is refused naming the source; no
   key gives `ErrNoAPIKey` and no request; `ListIPRanges` still works
   without a key.
 - The key never appears in stdout, stderr, `--debug`, an error, or a
   capture, including when the server echoes it in a 400 message.
-- Error bodies from the reference table: 400, 401 (message replaced, no
-  IP in the output), 403 (message replaced), 500, a 200 with
-  `success: false` and code 202, and a non-JSON 200.
-- Decode tests for every read, from the reference examples sanitized per
-  [live data](../../instructions/live-data.md), then from live shapes.
-  The certificate fixture holds a fake `privateKey`; the test asserts it
-  reaches no model field, capture, or error. The same for API key tokens.
-- `ListAPIKeys` with an array, a single object, the envelope, and bare;
-  `Current` set for the matching key only.
-- Analytics: the Range rules; the UTC+7 conversion; sorted points; a
-  non-integer key fails; the string-encoded counts.
+- Error bodies from the [errors table](cdn-api.md#errors): a 401 with an
+  empty body (fixed message), a 403 (fixed message), 400, 404, and 405
+  problem+json (`detail`, then `title`), a 500, a 200 envelope with
+  `success: false` and `code` 500 and each of a null, empty, and text
+  `message`, a text message holding `@` (withheld, no email in the
+  output), a detail read with empty `data` (`ErrNotFound`), and a
+  non-JSON 200.
+- Decode tests for every read, from live shapes sanitized per
+  [live data](../../instructions/live-data.md), or from the reference
+  examples until a live shape exists. The certificate fixture holds a fake
+  `privateKey`; the test asserts it reaches no model field, capture, or
+  error. The same for API key tokens and `userEmail`.
+- `ListAPIKeys` from the envelope list: `Current` set for the matching key
+  only, the RFC 3339 times with milliseconds and `+00:00`, and a bare
+  object or bare list refused.
+- Analytics: the Range rules; the UTC+7 conversion in the confirmed
+  format; sorted points; a non-integer key fails; the string-encoded
+  counts.
 - Create bodies with defaults and with every field; update merge keeps
   IDs and `status`, sends nothing for an empty update; the purge shape
   checks; certificate PEM checks.
 - Toggles: already at `T` or `P` (no request), unexpected status, toggle
-  sent once after a 502, a 409 returned at once, confirm reads on an
-  injected clock reaching `ErrStatusUnconfirmed`.
-- Statuses 200, 400, 401, 403, 404, 500 for every write; no create or
-  purge retry after a 502; path rejection for `..`, `/`, `?`, and empty.
+  sent once after a 502, a 409 returned at once, an envelope failure
+  returned at once, confirm reads on an injected clock reaching
+  `ErrStatusUnconfirmed`.
+- Statuses 200, 400, 401, 403, 404, 500, and a 200 envelope failure for
+  every write; no create or purge retry after a 502 or an envelope
+  failure; path rejection for `..`, `/`, `?`, and empty.
 - CLI golden tests, `--yes` on each guarded command, and read-only refusal
   with no request sent.
 
 Live tests follow [live data](../../instructions/live-data.md). They skip
 unless `VNGCLOUD_VCDN_API_KEY` is set, and they log statuses and counts
-only, never names, domains, or IDs.
+only, never names, domains, emails, or IDs.
 
 - `make live` adds `ListWebAccelerators`, `ListCertificates`, and
   `ListAPIKeys`, asserting exactly one key has `Current: true`. When a CDN
@@ -139,38 +151,52 @@ only, never names, domains, or IDs.
 
 ## Live checks
 
-Before C1 code, each by hand, read-only, on the owner's account:
+Done, read-only, on an account with no CDN: the base URL, the 401 body,
+the CORS check, the live prefixes, the empty list and envelope failure
+shapes, and the `apikey/list` fields. [vCDN API](cdn-api.md#source)
+records the results.
 
-1. The owner creates an API key in the vCDN Portal, with the shortest
-   expiry that covers the work and no domain restriction, and puts it in
-   `.env` as `VNGCLOUD_VCDN_API_KEY`. Nothing prints it.
-2. Whether `vcdn-api.vngcloud.vn` answers directly or redirects to a
-   GreenNode host, so the default endpoint is the final host.
-3. A wrong key: the 401 body shape, and whether it holds the caller's IP.
-4. On the empty account: what `webacc/list`, `certificate/list`, and an
-   analytics call with an unknown domain answer (`[]`, null, or an error).
-5. `apikey/list`: a list or one object, envelope or bare, and which fields
-   it returns. The probe prints field names only.
-6. What the key's domain restriction limits: the `Origin` header, the
-   caller's IP, or the CDN domains it may manage.
+Before any create, by the owner in the portal:
 
-Before C2 code, by the owner in the portal:
-
-7. Which Accelerator Package and payment mode the account has, its price,
+1. Which Accelerator Package and payment mode the account has, its price,
    and how many CDNs it allows. Whether creating a CDN with no traffic adds
-   any charge. If a create costs money, C2 waits for a price check design
-   under ADR 0002 rule 8.
-8. Whether the account must own the domain, and whether the package's CDN
+   any charge. If a create costs money, no create happens until a price
+   check design under ADR 0002 rule 8.
+2. Whether the account must own the domain, and whether the package's CDN
    limit leaves a slot for the live test beside aboutme's CDN.
 
-During C2 to C4, recorded in the API facts: the status after create, the
-transitional statuses and how long toggles take, a repeat delete, a
-duplicate create, a documentation-range origin, the analytics time zone
-and domain form, purge answers, and a certificate in use on delete.
+Before C1 code, one real CDN must exist: the owner creates it in the
+portal after check 1, or runs one create by hand on `POST cdn/create` with
+the reference body. Then, by hand, read-only, printing field names,
+statuses, and counts only:
 
-Cost: C1 is reads, free. C2 is free only if check 7 says so; traffic stays
-zero. C3 purges use two of the daily purges. C4 certificates are free (50
-per package).
+3. `GET cdn/list`: the CDN appears; the item's field names match
+   `WebAcceleratorSummary`.
+4. `GET cdn/detail/{cdnId}`: the field names match `WebAccelerator` and
+   its nested models, and the status is in the status table.
+5. `GET cdn/detail/{id}` with a well-formed unknown ID: still
+   `success: false` with empty `data`, now that the account has a CDN.
+6. `GET certificate/list`: whether the CDN's `default` certificate is
+   listed, and its field names if so.
+7. `POST analytic/traffic-report` with the CDN's `cdnDomain` and a range
+   over the last day, once with `fromTime` and `toTime` as
+   `dd/mm/yyyy hh:mm` and once as `dd/mm/yyyy`: which form the server
+   accepts, and, from the returned epoch keys, which time zone it reads.
+8. `POST analytic/traffic-consuming` with `period` `24h`, then `5m`: the
+   series shape, and how the server refuses a bad `period`.
+9. The same series call with `domainName` in place of `cdnDomain`.
+10. `cdn-requestsps`, `cache-status`, and `cdn-http-codes` with `period`
+    `24h`: the series shape and the string-encoded counts.
+
+During C2 to C4, recorded in the API facts: the `type` value the `cdn`
+prefix expects on create, the status after create, the transitional
+statuses and how long toggles take, a repeat delete, a duplicate create, a
+documentation-range origin, purge answers, and a certificate in use on
+delete.
+
+Cost: C1 is reads, free, once the CDN exists. The CDN is free only if
+check 1 says so; traffic stays zero. C3 purges use two of the daily
+purges. C4 certificates are free (50 per package).
 
 ## Releases
 
@@ -178,21 +204,21 @@ Each release ships the SDK and CLI together, with the `cdn` wiki pages.
 
 | Release | Content |
 |-|-|
-| C1 | The `CDN` endpoint, `transport.Request.APIKey`, `WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, the `vcdn_api_key` file and `configure` key, envelope errors, and the reads: Web Accelerators, certificates, API keys, and five analytics calls |
+| C1 | The `CDN` endpoint, `transport.Request.APIKey`, `WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, the `vcdn_api_key` file and `configure` key, the vCDN error rules, and the reads: Web Accelerators on `cdn/*`, certificates, API keys, and five analytics calls. Ships after checks 3 to 10 pass on a real CDN |
 | C2 | Web Accelerator create, update, delete, enable, and disable |
 | C3 | Cache purge: paths, pattern, and all |
 | C4 | Certificate import, enable, disable, and delete |
 | Deferred | Video On Demand, Object Download (its S3 origin holds an access key and secret, so it needs its own secret rules), the other analytics calls, and API key writes. Each waits for a need from aboutme or the owner |
 
 C1 changes no existing method or command; `cdn list-ip-ranges` is
-unchanged. C2 to C4 add commands only. C3 does not need C2: it works on a
-CDN made in the portal, so it can ship first if aboutme needs purge
-sooner.
+unchanged. C2 to C4 add commands only. C3 needs C1's reads but not C2: it
+works on a CDN made in the portal, so it can ship before C2 if aboutme
+needs purge sooner.
 
 ## Owner decisions
 
-All 18 are approved as recommended; 17 is a gate the owner clears in the
-portal before C2.
+1 to 18 are approved as recommended; 17 is a gate the owner clears in the
+portal before any create. 19 to 27 are Recommended and wait for the owner.
 
 1. Approved: the API key resolves on its own, from `WithCDNAPIKey`,
    `VNGCLOUD_VCDN_API_KEY`, or `vcdn_api_key` in the credentials file, with
@@ -205,8 +231,8 @@ portal before C2.
 4. Approved: `transport.Request.APIKey` sends the key as a bearer and
    skips the token flow. The alternative, a second credentials provider,
    would mix two credentials in one token cache.
-5. Approved: replace the 401 and 403 messages with fixed text, since
-   they hold the caller's IP and the account user.
+5. Approved: 401 and 403 messages are fixed text. A 401 has no body; a
+   403 may name the account user.
 6. Approved: a 400 matches `ErrInvalidInput` and exits 2.
 7. Approved: the names `WebAccelerator` and `CDNID`, so Video On Demand
    and Object Download can join later without a rename.
@@ -228,18 +254,46 @@ portal before C2.
     list and returns nil, not an error, when the match is not unique.
 16. Approved: certificate and API key reads set `Sensitive`, and their
     models have no key or token field.
-17. Approved: C2 ships only after check 7 shows a create adds no
-    charge.
+17. Approved: no create, by hand or by C2, until check 1 shows a create
+    adds no charge.
 18. Approved: the release order above, with purge free to move ahead of
     C2.
+19. Approved: Web Accelerator operations use `cdn/*` paths, inferred
+    from the live prefix and the reference bodies, and the Web Accelerator
+    reads ship only after checks 3 to 5 confirm them on a real CDN.
+20. Approved: the owner creates the one real CDN in the portal after
+    check 1, since a hand-run create depends on an unconfirmed body.
+21. Approved: a 2xx envelope with `success: false` is an `*APIError`
+    with the envelope code, never retried, and a null or empty message
+    becomes fixed text naming the operation.
+22. Approved: a detail read whose envelope fails with empty `data`
+    maps to `ErrNotFound`, an inference that check 5 rechecks.
+23. Approved: an HTTP 404 keeps the standard `NotFound` mapping, even
+    though it means an unknown route. The alternative, a separate
+    `RouteNotFound` code, needs a change to `IsNotFound`, which matches
+    any 404 status; the live tests catch a wrong route instead.
+24. Approved: any error message that holds `@` is withheld whole and
+    replaced by fixed text, rather than scrubbing the email, since a
+    partial scrub can miss a form of it.
+25. Approved: `transport.errorBody` gains `title` as its last message
+    fallback, for problem+json bodies.
+26. Approved: `APIKey` drops `token` and `userEmail`, adds
+    `AllowOriginHeader`, parses its times as `time.Time`, and
+    `ListAPIKeys` accepts only the envelope list.
+27. Approved: the analytics reads ship only after check 7 confirms the
+    `fromTime` and `toTime` format and time zone on a real domain.
 
 ## Open items
 
 - The reference marks `fromTime`, `toTime`, and `period` all required,
   yet says `period` applies only without the pair. The SDK sends one form.
 - Analytics units: `traffic-consuming` says its values follow
-  `RequestSpsDto` (requests per second), while its name says traffic. The
-  live check settles it before the wiki names a unit.
+  `RequestSpsDto` (requests per second), while its name says traffic.
+  Check 8 settles it before the wiki names a unit.
+- Analytics on an unknown domain fails with envelope `code` 500, so it
+  matches no sentinel and exits 1, though it is an input error.
+- The certificate item shape stays the reference's until a certificate
+  exists; C4's import gives the first one.
 - The API key create body takes a `token`; the reference does not say
   whether the server or the caller makes it.
 - The page rule docs describe `headerOverride` as a header sent to the

@@ -4,9 +4,9 @@ Status: Proposed.
 
 This design adds GreenNode vCDN management to the `cdn` package: Web
 Accelerator CDNs, certificates, cache purge, API key reads, and traffic
-analytics, on the documented vCDN API. The CLI commands, tests, live
-checks, releases, and owner decisions are in [vCDN CLI](cdn-cli.md). The
-CDN IP range read stays in [CDN IP ranges](cdn.md).
+analytics, on the vCDN API. The CLI commands, tests, live checks, releases,
+and owner decisions are in [vCDN CLI](cdn-cli.md). The CDN IP range read
+stays in [CDN IP ranges](cdn.md).
 
 It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
 [ADR 0002](../adr/0002-write-api-conventions.md), and the status toggles
@@ -17,21 +17,20 @@ follow [ADR 0003](../adr/0003-toggle-writes.md).
 The vCDN API reference, v1.1.0, at `https://api-docs.vngcloud.vn/vcdn/`,
 and the GreenNode vCDN pages on API developers, HTTP origin, CNAME, purge,
 page rules, and pricing (`docs.greennode.ai/vcdn/...`), read on 2026-10-09.
-No live call backs this design yet; [live checks](cdn-cli.md#live-checks)
-come before code.
+Read-only probes with the owner's API key on an account with no CDN, on
+2026-10-09, correct the reference where the two disagree.
 
-Facts from those sources:
+Facts from the reference:
 
 - Base URL `https://vcdn-api.vngcloud.vn/vcdn-api`; paths start `v1/`.
 - Every call needs `Authorization: Bearer <API key>`. The IAM token is not
   accepted, and the reference names no other scheme.
 - A person creates the key in the vCDN Portal, which takes root login only
   ([CDN non-goals](cdn.md#non-goals)). The key expires after 1 minute to 1
-  year, as chosen, and may be limited to the domains allowed to call the
-  API. The key is a JWT in the reference examples.
-- vCDN has three CDN types: Web Accelerator (`webacc`), Video On Demand
-  (`vod`), and Object Download (`obj-download`). Each has create, update,
-  delete, detail, list, and status change calls under its own prefix.
+  year, as chosen. The key is a JWT.
+- vCDN has three CDN types: Web Accelerator, Video On Demand, and Object
+  Download. Each has create, update, delete, detail, list, and status
+  change calls under its own prefix.
 - A CDN has a `cdnId`, the customer `domainName`, alternative `cName`
   names, and a generated `cdnDomain` such as `<random>webacc.vcdn.cloud`,
   which the customer's DNS points at.
@@ -39,6 +38,37 @@ Facts from those sources:
   4 `DELETING`, 5 `DISABLING`, 6 `SUSPENDING`.
 - Delete and status change answer "will effect after 5 minutes".
 - No call lists, buys, or prices a package. No call quotes a price.
+
+Facts from the probes:
+
+- The probes reached the API at the base URL above.
+- The reference's Web Accelerator prefix `webacc` does not exist: every
+  `webacc/*` route answers 404 problem+json, `"detail": "No static
+  resource webacc/list."`. The live prefixes are `cdn`, `vod`, and
+  `obj-download`. `GET cdn/list`, `vod/list`, and `obj-download/list`
+  answer `200 {"success": true, "code": 200, "message": "Get CDN data
+  successful.", "data": []}`.
+- A write route reached with the wrong method still reaches its handler:
+  `GET cdn/create`, `cdn/update`, `cdn/flush-cache`, and `vod/create`
+  answer `200 {"success": false, "code": 500, "message": null, "data":
+  ""}` and create nothing. Other routes answer a wrong method with 405.
+- `certificate/list` answers the envelope with `data: []`.
+- `apikey/list` answers the envelope with a list in `data`.
+- The key's `allowOriginHeader` limits the `Origin` request header only.
+  A request with an `Origin` outside GreenNode and VNG Cloud hosts gets
+  `403 Invalid CORS request` as plain text.
+- Responses carry no rate-limit headers.
+
+### Paths
+
+The Web Accelerator operations use the `cdn` prefix: `cdn/list`,
+`cdn/detail/{cdnId}`, `cdn/create`, `cdn/update`, `cdn/delete/{cdnId}`,
+`cdn/status/change/{cdnId}`, and `cdn/flush-cache`. Only `cdn/list` and
+the existence of the write routes are confirmed. The rest are inferred
+from the live prefix and the reference's `webacc` paths, with the
+reference's bodies. The first read of a real CDN
+([live checks](cdn-cli.md#live-checks)) confirms the list item and detail
+shapes; the Web Accelerator reads ship only after it does.
 
 ### Pricing
 
@@ -52,7 +82,7 @@ by use. Packages are bought in the portal only.
 Unconfirmed: whether an account with no package can create a Web
 Accelerator, what Basic costs, and whether a CDN with zero traffic costs
 anything. The [owner check](cdn-cli.md#live-checks) settles this before
-any create ships.
+any create, by hand or by code.
 
 ## Credentials
 
@@ -86,10 +116,8 @@ uses:
 
 `endpoints.Set` and `EndpointOverrides` gain `CDN`, default
 `https://vcdn-api.vngcloud.vn/vcdn-api/`, and `internal/routes` gains
-`ProductCDN`. The region is ignored and no project ID is sent. A
-[live check](cdn-cli.md#live-checks) confirms the host answers without a
-redirect: the SDK refuses cross-host redirects, and other services moved
-from `vngcloud.vn` to `greennode.ai` hosts.
+`ProductCDN`. The region is ignored and no project ID is sent. The SDK
+refuses cross-host redirects, as for every service.
 
 `transport.Request` gains `APIKey string`. When it is set:
 
@@ -101,65 +129,79 @@ from `vngcloud.vn` to `greennode.ai` hosts.
   call before any request.
 
 Every vCDN call sets `APIKey`. The `cdn` client builds every URL from the
-`CDN` endpoint, so the key reaches no other host. `--debug` logs the path
-only, as for every request.
-
-## Response shapes
-
-Most responses use one envelope:
-
-```json
-{"success": true, "code": 200, "message": "Get CDN data successful.", "data": ...}
-```
-
-The API key calls answer a bare object or a bare `true`, with no envelope.
-The reference shows `GET v1/apikey/list` answering one object, not a list.
-
-Error bodies, from the reference examples:
-
-| Status | Body |
-|-|-|
-| 400 | `{"success": false, "code": 400, "message": "Failed to validate CDN data, error is not support error code", "data": ""}` |
-| 401 | `{"timestamp": "...", "status": 401, "error": "Unauthorized", "message": "Unauthorized with access ip is <caller IP>", "path": "..."}` |
-| 403 | `{"success": false, "code": 403, "message": "Current user <user> is not allow to call this api", "data": ""}` |
-| 500 | `{"success": false, "code": 500, "message": "Get CDN data failed", "data": ""}` |
-| 200 | `{"success": false, "code": 202, "message": "Only one pattern is allow for these select type [BEGIN, END, CONTAIN]", "data": ""}` (purge) |
+`CDN` endpoint, so the key reaches no other host. The SDK sends no
+`Origin` header, so the server's CORS check and the key's
+`allowOriginHeader` never apply to it. `--debug` logs the path only, as
+for every request.
 
 ## Errors
 
-`transport.decodeError` reads these bodies without change: it takes `code`
-from the envelope and `message` from either shape. An envelope `code` equal
-to the HTTP status, and the 401 body's missing `code`, fall back to the
-[status code](sdk-and-cli.md#errors). The `cdn` package then applies:
+Success is the envelope
+`{"success": true, "code": 200, "message": "...", "data": ...}`. Every
+vCDN error is an `*APIError` with the operation. `transport.decodeError`
+builds it for a non-2xx status; the `cdn` package builds it for a 2xx
+envelope and applies the message rules below.
 
-- 401: `Message` becomes the fixed text `vCDN API key rejected: check the
-  key, its expiry, and its allowed domains`. The server's message holds the
-  caller's public IP, which must not reach public CI logs. The error
-  matches `ErrAuth`; the CLI exits 3.
-- 403: `Message` becomes `vCDN API key not allowed to call this API`. The
-  server's message names the account user. The error matches
-  `ErrPermission`.
-- 400 with envelope `code` 400 matches `ErrInvalidInput`; the CLI prints
-  `BadRequest` and exits 2.
-- A 2xx envelope with `success: false` is an `*APIError` with the HTTP
-  status, `Code` set to the envelope `code` as text (such as `202`), and
-  `Message` set to `message`. An envelope `code` from 400 to 599 also
-  matches that status's sentinel.
-- A 2xx whose body is not the expected JSON is an `*APIError` with Code
-  `EmptyResponse`; for a write, the message says it may have happened.
-- Every message is cut to 256 bytes with control characters removed.
+| Response | Error |
+|-|-|
+| 401, empty body | Code `Unauthorized`, fixed message; matches `ErrAuth`; not retried; CLI exit 3 |
+| 403, any body | Code `Forbidden`, fixed message; matches `ErrPermission` |
+| 400 problem+json (malformed JSON) | Code `BadRequest`; matches `ErrInvalidInput`; CLI exit 2 |
+| 404 problem+json (unknown route) | Code `NotFound`; matches `ErrNotFound`; CLI exit 4 |
+| 405 problem+json (wrong method) | Code `ClientError` |
+| 5xx | Code `ServerError`; retried as for every service |
+| 2xx, `success: false` | The envelope rule |
+| 2xx, not the expected JSON | Code `EmptyResponse`; for a write, the message says it may have happened |
+
+The fixed messages:
+
+- 401: `vCDN API key rejected: check the key and its expiry`. The server
+  sends an empty body for a missing header, a wrong key, and a key
+  without `Bearer` alike.
+- 403: `vCDN API key not allowed to call this API`. The reference's 403
+  message names the account user.
+
+Problem+json bodies hold `type`, `title`, `status`, `detail`, and
+`instance`. `transport.errorBody` already reads `detail`; it gains `title`
+as the last fallback before the status text. That fallback changes no
+other service's message unless a body holds `title` and none of
+`message`, `error`, and `detail`.
+
+The envelope rule: a 2xx with `success: false` is an `*APIError` with the
+HTTP status, `Code` set to the envelope `code` as text (such as `500`),
+and `Message` set to `message`.
+
+- Most failures arrive this way, with `code` 500 and `message` null, `""`,
+  or text. A null or empty message becomes `vCDN <operation> failed; the
+  server gave no reason`.
+- An envelope `code` 400, 401, 403, or 404 also matches that status's
+  sentinel. Code 500 matches none, and the call is not retried, since the
+  HTTP status is 2xx.
+- A detail read (`GetWebAccelerator`, `GetCertificate`) whose envelope is
+  `success: false` with `data` `""` or null maps to Code `NotFound`,
+  matching `ErrNotFound`; the CLI exits 4. This is inferred: an unknown ID
+  gave that answer on both detail routes, and no other cause of it is
+  known.
+- Analytics on a domain the account does not own answers `User <email>
+  is not the owner of all the request CDN.` Any message that holds `@`
+  becomes `vCDN <operation> refused: the server message named an account
+  user and was withheld; check that every domain is a CDN of this
+  account`, so no account email reaches an error.
+
+Every message is cut to 256 bytes with control characters removed.
 
 ## SDK
 
 Operation names are `cdn.<Method>`. "(r)" marks `vngcloud:"required"`, and
-"L[T]" is `core.List[T]`. Paths are under `v1/`.
+"L[T]" is `core.List[T]`. Paths are under `v1/`. "Inferred" marks a path
+from [Paths](#paths) that a live check confirms before it ships.
 
 ### Reads
 
 | Operation | Method and path | Input | Output |
 |-|-|-|-|
-| `ListWebAccelerators` | `GET webacc/list` | none | L[WebAcceleratorSummary] |
-| `GetWebAccelerator` | `GET webacc/detail/{cdnId}` | `CDNID` (r) | `{WebAccelerator}` |
+| `ListWebAccelerators` | `GET cdn/list` | none | L[WebAcceleratorSummary] |
+| `GetWebAccelerator` | `GET cdn/detail/{cdnId}` (inferred) | `CDNID` (r) | `{WebAccelerator}` |
 | `ListCertificates` | `GET certificate/list` | none | L[Certificate] |
 | `GetCertificate` | `GET certificate/detail/{id}` | `CertificateID` (r) | `{Certificate}` |
 | `ListAPIKeys` | `GET apikey/list` | none | L[APIKey] |
@@ -173,10 +215,10 @@ Operation names are `cdn.<Method>`. "(r)" marks `vngcloud:"required"`, and
 
 | Operation | Method and path | Input | Output |
 |-|-|-|-|
-| `CreateWebAccelerator` | `POST webacc/create` | `DomainName` (r), `Upstreams` (r), `DefaultRuleActions` (r), `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `PageRules`, `CNames` | `{WebAccelerator}` |
-| `UpdateWebAccelerator` | `GET webacc/detail/{cdnId}`, then `PUT webacc/update` | `CDNID` (r), pointers to every create field except `DomainName` | `{WebAccelerator}` |
-| `DeleteWebAccelerator` | `DELETE webacc/delete/{cdnId}` | `CDNID` (r) | `{}` |
-| `EnableWebAccelerator` | [Status toggle](#status-toggles) on `PUT webacc/status/change/{cdnId}` | `CDNID` (r) | `{WebAccelerator; Changed bool}` |
+| `CreateWebAccelerator` | `POST cdn/create` (inferred) | `DomainName` (r), `Upstreams` (r), `DefaultRuleActions` (r), `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `PageRules`, `CNames` | `{WebAccelerator}` |
+| `UpdateWebAccelerator` | `GET cdn/detail/{cdnId}`, then `PUT cdn/update` (inferred) | `CDNID` (r), pointers to every create field except `DomainName` | `{WebAccelerator}` |
+| `DeleteWebAccelerator` | `DELETE cdn/delete/{cdnId}` (inferred) | `CDNID` (r) | `{}` |
+| `EnableWebAccelerator` | [Status toggle](#status-toggles) on `PUT cdn/status/change/{cdnId}` (inferred) | `CDNID` (r) | `{WebAccelerator; Changed bool}` |
 | `DisableWebAccelerator` | as above | `CDNID` (r) | `{WebAccelerator; Changed bool}` |
 
 ### Purge and certificate writes
@@ -194,8 +236,8 @@ Operation names are `cdn.<Method>`. "(r)" marks `vngcloud:"required"`, and
 ### Models
 
 Models keep their API JSON tags. They drop `customerId`, `userUuid`,
-`createdUser`, `updatedUser`, and `deletedUser`, which are account IDs no
-caller needs.
+`createdUser`, `updatedUser`, `deletedUser`, and `userEmail`, which are
+account data no caller needs.
 
 - `WebAcceleratorSummary`: `CDNID`, `DomainName`, `CDNDomain`, `CNames`,
   `Status int`, and `StatusName`, the name from the status table, or
@@ -220,19 +262,23 @@ caller needs.
   `CARoot`. It has no private key field, so a decode never holds the key
   the server returns. Dates stay the server's strings, such as
   `28 Apr 2025 06:53:20 GMT`.
-- `APIKey`: `ID int` (`apiKeyId`), `UserEmail`, `ExpiresAt` (`expiredDate`),
-  `CreateTime`, `UpdateTime`, and `Current bool`. It has no token field.
-  `Current` is true for the key the client sends, compared in constant time
-  inside the SDK, so a caller can find the expiry of the key in use.
+- `APIKey`: `ID int` (`apiKeyId`), `ExpiresAt` (`expiredDate`),
+  `CreateTime`, `UpdateTime`, `AllowOriginHeader string`, and
+  `Current bool`. The three times are `time.Time`, parsed as RFC 3339:
+  the server sends ISO 8601 with milliseconds and `+00:00`. It has no
+  token or email field.
 
 ### Reads in detail
 
 - `ListWebAccelerators` and `ListCertificates` return every item in one
   call; the API has no paging. A `data` of `[]` or null gives empty
   `Items` and no error, so an empty account reads as empty.
-- `ListAPIKeys` decodes an array or a single object, inside the envelope
-  or bare, since the reference shows a single bare object. Anything else
-  is an `EmptyResponse` error.
+- `ListAPIKeys` decodes the envelope with a list in `data`; anything else
+  is an `EmptyResponse` error. Nothing in the response marks the key in
+  use, so the SDK decodes each `token` into a private field, sets
+  `Current` when it equals the key the client sends (compared in constant
+  time), and drops the token before it returns. A caller can then find
+  the expiry of the key in use.
 - `ListCertificates`, `GetCertificate`, and `ListAPIKeys` set `Sensitive`:
   the server returns every certificate's private key and every API key's
   token in these reads. The capture hook never sees them, and a decode
@@ -247,14 +293,18 @@ The Range Input of the four series calls has `Domains []string` (r),
 `To` must be set; anything else is `ErrInvalidInput` before any request.
 
 - `Period` is sent as given. The reference lists `30m`, `1h`, `3h`, `6h`,
-  `12h`, `24h`, `3d`, `7d`, `14d`, `30d`, `90d`, `180d`, `360d`; the
-  server checks it.
+  `12h`, `24h`, `3d`, `7d`, `14d`, `30d`, `90d`, `180d`, `360d`. The
+  server checks domain ownership before it checks `period`, so no probe
+  has seen it validate one.
 - `From` and `To` are RFC 3339 strings, so the CLI can set them as flags.
-  The SDK converts each to `dd/mm/yyyy hh:mm` in UTC+7, the format the
-  reference names, using `time.FixedZone`. The time zone is an assumption
-  a live check confirms.
+  The SDK converts each to `fromTime` and `toTime` in UTC+7 with
+  `time.FixedZone`. The reference names `dd/mm/yyyy hh:mm`. With an empty
+  `domains`, the server accepted `dd/mm/yyyy` and refused
+  `dd/mm/yyyy hh:mm`, so the format, and the time zone, stay unconfirmed
+  until a [live check](cdn-cli.md#live-checks) with a real domain. The
+  analytics reads ship only after it.
 - `Domains` holds the generated `cdnDomain` names, as the reference
-  examples do; a live check confirms whether `domainName` works too.
+  examples do; the same live check tries `domainName`.
 - All analytics calls are reads that use `POST` (ADR 0002 rule 1), so they
   set `Idempotent` and keep the transport's retries.
 - Series responses map epoch-millisecond keys (UTC) to values. The SDK
@@ -287,8 +337,9 @@ deferred; they reuse these shapes.
   domain name pattern and the error code list, stay on the server
   (ADR 0002 rule 5).
 - Create is a `POST`, retried only after a 429 or a failed dial. After a
-  5xx or a network error the CDN may exist; the error names
-  `list-web-accelerators` and the `DomainName` to look for.
+  5xx, an envelope with `success: false` and `code` 500, or a network
+  error, the CDN may exist; the error names `list-web-accelerators` and the
+  `DomainName` to look for.
 - The Output is the server's `data`, which holds `CDNID` and the generated
   `CDNDomain`.
 
@@ -298,10 +349,10 @@ The update call takes the whole CDN, and the server deletes every rule
 action and page rule whose `id` the body leaves out. So
 `UpdateWebAccelerator` reads, merges, and writes:
 
-1. `GET webacc/detail/{cdnId}`.
+1. `GET cdn/detail/{cdnId}`.
 2. Apply each non-nil Input field over the read. A list field replaces the
    whole list; the caller keeps an entry by sending its `ID`.
-3. `PUT webacc/update` with the merged object, `cdnId`, `cdnDomain`, and
+3. `PUT cdn/update` with the merged object, `cdnId`, `cdnDomain`, and
    the read's `status` unchanged. A `PUT` keeps the transport's retries.
 
 Two updates that race lose one; the API has no conditional request. An
@@ -326,7 +377,8 @@ enable, 5 `DISABLING` for disable):
 3. Status other than 0 or 1: return `cdn.ErrUnexpectedStatus` naming it,
    sending nothing.
 4. Send the toggle once, with `Once` set.
-5. A 4xx or a failed dial: return that error.
+5. A 4xx, an envelope with `success: false`, or a failed dial: return
+   that error.
 6. Otherwise read at once and after 2, 4, and 8 seconds, stopping at the
    first read that shows `T` or `P`, and return it with `Changed: true`.
 7. No such read: return `cdn.ErrStatusUnconfirmed` wrapping the toggle
@@ -380,9 +432,11 @@ the token in its body, looks the token up by ID inside the SDK.
 - Any holder of one key can list every key's token and every certificate's
   private key through the API. A key is therefore as strong as the
   account's whole vCDN access; the wiki says so and advises the shortest
-  expiry that works.
-- 401 and 403 messages are replaced, so the caller's IP and the account
-  user never reach a log.
+  expiry that works. `allowOriginHeader` limits browsers only, not a
+  stolen key used from a script.
+- 401 and 403 messages are fixed text, and any message that holds `@` is
+  withheld, so no account user or email reaches a log.
+- `ListAPIKeys` drops each token and the account email before it returns.
 - Certificate reads and imports are `Sensitive`; the model has no key
   field.
 - Every write gets an adversarial review before its release.
