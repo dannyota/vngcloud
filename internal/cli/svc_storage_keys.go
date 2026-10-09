@@ -13,9 +13,13 @@ import (
 
 // createS3KeyOutput is create-s3-key's JSON shape: the SDK output, whose
 // SecretKey prints "[redacted]", plus the path the credentials went to.
+// ServiceAccountID names the service account the key was attached to, and
+// is empty without --service-account-id; the
+// embedded SubUserID stays empty because it comes from the create response.
 type createS3KeyOutput struct {
 	storage.CreateS3KeyOutput
-	SecretFile string
+	SecretFile       string
+	ServiceAccountID string
 }
 
 // createS3KeyOp is built by hand because --secret-file has no Input field and
@@ -25,10 +29,10 @@ func createS3KeyOp() Op[storage.Client] {
 		name:          "create-s3-key",
 		methodName:    "CreateS3Key",
 		kind:          kindWrite,
-		guard:         guardSecretFilePath,
+		guard:         guardCreateS3Key,
 		noFlag:        map[string]bool{"Region": true, "ProjectID": true},
 		globalProject: "ProjectID",
-		extraFlags:    registerSecretFileFlag,
+		extraFlags:    registerCreateS3KeyFlags,
 		newInput:      func() any { return new(storage.CreateS3KeyInput) },
 		newOutput:     func() any { return new(createS3KeyOutput) },
 		call:          callCreateS3Key,
@@ -41,10 +45,12 @@ func awsCredentialsFile(accessKey, secretKey string) []byte {
 	return []byte("[default]\naws_access_key_id = " + accessKey + "\naws_secret_access_key = " + secretKey + "\n")
 }
 
-// callCreateS3Key creates the key, then writes the credentials to
-// --secret-file, which guardSecretFilePath already checked. The secret exists
-// only in the create response, so a key whose file was not written, or whose
-// response held no secret, is deleted.
+// callCreateS3Key creates the key, attaches it when --service-account-id is
+// given, then writes the credentials to --secret-file, which guardCreateS3Key
+// already checked. A key is unrestricted until its attach, so the file is
+// written only after the attach succeeds. The secret exists only in the
+// create response, so a key whose attach failed, whose file was not written,
+// or whose response held no secret, is deleted.
 func callCreateS3Key(cmd *cobra.Command, client *storage.Client, ctx context.Context, in any) (any, error) {
 	createIn := in.(*storage.CreateS3KeyInput)
 	out, err := client.CreateS3Key(ctx, createIn)
@@ -59,6 +65,12 @@ func callCreateS3Key(cmd *cobra.Command, client *storage.Client, ctx context.Con
 	if err != nil {
 		return nil, err
 	}
+	serviceAccountID, _ := cmd.Flags().GetString(serviceAccountIDFlagName)
+	if serviceAccountID != "" {
+		if attachErr := attachNewS3Key(client, ctx, createIn, out.UserKeyID, serviceAccountID); attachErr != nil {
+			return nil, attachErr
+		}
+	}
 	path, _ := cmd.Flags().GetString(secretFileFlagName)
 	if writeErr := writeSecretFile(path, awsCredentialsFile(out.AccessKey, out.SecretKey.Reveal())); writeErr != nil {
 		if delErr := deleteUnusableS3Key(client, ctx, createIn, out.UserKeyID); delErr != nil {
@@ -66,7 +78,7 @@ func callCreateS3Key(cmd *cobra.Command, client *storage.Client, ctx context.Con
 		}
 		return nil, newSecretFileWriteFailed("s3 key", out.UserKeyID, writeErr)
 	}
-	return &createS3KeyOutput{CreateS3KeyOutput: *out, SecretFile: path}, nil
+	return &createS3KeyOutput{CreateS3KeyOutput: *out, SecretFile: path, ServiceAccountID: serviceAccountID}, nil
 }
 
 // deleteUnusableS3Key deletes a key nobody can use. It runs on a context

@@ -497,6 +497,10 @@ func exitCode(err error) int {
 	// *core.APIError of any status, including 404, so this check must win
 	// over the later NotFound check too, the same reason it wins over
 	// classify's generic *APIError branch.
+	var attachFailed attachFailedError
+	if errors.As(err, &attachFailed) {
+		return 1
+	}
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) || errors.Is(err, volume.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||

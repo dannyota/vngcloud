@@ -56,8 +56,12 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"create-bucket": {"bucket"},
 		"delete-bucket": {"bucket", "no-wait"},
 		"list-s3-keys":  {},
-		"create-s3-key": {"secret-file"},
+		"create-s3-key": {"secret-file", "service-account-id"},
 		"delete-s3-key": {"user-key-id"},
+
+		"attach-s3-key":                    {"user-key-id", "service-account-id"},
+		"detach-s3-key":                    {"user-key-id"},
+		"ensure-service-account-principal": {"service-account-id"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -70,14 +74,22 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		}
 		wantKind := kindRead
 		switch op.name {
-		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key":
+		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
+			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {
 			t.Errorf("%s has the wrong kind", op.name)
 		}
-		if op.destructive != (op.name == "delete-bucket" || op.name == "delete-s3-key") {
-			t.Errorf("%s destructive = %v", op.name, op.destructive)
+		switch op.name {
+		case "delete-bucket", "delete-s3-key", "attach-s3-key", "detach-s3-key":
+			if !op.destructive {
+				t.Errorf("%s must need --yes", op.name)
+			}
+		default:
+			if op.destructive {
+				t.Errorf("%s must not need --yes", op.name)
+			}
 		}
 		specs, err := flagSpecsFor(op.newInput())
 		if err != nil {
@@ -87,8 +99,8 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		for _, s := range withoutNoFlag(specs, op.noFlag) {
 			got = append(got, s.flagName)
 		}
-		if op.extraFlags != nil {
-			got = append(got, "secret-file")
+		for _, f := range extraDocFields(op.extraFlags) {
+			got = append(got, f.name)
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s flags = %v, want %v", op.name, got, want)

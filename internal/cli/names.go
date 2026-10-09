@@ -28,6 +28,8 @@ var renameTable = map[string]string{
 	"ListS3Keys":  "list-s3-keys",
 	"CreateS3Key": "create-s3-key",
 	"DeleteS3Key": "delete-s3-key",
+	"AttachS3Key": "attach-s3-key",
+	"DetachS3Key": "detach-s3-key",
 }
 
 // flagNameFor returns the flag name for an Input field's Go name.

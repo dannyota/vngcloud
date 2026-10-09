@@ -78,6 +78,8 @@ func TestS3KeyOperationNamesKeepTheDigitWithItsWord(t *testing.T) {
 		"ListS3Keys":  "list-s3-keys",
 		"CreateS3Key": "create-s3-key",
 		"DeleteS3Key": "delete-s3-key",
+		"AttachS3Key": "attach-s3-key",
+		"DetachS3Key": "detach-s3-key",
 	} {
 		if err := checkOpName(method, want); err != nil {
 			t.Errorf("checkOpName(%q, %q): %v", method, want, err)

@@ -89,9 +89,11 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 
 | Name | CLI form |
 |-|-|
+| `AttachS3Key` | `attach-s3-key` |
 | `ClearVPCDHCPOptions` | `clear-vpc-dhcp-options` |
 | `CreateS3Key` | `create-s3-key` |
 | `DeleteS3Key` | `delete-s3-key` |
+| `DetachS3Key` | `detach-s3-key` |
 | `ListS3Keys` | `list-s3-keys` |
 | `NetworkACLID` | `network-acl-id` |
 | `Query` | `search` |

@@ -29,6 +29,13 @@ var storageOps = []Op[storage.Client]{
 	createS3KeyOp(),
 	Write[storage.Client, storage.DeleteS3KeyInput, storage.DeleteS3KeyOutput](
 		"delete-s3-key", (*storage.Client).DeleteS3Key, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.AttachS3KeyInput, storage.AttachS3KeyOutput](
+		"attach-s3-key", (*storage.Client).AttachS3Key, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.DetachS3KeyInput, storage.DetachS3KeyOutput](
+		"detach-s3-key", (*storage.Client).DetachS3Key, Destructive(), WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.EnsureServiceAccountPrincipalInput, storage.EnsureServiceAccountPrincipalOutput](
+		kebab("EnsureServiceAccountPrincipal"), (*storage.Client).EnsureServiceAccountPrincipal,
+		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 }
 
 func newStorageCmd(e *env) *cobra.Command {
