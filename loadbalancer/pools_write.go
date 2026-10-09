@@ -51,6 +51,25 @@ func isHTTPHealthCheck(protocol string) bool {
 	return protocol == HealthCheckProtocolHTTP || protocol == HealthCheckProtocolHTTPS
 }
 
+// withHTTPCheckDefaults returns path, method, httpVersion, and successCode
+// with each empty value replaced by its default when protocol is HTTP. The
+// server refuses an HTTP check that lacks any of the four; the domain name
+// has no default and is sent only when set.
+func withHTTPCheckDefaults(protocol, path, method, httpVersion, successCode string) (string, string, string, string) {
+	if protocol != HealthCheckProtocolHTTP {
+		return path, method, httpVersion, successCode
+	}
+	return emptyOr(path, "/"), emptyOr(method, "GET"), emptyOr(httpVersion, "1.1"), emptyOr(successCode, "200")
+}
+
+// emptyOr returns s, or fallback when s is empty.
+func emptyOr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
 // poolHealthMonitorBody is the healthMonitor object CreatePool and
 // UpdatePool both send. HealthCheckProtocol is fixed at create and has no
 // field in an update body, so UpdatePool leaves it empty; omitempty then
@@ -98,9 +117,11 @@ func boolOrFalse(b *bool) *bool {
 // HealthCheckHTTPVersion, HealthCheckDomainName, HealthCheckSuccessCode) are
 // sent only when HealthCheckProtocol is HealthCheckProtocolHTTP or
 // HealthCheckProtocolHTTPS; setting any of them with a different
-// HealthCheckProtocol is core.ErrInvalidInput, before any request. The SDK
-// never invents a HealthCheckDomainName for HTTP/1.1: an HTTP check with no
-// domain name reaches the server empty, which then refuses it.
+// HealthCheckProtocol is core.ErrInvalidInput, before any request. On an
+// HealthCheckProtocolHTTP check, an empty HealthCheckPath, HealthCheckMethod,
+// HealthCheckSuccessCode, or HealthCheckHTTPVersion sends "/", "GET", "200",
+// or "1.1", since the server refuses the check without all four.
+// HealthCheckDomainName has no default and is sent only when set.
 type CreatePoolInput struct {
 	LoadBalancerID string `vngcloud:"required"`
 	Name           string `vngcloud:"required"`
@@ -177,6 +198,7 @@ func buildPoolHealthMonitorBody(protocol, path, method, httpVersion, domainName,
 		Timeout:             timeout,
 	}
 	if isHTTPHealthCheck(protocol) {
+		path, method, httpVersion, successCode = withHTTPCheckDefaults(protocol, path, method, httpVersion, successCode)
 		body.HealthCheckPath = path
 		body.HealthCheckMethod = method
 		body.HTTPVersion = httpVersion
@@ -461,11 +483,14 @@ func (c *Client) UpdatePool(ctx context.Context, in *UpdatePoolInput) (*UpdatePo
 		},
 	}
 	if isHTTPHealthCheck(monitor.HealthCheckProtocol) {
-		body.HealthMonitor.HealthCheckPath = stringOr(in.HealthCheckPath, readPath)
-		body.HealthMonitor.HealthCheckMethod = stringOr(in.HealthCheckMethod, readMethod)
-		body.HealthMonitor.HTTPVersion = stringOr(in.HealthCheckHTTPVersion, readHTTPVersion)
+		path, method, httpVersion, successCode := withHTTPCheckDefaults(monitor.HealthCheckProtocol,
+			stringOr(in.HealthCheckPath, readPath), stringOr(in.HealthCheckMethod, readMethod),
+			stringOr(in.HealthCheckHTTPVersion, readHTTPVersion), stringOr(in.HealthCheckSuccessCode, readSuccessCode))
+		body.HealthMonitor.HealthCheckPath = path
+		body.HealthMonitor.HealthCheckMethod = method
+		body.HealthMonitor.HTTPVersion = httpVersion
 		body.HealthMonitor.DomainName = stringOr(in.HealthCheckDomainName, readDomainName)
-		body.HealthMonitor.SuccessCode = stringOr(in.HealthCheckSuccessCode, readSuccessCode)
+		body.HealthMonitor.SuccessCode = successCode
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)

@@ -97,6 +97,11 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
   for HTTP checks, `healthCheckPath`, `healthCheckMethod` (`GET`, `POST`,
   `PUT`), `successCode`, `httpVersion` (`1.0`, `1.1`), and `domainName`.
   VNG Cloud's SDK drops the HTTP fields for TCP and PING-UDP checks.
+  Live (2026-10-09, `hcm-3`): an `HTTP` check with `healthCheckPath`,
+  `httpVersion`, and `domainName` set but no method or success code is
+  refused with 400 `If healthCheckProtocol field is HTTP, following fields
+  must be specified: healthCheckPath, healthCheckMethod, successCode,
+  httpVersion`. The four are required; `domainName` is not.
 - Pool update: `algorithm` and `healthMonitor` (required), `stickiness`,
   `tlsEncryption`. The update monitor has no `healthCheckProtocol`, so a
   check's protocol is fixed at create.

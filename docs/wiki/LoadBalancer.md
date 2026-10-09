@@ -189,16 +189,16 @@ if _, err := client.DeletePool(ctx, &loadbalancer.DeletePoolInput{
 }
 ```
 
-Empty `Algorithm` sends `AlgorithmRoundRobin`; a zero `HealthyThreshold`,
-`UnhealthyThreshold`, `HealthCheckInterval`, or `HealthCheckTimeout` sends
-the server's own default (3, 3, 30, and 5). `Stickiness` and
-`TLSEncryption` are `*bool`; an `HTTP` pool always sends both (`false`
-when nil, as the server requires), other pools only when set. The HTTP health check fields (`HealthCheckPath`,
-`HealthCheckMethod`, `HealthCheckHTTPVersion`, `HealthCheckDomainName`,
-`HealthCheckSuccessCode`) are refused with `vngcloud.ErrInvalidInput`,
-before any request, unless `HealthCheckProtocol` is `HealthCheckProtocolHTTP`
-or `HealthCheckProtocolHTTPS`; the SDK never invents a `HealthCheckDomainName`
-for an HTTP/1.1 check, so set one or the server refuses the create.
+Empty `Algorithm` sends `AlgorithmRoundRobin`; a zero threshold, interval, or
+timeout sends the server's default (3, 3, 30, and 5). `Stickiness` and
+`TLSEncryption` are `*bool`; an `HTTP` pool always sends both (`false` when
+nil, as the server requires), other pools only when set. The HTTP health
+check fields are refused with `vngcloud.ErrInvalidInput`, before any
+request, unless `HealthCheckProtocol` is `HealthCheckProtocolHTTP`
+or `HealthCheckProtocolHTTPS`. On an `HTTP` check, an empty `HealthCheckPath`,
+`HealthCheckMethod`, `HealthCheckSuccessCode`, or `HealthCheckHTTPVersion`
+sends `/`, `GET`, `200`, or `1.1`, since the server requires all four.
+`HealthCheckDomainName` is sent only when set.
 
 `CreatePool` is a `POST` and is never retried after an ambiguous failure;
 list pools by `Name` and match exactly before creating it again. A Layer 7

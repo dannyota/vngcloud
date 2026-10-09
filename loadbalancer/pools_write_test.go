@@ -765,3 +765,72 @@ func TestCreatePoolRefusesNonHTTPProtocolOnLayer7(t *testing.T) {
 		})
 	}
 }
+
+func TestCreatePoolHTTPCheckDefaultsEmptyFields(t *testing.T) {
+	hm := createPoolBodyFor(t, validCreatePoolInput())["healthMonitor"].(map[string]any)
+	for k, v := range map[string]any{"healthCheckPath": "/", "healthCheckMethod": "GET", "successCode": "200", "httpVersion": "1.1"} {
+		if hm[k] != v {
+			t.Fatalf("healthMonitor[%q] = %v, want default %v", k, hm[k], v)
+		}
+	}
+	if _, ok := hm["domainName"]; ok {
+		t.Fatalf("healthMonitor = %+v, want no domainName when unset", hm)
+	}
+}
+
+func TestCreatePoolHTTPCheckKeepsExplicitFields(t *testing.T) {
+	in := validCreatePoolInput()
+	in.HealthCheckPath = "/healthz"
+	in.HealthCheckMethod = "POST"
+	in.HealthCheckSuccessCode = "200-299"
+	in.HealthCheckHTTPVersion = "1.0"
+	in.HealthCheckDomainName = "example.com"
+	hm := createPoolBodyFor(t, in)["healthMonitor"].(map[string]any)
+	for k, v := range map[string]any{"healthCheckPath": "/healthz", "healthCheckMethod": "POST", "successCode": "200-299", "httpVersion": "1.0", "domainName": "example.com"} {
+		if hm[k] != v {
+			t.Fatalf("healthMonitor[%q] = %v, want %v", k, hm[k], v)
+		}
+	}
+}
+
+func TestCreatePoolTCPCheckSendsNoHTTPFields(t *testing.T) {
+	in := validCreatePoolInput()
+	in.Protocol = PoolProtocolTCP
+	in.HealthCheckProtocol = HealthCheckProtocolTCP
+	hm := createPoolBodyFor(t, in)["healthMonitor"].(map[string]any)
+	for _, k := range []string{"healthCheckPath", "healthCheckMethod", "successCode", "httpVersion", "domainName"} {
+		if _, ok := hm[k]; ok {
+			t.Fatalf("healthMonitor = %+v, want no %q on a TCP check", hm, k)
+		}
+	}
+}
+
+func TestUpdatePoolHTTPCheckDefaultsEmptyReadFields(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut:
+			data, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(data, &body)
+		case r.URL.Path == poolLBPath:
+			poolLBHandler(w, r)
+		case r.URL.Path == poolPath:
+			_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"loadBalanceMethod":"ROUND_ROBIN","progressStatus":%q}}`, poolTestPoolID, lbStatusCreated)
+		case r.URL.Path == poolPath+"/healthMonitor":
+			_, _ = w.Write([]byte(`{"data":{"healthCheckProtocol":"HTTP","healthyThreshold":3,"unhealthyThreshold":3,"interval":30,"timeout":5}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	withInstantSleep(c)
+	in := &UpdatePoolInput{LoadBalancerID: poolTestLBID, PoolID: poolTestPoolID, HealthyThreshold: vngcloud.Ptr(5)}
+	if _, err := c.UpdatePool(context.Background(), in); err != nil {
+		t.Fatalf("UpdatePool() error = %v", err)
+	}
+	hm := body["healthMonitor"].(map[string]any)
+	for k, v := range map[string]any{"healthCheckPath": "/", "healthCheckMethod": "GET", "successCode": "200", "httpVersion": "1.1"} {
+		if hm[k] != v {
+			t.Fatalf("healthMonitor[%q] = %v, want default %v", k, hm[k], v)
+		}
+	}
+}

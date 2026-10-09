@@ -157,9 +157,9 @@ Constants: `ProtocolHTTP`, `ProtocolHTTPS`, `ProtocolTCP`, `ProtocolUDP`.
   timeout send 3, 3, 30, and 5. An `HTTP` pool always sends `stickiness` and
   `tlsEncryption` (`false` when nil); other pools send each only when set.
 - The HTTP fields are sent only for `HTTP` and `HTTPS` checks; with any
-  other check protocol, setting one is `ErrInvalidInput`. The SDK invents
-  no `domainName` for HTTP/1.1, unlike VNG Cloud's SDK (`nip.io`); the
-  server refuses a missing one.
+  other protocol, setting one is `ErrInvalidInput`. An `HTTP` check sends
+  `/`, `GET`, `200`, and `1.1` for an empty path, method, success code, and
+  version, in `UpdatePool` too; `domainName` only when set.
 - Update reads the pool and its health monitor, merges, and sends the full
   body. The check protocol cannot change after create; the update body has
   no field for it.
