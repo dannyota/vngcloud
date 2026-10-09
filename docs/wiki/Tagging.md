@@ -94,9 +94,11 @@ Otherwise it sends every user tag it read, with `Key`'s value replaced or
 added, in one `PUT`. System tags are never included: the `PUT` replaces
 only the user tag list, confirmed live, so a resource's system tags are
 never sent and never touched. `PUT` is idempotent, so the transport's
-normal retries apply, and this read-merge-send shape means a `TagResource`
-call never drops a user tag some other caller wrote. It then reads the
-tags again to confirm the user tags equal what was sent. A mismatch, or a
+normal retries apply, and this read-merge-send shape keeps every user tag
+the call read. The API has no conditional update, so a user tag another
+caller writes between that read and the `PUT` is replaced without an
+error: keep tag writes on one resource to one writer at a time. It then
+reads the tags again to confirm the user tags equal what was sent. A mismatch, or a
 failure of that confirming read, returns an error wrapping
 `tagging.ErrNotSettled`; read the tags again before writing once more,
 rather than repeating the same call blind.

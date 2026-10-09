@@ -175,7 +175,8 @@ did not create.
   checks: no create resend after a 5xx; path ID checks on every call,
   reads included; each guard sends nothing; the `PATCH` never reaches a
   VPC with Private DNS or a system set; a tag write never drops a user tag
-  the caller did not name and never sends a system tag changed; a public
+  it read and never sends a system tag changed (the API has no conditional
+  update, so one writer per resource at a time is the documented contract); a public
   virtual IP is never deleted; `--yes` on every command the design's CLI
   table marks; read-only refusal of every write.
 - A DHCP set change redirects DNS for every server in a VPC. The wiki shows
