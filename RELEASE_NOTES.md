@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.45.0 - Server and Volume Resize
+
+### Highlights
+
+- New `compute.QuoteResizeServer` and `ResizeServer`, and
+  `volume.QuoteResizeVolume` and `ResizeVolume`, with `vngcloud compute
+  quote-resize-server`, `resize-server`, `volume quote-resize-volume`, and
+  `resize-volume`. A resize quotes first and orders only at or under
+  `MaxPrice`; the PUT is sent once. `resize-server` and `resize-volume`
+  need `--yes`.
+- A resize quote prices the whole new configuration for the rest of the
+  current period, prorated to the minute, not the difference; budget for
+  it. A volume can only grow; a server resize needs the server `ACTIVE`
+  or `STOPPED` and ends `ACTIVE`.
+- Verified live on 2026-10-09: a data volume 10 to 20 GB, a server
+  `s2-general-1x2` to `s2-general-2x4`, and a root volume 20 to 30 GB, each
+  settling within the design's bounds, with the delete refunding the unused
+  value.
+
 ## v0.44.0 - Volume Attach and Detach
 
 ### Highlights
