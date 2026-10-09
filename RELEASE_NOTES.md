@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.50.0 - Load Balancer Policies
+
+### Highlights
+
+- New `loadbalancer.CreatePolicy`, `UpdatePolicy`, and `DeletePolicy` for
+  Layer 7 listeners, with the matching `vngcloud loadbalancer` commands. A
+  policy needs at least one rule and carries only the fields its action
+  uses: `REDIRECT_TO_POOL` takes a pool ID; `REDIRECT_TO_URL` takes a URL,
+  an HTTP code, and the keep-query-string flag. A field set for the wrong
+  action is refused before any request. `delete-policy` needs `--yes`.
+- An update reads the policy first and resends the unset fields of its
+  action unchanged, then reads again to confirm.
+- Verified live on 2026-10-09 on an `ALB_Small`: both policy kinds
+  created, rules replaced, a pool a policy uses refused deletion, and
+  everything deleted.
+
+With this release every load balancer write in the design has shipped and
+has been checked live. The whole day of paid checks cost about 574 VND net
+after the deletes refunded the unused value.
+
 ## v0.49.0 - Load Balancer Listeners
 
 ### Highlights
