@@ -75,6 +75,26 @@ var computeOps = []Op[compute.Client]{
 	Read[compute.Client, compute.CreateServerInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateServer"), (*compute.Client).QuoteCreateServer,
 		NoFlag("UserData", "MaxPrice", "NoWait")),
+	createServerOp(),
+	Write[compute.Client, compute.DeleteServerInput, compute.DeleteServerOutput](
+		kebab("DeleteServer"), (*compute.Client).DeleteServer, Destructive()),
+	Write[compute.Client, compute.StartServerInput, compute.StartServerOutput](
+		kebab("StartServer"), (*compute.Client).StartServer),
+	Write[compute.Client, compute.StopServerInput, compute.StopServerOutput](
+		kebab("StopServer"), (*compute.Client).StopServer, Destructive()),
+	Write[compute.Client, compute.RebootServerInput, compute.RebootServerOutput](
+		kebab("RebootServer"), (*compute.Client).RebootServer, Destructive()),
+	Write[compute.Client, compute.RenameServerInput, compute.RenameServerOutput](
+		kebab("RenameServer"), (*compute.Client).RenameServer),
+	Read[compute.Client, compute.ResizeServerInput, pricing.GetQuoteOutput](
+		kebab("QuoteResizeServer"), (*compute.Client).QuoteResizeServer,
+		NoFlag("MaxPrice", "NoWait")),
+	// ResizeServer is Destructive although it reads first like every other
+	// server toggle: per the paid writes design, it needs --yes because it
+	// restarts the server and, unlike start-server or stop-server, can also
+	// charge more.
+	Write[compute.Client, compute.ResizeServerInput, compute.ResizeServerOutput](
+		kebab("ResizeServer"), (*compute.Client).ResizeServer, Destructive()),
 }
 
 func newComputeCmd(e *env) *cobra.Command {

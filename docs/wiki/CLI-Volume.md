@@ -2,6 +2,82 @@
 
 # CLI: Volume
 
+## attach-volume
+
+Kind: Write.
+
+Already attached to --server-id: Changed is false and nothing is sent. Attached to a different server, the PUT reaches the server, which refuses it with its own error. Keeps the transport's normal PUT retries: a repeat is refused as already attached, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to read IN-USE with --server-id among its attached servers; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since this command always reads first.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--server-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume attach-volume --volume-id <volume-id> --server-id <server-id>
+```
+
+## create-volume
+
+Kind: Write.
+
+Orders nothing above --max-price, default 0: a bare create-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a volume already named --name exactly. The order itself is never retried after a failure that may have already reached the server; list volumes by name before ordering again rather than repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `--volume-type-id` | `string` | yes |
+| `--auto-renew` | `bool` |  |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
+```
+
+## delete-volume
+
+Kind: Write, destructive.
+
+Destroys the volume's data; there is no undo. Refuses, before any request, with error code VolumeInUse when a pre-delete read shows the volume attached to a server; detach it first. Without --no-wait, waits up to 5 minutes for the volume to reach 404 or DELETED; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command reads the volume first every time.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume delete-volume --volume-id <volume-id> --yes
+```
+
+## detach-volume
+
+Kind: Write, destructive.
+
+Needs --yes: detaching a volume can lose unwritten data if it is still mounted. Not attached to --server-id: Changed is false and nothing is sent. Otherwise always reads --server-id next, --allow-running included, since the boot-volume guard below needs that read regardless. Refuses, before any request, with error code BootVolume when the volume is --server-id's own boot volume, or when that read cannot confirm --server-id's boot volume at all; a server cannot boot without one. Refuses, before any request, with error code ServerRunning when --server-id is not STOPPED and --allow-running is not set, since the volume may be mounted there and detaching it under a mounted filesystem can lose unwritten data; stop the server first, or unmount it yourself and pass --allow-running to skip only this status check. Keeps the transport's normal PUT retries: a repeat is refused as already available, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to read AVAILABLE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since this command always reads first.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--server-id` | `string` | yes |
+| `--allow-running` | `bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume detach-volume --volume-id <volume-id> --server-id <server-id> --yes
+```
+
 ## get-default-volume-type
 
 Kind: Read.
@@ -160,5 +236,41 @@ Never orders anything: prices the volume CreateVolumeInput describes without sen
 
 ```sh
 vngcloud volume quote-create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
+```
+
+## quote-resize-volume
+
+Kind: Read.
+
+Reads the volume first, on every call, for its current size and type, then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud volume quote-resize-volume --volume-id <volume-id> --size <size>
+```
+
+## resize-volume
+
+Kind: Write, destructive.
+
+Needs --yes: a resize can charge more, and this design only grows a volume. Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the end of the data, and with error code UnexpectedStatus when the volume is neither AVAILABLE nor IN-USE. Resends the volume's own current volume type, so a type never changes by accident. The resize is sent at most once and never retried after a failure that may have already reached the server; check get-volume rather than repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check get-volume rather than repeating this command. The filesystem inside a server that has this volume attached must still be grown separately; this command only grows the block device.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--volume-id` | `string` | yes |
+| `--size` | `int` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud volume resize-volume --volume-id <volume-id> --size <size> --yes
 ```
 

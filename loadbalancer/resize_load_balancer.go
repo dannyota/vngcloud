@@ -2,9 +2,20 @@ package loadbalancer
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
+)
+
+// lbResizePollInterval and lbResizeBound time ResizeLoadBalancer's
+// post-resize wait, per the design's wait table.
+const (
+	lbResizePollInterval = 10 * time.Second
+	lbResizeBound        = 45 * time.Minute
 )
 
 // ResizeLoadBalancerInput changes a load balancer's package.
@@ -13,7 +24,9 @@ import (
 // own code.
 type ResizeLoadBalancerInput struct {
 	LoadBalancerID string `vngcloud:"required"`
-	// PackageID is the package to change to.
+	// PackageID is the package to change to. Package IDs are zone-specific:
+	// take it from ListPackages with the load balancer's own ZoneID, or the
+	// server refuses the resize with a 400.
 	PackageID string `vngcloud:"required"`
 
 	// MaxPrice is VND; a paid ResizeLoadBalancer refuses to order above it.
@@ -53,4 +66,178 @@ func (c *Client) QuoteResizeLoadBalancer(ctx context.Context, in *ResizeLoadBala
 			"loadBalancerId": in.LoadBalancerID,
 		},
 	})
+}
+
+// ResizeLoadBalancerOutput is ResizeLoadBalancer's result. Changed is false,
+// with QuotedPrice 0 and nothing quoted or sent, only when PackageID already
+// matched the load balancer's current package.
+type ResizeLoadBalancerOutput struct {
+	LoadBalancer LoadBalancer
+	QuotedPrice  float64
+	Changed      bool
+}
+
+// resizeLoadBalancerBody is ResizeLoadBalancer's request body: packageId
+// alone, per the design.
+type resizeLoadBalancerBody struct {
+	PackageID string `json:"packageId"`
+}
+
+// ResizeLoadBalancer changes a load balancer's package. Before any request,
+// it checks Input's shape and rejects a NaN, +Inf, -Inf, or negative
+// MaxPrice with core.ErrInvalidInput (checkMaxPrice), for the same reason
+// CreateLoadBalancer does.
+//
+// It reads the load balancer first. When PackageID already matches its
+// current package, ResizeLoadBalancer returns Changed false at once,
+// quoting and sending nothing. Otherwise it waits, within the pre-write
+// bound (10 minutes, polling every 5 seconds), until the load balancer is
+// no longer busy; past that bound it returns ErrBusy, sending nothing.
+//
+// It then quotes with QuoteResizeLoadBalancer's own fields. The quote is
+// read and checked independently of pricing.Client.GetQuote (quotedPrice),
+// refusing a missing, null, or non-finite price, and a price of exactly 0
+// with ErrUnpriced, whatever MaxPrice is; a negative one is allowed, since a
+// downsize may legitimately refund. When the price exceeds Input.MaxPrice
+// (default 0, so never exceeded by a negative price), it returns
+// ErrPriceAboveMax naming both amounts, sending nothing.
+//
+// The resize PUT is sent with transport.Request.Once: it is never resent,
+// whatever the failure, since a resend could race a resize already in
+// progress. A busy refusal from the PUT itself, matched the same way as the
+// pre-write wait, returns ErrBusy: the server did not act, and a rerun is
+// safe because ResizeLoadBalancer always reads first. A 4xx that is not a
+// busy refusal is returned as is: the server rejected the request outright.
+// Any other failure, a 5xx, a network error, or a timeout, wraps advice to
+// read the load balancer with GetLoadBalancer and compare its package to the
+// one requested before any rerun, since that failure leaves it unknown
+// whether the PUT reached the server and a blind rerun could send a second
+// paid resize.
+//
+// Without NoWait, ResizeLoadBalancer then waits up to 45 minutes, polling
+// every 10 seconds, for the load balancer's progressStatus to reach CREATED
+// with PackageID equal to the new package. If it reaches ERROR instead, the
+// returned error wraps ErrFailed; if the bound runs out, or a read or a
+// sleep fails, such as from a canceled ctx, it wraps ErrNotSettled, whose
+// message says the resize was accepted and must not be repeated. Either way
+// the Output is never nil. NoWait skips this wait and returns the load
+// balancer as last read, before the PUT, at once.
+func (c *Client) ResizeLoadBalancer(ctx context.Context, in *ResizeLoadBalancerInput) (*ResizeLoadBalancerOutput, error) {
+	const op = "loadbalancer.ResizeLoadBalancer"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	for _, id := range [...]struct{ field, value string }{
+		{"LoadBalancerID", in.LoadBalancerID},
+		{"PackageID", in.PackageID},
+	} {
+		if err := core.CheckPathID(op, id.field, id.value); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkMaxPrice(op, in.MaxPrice); err != nil {
+		return nil, err
+	}
+
+	unlock, err := c.lockLoadBalancer(ctx, in.LoadBalancerID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
+	current, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: in.LoadBalancerID})
+	if err != nil {
+		return nil, err
+	}
+	if current.LoadBalancer.PackageID == in.PackageID {
+		return &ResizeLoadBalancerOutput{LoadBalancer: current.LoadBalancer, Changed: false}, nil
+	}
+
+	if err := c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID); err != nil {
+		return nil, err
+	}
+
+	// Quote with ResizeLoadBalancer's own op, rather than calling
+	// QuoteResizeLoadBalancer directly, so a quote failure here is reported
+	// under this call's own name; QuoteResizeLoadBalancer, called
+	// separately, keeps its own independent behavior. The shape checks
+	// above already cover everything QuoteResizeLoadBalancer would check.
+	// quotedPrice reads and checks the quote itself (missing, null,
+	// non-finite, 0), regardless of what pricing.Client.GetQuote would have
+	// done with the same response; allowNegative is true here, since a
+	// downsize's quote may legitimately price below zero as a refund, which
+	// never exceeds MaxPrice (checkMaxPrice above already refused a
+	// negative one).
+	price, err := c.quotedPrice(ctx, op, pricing.ActionResize, map[string]any{
+		"packageId":      in.PackageID,
+		"loadBalancerId": in.LoadBalancerID,
+	}, true)
+	if err != nil {
+		return nil, err
+	}
+	if price > in.MaxPrice {
+		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, price, in.MaxPrice)
+	}
+
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req := transport.Request{
+		Operation: op,
+		Method:    http.MethodPut,
+		URL:       c.lbURL([]string{projectID, "loadBalancers", in.LoadBalancerID, "resize"}, nil),
+		Body:      resizeLoadBalancerBody{PackageID: in.PackageID},
+		OK:        httpStatusOKWrite,
+		Once:      true,
+	}
+	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+		if isBusyRefusal(err) {
+			return nil, fmt.Errorf("%w: %s: load balancer %s: %w", ErrBusy, op, in.LoadBalancerID, err)
+		}
+		return nil, wrapAmbiguousResizeErr(op, in.LoadBalancerID, err)
+	}
+
+	if in.NoWait {
+		fallback := current.LoadBalancer
+		fallback.PackageID = in.PackageID
+		return &ResizeLoadBalancerOutput{LoadBalancer: fallback, QuotedPrice: price, Changed: true}, nil
+	}
+
+	settled, waitErr := c.waitLoadBalancerResized(ctx, op, in.LoadBalancerID, in.PackageID)
+	if settled == nil {
+		settled = &current.LoadBalancer
+	}
+	return &ResizeLoadBalancerOutput{LoadBalancer: *settled, QuotedPrice: price, Changed: true}, waitErr
+}
+
+// waitLoadBalancerResized is ResizeLoadBalancer's post-resize wait unless
+// NoWait is set: it reads id with GetLoadBalancer until its ProgressStatus
+// reaches lbStatusCreated with PackageID equal to newPackageID (settled) or
+// lbStatusError (failed); any other status, including one this SDK does not
+// recognize, keeps it polling.
+func (c *Client) waitLoadBalancerResized(ctx context.Context, op, id, newPackageID string) (*LoadBalancer, error) {
+	var lb *LoadBalancer
+	err := poll(ctx, c.now, c.sleep, 0, lbResizePollInterval, lbResizeBound,
+		func(ctx context.Context) (bool, error) {
+			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: id})
+			if err != nil {
+				return true, err
+			}
+			lb = &out.LoadBalancer
+			switch {
+			case lb.ProgressStatus == lbStatusError:
+				return true, fmt.Errorf("%w: %s: load balancer %s is ERROR", ErrFailed, op, id)
+			case lb.ProgressStatus == lbStatusCreated && lb.PackageID == newPackageID:
+				return true, nil
+			default:
+				return false, nil
+			}
+		},
+		func() error {
+			return fmt.Errorf("%w: %s: load balancer %s did not reach CREATED with package %s within %s; the resize was accepted and must not be repeated",
+				ErrNotSettled, op, id, newPackageID, lbResizeBound)
+		},
+	)
+	return lb, wrapNotSettled(op, "load balancer "+id, err)
 }

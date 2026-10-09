@@ -168,6 +168,39 @@ func TestQuoteCreateServerRejectsHalfDataDisk(t *testing.T) {
 	}
 }
 
+// TestQuoteCreateServerRejectsNonPositiveRootDiskSize checks that a zero or
+// negative RootDiskSize refuses before any request: CheckRequired already
+// catches 0 through the vngcloud:"required" tag, so this exercises the
+// explicit check that also catches a negative value, which CheckRequired's
+// zero-value test cannot.
+func TestQuoteCreateServerRejectsNonPositiveRootDiskSize(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for _, size := range []int{0, -1, -20} {
+		in := validCreateServerInput()
+		in.RootDiskSize = size
+		if _, err := c.QuoteCreateServer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("RootDiskSize=%d: err = %v, want ErrInvalidInput", size, err)
+		}
+	}
+}
+
+// TestQuoteCreateServerRejectsNegativeDataDiskSize checks that a negative
+// DataDiskSize refuses before any request, even with DataDiskTypeID empty,
+// where the paired-fields check alone would not catch it: a negative size
+// left unpaired would otherwise reach the wire.
+func TestQuoteCreateServerRejectsNegativeDataDiskSize(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	in := validCreateServerInput()
+	in.DataDiskSize = -5
+	if _, err := c.QuoteCreateServer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
 func TestQuoteCreateServerAllowsFullDataDisk(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)

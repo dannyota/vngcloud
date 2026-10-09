@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -168,6 +169,19 @@ func TestExitCode(t *testing.T) {
 			fmt.Errorf("%w: network ACL acl-1 has 2 associated subnet(s); disassociate them first", network.ErrInUse),
 			1,
 		},
+		{"loadbalancer write failed", fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 is ERROR", loadbalancer.ErrFailed), 1},
+		{"loadbalancer not settled", fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 did not reach CREATED", loadbalancer.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during a vLB post-write wait must exit the same way (1),
+			// checked ahead of the context-canceled rule above, the same rule
+			// the vDNS, network, compute, containerregistry, and iam cases
+			// above follow.
+			"loadbalancer not settled after a canceled context",
+			fmt.Errorf("%w: %w", loadbalancer.ErrNotSettled, context.Canceled),
+			1,
+		},
+		{"loadbalancer resource busy", fmt.Errorf("%w: loadbalancer.ResizeLoadBalancer: load balancer lb-1 is not ready", loadbalancer.ErrBusy), 1},
+		{"loadbalancer resource in use", fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1 is used in listener listener-1 as its default pool", loadbalancer.ErrInUse), 1},
 		{"network default resource", fmt.Errorf("%w: route table rt-1 is the VPC's main route table", network.ErrDefaultResource), 1},
 		{
 			"network default resource (default ACL)",
@@ -243,6 +257,11 @@ func TestExitCode(t *testing.T) {
 			// write's own quote guard exits the same way monitor's already does.
 			"root price above max",
 			fmt.Errorf("%w: compute.CreateServer: quote 347800 VND exceeds MaxPrice 0 VND", vngcloud.ErrPriceAboveMax),
+			1,
+		},
+		{
+			"root unpriced",
+			fmt.Errorf("%w: volume.CreateVolume", vngcloud.ErrUnpriced),
 			1,
 		},
 		{
@@ -505,6 +524,37 @@ func TestClassify(t *testing.T) {
 			"ResourceInUse", 0, "",
 		},
 		{
+			"loadbalancer write failed",
+			fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 is ERROR", loadbalancer.ErrFailed),
+			"WriteFailed", 0, "",
+		},
+		{
+			"loadbalancer not settled",
+			fmt.Errorf("%w: loadbalancer.CreateLoadBalancer: load balancer lb-1 did not reach CREATED", loadbalancer.ErrNotSettled),
+			"NotSettled", 0, "",
+		},
+		{
+			"loadbalancer resource busy",
+			fmt.Errorf("%w: loadbalancer.ResizeLoadBalancer: load balancer lb-1 is not ready within 10m0s; nothing sent", loadbalancer.ErrBusy),
+			"ResourceBusy", 0, "",
+		},
+		{
+			"loadbalancer resource in use (pool named as a listener's default pool)",
+			fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1 is used in listener listener-1 as its default pool", loadbalancer.ErrInUse),
+			"ResourceInUse", 0, "",
+		},
+		{
+			// wrapPoolInUse (loadbalancer/pools_write.go) rewraps the server's
+			// own refusal of the DELETE itself, an *APIError, alongside
+			// ErrInUse; Code must still be ResourceInUse, not that inner
+			// APIError's own status-derived code, the same way
+			// network.ErrInUse wins over its own inner APIError above.
+			"loadbalancer resource in use wrapping an inner APIError",
+			fmt.Errorf("%w: loadbalancer.DeletePool: pool pool-1: %w", loadbalancer.ErrInUse,
+				&vngcloud.APIError{Operation: "loadbalancer.DeletePool", StatusCode: 409, Code: "Conflict", Message: "pool is used in listener listener-1"}),
+			"ResourceInUse", 0, "",
+		},
+		{
 			"network resource in use (ACL)",
 			fmt.Errorf("%w: network ACL acl-1 has 2 associated subnet(s); disassociate them first", network.ErrInUse),
 			"ResourceInUse", 0, "",
@@ -626,6 +676,46 @@ func TestClassify(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestClassifyAPIErrorMessage checks fillEnvelopeFromAPIError's own message
+// rule directly: a plain *APIError, never wrapped, prints exactly the same
+// Message it always has, while an *APIError wrapped with more text, the
+// shape wrapAmbiguousServerCreateErr and its equivalents across compute,
+// volume, dns, network, iam, containerregistry, monitor, and loadbalancer
+// build for a create or order that got a 502 or a dropped connection, keeps
+// that wrap's advice in Message, since Code and Status still come from the
+// APIError underneath either way.
+func TestClassifyAPIErrorMessage(t *testing.T) {
+	t.Run("unwrapped keeps the bare APIError message", func(t *testing.T) {
+		err := &vngcloud.APIError{Operation: "compute.GetServer", StatusCode: 502, Code: "ServerError", Message: "Bad Gateway"}
+		env := classify(err)
+		if env.Message != "Bad Gateway" {
+			t.Fatalf("Message = %q, want %q", env.Message, "Bad Gateway")
+		}
+		if env.Code != "ServerError" || env.Status != 502 {
+			t.Fatalf("Code/Status = %q/%d, want ServerError/502", env.Code, env.Status)
+		}
+	})
+
+	t.Run("wrapped with create advice keeps the full text", func(t *testing.T) {
+		inner := &vngcloud.APIError{Operation: "compute.CreateServer", StatusCode: 502, Code: "ServerError", Message: "Bad Gateway"}
+		err := fmt.Errorf("%s: create may have already reached the server; list servers and match the name exactly before creating it again: %w",
+			"compute.CreateServer", inner)
+		env := classify(err)
+		if env.Message != err.Error() {
+			t.Fatalf("Message = %q, want the full wrapped text %q", env.Message, err.Error())
+		}
+		if !strings.Contains(env.Message, "list servers and match the name exactly before creating it again") {
+			t.Fatalf("Message = %q, missing the create advice", env.Message)
+		}
+		if !strings.Contains(env.Message, "Bad Gateway") {
+			t.Fatalf("Message = %q, missing the server's own text", env.Message)
+		}
+		if env.Code != "ServerError" || env.Status != 502 {
+			t.Fatalf("Code/Status = %q/%d, want ServerError/502", env.Code, env.Status)
+		}
+	})
 }
 
 func TestPrintErrorShape(t *testing.T) {

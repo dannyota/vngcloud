@@ -19,6 +19,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"net/netip"
@@ -50,6 +51,7 @@ import (
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/tagging"
+	"danny.vn/vngcloud/volume"
 )
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
@@ -3754,7 +3756,7 @@ func createLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.C
 // writes to it: the same shape every live network test's own VPC create
 // uses, so an unrelated VPC id pasted into that variable by mistake is
 // refused rather than silently written to.
-var liveReuseVPCNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+var liveReuseVPCNamePattern = regexp.MustCompile(`^vngcloud-live-(keep-)?[0-9a-f]{8}$`)
 
 // useLiveVPCAndSubnet reads the VPC named by vpcID and creates a /24 subnet
 // of the test's own inside it, for a run where the account's VPC quota
@@ -8029,6 +8031,1085 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	t.Log("step 12: deleted group and policy")
 }
 
+// --- vLB paid writes (load balancer, resize, pools, members, listeners,
+// policies) ---
+//
+// These tests exercise CreateLoadBalancer, ResizeLoadBalancer, and the free
+// pool, member, listener, and policy writes on the load balancer they
+// create. A load balancer bills by the month, so, per the owner's
+// approval, one is created once, named vngcloud-live-keep-<8 hex>, and
+// reused by the resize, pool, listener, and policy tests within its paid
+// month rather than each test creating and deleting its own; it is deleted
+// only by TestLiveWriteLoadBalancerTeardown, run once these checks are done
+// or the load balancer's paid month has passed.
+//
+// Every test here must never run without credit on the account and the
+// owner's explicit approval for that run, naming the account, region, and
+// the resources it can create. Each is gated by VNGCLOUD_LIVE_WRITE=1, its
+// own VNGCLOUD_LIVE_PAID_LB* variable, and VNGCLOUD_LIVE_MAX_VND, the run's
+// own budget ceiling in VND. Every paid write quotes first, refuses to send
+// if the quote exceeds VNGCLOUD_LIVE_MAX_VND, and then sends MaxPrice equal
+// to the accepted quote, the lowest amount that passes, per the design's
+// price guard.
+
+// liveLoadBalancerNamePattern matches only a throwaway load balancer these
+// tests create and delete within one run: vngcloud-live-<8 hex>. It
+// excludes the kept load balancer, vngcloud-live-keep-<8 hex>, which no
+// automatic sweep here ever deletes.
+var liveLoadBalancerNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func isLiveLoadBalancerName(name string) bool {
+	return liveLoadBalancerNamePattern.MatchString(name)
+}
+
+// liveKeptLoadBalancerPrefix names the one load balancer these tests keep
+// across runs; see the section doc comment above.
+const liveKeptLoadBalancerPrefix = "vngcloud-live-keep-"
+
+func isKeptLoadBalancerName(name string) bool {
+	return strings.HasPrefix(name, liveKeptLoadBalancerPrefix)
+}
+
+// listAllLoadBalancers pages through every load balancer the account has.
+func listAllLoadBalancers(ctx context.Context, client *loadbalancer.Client) ([]loadbalancer.LoadBalancer, error) {
+	var all []loadbalancer.LoadBalancer
+	for page := 1; ; page++ {
+		out, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		// page >= out.TotalPage already stops after page 1 when an empty
+		// account reports TotalPage 0: 1 >= 0 is true. The empty-page check
+		// is a second stopping condition, in case TotalPage is ever wrong
+		// the other way and never counts down to the current page.
+		if len(out.Items) == 0 || page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// findKeptLoadBalancer returns the account's kept load balancer (see the
+// section doc comment above), or nil if none exists yet. The resize, pool,
+// listener, and policy live tests each need it and skip with a clear
+// message when it is missing, rather than creating their own.
+func findKeptLoadBalancer(ctx context.Context, client *loadbalancer.Client) (*loadbalancer.LoadBalancer, error) {
+	all, err := listAllLoadBalancers(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if isKeptLoadBalancerName(all[i].Name) {
+			return &all[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// liveMaxVND reads VNGCLOUD_LIVE_MAX_VND, the run's own budget ceiling in
+// VND that every paid vLB write in these tests must quote at or under
+// before it is sent. ok is false when the variable is unset or does not
+// parse as a non-negative, finite number, in which case the caller must
+// skip rather than guess a default: these tests must never send a paid
+// write without an explicit budget the owner named for this run. NaN or
+// +Inf must be refused explicitly here: strconv.ParseFloat accepts both
+// with no error, and a quote compared against either with > is always
+// false, which would silently accept every quote regardless of price.
+func liveMaxVND(t *testing.T) (float64, bool) {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+// liveSpend tracks one live test's running total of accepted quotes against
+// its own VNGCLOUD_LIVE_MAX_VND cap: a test that sends more than one paid
+// write, such as a resize up followed by a resize down, must refuse the
+// next one once the sum would pass the cap, not just check each quote
+// against the whole cap on its own.
+type liveSpend struct {
+	cap   float64
+	spent float64
+}
+
+func newLiveSpend(cap float64) *liveSpend {
+	return &liveSpend{cap: cap}
+}
+
+// checkAndAdd refuses quote when spent so far plus quote would pass the
+// cap, naming both amounts; a negative quote (a resize-down refund) is
+// never refused and never lowers the running total, so a refund cannot buy
+// room for a later order. On success it records a positive quote against the
+// running total and returns quote, so a caller can pass the result straight to MaxPrice.
+func (s *liveSpend) checkAndAdd(t *testing.T, step string, quote float64) (float64, bool) {
+	t.Helper()
+	if quote > 0 && s.spent+quote > s.cap {
+		t.Errorf("%s: quote %.0f VND plus %.0f VND already spent would exceed this run's budget %.0f VND; refusing", step, quote, s.spent, s.cap)
+		return 0, false
+	}
+	if quote > 0 {
+		s.spent += quote
+	}
+	return quote, true
+}
+
+// liveResizeMaxPrice returns the MaxPrice a live resize should send for
+// quote: quote itself when it is at or above 0, or 0 for a negative quote (a
+// downsize refund), since ResizeLoadBalancer's own guard refuses a negative
+// MaxPrice outright but allows a negative quote through when MaxPrice is at
+// least 0.
+func liveResizeMaxPrice(quote float64) float64 {
+	return max(0, quote)
+}
+
+// findPackageIDByName returns the uuid of the package named name in zoneID,
+// or an error naming what it saw if none is offered there.
+func findPackageIDByName(ctx context.Context, client *loadbalancer.Client, zoneID, name string) (string, error) {
+	packages, err := client.ListPackages(ctx, &loadbalancer.ListPackagesInput{ZoneID: zoneID})
+	if err != nil {
+		return "", err
+	}
+	for _, p := range packages.Items {
+		if p.Name == name {
+			return p.UUID, nil
+		}
+	}
+	return "", fmt.Errorf("no %s package among %d offered in this zone", name, len(packages.Items))
+}
+
+// findSmallestLayer7PackageID returns the uuid of "ALB_Small" in zoneID, the
+// cheapest Layer 7 package per the design's recorded live prices. The kept
+// load balancer these tests share must be Layer 7, per the design, so that
+// TestLiveWriteLoadBalancerListeners can create an HTTPS listener and
+// TestLiveWriteLoadBalancerPolicies can attach L7 policies to it; an NLB
+// (Layer 4) package would leave both skipping instead of running.
+func findSmallestLayer7PackageID(ctx context.Context, client *loadbalancer.Client, zoneID string) (string, error) {
+	return findPackageIDByName(ctx, client, zoneID, "ALB_Small")
+}
+
+// deleteLoadBalancerByExactName lists load balancers by exact name and
+// deletes any match, deleting each one's children first. It is used before
+// a create that names a load balancer this run has not looked up yet, and
+// after a create failure, since a POST that returned an error may still
+// have reached the server: either way, a load balancer under this name
+// would otherwise never be found again once this run moves on. Each
+// delete first waits, up to liveLBIdleBound, for the load balancer to stop
+// being busy, since the server refuses a delete while it is; ctx must
+// outlast that bound plus the delete's own 15-minute wait. Afterward it
+// lists by exact name again and reports any load balancer still there.
+func deleteLoadBalancerByExactName(ctx context.Context, t *testing.T, client *loadbalancer.Client, name string) {
+	t.Helper()
+	list, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: list load balancers by name: %s", safeErr(err))
+		return
+	}
+	for _, lb := range list.Items {
+		if lb.Name != name {
+			continue
+		}
+		if err := waitLoadBalancerIdle(ctx, client, lb.UUID); err != nil {
+			t.Errorf("cleanup: wait for load balancer %q to stop being busy: %s", name, safeErr(err))
+		}
+		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
+		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete load balancer by name: %s", safeErr(err))
+		}
+	}
+	left, err := client.ListLoadBalancers(ctx, &loadbalancer.ListLoadBalancersInput{Name: name})
+	if err != nil {
+		t.Errorf("cleanup: re-list load balancers by name: %s", safeErr(err))
+		return
+	}
+	for _, lb := range left.Items {
+		if lb.Name == name {
+			t.Errorf("cleanup: load balancer %q is still there after delete", name)
+		}
+	}
+}
+
+// liveLBIdleBound and liveLBIdleInterval bound waitLoadBalancerIdle.
+const (
+	liveLBIdleBound    = 20 * time.Minute
+	liveLBIdleInterval = 10 * time.Second
+)
+
+// waitLoadBalancerIdle polls GetLoadBalancer until progressStatus is not
+// CREATING, CREATING-BILLING, UPDATING, or DELETING, a NotFound read, or
+// liveLBIdleBound has passed, which returns an error naming the last status.
+func waitLoadBalancerIdle(ctx context.Context, client *loadbalancer.Client, lbID string) error {
+	deadline := time.Now().Add(liveLBIdleBound)
+	for {
+		out, err := client.GetLoadBalancer(ctx, &loadbalancer.GetLoadBalancerInput{LoadBalancerID: lbID})
+		if err != nil {
+			if vngcloud.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		status := out.LoadBalancer.ProgressStatus
+		switch status {
+		case "CREATING", "CREATING-BILLING", "UPDATING", "DELETING":
+		default:
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("still %s after %s", status, liveLBIdleBound)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(liveLBIdleInterval):
+		}
+	}
+}
+
+// deleteLoadBalancerChildren deletes every policy, listener, and pool of
+// lbID, in that order, ignoring NotFound at each step: a policy attaches to
+// a listener and a listener's DefaultPoolID may name a pool, so this order
+// never hits the server's own in-use refusals.
+func deleteLoadBalancerChildren(ctx context.Context, t *testing.T, client *loadbalancer.Client, lbID string) {
+	t.Helper()
+	listeners, err := client.ListListeners(ctx, &loadbalancer.ListListenersInput{LoadBalancerID: lbID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list listeners: %s", safeErr(err))
+		}
+		return
+	}
+	for _, l := range listeners.Items {
+		policies, err := client.ListPolicies(ctx, &loadbalancer.ListPoliciesInput{LoadBalancerID: lbID, ListenerID: l.UUID})
+		if err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list policies: %s", safeErr(err))
+		}
+		if err == nil {
+			for _, p := range policies.Items {
+				if _, err := client.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: l.UUID, PolicyID: p.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+					t.Errorf("delete load balancer children: delete policy: %s", safeErr(err))
+				}
+			}
+		}
+		if _, err := client.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: l.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: delete listener: %s", safeErr(err))
+		}
+	}
+
+	pools, err := client.ListPools(ctx, &loadbalancer.ListPoolsInput{LoadBalancerID: lbID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: list pools: %s", safeErr(err))
+		}
+		return
+	}
+	for _, p := range pools.Items {
+		if _, err := client.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: p.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete load balancer children: delete pool: %s", safeErr(err))
+		}
+	}
+}
+
+// deleteLiveLoadBalancers deletes every throwaway load balancer
+// (isLiveLoadBalancerName) and its children, and returns how many it
+// deleted. It never touches the kept load balancer.
+func deleteLiveLoadBalancers(ctx context.Context, t *testing.T, client *loadbalancer.Client) int {
+	t.Helper()
+	all, err := listAllLoadBalancers(ctx, client)
+	if err != nil {
+		t.Errorf("delete live load balancers: list: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, lb := range all {
+		if !isLiveLoadBalancerName(lb.Name) {
+			continue
+		}
+		deleteLoadBalancerChildren(ctx, t, client, lb.UUID)
+		if _, err := client.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete live load balancers: delete: %s", safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// TestLiveWriteLoadBalancer exercises QuoteCreateLoadBalancer and
+// CreateLoadBalancer: L2 of the design. It creates its own VPC and /24
+// subnet (per vServer network writes' own live-check convention), then
+// orders the account's cheapest Layer 7 package (ALB_Small, Internal) as
+// the kept load balancer these tests reuse; see the section doc comment
+// above. Layer 7 lets TestLiveWriteLoadBalancerListeners create an HTTPS
+// listener and TestLiveWriteLoadBalancerPolicies attach L7 policies to the
+// same load balancer, rather than skipping either. On success it never
+// deletes the kept load balancer or its VPC; that is
+// TestLiveWriteLoadBalancerTeardown's job. On any other outcome, cleanup
+// registered before each step that can fail removes the VPC, subnet, and
+// any load balancer this run's own name matches, so a failure here never
+// leaves a paid resource behind under a name this run stops looking for.
+//
+// This must never run without credit on the account and the owner's
+// explicit approval for this run, naming the account, region, and the
+// budget in VNGCLOUD_LIVE_MAX_VND.
+func TestLiveWriteLoadBalancer(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB=1 to run the live load balancer create test; it orders a paid load balancer")
+	}
+	maxVND, ok := liveMaxVND(t)
+	if !ok {
+		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer create test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+	netClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	if existing, err := findKeptLoadBalancer(ctx, lbClient); err != nil {
+		t.Fatalf("check for an existing kept load balancer: %s", safeErr(err))
+	} else if existing != nil {
+		t.Skip("a kept load balancer already exists; this test only creates the first one")
+	}
+
+	// Step 1: sweep up leftover throwaway load balancers from an earlier
+	// aborted run.
+	leftovers := deleteLiveLoadBalancers(ctx, t, lbClient)
+	t.Logf("step 1: deleted %d leftover load balancer(s)", leftovers)
+
+	// created is set true only once CreateLoadBalancer itself has settled;
+	// every cleanup below checks it, so the kept load balancer's VPC,
+	// subnet, and name all survive a successful run but never a failed one.
+	var created bool
+
+	// Step 2: this run's own VPC and /24 subnet, with cleanup registered
+	// right after each is made, before the next step that can fail.
+	zoneID, err := pickEnabledZoneID(ctx, portalClient)
+	if err != nil {
+		t.Fatalf("step 2 pick enabled zone: %s", safeErr(err))
+	}
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	vpcName := liveKeptLoadBalancerPrefix + suffix
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, netClient)
+	if err != nil {
+		t.Fatalf("step 2 pick a free VPC CIDR: %s", err)
+	}
+	vpc, err := netClient.CreateVPC(ctx, &network.CreateVPCInput{Name: vpcName, CIDR: vpcCIDR})
+	if err != nil {
+		deleteVPCByName(t, netClient, vpcName)
+		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
+	}
+	vpcID := vpc.VPC.UUID
+	t.Cleanup(func() {
+		if created {
+			// The kept load balancer needs this VPC and subnet to outlive
+			// this test; only TestLiveWriteLoadBalancerTeardown removes them.
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		deleteVPCAndSubnets(cleanupCtx, t, netClient, vpcID, nil)
+	})
+	subnetCIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("step 2 derive /24 subnet CIDR: %s", err)
+	}
+	subnet, err := netClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: vpcName + "-a", CIDR: subnetCIDR})
+	if err != nil {
+		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
+	}
+	subnetID := subnet.Subnet.UUID
+	t.Log("step 2: created this run's VPC and subnet")
+
+	// Step 3: find the cheapest Layer 7 package.
+	packageID, err := findSmallestLayer7PackageID(ctx, lbClient, zoneID)
+	if err != nil {
+		t.Fatalf("step 3 find smallest Layer 7 package: %s", safeErr(err))
+	}
+	t.Log("step 3: found the smallest Layer 7 package")
+
+	// Step 4: quote, check the run's budget, and order. The by-exact-name
+	// sweep is registered before the create itself: if the POST reaches the
+	// server but this process never learns it, from a network failure or a
+	// context deadline, the load balancer would otherwise never be found
+	// again once this run stops looking for it by name.
+	keepSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 4 generate name suffix: %v", err)
+	}
+	name := liveKeptLoadBalancerPrefix + keepSuffix
+	createInput := &loadbalancer.CreateLoadBalancerInput{
+		Name: name, PackageID: packageID, Type: loadbalancer.TypeLayer7,
+		Scheme: loadbalancer.SchemeInternal, SubnetID: subnetID, ZoneID: zoneID,
+	}
+	t.Cleanup(func() {
+		if created {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+		defer cancel()
+		deleteLoadBalancerByExactName(cleanupCtx, t, lbClient, name)
+	})
+
+	quote, err := lbClient.QuoteCreateLoadBalancer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateLoadBalancer: %s", safeErr(err))
+	}
+	if quote.OptimumPrice > maxVND {
+		t.Fatalf("step 4: quote %.0f VND exceeds this run's budget %.0f VND; refusing to order", quote.OptimumPrice, maxVND)
+	}
+	createInput.MaxPrice = quote.OptimumPrice
+	start := time.Now()
+	createdOut, err := lbClient.CreateLoadBalancer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 4 CreateLoadBalancer: %s", safeErr(err))
+	}
+	if createdOut.LoadBalancer.UUID == "" {
+		t.Fatal("step 4: CreateLoadBalancer settled with no id")
+	}
+	created = true
+	t.Logf("step 4: created the kept load balancer, status %s, quoted %.0f VND, wait %s",
+		createdOut.LoadBalancer.ProgressStatus, createdOut.QuotedPrice, time.Since(start))
+
+	// Step 5: a same-name, MaxPrice-0 create is refused by the guard alone,
+	// sending nothing, since the quote is already known to be above 0.
+	dup := *createInput
+	dup.MaxPrice = 0
+	if _, err := lbClient.CreateLoadBalancer(ctx, &dup); !errors.Is(err, loadbalancer.ErrPriceAboveMax) {
+		t.Errorf("step 5: duplicate create with MaxPrice 0 err = %s, want ErrPriceAboveMax", safeErr(err))
+	} else {
+		t.Log("step 5: duplicate create refused by the price guard, sending nothing")
+	}
+}
+
+// TestLiveWriteLoadBalancerResize exercises QuoteResizeLoadBalancer and
+// ResizeLoadBalancer on the kept load balancer: L3 of the design. It
+// resizes up to ALB_Medium, then back down to the kept load balancer's
+// original package, tracking both quotes against one running total so the
+// two together, not just each on its own, stay within
+// VNGCLOUD_LIVE_MAX_VND.
+func TestLiveWriteLoadBalancerResize(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_RESIZE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_RESIZE=1 to run the live load balancer resize test; it orders a paid resize")
+	}
+	maxVND, ok := liveMaxVND(t)
+	if !ok {
+		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer resize test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+
+	// Package IDs are zone-specific, and a resize refuses another zone's
+	// package, so ALB_Medium comes from the kept load balancer's own zone.
+	if kept.ZoneID == "" {
+		t.Fatal("step 1: the kept load balancer's read has no zone")
+	}
+	mediumID, err := findPackageIDByName(ctx, lbClient, kept.ZoneID, "ALB_Medium")
+	if err != nil {
+		t.Fatalf("step 1 find ALB_Medium package: %s", safeErr(err))
+	}
+	smallID := kept.PackageID
+	spend := newLiveSpend(maxVND)
+
+	// Step 2: resize up.
+	upInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: mediumID}
+	upQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, upInput)
+	if err != nil {
+		t.Fatalf("step 2 QuoteResizeLoadBalancer (up): %s", safeErr(err))
+	}
+	upQuotePrice, ok := spend.checkAndAdd(t, "step 2", upQuote.OptimumPrice)
+	if !ok {
+		t.Fatal("step 2: resize-up refused by this run's budget; see the error above")
+	}
+	upInput.MaxPrice = liveResizeMaxPrice(upQuotePrice)
+	start := time.Now()
+	up, err := lbClient.ResizeLoadBalancer(ctx, upInput)
+	if err != nil {
+		t.Fatalf("step 2 ResizeLoadBalancer (up): %s", safeErr(err))
+	}
+	t.Logf("step 2: resized up, changed=%v, quoted %.0f VND, wait %s", up.Changed, up.QuotedPrice, time.Since(start))
+
+	// Step 3: resize to the same package is a no-op, quoting and sending
+	// nothing.
+	if same, err := lbClient.ResizeLoadBalancer(ctx, &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: mediumID}); err != nil {
+		t.Fatalf("step 3 ResizeLoadBalancer (same package): %s", safeErr(err))
+	} else if same.Changed {
+		t.Error("step 3: resize to the same package reported Changed=true, want false")
+	} else {
+		t.Log("step 3: resize to the same package was a no-op")
+	}
+
+	// Step 4: resize back down to the original package. A downsize quote
+	// may legitimately be negative, a refund; liveResizeMaxPrice floors
+	// MaxPrice at 0 rather than passing a negative one, which
+	// ResizeLoadBalancer's own guard would otherwise refuse outright.
+	downInput := &loadbalancer.ResizeLoadBalancerInput{LoadBalancerID: kept.UUID, PackageID: smallID}
+	downQuote, err := lbClient.QuoteResizeLoadBalancer(ctx, downInput)
+	if errors.Is(err, vngcloud.ErrUnpriced) {
+		t.Log("step 4: the downsize quote was 0; skipping the down resize and leaving the load balancer on the larger package")
+		return
+	}
+	if err != nil {
+		t.Fatalf("step 4 QuoteResizeLoadBalancer (down): %s", safeErr(err))
+	}
+	downQuotePrice, ok := spend.checkAndAdd(t, "step 4", downQuote.OptimumPrice)
+	if !ok {
+		t.Fatal("step 4: resize-down refused by this run's budget; see the error above")
+	}
+	downInput.MaxPrice = liveResizeMaxPrice(downQuotePrice)
+	start = time.Now()
+	down, err := lbClient.ResizeLoadBalancer(ctx, downInput)
+	if err != nil {
+		t.Fatalf("step 4 ResizeLoadBalancer (down): %s", safeErr(err))
+	}
+	t.Logf("step 4: resized back down, changed=%v, quoted %.0f VND, wait %s", down.Changed, down.QuotedPrice, time.Since(start))
+}
+
+// TestLiveWriteLoadBalancerPools exercises CreatePool, UpdatePool,
+// DeletePool, AddPoolMember, UpdatePoolMember, and RemovePoolMember on the
+// kept load balancer: L4 of the design. These writes are free; the run's
+// budget cap does not apply to them.
+func TestLiveWriteLoadBalancerPools(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POOLS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POOLS=1 to run the live pool and member write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	lbID := kept.UUID
+
+	// Step 1: create an HTTP pool with an HTTP check. The kept load balancer
+	// is Layer 7, which accepts only HTTP pools; TCP and UDP pools need a
+	// Network load balancer.
+	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-pool", Protocol: loadbalancer.PoolProtocolHTTP,
+		HealthCheckProtocol: loadbalancer.HealthCheckProtocolHTTP, HealthCheckPath: "/",
+		HealthCheckHTTPVersion: "1.1", HealthCheckDomainName: "example.com",
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreatePool: %s", safeErr(err))
+	}
+	poolID := pool.Pool.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeletePool(cleanupCtx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: poolID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete pool: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created an HTTP pool")
+
+	// Step 2: update its algorithm only.
+	if _, err := lbClient.UpdatePool(ctx, &loadbalancer.UpdatePoolInput{
+		LoadBalancerID: lbID, PoolID: poolID, Algorithm: vngcloud.Ptr(loadbalancer.AlgorithmLeastConnection),
+	}); err != nil {
+		t.Fatalf("step 2 UpdatePool: %s", safeErr(err))
+	}
+	t.Log("step 2: updated the pool's algorithm")
+
+	// Step 3: add two members in the test subnet's range, then update one's
+	// weight, then remove one.
+	memberA, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080,
+	})
+	if err != nil {
+		t.Fatalf("step 3a AddPoolMember: %s", safeErr(err))
+	}
+	t.Logf("step 3a: added member A, changed=%v", memberA.Changed)
+
+	if _, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.251", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3b AddPoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3b: added member B")
+
+	// Adding member A again with the same fields is a no-op.
+	if again, err := lbClient.AddPoolMember(ctx, &loadbalancer.AddPoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3c AddPoolMember (repeat): %s", safeErr(err))
+	} else if again.Changed {
+		t.Error("step 3c: repeated add reported Changed=true, want false")
+	} else {
+		t.Log("step 3c: repeated add was a no-op")
+	}
+
+	if _, err := lbClient.UpdatePoolMember(ctx, &loadbalancer.UpdatePoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.250", Port: 8080, Weight: vngcloud.Ptr(5),
+	}); err != nil {
+		t.Fatalf("step 3d UpdatePoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3d: updated member A's weight")
+
+	if _, err := lbClient.RemovePoolMember(ctx, &loadbalancer.RemovePoolMemberInput{
+		LoadBalancerID: lbID, PoolID: poolID, Address: "10.250.1.251", Port: 8080,
+	}); err != nil {
+		t.Fatalf("step 3e RemovePoolMember: %s", safeErr(err))
+	}
+	t.Log("step 3e: removed member B")
+
+	// Step 4: delete the pool. t.Cleanup above still runs and is a no-op.
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: poolID}); err != nil {
+		t.Fatalf("step 4 DeletePool: %s", safeErr(err))
+	}
+	t.Log("step 4: deleted the pool")
+}
+
+// liveListenerAllowedCIDR is the private CIDR the listener and policy tests
+// allow; the kept load balancer's subnet is unrelated to it.
+const liveListenerAllowedCIDR = "10.250.1.0/24"
+
+// TestLiveWriteLoadBalancerListeners exercises CreateListener,
+// UpdateListener, and DeleteListener on the kept load balancer: L5 of the
+// design, including an HTTPS listener with an imported throwaway
+// certificate. These writes are free.
+func TestLiveWriteLoadBalancerListeners(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_LISTENERS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_LISTENERS=1 to run the live listener write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	lbID := kept.UUID
+
+	// Step 1: an HTTP listener with a /24 AllowedCIDRs. TCP and UDP
+	// listeners need a Network load balancer; the kept one is Layer 7.
+	httpListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8080,
+		AllowedCIDRs: []string{liveListenerAllowedCIDR},
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreateListener (HTTP): %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete HTTP listener: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created a HTTP listener")
+
+	// Step 2: update its TimeoutClient only.
+	if _, err := lbClient.UpdateListener(ctx, &loadbalancer.UpdateListenerInput{
+		LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID, TimeoutClient: vngcloud.Ptr(30),
+	}); err != nil {
+		t.Fatalf("step 2 UpdateListener: %s", safeErr(err))
+	}
+	t.Log("step 2: updated the listener's TimeoutClient")
+
+	// Step 3: import a throwaway self-signed certificate and create an
+	// HTTPS listener with it.
+	certSuffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	certName := "vngcloud-live-" + certSuffix
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("step 3 generate rsa key: %v", err)
+	}
+	certPEM, err := generateSelfSignedCertPEM(rsaKey, certName)
+	if err != nil {
+		t.Fatalf("step 3 generate self-signed certificate: %v", err)
+	}
+	imported, err := lbClient.ImportCertificate(ctx, &loadbalancer.ImportCertificateInput{
+		Name: certName, Type: loadbalancer.CertificateTypeTLS, Certificate: certPEM,
+		PrivateKey: vngcloud.Secret(rsaPrivateKeyPEM(rsaKey)),
+	})
+	if err != nil {
+		deleteCertificateByName(t, lbClient, certName)
+		t.Fatalf("step 3 ImportCertificate: %s", safeErr(err))
+	}
+	certID := imported.Certificate.UUID
+	// Registered right after the import succeeds, before the HTTPS listener
+	// create that follows can fail: DeleteCertificate refuses while a
+	// listener still names it, so this alone would fail while that listener
+	// exists, but t.Cleanup runs in reverse order, and the HTTPS listener's
+	// own cleanup, registered below, runs first.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteCertificate(cleanupCtx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete certificate: %s", safeErr(err))
+		}
+	})
+	t.Log("step 3: imported a throwaway certificate")
+
+	httpsListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-https", Protocol: loadbalancer.ProtocolHTTPS, Port: 8443,
+		AllowedCIDRs: []string{liveListenerAllowedCIDR}, DefaultCertificateID: certID,
+	})
+	if err != nil {
+		t.Fatalf("step 3 CreateListener (HTTPS): %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete HTTPS listener: %s", safeErr(err))
+		}
+	})
+	t.Logf("step 3: created an HTTPS listener, certificate inUse=%v", imported.Certificate.InUse)
+
+	// Step 4: delete both listeners, then the certificate, in that order
+	// (the certificate delete refuses while the HTTPS listener still names
+	// it). t.Cleanup above still runs and is a no-op.
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpsListener.Listener.UUID}); err != nil {
+		t.Fatalf("step 4 DeleteListener (HTTPS): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: httpListener.Listener.UUID}); err != nil {
+		t.Fatalf("step 4 DeleteListener (HTTP): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteCertificate(ctx, &loadbalancer.DeleteCertificateInput{CertificateID: certID}); err != nil {
+		t.Fatalf("step 4 DeleteCertificate: %s", safeErr(err))
+	}
+	t.Log("step 4: deleted both listeners and the certificate")
+}
+
+// TestLiveWriteLoadBalancerPolicies exercises CreatePolicy, UpdatePolicy,
+// and DeletePolicy on a Layer 7 listener of the kept load balancer: L6 of
+// the design. TestLiveWriteLoadBalancer (L2) always orders a Layer 7
+// package, so the Type check below is a safety net against a kept load
+// balancer some other path left behind, rather than an expected skip.
+// These writes are free.
+func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POLICIES") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POLICIES=1 to run the live policy write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+
+	kept, err := findKeptLoadBalancer(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("find the kept load balancer: %s", safeErr(err))
+	}
+	if kept == nil {
+		t.Skip("no kept load balancer found; run TestLiveWriteLoadBalancer (L2) first")
+	}
+	if kept.Type != loadbalancer.TypeLayer7 {
+		t.Skip("the kept load balancer is not Layer 7; L7 policies need an HTTP listener on a Layer 7 load balancer")
+	}
+	lbID := kept.UUID
+
+	// Step 1: an HTTP listener and a pool for the redirect target. Cleanup
+	// for each is registered as soon as its own create succeeds, in reverse
+	// of the order they must be deleted in: t.Cleanup runs last-registered
+	// first, so registering the pool's cleanup before the listener's makes
+	// the listener delete run first, matching deleteLoadBalancerChildren's
+	// own listeners-before-pools order.
+	listener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-policy-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8081,
+		AllowedCIDRs: []string{liveListenerAllowedCIDR},
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreateListener: %s", safeErr(err))
+	}
+	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
+		LoadBalancerID: lbID, Name: "vngcloud-live-policy-pool", Protocol: loadbalancer.PoolProtocolHTTP,
+		HealthCheckProtocol: loadbalancer.HealthCheckProtocolHTTP, HealthCheckPath: "/", HealthCheckDomainName: "example.com",
+	})
+	if err != nil {
+		t.Fatalf("step 1 CreatePool: %s", safeErr(err))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeletePool(cleanupCtx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete pool: %s", safeErr(err))
+		}
+	})
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := lbClient.DeleteListener(cleanupCtx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete listener: %s", safeErr(err))
+		}
+	})
+	t.Log("step 1: created a listener and a pool")
+
+	// Step 2: a REDIRECT_TO_POOL policy with a PATH STARTS_WITH rule, and a
+	// REDIRECT_TO_URL policy. Each policy's cleanup is registered as soon as
+	// it exists, so a failure in a later step still deletes it; registered
+	// after the listener and pool cleanups above, both run first, deleting
+	// every policy before the listener or pool it depends on.
+	var policyIDs []string
+	registerPolicyCleanup := func(policyID string) {
+		policyIDs = append(policyIDs, policyID)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		for _, id := range policyIDs {
+			if _, err := lbClient.DeletePolicy(cleanupCtx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: id}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: delete policy %s: %s", id, safeErr(err))
+			}
+		}
+	})
+
+	poolPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-pool",
+		Action: loadbalancer.ActionRedirectToPool, RedirectPoolID: pool.Pool.UUID,
+		Rules: []loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeStartsWith, Value: "/api"}},
+	})
+	if err != nil {
+		t.Fatalf("step 2a CreatePolicy (pool): %s", safeErr(err))
+	}
+	registerPolicyCleanup(poolPolicy.Policy.UUID)
+	t.Logf("step 2a: created a redirect-to-pool policy, position %d", poolPolicy.Policy.Position)
+
+	urlPolicy, err := lbClient.CreatePolicy(ctx, &loadbalancer.CreatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, Name: "vngcloud-live-policy-url",
+		Action: loadbalancer.ActionRedirectToURL, RedirectURL: "https://example.com", RedirectHTTPCode: 301,
+		Rules: []loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeEqualTo, Value: "/old"}},
+	})
+	if err != nil {
+		t.Fatalf("step 2b CreatePolicy (url): %s", safeErr(err))
+	}
+	registerPolicyCleanup(urlPolicy.Policy.UUID)
+	t.Log("step 2b: created a redirect-to-url policy")
+
+	// Step 3: update the pool policy's rules only.
+	if _, err := lbClient.UpdatePolicy(ctx, &loadbalancer.UpdatePolicyInput{
+		LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: poolPolicy.Policy.UUID,
+		Rules: &[]loadbalancer.PolicyRuleInput{{Type: loadbalancer.PolicyRuleTypePath, CompareType: loadbalancer.CompareTypeEqualTo, Value: "/health"}},
+	}); err != nil {
+		t.Fatalf("step 3 UpdatePolicy: %s", safeErr(err))
+	}
+	t.Log("step 3: replaced the pool policy's rules")
+
+	// Step 4: DeletePool on the redirect pool is expected to be refused
+	// while the policy still names it.
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err == nil {
+		t.Error("step 4: DeletePool on a pool a policy redirects to succeeded; the design expects a refusal")
+	} else {
+		t.Logf("step 4: DeletePool refused as expected, %s", safeErr(err))
+	}
+
+	// Step 5: delete both policies, then the listener and pool.
+	if _, err := lbClient.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: poolPolicy.Policy.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePolicy (pool): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeletePolicy(ctx, &loadbalancer.DeletePolicyInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID, PolicyID: urlPolicy.Policy.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePolicy (url): %s", safeErr(err))
+	}
+	if _, err := lbClient.DeleteListener(ctx, &loadbalancer.DeleteListenerInput{LoadBalancerID: lbID, ListenerID: listener.Listener.UUID}); err != nil {
+		t.Fatalf("step 5 DeleteListener: %s", safeErr(err))
+	}
+	if _, err := lbClient.DeletePool(ctx, &loadbalancer.DeletePoolInput{LoadBalancerID: lbID, PoolID: pool.Pool.UUID}); err != nil {
+		t.Fatalf("step 5 DeletePool: %s", safeErr(err))
+	}
+	t.Log("step 5: deleted both policies, the listener, and the pool")
+}
+
+// TestLiveWriteLoadBalancerTeardown deletes every kept load balancer (see
+// the section doc comment above) and its VPC, once the L2 to L6 live checks
+// are done or a load balancer's paid month has passed. It is gated
+// separately from every other test here so a run of L2 through L6 never
+// deletes a kept load balancer by accident.
+//
+// Each kept load balancer's subnet is read for its VPC before the delete,
+// since the subnet no longer reads afterward. A failed read is reported but
+// never stops the delete: a read failing must never leave a paid load
+// balancer behind. If more than one kept load balancer somehow exists,
+// every one matching the name pattern is deleted, not just the first found.
+// Deletion is confirmed by checking the load balancers a fresh list
+// actually returns, not merely that the list call itself succeeded.
+func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vLB write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_TEARDOWN") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_LB_TEARDOWN=1 to delete the kept load balancer and its VPC")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	lbClient := loadbalancer.New(cfg)
+	netClient := network.New(cfg)
+
+	all, err := listAllLoadBalancers(ctx, lbClient)
+	if err != nil {
+		t.Fatalf("list load balancers: %s", safeErr(err))
+	}
+	var kept []loadbalancer.LoadBalancer
+	for _, lb := range all {
+		if isKeptLoadBalancerName(lb.Name) {
+			kept = append(kept, lb)
+		}
+	}
+	if len(kept) == 0 {
+		t.Skip("no kept load balancer found; nothing to tear down")
+	}
+
+	var vpcIDs []string
+	for _, lb := range kept {
+		// The subnet is unreadable once the load balancer is gone, so read
+		// its VPC first. A failed read only skips the VPC delete: the paid
+		// load balancer is still deleted below.
+		subnetOut, err := netClient.GetSubnet(ctx, &network.GetSubnetInput{SubnetID: lb.PrivateSubnetID})
+		if err != nil {
+			t.Errorf("read subnet for kept load balancer %s: %s", lb.Name, safeErr(err))
+		} else {
+			vpcIDs = append(vpcIDs, subnetOut.Subnet.NetworkUUID)
+		}
+
+		deleteLoadBalancerChildren(ctx, t, lbClient, lb.UUID)
+		if _, err := lbClient.DeleteLoadBalancer(ctx, &loadbalancer.DeleteLoadBalancerInput{LoadBalancerID: lb.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("delete kept load balancer %s: %s", lb.Name, safeErr(err))
+			continue
+		}
+		t.Logf("deleted kept load balancer %s", lb.Name)
+	}
+
+	// Confirm every kept load balancer is actually gone by checking what a
+	// fresh list returns, not just that the list call itself did not error.
+	remaining, err := listAllLoadBalancers(ctx, lbClient)
+	if err != nil {
+		t.Errorf("confirm kept load balancers are gone: %s", safeErr(err))
+	} else {
+		for _, lb := range remaining {
+			if isKeptLoadBalancerName(lb.Name) {
+				t.Errorf("kept load balancer %s still reads after delete", lb.Name)
+			}
+		}
+	}
+
+	for _, vpcID := range vpcIDs {
+		deleteVPCAndSubnets(ctx, t, netClient, vpcID, nil)
+	}
+	t.Log("deleted every kept load balancer's VPC and subnet")
+}
+
 // createLiveVirtualIPAddress reconciles an ambiguous POST through the
 // existing private virtual IP list and get calls.
 func createLiveVirtualIPAddress(ctx context.Context, client *network.Client, c *core.Client, subnetID, name string) (network.VirtualIPAddress, error) {
@@ -8467,6 +9548,1091 @@ func TestLiveWriteTagging(t *testing.T) {
 		t.Fatalf("step 8 delete virtual IP: %s", safeErr(err))
 	}
 	t.Log("step 8: deleted the virtual IP")
+}
+
+// liveMaxVND parses VNGCLOUD_LIVE_MAX_VND, the run's own budget cap in VND a
+// month, failing the test before any request when it is unset or not a
+// positive number. Every paid live write test checks its planned quotes
+// against this cap and sends nothing once their sum exceeds it, per the
+// design's live-run budget rule.
+func liveMonitorMaxVND(t *testing.T) float64 {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
+	if raw == "" {
+		t.Fatal("set VNGCLOUD_LIVE_MAX_VND to this run's VND-a-month cap; no paid write test sends anything without it")
+	}
+	budgetCap, err := strconv.ParseFloat(raw, 64)
+	// strconv.ParseFloat recognizes "NaN", "Inf", and "+Inf" as well as an
+	// ordinary number: NaN compares false to every spend total, and +Inf
+	// compares true to none, either of which would silently disable the
+	// budget cap this whole run exists to enforce.
+	if err != nil || math.IsNaN(budgetCap) || math.IsInf(budgetCap, 0) || budgetCap <= 0 {
+		t.Fatalf("VNGCLOUD_LIVE_MAX_VND = %q, want a positive, finite number", raw)
+	}
+	return budgetCap
+}
+
+// deleteLiveVolumes deletes every unattached volume named with the
+// "vngcloud-live-" prefix and reports how many it deleted, for the
+// pre-test sweep and the cleanup of TestLiveWritePaidVolume and the later
+// paid vServer live tests. An attached volume is left for the caller's own
+// server cleanup to detach first.
+func deleteLiveVolumes(ctx context.Context, t *testing.T, client *volume.Client) int {
+	t.Helper()
+	list, err := client.ListVolumes(ctx, nil)
+	if err != nil {
+		t.Errorf("sweep: ListVolumes: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, v := range list.Items {
+		if !strings.HasPrefix(v.Name, "vngcloud-live-") || v.ServerID != "" || len(v.ServerIDList) > 0 {
+			continue
+		}
+		if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: v.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("sweep: DeleteVolume(%s): %s", v.UUID, safeErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// TestLiveWritePaidVolume is the design's L1 live run, gating the P2
+// release (volume.CreateVolume and volume.DeleteVolume). It orders one 10
+// GB SSD volume at the quoted price and deletes it.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends a real, billed
+// CreateVolume order. It is gated by VNGCLOUD_LIVE_WRITE=1,
+// VNGCLOUD_LIVE_PAID_VOLUME=1, and VNGCLOUD_LIVE_MAX_VND (this run's VND
+// cap); it quotes the volume and refuses to order anything once the quote
+// exceeds the cap, before sending any write, and it then passes that same
+// quote as CreateVolume's own MaxPrice, so a price change between the plan
+// and the order stops the run rather than paying more than planned.
+func TestLiveWritePaidVolume(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_VOLUME") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_VOLUME=1 to run the live paid volume test; " +
+			"it orders a real, billed volume and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMonitorMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+	billingClient := billing.New(cfg)
+
+	// Step 1: sweep leftovers from an earlier aborted run first.
+	swept := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover volume(s)", swept)
+
+	// Step 2: find the zone's default volume type.
+	defaultType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 2 GetDefaultVolumeType: %s", safeErr(err))
+	}
+	volumeTypeID := defaultType.VolumeType.ID
+	t.Logf("step 2: volume type %s", volumeTypeID)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+	createInput := &volume.CreateVolumeInput{Name: name, ZoneID: zoneID, Size: 10, VolumeTypeID: volumeTypeID}
+
+	// Step 3: quote first, and refuse to order once the quote alone exceeds
+	// this run's cap, before any write.
+	quote, err := volumeClient.QuoteCreateVolume(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 3 QuoteCreateVolume: %s", safeErr(err))
+	}
+	t.Logf("step 3: quote %.0f VND a month", quote.OptimumPrice)
+	if quote.OptimumPrice > budgetCap {
+		t.Fatalf("step 3: quote %.0f VND exceeds this run's cap %.0f VND; ordering nothing", quote.OptimumPrice, budgetCap)
+	}
+
+	before, err := billingClient.GetBalances(ctx, &billing.GetBalancesInput{})
+	if err != nil {
+		t.Logf("step 3: GetBalances before create failed (non-fatal): %s", safeErr(err))
+	}
+
+	// Step 4: register cleanup by name before ordering, since a POST that
+	// fails ambiguously may still have reached the server.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		swept := deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
+	})
+
+	// Step 5: order at the quoted price, so a price change between step 3
+	// and now stops the run instead of paying more than planned.
+	createStart := time.Now()
+	created, err := volumeClient.CreateVolume(ctx, &volume.CreateVolumeInput{
+		Name: name, ZoneID: zoneID, Size: 10, VolumeTypeID: volumeTypeID, MaxPrice: quote.OptimumPrice,
+	})
+	if err != nil {
+		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
+	}
+	t.Logf("step 5: settled after %s at status %s", time.Since(createStart), created.Volume.Status)
+	if created.Volume.Status != "AVAILABLE" {
+		t.Fatalf("step 5: status = %s, want AVAILABLE", created.Volume.Status)
+	}
+	volumeID := created.Volume.UUID
+
+	// The raw balance is account data and never logged; only whether the
+	// drop this create caused stayed within budgetCap.
+	if before != nil && before.Balances.Cash != nil {
+		after, err := billingClient.GetBalances(ctx, &billing.GetBalancesInput{})
+		switch {
+		case err != nil:
+			t.Logf("step 5: GetBalances after create failed (non-fatal): %s", safeErr(err))
+		case after.Balances.Cash == nil:
+			t.Log("step 5: GetBalances after create returned no cash balance (non-fatal)")
+		default:
+			drop := *before.Balances.Cash - *after.Balances.Cash
+			t.Logf("step 5: cash balance drop stayed within this run's cap: %v", drop >= 0 && drop <= budgetCap)
+		}
+	}
+
+	// Step 6: a repeat create with the same name is refused by the SDK
+	// itself, sending nothing.
+	if _, err := volumeClient.CreateVolume(ctx, createInput); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("step 6: repeat CreateVolume error = %s, want ErrInvalidInput", safeErr(err))
+	}
+	t.Log("step 6: repeat create with the same name was refused")
+
+	// Step 7: delete and confirm gone.
+	deleteStart := time.Now()
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); err != nil {
+		t.Fatalf("step 7 DeleteVolume: %s", safeErr(err))
+	}
+	t.Logf("step 7: delete settled after %s", time.Since(deleteStart))
+	if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: volumeID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7: GetVolume after delete = %s, want NotFound", safeErr(err))
+	}
+	t.Log("step 7: confirmed the volume is gone")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
+}
+
+// deleteLiveServers deletes every server named with the "vngcloud-live-"
+// prefix and reports how many servers it deleted, for the pre-test sweep and
+// the cleanup of the paid server tests. It deletes each server with its
+// volumes kept, then deletes only the kept volumes named with the same
+// prefix, so an unprefixed volume is never removed. It
+// waits for each delete to settle, so a caller relying on the servers being
+// fully gone (such as a subsequent VPC or security group delete) does not
+// need its own extra wait. A server still CREATING or CREATING-BILLING
+// cannot be deleted at all, per the design's server rules, so this waits
+// for it to leave that status first rather than let the delete fail and
+// leave it billing.
+func deleteLiveServers(ctx context.Context, t *testing.T, client *compute.Client, volumeClient *volume.Client) int {
+	t.Helper()
+	list, err := client.ListServers(ctx, nil)
+	if err != nil {
+		t.Errorf("sweep: ListServers: %s", safeErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, s := range list.Items {
+		if !strings.HasPrefix(s.Name, "vngcloud-live-") {
+			continue
+		}
+		if strings.EqualFold(s.Status, "CREATING") || strings.EqualFold(s.Status, "CREATING-BILLING") {
+			t.Logf("sweep: server %s is still %s; waiting for it to settle before deleting", s.UUID, s.Status)
+			if err := waitLiveServerLeavesCreating(ctx, client, s.UUID); err != nil {
+				t.Errorf("sweep: wait for server %s to leave %s: %s", s.UUID, s.Status, safeErr(err))
+				continue
+			}
+		}
+		out, err := client.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: s.UUID})
+		if err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("sweep: DeleteServer(%s): %s", s.UUID, safeErr(err))
+			if out == nil {
+				continue
+			}
+		} else {
+			deleted++
+		}
+		if out == nil {
+			continue
+		}
+		for _, id := range out.KeptVolumeIDs {
+			got, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id})
+			if err != nil {
+				if !vngcloud.IsNotFound(err) {
+					t.Errorf("sweep: GetVolume(%s): %s", id, safeErr(err))
+				}
+				continue
+			}
+			if !strings.HasPrefix(got.Volume.Name, "vngcloud-live-") {
+				continue
+			}
+			if err := waitLiveVolumeDetached(ctx, volumeClient, id); err != nil {
+				t.Errorf("sweep: wait for volume %s to detach: %s", id, safeErr(err))
+				continue
+			}
+			if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: id}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("sweep: DeleteVolume(%s): %s", id, safeErr(err))
+			}
+		}
+	}
+	return deleted
+}
+
+// waitLiveVolumeDetached polls GetVolume every 2 seconds, for up to 2
+// minutes, until id is AVAILABLE with no server, or is gone. A kept volume
+// can still read IN-USE or carry a serverId briefly after its server's
+// delete returns, and DeleteVolume refuses it until then.
+func waitLiveVolumeDetached(ctx context.Context, client *volume.Client, id string) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		out, err := client.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: id})
+		if vngcloud.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if out.Volume.ServerID == "" && strings.EqualFold(out.Volume.Status, "AVAILABLE") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("volume %s is still %s after 2m", id, out.Volume.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// waitLiveServerLeavesCreating polls GetServer until id's Status is no
+// longer CREATING or CREATING-BILLING, or the design's 15-minute create
+// bound passes.
+func waitLiveServerLeavesCreating(ctx context.Context, client *compute.Client, id string) error {
+	deadline := time.Now().Add(15 * time.Minute)
+	for {
+		out, err := client.GetServer(ctx, &compute.GetServerInput{ServerID: id})
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(out.Server.Status, "CREATING") && !strings.EqualFold(out.Server.Status, "CREATING-BILLING") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("server %s is still %s after 15m", id, out.Server.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+// assertNoLiveServersOrVolumesRemain lists servers and volumes and fails
+// the test, logging only the counts, when either still holds an item named
+// with the "vngcloud-live-" prefix: the design's live-run cleanup must
+// leave nothing behind that keeps billing.
+func assertNoLiveServersOrVolumesRemain(ctx context.Context, t *testing.T, computeClient *compute.Client, volumeClient *volume.Client) {
+	t.Helper()
+	servers, err := computeClient.ListServers(ctx, nil)
+	if err != nil {
+		t.Errorf("final check: ListServers: %s", safeErr(err))
+		return
+	}
+	serverCount := 0
+	for _, s := range servers.Items {
+		if strings.HasPrefix(s.Name, "vngcloud-live-") && !strings.EqualFold(s.Status, "DELETED") {
+			serverCount++
+		}
+	}
+	volumes, err := volumeClient.ListVolumes(ctx, nil)
+	if err != nil {
+		t.Errorf("final check: ListVolumes: %s", safeErr(err))
+		return
+	}
+	volumeCount := 0
+	for _, v := range volumes.Items {
+		if strings.HasPrefix(v.Name, "vngcloud-live-") && !strings.EqualFold(v.Status, "DELETED") {
+			volumeCount++
+		}
+	}
+	t.Logf("final check: %d vngcloud-live server(s), %d vngcloud-live volume(s) remain", serverCount, volumeCount)
+	if serverCount > 0 || volumeCount > 0 {
+		t.Errorf("final check: %d server(s) and %d volume(s) named vngcloud-live-* still remain after cleanup", serverCount, volumeCount)
+	}
+}
+
+// TestLiveWritePaidServer is the design's L2 live run, gating the P3
+// release: compute.CreateServer, DeleteServer, StartServer, StopServer,
+// RebootServer, and RenameServer. It creates its own VPC, subnet, security
+// group, and SSH key as parents, orders one smallest server
+// (s2-general-1x2, 20 GB SSD root) at the quoted price, exercises every
+// lifecycle write on it, and deletes it along with its root volume.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends a real, billed
+// CreateServer order. It is gated by VNGCLOUD_LIVE_WRITE=1,
+// VNGCLOUD_LIVE_PAID_SERVER=1, and VNGCLOUD_LIVE_MAX_VND (this run's VND
+// cap); it quotes the server and refuses to order anything once the quote
+// exceeds the cap, before sending any write, and it then passes that same
+// quote as CreateServer's own MaxPrice. It runs only in hcm-3, since its
+// flavor name and zone id are specific to that region's catalog.
+func TestLiveWritePaidServer(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_SERVER") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_SERVER=1 to run the live paid server test; " +
+			"it orders a real, billed server and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMonitorMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: sweep leftovers from an earlier aborted run first.
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
+	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	// Step 2: create the parents: a VPC and subnet (the subnet only, in the VPC
+	// named by VNGCLOUD_LIVE_NETWORK_VPC_ID, when that is set), a security group
+	// with no ingress rule, and an imported throwaway RSA key.
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
+
+	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live paid server test"})
+	if err != nil {
+		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
+	}
+	groupID := group.SecurityGroup.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteSecurityGroup(cleanupCtx, &network.DeleteSecurityGroupInput{SecurityGroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSecurityGroup: %s", safeErr(err))
+		}
+	})
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatalf("step 2 generate rsa key: %v", err)
+	}
+	publicKey := sshRSAPublicKeyLine(&rsaKey.PublicKey, name)
+	sshKey, err := computeClient.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: name, PublicKey: publicKey})
+	if err != nil {
+		t.Fatalf("step 2 ImportSSHKey: %s", safeErr(err))
+	}
+	sshKeyID := sshKey.SSHKey.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := computeClient.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: sshKeyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSSHKey: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created VPC, subnet, security group, and SSH key")
+
+	// Step 3: find the smallest flavor and an Ubuntu image.
+	flavorZones, err := computeClient.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListFlavorZones: %s", safeErr(err))
+	}
+	var flavorID string
+	for _, fz := range flavorZones.Items {
+		flavors, err := computeClient.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
+		if err != nil {
+			t.Fatalf("step 3 ListFlavors: %s", safeErr(err))
+		}
+		for _, f := range flavors.Items {
+			if f.Name == "s2-general-1x2" {
+				flavorID = f.FlavorID
+			}
+		}
+	}
+	if flavorID == "" {
+		t.Fatal("step 3: flavor s2-general-1x2 not found")
+	}
+	images, err := computeClient.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListOSImages: %s", safeErr(err))
+	}
+	var imageID string
+	for _, img := range images.Items {
+		if strings.Contains(img.ImageVersion, "24.04") {
+			imageID = img.ID
+			break
+		}
+	}
+	if imageID == "" {
+		t.Fatal("step 3: Ubuntu 24.04 image not found")
+	}
+	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 GetDefaultVolumeType: %s", safeErr(err))
+	}
+	t.Logf("step 3: flavor %s, image %s, volume type %s", flavorID, imageID, volType.VolumeType.ID)
+
+	createInput := &compute.CreateServerInput{
+		Name: name, ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+		VPCID: vpcID, SubnetID: subnetID, SecurityGroupIDs: []string{groupID},
+		SSHKeyID: sshKeyID, RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+	}
+
+	// Step 4: quote first, and refuse to order once the quote alone exceeds
+	// this run's cap, before any write.
+	quote, err := computeClient.QuoteCreateServer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
+	}
+	t.Logf("step 4: quote %.0f VND a month", quote.OptimumPrice)
+	if quote.OptimumPrice > budgetCap {
+		t.Fatalf("step 4: quote %.0f VND exceeds this run's cap %.0f VND; ordering nothing", quote.OptimumPrice, budgetCap)
+	}
+
+	// Step 5: register cleanup by name before ordering, since a POST that
+	// fails ambiguously may still have reached the server.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
+		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
+	})
+
+	// Step 6: order at the quoted price.
+	createStart := time.Now()
+	createInput.MaxPrice = quote.OptimumPrice
+	created, err := computeClient.CreateServer(ctx, createInput)
+	if err != nil {
+		t.Fatalf("step 6 CreateServer: %s", safeErr(err))
+	}
+	t.Logf("step 6: settled after %s at status %s", time.Since(createStart), created.Server.Status)
+	if created.Server.Status != "ACTIVE" {
+		t.Fatalf("step 6: status = %s, want ACTIVE", created.Server.Status)
+	}
+	serverID := created.Server.UUID
+
+	// Step 7: stop, confirm STOPPED; stop again confirms Changed false and
+	// sends nothing.
+	stopStart := time.Now()
+	stopped, err := computeClient.StopServer(ctx, &compute.StopServerInput{ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 7 StopServer: %s", safeErr(err))
+	}
+	t.Logf("step 7: stopped after %s, status %s", time.Since(stopStart), stopped.Server.Status)
+	again, err := computeClient.StopServer(ctx, &compute.StopServerInput{ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 7 StopServer (repeat): %s", safeErr(err))
+	}
+	if again.Changed {
+		t.Fatal("step 7: repeat StopServer reported Changed true, want false")
+	}
+
+	// Step 8: start, confirm ACTIVE.
+	startStart := time.Now()
+	started, err := computeClient.StartServer(ctx, &compute.StartServerInput{ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 8 StartServer: %s", safeErr(err))
+	}
+	t.Logf("step 8: started after %s, status %s", time.Since(startStart), started.Server.Status)
+
+	// Step 9: reboot.
+	rebootStart := time.Now()
+	rebooted, err := computeClient.RebootServer(ctx, &compute.RebootServerInput{ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 9 RebootServer: %s", safeErr(err))
+	}
+	t.Logf("step 9: rebooted after %s, status %s", time.Since(rebootStart), rebooted.Server.Status)
+
+	// Step 10: rename.
+	renamed, err := computeClient.RenameServer(ctx, &compute.RenameServerInput{ServerID: serverID, Name: name + "-renamed"})
+	if err != nil {
+		t.Fatalf("step 10 RenameServer: %s", safeErr(err))
+	}
+	t.Logf("step 10: renamed to %s", renamed.Server.Name)
+
+	// Step 11: delete with DeleteVolumes false. The boot volume is always
+	// deleted with the server, so nothing is kept.
+	bootVolumeID := created.Server.BootVolumeID
+	deleteStart := time.Now()
+	deletedOut, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 11 DeleteServer: %s", safeErr(err))
+	}
+	t.Logf("step 11: delete settled after %s, kept volume(s): %v", time.Since(deleteStart), deletedOut.KeptVolumeIDs)
+	if _, err := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: serverID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 11: GetServer after delete = %s, want NotFound", safeErr(err))
+	}
+	if len(deletedOut.KeptVolumeIDs) != 0 {
+		t.Fatalf("step 11: KeptVolumeIDs = %v, want none: the boot volume goes with the server", deletedOut.KeptVolumeIDs)
+	}
+	if got, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: bootVolumeID}); err == nil {
+		if got.Volume.Status != "DELETED" {
+			t.Fatalf("step 11: boot volume %s status = %s after the server delete, want DELETED or NotFound", bootVolumeID, got.Volume.Status)
+		}
+	} else if !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 11: GetVolume(%s): %s", bootVolumeID, safeErr(err))
+	}
+	t.Log("step 11: confirmed the server is gone and its boot volume went with it")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
+}
+
+// TestLiveWritePaidAttach is the design's L2 live run's attach and detach
+// portion, gating the P4 release: volume.AttachVolume and DetachVolume. It
+// creates its own VPC, subnet, security group, SSH key, server, and
+// volume, attaches the volume, exercises the guards, detaches it, and
+// deletes everything.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends real, billed
+// CreateServer and CreateVolume orders. It is gated by
+// VNGCLOUD_LIVE_WRITE=1, VNGCLOUD_LIVE_PAID_ATTACH=1, and
+// VNGCLOUD_LIVE_MAX_VND (this run's VND cap, checked against both quotes
+// together before either order); it refuses to order anything once their
+// sum exceeds the cap. It runs only in hcm-3, since its flavor name and
+// zone id are specific to that region's catalog.
+func TestLiveWritePaidAttach(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_ATTACH") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_ATTACH=1 to run the live paid attach and detach test; " +
+			"it orders a real, billed server and volume and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMonitorMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
+	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
+	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live attach and detach test"})
+	if err != nil {
+		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
+	}
+	groupID := group.SecurityGroup.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteSecurityGroup(cleanupCtx, &network.DeleteSecurityGroupInput{SecurityGroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSecurityGroup: %s", safeErr(err))
+		}
+	})
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatalf("step 2 generate rsa key: %v", err)
+	}
+	sshKey, err := computeClient.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: name, PublicKey: sshRSAPublicKeyLine(&rsaKey.PublicKey, name)})
+	if err != nil {
+		t.Fatalf("step 2 ImportSSHKey: %s", safeErr(err))
+	}
+	sshKeyID := sshKey.SSHKey.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := computeClient.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: sshKeyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSSHKey: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created VPC, subnet, security group, and SSH key")
+
+	flavorZones, err := computeClient.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListFlavorZones: %s", safeErr(err))
+	}
+	var flavorID string
+	for _, fz := range flavorZones.Items {
+		flavors, err := computeClient.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
+		if err != nil {
+			t.Fatalf("step 3 ListFlavors: %s", safeErr(err))
+		}
+		for _, f := range flavors.Items {
+			if f.Name == "s2-general-1x2" {
+				flavorID = f.FlavorID
+			}
+		}
+	}
+	if flavorID == "" {
+		t.Fatal("step 3: flavor s2-general-1x2 not found")
+	}
+	images, err := computeClient.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListOSImages: %s", safeErr(err))
+	}
+	var imageID string
+	for _, img := range images.Items {
+		if strings.Contains(img.ImageVersion, "24.04") {
+			imageID = img.ID
+			break
+		}
+	}
+	if imageID == "" {
+		t.Fatal("step 3: Ubuntu 24.04 image not found")
+	}
+	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 GetDefaultVolumeType: %s", safeErr(err))
+	}
+
+	serverInput := &compute.CreateServerInput{
+		Name: name, ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+		VPCID: vpcID, SubnetID: subnetID, SecurityGroupIDs: []string{groupID},
+		SSHKeyID: sshKeyID, RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+	}
+	volumeInput := &volume.CreateVolumeInput{Name: name + "-data", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID}
+
+	// Step 4: quote both, and refuse to order either once their sum exceeds
+	// this run's cap, before any write.
+	serverQuote, err := computeClient.QuoteCreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
+	}
+	volumeQuote, err := volumeClient.QuoteCreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateVolume: %s", safeErr(err))
+	}
+	total := serverQuote.OptimumPrice + volumeQuote.OptimumPrice
+	t.Logf("step 4: server quote %.0f VND, volume quote %.0f VND, total %.0f VND", serverQuote.OptimumPrice, volumeQuote.OptimumPrice, total)
+	if total > budgetCap {
+		t.Fatalf("step 4: total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", total, budgetCap)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
+		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
+	})
+
+	// Step 5: order the server and the volume, each at its own quote.
+	serverInput.MaxPrice = serverQuote.OptimumPrice
+	server, err := computeClient.CreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateServer: %s", safeErr(err))
+	}
+	serverID := server.Server.UUID
+	t.Logf("step 5: server %s at status %s", serverID, server.Server.Status)
+
+	volumeInput.MaxPrice = volumeQuote.OptimumPrice
+	createdVolume, err := volumeClient.CreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
+	}
+	volumeID := createdVolume.Volume.UUID
+	t.Logf("step 5: volume %s at status %s", volumeID, createdVolume.Volume.Status)
+
+	// Step 6: attach, confirm IN-USE; attach again confirms Changed false.
+	attachStart := time.Now()
+	attached, err := volumeClient.AttachVolume(ctx, &volume.AttachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 6 AttachVolume: %s", safeErr(err))
+	}
+	t.Logf("step 6: attached after %s, status %s", time.Since(attachStart), attached.Volume.Status)
+	againAttached, err := volumeClient.AttachVolume(ctx, &volume.AttachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 6 AttachVolume (repeat): %s", safeErr(err))
+	}
+	if againAttached.Changed {
+		t.Fatal("step 6: repeat AttachVolume reported Changed true, want false")
+	}
+
+	// Step 7: guards. DetachVolume without AllowRunning on an ACTIVE server
+	// refuses; DetachVolume of the boot volume refuses even with
+	// AllowRunning; DeleteVolume on the attached volume refuses.
+	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID}); !errors.Is(err, volume.ErrServerRunning) {
+		t.Fatalf("step 7 DetachVolume (running, no AllowRunning) = %s, want ErrServerRunning", safeErr(err))
+	}
+	bootVolumeID := server.Server.BootVolumeID
+	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: bootVolumeID, ServerID: serverID, AllowRunning: true}); !errors.Is(err, volume.ErrBootVolume) {
+		t.Fatalf("step 7 DetachVolume (boot volume) = %s, want ErrBootVolume", safeErr(err))
+	}
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); !errors.Is(err, volume.ErrVolumeInUse) {
+		t.Fatalf("step 7 DeleteVolume (attached) = %s, want ErrVolumeInUse", safeErr(err))
+	}
+	t.Log("step 7: all three guards refused as expected")
+
+	// Step 8: stop the server, then detach.
+	if _, err := computeClient.StopServer(ctx, &compute.StopServerInput{ServerID: serverID}); err != nil {
+		t.Fatalf("step 8 StopServer: %s", safeErr(err))
+	}
+	detachStart := time.Now()
+	detached, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID})
+	if err != nil {
+		t.Fatalf("step 8 DetachVolume: %s", safeErr(err))
+	}
+	t.Logf("step 8: detached after %s, status %s", time.Since(detachStart), detached.Volume.Status)
+
+	// Step 9: delete the volume, then the server with DeleteVolumes true
+	// for its own root volume, and confirm both are gone.
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); err != nil {
+		t.Fatalf("step 9 DeleteVolume: %s", safeErr(err))
+	}
+	if _, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID, DeleteVolumes: true}); err != nil {
+		t.Fatalf("step 9 DeleteServer: %s", safeErr(err))
+	}
+	if _, err := volumeClient.GetVolume(ctx, &volume.GetVolumeInput{VolumeID: volumeID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 9: GetVolume after delete = %s, want NotFound", safeErr(err))
+	}
+	if _, err := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: serverID}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 9: GetServer after delete = %s, want NotFound", safeErr(err))
+	}
+	t.Log("step 9: confirmed the volume and the server are gone")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
+}
+
+// TestLiveWritePaidResize is the design's L3 live run, gating the P5
+// release: compute.QuoteResizeServer, ResizeServer, volume.QuoteResizeVolume,
+// and ResizeVolume. It creates its own VPC, subnet, security group, SSH
+// key, server, and data volume, resizes the data volume up by 10 GB while
+// attached, resizes the server to the next flavor size, then resizes the
+// server's own boot volume up by 10 GB, and deletes everything.
+//
+// This test must never run without the owner adding credit to the test
+// account and approving this specific run: it sends real, billed
+// CreateServer, CreateVolume, ResizeServer, and ResizeVolume writes. It is
+// gated by VNGCLOUD_LIVE_WRITE=1, VNGCLOUD_LIVE_PAID_RESIZE=1, and
+// VNGCLOUD_LIVE_MAX_VND (this run's VND cap, checked against every quote
+// together before any order or resize); it refuses to send anything once
+// their sum exceeds the cap. It runs only in hcm-3, since its flavor names
+// and zone id are specific to that region's catalog.
+func TestLiveWritePaidResize(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live paid vServer write tests")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_PAID_RESIZE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_PAID_RESIZE=1 to run the live paid resize test; " +
+			"it orders and resizes a real, billed server and volume and needs the owner's approval and credit on the test account")
+	}
+	budgetCap := liveMonitorMaxVND(t)
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	const region = "hcm-3"
+	const zoneID = "HCM03-1C" // the test account's only enabled zone
+	const biggerFlavorName = "s2-general-2x4"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	computeClient := compute.New(cfg)
+	volumeClient := volume.New(cfg)
+	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	sweptServers := deleteLiveServers(ctx, t, computeClient, volumeClient)
+	sweptVolumes := deleteLiveVolumes(ctx, t, volumeClient)
+	t.Logf("step 1: deleted %d leftover server(s), %d leftover volume(s)", sweptServers, sweptVolumes)
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 2 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
+	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live resize test"})
+	if err != nil {
+		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
+	}
+	groupID := group.SecurityGroup.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := networkClient.DeleteSecurityGroup(cleanupCtx, &network.DeleteSecurityGroupInput{SecurityGroupID: groupID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSecurityGroup: %s", safeErr(err))
+		}
+	})
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatalf("step 2 generate rsa key: %v", err)
+	}
+	sshKey, err := computeClient.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{Name: name, PublicKey: sshRSAPublicKeyLine(&rsaKey.PublicKey, name)})
+	if err != nil {
+		t.Fatalf("step 2 ImportSSHKey: %s", safeErr(err))
+	}
+	sshKeyID := sshKey.SSHKey.ID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := computeClient.DeleteSSHKey(cleanupCtx, &compute.DeleteSSHKeyInput{SSHKeyID: sshKeyID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: DeleteSSHKey: %s", safeErr(err))
+		}
+	})
+	t.Log("step 2: created VPC, subnet, security group, and SSH key")
+
+	flavorZones, err := computeClient.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListFlavorZones: %s", safeErr(err))
+	}
+	var smallFlavorID, bigFlavorID string
+	for _, fz := range flavorZones.Items {
+		flavors, err := computeClient.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
+		if err != nil {
+			t.Fatalf("step 3 ListFlavors: %s", safeErr(err))
+		}
+		for _, f := range flavors.Items {
+			switch f.Name {
+			case "s2-general-1x2":
+				smallFlavorID = f.FlavorID
+			case biggerFlavorName:
+				bigFlavorID = f.FlavorID
+			}
+		}
+	}
+	if smallFlavorID == "" || bigFlavorID == "" {
+		t.Fatal("step 3: flavor s2-general-1x2 or " + biggerFlavorName + " not found")
+	}
+	images, err := computeClient.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 ListOSImages: %s", safeErr(err))
+	}
+	var imageID string
+	for _, img := range images.Items {
+		if strings.Contains(img.ImageVersion, "24.04") {
+			imageID = img.ID
+			break
+		}
+	}
+	if imageID == "" {
+		t.Fatal("step 3: Ubuntu 24.04 image not found")
+	}
+	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+	if err != nil {
+		t.Fatalf("step 3 GetDefaultVolumeType: %s", safeErr(err))
+	}
+
+	serverInput := &compute.CreateServerInput{
+		Name: name, ZoneID: zoneID, FlavorID: smallFlavorID, ImageID: imageID,
+		VPCID: vpcID, SubnetID: subnetID, SecurityGroupIDs: []string{groupID},
+		SSHKeyID: sshKeyID, RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+	}
+	volumeInput := &volume.CreateVolumeInput{Name: name + "-data", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID}
+
+	// Step 4: quote the create writes, and refuse to order anything once
+	// their sum exceeds this run's cap, before any write. spent tracks the
+	// running total of every quote accepted so far in this run: each later
+	// step checks spent plus its own quote against budgetCap, not the quote
+	// alone, since checking each quote against the full cap in isolation
+	// would let the run's total spend exceed it even though no single quote
+	// did.
+	var spent float64
+	serverQuote, err := computeClient.QuoteCreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
+	}
+	volumeQuote, err := volumeClient.QuoteCreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 4 QuoteCreateVolume: %s", safeErr(err))
+	}
+	if createTotal := serverQuote.OptimumPrice + volumeQuote.OptimumPrice; spent+createTotal > budgetCap {
+		t.Fatalf("step 4: create total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", createTotal, budgetCap)
+	} else {
+		spent += createTotal
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		swept := deleteLiveServers(cleanupCtx, t, computeClient, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live server(s)", swept)
+		swept = deleteLiveVolumes(cleanupCtx, t, volumeClient)
+		t.Logf("cleanup: deleted %d vngcloud-live volume(s)", swept)
+		assertNoLiveServersOrVolumesRemain(cleanupCtx, t, computeClient, volumeClient)
+	})
+
+	// Step 5: order the server and the data volume, attach the volume.
+	serverInput.MaxPrice = serverQuote.OptimumPrice
+	server, err := computeClient.CreateServer(ctx, serverInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateServer: %s", safeErr(err))
+	}
+	serverID := server.Server.UUID
+	bootVolumeID := server.Server.BootVolumeID
+	t.Logf("step 5: server %s at status %s, boot volume %s", serverID, server.Server.Status, bootVolumeID)
+
+	volumeInput.MaxPrice = volumeQuote.OptimumPrice
+	createdVolume, err := volumeClient.CreateVolume(ctx, volumeInput)
+	if err != nil {
+		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
+	}
+	volumeID := createdVolume.Volume.UUID
+
+	if _, err := volumeClient.AttachVolume(ctx, &volume.AttachVolumeInput{VolumeID: volumeID, ServerID: serverID}); err != nil {
+		t.Fatalf("step 5 AttachVolume: %s", safeErr(err))
+	}
+	t.Logf("step 5: attached data volume %s", volumeID)
+
+	// Step 6: resize the data volume up by 10 GB while attached, at its own
+	// quote.
+	dataResizeQuote, err := volumeClient.QuoteResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 20})
+	if err != nil {
+		t.Fatalf("step 6 QuoteResizeVolume: %s", safeErr(err))
+	}
+	if spent+dataResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 6: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, dataResizeQuote.OptimumPrice, budgetCap)
+	}
+	spent += dataResizeQuote.OptimumPrice
+	resizedData, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 20, MaxPrice: dataResizeQuote.OptimumPrice})
+	if err != nil {
+		t.Fatalf("step 6 ResizeVolume (data): %s", safeErr(err))
+	}
+	t.Logf("step 6: data volume resized to %d GB, status %s", resizedData.Volume.Size, resizedData.Volume.Status)
+	if _, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 10}); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("step 6: shrink ResizeVolume error = %s, want ErrInvalidInput", safeErr(err))
+	}
+
+	// Step 7: resize the server to the next flavor size, at its own quote.
+	serverResizeQuote, err := computeClient.QuoteResizeServer(ctx, &compute.ResizeServerInput{ServerID: serverID, FlavorID: bigFlavorID})
+	if err != nil {
+		t.Fatalf("step 7 QuoteResizeServer: %s", safeErr(err))
+	}
+	if spent+serverResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 7: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, serverResizeQuote.OptimumPrice, budgetCap)
+	}
+	spent += serverResizeQuote.OptimumPrice
+	resizedServer, err := computeClient.ResizeServer(ctx, &compute.ResizeServerInput{ServerID: serverID, FlavorID: bigFlavorID, MaxPrice: serverResizeQuote.OptimumPrice})
+	if err != nil {
+		t.Fatalf("step 7 ResizeServer: %s", safeErr(err))
+	}
+	t.Logf("step 7: server resized to flavor %s, ended at status %s", resizedServer.Server.Flavor.FlavorID, resizedServer.Server.Status)
+
+	// Step 8: resize the boot volume from 20 GB to 30 GB, at its own quote.
+	bootResizeQuote, err := volumeClient.QuoteResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: bootVolumeID, Size: 30})
+	if err != nil {
+		t.Fatalf("step 8 QuoteResizeVolume (boot): %s", safeErr(err))
+	}
+	// This is the run's last quoted spend, so nothing reads spent again
+	// after this check; an assignment here would be dead.
+	if spent+bootResizeQuote.OptimumPrice > budgetCap {
+		t.Fatalf("step 8: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, bootResizeQuote.OptimumPrice, budgetCap)
+	}
+	resizedBoot, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: bootVolumeID, Size: 30, MaxPrice: bootResizeQuote.OptimumPrice})
+	if err != nil {
+		t.Fatalf("step 8 ResizeVolume (boot): %s", safeErr(err))
+	}
+	t.Logf("step 8: boot volume resized to %d GB", resizedBoot.Volume.Size)
+
+	// Step 9: clean up explicitly; the fallback t.Cleanup above sweeps
+	// anything this misses.
+	if _, err := volumeClient.DetachVolume(ctx, &volume.DetachVolumeInput{VolumeID: volumeID, ServerID: serverID, AllowRunning: true}); err != nil {
+		t.Fatalf("step 9 DetachVolume: %s", safeErr(err))
+	}
+	if _, err := volumeClient.DeleteVolume(ctx, &volume.DeleteVolumeInput{VolumeID: volumeID}); err != nil {
+		t.Fatalf("step 9 DeleteVolume: %s", safeErr(err))
+	}
+	if _, err := computeClient.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: serverID, DeleteVolumes: true}); err != nil {
+		t.Fatalf("step 9 DeleteServer: %s", safeErr(err))
+	}
+	t.Log("step 9: deleted the data volume and the server with its boot volume")
+
+	assertNoLiveServersOrVolumesRemain(ctx, t, computeClient, volumeClient)
 }
 
 // listAllLogAlarmsPageCap bounds listAllLogAlarms' page walk, the same rule

@@ -6,7 +6,8 @@
       "address": "<ip>",
       "protocolPort": 80,
       "weight": 1,
-      "displayStatus": "ACTIVE"
+      "displayStatus": "ACTIVE",
+      "progressStatus": "CREATED"
     }
   ]
 }

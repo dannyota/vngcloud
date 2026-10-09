@@ -228,6 +228,15 @@ prices, such as user data; all three ignore the Input's `MaxPrice` and
 `NoWait` fields, which govern only the write itself once it orders
 something.
 
+`computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
+a flavor change or a grow the same way, from `compute.ResizeServerInput`
+and `volume.ResizeVolumeInput`. A resize quote is the new configuration's
+price for the rest of the current period, prorated to the minute, not the
+difference from the old one. `QuoteResizeVolume` reads the volume fresh
+on every call to learn its current size and type, independently of
+`ResizeVolume`'s own read, the same way `QuoteCreateLogProject` always
+rereads its own class list rather than sharing a read with its create.
+
 `lbClient.QuoteResizeLoadBalancer` prices a change to a resource that
 already exists, rather than a create: it takes a
 `loadbalancer.ResizeLoadBalancerInput` (`LoadBalancerID` and the new
@@ -237,7 +246,11 @@ server's own error unchanged, since the price guard checks input shape, not
 that the resource exists.
 
 A paid write refuses to order above its own `MaxPrice` (VND a month, default
-0), with an error wrapping `vngcloud.ErrPriceAboveMax`:
+0), with an error wrapping `vngcloud.ErrPriceAboveMax`. The load balancer
+writes also refuse a create quote of 0 or less, or a resize quote of
+exactly 0 (a negative resize quote is a refund and passes), whatever
+`MaxPrice` is, with an error wrapping `vngcloud.ErrUnpriced`: nothing in
+vLB is free, so such a quote means the gateway could not price the input.
 
 ```go
 if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.ErrPriceAboveMax) {
@@ -247,3 +260,33 @@ if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.Er
 
 `monitor.ErrPriceAboveMax` is the same value as `vngcloud.ErrPriceAboveMax`,
 so code written against either name still works.
+
+## vServer prices
+
+vServer has no hourly rate: a quote is VND a month, and a prepaid account
+pays one month at once from its credit wallet when a server or volume is
+created. A delete refunds the unused value, counted to the minute. Prices
+are public list prices and can change; a `Quote...` call always returns the
+account's current price, so treat this table as a rough guide, not a
+guarantee:
+
+| Item | Monthly (VND) |
+|-|-|
+| Server, 1 vCPU, 2 GB, 20 GB SSD root | ~347,800 |
+| Server, 2 vCPU, 4 GB, 20 GB SSD root | ~631,600 |
+| SSD volume | ~3,200 a GB |
+| Volume, 10 GB SSD | ~32,000 |
+
+Every paid create or resize in `compute` and `volume` refuses to send a
+write priced above its own `MaxPrice`, which defaults to 0: setting
+`MaxPrice` is the caller's explicit consent to pay up to that amount, the
+role the CLI's `--max-price` flag plays for the matching command. A quote
+of 0 is refused with `vngcloud.ErrUnpriced`: nothing in vServer is free, so
+the gateway could not price the input. A
+destructive write, such as deleting a server or a volume, needs no price
+consent, since it does not order anything; the CLI instead requires its
+`--yes` flag there, since a delete cannot be undone.
+
+If a server or volume is managed by OpenTofu or Terraform, a write made
+through the SDK drifts from that state; keep such a resource's writes in
+its own tool.

@@ -12,11 +12,18 @@ required, returns `vngcloud.ErrInvalidInput` before any request.
 `billing` and `pricing` cover writes too: budgets can be created, changed,
 paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
 `dns` covers hosted zone and record writes too: zones and records can be
-created, changed, and deleted. See [DNS](DNS.md). `network` covers
+created, changed, and deleted. See [DNS](DNS.md). `loadbalancer` covers
+load balancer writes too: a load balancer can be created, resized, and
+deleted, with its pools, members, listeners, and L7 policies. See
+[Load Balancer](LoadBalancer.md). `network` covers
 security group and rule writes too: groups and rules can be created,
 changed, and deleted. See [Network](Network.md). `compute` covers SSH key
-writes too: a key can be imported, created, or deleted. See
-[Compute](Compute.md). `containerregistry` covers repository and repository
+writes too: a key can be imported, created, or deleted (see
+[Compute](Compute.md)), and paid server writes: a server can be created,
+started, stopped, rebooted, renamed, resized, and deleted (see
+[Compute Servers](Compute-Servers.md)). `volume` covers paid volume
+writes: a volume can be created, deleted, attached, detached, and resized.
+See [Volume](Volume.md). `containerregistry` covers repository and repository
 user writes too: a repository or a user can be created and deleted. See
 [Container Registry](Container-Registry.md). `iam` covers IAM reads,
 service account writes, policy writes, and group writes: a service account
@@ -34,10 +41,10 @@ tags on any resource type. See [Tagging](Tagging.md).
 |---|---|---|---|---|
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
-| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes. |
-| Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types | Typed | Includes a convenience method for walking snapshots. |
+| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |
+| Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types, plus volume create and delete | Typed | Includes a convenience method for walking snapshots; see [Volume](Volume.md) for writes. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
-| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates plus certificate writes and create/resize price quotes | Typed | Requires IAM User permissions for the target load balancer resources. |
+| Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates, plus certificate writes, create/resize price quotes, and load balancer, pool, listener, and policy writes | Typed | Requires IAM User permissions for the target load balancer resources; see [Load Balancer](LoadBalancer.md) for writes, the price guard, and waits. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](Container-Registry.md) for writes, waits, and secret handling. |
@@ -94,6 +101,9 @@ extra API calls.
 
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
 `vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
+Server writes (`CreateServer`, `DeleteServer`, `StartServer`,
+`StopServer`, `RebootServer`, `RenameServer`, `ResizeServer`) and their
+price guard are on [Compute Servers](Compute-Servers.md).
 
 `ListFlavorZones` filters the API's full flavor zone list to `Input.ZoneID`
 itself; leave it unset to list every flavor zone. `QuoteCreateServer` prices
@@ -117,6 +127,10 @@ volumeClient.ListSnapshots(ctx, in)        // VolumeID (required), Page, Size
 volumeClient.ListAllSnapshots(ctx, nil)
 volumeClient.QuoteCreateVolume(ctx, in)    // *volume.CreateVolumeInput
 ```
+
+Volume writes (`CreateVolume`, `DeleteVolume`, `AttachVolume`,
+`DetachVolume`, `ResizeVolume`) and their price guard, waits, and errors
+are on the [Volume](Volume.md) page.
 
 `ProjectID` is optional in `Config`. Volume methods discover the project for
 the configured region when needed.
@@ -231,6 +245,11 @@ by name as the way to check what happened.
 `DeleteCertificate` reads the certificate first and returns
 `loadbalancer.ErrCertificateInUse`, sending nothing, when a listener still
 uses it.
+
+`loadbalancer` also creates, resizes, and deletes load balancers, and
+creates, updates, and deletes their pools (with health monitors and
+members), listeners, and L7 policies; see [Load Balancer](LoadBalancer.md)
+for the price guard, busy handling, waits, and errors.
 
 Global Load Balancer APIs are in `globalloadbalancer`.
 

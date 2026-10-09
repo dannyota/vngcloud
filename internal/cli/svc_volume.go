@@ -41,6 +41,25 @@ var volumeOps = []Op[volume.Client]{
 	Read[volume.Client, volume.CreateVolumeInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateVolume"), (*volume.Client).QuoteCreateVolume,
 		NoFlag("MaxPrice", "NoWait")),
+	// CreateVolume is Write but not Destructive: per the paid writes design,
+	// --max-price is its own consent, and the default of 0 already orders
+	// nothing since the quote guard refuses any priced order above it.
+	Write[volume.Client, volume.CreateVolumeInput, volume.CreateVolumeOutput](
+		kebab("CreateVolume"), (*volume.Client).CreateVolume),
+	Write[volume.Client, volume.DeleteVolumeInput, volume.DeleteVolumeOutput](
+		kebab("DeleteVolume"), (*volume.Client).DeleteVolume, Destructive()),
+	Write[volume.Client, volume.AttachVolumeInput, volume.AttachVolumeOutput](
+		kebab("AttachVolume"), (*volume.Client).AttachVolume),
+	Write[volume.Client, volume.DetachVolumeInput, volume.DetachVolumeOutput](
+		kebab("DetachVolume"), (*volume.Client).DetachVolume, Destructive()),
+	Read[volume.Client, volume.ResizeVolumeInput, pricing.GetQuoteOutput](
+		kebab("QuoteResizeVolume"), (*volume.Client).QuoteResizeVolume,
+		NoFlag("MaxPrice", "NoWait")),
+	// ResizeVolume is Destructive per the paid writes design's --yes table,
+	// unlike CreateVolume: a resize can grow a volume's cost with no
+	// duplicate-name guard to make a mistaken rerun safe.
+	Write[volume.Client, volume.ResizeVolumeInput, volume.ResizeVolumeOutput](
+		kebab("ResizeVolume"), (*volume.Client).ResizeVolume, Destructive()),
 }
 
 func newVolumeCmd(e *env) *cobra.Command {

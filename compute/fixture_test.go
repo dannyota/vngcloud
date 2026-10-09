@@ -46,3 +46,49 @@ func TestSanitizedServerInstanceFixture(t *testing.T) {
 		}
 	}
 }
+
+// TestSanitizedCreateServerFixtureNotLive decodes create_server.json, built
+// from the API reference rather than a live capture (no live run has
+// priced or ordered a server yet).
+func TestSanitizedCreateServerFixtureNotLive(t *testing.T) {
+	data, err := os.ReadFile("../testdata/compute/create_server.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp createServerResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Data.UUID != "server-1" {
+		t.Fatalf("UUID = %q, want server-1", resp.Data.UUID)
+	}
+}
+
+// TestSanitizedServerStatusesFixtureNotLive decodes server_statuses.json,
+// one Server per status in the design's status table, built from the
+// reference rather than a live capture.
+func TestSanitizedServerStatusesFixtureNotLive(t *testing.T) {
+	data, err := os.ReadFile("../testdata/compute/server_statuses.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var servers []Server
+	if err := json.Unmarshal(data, &servers); err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses := []string{
+		"CREATING", "CREATING-BILLING", "ACTIVE", "ERROR", "TURNING-OFF",
+		"STOPPED", "STARTING", "REBOOTING", "CHANGING-FLAVOR", "VERIFYING-FLAVOR", "DELETING",
+	}
+	if len(servers) != len(wantStatuses) {
+		t.Fatalf("got %d servers, want %d", len(servers), len(wantStatuses))
+	}
+	for i, want := range wantStatuses {
+		if servers[i].UUID != "server-1" {
+			t.Fatalf("servers[%d].UUID = %q, want server-1", i, servers[i].UUID)
+		}
+		if servers[i].Status != want {
+			t.Fatalf("servers[%d].Status = %q, want %q", i, servers[i].Status, want)
+		}
+	}
+}

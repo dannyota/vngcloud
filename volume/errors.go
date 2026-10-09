@@ -1,0 +1,49 @@
+package volume
+
+import (
+	"errors"
+
+	"danny.vn/vngcloud/internal/core"
+)
+
+// is4xxAPIError reports whether err is a *core.APIError whose StatusCode is
+// 4xx, meaning the server rejected the request outright and never acted on
+// it.
+func is4xxAPIError(err error) bool {
+	var apiErr *core.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
+}
+
+var (
+	// ErrNotSettled means a write's post-write wait did not confirm the
+	// resource reached its target state before the bound ran out, or a
+	// read or a sleep in that wait failed, such as from a canceled ctx. A
+	// create must not be repeated once this is returned for it, since the
+	// resource exists; every other write that returns it reads first and is
+	// safe to run again.
+	ErrNotSettled = errors.New("volume: write accepted but not settled")
+
+	// ErrFailed means a wait observed the resource reach ERROR.
+	ErrFailed = errors.New("volume: resource reached ERROR")
+
+	// ErrVolumeInUse means a write was refused because a pre-write read
+	// showed the volume attached to a server: DeleteVolume when the volume
+	// is IN-USE or lists a server, or the server's own refusal for the same
+	// reason. In the first case nothing was sent; in the second, the
+	// request reached the server.
+	ErrVolumeInUse = errors.New("volume: volume in use")
+
+	// ErrBootVolume means DetachVolume was refused because the volume is
+	// the target server's boot volume. Nothing was sent.
+	ErrBootVolume = errors.New("volume: cannot detach the boot volume")
+
+	// ErrServerRunning means DetachVolume was refused because the target
+	// server is ACTIVE and Input.AllowRunning was not set: the volume may
+	// be mounted, and detaching it under a mounted filesystem can lose
+	// unwritten data. Nothing was sent.
+	ErrServerRunning = errors.New("volume: server is running")
+
+	// ErrUnexpectedStatus means ResizeVolume read a volume Status other
+	// than AVAILABLE or IN-USE. Nothing was sent.
+	ErrUnexpectedStatus = errors.New("volume: unexpected status")
+)

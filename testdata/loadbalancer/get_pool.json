@@ -5,12 +5,14 @@
     "protocol": "HTTP",
     "loadBalanceMethod": "ROUND_ROBIN",
     "displayStatus": "ACTIVE",
+    "progressStatus": "CREATED",
     "members": [
       {
         "uuid": "member-1",
         "poolId": "pool-1",
         "address": "<ip>",
-        "protocolPort": 80
+        "protocolPort": 80,
+        "progressStatus": "CREATED"
       }
     ]
   }

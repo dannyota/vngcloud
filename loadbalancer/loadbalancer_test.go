@@ -2,13 +2,21 @@ package loadbalancer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 func TestLoadBalancerListLoadBalancers(t *testing.T) {
@@ -28,6 +36,26 @@ func TestLoadBalancerListLoadBalancers(t *testing.T) {
 	}
 	if len(out.Items) != 1 || out.Items[0].UUID != "lb-1" || len(out.Items[0].Nodes) != 1 {
 		t.Fatalf("unexpected load balancers: %+v", out)
+	}
+	if out.Items[0].ZoneID != "zone-a" {
+		t.Fatalf("ZoneID = %q, want zone-a from the zone object", out.Items[0].ZoneID)
+	}
+}
+
+func TestLoadBalancerZoneDecode(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"zone object", `{"uuid":"lb-1","zone":{"uuid":"zone-a"}}`, "zone-a"},
+		{"flat zoneId", `{"uuid":"lb-1","zoneId":"zone-b"}`, "zone-b"},
+		{"zone object wins", `{"uuid":"lb-1","zoneId":"zone-b","zone":{"uuid":"zone-a"}}`, "zone-a"},
+		{"no zone", `{"uuid":"lb-1"}`, ""},
+	} {
+		var lb LoadBalancer
+		if err := json.Unmarshal([]byte(tc.body), &lb); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if lb.ZoneID != tc.want || lb.UUID != "lb-1" {
+			t.Errorf("%s: ZoneID = %q, UUID = %q, want %q", tc.name, lb.ZoneID, lb.UUID, tc.want)
+		}
 	}
 }
 
@@ -97,7 +125,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_load_balancer.json"),
 			call: func(c *Client) error {
 				out, err := c.GetLoadBalancer(context.Background(), &GetLoadBalancerInput{LoadBalancerID: "lb-1"})
-				if err == nil && out.LoadBalancer.UUID != "lb-1" {
+				if err == nil && (out.LoadBalancer.UUID != "lb-1" || out.LoadBalancer.ProgressStatus != lbStatusCreated || out.LoadBalancer.ZoneID != "zone-a") {
 					t.Fatalf("unexpected load balancer: %+v", out.LoadBalancer)
 				}
 				return err
@@ -121,7 +149,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_listener.json"),
 			call: func(c *Client) error {
 				out, err := c.GetListener(context.Background(), &GetListenerInput{LoadBalancerID: "lb-1", ListenerID: "listener-1"})
-				if err == nil && out.Listener.UUID != "listener-1" {
+				if err == nil && (out.Listener.UUID != "listener-1" || out.Listener.ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected listener: %+v", out.Listener)
 				}
 				return err
@@ -145,7 +173,8 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_pool.json"),
 			call: func(c *Client) error {
 				out, err := c.GetPool(context.Background(), &GetPoolInput{LoadBalancerID: "lb-1", PoolID: "pool-1"})
-				if err == nil && (out.Pool.UUID != "pool-1" || len(out.Pool.Members) != 1) {
+				if err == nil && (out.Pool.UUID != "pool-1" || len(out.Pool.Members) != 1 ||
+					out.Pool.ProgressStatus != lbStatusCreated || out.Pool.Members[0].ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected pool: %+v", out.Pool)
 				}
 				return err
@@ -169,7 +198,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/list_pool_members.json"),
 			call: func(c *Client) error {
 				out, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: "lb-1", PoolID: "pool-1"})
-				if err == nil && (len(out.Items) != 1 || out.Items[0].UUID != "member-1") {
+				if err == nil && (len(out.Items) != 1 || out.Items[0].UUID != "member-1" || out.Items[0].ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected members: %+v", out)
 				}
 				return err
@@ -193,7 +222,7 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/loadbalancer/get_policy.json"),
 			call: func(c *Client) error {
 				out, err := c.GetPolicy(context.Background(), &GetPolicyInput{LoadBalancerID: "lb-1", ListenerID: "listener-1", PolicyID: "policy-1"})
-				if err == nil && (out.Policy.UUID != "<policy-id>" || len(out.Policy.L7Rules) != 1) {
+				if err == nil && (out.Policy.UUID != "<policy-id>" || len(out.Policy.L7Rules) != 1 || out.Policy.ProgressStatus != lbStatusCreated) {
 					t.Fatalf("unexpected policy: %+v", out.Policy)
 				}
 				return err
@@ -240,6 +269,29 @@ func TestLoadBalancerNestedRoutes(t *testing.T) {
 	}
 }
 
+// TestListPoolMembersRefusesNullOrMissingData checks that a list response
+// with a null or missing data key is refused, rather than decoded as an
+// empty list: a caller doing a members read-merge write must never mistake
+// "the server sent no data" for "this pool has no members".
+func TestListPoolMembersRefusesNullOrMissingData(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"null data", `{"data":null}`},
+		{"missing data", `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			if _, err := c.ListPoolMembers(context.Background(), &ListPoolMembersInput{LoadBalancerID: "lb-1", PoolID: "pool-1"}); err == nil {
+				t.Fatal("ListPoolMembers() error = nil, want an error for a null or missing data key")
+			}
+		})
+	}
+}
+
 func TestLoadBalancerRequiredInput(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("no request expected")
@@ -264,6 +316,33 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	return New(testutil.NewConfig(t, handler))
+}
+
+// sequentialTokenSource hands out a new access token on every call, so a
+// newOnceTestClient can exercise the transport's real 401 invalidate-and-
+// refresh path, which only runs when a TokenSource is configured; the
+// zero-value TokenSource newTestClient leaves in place never triggers it.
+type sequentialTokenSource struct {
+	n atomic.Int64
+}
+
+func (s *sequentialTokenSource) Token(context.Context) (transport.Token, error) {
+	n := s.n.Add(1)
+	return transport.Token{AccessToken: fmt.Sprintf("token-%d", n), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (s *sequentialTokenSource) Invalidate(string) {}
+
+// newOnceTestClient builds a Client whose transport has a real TokenSource,
+// so a test can prove that Once keeps a write from being resent after a 401
+// that would otherwise be retried with a refreshed token.
+func newOnceTestClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &sequentialTokenSource{}})
+	cfg := core.NewTestConfig("hcm-3", "project-1", endpoints.Set{Region: "hcm-3", Portal: server.URL + "/", VLB: server.URL + "/"}, tc)
+	return New(cfg)
 }
 
 // TestLoadBalancerRejectsBadPathIDs checks that every read operation with an

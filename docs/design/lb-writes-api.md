@@ -83,26 +83,43 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - Pool create: `poolName`, `poolProtocol` (`HTTP`, `TCP`, `UDP`,
   `PROXY`), `algorithm` [`ROUND_ROBIN`] (or `LEAST_CONNECTIONS`,
   `SOURCE_IP`), `healthMonitor` (required), and optional `stickiness`,
-  `tlsEncryption` (Layer 7 only), and `members`.
+  `tlsEncryption` (Layer 7 only), and `members`. An `HTTP` pool must send
+  `stickiness`; omitting it is refused with 400 `Stickiness must be
+  specified for HTTP pools` (verified live on `hcm-3`). The SDK sends both
+  keys as `false` for an `HTTP` pool when unset. A Layer 7 load balancer
+  accepts only `HTTP` pools (a `TCP` pool is refused with 400 `Invalid
+  pool's protocol for Application load balancer. Valid values: [HTTP]`),
+  so `CreatePool` refuses any other protocol there before sending. The
+  accepted set on a Network load balancer is unverified and not guarded.
 - Health monitor: `healthCheckProtocol` (`TCP`, `HTTP`, `HTTPS`,
   `PING-UDP`), `healthyThreshold` [3] and `unhealthyThreshold` [3] (2 to
   10), `interval` [30] (5 to 3600 s), `timeout` [5] (2 to 120 s), and,
   for HTTP checks, `healthCheckPath`, `healthCheckMethod` (`GET`, `POST`,
   `PUT`), `successCode`, `httpVersion` (`1.0`, `1.1`), and `domainName`.
   VNG Cloud's SDK drops the HTTP fields for TCP and PING-UDP checks.
+  Live (2026-10-09, `hcm-3`): an `HTTP` check with `healthCheckPath`,
+  `httpVersion`, and `domainName` set but no method or success code is
+  refused with 400 `If healthCheckProtocol field is HTTP, following fields
+  must be specified: healthCheckPath, healthCheckMethod, successCode,
+  httpVersion`. The four are required; `domainName` is not.
 - Pool update: `algorithm` and `healthMonitor` (required), `stickiness`,
   `tlsEncryption`. The update monitor has no `healthCheckProtocol`, so a
   check's protocol is fixed at create.
 - Replace members: `members`, the whole list, each `ipAddress` (IPv4),
   `port`, `backup` (required), and optional `weight` [1], `name` (5 to 50
   of `a-z A-Z 0-9 _ - .`), and `monitorPort`. No member ID is sent.
+  Live (2026-10-09, `hcm-3`): `monitorPort` 0 is refused with 400
+  `members[0].monitorPort: Invalid port number. The value must be in range
+  from 1 to 65535.`, so a member sends its `port` when none is set.
 - Policy create: `name`, `action` (`REDIRECT_TO_POOL` or
   `REDIRECT_TO_URL`), `redirectPoolId` or `redirectUrl`,
   `redirectHttpCode` (301 or 302), `keepQueryString`, and `rules`, each
   `ruleType` (`PATH` or `HOST_NAME`), `compareType` (`CONTAINS`,
   `ENDS_WITH`, `EQUAL_TO`, `REGEX`, `STARTS_WITH`), and `ruleValue`.
   Policy update: the same without `name`; `action` is required and
-  `rules` is the whole list.
+  `rules` is the whole list. Live (2026-10-09, `hcm-3`): a create with no
+  rules is refused with 400 `Missing required rules property;`, so both
+  writes refuse an empty list before sending.
 
 ## Responses
 
@@ -115,8 +132,10 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - The listener read has no `blockedCidrs`, `defaultAction`,
   `alpnProtocols`, or `tlsSecurityPolicy`, and names the client
   certificate `clientCertificateAuthentication`, not `clientCertificate`.
-- VNG Cloud's SDK decodes a load balancer's zone as an object (`zone`
-  with `uuid`), while the model here has `zoneId`. The live read decides.
+- Live: a load balancer read and list send its zone as an object under
+  `zone` (`uuid`, `name`, `zoneType`, `isDefault`, `isEnabled`, and
+  counts), with no flat `zoneId`. The model's `ZoneID` is the zone's
+  `uuid`.
 - Live: `GetLoadBalancer`, `GetListener`, `GetPool`, and `ListPools` on a
   missing load balancer return 404 with `Cannot get load balancer with id
   <id>`. The transport already maps it to `NotFound`.
@@ -192,26 +211,40 @@ Live quotes for a create, `period` 1, on 2026-09-28, the same in all four
   1,200,000 for a small package.
 - Every package is `ACTIVE/STANDBY`. All 11 are offered in zones 1A, 1B,
   and 1C; the Bangkok zone `HCM03-BKK-01` lists 8.
+- Package IDs are zone-specific. `ListPackages` without a zone returns
+  zone `HCM03-1A`'s IDs, and `HCM03-1B` and `HCM03-1C` each have their
+  own, so the same package name has a different ID in each zone. A
+  create must use a package from its own `zoneId`.
+- A resize with another zone's package ID fails with 400 `Invalid
+  package id (lbp-...)`, after the quote and before any charge. List
+  packages with the load balancer's `zone` `uuid`.
 - A quote with an unknown or missing `packageId` returns 500 `Internal
   Server Error`, so the SDK checks `PackageID` before quoting.
 - A resize quote for a missing load balancer returns 400 `The resource is
-  not found.`: the server accepts the shape and checks the ID. A resize
-  quote on a real load balancer, and whether it prices the difference for
-  the rest of the month, is a live check.
+  not found.`: the server accepts the shape and checks the ID. Live: a
+  resize quote on a real load balancer prices the new package prorated for
+  the rest of the period, and is negative for a downsize.
 
 ## Server rules
 
 From the reference and the product pages on `docs.greennode.ai`:
 
 - The package is the main factor in the price. The console's order
-  carries a `period` in months and an auto-renew flag. Whether the create
-  charges a whole month at once, and whether a delete refunds any of it,
-  is a live check.
+  carries a `period` in months and an auto-renew flag. Live: a create charges
+  a month at once, and a delete refunds the unused value to the minute.
 - An `Internet` load balancer gets a public address; an `Internal` one
   answers only inside the VPC. The scheme cannot change after create.
 - The package's `lbType` (`L4` or `L7`) must match `type`. `Layer 7`
   offers HTTP and HTTPS listeners and policies; whether `Layer 4` offers
-  only TCP and UDP is a live check.
+  only TCP and UDP is a live check. Live (`hcm-3`): a TCP listener on a
+  `Layer 7` load balancer is refused with 400 `Invalid listener's
+  protocol for Application load balancer. Valid protocols are: [HTTP,
+  HTTPS]`, so `CreateListener` refuses it before sending.
+- Live (`hcm-3`): a `REDIRECT_TO_POOL` policy that sends `redirectUrl`,
+  `redirectHttpCode`, or `keepQueryString`, even at a zero value, is
+  refused with 400 `Cannot specify redirectUrl, redirectHttpCode, or
+  keepQueryString  for action REDIRECT_TO_POOL.`, so the SDK omits all
+  three for that action and `redirectPoolId` for `REDIRECT_TO_URL`.
 - Listener, pool, member, and policy names are 5 to 50 characters.
   Listener and pool names are unique within a load balancer, and a
   listener's protocol and port are unique too.

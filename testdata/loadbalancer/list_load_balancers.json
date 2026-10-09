@@ -20,7 +20,7 @@
       "backendSubnetId": "subnet-1",
       "internal": false,
       "autoScalable": true,
-      "zoneId": "zone-a",
+      "zone": {"uuid": "zone-a", "name": "<name>", "zoneType": "AVAILABILITY", "isDefault": true, "isEnabled": true},
       "minSize": 1,
       "maxSize": 2,
       "totalNodes": 1,
