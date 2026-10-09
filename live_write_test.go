@@ -9118,7 +9118,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 	name := "vngcloud-live-" + suffix
 
 	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
-	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live attach/detach test"})
+	group, err := networkClient.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: name, Description: "vngcloud live attach and detach test"})
 	if err != nil {
 		t.Fatalf("step 2 CreateSecurityGroup: %s", safeErr(err))
 	}
