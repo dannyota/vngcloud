@@ -22,6 +22,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -40,12 +41,16 @@ import (
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/iam"
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/envfile"
+	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
+	"danny.vn/vngcloud/tagging"
 )
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
@@ -318,8 +323,47 @@ func deleteBudgetByName(t *testing.T, client *billing.Client, name string) {
 	}
 }
 
-// safeErr summarizes err for a test log line without its message text, which
-// may name this test's own budget or threshold UUID.
+// sdkSentinelErrs lists the SDK's own hand-built sentinel errors: every one
+// of these is constructed in this codebase from an operation name plus IDs,
+// names, counts, or statuses already known to the caller (see each error's
+// own doc comment), and none is ever built by wrapping a raw transport
+// failure or an *vngcloud.APIError, whose Message field echoes server text
+// safeErr must not print. safeErr prints the full message of an error that
+// wraps one of these; every other error stays redacted.
+var sdkSentinelErrs = []error{
+	vngcloud.ErrInvalidInput,
+	network.ErrInUse,
+	network.ErrBusy,
+	network.ErrDefaultResource,
+	network.ErrFailed,
+	network.ErrNotSettled,
+	network.ErrSecurityGroupInUse,
+	network.ErrSystemGroup,
+	network.ErrUnexpectedStatus,
+	iam.ErrSelfChange,
+	iam.ErrPrivilegedChange,
+	iam.ErrNoSecret,
+	iam.ErrCreateUnconfirmed,
+	iam.ErrManagedPolicy,
+	iam.ErrInUse,
+	dns.ErrZoneBusy,
+	dns.ErrNotSettled,
+	dns.ErrFailed,
+	compute.ErrServerGroupInUse,
+	compute.ErrNotSettled,
+	containerregistry.ErrUserNotFound,
+	containerregistry.ErrRepositoryNotEmpty,
+	containerregistry.ErrNotSettled,
+	loadbalancer.ErrCertificateInUse,
+	monitor.ErrOTPRejected,
+	monitor.ErrUnexpectedStatus,
+	monitor.ErrStatusUnconfirmed,
+}
+
+// safeErr summarizes err for a test log line. A *vngcloud.APIError's own
+// Message may echo request data, so only its StatusCode and Code print. An
+// SDK sentinel may wrap IDs or addresses, so only its constant message
+// prints. Anything else prints only its Go type.
 func safeErr(err error) string {
 	if err == nil {
 		return "none"
@@ -328,7 +372,51 @@ func safeErr(err error) string {
 	if errors.As(err, &apiErr) {
 		return fmt.Sprintf("status=%d code=%s", apiErr.StatusCode, apiErr.Code)
 	}
+	for _, sentinel := range sdkSentinelErrs {
+		if errors.Is(err, sentinel) {
+			return sentinel.Error()
+		}
+	}
 	return fmt.Sprintf("non-API error (%T)", err)
+}
+
+// TestSafeErr checks that safeErr redacts API and sentinel detail.
+func TestSafeErr(t *testing.T) {
+	if got := safeErr(nil); got != "none" {
+		t.Errorf("safeErr(nil) = %q, want %q", got, "none")
+	}
+
+	apiErr := &vngcloud.APIError{Operation: "network.DeleteVirtualIPAddress", StatusCode: 400, Code: "InvalidUsage", Message: "vip-secret-name is not deletable"}
+	if got := safeErr(apiErr); got != "status=400 code=InvalidUsage" {
+		t.Errorf("safeErr(apiErr) = %q, want status=400 code=InvalidUsage", got)
+	}
+	if strings.Contains(safeErr(apiErr), apiErr.Message) {
+		t.Errorf("safeErr(apiErr) = %q, must not include the server message", safeErr(apiErr))
+	}
+
+	invalidInputErr := fmt.Errorf("%w: network.DeleteVirtualIPAddress: virtual IP vip-1 has type %q, not a private virtual IP; it must be deleted through the public virtual IP call instead", vngcloud.ErrInvalidInput, "public-vm")
+	if got := safeErr(invalidInputErr); got != vngcloud.ErrInvalidInput.Error() {
+		t.Errorf("safeErr(invalidInputErr) = %q, want %q", got, vngcloud.ErrInvalidInput.Error())
+	}
+	if strings.Contains(safeErr(invalidInputErr), "vip-1") || strings.Contains(safeErr(invalidInputErr), "public-vm") {
+		t.Errorf("safeErr(invalidInputErr) = %q, must not include virtual IP detail", safeErr(invalidInputErr))
+	}
+
+	inUseErr := fmt.Errorf("%w: virtual IP vip-1 at 10.0.0.10 has 2 address pairs", network.ErrInUse)
+	if got := safeErr(inUseErr); got != network.ErrInUse.Error() {
+		t.Errorf("safeErr(inUseErr) = %q, want %q", got, network.ErrInUse.Error())
+	}
+	if strings.Contains(safeErr(inUseErr), "vip-1") || strings.Contains(safeErr(inUseErr), "10.0.0.10") {
+		t.Errorf("safeErr(inUseErr) = %q, must not include virtual IP detail", safeErr(inUseErr))
+	}
+
+	transportErr := fmt.Errorf("Get \"https://example.invalid/v2/token=abc123\": dial tcp: connection refused")
+	if got := safeErr(transportErr); got != fmt.Sprintf("non-API error (%T)", transportErr) {
+		t.Errorf("safeErr(transportErr) = %q, want the redacted form", got)
+	}
+	if strings.Contains(safeErr(transportErr), "example.invalid") || strings.Contains(safeErr(transportErr), "abc123") {
+		t.Errorf("safeErr(transportErr) = %q, must not include the URL", safeErr(transportErr))
+	}
 }
 
 // emptyWriteFile creates an empty, mode-0600 file named name in a fresh temp
@@ -3318,11 +3406,59 @@ func TestLiveWriteServerGroup(t *testing.T) {
 
 // TestLiveWriteNetworkVPC creates: a VPC is one /16 from 10.0.0.0/8, and a
 // subnet is a /24 or /28 inside it.
-const (
-	liveVPCCIDR      = "10.250.0.0/16"
-	liveSubnet24CIDR = "10.250.1.0/24"
-	liveSubnet28CIDR = "10.250.2.0/28"
-)
+
+// pickFreeVPCCIDR scans /16 blocks from 10.250.0.0/16 down to 10.200.0.0/16
+// and returns the first that overlaps no VPC CIDR the project already
+// lists: GreenNode refuses CreateVPC with 400 BadRequest "VPC is overlap
+// with another." when the new VPC's CIDR overlaps any existing VPC in the
+// project, and the test account keeps a permanent VPC at a fixed /16 (see
+// useLiveVPCAndSubnet) that a hardcoded constant here would collide with.
+// The scan order is deterministic, so repeated runs favor the same free
+// block while other runs hold no VPC.
+func pickFreeVPCCIDR(ctx context.Context, client *network.Client) (string, error) {
+	existing, err := listAllVPCs(ctx, client)
+	if err != nil {
+		return "", fmt.Errorf("list VPCs: %w", err)
+	}
+	used := make([]netip.Prefix, 0, len(existing))
+	for _, v := range existing {
+		p, err := netip.ParsePrefix(v.CIDR)
+		if err != nil {
+			continue
+		}
+		used = append(used, p.Masked())
+	}
+
+	for second := 250; second >= 200; second-- {
+		candidate := netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(second), 0, 0}), 16).Masked()
+		free := true
+		for _, u := range used {
+			if candidate.Overlaps(u) {
+				free = false
+				break
+			}
+		}
+		if free {
+			return candidate.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no free /16 CIDR between 10.200.0.0/16 and 10.250.0.0/16, %d VPC(s) already used", len(used))
+}
+
+// vpcBlockCIDR returns the CIDR of the /24 block at index block (0-255)
+// inside vpcCIDR, a /16 under 10.0.0.0/8, masked to bits (24 or 28). Every
+// subnet a live VPC test creates comes from this, so the subnets always sit
+// inside whatever /16 pickFreeVPCCIDR chose rather than a fixed constant.
+func vpcBlockCIDR(vpcCIDR string, block byte, bits int) (string, error) {
+	prefix, err := netip.ParsePrefix(vpcCIDR)
+	if err != nil {
+		return "", fmt.Errorf("parse VPC CIDR %q: %w", vpcCIDR, err)
+	}
+	addr := prefix.Masked().Addr().As4()
+	addr[2] = block
+	addr[3] = 0
+	return netip.PrefixFrom(netip.AddrFrom4(addr), bits).String(), nil
+}
 
 // listAllVPCs pages through every VPC the account has, since a leftover
 // cleanup or a remaining-VPC check must not miss one that landed past the
@@ -3339,6 +3475,92 @@ func listAllVPCs(ctx context.Context, client *network.Client) ([]network.VPC, er
 			return all, nil
 		}
 	}
+}
+
+// vpcIDsHeldByNetworkACLs returns the set of VPC ids that some network ACL
+// belongs to, account-wide. A listed ACL's own NetworkID is confirmed live
+// to sometimes come back empty for an ACL that does belong to a VPC, so
+// this also reads every ACL's own detail with GetNetworkACL and checks its
+// VPCID. ok is false when the ACL listing, or any one read, fails other
+// than NotFound; the caller must then treat every VPC as held rather than
+// risk deleting one a network ACL still holds.
+func vpcIDsHeldByNetworkACLs(ctx context.Context, client *network.Client) (held map[string]bool, ok bool) {
+	acls, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		return nil, false
+	}
+	held = make(map[string]bool)
+	for _, acl := range acls {
+		if acl.NetworkID != "" {
+			held[acl.NetworkID] = true
+		}
+		detail, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: acl.UUID})
+		if err != nil {
+			if vngcloud.IsNotFound(err) {
+				continue
+			}
+			return nil, false
+		}
+		if detail.ACL.VPCID != "" {
+			held[detail.ACL.VPCID] = true
+		}
+	}
+	return held, true
+}
+
+// leftoverVPCsToDelete filters candidates, a leftover VPC sweep's own
+// name-matched VPCs, down to the ones safe to delete this run, in toDelete.
+// The account can hold a permanently stuck VPC: one a network ACL still
+// belongs to, or one with Private DNS on, whose delete always fails.
+// TestLiveWriteNetworkVPC enables Private DNS on its own VPC, behind
+// VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS, and neither case is ever true of a VPC
+// that test created past its own run: the ACL association and the Private
+// DNS enable both happen only on that run's own VPC, and its own cleanup
+// then tries to delete it regardless. So a candidate held or with Private
+// DNS on always marks a leftover from an earlier run that must be left
+// alone rather than fail the test on its delete; skippedIDs names every
+// such candidate, by UUID, for the caller to exclude from its own later
+// "did this run clean up after itself" check. When the network ACL check
+// itself fails, every candidate is skipped and logged, and skippedIDs holds
+// all of them, instead of risking a delete against a VPC a network ACL
+// still holds.
+func leftoverVPCsToDelete(ctx context.Context, t *testing.T, client *network.Client, candidates []network.VPC) (toDelete []network.VPC, skippedIDs map[string]bool) {
+	t.Helper()
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	held, ok := vpcIDsHeldByNetworkACLs(ctx, client)
+	if !ok {
+		t.Logf("step 1: could not list or read every network ACL; skipping all %d leftover VPC(s) this run", len(candidates))
+		skippedIDs = make(map[string]bool, len(candidates))
+		for _, vpc := range candidates {
+			skippedIDs[vpc.UUID] = true
+		}
+		return nil, skippedIDs
+	}
+	skippedIDs = make(map[string]bool)
+	aclHeld := 0
+	nonDisabledDNS := 0
+	for _, vpc := range candidates {
+		switch {
+		case held[vpc.UUID]:
+			aclHeld++
+			skippedIDs[vpc.UUID] = true
+		case vpc.DNSStatus != "DISABLED":
+			nonDisabledDNS++
+			t.Logf("step 1: skipping a leftover VPC: DNS status is %s, not DISABLED", vpc.DNSStatus)
+			skippedIDs[vpc.UUID] = true
+		default:
+			toDelete = append(toDelete, vpc)
+		}
+	}
+	if aclHeld > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) held by a network ACL", aclHeld)
+	}
+	if nonDisabledDNS > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) with Private DNS enabled", nonDisabledDNS)
+	}
+	return toDelete, skippedIDs
 }
 
 // pickEnabledZoneID returns the uuid of the first zone portal.ListZones
@@ -3368,8 +3590,23 @@ func pickEnabledZoneID(ctx context.Context, client *portal.Client) (string, erro
 // it never fails the test merely because the VPC or a subnet is already
 // gone, and it runs on its own context rather than the calling step's, so
 // it can still clean up after that step's context is the reason it failed.
-func deleteVPCAndSubnets(ctx context.Context, t *testing.T, client *network.Client, vpcID string) {
+//
+// blocked, when not nil, is checked once before anything else: a non-empty
+// return names a reason this call must delete nothing at all, neither a
+// subnet nor the VPC itself, and instead fail the test loudly, naming vpcID,
+// for manual cleanup. A caller whose own resource (such as a network ACL)
+// can still hold one of this VPC's subnets after its own cleanup passes a
+// blocked that reports so, since deleting a subnet still held that way is
+// what stranded a network ACL on a past live run. Every other caller passes
+// nil.
+func deleteVPCAndSubnets(ctx context.Context, t *testing.T, client *network.Client, vpcID string, blocked func() string) {
 	t.Helper()
+	if blocked != nil {
+		if reason := blocked(); reason != "" {
+			t.Errorf("delete VPC: not deleting VPC %s or its subnets: %s; clean it up manually", vpcID, reason)
+			return
+		}
+	}
 
 	subnets, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
 	switch {
@@ -3431,7 +3668,256 @@ func deleteVPCByName(t *testing.T, client *network.Client, name string) {
 		if v.Name != name {
 			continue
 		}
-		deleteVPCAndSubnets(ctx, t, client, v.UUID)
+		deleteVPCAndSubnets(ctx, t, client, v.UUID, nil)
+	}
+}
+
+// createLiveVPCAndSubnet creates a vngcloud-live-<8 hex> VPC and a /24
+// subnet in it, in the account's enabled zone, for a test whose own writes
+// must land on a VPC this same run created and never on any other: the
+// design requires this for every write that changes a whole VPC, such as a
+// main route table's routes, ACL association, or Private DNS. It registers
+// the VPC's t.Cleanup, deleting its subnets and then the VPC with the same
+// ErrInUse retry TestLiveWriteNetworkVPC's own cleanup uses, as soon as the
+// VPC's id is known, so a later failure in the calling test still cleans it
+// up.
+//
+// blocked is passed straight through to that registered deleteVPCAndSubnets
+// call; see its own doc comment. A caller with no other resource that could
+// still hold one of this VPC's subnets passes nil.
+//
+// When VNGCLOUD_LIVE_NETWORK_VPC_ID names a VPC, this reuses it instead:
+// see useLiveVPCAndSubnet. The account's VPC quota otherwise leaves no VPC
+// free for a second live-write test to run against.
+func createLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.Client, portalClient *portal.Client, blocked func() string) (vpcID, subnetID string) {
+	t.Helper()
+
+	if reuseID := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_NETWORK_VPC_ID")); reuseID != "" {
+		return useLiveVPCAndSubnet(ctx, t, client, portalClient, reuseID)
+	}
+
+	zoneID, err := pickEnabledZoneID(ctx, portalClient)
+	if err != nil {
+		t.Fatalf("pick enabled zone: %s", safeErr(err))
+	}
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate VPC name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, client)
+	if err != nil {
+		t.Fatalf("pick a free VPC CIDR: %s", err)
+	}
+
+	createdVPC, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: vpcCIDR})
+	if err != nil {
+		deleteVPCByName(t, client, name)
+		t.Fatalf("CreateVPC: %s", safeErr(err))
+	}
+	vpcID = createdVPC.VPC.UUID
+	if vpcID == "" {
+		deleteVPCByName(t, client, name)
+		t.Fatal("CreateVPC returned an empty id; the design requires one")
+	}
+	t.Logf("created VPC, status %s", createdVPC.VPC.Status)
+
+	// Registered as soon as vpcID is known, before the subnet create below,
+	// or anything the calling test does afterward, can fail and skip it.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		defer cancel()
+		deleteVPCAndSubnets(cleanupCtx, t, client, vpcID, blocked)
+	})
+
+	subnet24CIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("derive /24 subnet CIDR: %s", err)
+	}
+	createdSubnet, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: subnet24CIDR,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubnet: %s", safeErr(err))
+	}
+	subnetID = createdSubnet.Subnet.UUID
+	if subnetID == "" {
+		t.Fatal("CreateSubnet returned an empty id; the design requires one")
+	}
+	t.Logf("created /24 subnet, status %s", createdSubnet.Subnet.Status)
+	return vpcID, subnetID
+}
+
+// liveReuseVPCNamePattern is the exact name a VPC named by
+// VNGCLOUD_LIVE_NETWORK_VPC_ID must have before useLiveVPCAndSubnet ever
+// writes to it: the same shape every live network test's own VPC create
+// uses, so an unrelated VPC id pasted into that variable by mistake is
+// refused rather than silently written to.
+var liveReuseVPCNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+// useLiveVPCAndSubnet reads the VPC named by vpcID and creates a /24 subnet
+// of the test's own inside it, for a run where the account's VPC quota
+// holds no spare VPC to create: one VPC is a stuck vngcloud-live- VPC a
+// past run's network ACL could not delete (see
+// vserver-network-writes-checks.md), and the owner approved reusing its
+// VPC as a permanent live test fixture rather than leaving every network
+// write test unable to run at all.
+//
+// It refuses, before any write, a VPC whose name does not exactly match
+// liveReuseVPCNamePattern: VNGCLOUD_LIVE_NETWORK_VPC_ID must name one of
+// this suite's own throwaway VPCs, never one that holds real data. The
+// subnet's CIDR is chosen inside the VPC's own CIDR, avoiding every subnet
+// the VPC already has, since the reused VPC is not empty: it keeps
+// whatever subnets earlier runs left behind, including the one the stuck
+// ACL still associates.
+//
+// Cleanup deletes only the subnet this call creates, disassociating its
+// network ACL first if one still lists it (see deleteLiveSubnetOnly): it
+// never deletes the VPC itself. Deleting a subnet an ACL still holds is
+// what stranded the account's one undeletable ACL, and reusing this VPC
+// forever depends on never repeating that mistake.
+func useLiveVPCAndSubnet(ctx context.Context, t *testing.T, client *network.Client, portalClient *portal.Client, vpcID string) (string, string) {
+	t.Helper()
+
+	got, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("GetVPC %s (VNGCLOUD_LIVE_NETWORK_VPC_ID): %s", vpcID, safeErr(err))
+	}
+	if !liveReuseVPCNamePattern.MatchString(got.VPC.Name) {
+		t.Fatalf("VNGCLOUD_LIVE_NETWORK_VPC_ID names a VPC whose name does not match %s; refusing to write to it",
+			liveReuseVPCNamePattern.String())
+	}
+
+	zoneID, err := pickEnabledZoneID(ctx, portalClient)
+	if err != nil {
+		t.Fatalf("pick enabled zone: %s", safeErr(err))
+	}
+
+	existing, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("ListSubnetsByVPC %s: %s", vpcID, safeErr(err))
+	}
+	usedCIDRs := make([]string, 0, len(existing.Items))
+	for _, s := range existing.Items {
+		usedCIDRs = append(usedCIDRs, s.CIDR)
+	}
+	cidr, err := pickFreeSubnetCIDR(got.VPC.CIDR, usedCIDRs)
+	if err != nil {
+		t.Fatalf("pick a free /24 subnet in the reused VPC: %s", err)
+	}
+
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate subnet name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	createdSubnet, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
+		VPCID: vpcID, ZoneID: zoneID, Name: name, CIDR: cidr,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubnet: %s", safeErr(err))
+	}
+	subnetID := createdSubnet.Subnet.UUID
+	if subnetID == "" {
+		t.Fatal("CreateSubnet returned an empty id; the design requires one")
+	}
+	t.Logf("created /24 subnet in the reused VPC, status %s", createdSubnet.Subnet.Status)
+
+	// Registered as soon as subnetID is known. Unlike createLiveVPCAndSubnet,
+	// this never deletes vpcID: the VPC is a permanent fixture, not this
+	// run's own.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLiveSubnetOnly(cleanupCtx, t, client, vpcID, subnetID)
+	})
+
+	return vpcID, subnetID
+}
+
+// pickFreeSubnetCIDR returns a /24 prefix inside vpcCIDR that overlaps none
+// of usedCIDRs, for a reused VPC that already holds other subnets. It walks
+// every /24 block of vpcCIDR in order and returns the first that overlaps
+// nothing in usedCIDRs, so repeated runs against the same VPC pick the same
+// CIDR whenever the earlier run's subnet was cleaned up first.
+func pickFreeSubnetCIDR(vpcCIDR string, usedCIDRs []string) (string, error) {
+	vpcPrefix, err := netip.ParsePrefix(vpcCIDR)
+	if err != nil {
+		return "", fmt.Errorf("parse VPC CIDR %q: %w", vpcCIDR, err)
+	}
+	vpcPrefix = vpcPrefix.Masked()
+	if !vpcPrefix.Addr().Is4() {
+		return "", fmt.Errorf("VPC CIDR %q is not IPv4", vpcCIDR)
+	}
+	if vpcPrefix.Bits() > 24 {
+		return "", fmt.Errorf("VPC CIDR %q leaves no room for a /24 subnet", vpcCIDR)
+	}
+
+	used := make([]netip.Prefix, 0, len(usedCIDRs))
+	for _, c := range usedCIDRs {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			continue
+		}
+		used = append(used, p.Masked())
+	}
+
+	baseAddr := vpcPrefix.Addr().As4()
+	base := binary.BigEndian.Uint32(baseAddr[:])
+	blocks := uint32(1) << (24 - vpcPrefix.Bits())
+	for i := uint32(0); i < blocks; i++ {
+		var addr [4]byte
+		binary.BigEndian.PutUint32(addr[:], base+i<<8)
+		candidate := netip.PrefixFrom(netip.AddrFrom4(addr), 24)
+		free := true
+		for _, u := range used {
+			if candidate.Contains(u.Addr()) || u.Contains(candidate.Addr()) {
+				free = false
+				break
+			}
+		}
+		if free {
+			return candidate.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no free /24 subnet inside VPC CIDR %q, %d subnet(s) already used", vpcCIDR, len(used))
+}
+
+// deleteLiveSubnetOnly deletes subnetID from vpcID without ever touching
+// vpcID itself, for a subnet created inside a reused, permanent VPC (see
+// useLiveVPCAndSubnet). It disassociates the subnet's network ACL first,
+// when GetSubnet still shows one: deleting a subnet an ACL still holds is
+// what left the account with one network ACL a delete can never remove
+// (see vserver-network-writes-checks.md), and this must never repeat that
+// on the VPC this suite depends on for every future run.
+func deleteLiveSubnetOnly(ctx context.Context, t *testing.T, client *network.Client, vpcID, subnetID string) {
+	t.Helper()
+
+	subnet, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
+	switch {
+	case err == nil:
+		if aclID := subnet.Subnet.InterfaceACLPolicyUUID; aclID != "" {
+			if _, err := retryACLBusy(ctx, t, func() (*network.DisassociateNetworkACLSubnetOutput, error) {
+				return client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{
+					NetworkACLID: aclID, SubnetID: subnetID,
+				})
+			}); err != nil && !vngcloud.IsNotFound(err) {
+				t.Errorf("cleanup: disassociate reused-VPC subnet from its network ACL: %s", safeErr(err))
+			}
+		}
+	case vngcloud.IsNotFound(err):
+		return
+	default:
+		t.Errorf("cleanup: get reused-VPC subnet before delete: %s", safeErr(err))
+	}
+
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{
+		VPCID: vpcID, SubnetID: subnetID, NoWait: true,
+	}); err != nil && !vngcloud.IsNotFound(err) {
+		t.Errorf("cleanup: delete reused-VPC subnet: %s", safeErr(err))
 	}
 }
 
@@ -3500,17 +3986,24 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	client := network.New(cfg)
 	portalClient := portal.New(cfg)
 
-	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run.
+	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run,
+	// skipping one a network ACL still holds or with Private DNS on (see
+	// leftoverVPCsToDelete): the account can hold a permanently stuck VPC
+	// like that, and this test must not fail on its delete.
 	leftovers, err := listAllVPCs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
 	}
-	deletedLeftovers := 0
+	var candidates []network.VPC
 	for _, leftover := range leftovers {
-		if !isLiveSecurityGroupName(leftover.Name) {
-			continue
+		if isLiveSecurityGroupName(leftover.Name) {
+			candidates = append(candidates, leftover)
 		}
-		deleteVPCAndSubnets(ctx, t, client, leftover.UUID)
+	}
+	deletable, skippedVPCIDs := leftoverVPCsToDelete(ctx, t, client, candidates)
+	deletedLeftovers := 0
+	for _, leftover := range deletable {
+		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedLeftovers++
 	}
 	t.Logf("step 1: deleted %d leftover VPC(s)", deletedLeftovers)
@@ -3529,8 +4022,13 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	}
 	name := "vngcloud-live-" + suffix
 
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, client)
+	if err != nil {
+		t.Fatalf("step 3 pick a free VPC CIDR: %s", err)
+	}
+
 	start := time.Now()
-	created, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: liveVPCCIDR})
+	created, err := client.CreateVPC(ctx, &network.CreateVPCInput{Name: name, CIDR: vpcCIDR})
 	if err != nil {
 		deleteVPCByName(t, client, name)
 		t.Fatalf("step 3 CreateVPC: %s", safeErr(err))
@@ -3544,10 +4042,13 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 
 	// Step 4: register the fallback cleanup as soon as vpcID is known,
 	// before any later step can fail and skip the explicit deletes below.
+	// Its final count excludes skippedVPCIDs: a VPC step 1 left alone on
+	// purpose is not this run's to clean up, and must not fail every later
+	// run until someone deletes it by hand.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
-		deleteVPCAndSubnets(cleanupCtx, t, client, vpcID)
+		deleteVPCAndSubnets(cleanupCtx, t, client, vpcID, nil)
 		final, err := listAllVPCs(cleanupCtx, client)
 		if err != nil {
 			t.Errorf("cleanup: final ListVPCs: %s", safeErr(err))
@@ -3555,7 +4056,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 		}
 		remaining := 0
 		for _, v := range final {
-			if isLiveSecurityGroupName(v.Name) {
+			if isLiveSecurityGroupName(v.Name) && !skippedVPCIDs[v.UUID] {
 				remaining++
 			}
 		}
@@ -3582,9 +4083,22 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	t.Logf("step 5: renamed VPC twice, final status %s", sameName.VPC.Status)
 
 	// Step 6: create a /24 and a /28 subnet in the enabled zone.
+	subnet24CIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("step 6 derive /24 subnet CIDR: %s", err)
+	}
+	subnet28CIDR, err := vpcBlockCIDR(vpcCIDR, 2, 28)
+	if err != nil {
+		t.Fatalf("step 6 derive /28 subnet CIDR: %s", err)
+	}
+	dupNameSubnetCIDR, err := vpcBlockCIDR(vpcCIDR, 3, 24)
+	if err != nil {
+		t.Fatalf("step 6 derive duplicate-name subnet CIDR: %s", err)
+	}
+
 	start = time.Now()
 	sub24, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: liveSubnet24CIDR,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: subnet24CIDR,
 	})
 	if err != nil {
 		t.Fatalf("step 6a CreateSubnet (/24): %s", safeErr(err))
@@ -3597,7 +4111,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 
 	start = time.Now()
 	sub28, err := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-b", CIDR: liveSubnet28CIDR,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-b", CIDR: subnet28CIDR,
 	})
 	if err != nil {
 		t.Fatalf("step 6b CreateSubnet (/28): %s", safeErr(err))
@@ -3612,7 +4126,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	// both expected to be refused. An unexpected success is left for
 	// t.Cleanup's subnet sweep to remove along with every other subnet.
 	_, overlapErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-c", CIDR: liveSubnet24CIDR, NoWait: true,
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-c", CIDR: subnet24CIDR, NoWait: true,
 	})
 	if overlapErr == nil {
 		t.Error("step 7a: creating an overlapping subnet succeeded; the design expects a refusal")
@@ -3623,7 +4137,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	// the extra subnet is deleted at once: a VPC delete refuses while it
 	// remains.
 	dupSubnet, dupNameErr := client.CreateSubnet(ctx, &network.CreateSubnetInput{
-		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: "10.250.3.0/24",
+		VPCID: vpcID, ZoneID: zoneID, Name: name + "-a", CIDR: dupNameSubnetCIDR,
 	})
 	if dupNameErr != nil {
 		t.Logf("step 7b: duplicate-named subnet refused, %s", safeErr(dupNameErr))
@@ -3826,21 +4340,21 @@ func deleteRouteTableRetryNotFound(ctx context.Context, t *testing.T, client *ne
 
 // TestLiveWriteNetworkRouteTable exercises route table and route writes
 // against the real account named in .env: CreateRouteTable, AddRoute,
-// RemoveRoute, and DeleteRouteTable. It targets an existing VPC named by
-// VNGCLOUD_LIVE_NETWORK_VPC_ID, which some other step of the same live run
-// must create; this test never creates or deletes a VPC itself, and it
-// never sends AddRoute or RemoveRoute to any route table but the one it
-// creates here. It never leaves a route table behind.
+// RemoveRoute, and DeleteRouteTable. It creates its own /24 subnet
+// (createLiveVPCAndSubnet) in its own VPC, or in the VPC named by
+// VNGCLOUD_LIVE_NETWORK_VPC_ID when that is set, and never sends AddRoute,
+// RemoveRoute, or a route table delete to any VPC or route table but the
+// ones it creates here. It never leaves a subnet or route table behind, and
+// leaves its VPC behind only when that VPC is a reused, permanent one. It
+// must never run at the same time as TestLiveWriteNetworkVPC or
+// TestLiveWriteNetworkACL, since the account's VPC quota leaves room for
+// only one VPC created fresh.
 func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network route table write test")
 	}
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_ROUTE_TABLE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_ROUTE_TABLE=1 to run the live network route table write test")
-	}
-	vpcID := strings.TrimSpace(os.Getenv("VNGCLOUD_LIVE_NETWORK_VPC_ID"))
-	if vpcID == "" {
-		t.Fatal("set VNGCLOUD_LIVE_NETWORK_VPC_ID to an existing VPC's id; this test never creates or deletes a VPC")
 	}
 	if err := envfile.Load(".env"); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -3853,7 +4367,7 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 
 	cfg, err := vngcloud.LoadConfig(ctx,
@@ -3868,38 +4382,27 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		t.Fatalf("LoadConfig: %v", err)
 	}
 	client := network.New(cfg)
+	portalClient := portal.New(cfg)
 
-	// This test needs a VPC with no main route table and no subnets: the
-	// first route table it creates becomes the VPC's main table (confirmed
-	// live), and step 10's delete assumes no subnet relies on that main
-	// table. Skip rather than run against a VPC some other step already
-	// populated.
-	vpcState, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
-	if err != nil {
-		t.Fatalf("check VPC state: GetVPC: %s", safeErr(err))
-	}
-	if vpcState.VPC.RouteTableID != "" {
-		t.Skip("VPC already has a main route table; this test needs an empty VPC the run created")
-	}
-	existingSubnets, err := client.ListSubnetsByVPC(ctx, &network.ListSubnetsByVPCInput{VPCID: vpcID})
-	if err != nil {
-		t.Fatalf("check VPC state: ListSubnetsByVPC: %s", safeErr(err))
-	}
-	if len(existingSubnets.Items) != 0 {
-		t.Skipf("VPC already has %d subnet(s); this test needs an empty VPC the run created", len(existingSubnets.Items))
-	}
+	// Step 1: create this run's own VPC and /24 subnet. createLiveVPCAndSubnet
+	// registers the VPC's own t.Cleanup as soon as its id is known. No other
+	// resource here can hold this VPC's subnet, so blocked is nil.
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, client, portalClient, nil)
+	t.Log("step 1: created this run's own VPC and /24 subnet")
 
-	// Step 1: delete every leftover vngcloud-live-* route table from a
-	// previous run of this same VPC. listAllRouteTables pages through the
-	// whole account, which can include another concurrent run's tables in a
-	// different VPC; the NetworkID check keeps this sweep from ever
-	// touching one of those, including one that is currently that other
-	// VPC's main table. Within this VPC, a table that is still the main
-	// table with a dependent subnet, or is still named by a subnet, is also
-	// left alone.
+	// Step 2: delete every leftover vngcloud-live-* route table from a
+	// previous run of this same VPC. Since vpcID is freshly created above,
+	// this never finds one in practice; it stays as the same defensive
+	// sweep TestLiveWriteNetworkVPC's own leftover step uses. listAllRouteTables
+	// pages through the whole account, which can include another concurrent
+	// run's tables in a different VPC; the NetworkID check keeps this sweep
+	// from ever touching one of those, including one that is currently that
+	// other VPC's main table. Within this VPC, a table that is still the
+	// main table with a dependent subnet, or is still named by a subnet, is
+	// also left alone.
 	leftovers, err := listAllRouteTables(ctx, client)
 	if err != nil {
-		t.Fatalf("step 1 ListRouteTables: %s", safeErr(err))
+		t.Fatalf("step 2 ListRouteTables: %s", safeErr(err))
 	}
 	deletedLeftovers := 0
 	for _, leftover := range leftovers {
@@ -3910,12 +4413,12 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 			deletedLeftovers++
 		}
 	}
-	t.Logf("step 1: deleted %d leftover route table(s)", deletedLeftovers)
+	t.Logf("step 2: deleted %d leftover route table(s)", deletedLeftovers)
 
-	// Step 2: create the route table.
+	// Step 3: create the route table.
 	suffix, err := randomHex(4)
 	if err != nil {
-		t.Fatalf("step 2 generate name suffix: %v", err)
+		t.Fatalf("step 3 generate name suffix: %v", err)
 	}
 	name := "vngcloud-live-" + suffix
 
@@ -3926,24 +4429,40 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		// still have reached the server. Find and delete it by its exact
 		// name.
 		deleteRouteTableByName(t, client, vpcID, name)
-		t.Fatalf("step 2 CreateRouteTable: %s", safeErr(err))
+		t.Fatalf("step 3 CreateRouteTable: %s", safeErr(err))
 	}
 	routeTableID := created.RouteTable.UUID
 	if routeTableID == "" {
 		deleteRouteTableByName(t, client, vpcID, name)
-		t.Fatal("step 2: CreateRouteTable returned an empty id; the design requires one")
+		t.Fatal("step 3: CreateRouteTable returned an empty id; the design requires one")
 	}
-	t.Logf("step 2: created route table, status %s, routes %d, wait %s",
+	t.Logf("step 3: created route table, status %s, routes %d, wait %s",
 		created.RouteTable.Status, len(created.RouteTable.Routes), time.Since(start))
 
+	// A VPC created with no main route table gets one assigned
+	// automatically (confirmed live): the first table ever created in it
+	// becomes its main table. A freshly created VPC has no main table
+	// before this create, so becameMain there answers the design's own
+	// open question of whether that first table carries any routes right
+	// after becoming main; a reused VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID)
+	// already has one from an earlier run, so becameMain there is simply
+	// false and this step's own table stays an ordinary, non-main one.
 	vpcAfterCreate, err := client.GetVPC(ctx, &network.GetVPCInput{VPCID: vpcID})
 	if err != nil {
-		t.Fatalf("step 2 GetVPC (check main table): %s", safeErr(err))
+		t.Fatalf("step 3 GetVPC (check main table): %s", safeErr(err))
 	}
 	becameMain := vpcAfterCreate.VPC.RouteTableID == routeTableID
-	t.Logf("step 2: new route table became the VPC's main route table: %v", becameMain)
+	routesAfterMain := created.RouteTable.Routes
+	if becameMain {
+		if refreshed, err := client.GetRouteTable(ctx, &network.GetRouteTableInput{RouteTableID: routeTableID}); err != nil {
+			t.Logf("step 3: GetRouteTable after becoming main: %s", safeErr(err))
+		} else {
+			routesAfterMain = refreshed.RouteTable.Routes
+		}
+	}
+	t.Logf("step 3: new route table became the VPC's main route table: %v, routes: %d", becameMain, len(routesAfterMain))
 
-	// Step 3: register the fallback cleanup as soon as routeTableID is
+	// Step 4: register the fallback cleanup as soon as routeTableID is
 	// known, before any later step can fail and skip the explicit delete
 	// below.
 	t.Cleanup(func() {
@@ -3972,7 +4491,7 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		}
 	})
 
-	// Step 4: create the same name again. Whether route table names are
+	// Step 5: create the same name again. Whether route table names are
 	// unique per VPC or per project is not yet confirmed live, so either a
 	// refusal or a second table is possible; an unexpected success is
 	// cleaned up too, since it would otherwise leak a second table. NoWait
@@ -3981,15 +4500,15 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	// as already gone.
 	dup, dupErr := client.CreateRouteTable(ctx, &network.CreateRouteTableInput{VPCID: vpcID, Name: name, NoWait: true})
 	if dupErr == nil {
-		t.Log("step 4: creating a duplicate name succeeded")
+		t.Log("step 5: creating a duplicate name succeeded")
 		if dup.RouteTable.UUID != "" {
 			deleteRouteTableRetryNotFound(ctx, t, client, dup.RouteTable.UUID)
 		}
 	} else {
-		t.Logf("step 4: duplicate name refused, %s", safeErr(dupErr))
+		t.Logf("step 5: duplicate name refused, %s", safeErr(dupErr))
 	}
 
-	// Step 5: add a route. The target address is not known to be a live
+	// Step 6: add a route. The target address is not known to be a live
 	// interface in the VPC; whether the server requires that is exactly
 	// what this step observes.
 	start = time.Now()
@@ -3999,12 +4518,12 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		Target:          "10.251.200.10",
 	})
 	if err != nil {
-		t.Fatalf("step 5 AddRoute: %s", safeErr(err))
+		t.Fatalf("step 6 AddRoute: %s", safeErr(err))
 	}
-	t.Logf("step 5: added route, changed %v, status %s, routes %d, wait %s",
+	t.Logf("step 6: added route, changed %v, status %s, routes %d, wait %s",
 		added.Changed, added.RouteTable.Status, len(added.RouteTable.Routes), time.Since(start))
 
-	// Step 6: add the same route again; the design expects a no-op.
+	// Step 7: add the same route again; the design expects a no-op.
 	again, err := client.AddRoute(ctx, &network.AddRouteInput{
 		RouteTableID:    routeTableID,
 		DestinationCIDR: "10.251.200.0/24",
@@ -4012,15 +4531,15 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		NoWait:          true,
 	})
 	if err != nil {
-		t.Fatalf("step 6 AddRoute (repeat): %s", safeErr(err))
+		t.Fatalf("step 7 AddRoute (repeat): %s", safeErr(err))
 	}
 	if again.Changed {
-		t.Error("step 6: repeating the same add reported Changed true, want false")
+		t.Error("step 7: repeating the same add reported Changed true, want false")
 	} else {
-		t.Log("step 6: repeat add was a no-op as expected")
+		t.Log("step 7: repeat add was a no-op as expected")
 	}
 
-	// Step 7: add a conflicting target for the same destination; the
+	// Step 8: add a conflicting target for the same destination; the
 	// design expects a refusal naming the current target, nothing sent.
 	_, conflictErr := client.AddRoute(ctx, &network.AddRouteInput{
 		RouteTableID:    routeTableID,
@@ -4029,49 +4548,1442 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 		NoWait:          true,
 	})
 	if !errors.Is(conflictErr, vngcloud.ErrInvalidInput) {
-		t.Errorf("step 7: conflicting target err = %s, want ErrInvalidInput", safeErr(conflictErr))
+		t.Errorf("step 8: conflicting target err = %s, want ErrInvalidInput", safeErr(conflictErr))
 	} else {
-		t.Log("step 7: conflicting target refused as expected")
+		t.Log("step 8: conflicting target refused as expected")
 	}
 
-	// Step 8: remove the route.
+	// Step 9: remove the route.
 	start = time.Now()
 	removed, err := client.RemoveRoute(ctx, &network.RemoveRouteInput{RouteTableID: routeTableID, DestinationCIDR: "10.251.200.0/24"})
 	if err != nil {
-		t.Fatalf("step 8 RemoveRoute: %s", safeErr(err))
+		t.Fatalf("step 9 RemoveRoute: %s", safeErr(err))
 	}
-	t.Logf("step 8: removed route, changed %v, status %s, routes %d, wait %s",
+	t.Logf("step 9: removed route, changed %v, status %s, routes %d, wait %s",
 		removed.Changed, removed.RouteTable.Status, len(removed.RouteTable.Routes), time.Since(start))
 
-	// Step 9: remove it again; the design expects NotFound.
+	// Step 10: remove it again; the design expects NotFound.
 	_, removedAgainErr := client.RemoveRoute(ctx, &network.RemoveRouteInput{RouteTableID: routeTableID, DestinationCIDR: "10.251.200.0/24", NoWait: true})
 	if !vngcloud.IsNotFound(removedAgainErr) {
-		t.Errorf("step 9: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
+		t.Errorf("step 10: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
 	} else {
-		t.Log("step 9: repeat remove returned NotFound as expected")
+		t.Log("step 10: repeat remove returned NotFound as expected")
 	}
 
-	// Step 10: delete the table explicitly.
+	// Step 11: delete this run's own subnet before the route table. Step 3
+	// showed whether this table became the VPC's main table; when it did,
+	// this subnet relies on it implicitly (an empty routeTableUuid), which
+	// would refuse the table's own delete with ErrDefaultResource.
+	// DeleteSubnet waits for the subnet to leave the VPC's own subnet list.
+	start = time.Now()
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID}); err != nil {
+		t.Fatalf("step 11 DeleteSubnet: %s", safeErr(err))
+	}
+	t.Logf("step 11: deleted this run's subnet, wait %s", time.Since(start))
+
+	// Step 12: delete the table explicitly.
 	start = time.Now()
 	if _, err := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID}); err != nil {
-		t.Fatalf("step 10 DeleteRouteTable: %s", safeErr(err))
+		t.Fatalf("step 12 DeleteRouteTable: %s", safeErr(err))
 	}
-	t.Logf("step 10: deleted route table, wait %s", time.Since(start))
+	t.Logf("step 12: deleted route table, wait %s", time.Since(start))
 
-	// Step 11: repeat delete; the design expects NotFound, since the
+	// Step 13: repeat delete; the design expects NotFound, since the
 	// delete's own guard reads run first.
 	_, repeatErr := client.DeleteRouteTable(ctx, &network.DeleteRouteTableInput{RouteTableID: routeTableID, NoWait: true})
 	if !vngcloud.IsNotFound(repeatErr) {
-		t.Errorf("step 11: repeat delete err = %s, want NotFound", safeErr(repeatErr))
+		t.Errorf("step 13: repeat delete err = %s, want NotFound", safeErr(repeatErr))
 	} else {
-		t.Log("step 11: repeat delete returned NotFound as expected")
+		t.Log("step 13: repeat delete returned NotFound as expected")
 	}
 }
 
-// liveCertificateNamePattern is the live vLB certificate write test's own
-// naming scheme: vngcloud-live-<8 lowercase hex>, exactly, so a name that
-// merely starts with vngcloud-live- but was not generated by this test is
-// never swept up as a leftover.
+// isLiveNetworkACLName reports whether name is one this test's own runs
+// create.
+func isLiveNetworkACLName(name string) bool {
+	return strings.HasPrefix(name, "vngcloud-live-")
+}
+
+// isLiveDefaultACLRule mirrors the network package's own default-rule
+// marker (a Priority of 2000 or above, one past
+// network.checkACLRulePriority's 1999-priority bound, or the decoded
+// System flag), which is unexported and so cannot be called directly from
+// this package. Confirmed live, a new ACL's own pass-all rules at Priority
+// 0 are not caught by this marker: they are ordinary, removable rules.
+func isLiveDefaultACLRule(rule network.ACLRule) bool {
+	return rule.Priority >= 2000 || rule.System
+}
+
+// findACLRule returns the rule in rules matching direction (case-sensitive,
+// since every direction this test sends is already lowercase) and
+// priority, for logging a just-added rule's stored fields.
+func findACLRule(rules []network.ACLRule, direction string, priority int) (network.ACLRule, bool) {
+	for _, rule := range rules {
+		if rule.Direction == direction && rule.Priority == priority {
+			return rule, true
+		}
+	}
+	return network.ACLRule{}, false
+}
+
+// listAllNetworkACLs pages through every network ACL the account has.
+func listAllNetworkACLs(ctx context.Context, client *network.Client) ([]network.ACL, error) {
+	var all []network.ACL
+	for page := 1; ; page++ {
+		out, err := client.ListNetworkACLs(ctx, &network.ListNetworkACLsInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// aclBusyRetryInterval and aclBusyRetryBound bound retryACLBusy: the design
+// confirms an ACL write can leave the ACL busy for up to about 20 seconds,
+// during which the very next write to it returns network.ErrBusy, so every
+// ACL write step in this file retries on that error rather than treating it
+// as a failure.
+const (
+	aclBusyRetryInterval = 10 * time.Second
+	aclBusyRetryBound    = 2 * time.Minute
+)
+
+// retryACLBusy calls fn, which performs one ACL write and returns its usual
+// output and error, retrying every aclBusyRetryInterval for up to
+// aclBusyRetryBound while the error wraps network.ErrBusy. network.ErrBusy
+// always means fn's own write sent nothing, so retrying it is safe; any
+// other error, nil included, returns at once. A live run once let a
+// network.ErrBusy from one write pass through as a hard failure, which
+// then cascaded into cleanup deleting a subnet still held by the ACL;
+// every ACL write in this file goes through this helper instead.
+func retryACLBusy[T any](ctx context.Context, t *testing.T, fn func() (T, error)) (T, error) {
+	t.Helper()
+	deadline := time.Now().Add(aclBusyRetryBound)
+	for {
+		out, err := fn()
+		if !errors.Is(err, network.ErrBusy) {
+			return out, err
+		}
+		if !time.Now().Before(deadline) {
+			return out, err
+		}
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(aclBusyRetryInterval):
+		}
+	}
+}
+
+// disassociateAllNetworkACLSubnets removes every subnet aclID's own read
+// still lists, retrying each disassociate with retryACLBusy, since the ACL
+// can still be settling an earlier write. It logs but does not fail the
+// test on a disassociate error, and does nothing when the ACL is already
+// gone. It returns the subnet ids it could not remove even after retrying
+// (stuck: the caller decides whether leaving one behind is fatal, since
+// deleting that subnet or its VPC out from under a still-associated ACL is
+// what stranded an ACL on a past live run) and whether any disassociate
+// actually changed the ACL (changed): a delete sent right after one gets a
+// 500 and changes nothing (see aclCleanupWaitStep), so a caller about to
+// delete aclID waits first only when this is true.
+func disassociateAllNetworkACLSubnets(ctx context.Context, t *testing.T, client *network.Client, aclID string) (stuck []string, changed bool) {
+	t.Helper()
+	acl, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
+	if err != nil {
+		if !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: get network ACL before disassociate: %s", safeErr(err))
+		}
+		return nil, false
+	}
+	for _, subnetID := range acl.ACL.SubnetIDs {
+		subnetID := subnetID
+		out, err := retryACLBusy(ctx, t, func() (*network.DisassociateNetworkACLSubnetOutput, error) {
+			return client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
+		})
+		if err != nil {
+			t.Errorf("cleanup: disassociate subnet: %s", safeErr(err))
+			stuck = append(stuck, subnetID)
+			continue
+		}
+		if out.Changed {
+			changed = true
+		}
+	}
+	return stuck, changed
+}
+
+// aclCleanupWaitStep is how long this file's cleanup helpers wait, both
+// before a network ACL delete that follows a disassociate which actually
+// changed the ACL, and between each retry deleteNetworkACLRetrying makes
+// after a plain HTTP 500: confirmed live, a subnets write (associate or
+// disassociate) leaves the ACL busy for about this long, with no change in
+// its own Status to mark the window, and a DELETE sent inside it answers
+// 500 and changes nothing rather than the 400 any other write gets.
+const aclCleanupWaitStep = 30 * time.Second
+
+// aclDeleteRetries is how many extra attempts deleteNetworkACLRetrying makes
+// after DeleteNetworkACL answers a plain HTTP 500, aclCleanupWaitStep apart.
+// Waiting out the busy window above, more than once if needed, is what
+// tells that transient 500 apart from the account's one network ACL whose
+// own DELETE always 500s no matter how long a caller waits (see
+// deleteNetworkACLLeftover); only exhausting every retry counts an ACL as
+// that kind of permanently stuck one.
+const aclDeleteRetries = 3
+
+// waitACLCleanupStep waits aclCleanupWaitStep and reports true, or returns
+// false at once if ctx ends first.
+func waitACLCleanupStep(ctx context.Context, t *testing.T) bool {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(aclCleanupWaitStep):
+		return true
+	}
+}
+
+// deleteNetworkACLRetrying calls DeleteNetworkACL through retryACLBusy and,
+// when that still fails with a plain HTTP 500, retries the whole call up to
+// aclDeleteRetries more times, aclCleanupWaitStep apart. DeleteNetworkACL
+// always reads the ACL again before it sends anything, so retrying after
+// the busy window passes, or after an earlier attempt's own list confirm
+// already deleted it, is always safe. Any other error, nil included,
+// returns at once; a ctx that ends during a wait also returns at once, with
+// that last 500.
+func deleteNetworkACLRetrying(ctx context.Context, t *testing.T, client *network.Client, aclID string) error {
+	t.Helper()
+	var err error
+	for attempt := 0; ; attempt++ {
+		_, err = retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
+			return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+		})
+		var apiErr *vngcloud.APIError
+		if err == nil || !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+			return err
+		}
+		if attempt >= aclDeleteRetries || !waitACLCleanupStep(ctx, t) {
+			return err
+		}
+	}
+}
+
+// deleteNetworkACLLeftover disassociates every subnet a leftover
+// vngcloud-live-* network ACL still holds, waits out the ACL's own busy
+// window when that changed anything, then tries to delete it through
+// deleteNetworkACLRetrying, and reports whether that delete succeeded
+// (deleted) and, if not, whether the ACL is the account's own permanently
+// stuck one (stuck): the account holds one network ACL whose subnets can be
+// disassociated but whose own DELETE always answers with the server's own
+// 500, even after every retry (see vserver-network-writes-checks.md). A
+// leftover sweep that ran into it before this treated a single 500 like any
+// other failure and kept failing the whole test on every future run once
+// its VPC became the account's last one and had to be reused; this instead
+// counts an ACL as stuck only once deleteNetworkACLRetrying's own retries
+// are exhausted, and leaves it alone. It ignores ErrDefaultResource and
+// NotFound: a default ACL, or one already gone, is left alone too, and
+// neither counts as stuck.
+func deleteNetworkACLLeftover(ctx context.Context, t *testing.T, client *network.Client, aclID string) (deleted, stuck bool) {
+	t.Helper()
+	_, changed := disassociateAllNetworkACLSubnets(ctx, t, client, aclID)
+	if changed {
+		waitACLCleanupStep(ctx, t)
+	}
+	err := deleteNetworkACLRetrying(ctx, t, client, aclID)
+	switch {
+	case err == nil:
+		return true, false
+	case errors.Is(err, network.ErrDefaultResource), vngcloud.IsNotFound(err):
+		return false, false
+	default:
+		var apiErr *vngcloud.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusInternalServerError {
+			return false, true
+		}
+		t.Errorf("cleanup: delete leftover network ACL: %s", safeErr(err))
+		return false, false
+	}
+}
+
+// deleteNetworkACLByName finds a network ACL by its exact name and deletes
+// it, disassociating any subnet it still holds first: the recovery
+// TestLiveWriteNetworkACL takes after a create whose own response never
+// arrived, since the POST is not resent and the ACL may still exist under
+// the name it was given.
+func deleteNetworkACLByName(t *testing.T, client *network.Client, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	list, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		t.Errorf("cleanup: list network ACLs by name: %s", safeErr(err))
+		return
+	}
+	for _, acl := range list {
+		if acl.Name != name {
+			continue
+		}
+		aclID := acl.UUID
+		disassociateAllNetworkACLSubnets(ctx, t, client, aclID)
+		if _, err := retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
+			return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+		}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete network ACL by name: %s", safeErr(err))
+		}
+	}
+}
+
+// TestLiveWriteNetworkACL exercises network ACL, rule, and subnet
+// association writes against the real account named in .env:
+// CreateNetworkACL, GetNetworkACL, AddNetworkACLRule, RemoveNetworkACLRule,
+// AssociateNetworkACLSubnet, DisassociateNetworkACLSubnet, and
+// DeleteNetworkACL. It creates its own /24 subnet (createLiveVPCAndSubnet)
+// in its own VPC, or in the VPC named by VNGCLOUD_LIVE_NETWORK_VPC_ID when
+// that is set, and only ever associates that subnet with the ACL it
+// creates here; every rule it adds sources traffic only from
+// 203.0.113.0/24. It never leaves a subnet or network ACL behind, and
+// leaves its VPC behind only when that VPC is a reused, permanent one. It
+// must never run at the same time as TestLiveWriteNetworkVPC or
+// TestLiveWriteNetworkRouteTable, since the account's VPC quota leaves
+// room for only one VPC created fresh.
+//
+// Every write step goes through retryACLBusy, since the account leaves an
+// ACL busy for up to about 20 seconds after a rules or subnets write
+// settles, and that window does not always show in the ACL's own status
+// (see network.AssociateNetworkACLSubnet). If step 4's own cleanup still
+// finds this run's subnet associated after retrying the disassociate, it
+// stops short of deleting the ACL, and aclHoldsSubnet then stops the VPC's
+// own cleanup from deleting the subnet or the VPC out from under it,
+// failing the test loudly instead so the ACL can be cleaned up by hand.
+func TestLiveWriteNetworkACL(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network ACL write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_ACL") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_ACL=1 to run the live network ACL write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: create this run's own VPC and /24 subnet. createLiveVPCAndSubnet
+	// registers the VPC's own t.Cleanup as soon as its id is known; this
+	// test never associates or disassociates any subnet but the one
+	// returned here.
+	//
+	// vpcID, subnetID, and aclID are declared here, before any has a value,
+	// so aclHoldsSubnet below can close over them and be passed into
+	// createLiveVPCAndSubnet in the same call that sets vpcID and subnetID:
+	// aclID is set in step 3, and aclStuck only if step 4's own cleanup
+	// finds the ACL still lists this subnet after disassociating with
+	// retries. aclHoldsSubnet is never called until every t.Cleanup ahead of
+	// the VPC's own runs first (t.Cleanup runs last-registered-first, and
+	// step 4 registers after this call does), so all three are always final
+	// by the time it matters.
+	var vpcID, subnetID, aclID string
+	var aclStuck atomic.Bool
+	aclHoldsSubnet := func() string {
+		if !aclStuck.Load() {
+			return ""
+		}
+		return fmt.Sprintf("network ACL %s still lists this run's subnet %s", aclID, subnetID)
+	}
+	vpcID, subnetID = createLiveVPCAndSubnet(ctx, t, client, portalClient, aclHoldsSubnet)
+	t.Log("step 1: created this run's own VPC and /24 subnet")
+
+	// Step 2: delete every leftover vngcloud-live-* network ACL from a
+	// previous run that belongs to this run's own VPC, disassociating any
+	// subnet it still holds first. With a freshly created VPC this never
+	// finds one in practice; with a reused VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID)
+	// it also finds the account's one permanently stuck ACL, whose own
+	// DELETE always 500s even after deleteNetworkACLRetrying's own retries;
+	// that one is counted and left alone rather than failing the test. A
+	// leftover in a different VPC is left alone too: this test's disassociate
+	// and delete calls must never touch an ACL outside the VPC it was told to
+	// use. knownStuckLeftoverACLs records every id found stuck here, by id,
+	// so step 4's own cleanup never repeats a hopeless retry sequence against
+	// the same permanently stuck ACL a second time.
+	leftovers, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		t.Fatalf("step 2 ListNetworkACLs: %s", safeErr(err))
+	}
+	deletedLeftovers, stuckLeftovers := 0, 0
+	knownStuckLeftoverACLs := make(map[string]bool)
+	for _, leftover := range leftovers {
+		if !isLiveNetworkACLName(leftover.Name) {
+			continue
+		}
+		if leftover.NetworkID != vpcID {
+			t.Logf("step 2: skipping leftover network ACL %s: NetworkID %s does not match this run's VPC %s",
+				leftover.UUID, leftover.NetworkID, vpcID)
+			continue
+		}
+		deleted, stuck := deleteNetworkACLLeftover(ctx, t, client, leftover.UUID)
+		if deleted {
+			deletedLeftovers++
+		}
+		if stuck {
+			stuckLeftovers++
+			knownStuckLeftoverACLs[leftover.UUID] = true
+		}
+	}
+	t.Logf("step 2: deleted %d leftover network ACL(s), %d permanently stuck", deletedLeftovers, stuckLeftovers)
+
+	// Step 3: create the ACL.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+
+	start := time.Now()
+	created, err := client.CreateNetworkACL(ctx, &network.CreateNetworkACLInput{VPCID: vpcID, Name: name})
+	if err != nil {
+		// A POST is not retried after an ambiguous failure, so the ACL may
+		// still have reached the server. Find and delete it by its exact
+		// name.
+		deleteNetworkACLByName(t, client, name)
+		t.Fatalf("step 3 CreateNetworkACL: %s", safeErr(err))
+	}
+	aclID = created.ACL.UUID
+	if aclID == "" {
+		deleteNetworkACLByName(t, client, name)
+		t.Fatal("step 3: CreateNetworkACL returned an empty id; the design requires one")
+	}
+	t.Logf("step 3: created network ACL, status %s, default %v, wait %s",
+		created.ACL.Status, created.ACL.DefaultACL, time.Since(start))
+
+	// Step 4: register the fallback cleanup as soon as aclID is known,
+	// before any later step can fail and skip the explicit delete below.
+	// disassociateAllNetworkACLSubnets already retries each disassociate on
+	// ErrBusy; if the ACL still lists this run's own subnet afterward,
+	// aclStuck is set and this returns at once, deleting neither the ACL nor
+	// the subnet, so the VPC's own cleanup (registered before this one, and
+	// so run after it) sees aclHoldsSubnet report the reason and leaves the
+	// subnet and VPC alone too, instead of deleting a subnet still held by a
+	// stuck ACL as a past live run did.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		stuck, changed := disassociateAllNetworkACLSubnets(cleanupCtx, t, client, aclID)
+		if slices.Contains(stuck, subnetID) {
+			aclStuck.Store(true)
+			t.Errorf("cleanup: network ACL %s still lists this run's subnet %s after busy retries; leaving the ACL, subnet, and VPC for manual cleanup",
+				aclID, subnetID)
+			return
+		}
+		if changed {
+			waitACLCleanupStep(cleanupCtx, t)
+		}
+		if err := deleteNetworkACLRetrying(cleanupCtx, t, client, aclID); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete network ACL: %s", safeErr(err))
+		}
+		final, err := listAllNetworkACLs(cleanupCtx, client)
+		if err != nil {
+			t.Errorf("cleanup: final ListNetworkACLs: %s", safeErr(err))
+			return
+		}
+		remaining, stuckRemaining := 0, 0
+		for _, acl := range final {
+			if !isLiveNetworkACLName(acl.Name) {
+				continue
+			}
+			if acl.UUID == aclID {
+				// The delete above should have removed this run's own ACL;
+				// still present means it failed for a reason other than
+				// NotFound, so it counts as an unexplained leftover.
+				remaining++
+				continue
+			}
+			// A same-named ACL from another run, most often the account's
+			// own permanently stuck network ACL when this test reused an
+			// existing VPC (VNGCLOUD_LIVE_NETWORK_VPC_ID). The list's own
+			// NetworkID is not reliable (confirmed live: it can come back
+			// empty for an ACL that does belong to a VPC), so this reads
+			// the ACL's own detail and only tries it, and counts it toward
+			// this run's tally, when its VPCID matches vpcID; a read
+			// failure fails closed, leaving it alone rather than guessing.
+			// An ACL confirmed to belong elsewhere is left untouched, the
+			// same principle step 2 already follows: this run's cleanup
+			// must never disassociate or delete an ACL outside its own VPC.
+			detail, err := client.GetNetworkACL(cleanupCtx, &network.GetNetworkACLInput{NetworkACLID: acl.UUID})
+			if err != nil {
+				if !vngcloud.IsNotFound(err) {
+					t.Errorf("cleanup: get network ACL %s to check its VPC: %s", acl.UUID, safeErr(err))
+				}
+				continue
+			}
+			if detail.ACL.VPCID != vpcID {
+				t.Logf("cleanup: skipping same-named network ACL %s: VPC %s does not match this run's VPC %s",
+					acl.UUID, detail.ACL.VPCID, vpcID)
+				continue
+			}
+			if knownStuckLeftoverACLs[acl.UUID] {
+				// Step 2 already ran this id through deleteNetworkACLRetrying
+				// and confirmed it permanently stuck; a second full retry
+				// sequence against the same dead end only spends more time for
+				// the same answer.
+				t.Logf("cleanup: network ACL %s was already confirmed permanently stuck in step 2; leaving it alone", acl.UUID)
+				remaining++
+				stuckRemaining++
+				continue
+			}
+			if deleted, stuck := deleteNetworkACLLeftover(cleanupCtx, t, client, acl.UUID); !deleted {
+				remaining++
+				if stuck {
+					stuckRemaining++
+				}
+			}
+		}
+		t.Logf("cleanup: vngcloud-live network ACL(s) remaining: %d (%d permanently stuck)", remaining, stuckRemaining)
+		if remaining != stuckRemaining {
+			t.Errorf("cleanup: expected only permanently stuck vngcloud-live network ACLs to remain, found %d, %d stuck",
+				remaining, stuckRemaining)
+		}
+	})
+
+	// Step 5: read the ACL back. The full default rule list, and whether a
+	// default rule outside seqNumber 0 or the system flag's live value
+	// exist, are still a live check; this step is the observation for it.
+	// None of the fields logged here are secrets.
+	afterCreate, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
+	if err != nil {
+		t.Fatalf("step 5 GetNetworkACL: %s", safeErr(err))
+	}
+	defaultRuleCount := 0
+	for _, rule := range afterCreate.ACL.Rules {
+		if !isLiveDefaultACLRule(rule) {
+			continue
+		}
+		defaultRuleCount++
+		t.Logf("step 5: default rule: type %s, seqNumber %d, port %s, action %s, system %v",
+			rule.Direction, rule.Priority, rule.Port, rule.Action, rule.System)
+	}
+	t.Logf("step 5: read network ACL, total rules %d, default rules %d, associated subnets %d",
+		len(afterCreate.ACL.Rules), defaultRuleCount, len(afterCreate.ACL.SubnetIDs))
+
+	// Step 6: add an inbound tcp rule for port 443 from 203.0.113.0/24.
+	// Priority stays within 1 to 1999, the user range confirmed live;
+	// Protocol is sent in the server's own accepted spelling.
+	start = time.Now()
+	tcpRule, err := retryACLBusy(ctx, t, func() (*network.AddNetworkACLRuleOutput, error) {
+		return client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+			NetworkACLID: aclID, Direction: "inbound", Priority: 100, Protocol: "tcp",
+			CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443,
+		})
+	})
+	if err != nil {
+		t.Fatalf("step 6 AddNetworkACLRule (tcp): %s", safeErr(err))
+	}
+	t.Logf("step 6: added tcp rule, changed %v, status %s, total rules %d, wait %s",
+		tcpRule.Changed, tcpRule.ACL.Status, len(tcpRule.ACL.Rules), time.Since(start))
+	if rule, ok := findACLRule(tcpRule.ACL.Rules, "inbound", 100); ok {
+		t.Logf("step 6: stored port for the tcp rule: %q", rule.Port)
+	}
+
+	// Step 7: add an ANY rule and an icmp rule, to observe how each stores
+	// port. ANY and icmp each require the full port range, PortRangeMin 0
+	// and PortRangeMax 65535 (icmp also accepts 0 and 0 together); leaving
+	// both at their zero value is refused for either protocol.
+	anyRule, err := retryACLBusy(ctx, t, func() (*network.AddNetworkACLRuleOutput, error) {
+		return client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+			NetworkACLID: aclID, Direction: "inbound", Priority: 101, Protocol: "ANY",
+			CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 0, PortRangeMax: 65535,
+		})
+	})
+	if err != nil {
+		t.Fatalf("step 7 AddNetworkACLRule (ANY): %s", safeErr(err))
+	}
+	t.Logf("step 7: added ANY rule, changed %v, total rules %d", anyRule.Changed, len(anyRule.ACL.Rules))
+	if rule, ok := findACLRule(anyRule.ACL.Rules, "inbound", 101); ok {
+		t.Logf("step 7: stored port for the ANY rule: %q", rule.Port)
+	}
+
+	icmpRule, err := retryACLBusy(ctx, t, func() (*network.AddNetworkACLRuleOutput, error) {
+		return client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+			NetworkACLID: aclID, Direction: "inbound", Priority: 102, Protocol: "icmp",
+			CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 0, PortRangeMax: 65535,
+		})
+	})
+	if err != nil {
+		t.Fatalf("step 7 AddNetworkACLRule (icmp): %s", safeErr(err))
+	}
+	t.Logf("step 7: added icmp rule, changed %v, total rules %d", icmpRule.Changed, len(icmpRule.ACL.Rules))
+	if rule, ok := findACLRule(icmpRule.ACL.Rules, "inbound", 102); ok {
+		t.Logf("step 7: stored port for the icmp rule: %q", rule.Port)
+	}
+
+	// Step 8: add a rule at a priority already used, with a different
+	// protocol; the design expects a refusal, nothing sent.
+	_, conflictErr := client.AddNetworkACLRule(ctx, &network.AddNetworkACLRuleInput{
+		NetworkACLID: aclID, Direction: "inbound", Priority: 100, Protocol: "udp",
+		CIDR: "203.0.113.0/24", Action: "pass", PortRangeMin: 443, NoWait: true,
+	})
+	if !errors.Is(conflictErr, vngcloud.ErrInvalidInput) {
+		t.Errorf("step 8: conflicting priority err = %s, want ErrInvalidInput", safeErr(conflictErr))
+	} else {
+		t.Log("step 8: conflicting priority refused as expected")
+	}
+
+	// Step 9: remove the three rules just added.
+	for _, priority := range []int{100, 101, 102} {
+		priority := priority
+		start = time.Now()
+		removed, err := retryACLBusy(ctx, t, func() (*network.RemoveNetworkACLRuleOutput, error) {
+			return client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: priority})
+		})
+		if err != nil {
+			t.Fatalf("step 9 RemoveNetworkACLRule (priority %d): %s", priority, safeErr(err))
+		}
+		t.Logf("step 9: removed rule at priority %d, changed %v, total rules %d, wait %s",
+			priority, removed.Changed, len(removed.ACL.Rules), time.Since(start))
+	}
+
+	// Step 10: remove one again; the design expects NotFound.
+	_, removedAgainErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: 100, NoWait: true})
+	if !vngcloud.IsNotFound(removedAgainErr) {
+		t.Errorf("step 10: repeat remove err = %s, want NotFound", safeErr(removedAgainErr))
+	} else {
+		t.Log("step 10: repeat remove returned NotFound as expected")
+	}
+
+	// Step 11: remove the inbound priority-0 pass-all rule. Confirmed live,
+	// it is an ordinary rule, not a default one, so this must succeed; a
+	// fresh read (returned on RemoveNetworkACLRule itself) then confirms
+	// it is gone.
+	removedPassAll, err := retryACLBusy(ctx, t, func() (*network.RemoveNetworkACLRuleOutput, error) {
+		return client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: "inbound", Priority: 0})
+	})
+	if err != nil {
+		t.Fatalf("step 11 RemoveNetworkACLRule (priority-0 pass-all): %s", safeErr(err))
+	}
+	if !removedPassAll.Changed {
+		t.Error("step 11: Changed = false, want true: the priority-0 pass-all rule must be removable")
+	}
+	if _, ok := findACLRule(removedPassAll.ACL.Rules, "inbound", 0); ok {
+		t.Error("step 11: the priority-0 pass-all rule is still present after removal")
+	} else {
+		t.Logf("step 11: removed the inbound priority-0 pass-all rule, total rules %d", len(removedPassAll.ACL.Rules))
+	}
+
+	// Step 12: confirm the priority-2000 deny-all rules cannot be removed:
+	// the design treats a Priority of 2000 or above as a default rule the
+	// server protects, so each direction's own remove must fail with
+	// ErrDefaultResource and send nothing.
+	for _, direction := range []string{"inbound", "outbound"} {
+		_, denyErr := client.RemoveNetworkACLRule(ctx, &network.RemoveNetworkACLRuleInput{NetworkACLID: aclID, Direction: direction, Priority: 2000, NoWait: true})
+		if !errors.Is(denyErr, network.ErrDefaultResource) {
+			t.Errorf("step 12: remove %s priority-2000 rule err = %s, want ErrDefaultResource", direction, safeErr(denyErr))
+		} else {
+			t.Logf("step 12: %s priority-2000 rule remove refused as expected", direction)
+		}
+	}
+
+	// Step 13: associate this run's own subnet with the ACL, wait out its
+	// busy window, associate it again, and try to delete the ACL while it
+	// remains associated. Associating a subnet can cut that subnet's traffic
+	// at once, so this never associates any subnet but the one created in
+	// step 1.
+	start = time.Now()
+	associated, err := retryACLBusy(ctx, t, func() (*network.AssociateNetworkACLSubnetOutput, error) {
+		return client.AssociateNetworkACLSubnet(ctx, &network.AssociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
+	})
+	if err != nil {
+		t.Fatalf("step 13a AssociateNetworkACLSubnet: %s", safeErr(err))
+	}
+	if !associated.Changed {
+		t.Error("step 13a: Changed = false, want true: associating a subnet not yet in the ACL must change it")
+	}
+	if !slices.Contains(associated.ACL.SubnetIDs, subnetID) {
+		t.Error("step 13a: the ACL's own subnetAssociationList does not name the subnet just associated")
+	}
+	t.Logf("step 13a: associated the subnet, status %s, associated subnets %d, wait %s",
+		associated.ACL.Status, len(associated.ACL.SubnetIDs), time.Since(start))
+	subnetAfterAssociate, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
+	if err != nil {
+		t.Fatalf("step 13a GetSubnet: %s", safeErr(err))
+	}
+	// Which subnet field, if any, names the associated ACL is unconfirmed
+	// live (InterfaceACLPolicyUUID has been seen empty here); log every
+	// candidate rather than asserting one.
+	t.Logf("step 13a: subnet ACL fields after associate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
+		subnetAfterAssociate.Subnet.InterfaceACLPolicyID,
+		subnetAfterAssociate.Subnet.InterfaceACLPolicyUUID,
+		subnetAfterAssociate.Subnet.InterfaceACLPolicyName)
+
+	// Step 13b: wait out the associate's own busy window before this ACL
+	// gets any other write. Confirmed live, a subnets write leaves the ACL
+	// busy for about 20 more seconds without ever changing Status, so
+	// nothing in a read marks when it ends; retryACLBusy would retry a
+	// write sent too soon, but waiting the full window first keeps the
+	// remaining steps' own retry counts meaningful.
+	select {
+	case <-ctx.Done():
+		t.Fatalf("step 13b: context ended while waiting out the ACL's busy window: %s", safeErr(ctx.Err()))
+	case <-time.After(30 * time.Second):
+	}
+
+	againAssociated, err := retryACLBusy(ctx, t, func() (*network.AssociateNetworkACLSubnetOutput, error) {
+		return client.AssociateNetworkACLSubnet(ctx, &network.AssociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
+	})
+	if err != nil {
+		t.Fatalf("step 13c AssociateNetworkACLSubnet (repeat): %s", safeErr(err))
+	}
+	if againAssociated.Changed {
+		t.Error("step 13c: repeat associate reported Changed true, want false: the subnet is already in this ACL")
+	} else {
+		t.Log("step 13c: repeat associate was a no-op as expected")
+	}
+
+	_, deleteWhileAssociatedErr := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+	if deleteWhileAssociatedErr == nil {
+		t.Fatal("step 13d: DeleteNetworkACL while a subnet is associated succeeded; the design expects a refusal")
+	}
+	if errors.Is(deleteWhileAssociatedErr, network.ErrInUse) {
+		t.Logf("step 13d: delete while associated refused with the SDK's own ErrInUse, as expected")
+	} else {
+		t.Logf("step 13d: delete while associated refused by the server instead of the SDK's own guard: %s",
+			safeErr(deleteWhileAssociatedErr))
+	}
+	stillAssociated, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: aclID})
+	if err != nil {
+		t.Fatalf("step 13d GetNetworkACL after refused delete: %s", safeErr(err))
+	}
+	if !slices.Contains(stillAssociated.ACL.SubnetIDs, subnetID) {
+		t.Error("step 13d: the ACL no longer lists the associated subnet after a refused delete; it may have been deleted")
+	}
+
+	// Step 14: disassociate the subnet, then check its own ACL fields
+	// afterward. What a subnet falls back to once disassociated is not yet
+	// confirmed live, so this only logs the fields rather than asserting a
+	// value for them.
+	start = time.Now()
+	disassociated, err := retryACLBusy(ctx, t, func() (*network.DisassociateNetworkACLSubnetOutput, error) {
+		return client.DisassociateNetworkACLSubnet(ctx, &network.DisassociateNetworkACLSubnetInput{NetworkACLID: aclID, SubnetID: subnetID})
+	})
+	if err != nil {
+		t.Fatalf("step 14a DisassociateNetworkACLSubnet: %s", safeErr(err))
+	}
+	if !disassociated.Changed {
+		t.Error("step 14a: Changed = false, want true: disassociating an associated subnet must change it")
+	}
+	if slices.Contains(disassociated.ACL.SubnetIDs, subnetID) {
+		t.Error("step 14a: the ACL still lists the subnet after disassociating it")
+	}
+	t.Logf("step 14a: disassociated the subnet, status %s, associated subnets %d, wait %s",
+		disassociated.ACL.Status, len(disassociated.ACL.SubnetIDs), time.Since(start))
+
+	subnetAfterDisassociate, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
+	if err != nil {
+		t.Fatalf("step 14b GetSubnet: %s", safeErr(err))
+	}
+	t.Logf("step 14b: subnet ACL fields after disassociate: interfaceAclPolicyId %q, interfaceAclPolicyUuid %q, interfaceAclPolicyName %q",
+		subnetAfterDisassociate.Subnet.InterfaceACLPolicyID,
+		subnetAfterDisassociate.Subnet.InterfaceACLPolicyUUID,
+		subnetAfterDisassociate.Subnet.InterfaceACLPolicyName)
+
+	// Step 14c: wait out the disassociate's own busy window before deleting
+	// the ACL, the same 30 seconds step 13b waits before the repeat
+	// associate. Confirmed live, a DELETE sent inside that window answers
+	// 500 and changes nothing, unlike the 400 "is being updated" any other
+	// write gets in it; without this wait, step 15 could exercise that busy
+	// case by accident instead of an ordinary delete.
+	select {
+	case <-ctx.Done():
+		t.Fatalf("step 14c: context ended while waiting out the ACL's busy window: %s", safeErr(ctx.Err()))
+	case <-time.After(30 * time.Second):
+	}
+
+	// Step 15: delete the ACL explicitly.
+	start = time.Now()
+	if _, err := retryACLBusy(ctx, t, func() (*network.DeleteNetworkACLOutput, error) {
+		return client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+	}); err != nil {
+		t.Fatalf("step 15 DeleteNetworkACL: %s", safeErr(err))
+	}
+	t.Logf("step 15: deleted network ACL, wait %s", time.Since(start))
+
+	// Step 16: repeat delete; the design expects NotFound, through the list
+	// confirm after the server's 500, since the delete's own guard reads
+	// run first.
+	_, repeatErr := client.DeleteNetworkACL(ctx, &network.DeleteNetworkACLInput{NetworkACLID: aclID})
+	if !vngcloud.IsNotFound(repeatErr) {
+		t.Errorf("step 16: repeat delete err = %s, want NotFound", safeErr(repeatErr))
+	} else {
+		t.Log("step 16: repeat delete returned NotFound as expected")
+	}
+}
+
+// liveDHCPOptionsResolversFor returns region's documented default DNS
+// resolvers, named in the design and its product docs: HCM's pair for
+// hcm-3, HAN's for han-1. CreateDHCPOptions never adds them on its own, so
+// the live check supplies them explicitly, as the manager's own probe did.
+func liveDHCPOptionsResolversFor(region string) []string {
+	if strings.HasPrefix(region, "han") {
+		return []string{"10.236.10.196", "10.236.10.197"}
+	}
+	return []string{"10.166.12.196", "10.166.12.197"}
+}
+
+// listAllDHCPOptions pages through every DHCP options set the account has,
+// since a leftover cleanup or a remaining-set check must not miss one that
+// landed past the first page.
+func listAllDHCPOptions(ctx context.Context, client *network.Client) ([]network.DHCPOptions, error) {
+	var all []network.DHCPOptions
+	for page := 1; ; page++ {
+		out, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// deleteLiveDHCPOptionsSet deletes id, tolerating NotFound (already gone),
+// and reports deleted true only when the delete itself succeeded: a caller
+// counting how many leftovers it actually removed must not count NotFound
+// or a skip as a delete. A set DeleteDHCPOptions itself reports as still
+// attached to a VPC (ErrInUse) is left alone rather than forced:
+// TestLiveWriteNetworkDHCPOptions registers this cleanup for each set it
+// creates before it registers the run's own VPC cleanup, so t.Cleanup's
+// LIFO order runs the VPC's delete first and frees every set the VPC held;
+// an attachment found here means an earlier step left the set attached some
+// other way, and the set is left for a later run's own leftover sweep
+// rather than risking a delete this design never allows.
+func deleteLiveDHCPOptionsSet(ctx context.Context, t *testing.T, client *network.Client, id string) (deleted bool) {
+	t.Helper()
+	_, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: id})
+	switch {
+	case err == nil:
+		return true
+	case vngcloud.IsNotFound(err):
+	case errors.Is(err, network.ErrInUse):
+		t.Log("cleanup: a DHCP options set is still attached to a VPC; leaving it for a later run's leftover sweep")
+	default:
+		t.Errorf("cleanup: delete DHCP options set: %s", safeErr(err))
+	}
+	return false
+}
+
+// TestLiveWriteNetworkDHCPOptions exercises ListDHCPOptions, GetDHCPOptions,
+// CreateDHCPOptions, DeleteDHCPOptions, SetVPCDHCPOptions, and
+// ClearVPCDHCPOptions against the real account named in .env, in hcm-3.
+// Neither a DHCP options set nor its write calls appear on any pricing page
+// (see the design), so both are treated as free pending the next day's
+// bill.
+//
+// It deletes every leftover vngcloud-live-* VPC first, then every leftover
+// vngcloud-live-* DHCP options set (step 1); creates two sets with the
+// region's default resolvers, registering each one's own cleanup as soon as
+// its id is known, before creating the VPC below, so t.Cleanup's LIFO order
+// deletes the VPC before either set (step 2); reads the first set back and
+// checks ListDHCPOptions finds it by an exact and a substring Name filter
+// (step 3); creates this run's own VPC and /24 subnet (createLiveVPCAndSubnet,
+// step 4); sets the VPC to the first set, expecting Changed true within the
+// design's 60-second bound, then repeats the same call expecting Changed
+// false (step 5); tries to delete the first set while it is still attached,
+// expecting the SDK's own ErrInUse (step 6); sets the VPC to the second set,
+// which frees the first, and deletes the first set (step 7); clears the
+// VPC's set with ClearVPCDHCPOptions, expecting Changed true and an empty
+// DHCPOptionID within the same 60-second bound, then repeats the call
+// expecting Changed false (step 8); reattaches the second set, deletes the
+// subnet and VPC, then verifies that VPC deletion detached the set before
+// deleting it (step 9); and logs portal.ListQuotaUsed's row count before
+// step 2 and after step 9. It never sets Private DNS on its VPC, so
+// DNSStatus stays DISABLED throughout and never blocks the
+// SetVPCDHCPOptions and ClearVPCDHCPOptions calls above. It must never run
+// at the same time as TestLiveWriteNetworkVPC, TestLiveWriteNetworkRouteTable,
+// or TestLiveWriteNetworkACL, since the account's VPC quota leaves room for
+// only one. Every step logs only statuses, counts, and timings, never a VPC
+// or DHCP options set's own id or name.
+func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network DHCP options write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_DHCP") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_DHCP=1 to run the live network DHCP options write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* VPC, then every leftover
+	// vngcloud-live-* DHCP options set, from a previous run. A leftover set
+	// still attached to a leftover VPC becomes unattached once that VPC is
+	// deleted, so the VPC sweep always runs first. A VPC a network ACL
+	// still holds or with Private DNS on is skipped rather than deleted
+	// (see leftoverVPCsToDelete): the account can hold a permanently stuck
+	// VPC like that, and this test must not fail on its delete; its DHCP
+	// options set then stays attached, and the set sweep below already
+	// tolerates that.
+	leftoverVPCs, err := listAllVPCs(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
+	}
+	var vpcCandidates []network.VPC
+	for _, leftover := range leftoverVPCs {
+		if isLiveSecurityGroupName(leftover.Name) {
+			vpcCandidates = append(vpcCandidates, leftover)
+		}
+	}
+	deletableVPCs, _ := leftoverVPCsToDelete(ctx, t, client, vpcCandidates)
+	deletedVPCLeftovers := 0
+	for _, leftover := range deletableVPCs {
+		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
+		deletedVPCLeftovers++
+	}
+	leftoverSets, err := listAllDHCPOptions(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListDHCPOptions: %s", safeErr(err))
+	}
+	deletedSetLeftovers := 0
+	for _, leftover := range leftoverSets {
+		if !isLiveSecurityGroupName(leftover.Name) {
+			continue
+		}
+		if deleteLiveDHCPOptionsSet(ctx, t, client, leftover.UUID) {
+			deletedSetLeftovers++
+		}
+	}
+	t.Logf("step 1: deleted %d leftover VPC(s) and %d leftover DHCP options set(s)", deletedVPCLeftovers, deletedSetLeftovers)
+
+	quotaBefore, err := portalClient.ListQuotaUsed(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListQuotaUsed: %s", safeErr(err))
+	}
+	t.Logf("step 1: %d quota row(s) before this run's writes", len(quotaBefore.Items))
+
+	// Step 2: create two DHCP options sets with the region's default
+	// resolvers and no MTU (the server's own default applies). Each one's
+	// cleanup is registered as soon as its id is known and before the VPC
+	// below is created, so t.Cleanup's LIFO order deletes the VPC first.
+	suffix1, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate DHCP options set name suffix: %v", err)
+	}
+	name1 := "vngcloud-live-" + suffix1
+	createdSet1, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name1, DNSServers: liveDHCPOptionsResolversFor(region)})
+	if err != nil {
+		t.Fatalf("step 2 CreateDHCPOptions (first set): %s", safeErr(err))
+	}
+	set1ID := createdSet1.DHCPOptions.UUID
+	if set1ID == "" {
+		t.Fatal("step 2: CreateDHCPOptions (first set) returned an empty id; the design requires one")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLiveDHCPOptionsSet(cleanupCtx, t, client, set1ID)
+	})
+	t.Logf("step 2: created the first DHCP options set, status %s, mtu %d", createdSet1.DHCPOptions.Status, createdSet1.DHCPOptions.MTU)
+
+	suffix2, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate DHCP options set name suffix: %v", err)
+	}
+	name2 := "vngcloud-live-" + suffix2
+	createdSet2, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name2, DNSServers: liveDHCPOptionsResolversFor(region)})
+	if err != nil {
+		t.Fatalf("step 2 CreateDHCPOptions (second set): %s", safeErr(err))
+	}
+	set2ID := createdSet2.DHCPOptions.UUID
+	if set2ID == "" {
+		t.Fatal("step 2: CreateDHCPOptions (second set) returned an empty id; the design requires one")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLiveDHCPOptionsSet(cleanupCtx, t, client, set2ID)
+	})
+	t.Logf("step 2: created the second DHCP options set, status %s, mtu %d", createdSet2.DHCPOptions.Status, createdSet2.DHCPOptions.MTU)
+
+	// Step 3: read the first set back, and check the Name filter finds it
+	// by an exact match and by a substring of its name. Whether the server
+	// matches by substring or only exactly is not yet confirmed live, so
+	// this only logs what each search returns rather than asserting one
+	// behavior.
+	gotSet1, err := client.GetDHCPOptions(ctx, &network.GetDHCPOptionsInput{DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 3 GetDHCPOptions: %s", safeErr(err))
+	}
+	if gotSet1.DHCPOptions.UUID != set1ID || len(gotSet1.DHCPOptions.VPCIDs) != 0 {
+		t.Errorf("step 3: unexpected set after create: %d associated VPC(s), want 0", len(gotSet1.DHCPOptions.VPCIDs))
+	}
+	exactMatch, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Name: name1})
+	if err != nil {
+		t.Fatalf("step 3 ListDHCPOptions (exact name): %s", safeErr(err))
+	}
+	t.Logf("step 3: exact name filter returned %d row(s)", len(exactMatch.Items))
+	substringMatch, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Name: name1[:len(name1)-4]})
+	if err != nil {
+		t.Fatalf("step 3 ListDHCPOptions (substring name): %s", safeErr(err))
+	}
+	t.Logf("step 3: substring name filter returned %d row(s)", len(substringMatch.Items))
+
+	// Step 4: create this run's own VPC and /24 subnet.
+	// createLiveVPCAndSubnet registers the VPC's own t.Cleanup as soon as
+	// its id is known, after both sets' cleanups above, so it runs first.
+	// This VPC never has Private DNS enabled, so DNSStatus stays DISABLED
+	// and never blocks a SetVPCDHCPOptions call below.
+	vpcID, _ := createLiveVPCAndSubnet(ctx, t, client, portalClient, nil)
+	t.Log("step 4: created this run's own VPC and /24 subnet")
+
+	// Step 5: set the VPC to the first set, expecting Changed true within
+	// the design's 60-second bound, then repeat the same call expecting
+	// Changed false.
+	start := time.Now()
+	setFirst, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 5 SetVPCDHCPOptions (first set): %s", safeErr(err))
+	}
+	if !setFirst.Changed {
+		t.Error("step 5: Changed = false, want true: the VPC had no set before this call")
+	}
+	if setFirst.VPC.DHCPOptionID != set1ID {
+		t.Error("step 5: the VPC's DHCPOptionID does not name the first set after the call settled")
+	}
+	t.Logf("step 5: set the VPC to the first set, wait %s", time.Since(start))
+
+	start = time.Now()
+	setFirstAgain, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 5 SetVPCDHCPOptions (first set, repeat): %s", safeErr(err))
+	}
+	if setFirstAgain.Changed {
+		t.Error("step 5: repeat set reported Changed true, want false: the VPC already names this set")
+	}
+	t.Logf("step 5: repeat set was a no-op as expected, wait %s", time.Since(start))
+
+	// Step 6: try to delete the first set while it is still attached,
+	// expecting the SDK's own ErrInUse.
+	_, deleteWhileAttachedErr := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set1ID})
+	if !errors.Is(deleteWhileAttachedErr, network.ErrInUse) {
+		t.Errorf("step 6: delete while attached err = %s, want ErrInUse", safeErr(deleteWhileAttachedErr))
+	} else {
+		t.Log("step 6: delete while attached refused with ErrInUse as expected")
+	}
+
+	// Step 7: set the VPC to the second set, which frees the first, then
+	// delete the first set.
+	start = time.Now()
+	setSecond, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Fatalf("step 7 SetVPCDHCPOptions (second set): %s", safeErr(err))
+	}
+	if !setSecond.Changed {
+		t.Error("step 7: Changed = false, want true: the VPC named the first set before this call")
+	}
+	t.Logf("step 7: moved the VPC to the second set, wait %s", time.Since(start))
+
+	if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set1ID}); err != nil {
+		t.Errorf("step 7 DeleteDHCPOptions (first set, now unattached): %s", safeErr(err))
+	} else {
+		t.Log("step 7: deleted the first set now that it is unattached")
+	}
+
+	// Step 8: clear the VPC's DHCP options set, expecting Changed true and
+	// an empty DHCPOptionID within the design's 60-second bound, then repeat
+	// the same call expecting Changed false.
+	start = time.Now()
+	cleared, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("step 8 ClearVPCDHCPOptions: %s", safeErr(err))
+	}
+	if !cleared.Changed {
+		t.Error("step 8: Changed = false, want true: the VPC named the second set before this call")
+	}
+	if cleared.VPC.DHCPOptionID != "" {
+		t.Error("step 8: the VPC's DHCPOptionID is not empty after the call settled")
+	}
+	t.Logf("step 8: cleared the VPC's DHCP options set, wait %s", time.Since(start))
+
+	start = time.Now()
+	clearedAgain, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("step 8 ClearVPCDHCPOptions (repeat): %s", safeErr(err))
+	}
+	if clearedAgain.Changed {
+		t.Error("step 8: repeat clear reported Changed true, want false: the VPC already has no set")
+	}
+	t.Logf("step 8: repeat clear was a no-op as expected, wait %s", time.Since(start))
+
+	start = time.Now()
+	setSecondAgain, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Fatalf("step 9 SetVPCDHCPOptions (second set, reattach): %s", safeErr(err))
+	}
+	if !setSecondAgain.Changed || setSecondAgain.VPC.DHCPOptionID != set2ID {
+		t.Error("step 9: reattaching the second set did not settle on that set")
+	}
+	t.Logf("step 9: reattached the second set, wait %s", time.Since(start))
+
+	// Step 9: delete the subnet and VPC explicitly rather than waiting for
+	// their registered cleanups; those cleanups then find both already gone
+	// and do nothing. VPC deletion must detach its DHCP options set.
+	deleteVPCAndSubnets(ctx, t, client, vpcID, nil)
+	t.Log("step 9: deleted the subnet and VPC")
+	secondSetAfterVPCDelete, err := client.GetDHCPOptions(ctx, &network.GetDHCPOptionsInput{DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Errorf("step 9 GetDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else if len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs) != 0 {
+		t.Errorf("step 9: second set has %d associated VPC(s) after VPC delete, want 0", len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs))
+	} else if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set2ID}); err != nil {
+		t.Errorf("step 9 DeleteDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else {
+		t.Log("step 9: VPC deletion detached and the SDK deleted the second set")
+	}
+
+	quotaAfter, err := portalClient.ListQuotaUsed(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 9 ListQuotaUsed: %s", safeErr(err))
+	}
+	t.Logf("step 9: %d quota row(s) after this run's writes", len(quotaAfter.Items))
+}
+
+// listAllVirtualIPAddresses pages through every virtual IP the account has.
+func listAllVirtualIPAddresses(ctx context.Context, client *network.Client) ([]network.VirtualIPAddress, error) {
+	var all []network.VirtualIPAddress
+	for page := 1; ; page++ {
+		out, err := client.ListVirtualIPAddresses(ctx, &network.ListVirtualIPAddressesInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// liveVirtualIPNamePattern matches every virtual IP name this test creates.
+var liveVirtualIPNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}(-b(-renamed)?|-c)?$`)
+
+func isLiveVirtualIPName(name string) bool {
+	return liveVirtualIPNamePattern.MatchString(name)
+}
+
+// deleteLiveVirtualIPs removes prior test virtual IPs before parent cleanup.
+func deleteLiveVirtualIPs(ctx context.Context, t *testing.T, client *network.Client) int {
+	t.Helper()
+	all, err := listAllVirtualIPAddresses(ctx, client)
+	if err != nil {
+		t.Errorf("cleanup: list virtual ip addresses: %s", safeVirtualIPErr(err))
+		return 0
+	}
+	deleted := 0
+	for _, vip := range all {
+		if !isLiveVirtualIPName(vip.Name) {
+			continue
+		}
+		if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vip.UUID}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete virtual ip: %s", safeVirtualIPErr(err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// registerVirtualIPCleanupIfCreated registers cleanup before create errors
+// are checked because a failed post-create wait can still return an ID.
+func registerVirtualIPCleanupIfCreated(t *testing.T, client *network.Client, out *network.CreateVirtualIPAddressOutput, label string) {
+	t.Helper()
+	if out == nil || out.VirtualIPAddress.UUID == "" {
+		return
+	}
+	id := out.VirtualIPAddress.UUID
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if _, err := client.DeleteVirtualIPAddress(cleanupCtx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: id}); err != nil && !vngcloud.IsNotFound(err) {
+			t.Errorf("cleanup: delete %s virtual ip: %s", label, safeVirtualIPErr(err))
+		}
+	})
+}
+
+// safeVirtualIPErr keeps virtual-IP live-test logs free of IDs, addresses,
+// CIDRs, and SDK sentinel detail that may include them.
+func safeVirtualIPErr(err error) string {
+	if err == nil {
+		return "none"
+	}
+	var apiErr *vngcloud.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Sprintf("status=%d code=%s", apiErr.StatusCode, apiErr.Code)
+	}
+	switch {
+	case errors.Is(err, network.ErrNotSettled):
+		return "not settled"
+	case errors.Is(err, network.ErrFailed):
+		return "write failed"
+	case errors.Is(err, network.ErrInUse):
+		return "resource in use"
+	case errors.Is(err, vngcloud.ErrInvalidInput):
+		return "invalid input"
+	case vngcloud.IsNotFound(err):
+		return "not found"
+	default:
+		return fmt.Sprintf("non-API error (%T)", err)
+	}
+}
+
+// looksLikePaymentRefusal reports whether err is a *vngcloud.APIError whose
+// message names payment, balance, or credit, case-insensitively: the
+// design's own signal that a create is paid rather than merely malformed.
+// The message itself is never logged or returned; it is read only to decide
+// whether TestLiveWriteNetworkVirtualIP stops.
+func looksLikePaymentRefusal(err error) bool {
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	msg := strings.ToLower(apiErr.Message)
+	return strings.Contains(msg, "payment") || strings.Contains(msg, "balance") || strings.Contains(msg, "credit")
+}
+
+// isVirtualIPAddressDuplicateRefusal accepts only documented duplicate
+// address refusals. Other errors leave the create outcome unknown.
+func isVirtualIPAddressDuplicateRefusal(err error) bool {
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusConflict
+}
+
+// TestLiveWriteNetworkVirtualIP exercises CreateVirtualIPAddress,
+// UpdateVirtualIPAddress, and DeleteVirtualIPAddress against the account
+// named in .env, in hcm-3, on a VPC and /24 subnet this run creates and
+// deletes itself (createLiveVPCAndSubnet).
+//
+// Whether a private virtual IP create is billed is not yet confirmed (see
+// the design); this test creates only its first virtual IP before checking
+// for that, and stops at once, deleting nothing but logging the outcome, if
+// the create is refused for payment, balance, or credit. It never retries
+// that create.
+//
+// It deletes every leftover vngcloud-live-* virtual IP first (step 1);
+// creates the run's VPC and subnet (step 2); creates a virtual IP with mode
+// Active/Passive and no address, stopping here if that is refused for
+// payment (step 3); creates a second virtual IP with mode Active/Active and
+// a given address in the subnet (step 4); creates a third with the same
+// address, expecting the server to refuse a used address (step 5); renames
+// the second virtual IP, resending its mode, and checks the mode did not
+// change (step 6); deletes the second virtual IP and confirms a 404, then
+// repeats the delete and logs its status (step 7); deletes the subnet while
+// the first virtual IP remains, expecting ErrInUse (step 8); and deletes the
+// first virtual IP (step 9). Every step logs through safeVirtualIPErr. Every
+// direct t.Logf call names only a status, a mode, or a count.
+func TestLiveWriteNetworkVirtualIP(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network virtual IP write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_VIP") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_VIP=1 to run the live network virtual IP write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* virtual IP from a
+	// previous run, before its VPC and subnet are ever touched.
+	leftovers := deleteLiveVirtualIPs(ctx, t, client)
+	t.Logf("step 1: deleted %d leftover virtual IP(s)", leftovers)
+
+	// Step 2: create the run's own VPC and /24 subnet. Nothing else can
+	// still hold this run's subnet by the time cleanup runs (unlike the
+	// ACL test's aclHoldsSubnet), since steps 7 and 9 delete every virtual
+	// IP this run creates before the subnet and VPC cleanup registered
+	// here runs.
+	vpcID, subnetID := createLiveVPCAndSubnet(ctx, t, client, portalClient, nil)
+
+	// Step 3: create the run's first virtual IP. A refusal naming payment,
+	// balance, or credit means the create is paid; stop here rather than
+	// retry or fall back to a different mode or address.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("step 3 generate name suffix: %v", err)
+	}
+	name := "vngcloud-live-" + suffix
+	created, err := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
+		SubnetID: subnetID, Name: name, Mode: network.VirtualIPModeActivePassive,
+	})
+	registerVirtualIPCleanupIfCreated(t, client, created, "first")
+	if err != nil {
+		if looksLikePaymentRefusal(err) {
+			t.Skipf("step 3: create refused for payment, balance, or credit, %s; add owner-approved credit before this live check", safeVirtualIPErr(err))
+		}
+		t.Fatalf("step 3 CreateVirtualIPAddress: %s", safeVirtualIPErr(err))
+	}
+	vipID := created.VirtualIPAddress.UUID
+	if vipID == "" {
+		t.Fatal("step 3: CreateVirtualIPAddress returned an empty id; the design requires one")
+	}
+	t.Logf("step 3: created virtual IP, status %s, mode %s", created.VirtualIPAddress.Status, created.VirtualIPAddress.Mode)
+
+	// Step 4: create a second virtual IP with mode Active/Active and a
+	// given address in the run's subnet. The subnet's own CIDR comes from
+	// GetSubnet rather than a fixed constant, since createLiveVPCAndSubnet
+	// now derives it from pickFreeVPCCIDR and vpcBlockCIDR and does not
+	// return it.
+	subnet, err := client.GetSubnet(ctx, &network.GetSubnetInput{VPCID: vpcID, SubnetID: subnetID})
+	if err != nil {
+		t.Fatalf("step 4 GetSubnet: %s", safeVirtualIPErr(err))
+	}
+	subnetPrefix, err := netip.ParsePrefix(subnet.Subnet.CIDR)
+	if err != nil {
+		t.Fatalf("step 4 parse subnet CIDR: %s", safeVirtualIPErr(err))
+	}
+	addr := subnetPrefix.Masked().Addr().As4()
+	addr[3] = 10
+	address := netip.AddrFrom4(addr).String()
+	created2, err := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
+		SubnetID: subnetID, Name: name + "-b", Mode: network.VirtualIPModeActiveActive, IPAddress: address,
+	})
+	registerVirtualIPCleanupIfCreated(t, client, created2, "second")
+	if err != nil {
+		t.Fatalf("step 4 CreateVirtualIPAddress with address: %s", safeVirtualIPErr(err))
+	}
+	vipID2 := created2.VirtualIPAddress.UUID
+	if vipID2 == "" {
+		t.Fatal("step 4: CreateVirtualIPAddress returned an empty id; the design requires one")
+	}
+	t.Logf("step 4: created a second virtual IP with a given address, status %s", created2.VirtualIPAddress.Status)
+	// Step 5: create again with the same address; the server keeps an
+	// address unique within a subnet, so the design expects a refusal.
+	dup, dupErr := client.CreateVirtualIPAddress(ctx, &network.CreateVirtualIPAddressInput{
+		SubnetID: subnetID, Name: name + "-c", Mode: network.VirtualIPModeActiveActive, IPAddress: address,
+	})
+	registerVirtualIPCleanupIfCreated(t, client, dup, "duplicate-address")
+	switch {
+	case dupErr == nil:
+		t.Error("step 5: creating a virtual IP with a used address succeeded; the design expects a refusal")
+	case dup != nil && dup.VirtualIPAddress.UUID != "":
+		t.Fatalf("step 5 CreateVirtualIPAddress with a used address: %s", safeVirtualIPErr(dupErr))
+	case isVirtualIPAddressDuplicateRefusal(dupErr):
+		t.Logf("step 5: used address refused, %s", safeVirtualIPErr(dupErr))
+	default:
+		t.Fatalf("step 5 CreateVirtualIPAddress with a used address: %s", safeVirtualIPErr(dupErr))
+	}
+
+	// Step 6: rename the second virtual IP, resending its mode; the mode
+	// must not change from a name-only update.
+	updated, err := client.UpdateVirtualIPAddress(ctx, &network.UpdateVirtualIPAddressInput{
+		VirtualIPAddressID: vipID2, Name: vngcloud.Ptr(name + "-b-renamed"),
+	})
+	if err != nil {
+		t.Fatalf("step 6 UpdateVirtualIPAddress: %s", safeVirtualIPErr(err))
+	}
+	if updated.VirtualIPAddress.Mode != network.VirtualIPModeActiveActive {
+		t.Fatalf("step 6: mode = %q after a name-only update, want %q unchanged",
+			updated.VirtualIPAddress.Mode, network.VirtualIPModeActiveActive)
+	}
+	t.Logf("step 6: renamed the second virtual IP, mode unchanged")
+
+	// Step 7: delete the second virtual IP and confirm a 404, then repeat
+	// the delete and log its status.
+	if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID2}); err != nil {
+		t.Fatalf("step 7 DeleteVirtualIPAddress: %s", safeVirtualIPErr(err))
+	}
+	if _, err := client.GetVirtualIPAddress(ctx, &network.GetVirtualIPAddressInput{VirtualIPAddressID: vipID2}); !vngcloud.IsNotFound(err) {
+		t.Fatalf("step 7: get after delete = %s, want NotFound", safeVirtualIPErr(err))
+	}
+	_, repeatErr := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID2})
+	t.Logf("step 7: deleted the second virtual IP, confirmed 404, repeat delete status %s", safeVirtualIPErr(repeatErr))
+
+	// Step 8: the subnet delete must be refused while the first virtual IP
+	// remains.
+	if _, err := client.DeleteSubnet(ctx, &network.DeleteSubnetInput{VPCID: vpcID, SubnetID: subnetID, NoWait: true}); !errors.Is(err, network.ErrInUse) {
+		t.Fatalf("step 8: DeleteSubnet while a virtual IP remains = %s, want ErrInUse", safeVirtualIPErr(err))
+	}
+	t.Log("step 8: subnet delete refused while a virtual IP remains")
+
+	// Step 9: delete the first virtual IP, so the run's own subnet and VPC
+	// cleanup can proceed without ErrInUse.
+	if _, err := client.DeleteVirtualIPAddress(ctx, &network.DeleteVirtualIPAddressInput{VirtualIPAddressID: vipID}); err != nil {
+		t.Fatalf("step 9 DeleteVirtualIPAddress: %s", safeVirtualIPErr(err))
+	}
+	t.Log("step 9: deleted the first virtual IP")
+}
+
 var liveCertificateNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
 
 func isLiveCertificateName(name string) bool {
@@ -6448,7 +8360,11 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		t.Fatalf("step 2 generate name suffix: %v", err)
 	}
 	vpcName := "vngcloud-live-" + suffix
-	vpc, err := netClient.CreateVPC(ctx, &network.CreateVPCInput{Name: vpcName, CIDR: liveVPCCIDR})
+	vpcCIDR, err := pickFreeVPCCIDR(ctx, netClient)
+	if err != nil {
+		t.Fatalf("step 2 pick a free VPC CIDR: %s", err)
+	}
+	vpc, err := netClient.CreateVPC(ctx, &network.CreateVPCInput{Name: vpcName, CIDR: vpcCIDR})
 	if err != nil {
 		deleteVPCByName(t, netClient, vpcName)
 		t.Fatalf("step 2 CreateVPC: %s", safeErr(err))
@@ -6462,9 +8378,13 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
-		deleteVPCAndSubnets(cleanupCtx, t, netClient, vpcID)
+		deleteVPCAndSubnets(cleanupCtx, t, netClient, vpcID, nil)
 	})
-	subnet, err := netClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: vpcName + "-a", CIDR: liveSubnet24CIDR})
+	subnetCIDR, err := vpcBlockCIDR(vpcCIDR, 1, 24)
+	if err != nil {
+		t.Fatalf("step 2 derive /24 subnet CIDR: %s", err)
+	}
+	subnet, err := netClient.CreateSubnet(ctx, &network.CreateSubnetInput{VPCID: vpcID, ZoneID: zoneID, Name: vpcName + "-a", CIDR: subnetCIDR})
 	if err != nil {
 		t.Fatalf("step 2 CreateSubnet: %s", safeErr(err))
 	}
@@ -6743,6 +8663,10 @@ func TestLiveWriteLoadBalancerPools(t *testing.T) {
 	t.Log("step 4: deleted the pool")
 }
 
+// liveListenerAllowedCIDR is the private CIDR the listener and policy tests
+// allow; the kept load balancer's subnet is unrelated to it.
+const liveListenerAllowedCIDR = "10.250.1.0/24"
+
 // TestLiveWriteLoadBalancerListeners exercises CreateListener,
 // UpdateListener, and DeleteListener on the kept load balancer: L5 of the
 // design, including an HTTPS listener with an imported throwaway
@@ -6783,7 +8707,7 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 	// Step 1: a TCP listener with a /24 AllowedCIDRs.
 	tcpListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
 		LoadBalancerID: lbID, Name: "vngcloud-live-tcp", Protocol: loadbalancer.ProtocolTCP, Port: 8080,
-		AllowedCIDRs: []string{liveSubnet24CIDR},
+		AllowedCIDRs: []string{liveListenerAllowedCIDR},
 	})
 	if err != nil {
 		t.Fatalf("step 1 CreateListener (TCP): %s", safeErr(err))
@@ -6845,7 +8769,7 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 
 	httpsListener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
 		LoadBalancerID: lbID, Name: "vngcloud-live-https", Protocol: loadbalancer.ProtocolHTTPS, Port: 8443,
-		AllowedCIDRs: []string{liveSubnet24CIDR}, DefaultCertificateID: certID,
+		AllowedCIDRs: []string{liveListenerAllowedCIDR}, DefaultCertificateID: certID,
 	})
 	if err != nil {
 		t.Fatalf("step 3 CreateListener (HTTPS): %s", safeErr(err))
@@ -6924,7 +8848,7 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	// own listeners-before-pools order.
 	listener, err := lbClient.CreateListener(ctx, &loadbalancer.CreateListenerInput{
 		LoadBalancerID: lbID, Name: "vngcloud-live-policy-http", Protocol: loadbalancer.ProtocolHTTP, Port: 8081,
-		AllowedCIDRs: []string{liveSubnet24CIDR},
+		AllowedCIDRs: []string{liveListenerAllowedCIDR},
 	})
 	if err != nil {
 		t.Fatalf("step 1 CreateListener: %s", safeErr(err))
@@ -7111,7 +9035,447 @@ func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
 	}
 
 	for _, vpcID := range vpcIDs {
-		deleteVPCAndSubnets(ctx, t, netClient, vpcID)
+		deleteVPCAndSubnets(ctx, t, netClient, vpcID, nil)
 	}
 	t.Log("deleted every kept load balancer's VPC and subnet")
+}
+
+// createLiveVirtualIPAddress reconciles an ambiguous POST through the
+// existing private virtual IP list and get calls.
+func createLiveVirtualIPAddress(ctx context.Context, client *network.Client, c *core.Client, subnetID, name string) (network.VirtualIPAddress, error) {
+	projectID, err := c.RequireProjectID(ctx)
+	if err != nil {
+		return network.VirtualIPAddress{}, err
+	}
+	var resp struct {
+		Data struct {
+			UUID string `json:"uuid"`
+		} `json:"data"`
+	}
+	req := transport.Request{
+		Operation: "tagging.live.CreateVirtualIPAddress",
+		Method:    http.MethodPost,
+		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress"}}),
+		Body:      map[string]any{"name": name, "subnetId": subnetID, "mode": "Active/Active"},
+		OK:        []int{200, 201, 202},
+	}
+	if err := c.DoJSON(ctx, req, &resp); err != nil {
+		vip, reconcileErr := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+		if reconcileErr != nil {
+			return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP: %w; reconcile: %w", err, reconcileErr)
+		}
+		return vip, nil
+	}
+	if resp.Data.UUID == "" {
+		if _, err := findLiveVirtualIPAddress(ctx, client, name, subnetID); err != nil {
+			return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP returned an empty id: %w", err)
+		}
+		return network.VirtualIPAddress{}, errors.New("create virtual IP returned an empty id")
+	}
+	vip, err := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+	if err != nil {
+		return network.VirtualIPAddress{}, err
+	}
+	if vip.UUID != resp.Data.UUID {
+		return network.VirtualIPAddress{}, fmt.Errorf("create virtual IP id did not match the reconciled id")
+	}
+	return vip, nil
+}
+
+var errLiveVirtualIPAddressNotFound = errors.New("live virtual IP address not found")
+
+var liveVirtualIPAddressNamePattern = regexp.MustCompile(`^vngcloud-live-[0-9a-f]{8}$`)
+
+func findLiveVirtualIPAddress(ctx context.Context, client *network.Client, name, subnetID string) (network.VirtualIPAddress, error) {
+	var found []network.VirtualIPAddress
+	complete := false
+	for page := 1; page <= 1000; page++ {
+		out, err := client.ListVirtualIPAddresses(ctx, &network.ListVirtualIPAddressesInput{Name: name, Page: page})
+		if err != nil {
+			return network.VirtualIPAddress{}, err
+		}
+		if page == 1 && len(out.Items) == 0 && out.TotalPage == 0 && out.TotalItem == 0 {
+			return network.VirtualIPAddress{}, errLiveVirtualIPAddressNotFound
+		}
+		for _, vip := range out.Items {
+			if vip.Name != name || vip.SubnetID != subnetID {
+				continue
+			}
+			if vip.UUID == "" {
+				return network.VirtualIPAddress{}, errors.New("listed virtual IP has an empty id")
+			}
+			detail, err := client.GetVirtualIPAddress(ctx, &network.GetVirtualIPAddressInput{VirtualIPAddressID: vip.UUID})
+			if err != nil {
+				return network.VirtualIPAddress{}, err
+			}
+			if detail.VirtualIPAddress.UUID != vip.UUID || detail.VirtualIPAddress.Name != name || detail.VirtualIPAddress.SubnetID != subnetID {
+				return network.VirtualIPAddress{}, errors.New("virtual IP detail did not match the exact name and subnet")
+			}
+			if detail.VirtualIPAddress.Type != "private" {
+				return network.VirtualIPAddress{}, errors.New("virtual IP is not private")
+			}
+			if len(detail.VirtualIPAddress.AddressPairIPs) != 0 {
+				return network.VirtualIPAddress{}, errors.New("virtual IP has address pair attachments")
+			}
+			pairs, err := client.ListAddressPairsByVirtualIPAddress(ctx, &network.ListAddressPairsByVirtualIPAddressInput{VirtualIPAddressID: vip.UUID})
+			if err != nil {
+				return network.VirtualIPAddress{}, err
+			}
+			if len(pairs.Items) != 0 {
+				return network.VirtualIPAddress{}, errors.New("virtual IP has address pair attachments")
+			}
+			found = append(found, detail.VirtualIPAddress)
+		}
+		if out.TotalPage < page {
+			return network.VirtualIPAddress{}, errors.New("virtual IP list returned an incomplete page count")
+		}
+		if page >= out.TotalPage {
+			complete = true
+			break
+		}
+	}
+	if !complete {
+		return network.VirtualIPAddress{}, errors.New("virtual IP list did not finish")
+	}
+	if len(found) == 0 {
+		return network.VirtualIPAddress{}, errLiveVirtualIPAddressNotFound
+	}
+	if len(found) != 1 {
+		return network.VirtualIPAddress{}, fmt.Errorf("found %d virtual IPs with the exact name and subnet, want 1", len(found))
+	}
+	return found[0], nil
+}
+
+func deleteLiveVirtualIPAddress(ctx context.Context, c *core.Client, vip network.VirtualIPAddress) error {
+	if err := validateLiveVirtualIPAddressDelete(vip); err != nil {
+		return err
+	}
+	projectID, err := c.RequireProjectID(ctx)
+	if err != nil {
+		return err
+	}
+	req := transport.Request{
+		Operation: "tagging.live.DeleteVirtualIPAddress",
+		Method:    http.MethodDelete,
+		URL:       c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v2", Parts: []string{projectID, "virtualIpAddress", vip.UUID}}),
+		OK:        []int{200, 202, 204},
+	}
+	return c.DoJSON(ctx, req, nil)
+}
+
+func validateLiveVirtualIPAddressDelete(vip network.VirtualIPAddress) error {
+	if err := core.CheckPathID("tagging.live.DeleteVirtualIPAddress", "VirtualIPAddressID", vip.UUID); err != nil {
+		return err
+	}
+	if !liveVirtualIPAddressNamePattern.MatchString(vip.Name) || vip.SubnetID == "" || vip.Type != "private" || len(vip.AddressPairIPs) != 0 {
+		return errors.New("refuse to delete a virtual IP that is not this test's unattached private resource")
+	}
+	return nil
+}
+
+func deleteLiveVirtualIPAddressByExactNameAndSubnet(ctx context.Context, t *testing.T, client *network.Client, c *core.Client, name, subnetID string) {
+	t.Helper()
+	vip, err := findLiveVirtualIPAddress(ctx, client, name, subnetID)
+	if errors.Is(err, errLiveVirtualIPAddressNotFound) || vngcloud.IsNotFound(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("cleanup: reconcile virtual IP: %s", safeErr(err))
+		return
+	}
+	if err := deleteLiveVirtualIPAddress(ctx, c, vip); err != nil && !vngcloud.IsNotFound(err) {
+		t.Errorf("cleanup: delete virtual IP: %s", safeErr(err))
+	}
+}
+
+func systemTagSet(tags []tagging.Tag) map[tagging.Tag]int {
+	out := make(map[tagging.Tag]int)
+	for _, tag := range tags {
+		if tag.SystemTag {
+			out[tag]++
+		}
+	}
+	return out
+}
+
+func systemTagsEqual(a, b []tagging.Tag) bool {
+	return reflect.DeepEqual(systemTagSet(a), systemTagSet(b))
+}
+
+func TestSystemTagsEqual(t *testing.T) {
+	before := []tagging.Tag{
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true},
+		{Key: "vng.region", Value: "hcm", SystemTag: true},
+		{Key: "vng.createdBy", Value: "system", SystemTag: true},
+	}
+	after := []tagging.Tag{
+		{Key: "vng.createdBy", Value: "system", SystemTag: true},
+		{Key: "vng.region", Value: "hcm", SystemTag: true},
+		{Key: "vng.zone", Value: "hcm-3", SystemTag: true},
+	}
+	if !systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = false, want equal system tag sets")
+	}
+	after[0].Value = "changed"
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a changed system tag value")
+	}
+	after = append([]tagging.Tag(nil), before...)
+	after[0].CreatedAt = "changed"
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a changed system tag timestamp")
+	}
+	after = append(after, before[0])
+	if systemTagsEqual(before, after) {
+		t.Fatal("systemTagsEqual = true, want false for a duplicate system tag")
+	}
+}
+
+func TestFindLiveVirtualIPAddressEmptyPageIsNotFound(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":25,"totalPage":0,"totalItem":0}`))
+	})))
+
+	_, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1")
+	if !errors.Is(err, errLiveVirtualIPAddressNotFound) {
+		t.Fatalf("findLiveVirtualIPAddress() error = %v, want errLiveVirtualIPAddressNotFound", err)
+	}
+}
+
+func TestFindLiveVirtualIPAddressRefusesNonPrivateBeforeAddressPairs(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/project-1/virtualIpAddress":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":1,"totalItem":1}`))
+		case "/v2/project-1/virtualIpAddress/vip-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"public"}}`))
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+	})))
+
+	if _, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1"); err == nil {
+		t.Fatal("findLiveVirtualIPAddress() error = nil, want non-private refusal")
+	}
+}
+
+func TestFindLiveVirtualIPAddressRefusesAttachedResource(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/project-1/virtualIpAddress":
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":1,"totalItem":1}`))
+		case "/v2/project-1/virtualIpAddress/vip-1":
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"private","addressPairIps":["pair"]}}`))
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+	})))
+
+	if _, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1"); err == nil {
+		t.Fatal("findLiveVirtualIPAddress() error = nil, want attachment refusal")
+	}
+}
+
+func TestFindLiveVirtualIPAddressPagesAndValidates(t *testing.T) {
+	client := network.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/project-1/virtualIpAddress" {
+			if r.URL.Query().Get("page") == "1" {
+				_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-other","name":"other","subnetId":"subnet-1"}],"page":1,"pageSize":1,"totalPage":2,"totalItem":2}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"listData":[{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1"}],"page":2,"pageSize":1,"totalPage":2,"totalItem":2}`))
+			return
+		}
+		if r.URL.Path == "/v2/project-1/virtualIpAddress/vip-1" {
+			_, _ = w.Write([]byte(`{"data":{"uuid":"vip-1","name":"vngcloud-live-0123abcd","subnetId":"subnet-1","type":"private"}}`))
+			return
+		}
+		if r.URL.Path == "/v2/project-1/virtualIpAddress/vip-1/addressPairs" {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		t.Fatalf("unexpected request: %s", r.URL.String())
+	})))
+
+	vip, err := findLiveVirtualIPAddress(context.Background(), client, "vngcloud-live-0123abcd", "subnet-1")
+	if err != nil {
+		t.Fatalf("findLiveVirtualIPAddress() error = %v", err)
+	}
+	if vip.UUID != "vip-1" {
+		t.Fatalf("UUID = %q, want vip-1", vip.UUID)
+	}
+}
+
+func TestValidateLiveVirtualIPAddressDeleteRefusesUnsafeResource(t *testing.T) {
+	for _, vip := range []network.VirtualIPAddress{
+		{Name: "vngcloud-live-0123abcd", SubnetID: "subnet-1", Type: "private"},
+		{UUID: "vip-1", Name: "vngcloud-live-0123abcd", SubnetID: "subnet-1", Type: "public"},
+		{UUID: "vip-1", Name: "other", SubnetID: "subnet-1", Type: "private"},
+	} {
+		if err := validateLiveVirtualIPAddressDelete(vip); err == nil {
+			t.Fatalf("validateLiveVirtualIPAddressDelete(%+v) error = nil, want refusal", vip)
+		}
+	}
+}
+
+// TestLiveWriteTagging exercises tagging.TagResource and
+// tagging.UntagResource against the account named in .env: it creates a
+// private virtual IP address in its own VPC and subnet, tags it, edits the
+// tag, removes it, and checks throughout that the platform's own system
+// tags (vng.zone, vng.region, vng.createdBy, confirmed live) are still on
+// the resource, since the tag PUT never sends or touches them.
+//
+// This branch has no network.CreateVirtualIPAddress or
+// network.DeleteVirtualIPAddress yet, so the virtual IP is created and
+// deleted directly on the vServer gateway, the same way the type probe
+// this test replaces did. It creates its own VPC and subnet with
+// createLiveVPCAndSubnet, and never touches a resource without the
+// vngcloud-live- prefix; it never associates its subnet with a network ACL
+// or route table, so it passes createLiveVPCAndSubnet a nil blocked func.
+func TestLiveWriteTagging(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live tagging write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_TAGGING") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_TAGGING=1 to run the live tagging write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	networkClient := network.New(cfg)
+	portalClient := portal.New(cfg)
+	taggingClient := tagging.New(cfg)
+	coreClient := core.ClientOf(cfg)
+
+	// Step 1: create this run's own VPC and /24 subnet. createLiveVPCAndSubnet
+	// registers their cleanup as soon as each id is known. This test never
+	// associates its subnet with an ACL or route table, so it passes a nil
+	// blocked func.
+	_, subnetID := createLiveVPCAndSubnet(ctx, t, networkClient, portalClient, nil)
+	t.Log("step 1: created this run's own VPC and /24 subnet")
+
+	// Step 2: create a private virtual IP in that subnet.
+	suffix, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate virtual IP name suffix: %v", err)
+	}
+	vipName := "vngcloud-live-" + suffix
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		deleteLiveVirtualIPAddressByExactNameAndSubnet(cleanupCtx, t, networkClient, coreClient, vipName, subnetID)
+	})
+	vip, err := createLiveVirtualIPAddress(ctx, networkClient, coreClient, subnetID, vipName)
+	if err != nil {
+		t.Fatalf("step 2 create virtual IP: %s", safeErr(err))
+	}
+	vipID := vip.UUID
+	if vipID == "" {
+		t.Fatal("step 2: reconciled virtual IP has an empty id")
+	}
+	t.Log("step 2: created a private virtual IP")
+
+	// Step 3: read the tags the create left: the system tags GreenNode's
+	// console shows on every resource.
+	before, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: vipID})
+	if err != nil {
+		t.Fatalf("step 3 ListResourceTags: %s", safeErr(err))
+	}
+	if len(systemTagSet(before.Items)) == 0 {
+		t.Fatal("step 3: no system tag on a freshly created virtual IP, want at least one")
+	}
+	systemBefore := before.Items
+
+	// Step 4: tag it.
+	tagged, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag", Value: "one",
+	})
+	if err != nil {
+		t.Fatalf("step 4 TagResource: %s", safeErr(err))
+	}
+	if !tagged.Changed {
+		t.Fatal("step 4: Changed = false, want true for a new key")
+	}
+	if !systemTagsEqual(systemBefore, tagged.Tags) {
+		t.Fatal("step 4: system tags changed")
+	}
+	t.Log("step 4: tagged the virtual IP")
+
+	// Step 5: edit the tag.
+	edited, err := taggingClient.TagResource(ctx, &tagging.TagResourceInput{
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag", Value: "two",
+	})
+	if err != nil {
+		t.Fatalf("step 5 TagResource (edit): %s", safeErr(err))
+	}
+	if edited.Previous == nil || *edited.Previous != "one" {
+		t.Fatalf("step 5: Previous = %v, want \"1\"", edited.Previous)
+	}
+	if !systemTagsEqual(systemBefore, edited.Tags) {
+		t.Fatal("step 5: system tags changed")
+	}
+	t.Log("step 5: edited the tag")
+
+	// Step 6: untag it.
+	untagged, err := taggingClient.UntagResource(ctx, &tagging.UntagResourceInput{
+		ResourceID: vipID, ResourceType: tagging.ResourceTypeVirtualIPAddress, Key: "vngcloud-live-tag",
+	})
+	if err != nil {
+		t.Fatalf("step 6 UntagResource: %s", safeErr(err))
+	}
+	if !untagged.Changed || untagged.Previous == nil || *untagged.Previous != "two" {
+		t.Fatalf("step 6: Changed/Previous = %v/%v, want true/\"2\"", untagged.Changed, untagged.Previous)
+	}
+	if !systemTagsEqual(systemBefore, untagged.Tags) {
+		t.Fatal("step 6: system tags changed")
+	}
+	t.Log("step 6: untagged the virtual IP")
+
+	// Step 7: confirm the system tags read back exactly as step 3 found
+	// them, with no user tag left.
+	after, err := taggingClient.ListResourceTags(ctx, &tagging.ListResourceTagsInput{ResourceID: vipID})
+	if err != nil {
+		t.Fatalf("step 7 ListResourceTags: %s", safeErr(err))
+	}
+	if !systemTagsEqual(systemBefore, after.Items) {
+		t.Fatal("step 7: system tags changed")
+	}
+	if len(after.Items) != len(systemTagSet(systemBefore)) {
+		t.Fatal("step 7: user tags remain")
+	}
+	t.Log("step 7: system tags survived the tag write, edit, and removal; no user tag remains")
+
+	// Step 8: delete the virtual IP; the cleanup above repeats this and
+	// tolerates NotFound.
+	freshVIP, err := findLiveVirtualIPAddress(ctx, networkClient, vipName, subnetID)
+	if err != nil {
+		t.Fatalf("step 8 reconcile virtual IP: %s", safeErr(err))
+	}
+	if err := deleteLiveVirtualIPAddress(ctx, coreClient, freshVIP); err != nil {
+		t.Fatalf("step 8 delete virtual IP: %s", safeErr(err))
+	}
+	t.Log("step 8: deleted the virtual IP")
 }

@@ -8,14 +8,16 @@ import (
 
 // networkOps is network's operation table. Every Get and List operation
 // reads. CreateSecurityGroup, UpdateSecurityGroup, CreateSecurityGroupRule,
-// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, and CreateRouteTable
-// are Write. DeleteSecurityGroup, DeleteSecurityGroupRule, DeleteVPC,
-// DeleteSubnet, and DeleteRouteTable are Write and Destructive, since a
-// deleted group, rule, VPC, subnet, or table cannot be restored by one more
-// command, so each needs --yes. EnableVPCPrivateDNS is also Write and
-// Destructive: the API has no call that disables Private DNS again, so
-// enabling it is not undoable by one more command either.
-// CreateSecurityGroupRule also carries a Guard,
+// CreateVPC, UpdateVPC, CreateSubnet, UpdateSubnet, CreateRouteTable,
+// CreateNetworkACL, CreateVirtualIPAddress, and UpdateVirtualIPAddress are
+// Write. DeleteSecurityGroup, DeleteSecurityGroupRule, DeleteVPC,
+// DeleteSubnet, DeleteRouteTable, DeleteNetworkACL, and
+// DeleteVirtualIPAddress are Write and Destructive, since a deleted group,
+// rule, VPC, subnet, table, ACL, or virtual IP cannot be restored by one
+// more command, so each needs --yes.
+// EnableVPCPrivateDNS is also Write and Destructive: the API has no call
+// that disables Private DNS again, so enabling it is not undoable by one
+// more command either. CreateSecurityGroupRule also carries a Guard,
 // refuseWorldOpenIngressWithoutYes (svc_network_write.go), that needs --yes
 // for an ingress rule whose remote prefix is 0.0.0.0/0 or ::/0: such a rule
 // opens every port it names to the whole internet. AddRoute and RemoveRoute
@@ -24,8 +26,28 @@ import (
 // since running the other of the pair undoes it with one more command, but
 // each still needs --yes on every call, since either can redirect or cut
 // traffic for every server behind the table and the CLI cannot tell cheaply
-// whether the table is in use. A read-only profile refuses every one of
-// these Write operations, before any request.
+// whether the table is in use. AddNetworkACLRule, AssociateNetworkACLSubnet,
+// and DisassociateNetworkACLSubnet are the same shape, over an ACL instead
+// of a route table, each carrying requireYesForACLChange
+// (svc_network_acl.go). RemoveNetworkACLRule carries
+// requireYesAndPriorityToRemoveACLRule (svc_network_acl.go) instead: the
+// same --yes requirement, plus a --priority requirement the SDK's own Input
+// does not carry, since Priority 0 is both CheckRequired's zero value and
+// the priority of the ACL's own pass-all rules, which a caller may remove,
+// so the SDK cannot use IsZero to tell "not given" from "naming priority 0
+// on purpose" the way the CLI can. CreateDHCPOptions is Write;
+// DeleteDHCPOptions is Write and Destructive, since a deleted set cannot be
+// restored by one more command; list-dhcp-options and get-dhcp-options are
+// Read. set-vpc-dhcp-options carries the Guard requireYesToSetVPCDHCPOptions
+// (svc_network_dhcp.go), and clear-vpc-dhcp-options (ClearVPCDHCPOptions,
+// under the rename table's override for its own mechanical kebab-case)
+// carries requireYesToClearVPCDHCPOptions (svc_network_dhcp.go): moving or
+// clearing a VPC's set changes DNS for every server behind it, and the
+// servers pick up the new resolvers only once they renew, so each needs
+// --yes on every call the same way AddRoute and RemoveRoute need
+// requireYesToChangeRoutes on theirs, rather than being registered
+// Destructive. A read-only profile refuses every one of these Write
+// operations, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -104,6 +126,12 @@ var networkOps = []Op[network.Client]{
 		kebab("GetVirtualIPAddress"), (*network.Client).GetVirtualIPAddress),
 	Read[network.Client, network.ListAddressPairsByVirtualIPAddressInput, network.ListAddressPairsByVirtualIPAddressOutput](
 		kebab("ListAddressPairsByVirtualIPAddress"), (*network.Client).ListAddressPairsByVirtualIPAddress),
+	Write[network.Client, network.CreateVirtualIPAddressInput, network.CreateVirtualIPAddressOutput](
+		kebab("CreateVirtualIPAddress"), (*network.Client).CreateVirtualIPAddress),
+	Write[network.Client, network.UpdateVirtualIPAddressInput, network.UpdateVirtualIPAddressOutput](
+		kebab("UpdateVirtualIPAddress"), (*network.Client).UpdateVirtualIPAddress),
+	Write[network.Client, network.DeleteVirtualIPAddressInput, network.DeleteVirtualIPAddressOutput](
+		kebab("DeleteVirtualIPAddress"), (*network.Client).DeleteVirtualIPAddress, Destructive()),
 	Read[network.Client, network.ListAddressPairsByVirtualSubnetInput, network.ListAddressPairsByVirtualSubnetOutput](
 		kebab("ListAddressPairsByVirtualSubnet"), (*network.Client).ListAddressPairsByVirtualSubnet),
 	Read[network.Client, network.ListAllVirtualIPAddressAddressPairsInput, network.ListAllVirtualIPAddressAddressPairsOutput](
@@ -116,6 +144,36 @@ var networkOps = []Op[network.Client]{
 		kebab("GetEndpoint"), (*network.Client).GetEndpoint),
 	Read[network.Client, network.ListEndpointTagsInput, network.ListEndpointTagsOutput](
 		kebab("ListEndpointTags"), (*network.Client).ListEndpointTags),
+	Read[network.Client, network.GetNetworkACLInput, network.GetNetworkACLOutput](
+		kebab("GetNetworkACL"), (*network.Client).GetNetworkACL),
+	Write[network.Client, network.CreateNetworkACLInput, network.CreateNetworkACLOutput](
+		kebab("CreateNetworkACL"), (*network.Client).CreateNetworkACL),
+	Write[network.Client, network.DeleteNetworkACLInput, network.DeleteNetworkACLOutput](
+		kebab("DeleteNetworkACL"), (*network.Client).DeleteNetworkACL, Destructive()),
+	Write[network.Client, network.AddNetworkACLRuleInput, network.AddNetworkACLRuleOutput](
+		kebab("AddNetworkACLRule"), (*network.Client).AddNetworkACLRule,
+		Guard(requireYesForACLChange("add-network-acl-rule"))),
+	Write[network.Client, network.RemoveNetworkACLRuleInput, network.RemoveNetworkACLRuleOutput](
+		kebab("RemoveNetworkACLRule"), (*network.Client).RemoveNetworkACLRule,
+		Guard(requireYesAndPriorityToRemoveACLRule)),
+	Write[network.Client, network.AssociateNetworkACLSubnetInput, network.AssociateNetworkACLSubnetOutput](
+		kebab("AssociateNetworkACLSubnet"), (*network.Client).AssociateNetworkACLSubnet,
+		Guard(requireYesForACLChange("associate-network-acl-subnet"))),
+	Write[network.Client, network.DisassociateNetworkACLSubnetInput, network.DisassociateNetworkACLSubnetOutput](
+		kebab("DisassociateNetworkACLSubnet"), (*network.Client).DisassociateNetworkACLSubnet,
+		Guard(requireYesForACLChange("disassociate-network-acl-subnet"))),
+	Read[network.Client, network.ListDHCPOptionsInput, network.ListDHCPOptionsOutput](
+		kebab("ListDHCPOptions"), (*network.Client).ListDHCPOptions),
+	Read[network.Client, network.GetDHCPOptionsInput, network.GetDHCPOptionsOutput](
+		kebab("GetDHCPOptions"), (*network.Client).GetDHCPOptions),
+	Write[network.Client, network.CreateDHCPOptionsInput, network.CreateDHCPOptionsOutput](
+		kebab("CreateDHCPOptions"), (*network.Client).CreateDHCPOptions),
+	Write[network.Client, network.DeleteDHCPOptionsInput, network.DeleteDHCPOptionsOutput](
+		kebab("DeleteDHCPOptions"), (*network.Client).DeleteDHCPOptions, Destructive()),
+	Write[network.Client, network.SetVPCDHCPOptionsInput, network.SetVPCDHCPOptionsOutput](
+		"set-vpc-dhcp-options", (*network.Client).SetVPCDHCPOptions, Guard(requireYesToSetVPCDHCPOptions)),
+	Write[network.Client, network.ClearVPCDHCPOptionsInput, network.ClearVPCDHCPOptionsOutput](
+		"clear-vpc-dhcp-options", (*network.Client).ClearVPCDHCPOptions, Guard(requireYesToClearVPCDHCPOptions)),
 }
 
 func newNetworkCmd(e *env) *cobra.Command {

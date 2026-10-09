@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/tagging"
 )
 
 // usageError marks a bad flag, argument, unknown command, or missing
@@ -100,7 +101,11 @@ type errorEnvelope struct {
 // a rerun is safe, or an iam create-policy or update-policy whose write
 // reached the server but its own confirm read failed: create-policy must
 // not be sent again, since a repeat risks a second policy, but
-// update-policy may be sent again the same way), RepositoryNotEmpty (a
+// update-policy may be sent again the same way, or a tagging tag-resource or
+// untag-resource whose PUT reached the server but its own confirm read
+// failed or came back mismatched: the write already replaced the resource's
+// user tags, so read the tags again before writing once more rather than
+// repeating the same call blind), RepositoryNotEmpty (a
 // containerregistry delete-repository was refused because a pre-delete
 // read showed the repository still holds images), UserNotFound (a
 // containerregistry create-user's own create succeeded but a follow-up
@@ -126,25 +131,31 @@ type errorEnvelope struct {
 // or because the server's own refusal named the group in use for some other
 // reason), ResourceInUse (a network VPC, subnet, or route table write
 // was refused because a pre-write read showed it still in use, such as a
-// VPC with subnets, a subnet with servers, or a route table a subnet still
-// names, or because the server's own refusal named it in use, including a
-// VPC delete the server keeps refusing with "contains the subnet" for
-// several minutes after that subnet's own delete, or a loadbalancer
-// delete-certificate or delete-pool refused because a pre-delete read showed
-// the certificate still in use by a listener, or the pool still named as a
-// listener's default pool, or because the server's own refusal named it in
-// use; or an iam delete-policy targeted a policy still attached to a group,
-// an IAM user, or a service account, before any request), DefaultResource (a
-// network delete-route-table targeted a VPC's main route table while a
-// subnet names no route table of its own and so relies on it; the server
-// itself deletes a main table once no subnet relies on it), ResourceBusy (a
-// network add-route or remove-route read a route table that was not ACTIVE
-// and stayed that way past the wait before the write, or a loadbalancer
+// VPC with subnets, a subnet with servers, a route table a subnet still
+// names, or an ACL a subnet is still associated with, or because the
+// server's own refusal named it in use, including a VPC delete the server
+// keeps refusing with "contains the subnet" for several minutes after that
+// subnet's own delete, or a loadbalancer delete-certificate or delete-pool
+// refused because a pre-delete read showed the certificate still in use by a
+// listener, or the pool still named as a listener's default pool, or because
+// the server's own refusal named it in use; or an iam delete-policy
+// targeted a policy still attached to a group, an IAM user, or a service
+// account, before any request), DefaultResource (a network delete-route-table
+// targeted a VPC's main route table while a subnet names no route table of
+// its own and so relies on it, though the server itself deletes a main
+// table once nothing relies on it; or a write targeted a project's default
+// network ACL or one of an ACL's own default rules), ResourceBusy (a
+// network add-route, remove-route, or a network ACL rule or subnet write
+// read a table or ACL that was not ACTIVE and stayed that way past the wait
+// before the write, or saw it change before the send, or a loadbalancer
 // write found the load balancer, or the child it targets, still busy past
 // the pre-write wait, or a resize's own write was refused because the load
-// balancer was busy), or SecretFileFailed
+// balancer was busy), SecretFileFailed
 // (create-ssh-key's own create succeeded but writing --secret-file failed
-// afterward, so the CLI deleted the new key).
+// afterward, so the CLI deleted the new key), or SystemTag (a tagging
+// tag-resource or untag-resource refused because Key names a system tag,
+// either its "vng." prefix or an existing system tag the pre-write read
+// found, so nothing was sent).
 func classify(err error) errorEnvelope {
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
@@ -178,17 +189,30 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
-	// iam.ErrNotSettled, and loadbalancer.ErrNotSettled join dns.ErrNotSettled
-	// and network.ErrNotSettled here for the same reason they all do:
-	// UpdateServerGroup's confirm read, GetRepository's own 5xx-confirm path
-	// inside the containerregistry wait, CreatePolicy's and UpdatePolicy's
-	// own confirm GetPolicy read, and CreateLoadBalancer's and
-	// DeleteLoadBalancer's own post-write waits, can each wrap an inner
-	// *core.APIError or a canceled context, and this check must win over the
-	// generic *APIError branch below.
+	// iam.ErrNotSettled, tagging.ErrNotSettled, and loadbalancer.ErrNotSettled
+	// join dns.ErrNotSettled and network.ErrNotSettled here for the same
+	// reason they all do: UpdateServerGroup's confirm read, GetRepository's own
+	// 5xx-confirm path inside the containerregistry wait, CreatePolicy's and
+	// UpdatePolicy's own confirm GetPolicy read, TagResource's and
+	// UntagResource's own confirm read after their PUT, and
+	// CreateLoadBalancer's and DeleteLoadBalancer's own post-write waits, can
+	// each wrap an inner *core.APIError or a canceled context, and this check
+	// must win over the generic *APIError branch below.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) {
+		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, tagging.ErrNotSettled) ||
+		errors.Is(err, loadbalancer.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	// tagging.ErrSystemTag is always returned bare, never wrapping an inner
+	// *core.APIError: it comes either from the "vng." prefix check, before
+	// any request, or from the pre-write read's own system-tag match, never
+	// from the write itself. It still joins this early group, ahead of the
+	// generic *APIError branch below, for the same reason iam.ErrSelfChange
+	// and the others below do: consistent placement for every sentinel this
+	// file classifies by errors.Is rather than by an *APIError's own
+	// status-derived code.
+	if errors.Is(err, tagging.ErrSystemTag) {
+		return errorEnvelope{Code: "SystemTag", Message: err.Error()}
 	}
 	// containerregistry.ErrRepositoryNotEmpty is always returned bare, from
 	// delete-repository's own pre-delete image count check, never wrapping a
@@ -234,11 +258,17 @@ func classify(err error) errorEnvelope {
 		return errorEnvelope{Code: "ResourceInUse", Message: err.Error()}
 	}
 	// network.ErrDefaultResource and network.ErrBusy join this same early
-	// group too: both come from DeleteRouteTable's own pre-delete reads or
-	// from AddRoute's and RemoveRoute's pre-write wait, never from wrapping
-	// the server's own response, so checking them here costs nothing extra
-	// today, but keeps every network sentinel error classified in the same
-	// place ahead of the generic *APIError branch below. loadbalancer.ErrBusy
+	// group too. ErrDefaultResource always comes from a pre-write or
+	// pre-delete read (DeleteRouteTable's main-table check, or
+	// RemoveNetworkACLRule's and DeleteNetworkACL's own default-resource
+	// checks), never from wrapping the server's response. ErrBusy usually
+	// comes the same way, from AddRoute's, RemoveRoute's, or a network ACL
+	// rule or subnet write's pre-write wait or pre-send recheck, but
+	// wrapACLBusyErr (network/acls_write.go) also wraps it around the
+	// server's own 400 when an ACL rules or subnets PUT lands in the ACL's
+	// busy window, so this check must win over the generic *APIError branch
+	// below for that case too, the same reason ErrSecurityGroupInUse and
+	// ErrInUse are checked here rather than after it. loadbalancer.ErrBusy
 	// joins network.ErrBusy under the same code: both mean a pre-write wait
 	// ran out, or, only for loadbalancer's own resize, that the write itself
 	// was refused because the load balancer was busy.
@@ -386,21 +416,24 @@ func exitCode(err error) int {
 	// dns.ErrFailed, dns.ErrNotSettled, network.ErrFailed, network.ErrNotSettled,
 	// network.ErrUnexpectedStatus, compute.ErrNotSettled,
 	// containerregistry.ErrNotSettled, containerregistry.ErrUserNotFound,
-	// iam.ErrNotSettled, loadbalancer.ErrFailed, loadbalancer.ErrNotSettled,
-	// and monitor.ErrOTPRejected join the same early return for the same
-	// reason: per the vDNS, network, vCR writes, iam, and vLB writes designs,
-	// a not-settled write, and a create-user whose own create already
-	// succeeded, must exit the same way even after a canceled context,
-	// because the write already landed, and the others join it for
-	// consistency.
+	// iam.ErrNotSettled, tagging.ErrNotSettled, loadbalancer.ErrFailed,
+	// loadbalancer.ErrNotSettled, and monitor.ErrOTPRejected join the same
+	// early return for the same reason: per the vDNS, network, vCR writes,
+	// iam, and vLB writes designs, a not-settled write, and a create-user
+	// whose own create already succeeded, must exit the same way even after a
+	// canceled context, because the write already landed, and the others
+	// join it for consistency. tagging's own confirm read can also fail with
+	// a wrapped *core.APIError of any status, including 404, so this check
+	// must win over the later NotFound check too, the same reason it wins
+	// over classify's generic *APIError branch.
 	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||
 		errors.Is(err, compute.ErrNotSettled) || errors.Is(err, containerregistry.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, loadbalancer.ErrNotSettled) ||
-		errors.Is(err, monitor.ErrOTPRejected) {
+		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrFailed) ||
+		errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

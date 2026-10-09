@@ -30,7 +30,14 @@ rename; the module keeps the `vngcloud` name.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
+- [Network ACLs](Network-ACLs.md): ACLs, rules, and subnet associations.
+- [Network DHCP Options](Network-DHCPOptions.md): DHCP options sets and the
+  set a VPC uses.
+- [Network Virtual IPs](Network-VirtualIPs.md): private virtual IP writes.
+- [Tagging](Tagging.md): reading and writing resource tags.
 - [Security](Security.md): what is safe by default, and cannot be turned off.
+- [Limitations](Limitations.md): GreenNode server behaviors the SDK works
+  around but cannot fix.
 
 ## CLI
 

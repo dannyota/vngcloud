@@ -83,7 +83,7 @@ All methods live in `network`.
   stay on the server (ADR 0002 rule 5). The SDK does not check that a
   subnet lies inside its VPC; the server does.
 - `CreateVPC` sends no `zoneId`, which the server ignores. This is the
-  approved [decision A](#owner-decisions-after-the-probes).
+  approved [decision A](#owner-decisions).
 - `CreateSubnet` sends `ZoneID` as `zoneId`; the server refuses a create
   without an enabled zone. The SDK picks no default, since a guess places
   the subnet and its servers in a zone the caller did not choose. The CLI
@@ -120,6 +120,12 @@ deleted in the last 15 minutes can block the delete and a rerun is safe.
 `ListServersBySubnet`, `ListNetworkInterfaces`, or `ListVirtualIPAddresses`
 shows any item in the subnet. The last two filter by subnet ID in the SDK.
 The server's refusal is the final guard.
+
+It also sends nothing and returns `ErrInUse` when a network ACL in the
+subnet's own VPC still lists it: deleting a held subnet instead of
+disassociating it first leaves that ACL stuck for good (see
+[vServer network writes: API](vserver-network-writes-api.md)). The guard
+reads every ACL in the VPC and fails closed on any read error.
 
 `GetSubnet` keeps returning a deleted subnet with status `DELETED` for
 minutes; `ListSubnetsByVPC` drops it. So `DeleteSubnet` returns `NotFound`,
@@ -225,19 +231,18 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
 
 ### Rules replace
 
-`PUT .../rules` replaces the whole list. Add and remove follow the steps of
-[Routes replace](#routes-replace), with these differences:
+`PUT .../rules` replaces the whole list, sent `Once` unlike a routes
+replace. Add and remove otherwise follow [Routes replace](#routes-replace):
 
 - A rule is keyed by direction (case-insensitive) and priority. Add with
   the same key and the same fields: `Changed` false. Same key, other
   fields: `ErrInvalidInput`, nothing sent.
-- Default rules never change. `RemoveNetworkACLRule` on a default rule
-  returns `ErrDefaultResource`, nothing sent. The list sent leaves default
-  rules out when the live check shows the server keeps them; otherwise it
-  resends each exactly as read. The marker that identifies a default rule
-  comes from the live check; the rule seen live has `seqNumber` 0, below
-  any priority a user can send. The design is amended with the marker
-  before code.
+- A rule is default when its priority is 2000 or more (the server keeps
+  these on any PUT, live) or its `system` field is true. Default rules
+  never change: `RemoveNetworkACLRule` on one returns
+  `ErrDefaultResource`, nothing sent. The priority-0 pass-all rules are
+  ordinary rules a caller may remove. The list sent resends every rule as
+  read. Caller priorities are 1 to 1999.
 - The confirm read checks the user rules and that every default rule is
   unchanged.
 
@@ -307,9 +312,10 @@ writes, have no wait: their responses are final.
   are not (live), so a subnet is matched by CIDR, which the server keeps
   unique within a VPC; a rerun with the same CIDR cannot make a second one.
 - Updates, replaces, and deletes keep the transport's retries, except the
-  Private DNS `PATCH` (`Once`). A retried delete that finds the resource
-  gone returns `NotFound`; subnet and ACL deletes confirm by list instead,
-  as above.
+  Private DNS `PATCH` and the ACL rules and subnets `PUT`s (`Once`): an ACL
+  PUT's own busy 400 is `ErrBusy`, any other failure `ErrNotSettled`. A
+  retried delete that finds the resource gone returns `NotFound`; subnet
+  and ACL deletes confirm by list instead, as above.
 - The CLI never retries a write.
 
 ## CLI
@@ -389,9 +395,8 @@ before its code merges.
 
 ## Owner decisions
 
-The owner approved every recommendation below on 2026-09-27. The cost
-probes contradict decision 7; see
-[decision A](#owner-decisions-after-the-probes).
+The owner approved every recommendation below, decision A included, on
+2026-09-27; the probes contradicted decision 7 the same day, and A replaces it.
 
 1. Release split. Options: four releases N1 to N4 in the order above; one
    release. Recommend four, as the survey approved.
@@ -424,17 +429,12 @@ probes contradict decision 7; see
     picks, sharing one probe VPC; one probe per release. Recommend one
     session, since three picks need a VPC, with the next-day bill read per
     service line.
-
-## Owner decisions after the probes
-
-The owner approved decision A on 2026-09-27.
-
-A. `ZoneID` on VPC create, replacing decision 7. The server ignores
-   `zoneId` in the VPC body and places every VPC in the region's first
-   zone, which can be disabled for the account; the zone that matters is
-   the subnet's. Options: drop the input and never send `zoneId`; keep it
-   optional as approved. Approved: drop. An input the server ignores
-   tells the caller it chose a zone when it did not.
+11. `ZoneID` on VPC create (decision A, replacing decision 7 once the
+    probes showed the server ignores `zoneId` in the VPC body and always
+    uses the region's first zone, which can be disabled for the account;
+    the zone that matters is the subnet's). Approved: drop the input
+    rather than keep it optional, since one the server ignores would tell
+    the caller it chose a zone when it did not.
 
 ## Open questions
 

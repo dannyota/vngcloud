@@ -1,6 +1,6 @@
 module danny.vn/vngcloud
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/jmespath/go-jmespath v0.4.0

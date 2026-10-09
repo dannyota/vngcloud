@@ -142,9 +142,10 @@ On a VPC and `/24` subnet the run creates:
 2. Add a route to `10.251.200.0/24` with a target address inside the test
    subnet that no interface holds: accepted or refused, the new route's
    `routingType`, statuses from `UPDATING` to `ACTIVE`, time.
-3. On the test VPC's main route table: whether it has system routes, and
-   whether a `PUT` that leaves them out keeps them. Restore the table as
-   read afterwards.
+3. Whether the new table became the VPC's main table: a VPC created with
+   none gets one assigned automatically, and this run's own VPC has none
+   beforehand. When it did, whether that table carries any routes right
+   after becoming main.
 4. Remove the route: status and final list.
 5. Delete the route table: 202, then 404. Repeat delete: status.
 
@@ -166,8 +167,10 @@ On a VPC and `/24` subnet the run creates:
    Add a rule with a used priority: status and message.
 4. Remove the user rules: final list, default rules unchanged.
 5. Associate the test subnet: status, `subnetAssociationList`, the
-   subnet's `interfaceAclPolicyUuid`. Associate again. Send the raw ACL
-   `DELETE` while associated: status and message.
+   subnet's `interfaceAclPolicyUuid`. Associate again. Try
+   `DeleteNetworkACL` while associated: the SDK's own `ErrInUse` refusal,
+   or the server's; confirm the ACL still exists and still lists the
+   subnet.
 6. Disassociate: the subnet's ACL fields afterwards.
 7. Delete the ACL: 204, and `GetNetworkACL` afterwards is `NotFound`
    through the list confirm. Repeat delete: status.
@@ -178,13 +181,31 @@ The live write test first deletes leftovers whose names start with
 `vngcloud-live-`: ACLs (after disassociating their subnets), route tables,
 subnets, VPCs, then server groups. It registers `t.Cleanup` as soon as
 each ID is known, and deletes in that order with its own context,
-asserting none remain. If a create fails, it lists by exact name and
-deletes a match. It never touches a resource without the prefix, a main
-route table, or a default ACL. A VPC delete refused with `ErrInUse` after
-its subnets are gone is retried every 30 seconds for up to 20 minutes,
-since the server holds deleted subnets for minutes. Private DNS takes
-about 6 minutes and that hold about 11, so the live target's timeout is
-at least 40 minutes.
+asserting none remain, except a leftover ACL whose delete returns the
+server's own 500 after one try, which it counts and leaves alone rather
+than failing the run on; see [VPC reuse](#vpc-reuse). If a create fails,
+it lists by exact name and deletes a match. It never touches a resource
+without the prefix, a main route table, or a default ACL. A VPC delete
+refused with `ErrInUse` after its subnets are gone is retried every 30
+seconds for up to 20 minutes, since the server holds deleted subnets for
+minutes. Private DNS takes about 6 minutes and that hold about 11, so the
+live target's timeout is at least 40 minutes.
+
+### VPC reuse
+
+With owner approval, a live network test may reuse an existing
+`vngcloud-live-` VPC named by `VNGCLOUD_LIVE_NETWORK_VPC_ID` instead of
+creating and deleting its own: the account's VPC quota can leave no VPC
+free, as it does for one stuck `vngcloud-live-` VPC whose one network ACL
+returns the server's own 500 on every delete attempt, disassociated
+subnets included, and so can never be removed. When the variable is set,
+the test reads that VPC first and refuses, before any write, a name that
+does not exactly match `vngcloud-live-<8 hex>`. It then creates only its
+own new `/24` subnet inside that VPC, in a range that avoids every subnet
+already there, and deletes only that subnet afterward, disassociating its
+own network ACL first when one still lists it; it never deletes the VPC
+itself. Without the variable, a test still creates and deletes its own
+VPC as before.
 
 ## Security review
 

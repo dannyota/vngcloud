@@ -1,3 +1,9 @@
 {
-  "agent": "manager"
+  "agent": "manager",
+  "permissions": {
+    "deny": [
+      "Bash(git stash *)",
+      "Bash(git -C * stash *)"
+    ]
+  }
 }

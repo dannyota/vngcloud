@@ -574,8 +574,8 @@ func TestNetworkDeleteSubnetRequiresYesWithZeroRequests(t *testing.T) {
 
 // TestNetworkDeleteSubnetWithYesSendsChecksDeleteAndWaits checks the
 // success path's full request sequence: the pre-delete subnet read, the
-// three in-use checks, the DELETE, then the post-delete wait's own
-// ListSubnetsByVPC settling to an empty list.
+// three in-use checks, the network ACL list check, the DELETE, then the
+// post-delete wait's own ListSubnetsByVPC settling to an empty list.
 func TestNetworkDeleteSubnetWithYesSendsChecksDeleteAndWaits(t *testing.T) {
 	deleted := false
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -594,6 +594,7 @@ func TestNetworkDeleteSubnetWithYesSendsChecksDeleteAndWaits(t *testing.T) {
 		"/v2/proj-1/servers/subnets/subnet-1":   jsonHandler(http.StatusOK, `[]`),
 		"/v2/proj-1/network-interfaces-elastic": jsonHandler(http.StatusOK, emptyNetworkListJSON),
 		"/v2/proj-1/virtualIpAddress":           jsonHandler(http.StatusOK, emptyNetworkListJSON),
+		"/v2/proj-1/network-acl/list":           jsonHandler(http.StatusOK, emptyNetworkListJSON),
 		"/v2/proj-1/networks/vpc-1/subnets":     jsonHandler(http.StatusOK, `[]`),
 	})
 	root, _, stderr := newSvcRoot(t, fixture)
@@ -607,8 +608,47 @@ func TestNetworkDeleteSubnetWithYesSendsChecksDeleteAndWaits(t *testing.T) {
 	if !deleted {
 		t.Fatal("the DELETE was never sent")
 	}
+	if n := fixture.requestCount(); n != 7 {
+		t.Fatalf("requestCount = %d, want 7 (subnet read, 3 in-use checks, network ACL list, delete, post-delete list)", n)
+	}
+}
+
+// TestNetworkDeleteSubnetInUseWithNetworkACLNoDelete checks that a subnet
+// still held by a network ACL in its own VPC stops the delete before any
+// DELETE, with error code ResourceInUse.
+func TestNetworkDeleteSubnetInUseWithNetworkACLNoDelete(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/networks/vpc-1/subnets/subnet-1": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("unexpected method %s, want only GET", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(subnetJSON("web")))
+		},
+		"/v2/proj-1/servers/subnets/subnet-1":   jsonHandler(http.StatusOK, `[]`),
+		"/v2/proj-1/network-interfaces-elastic": jsonHandler(http.StatusOK, emptyNetworkListJSON),
+		"/v2/proj-1/virtualIpAddress":           jsonHandler(http.StatusOK, emptyNetworkListJSON),
+		"/v2/proj-1/network-acl/list": jsonHandler(http.StatusOK,
+			`{"listData":[{"uuid":"acl-1","networkId":"vpc-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`),
+		"/v2/proj-1/network-acl/acl-1": jsonHandler(http.StatusOK, aclJSON("web", false, []string{"subnet-1"}, nil)),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{
+		"--region", "hcm-3", "--project-id", "proj-1", "--yes",
+		"network", "delete-subnet", "--vpc-id", "vpc-1", "--subnet-id", "subnet-1",
+	})
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := classify(err).Code; got != "ResourceInUse" {
+		t.Fatalf("Code = %q, want ResourceInUse (stderr=%s)", got, stderr.String())
+	}
+	if got := exitCode(err); got != 1 {
+		t.Fatalf("exitCode = %d, want 1", got)
+	}
 	if n := fixture.requestCount(); n != 6 {
-		t.Fatalf("requestCount = %d, want 6 (subnet read, 3 in-use checks, delete, post-delete list)", n)
+		t.Fatalf("requestCount = %d, want 6 (subnet read, 3 in-use checks, network ACL list, ACL detail, no delete)", n)
 	}
 }
 

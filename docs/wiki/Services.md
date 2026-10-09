@@ -28,7 +28,8 @@ policy can be created, updated, deleted, and attached to or detached from
 a service account, a group, or an IAM user; a group can be created,
 updated, deleted, and have members added or removed. Every write is
 guarded against changing the caller's own access or a principal that
-already holds an IAM write right. See [IAM](#iam) below.
+already holds an IAM write right. See [IAM](#iam) below. `tagging` writes
+tags on any resource type. See [Tagging](Tagging.md).
 
 ## Coverage
 
@@ -44,6 +45,7 @@ already holds an IAM write right. See [IAM](#iam) below.
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
 
 ## Project
 
@@ -149,6 +151,7 @@ networkClient.ListVirtualIPAddresses(ctx, in)               // Name, Page, Size
 networkClient.ListRouteTables(ctx, in)                      // Name, Page, Size
 networkClient.ListPeerings(ctx, in)                         // Name, Page, Size
 networkClient.ListNetworkACLs(ctx, in)                      // Name, Page, Size
+networkClient.GetNetworkACL(ctx, in)                        // NetworkACLID (required)
 networkClient.ListInterconnects(ctx, in)                    // Name, Page, Size
 networkClient.ListSubnets(ctx, nil)
 networkClient.ListSubnetsByVPC(ctx, in)                     // VPCID (required)
@@ -168,13 +171,17 @@ networkClient.ListEndpointTags(ctx, in)                     // EndpointID (requi
 `ListEndpoints` and `GetEndpoint` discover VNetwork region metadata when
 needed before reading endpoint resources.
 
-The SDK has no method for network ACL rules or for a single network
-interface.
+The SDK has no method for a single network interface.
 
-`network` also writes security groups and their rules; see
+`network` also writes security groups and their rules, route tables and
+routes, and network ACLs, their rules, and subnet associations; see
 [Network](Network.md) for `CreateSecurityGroup`, `UpdateSecurityGroup`,
-`DeleteSecurityGroup`, `CreateSecurityGroupRule`, and
-`DeleteSecurityGroupRule`, their waits, and their errors.
+`DeleteSecurityGroup`, `CreateSecurityGroupRule`, `DeleteSecurityGroupRule`,
+`CreateRouteTable`, `DeleteRouteTable`, `AddRoute`, and `RemoveRoute`, their
+waits, and their errors, and [Network ACLs](Network-ACLs.md) for
+`CreateNetworkACL`, `DeleteNetworkACL`, `AddNetworkACLRule`,
+`RemoveNetworkACLRule`, `AssociateNetworkACLSubnet`, and
+`DisassociateNetworkACLSubnet`.
 
 ## Load Balancing
 
@@ -423,3 +430,14 @@ can be read and attached, but never updated or deleted.
 `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
 `RemoveUserFromGroup`, `AttachGroupPolicy`, `DetachGroupPolicy`, their
 guards, and their errors.
+
+## Tagging
+
+```go
+taggingClient := tagging.New(cfg)
+taggingClient.ListResourceTags(ctx, in)  // ResourceID (required)
+```
+
+`ListResourceTags` reads any resource's tags through the one tag API the
+vServer gateway serves for every resource type. `TagResource`, its read-merge
+write, and its errors are on the [Tagging](Tagging.md) page.

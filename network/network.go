@@ -342,6 +342,9 @@ func (c *Client) GetVirtualIPAddress(ctx context.Context, in *GetVirtualIPAddres
 	if err := core.CheckRequired("network.GetVirtualIPAddress", in); err != nil {
 		return nil, err
 	}
+	if err := core.CheckPathID("network.GetVirtualIPAddress", "VirtualIPAddressID", in.VirtualIPAddressID); err != nil {
+		return nil, err
+	}
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -362,6 +365,9 @@ func (c *Client) GetVirtualIPAddress(ctx context.Context, in *GetVirtualIPAddres
 
 func (c *Client) ListAddressPairsByVirtualIPAddress(ctx context.Context, in *ListAddressPairsByVirtualIPAddressInput) (*ListAddressPairsByVirtualIPAddressOutput, error) {
 	if err := core.CheckRequired("network.ListAddressPairsByVirtualIPAddress", in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID("network.ListAddressPairsByVirtualIPAddress", "VirtualIPAddressID", in.VirtualIPAddressID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)

@@ -1,0 +1,11 @@
+{
+  "data": {
+    "uuid": "acl-1",
+    "interfaceNetworkUuid": "vpc-1",
+    "name": "<name>",
+    "defaultAcl": false,
+    "status": "ACTIVE",
+    "projectUuid": "pro-1",
+    "createdAt": "2026-01-01T00:00:00Z"
+  }
+}

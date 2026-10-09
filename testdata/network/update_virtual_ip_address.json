@@ -1,0 +1,13 @@
+{
+  "data": {
+    "uuid": "vip-1",
+    "name": "<name>",
+    "ipAddress": "<ip>",
+    "networkId": "vpc-1",
+    "subnetId": "subnet-1",
+    "description": "<description>",
+    "mode": "Active/Active",
+    "type": "private",
+    "status": "ACTIVE"
+  }
+}
