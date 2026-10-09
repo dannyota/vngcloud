@@ -1,0 +1,15 @@
+{
+  "Items": [
+    {
+      "Name": "bucket-a",
+      "ObjectCount": 12,
+      "SizeBytes": 3456,
+      "IsPublic": false,
+      "IsVersioned": true,
+      "CreatedDate": "2026-01-01T00:00:00Z",
+      "LastModified": "2026-01-02T00:00:00Z",
+      "Type": "ceph",
+      "VersionLocation": ""
+    }
+  ]
+}

@@ -38,9 +38,12 @@ type Op[C any] struct {
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
 	noFlag      map[string]bool
-	newInput    func() any
-	newOutput   func() any
-	call        func(cmd *cobra.Command, client *C, ctx context.Context, in any) (any, error)
+	// globalProject names the Input field the global --project-id flag
+	// fills, for an op whose project is not the account's vServer project.
+	globalProject string
+	newInput      func() any
+	newOutput     func() any
+	call          func(cmd *cobra.Command, client *C, ctx context.Context, in any) (any, error)
 	// extraFlags registers a flag beyond those flagSpecsFor derives from the
 	// Input struct, for an op whose command needs one its Input carries no
 	// field for. compute's create-ssh-key is the only op that sets this
@@ -105,8 +108,9 @@ func WriteRedact[Out any](fn func(*Out)) writeOption {
 
 // readOption configures a Read operation: NoFlag, Redact, or both.
 type readOption struct {
-	noFlag map[string]bool
-	redact any // func(*Out) for the Read's own Out, checked in Read
+	noFlag        map[string]bool
+	globalProject string
+	redact        any // func(*Out) for the Read's own Out, checked in Read
 }
 
 // Redact marks a Read operation's Output as holding a value the CLI must
@@ -133,6 +137,15 @@ func NoFlag(fields ...string) readOption {
 	return readOption{noFlag: m}
 }
 
+// GlobalProjectID marks an Input field that the global --project-id flag
+// fills, in place of a flag of its own that would collide with it. Only the
+// flag counts: a project ID from the environment or the profile is the
+// account's vServer project, which is not a vStorage project. A command that
+// leaves the field empty fails with exit 2 before any request.
+func GlobalProjectID(field string) readOption {
+	return readOption{noFlag: map[string]bool{field: true}, globalProject: field}
+}
+
 // Read registers a read operation: name is its kebab-case command name, and
 // method is an SDK method expression such as (*compute.Client).ListServers.
 // opts holds NoFlag and Redact where an operation needs them. A Redact
@@ -140,7 +153,11 @@ func NoFlag(fields ...string) readOption {
 func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...readOption) Op[C] {
 	var redact func(*Out)
 	noFlag := map[string]bool{}
+	globalProject := ""
 	for _, o := range opts {
+		if o.globalProject != "" {
+			globalProject = o.globalProject
+		}
 		for f := range o.noFlag {
 			noFlag[f] = true
 		}
@@ -156,12 +173,13 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 		}
 	}
 	return Op[C]{
-		name:       name,
-		methodName: funcName(method),
-		kind:       kindRead,
-		noFlag:     noFlag,
-		newInput:   func() any { return new(In) },
-		newOutput:  func() any { return new(Out) },
+		name:          name,
+		methodName:    funcName(method),
+		kind:          kindRead,
+		noFlag:        noFlag,
+		globalProject: globalProject,
+		newInput:      func() any { return new(In) },
+		newOutput:     func() any { return new(Out) },
 		call: func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {
 			out, err := method(client, ctx, in.(*In))
 			if err != nil {
@@ -330,6 +348,9 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return err
 	}
 	applyChangedFlags(cmd, input, bound)
+	if err := applyGlobalProjectID(e, op, input); err != nil {
+		return err
+	}
 
 	// op.guard runs on the merged Input before the read-only check below: it
 	// is a property of the Input's own shape (a literal --address on argv),
@@ -431,4 +452,22 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return callErr
 	}
 	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)
+}
+
+// applyGlobalProjectID copies the global --project-id flag into the Input
+// field op.globalProject names. The flag wins over --cli-input-json; without
+// the flag, a value from --cli-input-json stays. An empty result is a usage
+// error here, so the command stops before any request.
+func applyGlobalProjectID[C any](e *env, op Op[C], input any) error {
+	if op.globalProject == "" {
+		return nil
+	}
+	field := reflect.ValueOf(input).Elem().FieldByName(op.globalProject)
+	if e.flags.projectID != "" {
+		field.SetString(e.flags.projectID)
+	}
+	if field.String() == "" {
+		return newUsageError("--project-id is required")
+	}
+	return nil
 }

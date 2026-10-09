@@ -11,6 +11,7 @@
 - [CDN](CDN.md)
 - [Compute](Compute.md)
 - [DNS](DNS.md)
+- [Container Registry](Container-Registry.md)
 - [IAM](IAM.md)
 - [Load Balancer](LoadBalancer.md)
 - [Monitor](Monitor.md)
@@ -21,6 +22,7 @@
 - [Network DHCP Options](Network-DHCPOptions.md)
 - [Network Virtual IPs](Network-VirtualIPs.md)
 - [Tagging](Tagging.md)
+- [Storage](Storage.md)
 - [Security](Security.md)
 - [Limitations](Limitations.md)
 
@@ -42,3 +44,4 @@
 - [CLI: ContainerRegistry](CLI-ContainerRegistry.md)
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
 - [CLI: Tagging](CLI-Tagging.md)
+- [CLI: Storage](CLI-Storage.md)

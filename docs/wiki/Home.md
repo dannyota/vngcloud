@@ -18,6 +18,8 @@ rename; the module keeps the `vngcloud` name.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges.
 - [Compute](Compute.md): vServer instances, images, and SSH keys, including
   importing and creating them.
+- [Container Registry](Container-Registry.md): repositories and users,
+  including writes and secret handling.
 - [DNS](DNS.md): hosted zones and records, including writes and waits.
 - [IAM](IAM.md): service account writes, and their self-change and
   privileged-change guards.
@@ -27,6 +29,7 @@ rename; the module keeps the `vngcloud` name.
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
   and alarms.
+- [Storage](Storage.md): vStorage regions, projects, and buckets (reads).
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
@@ -46,8 +49,9 @@ rename; the module keeps the `vngcloud` name.
 - [CLI: Billing](CLI-Billing.md), [CLI: Pricing](CLI-Pricing.md),
   [CLI: Compute](CLI-Compute.md), [CLI: IAM](CLI-IAM.md),
   [CLI: Network](CLI-Network.md), [CLI: DNS](CLI-DNS.md),
-  [CLI: CDN](CLI-CDN.md), and [CLI: Monitor](CLI-Monitor.md): every
-  operation, its flags, and an example.
+  [CLI: CDN](CLI-CDN.md), [CLI: Monitor](CLI-Monitor.md), and
+  [CLI: Storage](CLI-Storage.md): every operation, its flags, and an
+  example.
 
 ## Source
 

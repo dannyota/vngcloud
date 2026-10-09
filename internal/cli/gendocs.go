@@ -71,10 +71,18 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 		for _, f := range extra {
 			extraNames[f.name] = true
 		}
+		fields := docFieldsFor(op.newInput(), op.noFlag, extraNames)
+		for j := range fields {
+			// The global --project-id flag fills this field, so it reads as
+			// a flag, not as a JSON-only field.
+			if fields[j].viaJSON && fields[j].name == op.globalProject {
+				fields[j] = docField{name: "project-id", goType: "string", required: fields[j].required}
+			}
+		}
 		svc.ops[i] = docOp{
 			name:       op.name,
 			kind:       kind,
-			fields:     append(docFieldsFor(op.newInput(), op.noFlag, extraNames), extra...),
+			fields:     append(fields, extra...),
 			queryField: wrappedResourceField(op.methodName, op.newOutput),
 		}
 	}
@@ -180,7 +188,9 @@ func wrappedResourceField(methodName string, newOutput func() any) string {
 	}
 	name, count := "", 0
 	for i := range t.NumField() {
-		if f := t.Field(i); f.IsExported() {
+		// An embedded struct flattens into the output, so it names no key
+		// --query could select.
+		if f := t.Field(i); f.IsExported() && !f.Anonymous {
 			count++
 			name = f.Name
 		}
@@ -215,6 +225,7 @@ func runGenDocs(dir string) error {
 		buildDocService("containerregistry", containerRegistryOps),
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 		buildDocService("tagging", taggingOps),
+		buildDocService("storage", storageOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
