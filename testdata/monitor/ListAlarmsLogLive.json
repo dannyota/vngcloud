@@ -1,7 +1,7 @@
 {
   "lstData": [
     {"id": "<id>", "type": "Log", "name": "vngcloud-live-470e93a9", "description": "", "progressStatus": "ACTIVE", "severity": "LOW",
-    "alarmLog": {"id": "<id>", "logProject": "<project-id>", "logProjectName": "vngcloud-live-logalarm", "zone": "", "logSearchQuery": "[]", "queryString": "*", "thresholdType": "frequency", "condition": "GT", "thresholdValue": 1000, "timeFrame": 5, "inAlarm": "<channel-id>,", "ok": ""},
+    "alarmLog": {"id": "<alarm-log-id>", "logProject": "<project-id>", "logProjectName": "vngcloud-live-logalarm", "zone": "", "logSearchQuery": "[]", "queryString": "*", "thresholdType": "frequency", "condition": "GT", "thresholdValue": 1000, "timeFrame": 5, "inAlarm": "<channel-id>,", "ok": ""},
     "createdAt": "2026-10-09T18:07:38.000+07:00"}
   ],
   "page": 1,

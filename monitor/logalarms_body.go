@@ -64,29 +64,51 @@ const logAlarmDefaultResendPeriod = 30
 // parser produces for no query at all.
 const matchAllLogFilter = `{"type":"bool","value":{"filter":[],"should":[],"must":[],"mustNot":[]}}`
 
+// consoleMatchAllLogFilter returns the filter the console's edit page builds
+// for a plain-text query: a phrase match on query. An empty query has no
+// phrase to match, so it gets matchAllLogFilter.
+func consoleMatchAllLogFilter(query string) json.RawMessage {
+	if query == "" {
+		return json.RawMessage(matchAllLogFilter)
+	}
+	q, err := json.Marshal(query)
+	if err != nil {
+		return json.RawMessage(matchAllLogFilter)
+	}
+	return json.RawMessage(`{"type":"bool","value":{"filter":[],"should":[],"must":[{"type":"bool","value":{"filter":[],"must":[{"type":"multi_match","value":{"type":"phrase","query":` + string(q) + `,"lenient":true}}],"should":[],"mustNot":[]}}],"mustNot":[]}}`)
+}
+
 // logAlarmFields holds a log alarm's fields already resolved to their final
 // values: CreateLogAlarm's defaults, or UpdateLogAlarm's merge of the read
 // with the caller's set fields. buildLogAlarmBody turns it into the wire body
 // both writes send (ADR 0002 rule 8).
 type logAlarmFields struct {
-	Name           string
-	Description    string
-	Severity       string
-	LogProjectID   string
-	ProjectName    string
-	QueryString    string
-	LogSearchQuery string
-	Filter         json.RawMessage
-	ThresholdType  string
-	Condition      string
-	ThresholdValue float64
-	TimeFrame      int
-	GroupByField   string
-	AggField       string
-	AggType        string
-	InAlarm        []string
-	OK             []string
-	Resend         LogAlarmResend
+	// Update marks an UpdateLogAlarm body, which also carries the log
+	// detail's own ID and the logProject and logProjectName keys the console
+	// sends.
+	Update bool
+	ID     string
+	// SendResendDetail makes the body carry resendEnabled, resendPeriod, and
+	// resendTimes. The console's update omits them; resendStatus is always sent.
+	SendResendDetail bool
+	Name             string
+	Description      string
+	Severity         string
+	LogProjectID     string
+	ProjectName      string
+	QueryString      string
+	LogSearchQuery   string
+	Filter           json.RawMessage
+	ThresholdType    string
+	Condition        string
+	ThresholdValue   float64
+	TimeFrame        int
+	GroupByField     string
+	AggField         string
+	AggType          string
+	InAlarm          []string
+	OK               []string
+	Resend           LogAlarmResend
 }
 
 // logAlarmBody is CreateLogAlarm and UpdateLogAlarm's shared request body.
@@ -97,9 +119,12 @@ type logAlarmFields struct {
 // when nil, so UpdateLogAlarm can resend a read that had no filter as
 // having none, rather than an explicit null.
 type logAlarmBody struct {
+	ID             string          `json:"id,omitempty"`
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
 	Severity       string          `json:"severity"`
+	LogProject     string          `json:"logProject,omitempty"`
+	LogProjectName string          `json:"logProjectName,omitempty"`
 	LogProjectID   string          `json:"logProjectId"`
 	ProjectName    string          `json:"projectName"`
 	Zone           string          `json:"zone"`
@@ -117,9 +142,9 @@ type logAlarmBody struct {
 	InAlarm        string          `json:"inAlarm"`
 	OK             string          `json:"ok"`
 	Undetermined   string          `json:"undetermined"`
-	ResendEnabled  bool            `json:"resendEnabled"`
-	ResendPeriod   int             `json:"resendPeriod"`
-	ResendTimes    int             `json:"resendTimes"`
+	ResendEnabled  *bool           `json:"resendEnabled,omitempty"`
+	ResendPeriod   *int            `json:"resendPeriod,omitempty"`
+	ResendTimes    *int            `json:"resendTimes,omitempty"`
 	ResendStatus   string          `json:"resendStatus"`
 }
 
@@ -173,7 +198,8 @@ func buildLogAlarmBody(f logAlarmFields) logAlarmBody {
 		groupByField = &gbf
 	}
 
-	return logAlarmBody{
+	body := logAlarmBody{
+		ID:             f.ID,
 		Name:           f.Name,
 		Description:    f.Description,
 		Severity:       f.Severity,
@@ -194,11 +220,18 @@ func buildLogAlarmBody(f logAlarmFields) logAlarmBody {
 		InAlarm:        joinChannelIDs(f.InAlarm),
 		OK:             joinChannelIDs(f.OK),
 		Undetermined:   "",
-		ResendEnabled:  f.Resend.Enabled,
-		ResendPeriod:   f.Resend.Period,
-		ResendTimes:    f.Resend.Times,
 		ResendStatus:   strings.Join(f.Resend.Statuses, ","),
 	}
+	if f.Update {
+		body.LogProject = f.LogProjectID
+		body.LogProjectName = f.ProjectName
+	}
+	if f.SendResendDetail {
+		body.ResendEnabled = &f.Resend.Enabled
+		body.ResendPeriod = &f.Resend.Period
+		body.ResendTimes = &f.Resend.Times
+	}
+	return body
 }
 
 // checkLogAlarmChannelIDs runs core.CheckPathID on every id in ids, naming

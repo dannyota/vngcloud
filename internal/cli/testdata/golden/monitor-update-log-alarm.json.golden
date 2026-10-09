@@ -8,6 +8,7 @@
     "Severity": "MEDIUM",
     "MetricMappingID": "",
     "Log": {
+      "ID": "",
       "LogProjectID": "",
       "LogProjectName": "",
       "QueryString": "",

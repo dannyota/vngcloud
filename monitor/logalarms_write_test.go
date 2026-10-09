@@ -851,8 +851,8 @@ func TestUpdateLogAlarmPreservesAbsentReadQueryFields(t *testing.T) {
 			if body["queryString"] != "" || body["logSearchQuery"] != "" {
 				t.Fatalf("query fields = queryString=%q logSearchQuery=%q, want unchanged empty values", body["queryString"], body["logSearchQuery"])
 			}
-			if _, ok := body["filter"]; ok {
-				t.Fatalf("filter = %v, want omitted", body["filter"])
+			if _, ok := body["filter"]; !ok {
+				t.Fatal("filter absent, want the match-all filter sent always")
 			}
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -1047,8 +1047,8 @@ func TestUpdateLogAlarmQueryFilterPairing(t *testing.T) {
 				_, _ = w.Write([]byte(existingLogAlarmNoFilterRaw))
 			case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
 				body := decodeLogProjectBody(t, r)
-				if _, ok := body["filter"]; ok {
-					t.Fatalf("filter present, want omitted: %+v", body)
+				if _, ok := body["filter"]; !ok {
+					t.Fatalf("filter absent, want a match-all filter built from the query: %+v", body)
 				}
 				if body["queryString"] != "status:500" {
 					t.Fatalf("queryString = %v, want unchanged", body["queryString"])
@@ -1521,6 +1521,62 @@ func TestUpdateLogAlarmOnLiveReadShape(t *testing.T) {
 	}
 	if got["queryString"] != "*" || got["logSearchQuery"] != "[]" {
 		t.Fatalf("query pair = %v / %v", got["queryString"], got["logSearchQuery"])
+	}
+}
+
+// TestUpdateLogAlarmBodyMatchesConsoleShape pins the body the console's own
+// edit sends: the detail's id, logProject and logProjectName, an always-present
+// filter, resendStatus alone, and no metric aggregation keys.
+func TestUpdateLogAlarmBodyMatchesConsoleShape(t *testing.T) {
+	var got map[string]any
+	client := newTestClient(t, liveLogAlarmHandler(t, func(b map[string]any) { got = b }))
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, Description: ptrStr("new"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateLogAlarm() error = %v", err)
+	}
+	if got["id"] != "<alarm-log-id>" || got["logProject"] != "<project-id>" || got["logProjectName"] != "vngcloud-live-logalarm" {
+		t.Fatalf("id fields = %v / %v / %v", got["id"], got["logProject"], got["logProjectName"])
+	}
+	const wantFilter = `{"type":"bool","value":{"filter":[],"should":[],"must":[{"type":"bool","value":{"filter":[],"must":[{"type":"multi_match","value":{"type":"phrase","query":"*","lenient":true}}],"should":[],"mustNot":[]}}],"mustNot":[]}}`
+	gotFilter, err := json.Marshal(got["filter"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want any
+	if err := json.Unmarshal([]byte(wantFilter), &want); err != nil {
+		t.Fatal(err)
+	}
+	wantJSON, _ := json.Marshal(want)
+	if string(gotFilter) != string(wantJSON) {
+		t.Fatalf("filter = %s, want %s", gotFilter, wantJSON)
+	}
+	if v, ok := got["groupByField"]; !ok || v != nil {
+		t.Fatalf("groupByField = %v (present %v), want null", v, ok)
+	}
+	if got["resendStatus"] != "ALARM" || got["undetermined"] != "" || got["reason"] != "query(*) >1000" {
+		t.Fatalf("resendStatus/undetermined/reason = %v / %v / %v", got["resendStatus"], got["undetermined"], got["reason"])
+	}
+	for _, k := range []string{"resendEnabled", "resendPeriod", "resendTimes", "metricAggKey", "metricAggType"} {
+		if _, ok := got[k]; ok {
+			t.Fatalf("%s present, want omitted", k)
+		}
+	}
+}
+
+func TestUpdateLogAlarmSendsResendFieldsWhenCallerSetsResend(t *testing.T) {
+	var got map[string]any
+	client := newTestClient(t, liveLogAlarmHandler(t, func(b map[string]any) { got = b }))
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true,
+		Resend: &LogAlarmResend{Enabled: true, Statuses: []string{"OK", "ALARM"}, Period: 15, Times: 2},
+	})
+	if err != nil {
+		t.Fatalf("UpdateLogAlarm() error = %v", err)
+	}
+	if got["resendEnabled"] != true || got["resendPeriod"] != 15.0 || got["resendTimes"] != 2.0 || got["resendStatus"] != "OK,ALARM" {
+		t.Fatalf("resend fields = %+v", got)
 	}
 }
 

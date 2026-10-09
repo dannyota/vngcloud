@@ -119,7 +119,7 @@ gives `AlarmKindLog`, `Metric` or `METRIC` gives `AlarmKindMetric`), and
 `Status` from `progressStatus`, so `GetAlarm` sets it
 too; `ListAlarms` still sets it from its filter. `Log` decodes from
 `alarmLog`; a response without `alarmLog` keeps today's top-level
-`inAlarm` and `ok` decode. `LogAlarmDetail` gains `LogProjectID`
+`inAlarm` and `ok` decode. `LogAlarmDetail` gains `ID` (`alarmLog.id`), `LogProjectID`
 (`logProject`), `LogProjectName`, `QueryString`, `Filter`
 (`json.RawMessage`, nil when absent), `ThresholdType`, `Condition`,
 `ThresholdValue` (`float64`), `TimeFrame` (`int`), `GroupByField`,
@@ -196,8 +196,20 @@ unset; new values follow the create's pairing rule. It applies the set
 fields to the read and builds the body with the create's builder. A new
 `LogProjectID` gets `projectName` from `GetLogProject`; otherwise the read's
 `LogProjectName` is sent. An unset `QueryString` keeps the read's
-`logSearchQuery`; a read without `filter` sends none. `reason` is rebuilt.
-It sends `PUT` with normal retries, then waits.
+`logSearchQuery`. `reason` is rebuilt. It sends `PUT` with normal retries,
+then waits.
+
+The update body follows the console's own edit (live, 2026-10-09: the
+create's body gets `500 Update alarm log is failed`). Beyond the create's
+fields it carries `id` (the read's `alarmLog.id`, not the alarm's id),
+`logProject`, and `logProjectName`. It always carries `filter`: the read's
+when it has one, else the console's match-all filter for `queryString`
+(`LogAlarmDetail.ID` holds the id). It carries `resendStatus` (`ALARM` when
+the read has none) and sends `resendEnabled`, `resendPeriod`, and
+`resendTimes` only when the caller sets `Resend` or the read has resend
+enabled. `metricAggKey` and `metricAggType` stay omitted when empty. The
+create body is unchanged: it worked live without `filter` beyond its own
+match-all.
 
 ### DeleteLogAlarm
 

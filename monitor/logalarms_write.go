@@ -132,6 +132,8 @@ func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*
 		InAlarm:        in.InAlarm,
 		OK:             in.OK,
 		Resend:         resolveLogAlarmResend(in.Resend),
+
+		SendResendDetail: true,
 	}
 	if fields.QueryString == "" && len(fields.Filter) == 0 {
 		fields.QueryString = "*"
@@ -379,8 +381,12 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 		logSearchQuery = "[]"
 		if queryString == "" && len(filter) == 0 {
 			queryString = "*"
-			filter = json.RawMessage(matchAllLogFilter)
 		}
+	}
+	// The console's update always carries a filter, and the server answers
+	// 500 without one.
+	if len(filter) == 0 {
+		filter = consoleMatchAllLogFilter(queryString)
 	}
 
 	thresholdType := logDetail.ThresholdType
@@ -425,26 +431,34 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 	if in.Resend != nil {
 		resend = *in.Resend
 	}
+	// The console's update always names a resend status, ALARM when the alarm
+	// has none.
+	if len(resend.Statuses) == 0 {
+		resend.Statuses = []string{"ALARM"}
+	}
 
 	return logAlarmFields{
-		Name:           name,
-		Description:    description,
-		Severity:       severity,
-		LogProjectID:   logProjectID,
-		ProjectName:    projectName,
-		QueryString:    queryString,
-		LogSearchQuery: logSearchQuery,
-		Filter:         filter,
-		ThresholdType:  thresholdType,
-		Condition:      condition,
-		ThresholdValue: thresholdValue,
-		TimeFrame:      timeFrame,
-		GroupByField:   groupByField,
-		AggField:       aggField,
-		AggType:        aggType,
-		InAlarm:        inAlarm,
-		OK:             ok,
-		Resend:         resend,
+		Update:           true,
+		ID:               logDetail.ID,
+		SendResendDetail: in.Resend != nil || resend.Enabled,
+		Name:             name,
+		Description:      description,
+		Severity:         severity,
+		LogProjectID:     logProjectID,
+		ProjectName:      projectName,
+		QueryString:      queryString,
+		LogSearchQuery:   logSearchQuery,
+		Filter:           filter,
+		ThresholdType:    thresholdType,
+		Condition:        condition,
+		ThresholdValue:   thresholdValue,
+		TimeFrame:        timeFrame,
+		GroupByField:     groupByField,
+		AggField:         aggField,
+		AggType:          aggType,
+		InAlarm:          inAlarm,
+		OK:               ok,
+		Resend:           resend,
 	}, nil
 }
 

@@ -556,6 +556,9 @@ func assertLiveLogAlarm(t *testing.T, got Alarm) {
 		t.Fatal("Log = nil")
 	}
 	l := got.Log
+	if l.ID != "<alarm-log-id>" {
+		t.Fatalf("Log.ID = %q, want the alarmLog's own id", l.ID)
+	}
 	if l.LogProjectID != "<project-id>" || l.LogProjectName != "vngcloud-live-logalarm" {
 		t.Fatalf("project = %q / %q", l.LogProjectID, l.LogProjectName)
 	}

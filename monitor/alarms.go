@@ -202,6 +202,9 @@ type Alarm struct {
 // the alarm state, decoded from the wire's comma-joined inAlarm and ok
 // strings.
 type LogAlarmDetail struct {
+	// ID is alarmLog's own id, distinct from the alarm's id; an update
+	// resends it.
+	ID             string
 	LogProjectID   string
 	LogProjectName string
 	QueryString    string
@@ -247,6 +250,7 @@ type LogAlarmResend struct {
 // LogAlarmDetail's doc comment).
 func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 	var aux struct {
+		ID             flexibleString  `json:"id"`
 		LogProjectID   flexibleString  `json:"logProject"`
 		LogProjectName string          `json:"logProjectName"`
 		QueryString    string          `json:"queryString"`
@@ -269,6 +273,7 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
+	d.ID = string(aux.ID)
 	d.LogProjectID = string(aux.LogProjectID)
 	d.LogProjectName = aux.LogProjectName
 	d.QueryString = aux.QueryString

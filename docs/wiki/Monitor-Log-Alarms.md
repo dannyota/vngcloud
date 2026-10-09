@@ -146,6 +146,12 @@ value unchanged, in case the alarm was built through the console's own
 token-based search box rather than this SDK; setting `QueryString`
 switches that value to the SDK's own plain-text convention.
 
+The `PUT` body matches the console's own edit: it also carries the
+alarm detail's own `id`, `logProject`, and `logProjectName`, and always a
+`filter` (the read's, else a match-all filter for `QueryString`). It sends
+`resendEnabled`, `resendPeriod`, and `resendTimes` only when you set
+`Resend` or the alarm has resend enabled.
+
 The `PUT` is a full replace and keeps the transport's normal retries,
 since resending it is safe. `UpdateLogAlarm` waits the same way
 `CreateLogAlarm` does, always by `AlarmID` since it is already known;
