@@ -47,6 +47,7 @@ tags on any resource type. See [Tagging](Tagging.md).
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](#container-registry) below for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
 | Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
+| Storage | `storage` | vStorage regions and projects, buckets, bucket detail | Typed | Reads only; calls an undocumented console API. See [Storage](Storage.md). |
 
 ## Project
 
@@ -444,3 +445,16 @@ taggingClient.ListResourceTags(ctx, in)  // ResourceID (required)
 `ListResourceTags` reads any resource's tags through the one tag API the
 vServer gateway serves for every resource type. `TagResource`, its read-merge
 write, and its errors are on the [Tagging](Tagging.md) page.
+## Storage
+
+```go
+storageClient := storage.New(cfg)
+storageClient.ListRegions(ctx, nil)
+storageClient.ListProjects(ctx, in) // Region (optional; defaults from cfg's region)
+storageClient.ListBuckets(ctx, in)  // ProjectID (required), Region
+storageClient.GetBucket(ctx, in)    // ProjectID (required), Bucket (required), Region
+```
+
+`Region` is a vStorage region name, `HCM04` or `HAN02`. Empty maps `hcm-3`
+to `HCM04` and `han-1` to `HAN02`. See [Storage](Storage.md) for the
+console API's envelope errors and the state of an account with no project.

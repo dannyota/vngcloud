@@ -21,6 +21,7 @@
 - [Network DHCP Options](Network-DHCPOptions.md)
 - [Network Virtual IPs](Network-VirtualIPs.md)
 - [Tagging](Tagging.md)
+- [Storage](Storage.md)
 - [Security](Security.md)
 - [Volume](Volume.md)
 - [Limitations](Limitations.md)
@@ -43,3 +44,4 @@
 - [CLI: ContainerRegistry](CLI-ContainerRegistry.md)
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
 - [CLI: Tagging](CLI-Tagging.md)
+- [CLI: Storage](CLI-Storage.md)

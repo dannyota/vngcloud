@@ -19,6 +19,7 @@
 - [Portal](CLI-Portal.md)
 - [Pricing](CLI-Pricing.md)
 - [Project](CLI-Project.md)
+- [Storage](CLI-Storage.md)
 - [Tagging](CLI-Tagging.md)
 - [Volume](CLI-Volume.md)
 

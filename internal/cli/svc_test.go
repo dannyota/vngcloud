@@ -53,6 +53,7 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "containerregistry", containerRegistryOps)
 	assertKindMatchesMethodName(t, "globalloadbalancer", globalLoadBalancerOps)
 	assertKindMatchesMethodName(t, "tagging", taggingOps)
+	assertKindMatchesMethodName(t, "storage", storageOps)
 }
 
 // assertNoSecretFieldGetsAFlag checks, for every op in ops, that no Input
@@ -111,6 +112,7 @@ func TestServiceHelpListsEveryOp(t *testing.T) {
 		{"containerregistry", opNames(containerRegistryOps)},
 		{"globalloadbalancer", opNames(globalLoadBalancerOps)},
 		{"tagging", opNames(taggingOps)},
+		{"storage", opNames(storageOps)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.service, func(t *testing.T) {

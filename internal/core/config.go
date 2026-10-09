@@ -60,4 +60,5 @@ type EndpointOverrides struct {
 	CDNDocs            string
 	Monitor            string
 	IAM                string
+	Storage            string
 }

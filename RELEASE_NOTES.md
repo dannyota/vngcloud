@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.41.0 - vStorage Reads
+
+### Highlights
+
+- New `storage` package: `ListRegions`, `ListProjects`, `ListBuckets`, and
+  `GetBucket`, with `vngcloud storage list-regions`, `list-projects`,
+  `list-buckets`, and `get-bucket`. Reads only; buckets and keys come in
+  later releases. `Region` names a vStorage region such as `HCM04`; left
+  empty, `hcm-3` maps to `HCM04` and `han-1` to `HAN02`.
+- The bucket commands take the vStorage project from the global
+  `--project-id` flag only, never from the environment or profile, which
+  hold the vServer project. A missing one exits 2 before any request.
+- New `vngcloud.ErrUnpriced`, for a paid write whose quote is 0; no shipped
+  write returns it yet.
+- New [Storage](https://github.com/dannyota/vngcloud/wiki/Storage) and
+  [CLI: Storage](https://github.com/dannyota/vngcloud/wiki/CLI-Storage)
+  wiki pages.
+
 ## v0.40.0 - Resource Tags
 
 ### Highlights

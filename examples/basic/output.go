@@ -98,6 +98,10 @@ var operationOutputPaths = map[string]string{
 	"monitor.ListChecks":                         "monitor/check",
 	"monitor.GetCheck":                           "monitor/check_detail",
 	"monitor.ListLocations":                      "monitor/location",
+	"storage.ListRegions":                        "storage/region",
+	"storage.ListProjects":                       "storage/project",
+	"storage.ListBuckets":                        "storage/bucket",
+	"storage.GetBucket":                          "storage/bucket_detail",
 }
 
 type rawCaptureStore struct {
