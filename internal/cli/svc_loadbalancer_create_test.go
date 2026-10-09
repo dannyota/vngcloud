@@ -204,7 +204,7 @@ func TestLoadBalancerCreateLoadBalancerSchemeRequiresYes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-				"/v1/price":                jsonHandler(http.StatusOK, `{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"propertiesPrice":[]}`),
+				"/v1/price":                jsonHandler(http.StatusOK, `{"optimumPrice":400000,"originalPrice":400000,"discountPrice":0,"propertiesPrice":[]}`),
 				"/v2/proj-1/loadBalancers": jsonHandler(http.StatusOK, `{"uuid":"lb-1"}`),
 			})
 			root, _, stderr := newSvcRoot(t, fixture)
@@ -213,6 +213,7 @@ func TestLoadBalancerCreateLoadBalancerSchemeRequiresYes(t *testing.T) {
 				"loadbalancer", "create-load-balancer",
 				"--name", "lb-1", "--package-id", "pkg-1", "--type", "Layer 4",
 				"--scheme", tt.scheme, "--subnet-id", "subnet-1", "--zone-id", "zone-1", "--no-wait",
+				"--max-price", "400000",
 			}
 			if tt.yes {
 				args = append(args, "--yes")

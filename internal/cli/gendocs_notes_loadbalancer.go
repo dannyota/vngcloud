@@ -51,7 +51,8 @@ const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices t
 // unconditional string, with no hint that only one value skips --yes.
 const loadbalancerCreateLoadBalancerNote = "Run quote-create-load-balancer first, and set a billing budget " +
 	"with an alert before any paid create: this command orders nothing above --max-price, default 0, so a " +
-	"bare create-load-balancer only orders a package priced at 0 VND, which none is today. --max-price NaN, " +
+	"bare create-load-balancer refuses every package. A quote of 0 is refused, and --max-price must be at " +
+	"least the quote. --max-price NaN, " +
 	"Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from the same " +
 	"fields, so the order always prices what was just quoted. The order itself is never retried after a " +
 	"failure that may have already reached the server; list load balancers by name " +
