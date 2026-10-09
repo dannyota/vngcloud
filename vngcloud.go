@@ -44,6 +44,7 @@ var (
 	ErrNoCredentials    = core.ErrNoCredentials
 	ErrCredentialsFile  = core.ErrCredentialsFile
 	ErrPriceAboveMax    = core.ErrPriceAboveMax
+	ErrUnpriced         = core.ErrUnpriced
 
 	NewConfig = core.NewConfig
 	// LoadConfig resolves a Config from LoadOption values, environment
