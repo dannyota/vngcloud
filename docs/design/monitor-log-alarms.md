@@ -12,8 +12,8 @@ reads, and follows [ADR 0002](../adr/0002-write-api-conventions.md).
 ## Source
 
 The calls and bodies below come from the vMonitor console's public
-JavaScript, read on 2026-09-27. No log alarm has been read or written live:
-the test account has no alarm, and a log alarm needs a log project. Paths
+JavaScript, read on 2026-09-27. The read shape below was confirmed live on
+2026-10-09; the write bodies are from the console source. Paths
 are under `vmonitor-api/api/v1` on the `Monitor` endpoint root.
 
 | Call | Method and path |
@@ -74,11 +74,16 @@ whose `billingStatus` is `ACTIVE`. It does not convert `thresholdValue` or
 
 ### Read shape
 
-Get's `data` has `type` (`LOG` or `METRIC`), `name`, `description`,
-`severity`, `status`, and, for a log alarm, `alarmLog`. List items carry
+Live read on 2026-10-09: Get's `data` and a List item have `id`, `type`
+(`Log`; the SDK matches `LOG` and `METRIC` in any case), `name`,
+`description`, `severity`, `progressStatus` (`ACTIVE`; the SDK also reads
+`status` when `progressStatus` is absent), `createdAt`, and, for a log
+alarm, `alarmLog`. The Delete response's `data` has the same shape. List items carry
 the same `alarmLog`. `alarmLog` holds the log fields under the create body
 names, except `logProject` (the project ID) and `logProjectName`. It also
-holds `inAlarm`, `ok`, and the resend fields.
+holds `id`, `zone`, `inAlarm` and `ok` (comma-joined channel IDs with a
+trailing comma, `""` for none), and the resend fields once set.
+`logSearchQuery` is a string holding JSON, such as `"[]"`.
 
 The console edits a log alarm by sending the read `alarmLog`, with the
 edited fields replaced and `name`, `description`, and `severity` from the
@@ -109,8 +114,9 @@ set (ADR 0002 rule 3).
 
 ### Read model
 
-`Alarm` gains `Description`. `Kind` comes from `type` (`LOG` gives
-`AlarmKindLog`, `METRIC` gives `AlarmKindMetric`), so `GetAlarm` sets it
+`Alarm` gains `Description`. `Kind` comes from `type` (`Log` or `LOG`
+gives `AlarmKindLog`, `Metric` or `METRIC` gives `AlarmKindMetric`), and
+`Status` from `progressStatus`, so `GetAlarm` sets it
 too; `ListAlarms` still sets it from its filter. `Log` decodes from
 `alarmLog`; a response without `alarmLog` keeps today's top-level
 `inAlarm` and `ok` decode. `LogAlarmDetail` gains `LogProjectID`

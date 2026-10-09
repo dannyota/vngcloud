@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -323,6 +324,7 @@ func TestAlarmKindFromType(t *testing.T) {
 		want string
 	}{
 		{`{"id":"a","type":"LOG"}`, AlarmKindLog},
+		{`{"id":"a","type":"Log"}`, AlarmKindLog},
 		{`{"id":"a","type":"METRIC"}`, AlarmKindMetric},
 		{`{"id":"a","type":"other"}`, ""},
 		{`{"id":"a"}`, ""},
@@ -543,4 +545,54 @@ func TestSplitChannelIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertLiveLogAlarm(t *testing.T, got Alarm) {
+	t.Helper()
+	if got.Kind != AlarmKindLog || got.Status != "ACTIVE" || got.Severity != "LOW" {
+		t.Fatalf("kind/status/severity = %q/%q/%q", got.Kind, got.Status, got.Severity)
+	}
+	if got.Log == nil {
+		t.Fatal("Log = nil")
+	}
+	l := got.Log
+	if l.LogProjectID != "<project-id>" || l.LogProjectName != "vngcloud-live-logalarm" {
+		t.Fatalf("project = %q / %q", l.LogProjectID, l.LogProjectName)
+	}
+	if l.QueryString != "*" || l.rawLogSearchQuery != "[]" || l.ThresholdValue != 1000 || l.TimeFrame != 5 {
+		t.Fatalf("unexpected detail: %+v", l)
+	}
+	if !slices.Equal(l.InAlarm, []string{"<channel-id>"}) || len(l.OK) != 0 {
+		t.Fatalf("channels = %v / %v", l.InAlarm, l.OK)
+	}
+}
+
+func TestLiveLogAlarmShapeDecodes(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vmonitor-api/api/v1/alarms/list" {
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListAlarmsLogLive.json")
+			return
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetAlarmLogLive.json")
+	}))
+	list, err := client.ListAlarms(context.Background(), &ListAlarmsInput{Kind: AlarmKindLog})
+	if err != nil || len(list.Items) != 1 {
+		t.Fatalf("ListAlarms() = %v, %v", list, err)
+	}
+	assertLiveLogAlarm(t, list.Items[0])
+	got, err := client.GetAlarm(context.Background(), &GetAlarmInput{AlarmID: "x"})
+	if err != nil {
+		t.Fatalf("GetAlarm() error = %v", err)
+	}
+	assertLiveLogAlarm(t, got.Alarm)
+
+	var del struct{ Data Alarm }
+	raw, err := os.ReadFile("../testdata/monitor/DeleteLogAlarmLive.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &del); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveLogAlarm(t, del.Data)
 }

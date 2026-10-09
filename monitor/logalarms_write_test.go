@@ -12,6 +12,7 @@ import (
 
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/testutil"
 )
 
 // noExistingLogAlarmsPage is an empty ListAlarms page, standing in for the
@@ -1482,5 +1483,50 @@ func TestDeleteLogAlarmPathIDRejection(t *testing.T) {
 				t.Fatalf("DeleteLogAlarm(%q) error = %v, want ErrInvalidInput", id, err)
 			}
 		})
+	}
+}
+
+// liveLogAlarmHandler serves the sanitized live log alarm shape for the
+// read, and calls onPut or onDelete for the write.
+func liveLogAlarmHandler(t *testing.T, onPut func(map[string]any)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/alarm-1" && r.Method == http.MethodGet:
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetAlarmLogLive.json")
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodPut:
+			onPut(decodeLogProjectBody(t, r))
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/vmonitor-api/api/v1/alarms/logs/alarm-1" && r.Method == http.MethodDelete:
+			testutil.WriteFixture(t, w, "../testdata/monitor/DeleteLogAlarmLive.json")
+		default:
+			t.Fatalf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	})
+}
+
+func TestUpdateLogAlarmOnLiveReadShape(t *testing.T) {
+	var got map[string]any
+	client := newTestClient(t, liveLogAlarmHandler(t, func(b map[string]any) { got = b }))
+	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
+		AlarmID: "alarm-1", NoWait: true, Description: ptrStr("new"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateLogAlarm() error = %v", err)
+	}
+	if got["inAlarm"] != "<channel-id>," || got["ok"] != "" {
+		t.Fatalf("channels = inAlarm=%v ok=%v, want the read values in create shape", got["inAlarm"], got["ok"])
+	}
+	if got["logProjectId"] != "<project-id>" || got["projectName"] != "vngcloud-live-logalarm" {
+		t.Fatalf("project = %v / %v", got["logProjectId"], got["projectName"])
+	}
+	if got["queryString"] != "*" || got["logSearchQuery"] != "[]" {
+		t.Fatalf("query pair = %v / %v", got["queryString"], got["logSearchQuery"])
+	}
+}
+
+func TestDeleteLogAlarmOnLiveReadShape(t *testing.T) {
+	client := newTestClient(t, liveLogAlarmHandler(t, func(map[string]any) { t.Fatal("unexpected PUT") }))
+	if _, err := client.DeleteLogAlarm(context.Background(), &DeleteLogAlarmInput{AlarmID: "alarm-1"}); err != nil {
+		t.Fatalf("DeleteLogAlarm() error = %v", err)
 	}
 }

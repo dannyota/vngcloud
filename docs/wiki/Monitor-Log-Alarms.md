@@ -11,6 +11,8 @@ project](Monitor-Alerts.md#ordering-deleting-and-purging-a-log-project)).
 
 ## Read model
 
+`Alarm.Kind` decodes from the response's `type` (sent as `Log`, matched in
+any case) and `Alarm.Status` from `progressStatus` (such as `ACTIVE`).
 A Log alarm's `Alarm.Log` field decodes from the response's `alarmLog`
 object and holds `LogProjectID` (wire key `logProject`), `LogProjectName`,
 `QueryString`, `Filter` (`json.RawMessage`, nil when `alarmLog` carries no

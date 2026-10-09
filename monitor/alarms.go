@@ -156,10 +156,11 @@ func (c *Client) getAlarm(ctx context.Context, op, id string) (*Alarm, error) {
 }
 
 // Alarm is one alert rule, of either Kind. ID, Name, Description, Status,
-// and Severity are top-level fields for both kinds; MetricMappingID and Log
+// and Severity are top-level fields for both kinds (Status decodes from
+// progressStatus, falling back to status); MetricMappingID and Log
 // cover the channel reference the design describes for each kind. Kind
-// decodes from the response's own type field (LOG gives AlarmKindLog,
-// METRIC gives AlarmKindMetric; anything else, including no type at all,
+// decodes from the response's own type field, ignoring case (Log gives
+// AlarmKindLog, Metric gives AlarmKindMetric; anything else, including no type at all,
 // leaves it empty); ListAlarms then overwrites it from its own Kind filter,
 // since a list is always filtered to one kind regardless of what the wire
 // sends. Nothing else is modeled until a live read confirms more.
@@ -291,16 +292,16 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// alarmKindFromType maps the response's top-level type (LOG or METRIC) to
-// AlarmKindLog or AlarmKindMetric. Any other value, including empty for a
+// alarmKindFromType maps the response's top-level type to AlarmKindLog or
+// AlarmKindMetric, ignoring case: the live API sends "Log". Any other value, including empty for a
 // response that sends no type at all, leaves Kind empty rather than
 // guessing it from which of Log or MetricMappingID the response happens to
 // carry.
 func alarmKindFromType(wireType string) string {
-	switch wireType {
-	case "LOG":
+	switch {
+	case strings.EqualFold(wireType, "LOG"):
 		return AlarmKindLog
-	case "METRIC":
+	case strings.EqualFold(wireType, "METRIC"):
 		return AlarmKindMetric
 	default:
 		return ""
@@ -324,6 +325,7 @@ func (a *Alarm) UnmarshalJSON(data []byte) error {
 		Description     string          `json:"description"`
 		Type            string          `json:"type"`
 		Status          string          `json:"status"`
+		ProgressStatus  string          `json:"progressStatus"`
 		Severity        string          `json:"severity"`
 		MetricMappingID *string         `json:"metricMappingId"`
 		InAlarm         *string         `json:"inAlarm"`
@@ -336,7 +338,12 @@ func (a *Alarm) UnmarshalJSON(data []byte) error {
 	a.ID = string(aux.ID)
 	a.Name = aux.Name
 	a.Description = aux.Description
-	a.Status = aux.Status
+	// The live API sends the status as progressStatus; status is kept for
+	// the console's own detail shape.
+	a.Status = aux.ProgressStatus
+	if a.Status == "" {
+		a.Status = aux.Status
+	}
 	a.Severity = aux.Severity
 	a.Kind = alarmKindFromType(aux.Type)
 	a.MetricMappingID = ""
