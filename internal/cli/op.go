@@ -444,15 +444,15 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 }
 
 // applyGlobalProjectID copies the global --project-id flag into the Input
-// field op.globalProject names, unless --cli-input-json already set it. An
-// empty result is a usage error here, so the command stops before any
-// request.
+// field op.globalProject names. The flag wins over --cli-input-json; without
+// the flag, a value from --cli-input-json stays. An empty result is a usage
+// error here, so the command stops before any request.
 func applyGlobalProjectID[C any](e *env, op Op[C], input any) error {
 	if op.globalProject == "" {
 		return nil
 	}
 	field := reflect.ValueOf(input).Elem().FieldByName(op.globalProject)
-	if field.String() == "" {
+	if e.flags.projectID != "" {
 		field.SetString(e.flags.projectID)
 	}
 	if field.String() == "" {

@@ -286,6 +286,11 @@ Input fields; `Rules` comes through `--cli-input-json`, and `Policy` accepts
 - Making a bucket public needs `--yes`: exposure cannot be undone, because
   anyone may copy the objects while it lasts.
 
+The global `--project-id` flag supplies a vStorage `ProjectID`. Only the flag
+counts: the environment and profile project is the vServer project and is
+never used here. The flag overrides a `ProjectID` in `--cli-input-json`, and a
+missing one exits 2 before any request.
+
 ### create-s3-key
 
 `iam create-s3-key` needs `--secret-file <path>` and cannot print the secret:

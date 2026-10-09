@@ -124,6 +124,15 @@ func TestStorageListBucketsUsesGlobalProjectID(t *testing.T) {
 	}
 }
 
+func TestStorageProjectIDFlagOverridesCLIInputJSON(t *testing.T) {
+	r := runStorage(t, map[string]func(http.ResponseWriter, *http.Request){
+		"/internal/v1/ceph/projects/proj-b": jsonHandler(http.StatusOK, storageBucketsBody),
+	}, "--project-id", "proj-b", "storage", "list-buckets", "--cli-input-json", `{"ProjectID":"proj-a"}`)
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
+	}
+}
+
 func TestStorageRegionComesFromCLIInputJSON(t *testing.T) {
 	r := runStorage(t, map[string]func(http.ResponseWriter, *http.Request){
 		"/internal/v1/ceph/projects/proj-s1": jsonHandler(http.StatusOK, storageBucketsBody),
@@ -140,7 +149,7 @@ func TestStorageGetBucket(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
 	}
-	if !strings.Contains(r.stdout, `"Bucket"`) && !strings.Contains(r.stdout, `"Name": "bucket-a"`) {
+	if !strings.Contains(r.stdout, `"Name": "bucket-a"`) || !strings.Contains(r.stdout, `"IsVersioned": true`) {
 		t.Fatalf("stdout = %s", r.stdout)
 	}
 }
