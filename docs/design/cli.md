@@ -83,8 +83,9 @@ Flags come from the Input struct by reflection. A field name becomes a
 kebab-case flag: `ServerID` becomes `--server-id`, and a run of capitals
 followed by a lowercase letter gives its last capital to the next word, so
 `VirtualIPAddressID` becomes `--virtual-ip-address-id`. One shared rename
-table holds the exceptions: `VPCID` becomes `--vpc-id`, and `Query` becomes
-`--search` so no Input flag shadows a global flag. Supported field types are
+table holds the exceptions: `VPCID` becomes `--vpc-id`, `CDNID` becomes
+`--cdn-id`, and `Query` becomes `--search` so no Input flag shadows a
+global flag. Supported field types are
 string, integer, `float64`, boolean, and pointers to each; the CLI applies
 a field only when its flag is given. Other field types are set
 through `--cli-input-json '<json>'` or `--cli-input-json file://input.json`,
@@ -245,10 +246,12 @@ status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`,
 `RequestFailed`, `QueryFailed`, `PageFormat` (a public page such as the
 CDN IP range FAQ changed format; see [CDN](cdn.md)), `UnexpectedStatus` (a
-vMonitor check has a status the SDK does not know, so nothing was sent),
-`StatusUnconfirmed` (a vMonitor pause or resume may have landed but a read
+vMonitor check, or a vCDN CDN or certificate, has a status the SDK does
+not toggle from, so nothing was sent), `StatusUnconfirmed` (a vMonitor
+pause or resume, or a vCDN enable or disable, may have landed but a read
 did not confirm it; see
-[vMonitor](monitor.md#after-errstatusunconfirmed)), `ZoneBusy` (a vDNS
+[vMonitor](monitor.md#after-errstatusunconfirmed) and
+[vCDN CLI](cdn-cli.md#errors)), `ZoneBusy` (a vDNS
 zone stayed busy past the wait before a write, so nothing was sent),
 `WriteFailed` (a vDNS write went to status `ERROR`, or, per
 [vMonitor Alerts](monitor-alerts.md#errors), a vMonitor log project or
@@ -279,7 +282,7 @@ says the write succeeded, so an agent does not retry it.
 | 0 | Success |
 | 1 | API or network error, or a cancelled command |
 | 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a literal secret in `configure set`, a missing region, an ambiguous project, or an input the SDK or server refuses (`ErrInvalidInput`; a server refusal keeps its `APIError.Code`, such as `112`) |
-| 3 | `ErrNoCredentials`, `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
+| 3 | `ErrNoCredentials` (including `cdn.ErrNoAPIKey`, which wraps it), `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
 | 4 | `NotFound` |
 
 `ErrNoCredentials` and `ErrCredentialsFile` also match `ErrInvalidConfig`, so

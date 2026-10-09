@@ -10,6 +10,8 @@ code starts. Decisions with lasting trade-offs also get an
 | [CLI](cli.md) | Approved |
 | [Billing and pricing](billing.md) | Approved |
 | [CDN IP ranges](cdn.md) | Approved |
+| [vCDN API](cdn-api.md) | Proposed |
+| [vCDN CLI and releases](cdn-cli.md) | Proposed |
 | [vMonitor](monitor.md) | Accepted |
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |

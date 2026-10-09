@@ -35,8 +35,8 @@ with both region headers. Every call checks `ProjectID` and `Bucket` as in
 
 `CORSRule` has `AllowedOrigins`, `AllowedMethods`, and `AllowedHeaders`
 (`[]string`), `MaxAgeSeconds` (`int`), `ExposeAllowedHeaders` (`bool`),
-and `ExposedHeaders` (`[]string`, read-only). `ExposeAllowedHeaders` is
-pending owner approval ([decision 50](storage-decisions.md#owner-decisions)).
+and `ExposedHeaders` (`[]string`, read-only), as set by
+[decisions 40 and 50](storage-decisions.md#owner-decisions).
 
 - `PutBucketCORS` takes `Rules []CORSRule`, required, and replaces every
   rule. The body is a bare JSON array, built from a request type with the
@@ -179,25 +179,38 @@ Unit tests use `httptest`:
   CLI refuses without `--yes` and sends with it.
 
 The S6 live write test has the S5 approval and variables and uses its
-Signature V4 signer. It deletes leftover `vngcloud-live-` buckets, then:
+The live write test `TestLiveWriteStorageBucketSettings` has the S5
+approval and variables and uses one bucket. It deletes leftover
+`vngcloud-live-` buckets, then:
 
-1. Creates bucket A. Versioning reads `Off`; a put of true reads
-   `Enabled`; a put of false reads `Suspended`.
-2. Creates bucket B. CORS reads `[]`. A put of one rule without
-   `ExposeAllowedHeaders`, then a get: equal origins, methods as a set,
-   empty `ExposedHeaders`. A put of the rule with `ExposeAllowedHeaders`,
-   then a get: `ExposedHeaders` equal to `AllowedHeaders`. An anonymous
-   `OPTIONS` preflight answers 200 with `Access-Control-Allow-Origin` and
-   `Access-Control-Expose-Headers` naming the allowed headers. A delete,
-   a second delete, and a preflight answering 403.
-3. Creates a key written to a temp `--secret-file`, puts an object in B,
-   and checks an anonymous `GET` answers 403. Puts the public-read
-   template: the `GET` answers 200 within 5 seconds. Deletes the policy:
-   403 within 5 seconds.
-4. Puts the same object twice in A with versioning on: `DeleteBucket`
-   returns `ErrBucketNotEmpty`. Deletes both versions by ID with the key.
-5. Deletes A and B, then calls `GetBucketVersioning`, `GetBucketCORS`, and
-   `GetBucketPolicy` on A: each returns `ErrNotFound`.
-6. Cleanup, registered as each ID is known, deletes every object version,
-   the key, and both buckets, and asserts none remains. It logs statuses
-   and counts only.
+1. Creates the bucket. Versioning reads `Off`; a put of true reads
+   `Enabled`; a put of false reads `Suspended`. A put without `Enabled`
+   returns `ErrInvalidInput`.
+2. Calls `GetBucketVersioning` and `GetBucketCORS` on a missing bucket:
+   each returns `ErrNotFound`.
+3. CORS reads `[]`. A put of one rule without `ExposeAllowedHeaders`,
+   then a get: equal origins, headers, and max age, methods equal as a
+   set. A put of the rule with `ExposeAllowedHeaders`, then a get:
+   `ExposedHeaders` equal to `AllowedHeaders` and the flag set. The rule
+   read back and put again keeps its exposed headers.
+4. The client refuses a lower-case method and `ExposeAllowedHeaders` with
+   no `AllowedHeaders` with `ErrInvalidInput`, and the rule stays. Raw
+   puts of an unknown method, an empty list, lower-case keys, and
+   `ExposeHeaders` with no `AllowedHeaders` log status and code only.
+5. An anonymous `OPTIONS` preflight answers 200 with
+   `Access-Control-Allow-Origin` and `Access-Control-Expose-Headers`
+   naming the allowed headers. A delete, a second delete, an empty get,
+   and a preflight answering 403 without `Access-Control-Allow-Origin`.
+6. Deletes the bucket, then calls `GetBucketVersioning`, `GetBucketCORS`,
+   and `GetBucketPolicy` on it: each returns `ErrNotFound`.
+7. Cleanup deletes the CORS rules and the bucket and asserts no
+   `vngcloud-live-` bucket remains. It logs statuses and counts only.
+
+### Live checks
+
+Public read through a bucket policy is covered by the S5 live write test.
+Open, with no live test:
+
+- Whether the `DeleteBucket` guard refuses a bucket that holds only
+  object versions with `ErrBucketNotEmpty`.
+- Deleting object versions by ID with an S3 key.
