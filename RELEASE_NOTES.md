@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.53.0 - vStorage S3 Keys
+
+### Highlights
+
+- New `storage.ListS3Keys`, `CreateS3Key`, and `DeleteS3Key` on the
+  vStorage console API, with `vngcloud storage list-s3-keys`,
+  `create-s3-key`, and `delete-s3-key` (`--yes`). A key belongs to a
+  project (global `--project-id`), has the creating IAM user's rights on
+  every bucket of that project, and a project holds at most ten keys (the
+  server refuses the 11th with code `114`).
+- The secret is shown once. `SecretKey` is a `vngcloud.Secret` that prints,
+  logs, and marshals as `[redacted]`; the create is sent once and its
+  response never reaches a capture hook. `create-s3-key` needs
+  `--secret-file <path>` and writes an AWS shared credentials file with mode
+  0600 (`AWS_SHARED_CREDENTIALS_FILE` for rclone or the AWS CLI); it refuses
+  an existing path or symlink, and deletes the new key if the write fails.
+- The IAM accounts API key endpoints are not used: on an IAM user the
+  create answers 500 and the IAM console cannot create a key either. A
+  repeat delete of a key is refused by the server with code `114`.
+- Verified live on 2026-10-09 on the test project: create, list, ten-key
+  limit, delete, repeat delete, and `aws s3 ls` against
+  `hcm04.vstorage.vngcloud.vn` with the new key.
+
 ## v0.52.1 - IAM Accounts API Error Codes
 
 ### Highlights
@@ -371,71 +394,5 @@ malformed ID before any request.
 
 `compute.GetServer`, `volume.GetVolume`, and `volume.ListSnapshots` refuse
 a malformed ID before any request.
-
-## v0.34.0 - IAM Group Writes
-
-### Highlights
-
-- New `iam.CreateGroup`, `UpdateGroup`, `DeleteGroup`, `AddUserToGroup`,
-  `RemoveUserFromGroup`, and `AttachGroupPolicy`, `DetachGroupPolicy`,
-  `AttachUserPolicy`, and `DetachUserPolicy`, with matching `vngcloud iam`
-  commands.
-- Guards refuse, sending nothing, any change to the caller's own rights,
-  including a group the caller belongs to; any change to a group or user
-  that holds IAM write rights; and any privileged policy. Only `iam` mode
-  groups are changed: an identity provider group is refused.
-- A group with members or policies is never deleted (`ResourceInUse`).
-- A group create is sent once. Every write except `create-group` and
-  `update-group` needs `--yes`.
-
-## v0.33.0 - IAM Policy Writes
-
-### Highlights
-
-- New `iam.CreatePolicy`, `UpdatePolicy`, `DeletePolicy`, and
-  `AttachServiceAccountPolicy` and `DetachServiceAccountPolicy`, with
-  matching `vngcloud iam` commands.
-- A policy document comes only from `--document-file` or
-  `--cli-input-json`. It is checked for shape: known keys only, an effect
-  of `allow` or `deny`, and non-empty actions and resources. An AWS-style
-  document exits 2 before any request.
-- Guards refuse, sending nothing, any policy that grants IAM write rights
-  (including wildcards and any action pattern of unusual shape), any
-  change to the caller's own rights, and any change to a principal that
-  holds IAM write rights. A GreenNode-managed policy is never changed
-  (`ManagedPolicy`); an attached policy is never deleted (`ResourceInUse`).
-- A create is sent once. If a create or update landed but its confirming
-  read failed, the CLI prints the policy ID and exits `NotSettled`.
-- Every write except `create-policy` needs `--yes`.
-
-## v0.32.0 - IAM Service Account Writes
-
-### Highlights
-
-- New `iam.CreateServiceAccount`, `UpdateServiceAccount`,
-  `DeleteServiceAccount`, and `ResetServiceAccountSecret`, with matching
-  `vngcloud iam` commands.
-- The client secret is a `vngcloud.Secret`. `create-service-account` and
-  `reset-service-account-secret` need `--secret-file`; the secret goes only
-  to a new file at mode 0600. Create and reset are sent once.
-- Guards refuse, sending nothing, any change to the caller's own rights
-  (`SelfChange`) or to a service account that holds IAM write rights
-  (`PrivilegedChange`), and every write from a service account caller.
-  They fail closed on any unreadable or partial read.
-- If a reset returns no secret, the old one is probably revoked: reset
-  again. `delete-service-account` and `reset-service-account-secret` need
-  `--yes`.
-- The IAM write docs are on a new `IAM` wiki page.
-
-## v0.31.0 - IAM Reads
-
-### Highlights
-
-- New `iam` package and `vngcloud iam` command group: `GetCallerIdentity`,
-  `ListUsers`, `ListActions`, service account, policy, and group reads,
-  policy attachments, and a user's groups and policies.
-- The policies API lives on its own host; `Config` gains an `IAM`
-  endpoint for it.
-- Pages start at 0 on the IAM APIs.
 
 Older releases are in [docs/release-notes-archive.md](docs/release-notes-archive.md).
