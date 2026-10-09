@@ -57,6 +57,36 @@ Needs --yes on every call: associate-network-acl-subnet can change which ACL's r
 vngcloud network associate-network-acl-subnet --network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes
 ```
 
+## clear-vpc-dhcp-options
+
+Kind: Write.
+
+Needs --yes on every call: clearing a VPC's set changes DNS for every server already in it, which only picks up the change after its own next DHCP renew or reboot. Running set-vpc-dhcp-options with the VPC's previous set id restores it while that set still exists. Refuses, before any write, with error code DefaultResource, a VPC whose Private DNS is enabled or whose current set already is one Private DNS created: clearing it would cut every server in the VPC off from its private zone lookups, and there is no call to put it back. Clearing a VPC that already has no set is a no-op: Changed is false and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 seconds for a read to show an empty set: a VPC that reaches ERROR is WriteFailed, and the wait running out is NotSettled, but either way the PATCH already landed and is safe to send again. What DNS a VPC with no set uses is not confirmed.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+
+```sh
+vngcloud network clear-vpc-dhcp-options --vpc-id <vpc-id> --yes
+```
+
+## create-dhcp-options
+
+Kind: Write.
+
+--dns-servers must be given at least once, each an IPv4 address; the four-address limit stays on the server. Name must not start with dhcp-option-dns-, reserved for the set VPC Private DNS creates; either problem is refused with InvalidUsage before any request. MTU is sent only when set; the server's own default is 1450. Never retried after a failure that may have already reached the server; list-dhcp-options --name and match the name exactly before creating it again rather than retrying blind.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--dns-servers` | `[]string` | yes |
+| `--mtu` | `*int` |  |
+
+```sh
+vngcloud network create-dhcp-options --name <name> --dns-servers <dns-servers>
+```
+
 ## create-network-acl
 
 Kind: Write.
@@ -157,6 +187,20 @@ Takes no zone: the server ignores a VPC's zone and always places it in the regio
 
 ```sh
 vngcloud network create-vpc --name <name> --cidr <cidr>
+```
+
+## delete-dhcp-options
+
+Kind: Write, destructive.
+
+Refuses, before any write, with error code ResourceInUse, a set still attached to any VPC, naming them; detach it from every VPC first. A set left behind unattached by a deleted Private DNS VPC deletes like any other set. A repeat delete of an already-deleted set returns NotFound.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--dhcp-options-id` | `string` | yes |
+
+```sh
+vngcloud network delete-dhcp-options --dhcp-options-id <dhcp-options-id> --yes
 ```
 
 ## delete-network-acl
@@ -277,6 +321,18 @@ One-way: the API has no call that disables Private DNS again, so this command ne
 
 ```sh
 vngcloud network enable-vpc-private-dns --vpc-id <vpc-id> --yes
+```
+
+## get-dhcp-options
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--dhcp-options-id` | `string` | yes |
+
+```sh
+vngcloud network get-dhcp-options --dhcp-options-id <dhcp-options-id> --query DHCPOptions
 ```
 
 ## get-endpoint
@@ -408,6 +464,20 @@ No fields.
 
 ```sh
 vngcloud network list-all-virtual-ip-address-address-pairs
+```
+
+## list-dhcp-options
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud network list-dhcp-options
 ```
 
 ## list-endpoint-tags
@@ -673,6 +743,21 @@ Needs --yes on every call: remove-route changes routing for every server behind 
 
 ```sh
 vngcloud network remove-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --yes
+```
+
+## set-vpc-dhcp-options
+
+Kind: Write.
+
+Needs --yes on every call: moving a VPC's set changes DNS for every server already in it, which only picks up the new resolvers after its own next DHCP renew or reboot. Running the command again with the VPC's previous set id restores it while that set still exists; clear-vpc-dhcp-options moves the VPC to no set instead. Refuses, before any write, with error code DefaultResource, a VPC whose Private DNS is enabled or whose current set already is one Private DNS created, or a target set that is itself one Private DNS created: replacing it would cut every server in the VPC off from its private zone lookups, and there is no call to put it back. Refuses, before any write, with error code ResourceBusy, a target set that is not yet ACTIVE. Setting the VPC's current set again is a no-op: Changed is false and nothing is sent, even though --yes is still required. Once the PATCH is sent, waits up to 60 seconds for a read to show the new set: a VPC that reaches ERROR is WriteFailed, and the wait running out is NotSettled, but either way the PATCH already landed and is safe to send again with the same --dhcp-options-id.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--vpc-id` | `string` | yes |
+| `--dhcp-options-id` | `string` | yes |
+
+```sh
+vngcloud network set-vpc-dhcp-options --vpc-id <vpc-id> --dhcp-options-id <dhcp-options-id> --yes
 ```
 
 ## update-security-group

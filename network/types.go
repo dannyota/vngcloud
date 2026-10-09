@@ -78,6 +78,70 @@ type GetVPCOutput struct {
 	VPC VPC
 }
 
+type ListDHCPOptionsInput struct {
+	Name string
+	Page int
+	Size int
+}
+type ListDHCPOptionsOutput = core.PagedList[DHCPOptions]
+
+type GetDHCPOptionsInput struct {
+	DHCPOptionsID string `vngcloud:"required"`
+}
+type GetDHCPOptionsOutput struct {
+	DHCPOptions DHCPOptions
+}
+
+// CreateDHCPOptionsInput creates a DHCP options set. DNSServers must hold at
+// least one IPv4 address; the server enforces the four-server limit. MTU is
+// sent only when set; the server's default is 1450.
+type CreateDHCPOptionsInput struct {
+	Name       string   `vngcloud:"required"`
+	DNSServers []string `vngcloud:"required"`
+
+	MTU *int
+}
+type CreateDHCPOptionsOutput struct {
+	DHCPOptions DHCPOptions
+}
+
+type DeleteDHCPOptionsInput struct {
+	DHCPOptionsID string `vngcloud:"required"`
+}
+type DeleteDHCPOptionsOutput struct{}
+
+// SetVPCDHCPOptionsInput moves VPCID onto DHCPOptionsID's set.
+// ClearVPCDHCPOptionsInput removes a VPC's set instead of moving it to
+// another one; see SetVPCDHCPOptions's doc comment for the guards the two
+// calls share.
+type SetVPCDHCPOptionsInput struct {
+	VPCID         string `vngcloud:"required"`
+	DHCPOptionsID string `vngcloud:"required"`
+}
+
+// SetVPCDHCPOptionsOutput is the VPC after the call, and whether the call
+// itself changed anything. Changed is false only when the VPC's
+// DHCPOptionID already equaled DHCPOptionsID.
+type SetVPCDHCPOptionsOutput struct {
+	VPC     VPC
+	Changed bool
+}
+
+// ClearVPCDHCPOptionsInput removes VPCID's DHCP options set, returning it to
+// none. See ClearVPCDHCPOptions's doc comment for the guards this refuses
+// on.
+type ClearVPCDHCPOptionsInput struct {
+	VPCID string `vngcloud:"required"`
+}
+
+// ClearVPCDHCPOptionsOutput is the VPC after the call, and whether the call
+// itself changed anything. Changed is false only when the VPC already had
+// no DHCP options set.
+type ClearVPCDHCPOptionsOutput struct {
+	VPC     VPC
+	Changed bool
+}
+
 type GetSubnetInput struct {
 	VPCID    string `vngcloud:"required"`
 	SubnetID string `vngcloud:"required"`

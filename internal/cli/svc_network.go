@@ -33,8 +33,19 @@ import (
 // does not carry, since Priority 0 is both CheckRequired's zero value and
 // the priority of the ACL's own pass-all rules, which a caller may remove,
 // so the SDK cannot use IsZero to tell "not given" from "naming priority 0
-// on purpose" the way the CLI can. A read-only profile refuses every one of
-// these Write operations, before any request.
+// on purpose" the way the CLI can. CreateDHCPOptions is Write;
+// DeleteDHCPOptions is Write and Destructive, since a deleted set cannot be
+// restored by one more command; list-dhcp-options and get-dhcp-options are
+// Read. set-vpc-dhcp-options carries the Guard requireYesToSetVPCDHCPOptions
+// (svc_network_dhcp.go), and clear-vpc-dhcp-options (ClearVPCDHCPOptions,
+// under the rename table's override for its own mechanical kebab-case)
+// carries requireYesToClearVPCDHCPOptions (svc_network_dhcp.go): moving or
+// clearing a VPC's set changes DNS for every server behind it, and the
+// servers pick up the new resolvers only once they renew, so each needs
+// --yes on every call the same way AddRoute and RemoveRoute need
+// requireYesToChangeRoutes on theirs, rather than being registered
+// Destructive. A read-only profile refuses every one of these Write
+// operations, before any request.
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
@@ -143,6 +154,18 @@ var networkOps = []Op[network.Client]{
 	Write[network.Client, network.DisassociateNetworkACLSubnetInput, network.DisassociateNetworkACLSubnetOutput](
 		kebab("DisassociateNetworkACLSubnet"), (*network.Client).DisassociateNetworkACLSubnet,
 		Guard(requireYesForACLChange("disassociate-network-acl-subnet"))),
+	Read[network.Client, network.ListDHCPOptionsInput, network.ListDHCPOptionsOutput](
+		kebab("ListDHCPOptions"), (*network.Client).ListDHCPOptions),
+	Read[network.Client, network.GetDHCPOptionsInput, network.GetDHCPOptionsOutput](
+		kebab("GetDHCPOptions"), (*network.Client).GetDHCPOptions),
+	Write[network.Client, network.CreateDHCPOptionsInput, network.CreateDHCPOptionsOutput](
+		kebab("CreateDHCPOptions"), (*network.Client).CreateDHCPOptions),
+	Write[network.Client, network.DeleteDHCPOptionsInput, network.DeleteDHCPOptionsOutput](
+		kebab("DeleteDHCPOptions"), (*network.Client).DeleteDHCPOptions, Destructive()),
+	Write[network.Client, network.SetVPCDHCPOptionsInput, network.SetVPCDHCPOptionsOutput](
+		"set-vpc-dhcp-options", (*network.Client).SetVPCDHCPOptions, Guard(requireYesToSetVPCDHCPOptions)),
+	Write[network.Client, network.ClearVPCDHCPOptionsInput, network.ClearVPCDHCPOptionsOutput](
+		"clear-vpc-dhcp-options", (*network.Client).ClearVPCDHCPOptions, Guard(requireYesToClearVPCDHCPOptions)),
 }
 
 func newNetworkCmd(e *env) *cobra.Command {

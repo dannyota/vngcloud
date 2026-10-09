@@ -6,8 +6,9 @@ ACLs, interconnects, and endpoints; see the [Network section of
 Services](Services.md#network) for that full read list. This page covers
 security groups and their rules, VPCs, subnets, and Private DNS, the
 network resources this SDK writes here. See [Network Route
-Tables](Network-RouteTables.md) for route tables and routes, and [Network
-ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations.
+Tables](Network-RouteTables.md) for route tables and routes, [Network
+ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations, and
+[Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets.
 Servers, volumes, and floating IPs stay read-only.
 
 If a VPC, subnet, route table, ACL, or security group is managed by
@@ -421,6 +422,9 @@ var ErrNotSettled         = errors.New("network: write accepted but not settled"
 var ErrFailed             = errors.New("network: write failed on the server")
 ```
 
+`ErrSystemGroup` means `UpdateSecurityGroup` or `DeleteSecurityGroup`
+refused a project's default group before sending anything.
+`ErrSecurityGroupInUse` means `DeleteSecurityGroup` sent
 nothing, or that a delete's own `DELETE` request was refused by the server;
 see [Creating, updating, and deleting
 groups](#creating-updating-and-deleting-groups) above. `ErrInUse` means
@@ -437,14 +441,5 @@ this SDK does not know how to act on. `ErrFailed` means a create or delete
 reached `"ERROR"`. `ErrNotSettled` means a write was sent, and may have
 reached the server, but no confirming read followed; see [Waits](#waits)
 above for what to do next and for why the Output still holds the resource.
-
-## Route tables and routes
-
-See [Network Route Tables](Network-RouteTables.md) for `GetRouteTable`,
-`CreateRouteTable`, `DeleteRouteTable`, `AddRoute`, and `RemoveRoute`.
-
-## Network ACLs
-
-See [Network ACLs](Network-ACLs.md) for `GetNetworkACL`, `CreateNetworkACL`,
-`DeleteNetworkACL`, `AddNetworkACLRule`, `RemoveNetworkACLRule`,
-`AssociateNetworkACLSubnet`, and `DisassociateNetworkACLSubnet`.
+See the top of this page for the route table, ACL, and DHCP options set
+calls split onto their own pages.

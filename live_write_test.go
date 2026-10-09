@@ -3389,6 +3389,92 @@ func listAllVPCs(ctx context.Context, client *network.Client) ([]network.VPC, er
 	}
 }
 
+// vpcIDsHeldByNetworkACLs returns the set of VPC ids that some network ACL
+// belongs to, account-wide. A listed ACL's own NetworkID is confirmed live
+// to sometimes come back empty for an ACL that does belong to a VPC, so
+// this also reads every ACL's own detail with GetNetworkACL and checks its
+// VPCID. ok is false when the ACL listing, or any one read, fails other
+// than NotFound; the caller must then treat every VPC as held rather than
+// risk deleting one a network ACL still holds.
+func vpcIDsHeldByNetworkACLs(ctx context.Context, client *network.Client) (held map[string]bool, ok bool) {
+	acls, err := listAllNetworkACLs(ctx, client)
+	if err != nil {
+		return nil, false
+	}
+	held = make(map[string]bool)
+	for _, acl := range acls {
+		if acl.NetworkID != "" {
+			held[acl.NetworkID] = true
+		}
+		detail, err := client.GetNetworkACL(ctx, &network.GetNetworkACLInput{NetworkACLID: acl.UUID})
+		if err != nil {
+			if vngcloud.IsNotFound(err) {
+				continue
+			}
+			return nil, false
+		}
+		if detail.ACL.VPCID != "" {
+			held[detail.ACL.VPCID] = true
+		}
+	}
+	return held, true
+}
+
+// leftoverVPCsToDelete filters candidates, a leftover VPC sweep's own
+// name-matched VPCs, down to the ones safe to delete this run, in toDelete.
+// The account can hold a permanently stuck VPC: one a network ACL still
+// belongs to, or one with Private DNS on, whose delete always fails.
+// TestLiveWriteNetworkVPC enables Private DNS on its own VPC, behind
+// VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS, and neither case is ever true of a VPC
+// that test created past its own run: the ACL association and the Private
+// DNS enable both happen only on that run's own VPC, and its own cleanup
+// then tries to delete it regardless. So a candidate held or with Private
+// DNS on always marks a leftover from an earlier run that must be left
+// alone rather than fail the test on its delete; skippedIDs names every
+// such candidate, by UUID, for the caller to exclude from its own later
+// "did this run clean up after itself" check. When the network ACL check
+// itself fails, every candidate is skipped and logged, and skippedIDs holds
+// all of them, instead of risking a delete against a VPC a network ACL
+// still holds.
+func leftoverVPCsToDelete(ctx context.Context, t *testing.T, client *network.Client, candidates []network.VPC) (toDelete []network.VPC, skippedIDs map[string]bool) {
+	t.Helper()
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	held, ok := vpcIDsHeldByNetworkACLs(ctx, client)
+	if !ok {
+		t.Logf("step 1: could not list or read every network ACL; skipping all %d leftover VPC(s) this run", len(candidates))
+		skippedIDs = make(map[string]bool, len(candidates))
+		for _, vpc := range candidates {
+			skippedIDs[vpc.UUID] = true
+		}
+		return nil, skippedIDs
+	}
+	skippedIDs = make(map[string]bool)
+	aclHeld := 0
+	nonDisabledDNS := 0
+	for _, vpc := range candidates {
+		switch {
+		case held[vpc.UUID]:
+			aclHeld++
+			skippedIDs[vpc.UUID] = true
+		case vpc.DNSStatus != "DISABLED":
+			nonDisabledDNS++
+			t.Logf("step 1: skipping a leftover VPC: DNS status is %s, not DISABLED", vpc.DNSStatus)
+			skippedIDs[vpc.UUID] = true
+		default:
+			toDelete = append(toDelete, vpc)
+		}
+	}
+	if aclHeld > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) held by a network ACL", aclHeld)
+	}
+	if nonDisabledDNS > 0 {
+		t.Logf("step 1: skipping %d leftover VPC(s) with Private DNS enabled", nonDisabledDNS)
+	}
+	return toDelete, skippedIDs
+}
+
 // pickEnabledZoneID returns the uuid of the first zone portal.ListZones
 // reports enabled. The test account's default zone is disabled, so a
 // subnet create needs this rather than any zone the account has.
@@ -3812,16 +3898,23 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 	client := network.New(cfg)
 	portalClient := portal.New(cfg)
 
-	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run.
+	// Step 1: delete every leftover vngcloud-live-* VPC from a previous run,
+	// skipping one a network ACL still holds or with Private DNS on (see
+	// leftoverVPCsToDelete): the account can hold a permanently stuck VPC
+	// like that, and this test must not fail on its delete.
 	leftovers, err := listAllVPCs(ctx, client)
 	if err != nil {
 		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
 	}
-	deletedLeftovers := 0
+	var candidates []network.VPC
 	for _, leftover := range leftovers {
-		if !isLiveSecurityGroupName(leftover.Name) {
-			continue
+		if isLiveSecurityGroupName(leftover.Name) {
+			candidates = append(candidates, leftover)
 		}
+	}
+	deletable, skippedVPCIDs := leftoverVPCsToDelete(ctx, t, client, candidates)
+	deletedLeftovers := 0
+	for _, leftover := range deletable {
 		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
 		deletedLeftovers++
 	}
@@ -3861,6 +3954,9 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 
 	// Step 4: register the fallback cleanup as soon as vpcID is known,
 	// before any later step can fail and skip the explicit deletes below.
+	// Its final count excludes skippedVPCIDs: a VPC step 1 left alone on
+	// purpose is not this run's to clean up, and must not fail every later
+	// run until someone deletes it by hand.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
@@ -3872,7 +3968,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 		}
 		remaining := 0
 		for _, v := range final {
-			if isLiveSecurityGroupName(v.Name) {
+			if isLiveSecurityGroupName(v.Name) && !skippedVPCIDs[v.UUID] {
 				remaining++
 			}
 		}
@@ -5155,6 +5251,359 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	} else {
 		t.Log("step 16: repeat delete returned NotFound as expected")
 	}
+}
+
+// liveDHCPOptionsResolversFor returns region's documented default DNS
+// resolvers, named in the design and its product docs: HCM's pair for
+// hcm-3, HAN's for han-1. CreateDHCPOptions never adds them on its own, so
+// the live check supplies them explicitly, as the manager's own probe did.
+func liveDHCPOptionsResolversFor(region string) []string {
+	if strings.HasPrefix(region, "han") {
+		return []string{"10.236.10.196", "10.236.10.197"}
+	}
+	return []string{"10.166.12.196", "10.166.12.197"}
+}
+
+// listAllDHCPOptions pages through every DHCP options set the account has,
+// since a leftover cleanup or a remaining-set check must not miss one that
+// landed past the first page.
+func listAllDHCPOptions(ctx context.Context, client *network.Client) ([]network.DHCPOptions, error) {
+	var all []network.DHCPOptions
+	for page := 1; ; page++ {
+		out, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Page: page})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, out.Items...)
+		if page >= out.TotalPage {
+			return all, nil
+		}
+	}
+}
+
+// deleteLiveDHCPOptionsSet deletes id, tolerating NotFound (already gone),
+// and reports deleted true only when the delete itself succeeded: a caller
+// counting how many leftovers it actually removed must not count NotFound
+// or a skip as a delete. A set DeleteDHCPOptions itself reports as still
+// attached to a VPC (ErrInUse) is left alone rather than forced:
+// TestLiveWriteNetworkDHCPOptions registers this cleanup for each set it
+// creates before it registers the run's own VPC cleanup, so t.Cleanup's
+// LIFO order runs the VPC's delete first and frees every set the VPC held;
+// an attachment found here means an earlier step left the set attached some
+// other way, and the set is left for a later run's own leftover sweep
+// rather than risking a delete this design never allows.
+func deleteLiveDHCPOptionsSet(ctx context.Context, t *testing.T, client *network.Client, id string) (deleted bool) {
+	t.Helper()
+	_, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: id})
+	switch {
+	case err == nil:
+		return true
+	case vngcloud.IsNotFound(err):
+	case errors.Is(err, network.ErrInUse):
+		t.Log("cleanup: a DHCP options set is still attached to a VPC; leaving it for a later run's leftover sweep")
+	default:
+		t.Errorf("cleanup: delete DHCP options set: %s", safeErr(err))
+	}
+	return false
+}
+
+// TestLiveWriteNetworkDHCPOptions exercises ListDHCPOptions, GetDHCPOptions,
+// CreateDHCPOptions, DeleteDHCPOptions, SetVPCDHCPOptions, and
+// ClearVPCDHCPOptions against the real account named in .env, in hcm-3.
+// Neither a DHCP options set nor its write calls appear on any pricing page
+// (see the design), so both are treated as free pending the next day's
+// bill.
+//
+// It deletes every leftover vngcloud-live-* VPC first, then every leftover
+// vngcloud-live-* DHCP options set (step 1); creates two sets with the
+// region's default resolvers, registering each one's own cleanup as soon as
+// its id is known, before creating the VPC below, so t.Cleanup's LIFO order
+// deletes the VPC before either set (step 2); reads the first set back and
+// checks ListDHCPOptions finds it by an exact and a substring Name filter
+// (step 3); creates this run's own VPC and /24 subnet (createLiveVPCAndSubnet,
+// step 4); sets the VPC to the first set, expecting Changed true within the
+// design's 60-second bound, then repeats the same call expecting Changed
+// false (step 5); tries to delete the first set while it is still attached,
+// expecting the SDK's own ErrInUse (step 6); sets the VPC to the second set,
+// which frees the first, and deletes the first set (step 7); clears the
+// VPC's set with ClearVPCDHCPOptions, expecting Changed true and an empty
+// DHCPOptionID within the same 60-second bound, then repeats the call
+// expecting Changed false (step 8); reattaches the second set, deletes the
+// subnet and VPC, then verifies that VPC deletion detached the set before
+// deleting it (step 9); and logs portal.ListQuotaUsed's row count before
+// step 2 and after step 9. It never sets Private DNS on its VPC, so
+// DNSStatus stays DISABLED throughout and never blocks the
+// SetVPCDHCPOptions and ClearVPCDHCPOptions calls above. It must never run
+// at the same time as TestLiveWriteNetworkVPC, TestLiveWriteNetworkRouteTable,
+// or TestLiveWriteNetworkACL, since the account's VPC quota leaves room for
+// only one. Every step logs only statuses, counts, and timings, never a VPC
+// or DHCP options set's own id or name.
+func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
+	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live network DHCP options write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_NETWORK_DHCP") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_NETWORK_DHCP=1 to run the live network DHCP options write test")
+	}
+	if err := envfile.Load(".env"); err != nil {
+		t.Fatalf("load .env: %v", err)
+	}
+
+	region := "hcm-3"
+	if raw := strings.TrimSpace(os.Getenv("VNGCLOUD_REGIONS")); raw != "" {
+		if first := strings.TrimSpace(strings.Split(raw, ",")[0]); first != "" {
+			region = first
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cfg, err := vngcloud.LoadConfig(ctx,
+		vngcloud.WithRegion(region),
+		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+	)
+	if errors.Is(err, vngcloud.ErrNoCredentials) {
+		t.Fatal("set VNGCLOUD_ROOT_EMAIL, VNGCLOUD_USERNAME, and VNGCLOUD_PASSWORD (and optionally VNGCLOUD_TOTP_SECRET) in .env")
+	}
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	client := network.New(cfg)
+	portalClient := portal.New(cfg)
+
+	// Step 1: delete every leftover vngcloud-live-* VPC, then every leftover
+	// vngcloud-live-* DHCP options set, from a previous run. A leftover set
+	// still attached to a leftover VPC becomes unattached once that VPC is
+	// deleted, so the VPC sweep always runs first. A VPC a network ACL
+	// still holds or with Private DNS on is skipped rather than deleted
+	// (see leftoverVPCsToDelete): the account can hold a permanently stuck
+	// VPC like that, and this test must not fail on its delete; its DHCP
+	// options set then stays attached, and the set sweep below already
+	// tolerates that.
+	leftoverVPCs, err := listAllVPCs(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListVPCs: %s", safeErr(err))
+	}
+	var vpcCandidates []network.VPC
+	for _, leftover := range leftoverVPCs {
+		if isLiveSecurityGroupName(leftover.Name) {
+			vpcCandidates = append(vpcCandidates, leftover)
+		}
+	}
+	deletableVPCs, _ := leftoverVPCsToDelete(ctx, t, client, vpcCandidates)
+	deletedVPCLeftovers := 0
+	for _, leftover := range deletableVPCs {
+		deleteVPCAndSubnets(ctx, t, client, leftover.UUID, nil)
+		deletedVPCLeftovers++
+	}
+	leftoverSets, err := listAllDHCPOptions(ctx, client)
+	if err != nil {
+		t.Fatalf("step 1 ListDHCPOptions: %s", safeErr(err))
+	}
+	deletedSetLeftovers := 0
+	for _, leftover := range leftoverSets {
+		if !isLiveSecurityGroupName(leftover.Name) {
+			continue
+		}
+		if deleteLiveDHCPOptionsSet(ctx, t, client, leftover.UUID) {
+			deletedSetLeftovers++
+		}
+	}
+	t.Logf("step 1: deleted %d leftover VPC(s) and %d leftover DHCP options set(s)", deletedVPCLeftovers, deletedSetLeftovers)
+
+	quotaBefore, err := portalClient.ListQuotaUsed(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 1 ListQuotaUsed: %s", safeErr(err))
+	}
+	t.Logf("step 1: %d quota row(s) before this run's writes", len(quotaBefore.Items))
+
+	// Step 2: create two DHCP options sets with the region's default
+	// resolvers and no MTU (the server's own default applies). Each one's
+	// cleanup is registered as soon as its id is known and before the VPC
+	// below is created, so t.Cleanup's LIFO order deletes the VPC first.
+	suffix1, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate DHCP options set name suffix: %v", err)
+	}
+	name1 := "vngcloud-live-" + suffix1
+	createdSet1, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name1, DNSServers: liveDHCPOptionsResolversFor(region)})
+	if err != nil {
+		t.Fatalf("step 2 CreateDHCPOptions (first set): %s", safeErr(err))
+	}
+	set1ID := createdSet1.DHCPOptions.UUID
+	if set1ID == "" {
+		t.Fatal("step 2: CreateDHCPOptions (first set) returned an empty id; the design requires one")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLiveDHCPOptionsSet(cleanupCtx, t, client, set1ID)
+	})
+	t.Logf("step 2: created the first DHCP options set, status %s, mtu %d", createdSet1.DHCPOptions.Status, createdSet1.DHCPOptions.MTU)
+
+	suffix2, err := randomHex(4)
+	if err != nil {
+		t.Fatalf("generate DHCP options set name suffix: %v", err)
+	}
+	name2 := "vngcloud-live-" + suffix2
+	createdSet2, err := client.CreateDHCPOptions(ctx, &network.CreateDHCPOptionsInput{Name: name2, DNSServers: liveDHCPOptionsResolversFor(region)})
+	if err != nil {
+		t.Fatalf("step 2 CreateDHCPOptions (second set): %s", safeErr(err))
+	}
+	set2ID := createdSet2.DHCPOptions.UUID
+	if set2ID == "" {
+		t.Fatal("step 2: CreateDHCPOptions (second set) returned an empty id; the design requires one")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		deleteLiveDHCPOptionsSet(cleanupCtx, t, client, set2ID)
+	})
+	t.Logf("step 2: created the second DHCP options set, status %s, mtu %d", createdSet2.DHCPOptions.Status, createdSet2.DHCPOptions.MTU)
+
+	// Step 3: read the first set back, and check the Name filter finds it
+	// by an exact match and by a substring of its name. Whether the server
+	// matches by substring or only exactly is not yet confirmed live, so
+	// this only logs what each search returns rather than asserting one
+	// behavior.
+	gotSet1, err := client.GetDHCPOptions(ctx, &network.GetDHCPOptionsInput{DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 3 GetDHCPOptions: %s", safeErr(err))
+	}
+	if gotSet1.DHCPOptions.UUID != set1ID || len(gotSet1.DHCPOptions.VPCIDs) != 0 {
+		t.Errorf("step 3: unexpected set after create: %d associated VPC(s), want 0", len(gotSet1.DHCPOptions.VPCIDs))
+	}
+	exactMatch, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Name: name1})
+	if err != nil {
+		t.Fatalf("step 3 ListDHCPOptions (exact name): %s", safeErr(err))
+	}
+	t.Logf("step 3: exact name filter returned %d row(s)", len(exactMatch.Items))
+	substringMatch, err := client.ListDHCPOptions(ctx, &network.ListDHCPOptionsInput{Name: name1[:len(name1)-4]})
+	if err != nil {
+		t.Fatalf("step 3 ListDHCPOptions (substring name): %s", safeErr(err))
+	}
+	t.Logf("step 3: substring name filter returned %d row(s)", len(substringMatch.Items))
+
+	// Step 4: create this run's own VPC and /24 subnet.
+	// createLiveVPCAndSubnet registers the VPC's own t.Cleanup as soon as
+	// its id is known, after both sets' cleanups above, so it runs first.
+	// This VPC never has Private DNS enabled, so DNSStatus stays DISABLED
+	// and never blocks a SetVPCDHCPOptions call below.
+	vpcID, _ := createLiveVPCAndSubnet(ctx, t, client, portalClient, nil)
+	t.Log("step 4: created this run's own VPC and /24 subnet")
+
+	// Step 5: set the VPC to the first set, expecting Changed true within
+	// the design's 60-second bound, then repeat the same call expecting
+	// Changed false.
+	start := time.Now()
+	setFirst, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 5 SetVPCDHCPOptions (first set): %s", safeErr(err))
+	}
+	if !setFirst.Changed {
+		t.Error("step 5: Changed = false, want true: the VPC had no set before this call")
+	}
+	if setFirst.VPC.DHCPOptionID != set1ID {
+		t.Error("step 5: the VPC's DHCPOptionID does not name the first set after the call settled")
+	}
+	t.Logf("step 5: set the VPC to the first set, wait %s", time.Since(start))
+
+	start = time.Now()
+	setFirstAgain, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set1ID})
+	if err != nil {
+		t.Fatalf("step 5 SetVPCDHCPOptions (first set, repeat): %s", safeErr(err))
+	}
+	if setFirstAgain.Changed {
+		t.Error("step 5: repeat set reported Changed true, want false: the VPC already names this set")
+	}
+	t.Logf("step 5: repeat set was a no-op as expected, wait %s", time.Since(start))
+
+	// Step 6: try to delete the first set while it is still attached,
+	// expecting the SDK's own ErrInUse.
+	_, deleteWhileAttachedErr := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set1ID})
+	if !errors.Is(deleteWhileAttachedErr, network.ErrInUse) {
+		t.Errorf("step 6: delete while attached err = %s, want ErrInUse", safeErr(deleteWhileAttachedErr))
+	} else {
+		t.Log("step 6: delete while attached refused with ErrInUse as expected")
+	}
+
+	// Step 7: set the VPC to the second set, which frees the first, then
+	// delete the first set.
+	start = time.Now()
+	setSecond, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Fatalf("step 7 SetVPCDHCPOptions (second set): %s", safeErr(err))
+	}
+	if !setSecond.Changed {
+		t.Error("step 7: Changed = false, want true: the VPC named the first set before this call")
+	}
+	t.Logf("step 7: moved the VPC to the second set, wait %s", time.Since(start))
+
+	if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set1ID}); err != nil {
+		t.Errorf("step 7 DeleteDHCPOptions (first set, now unattached): %s", safeErr(err))
+	} else {
+		t.Log("step 7: deleted the first set now that it is unattached")
+	}
+
+	// Step 8: clear the VPC's DHCP options set, expecting Changed true and
+	// an empty DHCPOptionID within the design's 60-second bound, then repeat
+	// the same call expecting Changed false.
+	start = time.Now()
+	cleared, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("step 8 ClearVPCDHCPOptions: %s", safeErr(err))
+	}
+	if !cleared.Changed {
+		t.Error("step 8: Changed = false, want true: the VPC named the second set before this call")
+	}
+	if cleared.VPC.DHCPOptionID != "" {
+		t.Error("step 8: the VPC's DHCPOptionID is not empty after the call settled")
+	}
+	t.Logf("step 8: cleared the VPC's DHCP options set, wait %s", time.Since(start))
+
+	start = time.Now()
+	clearedAgain, err := client.ClearVPCDHCPOptions(ctx, &network.ClearVPCDHCPOptionsInput{VPCID: vpcID})
+	if err != nil {
+		t.Fatalf("step 8 ClearVPCDHCPOptions (repeat): %s", safeErr(err))
+	}
+	if clearedAgain.Changed {
+		t.Error("step 8: repeat clear reported Changed true, want false: the VPC already has no set")
+	}
+	t.Logf("step 8: repeat clear was a no-op as expected, wait %s", time.Since(start))
+
+	start = time.Now()
+	setSecondAgain, err := client.SetVPCDHCPOptions(ctx, &network.SetVPCDHCPOptionsInput{VPCID: vpcID, DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Fatalf("step 9 SetVPCDHCPOptions (second set, reattach): %s", safeErr(err))
+	}
+	if !setSecondAgain.Changed || setSecondAgain.VPC.DHCPOptionID != set2ID {
+		t.Error("step 9: reattaching the second set did not settle on that set")
+	}
+	t.Logf("step 9: reattached the second set, wait %s", time.Since(start))
+
+	// Step 9: delete the subnet and VPC explicitly rather than waiting for
+	// their registered cleanups; those cleanups then find both already gone
+	// and do nothing. VPC deletion must detach its DHCP options set.
+	deleteVPCAndSubnets(ctx, t, client, vpcID, nil)
+	t.Log("step 9: deleted the subnet and VPC")
+	secondSetAfterVPCDelete, err := client.GetDHCPOptions(ctx, &network.GetDHCPOptionsInput{DHCPOptionsID: set2ID})
+	if err != nil {
+		t.Errorf("step 9 GetDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else if len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs) != 0 {
+		t.Errorf("step 9: second set has %d associated VPC(s) after VPC delete, want 0", len(secondSetAfterVPCDelete.DHCPOptions.VPCIDs))
+	} else if _, err := client.DeleteDHCPOptions(ctx, &network.DeleteDHCPOptionsInput{DHCPOptionsID: set2ID}); err != nil {
+		t.Errorf("step 9 DeleteDHCPOptions (second set after VPC delete): %s", safeErr(err))
+	} else {
+		t.Log("step 9: VPC deletion detached and the SDK deleted the second set")
+	}
+
+	quotaAfter, err := portalClient.ListQuotaUsed(ctx, nil)
+	if err != nil {
+		t.Fatalf("step 9 ListQuotaUsed: %s", safeErr(err))
+	}
+	t.Logf("step 9: %d quota row(s) after this run's writes", len(quotaAfter.Items))
 }
 
 // liveCertificateNamePattern is the live vLB certificate write test's own

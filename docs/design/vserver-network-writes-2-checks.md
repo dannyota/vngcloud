@@ -16,10 +16,11 @@ Unit tests use `httptest` and an injected clock and sleep.
   a set change; the virtual IP create and update; and the tag read and
   write, including a system tag.
 - Request bodies: DHCP create with and without `MTU`, never `tags` or
-  `zoneId`; the `PATCH` holds only `dhcpOptionId`; virtual IP create with
-  and without `IPAddress` and `Description`; an update of only `Name`
-  resends the read `description` and `mode`; a tag write holds every user
-  tag read plus the change, with `resourceId` equal to the path ID.
+  `zoneId`; the set `PATCH` holds only `dhcpOptionId` and the clear `PATCH`
+  is `{}`; virtual IP create with and without `IPAddress` and
+  `Description`; an update of only `Name` resends the read `description`
+  and `mode`; a tag write holds every user tag read plus the change, with
+  `resourceId` equal to the path ID.
 - Shape refusals with no request: empty or non-IPv4 DNS server, empty DNS
   list, a set name with the system prefix, a bad virtual IP address, empty
   update, empty tag key.
@@ -67,8 +68,9 @@ Private DNS on it.
 3. Set it on the run's VPC: status, response, how long until the VPC's
    `dhcpOptionId` shows it, and the set's `associatedNetworks`. Send the
    same `PATCH` again: status.
-4. Send the `PATCH` with `dhcpOptionId` `""`: status, and the VPC's set
-   afterwards. This shows whether the API can clear a set.
+4. Clearing a set: recorded. The console's detach sends the same `PATCH`
+   with body `{}`; it returns 200 and the VPC's `dhcpOptionId` and
+   `dhcpOptionName` become null (live, 2026-09-28).
 5. Delete the set while attached: the server's refusal.
 6. Create a second set and move the VPC to it: the first set's
    `associatedNetworks` afterwards.

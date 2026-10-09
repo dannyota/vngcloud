@@ -87,7 +87,9 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 
 | Name | CLI form |
 |-|-|
+| `ClearVPCDHCPOptions` | `clear-vpc-dhcp-options` |
 | `NetworkACLID` | `network-acl-id` |
 | `Query` | `search` |
 | `SecurityGroupIDs` | `security-group-id` |
+| `SetVPCDHCPOptions` | `set-vpc-dhcp-options` |
 | `VPCID` | `vpc-id` |

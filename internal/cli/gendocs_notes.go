@@ -444,6 +444,10 @@ const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices t
 	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
 	"checks this request's shape before it checks the ID."
 
+// network's own DHCP options doc notes (create-dhcp-options through
+// clear-vpc-dhcp-options) live in gendocs_notes_network_dhcp.go, kept apart
+// from this file so neither grows past the length limit.
+
 // docOpNotes gives one operation a paragraph of prose beyond its kind,
 // flags, and example, keyed by "service op-name". An operation goes here
 // when its page needs to state a behavior the flag table cannot show, such
@@ -497,6 +501,10 @@ var docOpNotes = map[string]string{
 	"network remove-network-acl-rule":         networkRemoveNetworkACLRuleNote,
 	"network associate-network-acl-subnet":    networkAssociateNetworkACLSubnetNote,
 	"network disassociate-network-acl-subnet": networkDisassociateNetworkACLSubnetNote,
+	"network create-dhcp-options":             networkCreateDHCPOptionsNote,
+	"network delete-dhcp-options":             networkDeleteDHCPOptionsNote,
+	"network set-vpc-dhcp-options":            networkSetVPCDHCPOptionsNote,
+	"network clear-vpc-dhcp-options":          networkClearVPCDHCPOptionsNote,
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
@@ -638,6 +646,11 @@ var docExampleExtraFlag = map[string]string{
 // required to have an override (Statements carries no vngcloud:"required"
 // tag there), but gets one anyway so its example shows --document-file too,
 // rather than leaving Statements out of the example entirely.
+// network set-vpc-dhcp-options and clear-vpc-dhcp-options need it for the
+// same reason as add-route: neither is Destructive either, but
+// requireYesToSetVPCDHCPOptions and requireYesToClearVPCDHCPOptions
+// (svc_network_dhcp.go) each refuse their own command without --yes on
+// every call.
 var docExampleOverride = map[string]string{
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
 	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
@@ -659,4 +672,7 @@ var docExampleOverride = map[string]string{
 		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
 	"network disassociate-network-acl-subnet": "vngcloud network disassociate-network-acl-subnet " +
 		"--network-acl-id <network-acl-id> --subnet-id <subnet-id> --yes",
+	"network set-vpc-dhcp-options": "vngcloud network set-vpc-dhcp-options --vpc-id <vpc-id> " +
+		"--dhcp-options-id <dhcp-options-id> --yes",
+	"network clear-vpc-dhcp-options": "vngcloud network clear-vpc-dhcp-options --vpc-id <vpc-id> --yes",
 }
