@@ -238,14 +238,15 @@ func TestGenDocsErrorClassesMentionNotFound(t *testing.T) {
 }
 
 // TestGenDocsErrorClassesNameTheExitOneCodes checks that the sentence
-// closing the error-classes list names every exit-1 code (now twenty, with
-// the three vDNS wait codes, monitor's own OTPRejected and PriceAboveMax,
-// iam's own SelfChange, PrivilegedChange, and ManagedPolicy, network's
-// SystemSecurityGroup, SecurityGroupInUse, ResourceInUse, DefaultResource,
-// and ResourceBusy, compute's own ServerGroupInUse, containerregistry's own
-// RepositoryNotEmpty, UserNotFound, and SecretFileFailed, and tagging's own
-// SystemTag) rather than a vague "exit 1", which would read as ambiguous
-// after a list of classes.
+// closing the error-classes list names every exit-1 code (now twenty-four,
+// with the three vDNS wait codes, monitor's own OTPRejected and
+// PriceAboveMax, the root Unpriced, iam's own SelfChange, PrivilegedChange, and ManagedPolicy,
+// network's SystemSecurityGroup, SecurityGroupInUse, ResourceInUse,
+// DefaultResource, and ResourceBusy, compute's own ServerGroupInUse,
+// containerregistry's own RepositoryNotEmpty, UserNotFound, and
+// SecretFileFailed, tagging's own SystemTag, and volume's own VolumeInUse,
+// BootVolume, and ServerRunning) rather than a vague "exit 1", which would
+// read as ambiguous after a list of classes.
 func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -253,10 +254,10 @@ func TestGenDocsErrorClassesNameTheExitOneCodes(t *testing.T) {
 	}
 	data := string(mustReadGenDocsCLIMD(t, dir))
 	want := "`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, `SecretFileFailed`, and `SystemTag` all exit 1"
+		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1"
 	if !strings.Contains(data, want) {
 		t.Errorf("error class text does not name every exit-1 code:\n%s", data)
 	}

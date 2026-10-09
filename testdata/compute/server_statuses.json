@@ -1,0 +1,13 @@
+[
+  {"uuid": "server-1", "name": "<name>", "status": "CREATING"},
+  {"uuid": "server-1", "name": "<name>", "status": "CREATING-BILLING"},
+  {"uuid": "server-1", "name": "<name>", "status": "ACTIVE"},
+  {"uuid": "server-1", "name": "<name>", "status": "ERROR"},
+  {"uuid": "server-1", "name": "<name>", "status": "TURNING-OFF"},
+  {"uuid": "server-1", "name": "<name>", "status": "STOPPED"},
+  {"uuid": "server-1", "name": "<name>", "status": "STARTING"},
+  {"uuid": "server-1", "name": "<name>", "status": "REBOOTING"},
+  {"uuid": "server-1", "name": "<name>", "status": "CHANGING-FLAVOR"},
+  {"uuid": "server-1", "name": "<name>", "status": "VERIFYING-FLAVOR"},
+  {"uuid": "server-1", "name": "<name>", "status": "DELETING"}
+]

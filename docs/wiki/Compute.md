@@ -2,7 +2,9 @@
 
 `compute` is `danny.vn/vngcloud/compute`, with its own `New(cfg)`. It reads
 vServer instances and images; reads, creates, updates, and deletes server
-groups; and reads, imports, creates, and deletes SSH keys.
+groups; and reads, imports, creates, and deletes SSH keys. Server writes
+(create, start, stop, reboot, rename, resize, and delete) are on
+[Compute Servers](Compute-Servers.md).
 
 ## Setup
 
@@ -240,7 +242,10 @@ A malformed `SSHKeyID`, `ServerGroupID`, or `PolicyID`, an empty required
 field, an empty `UpdateServerGroup` input, an `UpdateServerGroup` `Name` set
 to the empty string, or an `ImportSSHKey` shape refusal fails with
 `vngcloud.ErrInvalidInput` before any request. An unknown key or server
-group fails with `vngcloud.IsNotFound(err) == true`.
+group fails with `vngcloud.IsNotFound(err) == true`. Server write errors
+(`ErrFailed`, `ErrUnexpectedStatus`, and `ErrNotSettled` for `CreateServer`,
+`StartServer`, `StopServer`, `RebootServer`, `ResizeServer`, and
+`DeleteServer`) are on [Compute Servers](Compute-Servers.md#errors).
 
 ```go
 var ErrServerGroupInUse = errors.New("compute: server group in use")

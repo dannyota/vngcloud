@@ -66,7 +66,8 @@ the write's own Input (ADR 0002 rule 8):
   The server ignores keys it does not price
   ([quote requests](vserver-paid-writes-api.md#quote-requests)).
 - The quote's Output is `pricing.GetQuoteOutput`. `OptimumPrice` is VND a
-  month for a create. For a resize, what it prices is an open question;
+  month. For a resize it is the new configuration's price for the rest of
+  the current period ([billing model](vserver-paid-writes-api.md#billing-model));
   the guard compares it the same way.
 - `pricing.GetQuoteInput` gains `Action`; empty sends `create`, so
   existing callers are unchanged. The quote request is built by one
@@ -174,10 +175,10 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
   `ListVolumesByServer` first. It sends `deleteAllVolume` equal to
   `DeleteVolumes`.
 - With `DeleteVolumes` false, attached data volumes stay and keep being
-  billed. Whether the boot volume stays is an open question. After the
-  wait the SDK reads each volume it listed before the delete, and
+  billed. The boot volume is always deleted with the server (live,
+  2026-10-09). After the wait the SDK reads each volume it listed, and
   `KeptVolumeIDs` names those that still exist, so the caller sees what
-  still costs money. With `NoWait` it names every listed volume.
+  still costs money. With `NoWait` it names every listed data volume.
 - With `DeleteVolumes` true, every attached volume is deleted with the
   server, data included. `DeletedVolumeIDs` names them.
 - The server's refusals (`CREATING`, `CREATING-BILLING`, `DELETING`)
@@ -240,10 +241,10 @@ All methods live in `volume`.
   `Changed` false, nothing sent. Attached elsewhere: the server's refusal.
 - `DetachVolume` reads the volume and the server first:
   - Not attached to that server: `Changed` false, nothing sent.
-  - The server's boot volume: `ErrBootVolume`, nothing sent.
-  - Server `ACTIVE` and `AllowRunning` false: `ErrServerRunning`, nothing
-    sent. A running server may have the volume mounted, and a detach under
-    a mounted filesystem can lose unwritten data. Stop the server, or
+  - The boot volume, a bootable volume, or no boot ID on the server read
+    (always read): `ErrBootVolume`, nothing sent.
+  - Server not `STOPPED`, `AllowRunning` false: `ErrServerRunning`, nothing
+    sent; a mounted volume can lose unwritten data. Stop the server, or
     unmount and pass `AllowRunning`.
 - Attach and detach keep the transport's `PUT` retries: a repeat is
   refused as already attached or already available, never a second
@@ -308,8 +309,8 @@ package gets a poll helper with the injected clock and sleep that
 | `volume resize-volume` | Paid write | Yes | P5 |
 
 - A paid create needs no `--yes`: `--max-price <vnd>` is its consent.
-  Without the flag, `MaxPrice` is 0 and the command orders only a free
-  resource, so it refuses with `PriceAboveMax` after the quote.
+  Without the flag, `MaxPrice` is 0 and the command refuses with
+  `PriceAboveMax` after the quote; a quote of 0 is refused as `ErrUnpriced`.
 - Stop and reboot need `--yes` although start undoes them: they cut off
   what runs on the server and lose what it holds only in memory, as route
   writes need `--yes` for cutting traffic
@@ -344,7 +345,7 @@ vngcloud compute create-server ... --max-price 347800
 | Status wrong for start, stop, reboot, or resize | `ErrUnexpectedStatus`, nothing sent | `UnexpectedStatus`, 1 |
 | Delete of an attached volume | `ErrVolumeInUse` | `VolumeInUse`, 1 |
 | Detach of the boot volume | `ErrBootVolume`, nothing sent | `BootVolume`, 1 |
-| Detach from an `ACTIVE` server without `AllowRunning` | `ErrServerRunning`, nothing sent | `ServerRunning`, 1 |
+| Detach from a server that is not `STOPPED`, without `AllowRunning` | `ErrServerRunning`, nothing sent | `ServerRunning`, 1 |
 | `ERROR` in a wait | `ErrFailed`, with Output | `WriteFailed`, 1 |
 | Bound reached, or a start, stop, or reboot not confirmed | `ErrNotSettled`, with Output | `NotSettled`, 1 |
 | Unknown server or volume | `NotFound` | `NotFound`, 4 |
@@ -353,8 +354,8 @@ vngcloud compute create-server ... --max-price 347800
 
 New sentinels: `compute.ErrFailed` and `compute.ErrUnexpectedStatus`
 (`compute.ErrNotSettled` exists); `volume.ErrNotSettled`,
-`volume.ErrFailed`, `volume.ErrVolumeInUse`, `volume.ErrBootVolume`, and
-`volume.ErrServerRunning`. The CLI list in
+`volume.ErrFailed`, `volume.ErrVolumeInUse`, `volume.ErrBootVolume`,
+`volume.ErrServerRunning`, and `volume.ErrUnexpectedStatus`. The CLI list in
 [CLI](cli.md#errors-and-exit-codes) gains `VolumeInUse`, `BootVolume`, and
 `ServerRunning`; the other codes keep their meaning.
 
@@ -436,11 +437,8 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
 
 ## Open questions
 
-- Whether the direct create charges one month at once, and whether a
-  delete refunds servers and volumes to the minute.
-- What a resize quote prices: the new monthly rate or the prorated
-  difference.
-- Whether `deleteAllVolume` false keeps the boot volume.
+- Whether the direct create charges one month at once.
+- Whether `deleteAllVolume` false keeps attached data volumes.
 - What happens when a period ends without renewal, and after how long an
   expired server is deleted.
 - The status and message of a create refused for a zero balance.

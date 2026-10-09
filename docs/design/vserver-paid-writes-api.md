@@ -86,8 +86,10 @@ them; the SDK sends `zoneId` only on creates.
   `encryptionType`, `createdFrom`, `configVolumeRestore`, `imageId`,
   `persistentVolume`, and `poolName`; the SDK never sends them.
 - Volume resize: `newSize` and `newVolumeTypeId`, both required.
-- Attach and detach: an empty object. The reference lists an optional
-  `persistentVolume`, which the SDK never sends.
+- Attach and detach: an empty object `{}` with the JSON content type. A
+  bodiless PUT is refused with 400 and the body `{"message":null}` (live).
+  The reference lists an optional `persistentVolume`, which the SDK never
+  sends.
 
 ## Responses (inferred)
 
@@ -102,7 +104,10 @@ them; the SDK sends `zoneId` only on creates.
   delete, resize, attach, and detach return `data` holding the volume.
 - The quote returns `optimumPrice`, `originalPrice`, `discountPrice`,
   `discountPercent`, and `propertiesPrice` at the top level (live), as
-  [billing](billing.md#price-quotes) records.
+  [billing](billing.md#price-quotes) records. The response carries no
+  currency field; every price in this design, and every guard compared
+  against `MaxPrice`, assumes VND, matching the account's own region and
+  the console's own display.
 
 ## Statuses
 
@@ -128,7 +133,14 @@ A server whose prepaid period ended reads as expired: VNG Cloud's SDK maps
 ## Server rules
 
 From VNG Cloud's SDK error patterns and the reference. None is verified
-live.
+live except where marked.
+
+- Live (2026-10-09, `hcm-3`): `DeleteServer` with `deleteAllVolume` false
+  deleted the server and its boot volume together. The server read 404
+  after 15 s, `KeptVolumeIDs` was empty, and no volume remained.
+  `deleteAllVolume` governs only attached data volumes. The same run:
+  quote 347,800 VND a month; create settled at `ACTIVE` in 1m13s; stop
+  41 s; start 21 s; reboot 20 s; rename; delete refunded to the minute.
 
 - A server cannot be deleted while `CREATING`, `CREATING-BILLING`,
   `DELETING`, or `CHANGING-SECURITY-GROUP`.
@@ -171,10 +183,14 @@ From GreenNode's billing docs and the console.
   400 `period: From must be greater than zero`; no `period` returns 500.
 - A prepaid delete refunds the unused value, counted to the minute, to the
   credit wallet. The docs say some services may not refund; which ones is
-  not stated. The docs' server example: 181,000 VND for 30 days, deleted
+  not stated. Live (2026-10-09): deleting a volume and a server returned the
+  balance to its starting value, so servers and volumes refund to the
+  minute. The docs' server example: 181,000 VND for 30 days, deleted
   with 20 days left, refunds 181,000 / 30 x 20 = 122,667 VND.
-- A prepaid resize pays for the new configuration for the rest of the
-  period, less the unused value of the old one, counted to the minute.
+- A resize quote prices the whole new configuration for the rest of the
+  current period, not the difference from the old one (live): the server
+  resize quoted about 315,800 VND, and the three resize quotes of the
+  paid run summed to 1,011,387 VND.
 - Auto-renew renews one month, 3 days before the end, from credit. When
   renewal fails the resource expires, and the user must recover it. A
   resource without auto-renew also expires at the end of its period.
@@ -206,8 +222,7 @@ the probes sent the create forms (live).
 - A missing `zoneId` did not change a price (live).
 - A resize quote for an unknown ID returns 400: `Can not find this volume
   with id: <id>` for a volume and `Volume is not found` for a server
-  (live). Whether a resize quote prices the new monthly rate or the
-  prorated difference is an open question.
+  (live).
 
 ## Prices
 
@@ -238,7 +253,7 @@ The account had no discount. Prices are public list prices.
 The server quote splits into `propertiesPrice` lines named `INSTANCE
 TYPE`, `ROOT DISK`, `DATA DISK`, and `CES`; the volume quote has one line
 named `Volume`. The smallest server above costs about 11,600 VND a day, or
-480 VND an hour if a delete refunds to the minute.
+480 VND an hour, since a delete refunds to the minute.
 
 ## Catalog (live)
 

@@ -92,7 +92,8 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // never be set through --cli-input-json either (applyCLIInputJSON refuses
 // it), so viaJSON would misdocument it as settable that way. The operation's
 // own extraFlags and docOpNotes document how such a field is actually set,
-// such as import-certificate's --private-key-file.
+// such as import-certificate's --private-key-file or create-server's
+// --user-data-file.
 func docFieldsFor(inputPtr any, noFlag map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
@@ -356,12 +357,21 @@ func renderCLIPage(services []docService) string {
 		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
-		"the SDK does not know, so nothing was sent, or a network enable-vpc-private-dns read a VPC " +
-		"dnsStatus it does not know how to act on, so nothing was sent), `StatusUnconfirmed` (a vMonitor pause or resume " +
+		"the SDK does not know, so nothing was sent, a network enable-vpc-private-dns read a VPC " +
+		"dnsStatus it does not know how to act on, so nothing was sent, a compute start-server, " +
+		"stop-server, reboot-server, or resize-server read a server status that call does not act on, " +
+		"or a volume resize-volume read a volume Status other than AVAILABLE or IN-USE, before any " +
+		"request; see [Compute](CLI-Compute.md#start-server) and [Volume](CLI-Volume.md#resize-volume)), " +
+		"`StatusUnconfirmed` (a vMonitor pause or resume " +
 		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
-		"`WriteFailed` (a vDNS write went to status `ERROR`, or a network create-security-group's post-" +
-		"create wait saw the group reach `ERROR`; see [Network](Network.md#waits)), `NotSettled` (a vDNS " +
+		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
+		"create wait saw the group reach `ERROR`, a compute create-server, delete-server, start-server, " +
+		"stop-server, reboot-server, or resize-server whose own post-write wait saw the server reach " +
+		"`ERROR`, or a volume create-volume, delete-volume, attach-volume, detach-volume, or " +
+		"resize-volume whose own post-write wait saw the volume reach `ERROR`; see " +
+		"[Network](Network.md#waits), [Compute](CLI-Compute.md#create-server), and " +
+		"[Volume](CLI-Volume.md#create-volume)), `NotSettled` (a vDNS " +
 		"write was accepted but did not settle within the wait, a network create-security-group's or " +
 		"update-security-group's wait ran out of time: a create must not be sent again, since a repeat " +
 		"risks a second group, but an update may be sent again, since its PUT always resends the whole " +
@@ -374,7 +384,20 @@ func renderCLIPage(services []docService) string {
 		"[IAM](CLI-IAM.md#create-policy), or an iam create-group or update-group whose write reached the " +
 		"server but the read to confirm it failed: create-group must not be sent again, since a repeat " +
 		"risks a second group, but update-group may be sent again, since its own write always resends the " +
-		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), or a " +
+		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
+		"a compute create-server, delete-server, start-server, stop-server, or reboot-server whose wait " +
+		"ran out of time or otherwise failed to read back: create-server must not be sent again, since " +
+		"the server exists, but every other one of these reads first and is safe to run again (see " +
+		"[Compute](CLI-Compute.md#create-server)), or a compute resize-server whose wait ran out of " +
+		"time or otherwise failed to read back: check get-server rather than repeating this paid write, " +
+		"since a repeat risks a second charge (see [Compute](CLI-Compute.md#resize-server)), or a " +
+		"volume create-volume, delete-volume, attach-volume, or detach-volume whose wait ran out of " +
+		"time or otherwise failed " +
+		"to read back: create-volume must not be sent again, since the volume exists, but every other " +
+		"one of these reads first and is safe to run again; see [Volume](CLI-Volume.md#create-volume)), " +
+		"or a volume resize-volume whose wait ran out of time or otherwise failed to read back: check " +
+		"get-volume rather than repeating this paid write, since a repeat risks a second charge; see " +
+		"[Volume](CLI-Volume.md#resize-volume), or a " +
 		"network ACL rules or subnets PUT, sent once with no retry, failed in a way that may already have " +
 		"reached the server, a 5xx, a network error, or a timeout: the write is not resent automatically, " +
 		"so read the ACL first before trying the command again; see [Network](Network.md#waits)), or a " +
@@ -382,10 +405,17 @@ func renderCLIPage(services []docService) string {
 		"failed or came back mismatched: the write already replaced the resource's user tags, so read " +
 		"them again before writing once more rather than repeating the command blind; see " +
 		"[Tagging](CLI-Tagging.md#tag-resource)), " +
+		"`VolumeInUse` (a volume delete-volume was refused " +
+		"because a pre-delete read showed the volume attached to a server, before any request), " +
+		"`BootVolume` (a volume detach-volume targeted a server's own boot volume, before any " +
+		"request), `ServerRunning` (a volume detach-volume targeted a server that was not STOPPED " +
+		"without --allow-running, before any request; see [Volume](CLI-Volume.md#detach-volume)), " +
 		"`OTPRejected` (create-channel's or " +
 		"update-channel's own OTP validate step got a wrong or expired code, so no create or update was " +
-		"sent), `PriceAboveMax` (create-log-project's quote priced its order above --max-price, so no " +
-		"order was sent), `SelfChange` (an iam write refused because its target is the caller itself, " +
+		"sent), `PriceAboveMax` (create-log-project's, a compute create-server's or resize-server's, or a " +
+		"volume create-volume's or resize-volume's own quote priced its order above --max-price, so " +
+		"nothing was sent or ordered), `Unpriced` (the same paid writes, when the quote is 0: refused whatever " +
+		"--max-price says, so nothing was sent or ordered), `SelfChange` (an iam write refused because its target is the caller itself, " +
 		"before any request), `PrivilegedChange` (an iam write refused because its target holds, or " +
 		"would gain, an IAM write right, before any request), `ManagedPolicy` (an iam update-policy or " +
 		"delete-policy targeted a GreenNode-managed policy, before any request), `SystemTag` (a tagging " +
@@ -432,10 +462,10 @@ func renderCLIPage(services []docService) string {
 		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user), and [Tagging](CLI-Tagging.md#tag-resource). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
-		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
+		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +
 		"`SystemSecurityGroup`, `SecurityGroupInUse`, " +
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
-		"`UserNotFound`, `SecretFileFailed`, and `SystemTag` all exit 1.\n\n")
+		"`UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +

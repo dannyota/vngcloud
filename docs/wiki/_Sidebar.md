@@ -10,6 +10,7 @@
 - [Billing and Pricing](Billing-and-Pricing.md)
 - [CDN](CDN.md)
 - [Compute](Compute.md)
+- [Compute Servers](Compute-Servers.md)
 - [DNS](DNS.md)
 - [Container Registry](Container-Registry.md)
 - [IAM](IAM.md)
@@ -23,6 +24,7 @@
 - [Tagging](Tagging.md)
 - [Storage](Storage.md)
 - [Security](Security.md)
+- [Volume](Volume.md)
 - [Limitations](Limitations.md)
 
 **CLI**

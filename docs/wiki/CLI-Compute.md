@@ -2,6 +2,39 @@
 
 # CLI: Compute
 
+## create-server
+
+Kind: Write.
+
+Orders nothing above --max-price, default 0: a bare create-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a server already named --name exactly. Needs at least one --security-group-id; the SDK picks no default, so the project's own default group (open to the world on several ports) is only used when named explicitly. Cloud-init user data comes only from --user-data-file <path>, read once at most 64 KiB: it has no plain string flag, and an inline or file:// --cli-input-json value that sets UserData is refused outright, since either could put a secret on argv or in a JSON file that shell history or a process listing keeps; user data never reaches stdout, stderr, or --debug output. The order itself is never retried after a failure that may have already reached the server; list servers by name before ordering again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--zone-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `--image-id` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--security-group-id` | `[]string` | yes |
+| `--ssh-key-id` | `string` | yes |
+| `--root-disk-size` | `int` | yes |
+| `--root-disk-type-id` | `string` | yes |
+| `--data-disk-size` | `int` |  |
+| `--data-disk-type-id` | `string` |  |
+| `--data-disk-name` | `string` |  |
+| `--server-group-id` | `string` |  |
+| `--auto-renew` | `bool` |  |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+| `--user-data-file` | `string` |  |
+
+```sh
+vngcloud compute create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
+```
+
 ## create-server-group
 
 Kind: Write.
@@ -31,6 +64,24 @@ Prefer import-ssh-key instead: it never has GreenNode see the private key at all
 
 ```sh
 vngcloud compute create-ssh-key --name <name> --secret-file <secret-file>
+```
+
+## delete-server
+
+Kind: Write, destructive.
+
+Destroys the server; there is no undo. Without --delete-volumes, every attached data volume stays and keeps being billed. The boot volume always goes with the server, with or without --delete-volumes. Without --no-wait, this command reads each kept volume back after the delete settles and prints the still-existing ones as KeptVolumeIDs, so nothing costing money goes unnoticed; with --no-wait, KeptVolumeIDs instead names every volume the server held before the delete, unconfirmed. With --delete-volumes, every attached volume is sent for deletion with the server, data included, and DeletedVolumeIDs names them; a timeout or ERROR during the wait below still prints DeletedVolumeIDs, but only as requested for deletion, not confirmed deleted. Without --no-wait, waits up to 10 minutes for the server to reach 404 or DELETED; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command reads the server first every time.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--delete-volumes` | `bool` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute delete-server --server-id <server-id> --yes
 ```
 
 ## delete-server-group
@@ -270,13 +321,120 @@ Never orders anything: prices the server CreateServerInput describes without sen
 | `--data-disk-type-id` | `string` |  |
 | `--data-disk-name` | `string` |  |
 | `--server-group-id` | `string` |  |
-| `UserData` (via `--cli-input-json` only) | `string` |  |
 | `--auto-renew` | `bool` |  |
 | `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
 | `NoWait` (via `--cli-input-json` only) | `bool` |  |
 
 ```sh
 vngcloud compute quote-create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
+```
+
+## quote-resize-server
+
+Kind: Read.
+
+Never sends a resize: prices the flavor change ResizeServerInput describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud compute quote-resize-server --server-id <server-id> --flavor-id <flavor-id>
+```
+
+## reboot-server
+
+Kind: Write, destructive.
+
+Needs --yes: a reboot interrupts what runs on the server. Needs the server ACTIVE first; any other status refuses with error code UnexpectedStatus, nothing sent. Without --no-wait, waits up to 5 minutes for a read showing ACTIVE at least 10 seconds after the reboot was sent, since an immediate read can still show the pre-reboot ACTIVE state before REBOOTING even appears; ERROR during that wait is WriteFailed. The bound running out is NotSettled; a rerun reads the server first, but ACTIVE is exactly what this command's own precondition needs, so a rerun that reads ACTIVE again reboots the server a second time rather than treating the first reboot as done, since neither read can tell a settled reboot from a server that never left ACTIVE.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute reboot-server --server-id <server-id> --yes
+```
+
+## rename-server
+
+Kind: Write.
+
+Free: no quote, no --max-price, and no wait, since the response carries the renamed server directly. Keeps the transport's normal PUT retries.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--name` | `string` | yes |
+
+```sh
+vngcloud compute rename-server --server-id <server-id> --name <name>
+```
+
+## resize-server
+
+Kind: Write, destructive.
+
+Needs --yes: a resize restarts the server and may charge more. Sends nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --flavor-id already names the server's current flavor, and with error code UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once and never retried after a failure that may have already reached the server; check get-server rather than repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 15 minutes for a read showing the new flavor with Status ACTIVE or STOPPED; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check get-server rather than repeating this command. The root disk does not grow with the flavor; use resize-volume on the server's own BootVolumeID (see get-server) for that.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--flavor-id` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute resize-server --server-id <server-id> --flavor-id <flavor-id> --yes
+```
+
+## start-server
+
+Kind: Write.
+
+Already ACTIVE: Changed is false and nothing is sent. Any status but STOPPED or ACTIVE refuses with error code UnexpectedStatus, nothing sent, so a start is never sent to a server mid-create.
+
+Reads the server first and sends its own PUT at most once: a resend would act on a status read that only grows staler. A status the server itself proves it never acted on (a 4xx) is returned as is; any other failure after the send is NotSettled, and the recovery is to run this command again, since it always reads first. Without --no-wait, waits up to 5 minutes for the server to reach ACTIVE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, a rerun is safe.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute start-server --server-id <server-id>
+```
+
+## stop-server
+
+Kind: Write, destructive.
+
+Needs --yes: stopping a server cuts off what runs on it and loses what it holds only in memory, unlike start-server, which undoes it. Already STOPPED: Changed is false and nothing is sent. Any status but ACTIVE or STOPPED refuses with error code UnexpectedStatus, nothing sent.
+
+Reads the server first and sends its own PUT at most once: a resend would act on a status read that only grows staler. A status the server itself proves it never acted on (a 4xx) is returned as is; any other failure after the send is NotSettled, and the recovery is to run this command again, since it always reads first. Without --no-wait, waits up to 5 minutes for the server to reach STOPPED; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, a rerun is safe.
+
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud compute stop-server --server-id <server-id> --yes
 ```
 
 ## update-server-group

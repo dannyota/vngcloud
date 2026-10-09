@@ -1,0 +1,10 @@
+{
+  "data": {
+    "uuid": "volume-1",
+    "name": "<name>",
+    "status": "CREATING-BILLING",
+    "size": 10,
+    "volumeTypeId": "type-1",
+    "zoneId": "zone-a"
+  }
+}

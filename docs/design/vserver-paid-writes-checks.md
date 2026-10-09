@@ -127,12 +127,28 @@ variable, per [live data](../../instructions/live-data.md).
 |-|-|-|-|
 | L1 | One 10 GB SSD volume | 32,000 | 50,000 |
 | L2 | One `s2-general-1x2` server with a 20 GB root, one 10 GB volume | 379,800 | 400,000 |
-| L3 | L2's resources, then the server resized to `s2-general-2x4`, the volume to 20 GB, and the root to 30 GB | 727,600 if each resize charges a full month's difference | 800,000 |
+| L3 | L2's resources, then the server resized to `s2-general-2x4`, the volume to 20 GB, and the root to 30 GB | 1,011,387 VND of resize quotes plus L2's 379,800, since a resize quote prices the whole new configuration | 1,100,000 |
 
-If a delete refunds to the minute, each run costs a few thousand VND at
-most. The next day's bill shows the real cost; the design's
-[billing model](vserver-paid-writes-api.md#billing-model) is corrected
-from it.
+Deletes refund to the minute, so each run costs a few hundred VND at
+most; all runs together cost about 120 VND
+([billing model](vserver-paid-writes-api.md#billing-model)).
+
+Results (2026-10-09, `hcm-3`, all resources deleted, every run passed):
+
+- L1: the 10 GB SSD volume quoted 32,000 VND; create settled in 15 s at
+  `AVAILABLE`, delete in 12 s, and the balance returned to its start.
+- L2: `s2-general-1x2` with a 20 GB root quoted 347,800 VND; create 42 s to
+  `ACTIVE` (1m13s on the first run), stop 25 s, start 15 s, reboot 20 s,
+  rename at once, delete 20 s with the boot volume.
+- Attach: 8 s to `IN-USE`; detach 6 s to `AVAILABLE`. The three detach
+  guards refused as designed. Both `PUT`s need an empty JSON body.
+- L3: the data volume grew 10 to 20 GB and settled `IN-USE`; the server
+  resized to the larger flavor and ended `ACTIVE`; the root grew 20 to
+  30 GB. The server resize quoted about 315,800 VND. The first cap, 800,000
+  VND, stopped the run before the root resize; 1,100,000 VND covers the
+  quotes.
+- The VPC quota (2) was full, so the runs set `VNGCLOUD_LIVE_NETWORK_VPC_ID`
+  and created only their subnet in that VPC.
 
 ### Parents
 

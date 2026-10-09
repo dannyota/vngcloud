@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"testing"
 
@@ -254,6 +255,95 @@ func TestGetQuoteNoPriceIsError(t *testing.T) {
 		})
 	}
 }
+
+// TestGetQuoteNullPriceIsError checks that an explicit JSON null for
+// optimumPrice refuses the same way a missing key does, rather than
+// decoding into a silent zero-value price: before this fix, a plain
+// float64 field left a null price as 0, which a paid write's guard
+// (quoted > MaxPrice) would compare as free and let through.
+func TestGetQuoteNullPriceIsError(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"optimumPrice":null,"originalPrice":100}`))
+	}))
+
+	_, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *vngcloud.APIError, got %v", err)
+	}
+	if apiErr.Message != "quote response had no price" {
+		t.Fatalf("Message = %q", apiErr.Message)
+	}
+}
+
+// TestGetQuoteNegativePriceIsError checks that a negative optimumPrice
+// refuses rather than decoding as-is: a paid write's guard
+// (quoted > MaxPrice) would otherwise compare a negative price below any
+// non-negative MaxPrice, including the default of 0, and let the write
+// through unpriced.
+func TestGetQuoteNegativePriceIsError(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"optimumPrice":-100}`))
+	}))
+
+	_, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+	var apiErr *vngcloud.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *vngcloud.APIError, got %v", err)
+	}
+	if apiErr.Message == "" {
+		t.Fatal("Message is empty, want a message naming the invalid price")
+	}
+}
+
+// TestGetQuoteNaNLiteralPriceIsError checks that a quote response carrying
+// a bare NaN token for optimumPrice, invalid JSON syntax that a hostile or
+// broken gateway could still send, is refused rather than partially decoded.
+func TestGetQuoteNaNLiteralPriceIsError(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"optimumPrice":NaN}`))
+	}))
+
+	if _, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot}); err == nil {
+		t.Fatal("err = nil, want an error for a NaN price")
+	}
+}
+
+// TestValidQuotePrice is a white-box unit test of pricing's own price
+// guard, covering NaN and infinite values directly: neither can arrive
+// through a valid JSON number (encoding/json rejects a bare NaN token as a
+// syntax error and a value that overflows float64 as a decode error), so
+// this is the only way to exercise validQuotePrice's explicit checks for
+// them, kept as defense in depth alongside the null and negative checks
+// GetQuote's own tests exercise through the wire.
+func TestValidQuotePrice(t *testing.T) {
+	cases := []struct {
+		name    string
+		price   *float64
+		wantErr bool
+	}{
+		{"nil", nil, true},
+		{"negative", ptrFloat64(-1), true},
+		{"NaN", ptrFloat64(math.NaN()), true},
+		{"positive infinity", ptrFloat64(math.Inf(1)), true},
+		{"negative infinity", ptrFloat64(math.Inf(-1)), true},
+		{"zero", ptrFloat64(0), false},
+		{"positive", ptrFloat64(347800), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := validQuotePrice("op", tc.price)
+			if tc.wantErr && err == nil {
+				t.Fatal("err = nil, want an error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("err = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func ptrFloat64(f float64) *float64 { return &f }
 
 func TestGetQuoteBadRequestIsAPIError(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

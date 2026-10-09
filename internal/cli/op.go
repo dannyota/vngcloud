@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/tagging"
+	"danny.vn/vngcloud/volume"
 )
 
 type opKind int
@@ -432,15 +433,27 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		// create-user's own create succeeded, so its Output (the redacted
 		// secret and, once written, SecretFile) must still print even
 		// though the post-create list could not confirm the new user by
-		// name. tagging.ErrNotSettled joins it for the same reason as the
+		// name. volume.ErrFailed and volume.ErrNotSettled join it too: a
+		// vServer volume write's own wait can fail after the request already
+		// reached the server, and its Output (the volume read before the
+		// write) is the caller's only way to see what it was doing.
+		// compute.ErrFailed joins compute.ErrNotSettled for the same reason
+		// on the server side: create-server's, delete-server's, and every
+		// server lifecycle write's own wait can report ERROR after the
+		// request already reached the server, and its Output (the server
+		// read before or during the wait) is the caller's only way to see
+		// what it was doing.
+		// tagging.ErrNotSettled joins it for the same reason as the
 		// others: TagResource's or UntagResource's PUT already replaced the
 		// resource's user tags, so the last tags a read returned are worth
 		// printing even though the confirm read itself failed or mismatched.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
 			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
-			errors.Is(callErr, compute.ErrNotSettled) || errors.Is(callErr, containerregistry.ErrNotSettled) ||
+			errors.Is(callErr, compute.ErrFailed) || errors.Is(callErr, compute.ErrNotSettled) ||
+			errors.Is(callErr, containerregistry.ErrNotSettled) ||
 			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled) ||
-			errors.Is(callErr, tagging.ErrNotSettled)) {
+			errors.Is(callErr, tagging.ErrNotSettled) ||
+			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled)) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr
