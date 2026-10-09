@@ -8652,10 +8652,13 @@ func TestLiveWriteLoadBalancerPools(t *testing.T) {
 	}
 	lbID := kept.UUID
 
-	// Step 1: create a TCP pool with a TCP check.
+	// Step 1: create an HTTP pool with an HTTP check. The kept load balancer
+	// is Layer 7, which accepts only HTTP pools; TCP and UDP pools need a
+	// Network load balancer.
 	pool, err := lbClient.CreatePool(ctx, &loadbalancer.CreatePoolInput{
-		LoadBalancerID: lbID, Name: "vngcloud-live-pool", Protocol: loadbalancer.PoolProtocolTCP,
-		HealthCheckProtocol: loadbalancer.HealthCheckProtocolTCP,
+		LoadBalancerID: lbID, Name: "vngcloud-live-pool", Protocol: loadbalancer.PoolProtocolHTTP,
+		HealthCheckProtocol: loadbalancer.HealthCheckProtocolHTTP, HealthCheckPath: "/",
+		HealthCheckHTTPVersion: "1.1", HealthCheckDomainName: "example.com",
 	})
 	if err != nil {
 		t.Fatalf("step 1 CreatePool: %s", safeErr(err))
@@ -8668,7 +8671,7 @@ func TestLiveWriteLoadBalancerPools(t *testing.T) {
 			t.Errorf("cleanup: delete pool: %s", safeErr(err))
 		}
 	})
-	t.Log("step 1: created a TCP pool")
+	t.Log("step 1: created an HTTP pool")
 
 	// Step 2: update its algorithm only.
 	if _, err := lbClient.UpdatePool(ctx, &loadbalancer.UpdatePoolInput{

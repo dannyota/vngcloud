@@ -178,7 +178,10 @@ func buildPoolHealthMonitorBody(protocol, path, method, httpVersion, domainName,
 
 // CreatePool creates a pool with its health monitor on a load balancer. It
 // waits, within the pre-write bound, until the load balancer is not busy
-// (ErrBusy, nothing sent, past that bound), then sends the create.
+// (ErrBusy, nothing sent, past that bound), then sends the create. When that
+// read shows a Layer 7 load balancer and Protocol is not HTTP, it returns
+// core.ErrInvalidInput and sends nothing: the server accepts only HTTP pools
+// there.
 //
 // It is a POST and is never retried after a failure that may have already
 // reached the server: after any error that is not a 4xx *core.APIError, the
@@ -212,8 +215,14 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 	}
 	defer unlock()
 
-	if err := c.waitLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID); err != nil {
+	lb, err := c.readLoadBalancerPreWriteReady(ctx, op, in.LoadBalancerID)
+	if err != nil {
 		return nil, err
+	}
+	// A Layer 7 load balancer refuses every pool protocol but HTTP.
+	if lb.Type == TypeLayer7 && in.Protocol != PoolProtocolHTTP {
+		return nil, fmt.Errorf("%w: %s: a %s load balancer accepts only %s pools, got %q",
+			core.ErrInvalidInput, op, TypeLayer7, PoolProtocolHTTP, in.Protocol)
 	}
 
 	algorithm := in.Algorithm

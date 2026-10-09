@@ -175,18 +175,31 @@ const (
 // child check instead (see waitPreWriteReady). Past the bound it returns
 // ErrBusy.
 func (c *Client) waitLoadBalancerPreWriteReady(ctx context.Context, op, lbID string) error {
-	return poll(ctx, c.now, c.sleep, 0, preWritePollInterval, preWriteBound,
+	_, err := c.readLoadBalancerPreWriteReady(ctx, op, lbID)
+	return err
+}
+
+// readLoadBalancerPreWriteReady is waitLoadBalancerPreWriteReady that also
+// returns the load balancer its last read saw.
+func (c *Client) readLoadBalancerPreWriteReady(ctx context.Context, op, lbID string) (*LoadBalancer, error) {
+	var lb *LoadBalancer
+	err := poll(ctx, c.now, c.sleep, 0, preWritePollInterval, preWriteBound,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetLoadBalancer(ctx, &GetLoadBalancerInput{LoadBalancerID: lbID})
 			if err != nil {
 				return true, err
 			}
+			lb = &out.LoadBalancer
 			return !isLoadBalancerBusy(out.LoadBalancer.ProgressStatus), nil
 		},
 		func() error {
 			return fmt.Errorf("%w: %s: load balancer %s is not ready within %s; nothing sent", ErrBusy, op, lbID, preWriteBound)
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return lb, nil
 }
 
 // isChildBusy reports whether a listener, pool, or policy with this

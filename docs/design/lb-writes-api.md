@@ -83,7 +83,11 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - Pool create: `poolName`, `poolProtocol` (`HTTP`, `TCP`, `UDP`,
   `PROXY`), `algorithm` [`ROUND_ROBIN`] (or `LEAST_CONNECTIONS`,
   `SOURCE_IP`), `healthMonitor` (required), and optional `stickiness`,
-  `tlsEncryption` (Layer 7 only), and `members`.
+  `tlsEncryption` (Layer 7 only), and `members`. A Layer 7 load balancer
+  accepts only `HTTP` pools (a `TCP` pool is refused with 400 `Invalid
+  pool's protocol for Application load balancer. Valid values: [HTTP]`),
+  so `CreatePool` refuses any other protocol there before sending. The
+  accepted set on a Network load balancer is unverified and not guarded.
 - Health monitor: `healthCheckProtocol` (`TCP`, `HTTP`, `HTTPS`,
   `PING-UDP`), `healthyThreshold` [3] and `unhealthyThreshold` [3] (2 to
   10), `interval` [30] (5 to 3600 s), `timeout` [5] (2 to 120 s), and,

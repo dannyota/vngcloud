@@ -198,13 +198,13 @@ has no use for either. The HTTP health check fields (`HealthCheckPath`,
 `HealthCheckSuccessCode`) are refused with `vngcloud.ErrInvalidInput`,
 before any request, unless `HealthCheckProtocol` is `HealthCheckProtocolHTTP`
 or `HealthCheckProtocolHTTPS`; the SDK never invents a `HealthCheckDomainName`
-for an HTTP/1.1 check, unlike some other SDKs, so a caller must set one or
-have the server refuse the create.
+for an HTTP/1.1 check, so set one or the server refuses the create.
 
 `CreatePool` is a `POST` and is never retried after an ambiguous failure;
-list pools by `Name` and match exactly before creating it again. Without
-`NoWait`, it waits for the pool to reach `CREATED` while the load balancer
-is no longer busy; see [Busy and waits](#busy-and-waits).
+list pools by `Name` and match exactly before creating it again. A Layer 7
+load balancer takes only `PoolProtocolHTTP` pools; another `Protocol` returns
+`vngcloud.ErrInvalidInput`, sending nothing. Without `NoWait`, it waits for
+the pool to reach `CREATED`; see [Busy and waits](#busy-and-waits).
 
 `UpdatePool` needs at least one field set, checked before any request. The
 check protocol cannot change after create, so there is no field for it;

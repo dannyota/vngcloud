@@ -656,3 +656,31 @@ func TestCreatePool5xxWithBusyTextNoResend(t *testing.T) {
 		t.Fatalf("POST calls = %d, want 1", got)
 	}
 }
+
+func TestCreatePoolRefusesNonHTTPProtocolOnLayer7(t *testing.T) {
+	for _, protocol := range []string{PoolProtocolTCP, PoolProtocolUDP, PoolProtocolPROXY} {
+		t.Run(protocol, func(t *testing.T) {
+			var posts atomic.Int32
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == poolLBPath:
+					_, _ = fmt.Fprintf(w, `{"data":{"uuid":%q,"type":%q,"progressStatus":%q}}`, poolTestLBID, TypeLayer7, lbStatusCreated)
+				default:
+					posts.Add(1)
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			withInstantSleep(c)
+
+			in := validCreatePoolInput()
+			in.Protocol = protocol
+			in.HealthCheckProtocol = HealthCheckProtocolTCP
+			if _, err := c.CreatePool(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+			if posts.Load() != 0 {
+				t.Fatalf("sent %d writes, want none", posts.Load())
+			}
+		})
+	}
+}
