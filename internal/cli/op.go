@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
 	"danny.vn/vngcloud/volume"
 )
@@ -464,6 +465,9 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		// create-load-balancer's and delete-load-balancer's own post-write
 		// waits (and every child write's) still carry the last resource a
 		// read returned.
+		// storage.ErrNotSettled joins it: a delete-bucket the server accepted
+		// but still showed when the wait ended returns no Output, and a nil
+		// Output prints nothing rather than null.
 		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
 			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
 			errors.Is(callErr, compute.ErrFailed) || errors.Is(callErr, compute.ErrNotSettled) ||
@@ -471,12 +475,23 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled) ||
 			errors.Is(callErr, tagging.ErrNotSettled) ||
 			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
-			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled)) {
+			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled) ||
+			errors.Is(callErr, storage.ErrNotSettled)) && !isNilOutput(out) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr
 	}
 	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)
+}
+
+// isNilOutput reports whether out is nil or a nil pointer, which a write
+// wrapper returns as a non-nil interface when the SDK gave no Output.
+func isNilOutput(out any) bool {
+	if out == nil {
+		return true
+	}
+	v := reflect.ValueOf(out)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 // applyGlobalProjectID copies the global --project-id flag into the Input

@@ -30,4 +30,8 @@ const storageCreateBucketNote = storageProjectIDNote + storageRegionNote + " Sen
 const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`: a deleted " +
 	"bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code " +
 	"`BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. " +
-	"There is no force option."
+	"A null object count is refused the same way. There is no force option. The server deletes " +
+	"asynchronously, so the command then reads the bucket every second for up to 30 seconds and returns when " +
+	"it is gone; `--no-wait` skips the wait and returns once the server accepts the delete. If the bucket is " +
+	"still readable when the wait ends, the error code is `NotSettled` (exit 1): the delete was accepted, so " +
+	"do not repeat it, and check with get-bucket later."

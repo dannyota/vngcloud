@@ -1,12 +1,18 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud/storage"
 )
@@ -48,7 +54,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"list-buckets":  {},
 		"get-bucket":    {"bucket"},
 		"create-bucket": {"bucket"},
-		"delete-bucket": {"bucket"},
+		"delete-bucket": {"bucket", "no-wait"},
 	}
 	if len(storageOps) != len(wantFlags) {
 		t.Fatalf("storageOps has %d ops, want %d", len(storageOps), len(wantFlags))
@@ -260,15 +266,66 @@ func TestStorageCreateBucketSendsConsoleBodyAndReadsBack(t *testing.T) {
 	}
 }
 
-func TestStorageDeleteBucketSendsDelete(t *testing.T) {
+// storageDeleteRoutes serves a bucket that reads as empty on the pre-delete
+// read and then as still present for stillPresent more reads, before it
+// answers the code 404 envelope the real server gives a deleted bucket.
+func storageDeleteRoutes(stillPresent int, writes *[]string, reads *atomic.Int32) map[string]func(http.ResponseWriter, *http.Request) {
+	routes := storageWriteRoutes(storageEmptyBucket, writes)
+	routes[storageDetailsPath] = func(w http.ResponseWriter, r *http.Request) {
+		if int(reads.Add(1)) <= 1+stillPresent {
+			jsonHandler(http.StatusOK, storageEmptyBucket)(w, r)
+			return
+		}
+		jsonHandler(http.StatusOK, `{"code":404,"success":false,"errorMsg":"Bucket not found"}`)(w, r)
+	}
+	return routes
+}
+
+func TestStorageDeleteBucketSendsDeleteAndWaitsForNotFound(t *testing.T) {
 	var writes []string
-	r := runStorage(t, storageWriteRoutes(storageEmptyBucket, &writes),
+	var reads atomic.Int32
+	r := runStorage(t, storageDeleteRoutes(0, &writes, &reads),
 		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
 	if r.err != nil {
 		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
 	}
 	if want := []string{"DELETE "}; !slices.Equal(writes, want) {
 		t.Fatalf("writes = %q, want %q", writes, want)
+	}
+	if n := reads.Load(); n != 2 {
+		t.Fatalf("reads = %d, want 2 (the pre-delete read and one poll)", n)
+	}
+}
+
+func TestStorageDeleteBucketNoWaitSkipsThePoll(t *testing.T) {
+	var writes []string
+	var reads atomic.Int32
+	r := runStorage(t, storageDeleteRoutes(0, &writes, &reads),
+		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a", "--no-wait")
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
+	}
+	if want := []string{"DELETE "}; !slices.Equal(writes, want) {
+		t.Fatalf("writes = %q, want %q", writes, want)
+	}
+	if n := reads.Load(); n != 1 {
+		t.Fatalf("reads = %d, want 1 (the pre-delete read only)", n)
+	}
+}
+
+func TestStorageDeleteBucketWaitSettlesAfterOneStillPresentRead(t *testing.T) {
+	var writes []string
+	var reads atomic.Int32
+	r := runStorage(t, storageDeleteRoutes(1, &writes, &reads),
+		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err != nil {
+		t.Fatalf("execute: %v (%s)", r.err, r.stderr)
+	}
+	if want := []string{"DELETE "}; !slices.Equal(writes, want) {
+		t.Fatalf("writes = %q, want %q", writes, want)
+	}
+	if n := reads.Load(); n != 3 {
+		t.Fatalf("reads = %d, want 3", n)
 	}
 }
 
@@ -294,6 +351,18 @@ func TestStorageDeleteBucketRefusesANonEmptyBucket(t *testing.T) {
 	}
 	if env := classify(r.err); env.Code != "BucketNotEmpty" {
 		t.Fatalf("code = %q, want BucketNotEmpty", env.Code)
+	}
+	if len(writes) != 0 {
+		t.Fatalf("writes = %q, want none", writes)
+	}
+}
+
+func TestStorageDeleteBucketRefusesANullObjectCount(t *testing.T) {
+	var writes []string
+	r := runStorage(t, storageWriteRoutes(`{"code":200,"success":true,"data":{"name":"bucket-a","count":null}}`, &writes),
+		"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err == nil || classify(r.err).Code != "BucketNotEmpty" || exitCode(r.err) != 1 {
+		t.Fatalf("err = %v, want BucketNotEmpty exit 1", r.err)
 	}
 	if len(writes) != 0 {
 		t.Fatalf("writes = %q, want none", writes)
@@ -332,17 +401,18 @@ func TestStorageWritesReadOnlyRefusedWithZeroRequests(t *testing.T) {
 	}
 }
 
-func TestStorageCreateBucketInvalidNameServerErrorExitsOne(t *testing.T) {
+func TestStorageCreateBucketServerInputRefusalExitsTwoWithCode112(t *testing.T) {
 	routes := map[string]func(http.ResponseWriter, *http.Request){
 		storageBucketPath: jsonHandler(http.StatusOK, `{"code":112,"success":false,`+
 			`"errorMsg":"Invalid input error (Bucket name must be all lowercase letters, numbers or hyphens)"}`),
 	}
 	r := runStorage(t, routes, "--project-id", "proj-s1", "storage", "create-bucket", "--bucket", "bucket-a")
-	if r.err == nil || exitCode(r.err) != 1 {
-		t.Fatalf("err = %v, exit = %d, want exit 1", r.err, exitCode(r.err))
+	if r.err == nil || exitCode(r.err) != 2 {
+		t.Fatalf("err = %v, exit = %d, want exit 2", r.err, exitCode(r.err))
 	}
-	if env := classify(r.err); env.Code != "112" {
-		t.Fatalf("code = %q, want 112", env.Code)
+	env := classify(r.err)
+	if env.Code != "112" || !strings.Contains(env.Message, "lowercase letters") {
+		t.Fatalf("code = %q, message = %q, want 112 with the server message", env.Code, env.Message)
 	}
 }
 
@@ -355,5 +425,40 @@ func TestStorageBucketNameShapeIsAUsageErrorBeforeTheWrite(t *testing.T) {
 	}
 	if len(writes) != 0 {
 		t.Fatalf("writes = %q, want none", writes)
+	}
+}
+
+// TestStorageDeleteBucketNotSettledPrintsNoOutput checks the CLI side of the
+// SDK's unsettled delete: ErrNotSettled with a nil Output prints nothing on
+// stdout, and the NotSettled envelope on stderr exits 1. The SDK's 30 s wait
+// is not run; the op's call is replaced with the result it ends with.
+func TestStorageDeleteBucketNotSettledPrintsNoOutput(t *testing.T) {
+	h := newFakeHarness(t)
+	var op Op[storage.Client]
+	for _, o := range storageOps {
+		if o.name == "delete-bucket" {
+			op = o
+		}
+	}
+	op.call = func(_ *cobra.Command, _ *storage.Client, _ context.Context, _ any) (any, error) {
+		return (*storage.DeleteBucketOutput)(nil), fmt.Errorf("%w: storage.DeleteBucket: still readable", storage.ErrNotSettled)
+	}
+	root := newTestRoot(h.e)
+	root.AddCommand(Service(h.e, "storage", "test", storage.New, op))
+
+	err := execCmd(t, root, []string{"--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a"})
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, exit = %d, want exit 1", err, exitCode(err))
+	}
+	if got := h.stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want empty", got)
+	}
+	var stderr bytes.Buffer
+	printError(&stderr, err)
+	var got struct {
+		Error errorEnvelope `json:"error"`
+	}
+	if jerr := json.Unmarshal(stderr.Bytes(), &got); jerr != nil || got.Error.Code != "NotSettled" {
+		t.Fatalf("stderr = %q, want a NotSettled envelope", stderr.String())
 	}
 }

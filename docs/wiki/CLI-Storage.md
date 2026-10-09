@@ -22,13 +22,14 @@ vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
 
 Kind: Write, destructive.
 
-`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--yes`: a deleted bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code `BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. There is no force option.
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--yes`: a deleted bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code `BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. A null object count is refused the same way. There is no force option. The server deletes asynchronously, so the command then reads the bucket every second for up to 30 seconds and returns when it is gone; `--no-wait` skips the wait and returns once the server accepts the delete. If the bucket is still readable when the wait ends, the error code is `NotSettled` (exit 1): the delete was accepted, so do not repeat it, and check with get-bucket later.
 
 | Flag | Type | Required |
 |-|-|-|
 | `Region` (via `--cli-input-json` only) | `string` |  |
 | `--project-id` | `string` | yes |
 | `--bucket` | `string` | yes |
+| `--no-wait` | `bool` |  |
 
 ```sh
 vngcloud storage delete-bucket --project-id <project-id> --bucket <bucket> --yes

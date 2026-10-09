@@ -120,7 +120,9 @@ type errorEnvelope struct {
 // repeating the same call blind, or a volume create-volume
 // or delete-volume whose wait ran out of time or otherwise failed to read
 // back: create-volume must not be sent again, since the volume exists, but
-// delete-volume already reads first and is safe to run again),
+// delete-volume already reads first and is safe to run again, or a storage
+// delete-bucket whose wait ended with the bucket still readable: the server
+// accepted the delete, so do not send it again),
 // VolumeInUse (a volume delete-volume was refused because a pre-delete
 // read showed the volume attached to a server, before any request),
 // BootVolume (a volume detach-volume targeted a server's own boot volume,
@@ -235,9 +237,11 @@ func classify(err error) errorEnvelope {
 	// branch below. volume.ErrNotSettled joins them for the same vServer
 	// paid write wait bound reason ErrFailed does above, and
 	// loadbalancer.ErrNotSettled for the vLB writes' own post-write waits.
+	// storage.ErrNotSettled marks a bucket delete the server accepted but
+	// still showed when the wait ended; it must not be repeated.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, volume.ErrNotSettled) ||
-		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) {
+		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, storage.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	// volume.ErrVolumeInUse is always returned bare, from DeleteVolume's own

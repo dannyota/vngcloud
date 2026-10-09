@@ -238,6 +238,19 @@ func TestExitCode(t *testing.T) {
 			1,
 		},
 		{"storage bucket not empty", fmt.Errorf("%w: storage.DeleteBucket: bucket holds 3 objects", storage.ErrBucketNotEmpty), 1},
+		{"storage not settled", fmt.Errorf("%w: storage.DeleteBucket: still readable", storage.ErrNotSettled), 1},
+		{
+			// A Ctrl-C during the delete wait must still exit 1, checked
+			// ahead of the context-canceled rule, as for the other packages.
+			"storage not settled after a canceled context",
+			fmt.Errorf("%w: %w", storage.ErrNotSettled, context.Canceled),
+			1,
+		},
+		{
+			"storage server input refusal",
+			&vngcloud.APIError{Operation: "storage.CreateBucket", StatusCode: 200, Code: "112", Message: "Invalid input error", Err: vngcloud.ErrInvalidInput},
+			2,
+		},
 		{"containerregistry not settled", fmt.Errorf("%w: repository repo-1 was accepted", containerregistry.ErrNotSettled), 1},
 		{
 			// A Ctrl-C during a vCR repository create's or delete's
@@ -485,6 +498,18 @@ func TestClassify(t *testing.T) {
 			"containerregistry not settled",
 			fmt.Errorf("%w: repository repo-1 was accepted", containerregistry.ErrNotSettled),
 			"NotSettled", 0, "",
+		},
+		{
+			"storage not settled",
+			fmt.Errorf("%w: storage.DeleteBucket: still readable", storage.ErrNotSettled),
+			"NotSettled", 0, "",
+		},
+		{
+			// The server's input refusal matches ErrInvalidInput yet keeps
+			// its own code, not the generic InvalidUsage.
+			"storage server input refusal keeps code 112",
+			&vngcloud.APIError{Operation: "storage.CreateBucket", StatusCode: 200, Code: "112", Message: "Invalid input error", Err: vngcloud.ErrInvalidInput},
+			"112", 200, "storage.CreateBucket",
 		},
 		{
 			"network resource in use (VPC)",
