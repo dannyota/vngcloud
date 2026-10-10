@@ -240,7 +240,7 @@ func classify(err error) errorEnvelope {
 	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
 	// write's post-write wait.
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
-		errors.Is(err, loadbalancer.ErrFailed) {
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
@@ -295,6 +295,12 @@ func classify(err error) errorEnvelope {
 	// pre-write and pre-delete guards below, for the same grouping reason.
 	if errors.Is(err, containerregistry.ErrRepositoryNotEmpty) {
 		return errorEnvelope{Code: "RepositoryNotEmpty", Message: err.Error()}
+	}
+	if errors.Is(err, storage.ErrPaymentRequired) {
+		return errorEnvelope{Code: "PaymentRequired", Message: err.Error()}
+	}
+	if errors.Is(err, storage.ErrProjectNotEmpty) {
+		return errorEnvelope{Code: "ProjectNotEmpty", Message: err.Error()}
 	}
 	// storage.ErrBucketNotEmpty is returned from delete-bucket's own pre-delete
 	// read, before any DELETE, and joins the same group for the same reason.
@@ -530,7 +536,9 @@ func exitCode(err error) int {
 		errors.Is(err, containerregistry.ErrUserNotFound) || errors.Is(err, iam.ErrNotSettled) ||
 		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, monitor.ErrOTPRejected) ||
 		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, loadbalancer.ErrNotSettled) {
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, loadbalancer.ErrNotSettled) ||
+		errors.Is(err, storage.ErrNotSettled) || errors.Is(err, storage.ErrFailed) ||
+		errors.Is(err, storage.ErrPaymentRequired) || errors.Is(err, storage.ErrProjectNotEmpty) {
 		return 1
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

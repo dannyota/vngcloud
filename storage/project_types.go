@@ -291,8 +291,11 @@ func (catalog *projectCatalog) resolve(op, name string, quota int64) (projectPur
 	invalid := func() (projectPurchaseSpec, error) {
 		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: unavailable or ambiguous project type, purchase, or quota", core.ErrInvalidInput, op)
 	}
-	if quota < catalog.minQuota || quota > catalog.maxQuota {
-		return invalid()
+	if quota < catalog.minQuota {
+		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: QuotaGB %d is below the region minimum of %d GB", core.ErrInvalidInput, op, quota, catalog.minQuota)
+	}
+	if quota > catalog.maxQuota {
+		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: QuotaGB %d is above the region maximum of %d GB", core.ErrInvalidInput, op, quota, catalog.maxQuota)
 	}
 	var selected *ProjectType
 	for i := range catalog.types {

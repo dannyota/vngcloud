@@ -7,11 +7,10 @@ const storageRegionNote = "`Region` is a vStorage region name such as `HCM04`, s
 	"`--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`."
 
 const storageListProjectsNote = storageRegionNote + " A vStorage project is a paid package, so the " +
-	"list is empty until one is bought in the console. Its `ID` is the value for `--project-id` in the " +
+	"list is empty until one is bought with create-project or in the console. Its `ID` is the value for `--project-id` in the " +
 	"bucket commands."
 
-const storageProjectPricingNote = storageRegionNote + " Prices are VND per month for one month. " +
-	"Buying a project is not available yet."
+const storageProjectPricingNote = storageRegionNote + " Prices are VND per month for one month."
 
 const storageListProjectTypesNote = storageProjectPricingNote + " Shows each type's monthly price " +
 	"at the region's minimum quota, plus the minimum and maximum quota in GB."
@@ -22,6 +21,21 @@ const storageQuoteCreateProjectNote = storageProjectPricingNote + " " +
 	"`Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase " +
 	"and are ignored in JSON input. Example: " +
 	"`vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`."
+
+const storageCreateProjectNote = storageRegionNote + " Requires `--name`, `--type`, and `--quota-gb`. " +
+	"Buys a one-month package and charges the account balance at once; auto-renew is always off. " +
+	"Run `quote-create-project` first: `--max-price` must be at least the quote; default 0 buys nothing. " +
+	"The cap protects the quote, not the server's debit, because the API has no price lock. " +
+	"Sends one order and never retries. `--no-wait` skips readiness polling only. " +
+	"On `NotSettled` or `PaymentRequired` (exit 1), run `storage list-projects` in the same region " +
+	"and check pending orders in the console before trying again. Example: " +
+	"`vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000`."
+
+const storageDeleteProjectNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`. " +
+	"Refuses a project that still has buckets with `ProjectNotEmpty` (exit 1). Stop bucket writers first. " +
+	"The unused value is refunded to the balance. Sends one DELETE and never retries. " +
+	"`--no-wait` skips removal polling. On `NotSettled` (exit 1), list projects in the same region " +
+	"and inspect billing before another attempt."
 
 const storageProjectIDNote = "`--project-id` is the global flag and takes a vStorage project ID from " +
 	"list-projects, not the account's vServer project: the environment variable and the profile " +
@@ -179,6 +193,8 @@ var docOpNotesStorage = map[string]string{
 	"storage list-projects":                    storageListProjectsNote,
 	"storage list-project-types":               storageListProjectTypesNote,
 	"storage quote-create-project":             storageQuoteCreateProjectNote,
+	"storage create-project":                   storageCreateProjectNote,
+	"storage delete-project":                   storageDeleteProjectNote,
 	"storage list-buckets":                     storageListBucketsNote,
 	"storage get-bucket":                       storageGetBucketNote,
 	"storage create-bucket":                    storageCreateBucketNote,
@@ -200,6 +216,7 @@ var docOpNotesStorage = map[string]string{
 }
 
 func init() {
+	docExampleOverride["storage create-project"] = "vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000"
 	for k, v := range docOpNotesStorage {
 		docOpNotes[k] = v
 	}

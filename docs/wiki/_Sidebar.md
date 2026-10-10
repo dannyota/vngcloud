@@ -26,6 +26,7 @@
 - [Network Virtual IPs](Network-VirtualIPs.md)
 - [Tagging](Tagging.md)
 - [Storage](Storage.md)
+- [Storage: Projects](Storage-Projects.md)
 - [Storage: Bucket Policy](Storage-Bucket-Policy.md)
 - [Storage: Bucket Settings](Storage-Bucket-Settings.md)
 - [Security](Security.md)

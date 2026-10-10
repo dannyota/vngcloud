@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud/storage"
@@ -21,6 +23,10 @@ var storageOps = []Op[storage.Client]{
 	Read[storage.Client, storage.CreateProjectInput, storage.QuoteCreateProjectOutput](
 		kebab("QuoteCreateProject"), (*storage.Client).QuoteCreateProject,
 		NoFlag("Region", "Name", "MaxPrice", "NoWait"), Optional("Name")),
+	createStorageProjectOp(),
+	Write[storage.Client, storage.DeleteProjectInput, storage.DeleteProjectOutput](
+		kebab("DeleteProject"), (*storage.Client).DeleteProject, Destructive(),
+		WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 	Read[storage.Client, storage.ListBucketsInput, storage.ListBucketsOutput](
 		kebab("ListBuckets"), (*storage.Client).ListBuckets, NoFlag("Region"), GlobalProjectID("ProjectID")),
 	Read[storage.Client, storage.GetBucketInput, storage.GetBucketOutput](
@@ -60,6 +66,26 @@ var storageOps = []Op[storage.Client]{
 		kebab("PutBucketCORS"), (*storage.Client).PutBucketCORS, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
 	Write[storage.Client, storage.DeleteBucketCORSInput, storage.DeleteBucketCORSOutput](
 		kebab("DeleteBucketCORS"), (*storage.Client).DeleteBucketCORS, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID")),
+}
+
+// Name is required for purchase, but the SDK input also serves quotes.
+type storageCreateProjectInput struct {
+	Region   string
+	Name     string `vngcloud:"required"`
+	Type     string `vngcloud:"required"`
+	QuotaGB  int64  `vngcloud:"required"`
+	MaxPrice float64
+	NoWait   bool
+}
+
+func createStorageProjectOp() Op[storage.Client] {
+	op := Write[storage.Client, storageCreateProjectInput, storage.CreateProjectOutput](
+		"create-project", func(c *storage.Client, ctx context.Context, in *storageCreateProjectInput) (*storage.CreateProjectOutput, error) {
+			input := storage.CreateProjectInput(*in)
+			return c.CreateProject(ctx, &input)
+		}, WriteNoFlag("Region"))
+	op.methodName = "CreateProject"
+	return op
 }
 
 func newStorageCmd(e *env) *cobra.Command {

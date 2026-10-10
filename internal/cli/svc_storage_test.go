@@ -49,6 +49,8 @@ func TestGoldenStorageGetBucket(t *testing.T) {
 
 func TestStorageCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
+		"create-project":       {"name", "type", "quota-gb", "max-price", "no-wait"},
+		"delete-project":       {"no-wait"},
 		"list-project-types":   {},
 		"quote-create-project": {"type", "quota-gb"},
 		"list-regions":         {},
@@ -84,7 +86,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		}
 		wantKind := kindRead
 		switch op.name {
-		case "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
+		case "create-project", "delete-project", "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
 			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal",
 			"put-bucket-policy", "delete-bucket-policy", "put-bucket-versioning",
 			"put-bucket-cors", "delete-bucket-cors":
@@ -94,7 +96,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 			t.Errorf("%s has the wrong kind", op.name)
 		}
 		switch op.name {
-		case "delete-bucket", "delete-s3-key", "attach-s3-key", "detach-s3-key":
+		case "delete-project", "delete-bucket", "delete-s3-key", "attach-s3-key", "detach-s3-key":
 			if !op.destructive {
 				t.Errorf("%s must need --yes", op.name)
 			}

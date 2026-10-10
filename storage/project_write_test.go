@@ -653,3 +653,35 @@ func TestCreateProjectRejectsMalformedProjectIdentity(t *testing.T) {
 		t.Fatal("malformed project ID passed confirmation")
 	}
 }
+
+func TestStorageNotSettledMessage(t *testing.T) {
+	if got := ErrNotSettled.Error(); got != "storage: write accepted but not settled" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+func TestProjectQuotaLimitMessages(t *testing.T) {
+	for _, quota := range []int64{29, 2000001} {
+		for _, method := range []string{"quote", "create"} {
+			t.Run(fmt.Sprintf("%s/%d", method, quota), func(t *testing.T) {
+				s := &projectWriteServer{}
+				c := newTestClient(t, s.handler(t))
+				in := validProjectCreate()
+				in.QuotaGB = quota
+				var err error
+				if method == "quote" {
+					_, err = c.QuoteCreateProject(context.Background(), in)
+				} else {
+					_, err = c.CreateProject(context.Background(), in)
+				}
+				want := "QuotaGB 29 is below the region minimum of 30 GB"
+				if quota > 30 {
+					want = "QuotaGB 2000001 is above the region maximum of 2000000 GB"
+				}
+				if !errors.Is(err, vngcloud.ErrInvalidInput) || !strings.Contains(err.Error(), want) || s.prices != 0 || s.orders != 0 {
+					t.Fatalf("error %v prices %d orders %d", err, s.prices, s.orders)
+				}
+			})
+		}
+	}
+}

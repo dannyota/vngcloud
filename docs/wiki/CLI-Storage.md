@@ -35,6 +35,25 @@ Kind: Write.
 vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
 ```
 
+## create-project
+
+Kind: Write.
+
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Requires `--name`, `--type`, and `--quota-gb`. Buys a one-month package and charges the account balance at once; auto-renew is always off. Run `quote-create-project` first: `--max-price` must be at least the quote; default 0 buys nothing. The cap protects the quote, not the server's debit, because the API has no price lock. Sends one order and never retries. `--no-wait` skips readiness polling only. On `NotSettled` or `PaymentRequired` (exit 1), run `storage list-projects` in the same region and check pending orders in the console before trying again. Example: `vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000`.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--name` | `string` | yes |
+| `--type` | `string` | yes |
+| `--quota-gb` | `int64` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000
+```
+
 ## create-s3-key
 
 Kind: Write.
@@ -99,6 +118,22 @@ Kind: Write.
 
 ```sh
 vngcloud storage delete-bucket-policy --project-id <project-id> --bucket <bucket>
+```
+
+## delete-project
+
+Kind: Write, destructive.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Needs `--yes`. Refuses a project that still has buckets with `ProjectNotEmpty` (exit 1). Stop bucket writers first. The unused value is refunded to the balance. Sends one DELETE and never retries. `--no-wait` skips removal polling. On `NotSettled` (exit 1), list projects in the same region and inspect billing before another attempt.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud storage delete-project --project-id <project-id> --yes
 ```
 
 ## delete-s3-key
@@ -232,7 +267,7 @@ vngcloud storage list-buckets --project-id <project-id>
 
 Kind: Read.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Buying a project is not available yet. Shows each type's monthly price at the region's minimum quota, plus the minimum and maximum quota in GB.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Shows each type's monthly price at the region's minimum quota, plus the minimum and maximum quota in GB.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -246,7 +281,7 @@ vngcloud storage list-project-types
 
 Kind: Read.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. A vStorage project is a paid package, so the list is empty until one is bought in the console. Its `ID` is the value for `--project-id` in the bucket commands.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. A vStorage project is a paid package, so the list is empty until one is bought with create-project or in the console. Its `ID` is the value for `--project-id` in the bucket commands.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -338,7 +373,7 @@ vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucke
 
 Kind: Read.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Buying a project is not available yet. `quote-create-project --type Gold --quota-gb 30` prices a package without ordering. The quota must be within the region's limits. The type is the catalog `Name`, such as `Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase and are ignored in JSON input. Example: `vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. `quote-create-project --type Gold --quota-gb 30` prices a package without ordering. The quota must be within the region's limits. The type is the catalog `Name`, such as `Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase and are ignored in JSON input. Example: `vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`.
 
 | Flag | Type | Required |
 |-|-|-|
