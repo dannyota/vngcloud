@@ -185,7 +185,9 @@ if balances.Balances.Cash != nil {
 products. It takes no filters or pagination parameters and sends no region
 or project headers. `Items` contains resource rows; nullable counts and
 `Extra` preserve the server summaries and raw warning/alarm thresholds.
-Counts do not establish completeness.
+Counts do not establish completeness. A row can outlive its resource: on
+2026-10-11, two deleted vMonitor log projects still listed as `active`.
+Confirm that a resource exists with its product's own read.
 
 ```go
 resources, err := client.ListResources(ctx, nil)

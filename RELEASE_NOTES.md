@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.67.0 - vStorage Project Auto-Renew
+
+### Highlights
+
+- `storage get-project-auto-renew --project-id <id>` joins the project list
+  with billing resources and shows the renewal type, period, term end, and a
+  fresh renewal estimate (VAT included). SDK: `storage.GetProjectAutoRenew`.
+- `storage put-project-auto-renew --project-id <id> --enabled=true
+  --period-months 1 --max-price 30000` turns auto-renew on or changes the
+  period; `--enabled=false` turns it off. `--enabled` is required. Enable and
+  period changes quote first and refuse above `--max-price` (default 0
+  allows none); disable needs no price. One PUT, no retries; the result is
+  confirmed by reads, and an uncertain outcome returns `NotSettled`. The cap
+  checks today's estimate only: auto-renew can charge every period until
+  turned off. SDK: `storage.PutProjectAutoRenew`.
+- `billing list-resources` lists prepaid resources across products with
+  their renewal type and billing times. SDK: `billing.ListResources`.
+- Responses that feed a price or auto-renew guard now fail with an API
+  error when a JSON object repeats a key: the project catalog, price quotes,
+  the project list read by auto-renew, and billing resources. This also
+  covers `create-project`, `quote-create-project`, and `list-project-types`.
+- Verified live on 2026-10-11 in `HCM04` with an IAM user login: enable for
+  one month, change to three months, and disable each confirmed by reads,
+  with no charge.
+
 ## v0.66.1 - VAT-Inclusive Prices
 
 ### Highlights
