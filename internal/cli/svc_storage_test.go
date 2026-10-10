@@ -49,19 +49,21 @@ func TestGoldenStorageGetBucket(t *testing.T) {
 
 func TestStorageCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
-		"create-project":       {"name", "type", "quota-gb", "max-price", "no-wait"},
-		"delete-project":       {"no-wait"},
-		"list-project-types":   {},
-		"quote-create-project": {"type", "quota-gb"},
-		"list-regions":         {},
-		"list-projects":        {},
-		"list-buckets":         {},
-		"get-bucket":           {"bucket"},
-		"create-bucket":        {"bucket", "encryption"},
-		"delete-bucket":        {"bucket", "no-wait"},
-		"list-s3-keys":         {},
-		"create-s3-key":        {"secret-file", "service-account-id"},
-		"delete-s3-key":        {"user-key-id"},
+		"create-project":         {"name", "type", "quota-gb", "max-price", "no-wait"},
+		"delete-project":         {"no-wait"},
+		"list-project-types":     {},
+		"quote-create-project":   {"type", "quota-gb"},
+		"list-regions":           {},
+		"list-projects":          {},
+		"get-project-auto-renew": {"period-months"},
+		"put-project-auto-renew": {"enabled", "period-months", "max-price"},
+		"list-buckets":           {},
+		"get-bucket":             {"bucket"},
+		"create-bucket":          {"bucket", "encryption"},
+		"delete-bucket":          {"bucket", "no-wait"},
+		"list-s3-keys":           {},
+		"create-s3-key":          {"secret-file", "service-account-id"},
+		"delete-s3-key":          {"user-key-id"},
 
 		"attach-s3-key":                    {"user-key-id", "service-account-id"},
 		"detach-s3-key":                    {"user-key-id"},
@@ -91,7 +93,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		case "create-project", "delete-project", "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
 			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal",
 			"put-bucket-policy", "delete-bucket-policy", "put-bucket-versioning",
-			"put-bucket-encryption", "put-bucket-cors", "delete-bucket-cors":
+			"put-bucket-encryption", "put-bucket-cors", "delete-bucket-cors", "put-project-auto-renew":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {
@@ -258,8 +260,8 @@ func TestStoragePermissionDeniedMapsToItsCode(t *testing.T) {
 
 func TestStorageGetBucketExampleSelectsNoWrapperKey(t *testing.T) {
 	for _, op := range buildDocService("storage", storageOps).ops {
-		// CORS wraps Rules; encryption has one Enabled field that --query selects.
-		if op.queryField != "" && op.name != "get-bucket-cors" && op.name != "get-bucket-encryption" {
+		// CORS wraps Rules; encryption wraps Enabled; auto-renew wraps State.
+		if op.queryField != "" && op.name != "get-bucket-cors" && op.name != "get-bucket-encryption" && op.name != "get-project-auto-renew" {
 			t.Errorf("%s: queryField = %q, want none (the output is flat)", op.name, op.queryField)
 		}
 	}

@@ -266,6 +266,22 @@ Kind: Read.
 vngcloud storage get-bucket-versioning --project-id <project-id> --bucket <bucket>
 ```
 
+## get-project-auto-renew
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Reads joined project and billing renewal state. --period-months previews 1, 3, 6, or 12 months without changing the configured period. The quoted renewal charge is today's monthly create quote times preview months, VAT included. NextCharge is an estimate for the configured period, not a promised charge date or amount. Pricing failure succeeds with PriceStatus Unavailable and null prices. Tables show unavailable prices and none scheduled when renewal is off.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--project-id` | `string` | yes |
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--period-months` | `*int` |  |
+
+```sh
+vngcloud storage get-project-auto-renew --region hcm-3 --project-id project-1
+```
+
 ## list-buckets
 
 Kind: Read.
@@ -403,6 +419,24 @@ Kind: Write.
 
 ```sh
 vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true
+```
+
+## put-project-auto-renew
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Requires explicit --enabled=true or --enabled=false, or a non-null JSON Enabled boolean. Enabling authorizes repeated future charges until disabled. --period-months accepts 1, 3, 6, or 12; omission selects one month when off or keeps the configured period when on. --max-price checks today's estimated renewal charge: monthly quote times months, VAT included. The cap is required for enable and period changes; an unchanged setting needs no new cap. The cap is not saved for later renewals and is not a lifetime spending limit. Disable needs no price or quote; omit --period-months when disabling. Disable does not cancel a charge already in progress. Read-only profiles refuse before any request. Sends one PUT and never retries or prompts. No --yes is required. On NotSettled (exit 1), run get-project-auto-renew and reconcile before a new deliberate setting. AutoRenewRejected, PriceAboveMax, Unpriced, and API failures exit 1; invalid input and read-only exit 2; NotFound exits 4. Another actor can change the setting after confirmation. Read get-project-auto-renew before choosing a cap. Example caps are illustrative. Disable with vngcloud storage put-project-auto-renew --region hcm-3 --project-id project-1 --enabled=false.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--project-id` | `string` | yes |
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--enabled` | `*bool` | yes |
+| `--period-months` | `*int` |  |
+| `--max-price` | `float64` |  |
+
+```sh
+vngcloud storage put-project-auto-renew --region hcm-3 --project-id project-1 --enabled=true --period-months 1 --max-price 30000
 ```
 
 ## quote-create-project

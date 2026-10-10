@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/storage"
 )
 
@@ -14,6 +17,16 @@ import (
 // flag; NoFlag keeps it settable through --cli-input-json. ProjectID is a
 // vStorage project ID, which the global --project-id flag supplies.
 var storageOps = []Op[storage.Client]{
+	Read[storage.Client, storage.GetProjectAutoRenewInput, storage.GetProjectAutoRenewOutput](
+		"get-project-auto-renew", (*storage.Client).GetProjectAutoRenew, NoFlag("Region"), GlobalProjectID("ProjectID")),
+	Write[storage.Client, storage.PutProjectAutoRenewInput, storage.PutProjectAutoRenewOutput](
+		"put-project-auto-renew", (*storage.Client).PutProjectAutoRenew, WriteNoFlag("Region"), WriteGlobalProjectID("ProjectID"),
+		Guard(func(_ *cobra.Command, input any) error {
+			if input.(*storage.PutProjectAutoRenewInput).Enabled == nil {
+				return newUsageError("--enabled=true or --enabled=false is required; JSON Enabled must be non-null")
+			}
+			return nil
+		})),
 	getBucketEncryptionOp(),
 	putBucketEncryptionOp(),
 	Read[storage.Client, storage.ListRegionsInput, storage.ListRegionsOutput](
@@ -91,10 +104,25 @@ func createStorageProjectOp() Op[storage.Client] {
 }
 
 func newStorageCmd(e *env) *cobra.Command {
-	cmd := Service(e, "storage", "vStorage regions, projects, and buckets", storage.New, storageOps...)
+	cmd := serviceTableViews(e, "storage", "vStorage regions, projects, and buckets", storage.New, storageOps, map[string]func(any) any{
+		"get-project-auto-renew": func(out any) any {
+			return projectAutoRenewTable(out.(*storage.GetProjectAutoRenewOutput).State)
+		},
+		"put-project-auto-renew": func(out any) any {
+			result := out.(*storage.PutProjectAutoRenewOutput)
+			if result == nil {
+				return out
+			}
+			row := projectAutoRenewTable(result.State)
+			if row != nil {
+				row["Changed"] = result.Changed
+			}
+			return row
+		},
+	})
 	for _, child := range cmd.Commands() {
 		switch child.Name() {
-		case "get-bucket-encryption", "put-bucket-encryption", "create-bucket":
+		case "get-bucket-encryption", "put-bucket-encryption", "create-bucket", "get-project-auto-renew", "put-project-auto-renew":
 			child.Long = docOpNotesStorage["storage "+child.Name()]
 		}
 	}
@@ -151,4 +179,51 @@ func putBucketEncryptionOp() Op[storage.Client] {
 	op.methodName = "PutBucketEncryption"
 	op.extraFlags = encryptionBucketFlag
 	return op
+}
+
+// Queries keep the SDK output shape. Unfiltered tables use the command's view.
+func serviceTableViews[C any](e *env, name, short string, newClient func(vngcloud.Config) *C, ops []Op[C], views map[string]func(any) any) *cobra.Command {
+	format := ""
+	tableOps := slices.Clone(ops)
+	for i := range tableOps {
+		view := views[tableOps[i].name]
+		if view == nil {
+			continue
+		}
+		call := tableOps[i].call
+		tableOps[i].call = func(cmd *cobra.Command, client *C, ctx context.Context, input any) (any, error) {
+			out, err := call(cmd, client, ctx, input)
+			if format == outputTable && e.flags.query == "" && !isNilOutput(out) {
+				out = view(out)
+			}
+			return out, err
+		}
+	}
+	return Service(e, name, short, func(cfg vngcloud.Config) *C {
+		format = resolveOutput(e.flags, cfg)
+		return newClient(cfg)
+	}, tableOps...)
+}
+
+func projectAutoRenewTable(state *storage.ProjectAutoRenew) map[string]any {
+	if state == nil {
+		return nil
+	}
+	price := func(value *float64) any {
+		if value == nil {
+			return "unavailable"
+		}
+		return *value
+	}
+	next := price(state.NextCharge)
+	if state.Enabled != nil && !*state.Enabled {
+		next = "none scheduled"
+	}
+	return map[string]any{
+		"ProjectID": state.ProjectID, "ProjectName": state.ProjectName, "Region": state.Region,
+		"EndTime": state.EndTime.UTC().Format(time.RFC3339), "RenewType": state.RenewType,
+		"Enabled": state.Enabled, "PeriodMonths": state.PeriodMonths, "QuotePeriodMonths": state.QuotePeriodMonths,
+		"QuotedRenewalCharge": price(state.QuotedRenewalCharge), "NextCharge": next,
+		"Currency": state.Currency, "PriceStatus": state.PriceStatus, "PriceErrorCode": state.PriceErrorCode,
+	}
 }

@@ -206,7 +206,32 @@ const storageDeleteBucketCORSNote = storageProjectIDNote + storageRegionNote + "
 
 // docOpNotesStorage holds storage's entries of docOpNotes, merged into it at init so
 // gendocs_notes.go stays under the length limit.
+const storageGetProjectAutoRenewNote = storageProjectIDNote + storageRegionNote + " " +
+	"Reads joined project and billing renewal state. --period-months previews 1, 3, 6, or 12 months " +
+	"without changing the configured period. The quoted renewal charge is today's monthly create " +
+	"quote times preview months, VAT included. NextCharge is an estimate for the configured period, " +
+	"not a promised charge date or amount. Pricing failure succeeds with PriceStatus Unavailable " +
+	"and null prices. Tables show unavailable prices and none scheduled when renewal is off."
+
+const storagePutProjectAutoRenewNote = storageProjectIDNote + storageRegionNote + " " +
+	"Requires explicit --enabled=true or --enabled=false, or a non-null JSON Enabled boolean. " +
+	"Enabling authorizes repeated future charges until disabled. --period-months accepts 1, 3, 6, " +
+	"or 12; omission selects one month when off or keeps the configured period when on. " +
+	"--max-price checks today's estimated renewal charge: monthly quote times months, VAT included. " +
+	"The cap is required for enable and period changes; an unchanged setting needs no new cap. " +
+	"The cap is not saved for later renewals and is not a lifetime spending limit. " +
+	"Disable needs no price or quote; omit --period-months when disabling. " +
+	"Disable does not cancel a charge already in progress. Read-only profiles refuse before any request. " +
+	"Sends one PUT and never retries or prompts. No --yes is required. " +
+	"On NotSettled (exit 1), run get-project-auto-renew and reconcile before a new deliberate setting. " +
+	"AutoRenewRejected, PriceAboveMax, Unpriced, and API failures exit 1; invalid input and read-only " +
+	"exit 2; NotFound exits 4. Another actor can change the setting after confirmation. " +
+	"Read get-project-auto-renew before choosing a cap. Example caps are illustrative. " +
+	"Disable with vngcloud storage put-project-auto-renew --region hcm-3 --project-id project-1 --enabled=false."
+
 var docOpNotesStorage = map[string]string{
+	"storage get-project-auto-renew":           storageGetProjectAutoRenewNote,
+	"storage put-project-auto-renew":           storagePutProjectAutoRenewNote,
 	"storage list-regions":                     storageListRegionsNote,
 	"storage list-projects":                    storageListProjectsNote,
 	"storage list-project-types":               storageListProjectTypesNote + " " + vatInclusivePriceNote,
@@ -236,6 +261,8 @@ var docOpNotesStorage = map[string]string{
 }
 
 func init() {
+	docExampleOverride["storage get-project-auto-renew"] = "vngcloud storage get-project-auto-renew --region hcm-3 --project-id project-1"
+	docExampleOverride["storage put-project-auto-renew"] = "vngcloud storage put-project-auto-renew --region hcm-3 --project-id project-1 --enabled=true --period-months 1 --max-price 30000"
 	docExampleOverride["storage get-bucket-encryption"] = "vngcloud storage get-bucket-encryption --project-id <project-id> --bucket <bucket>"
 	docExampleOverride["storage put-bucket-encryption"] = "vngcloud storage put-bucket-encryption --project-id <project-id> --bucket <bucket> --enabled=true"
 	docExampleOverride["storage create-project"] = "vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000"
