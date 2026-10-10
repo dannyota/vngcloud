@@ -130,8 +130,9 @@ create use the same price serializer. Never send the order body to pricing:
 contains only `resourceType`, `action`, and `resourceInfo` with `quota`,
 `purchaseTypeId`, and `projectType`. It needs no name or period.
 
-Duplicate JSON keys in the catalog or price response fail with `*APIError`.
-Decode the envelope's `data.optimumPrice` with presence tracking. Missing,
+Duplicate JSON keys fail closed: in catalog, price, configuration, region,
+or project list reads with `*APIError`, and in an HTTP 200 write reply with
+`ErrNotSettled`. Decode `data.optimumPrice` with presence tracking. Missing,
 null, malformed, or non-finite values fail with `*APIError`; zero and
 negative values fail with `vngcloud.ErrUnpriced`. The output exposes:
 

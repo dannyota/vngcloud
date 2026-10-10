@@ -50,8 +50,9 @@ Quotes ignore `Name`, `MaxPrice`, and `NoWait`; Input has no `Period`.
 Output preserves original price, discounts, and property prices with nullable
 names and descriptions. Zero or negative prices return `vngcloud.ErrUnpriced`.
 Missing, null, malformed, or non-finite prices return `*vngcloud.APIError`.
-Duplicate JSON keys in the catalog or price response return
-`*vngcloud.APIError`.
+Duplicate JSON keys in catalog, price, configuration, region, or project list
+reads return `*vngcloud.APIError`. Duplicate-key write replies are unreadable;
+HTTP 200 returns `storage.ErrNotSettled`.
 
 ## Project purchase and delete
 

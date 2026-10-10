@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -188,7 +189,7 @@ func (c *Client) exchangeProjectWrite(ctx context.Context, k call, redact ...str
 		return nil, err
 	}
 	var env envelope
-	if json.Unmarshal(raw, &env) != nil || env.Success == nil {
+	if jsonresponse.Validate(raw) != nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
 		if status/100 == 4 {
 			return nil, c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status)), ErrMsg: "project write response withheld"})
 		}

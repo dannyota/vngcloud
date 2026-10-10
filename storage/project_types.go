@@ -249,7 +249,16 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 
 func (c *Client) projectConfiguration(ctx context.Context, op, id, key string) (string, error) {
 	q := url.Values{"keys": {key}, "region_id": {id}}
-	env, err := c.do(ctx, op, c.projectBillingRoute("v1", []string{"configurations"}, q), id)
+	env, err := c.exchange(ctx, call{
+		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		url: c.projectBillingRoute("v1", []string{"configurations"}, q),
+		validate: func(raw json.RawMessage) error {
+			if jsonresponse.Validate(raw) != nil {
+				return projectResponseError(op, "malformed catalog data")
+			}
+			return nil
+		},
+	})
 	if err != nil {
 		return "", err
 	}

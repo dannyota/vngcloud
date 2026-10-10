@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 const (
@@ -24,7 +26,16 @@ type projectRecord struct {
 }
 
 func (c *Client) completeProjects(ctx context.Context, op, id string) ([]projectRecord, error) {
-	env, err := c.do(ctx, op, c.route([]string{"projects"}, nil), id)
+	env, err := c.exchange(ctx, call{
+		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		url: c.route([]string{"projects"}, nil),
+		validate: func(raw json.RawMessage) error {
+			if jsonresponse.Validate(raw) != nil {
+				return projectResponseError(op, "list is null or malformed")
+			}
+			return nil
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
