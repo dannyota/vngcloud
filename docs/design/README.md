@@ -30,3 +30,8 @@ code starts. Decisions with lasting trade-offs also get an
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
 | [Encrypted volumes](encrypted-volumes.md) | Accepted |
+| [VKS reads](vks.md) | Accepted for the first release |
+| [Server service reads](server-services.md) | Accepted for snapshot policy reads |
+| [Backup Center reads](backup-services.md) | Accepted for the first release |
+| [vNetwork NAT and VPN reads](network-services.md) | Draft |
+| [Database inventory](database-services.md) | Draft |

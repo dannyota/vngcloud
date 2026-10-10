@@ -24,7 +24,8 @@ Reviews once per plan or release, after the last code task. Reviews auth, token 
 
 | Work | Claude Code | Codex |
 |-|-|-|
-| Management, design, and planning | Opus | `gpt-5.6-sol` medium |
+| Management and planning | Opus | `gpt-5.6-sol` medium |
+| Design | Opus | `gpt-6-astra` high |
 | Implementation and debugging | Sonnet | `gpt-5.6-sol` medium |
 | Search, summaries, test runs, and small mechanical edits | Haiku | `gpt-6-luna` low |
 | Every review, including fix confirmation | Opus | `gpt-5.6-sol` xhigh |

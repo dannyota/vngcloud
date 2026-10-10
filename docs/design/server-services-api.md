@@ -1,0 +1,205 @@
+# Snapshot Policy Read API
+
+Status: Accepted (2026-10-10). Policy reads, page traversal, and cookie-free IAM
+bearer authentication are verified.
+
+This companion records the wire evidence for
+[server service reads](server-services.md). It contains no live account
+values. The source is a read-only HCM-03 console capture on 2026-10-10.
+
+## Request and envelope
+
+The observed method is `GET`, with HTTP 200 success:
+
+```text
+https://hcm-3.console.greennode.ai/
+  vserver/vbackup-gateway/v1/snapshot-policies
+  ?backendId=<backend-id>&projectId=<project-id>&page=<page>&size=<size>
+```
+
+The line breaks are for display. The response is an object with these fields:
+
+| JSON field | Observed JSON type | SDK output field |
+|-|-|-|
+| `items` | Array of policy objects | `Items []SnapshotPolicy` |
+| `page` | Number | `Page int` |
+| `pageSize` | Number | `PageSize int` |
+| `totalPages` | Number | `TotalPage int` |
+| `totalItems` | Number | `TotalItem int` |
+
+The successful request used page 1 and size 10. Use those as SDK defaults;
+server defaults and size limits remain unknown. Cookie-free reads at page 1
+and page 2 with size 1 returned distinct policies. Each returned pageSize 1,
+totalPages 2, and totalItems 2, with the requested page number. Counters are
+integral. Do not assume a maximum or clamp to an invented cap.
+
+The same policy request succeeded in a fresh isolated context with no cookies
+and only the IAM bearer token. Reuse the existing shared SDK transport and
+credential flow. No activation or purchase occurred. The minimum IAM policy
+needed for this read is not established by a successful authorized request.
+
+### Endpoint and region scope
+
+Endpoint configuration uses `VServerBackup`; the route product is
+`ProductVServerBackup`. The default endpoint map initially has exactly one
+entry:
+
+| Config region | Base URL |
+|-|-|
+| `hcm-3` | `https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/` |
+
+Both backend lookup and policy listing reject any unmapped region with
+`ErrInvalidConfig` before authentication, project discovery, or HTTP access.
+A `VServerBackup` override changes the destination only after this semantic
+region check succeeds. It cannot enable `han-1` or an unknown region. No
+host is derived from an arbitrary region string.
+
+The release must test supported and unsupported regions with and without an
+override, counting both credential-provider calls and HTTP requests. Test
+that only `ProductVServerBackup` consumes the `VServerBackup` override.
+HAN-01 stays unsupported until cookie-free IAM requests verify backend lookup
+and policy listing there, followed by an explicit map change and review.
+
+Backup Center has a separate `BackupCenter` endpoint and `ProductBackupCenter`
+route product. This release does not add either. Snapshot reads never use a
+Backup Center endpoint as a fallback.
+
+## Backend lookup
+
+`GET /vserver/vbackup-gateway/v1/backends?backend=HCM-03` succeeds with the
+same cookie-free authentication. Its response has `items`, whose rows contain
+string `id` and `name`; `page` and `pageSize` are null. The envelope also
+contains `totalPages` and `totalItems`. The policy query's `backendId` matches
+an ID returned by this lookup.
+
+Expose `ListSnapshotBackendsInput{Name string}` with `Name` required. Build
+the query using `url.Values`; no string interpolation into a URL. Return
+`Items []SnapshotBackend`, whose fields are `ID` and `Name` with the matching
+JSON tags. The captured totalItems equals the returned count, confirming a
+complete unpaged list. Do not invent pagination inputs for it.
+
+Require an explicit backend ID on policy reads. Selecting the first returned
+backend or deriving a name from config could select the wrong scope. The
+verified name `HCM-03` does not establish the name or endpoint in HAN-01.
+
+Backend IDs are scoped to the endpoint and product that returned them. Pass
+snapshot backend IDs only to the vServer snapshot gateway. Never pass those
+IDs or snapshot resource IDs to Backup Center or assume that product IDs are
+interchangeable. Product-isolation tests must ensure snapshot operations
+cannot route their IDs through `ProductBackupCenter`.
+
+## Policy model
+
+Retain these fields in `SnapshotPolicy`:
+
+| JSON field | Go field | Go type |
+|-|-|-|
+| `id` | `ID` | `string` |
+| `name` | `Name` | `string` |
+| `policyType` | `PolicyType` | `string` |
+| `config` | `Config` | `SnapshotPolicyConfig` |
+| `createdAt` | `CreatedAt` | `string` |
+| `updatedAt` | `UpdatedAt` | `string` |
+| `snapshotServerCount` | `SnapshotServerCount` | `int` |
+| `snapshotVolumeCount` | `SnapshotVolumeCount` | `int` |
+
+Keep timestamps as received; their timezone and grammar are not established
+by a JSON string type. Observed policy types are `DEFAULT` and `ENHANCED`;
+keep the field as a string so new values survive decoding. Snapshot counts
+are verified integral. Do not infer active state from a type or count.
+
+`SnapshotPolicyConfig` retains the fields whose shapes were populated:
+
+| JSON field | Go field | Go type |
+|-|-|-|
+| `hour` | `Hour` | `int` |
+| `minute` | `Minute` | `int` |
+| `timeZone` | `TimeZone` | `string` |
+| `hourlyEnabled` | `HourlyEnabled` | `bool` |
+| `hourlyConfig` | `HourlyConfig` | `*SnapshotPolicyHourlyConfig` |
+| `dailyEnabled` | `DailyEnabled` | `bool` |
+| `dailyConfig` | `DailyConfig` | `*SnapshotPolicyDailyConfig` |
+| `weeklyEnabled` | `WeeklyEnabled` | `bool` |
+| `monthlyEnabled` | `MonthlyEnabled` | `bool` |
+| `isProtectedServer` | `IsProtectedServer` | `bool` |
+| `statusSendEmail` | `StatusSendEmail` | `[]string` |
+
+Both policy rows establish different optional schedule shapes:
+
+| Policy type | `hourlyConfig` | `dailyConfig` |
+|-|-|-|
+| `DEFAULT` | Empty object | Integral `retention` |
+| `ENHANCED` | Integral `interval` and `retention` | Empty object |
+
+`SnapshotPolicyHourlyConfig` contains `Interval *int` and `Retention *int`
+with JSON tags `interval,omitempty` and `retention,omitempty`.
+`SnapshotPolicyDailyConfig` contains `Retention *int` with JSON tag
+`retention,omitempty`. The raw values for interval and both retention fields
+are integral. Their units remain undocumented; do not infer units from the
+field names or sample values.
+
+The `HourlyConfig` and `DailyConfig` pointers use `omitempty`. A missing or
+null config decodes to nil. An empty object decodes to a non-nil config whose
+members are nil, preserving `{}` in output. An absent member stays omitted;
+an explicit zero remains a non-nil pointer to zero. Do not synthesize disabled
+schedules or infer member values from the enabled flags.
+
+The hour and minute values are verified integral. Preserve timezone and
+status strings; do not convert them into undocumented enums or calculate
+execution times.
+
+The observed `statusSendEmail` value is the status string `ERROR`. Expose
+`[]string` so future statuses survive decoding. The field names do not
+establish delivery guarantees or email recipient configuration.
+
+### Deliberate omissions
+
+- `userId` is a number. Omit this account identifier.
+- `backendId` and `projectId` are strings. Omit duplicated scope metadata from
+  resource output; request scope remains explicit in config/input.
+- `isDefault` and `deletedAt` were null. Null alone establishes no underlying
+  Go type. Omit both until a non-null response or official schema settles it.
+- `weeklyConfig` and `monthlyConfig` were empty objects in both policy rows.
+  Do not invent their fields, flatten them into hourly or daily retention, or
+  expose them as `any`, `map[string]any`, or `json.RawMessage`.
+
+The first read is a policy summary with verified hourly and daily fields.
+It is not a complete configuration export for weekly or monthly schedules.
+The wiki must state that limit. Enabled flags remain visible even when a
+schedule's settings have no verified model.
+
+Omitting fields is deliberate and must be checked during raw-to-SDK
+comparison. Never use this summary as a write body or as input to a policy
+replacement operation. No tokens, Service Account secrets, certificates, or
+arbitrary upstream fields enter the model.
+
+## History and errors
+
+The following GET routes under the same gateway return HTTP 200 using
+cookie-free IAM bearer authentication:
+
+```text
+/snapshot-histories/rollback
+/snapshot-histories/restore
+/snapshot-histories/snapshot
+```
+
+Each query carries `backendId`, `projectId`, `page=1`, and `size=10`. Each
+response has empty `items` and the ordinary page envelope. These observations
+establish read routes, authentication, and an empty-list response only. No
+history row schema is verified. Do not expose history as an untyped map or
+guess a model from policy rows. Populated evidence is required before adding
+history methods, and must not be obtained by creating or restoring resources.
+
+Only successful policy responses are verified. Preserve the shared
+`*vngcloud.APIError` mapping for HTTP failures. Synthetic tests for 401, 403,
+404, 429, and 5xx verify SDK behavior and must not be labeled observed service
+errors. Missing or mistyped envelope fields fail as response-shape errors
+without embedding response text.
+
+The inspected official SDK [snapshot service][snapshot-source] lists, creates,
+and deletes snapshots by volume. It supplies no policy or history contract
+for this design. Public searches found no GreenNode policy schema that fills
+the gaps above; similar APIs from other vendors are not evidence.
+
+[snapshot-source]: https://github.com/vngcloud/vngcloud-go-sdk/blob/main/vngcloud/services/volume/v2/snapshot.go

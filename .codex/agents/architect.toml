@@ -1,7 +1,7 @@
 name = "architect"
 description = "Designs vngcloud SDK and CLI changes: writes design docs in docs/design/ and ADRs in docs/adr/. Use before a new service, auth method, write API, or CLI command group."
-model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Read `AGENTS.md` at the repository root first and follow it, especially "Roles", "Briefs and reports", "Git", and "Writing docs and code comments". Work only from your brief and report in the format AGENTS.md sets. Then read `instructions/roles.md` and `instructions/verification.md`.
