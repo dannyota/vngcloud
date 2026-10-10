@@ -1,7 +1,8 @@
 # vNetwork NAT and VPN Reads
 
 Status: Accepted (2026-10-11) for the NAT and VPN list releases. Detail,
-rule, and write surfaces remain separate designs.
+rule, and write surfaces remain separate designs. The
+[write design](network-writes.md) is Draft, pending owner approval.
 
 Extend `network.Client` with read-only Public NAT and site-to-site VPN
 inventory. Ship NAT list first, then VPN list with inline sites and tunnels.
@@ -286,8 +287,8 @@ The owner approved this list surface, the field allowlists, and the release
 order on 2026-10-11. No child-route decision blocks VPN inventory.
 Unverified null-only fields stay excluded under the stated rule.
 
-Writes require separate designs for cost bounds, retry safety, cleanup,
-and per-run paid-operation approval. NAT creation changes VPC routing;
-VPN writes change connectivity and exposure. Observed refunds do not imply
+The separate [write design](network-writes.md) covers cost bounds, retry
+safety, cleanup, and per-run paid-operation approval. NAT creation changes
+VPC routing; VPN writes change connectivity and exposure. Observed refunds do not imply
 safe retry or guaranteed refunds. Follow
 [ADR 0002](../adr/0002-write-api-conventions.md) for future write contracts.

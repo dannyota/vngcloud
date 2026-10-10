@@ -35,5 +35,6 @@ code starts. Decisions with lasting trade-offs also get an
 | [VKS reads](vks.md) | Accepted for the first release |
 | [Server service reads](server-services.md) | Accepted for snapshot policy reads |
 | [Backup Center reads](backup-services.md) | Accepted for the first release |
-| [vNetwork NAT and VPN reads](network-services.md) | Draft |
+| [vNetwork NAT and VPN reads](network-services.md) | Accepted |
+| [Public NAT and VPN writes](network-writes.md) | Draft |
 | [Database inventory](database-services.md) | Draft |
