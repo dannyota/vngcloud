@@ -51,6 +51,7 @@ import (
 var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
+	networkNATListOp(),
 	Read[network.Client, network.ListVPCsInput, network.ListVPCsOutput](
 		kebab("ListVPCs"), (*network.Client).ListVPCs),
 	Read[network.Client, network.ListWANIPsInput, network.ListWANIPsOutput](
@@ -174,6 +175,13 @@ var networkOps = []Op[network.Client]{
 		"set-vpc-dhcp-options", (*network.Client).SetVPCDHCPOptions, Guard(requireYesToSetVPCDHCPOptions)),
 	Write[network.Client, network.ClearVPCDHCPOptionsInput, network.ClearVPCDHCPOptionsOutput](
 		"clear-vpc-dhcp-options", (*network.Client).ClearVPCDHCPOptions, Guard(requireYesToClearVPCDHCPOptions)),
+}
+
+func networkNATListOp() Op[network.Client] {
+	op := Read[network.Client, network.ListNATInstancesInput, network.ListNATInstancesOutput](
+		kebab("ListNATInstances"), (*network.Client).ListNATInstances)
+	op.short = "List one page of Public NAT instances in hcm-3 and han-1"
+	return op
 }
 
 func newNetworkCmd(e *env) *cobra.Command {

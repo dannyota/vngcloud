@@ -11,6 +11,8 @@ subnets, and Private DNS, the network resources this SDK writes here. See
 [Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs. Servers,
 volumes, and floating IPs stay read-only.
 
+See [Network NAT](Network-NAT.md) for Public NAT inventory.
+
 If a VPC, subnet, route table, ACL, or security group is managed by
 OpenTofu or Terraform, a write made here drifts from that state; keep such
 a resource's writes in its own tool.

@@ -554,6 +554,27 @@ Kind: Read.
 vngcloud network list-interconnects
 ```
 
+## list-nat-instances
+
+Kind: Read.
+
+Reads one page in `hcm-3` or `han-1`. Read-only profiles can run this command.
+`--page` defaults to 1 and `--size` defaults to 10. No automatic paging occurs.
+Live multi-page behavior remains unverified. An omitted `--zone-id` requires
+a unique zone mapping for the selected region. Status describes provisioning.
+See [Network NAT](Network-NAT.md) for fields and routing.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--zone-id` | `string` |  |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud network list-nat-instances --page 1 --size 10 \
+  --query 'Items[].{ID:UUID,Name:NATName,Status:Status}' --output table
+```
+
 ## list-network-acls
 
 Kind: Read.
