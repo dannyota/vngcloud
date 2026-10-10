@@ -17,9 +17,8 @@ var (
 	// deleted. Emptying a bucket is object work for an S3 client.
 	ErrBucketNotEmpty = errors.New("vngcloud: bucket is not empty")
 
-	// ErrNotSettled means DeleteBucket sent the DELETE, and the server
-	// accepted it, but reads still showed the bucket when the wait ended.
-	// Do not send the delete again; read the bucket later to confirm.
+	// ErrNotSettled means a storage write has an unconfirmed outcome.
+	// Read resource and payment state before attempting another write.
 	ErrNotSettled = errors.New("storage: delete accepted but not settled")
 )
 

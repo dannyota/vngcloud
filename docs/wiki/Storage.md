@@ -1,12 +1,9 @@
 # Storage
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
-`New(cfg)`. It manages vStorage object storage: it reads the vStorage regions
-and the projects in a region, lists, creates, and deletes the buckets in a
-project and the project's S3 keys, attaches a key to an IAM service account,
-and reads and sets a bucket's policy, versioning, and CORS rules. It covers the
-management plane only. To read or write objects, use an S3 client such as
-rclone with an S3 key.
+`New(cfg)`. It manages projects, buckets, S3 keys, IAM key attachments,
+regions, bucket policies, versioning, and CORS. Use an S3 client with an
+S3 key to read or write objects.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -26,7 +23,6 @@ import (
 
 func main() {
 	ctx := context.Background()
-
 	cfg, err := vngcloud.NewConfig(
 		vngcloud.WithRegion("hcm-3"),
 		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
@@ -38,7 +34,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	client := storage.New(cfg)
 	_ = ctx
 	_ = client
@@ -61,41 +56,21 @@ case. An empty `Region` maps the config region: `hcm-3` to `HCM04` and
 and sends the region ID in the `region` and `region_id` headers of every
 other call. The server returns only the projects of that region.
 
-```go
-regions, err := client.ListRegions(ctx, nil)
-if err != nil {
-	log.Fatal(err)
-}
-for _, r := range regions.Items {
-	log.Printf("%s %s", r.Name, r.S3Host)
-}
-```
-
 `Region` has `ID`, `Name`, `DisplayingName`, `Description`, `BackendType`,
 `S3Host`, `VOSAPIHost`, `AccountURL`, `AuthHost`, and `Status`. `S3Host` is
 the endpoint for an S3 client.
 
 ## Projects
 
-A vStorage project is a paid storage package in one region.
-
-```go
-projects, err := client.ListProjects(ctx, &storage.ListProjectsInput{Region: "HCM04"})
-if err != nil {
-	log.Fatal(err)
-}
-for _, p := range projects.Items {
-	log.Printf("%s %s", p.ID, p.Name)
-}
-```
-
-An account with no project gets an empty `Items`, not an error. Other
-storage calls need a project ID, so they cannot run until the account has
-one.
+`ListProjects` reads paid packages in one region and returns empty `Items`
+when none exist. Bucket and key calls require an existing project ID.
 
 `Project` has `ID`, `Name`, `RegionID`, `RegionName`, `Status`,
 `TotalQuota` (GB), `StartTime`, `EndTime`, and `Period`. `Period` is zero
-when the API returns null.
+when the API returns null. `ProjectType`, `ProjectTypeName`,
+`PurchaseTypeID`, and `PurchaseTypeName` describe its package.
+`EnableAutoRenew` and `AutoRenewPeriod` are pointers so missing settings
+differ from false and zero.
 
 ## Project pricing
 
@@ -143,12 +118,48 @@ Output preserves original price, discounts, and property prices with nullable
 names and descriptions. Zero or negative prices return `vngcloud.ErrUnpriced`.
 Missing, null, malformed, or non-finite prices return `*vngcloud.APIError`.
 
+## Project purchase and delete
+
+Purchase and delete are pending the paid live check in
+[vStorage projects][project-design].
+
+Set `Name` and `MaxPrice` on `CreateProjectInput`, then pass the input to
+`CreateProject`. Use the exact catalog type and integer GB quota.
+Create checks fresh configuration, quota, duplicate names, and project count.
+It quotes immediately before one auto order for one month with renewal off.
+Default `MaxPrice: 0` buys nothing. The cap protects the quote, not the
+server's debit, because the API has no price lock. Output holds `Project`,
+`OrderID`, `MonthlyPrice`, and `TotalPrice`. Unverified order ID fields leave
+`OrderID` empty. `Project` stays nil until a read confirms identity. Success
+requires exact name, region, type, quota, active status 1, and renewal off.
+
+An echoed project identity supports readiness polling every two seconds for
+120 seconds. Checkout or unclassified responses get one complete project
+read. No new exact-name project returns `storage.ErrPaymentRequired`;
+failed or incomplete reads, unconfirmed projects, and lost or malformed
+responses return `storage.ErrNotSettled`. Inspect pending orders and billing
+before retrying. Neither refusal nor absence proves that no money moved.
+Server refusals retain `*vngcloud.APIError` and its sentinel. `ErrFailed` is
+reserved for proven terminal failures; no terminal status is assumed.
+`NoWait` skips readiness polling only. Renewal true always fails.
+
+`DeleteProject` takes `Region`, `ProjectID`, and `NoWait`. It requires the ID
+in a complete list, or returns `vngcloud.ErrNotFound`. Any bucket returns
+`storage.ErrProjectNotEmpty`; missing or incomplete lists also stop deletion.
+Stop bucket writers first: the API has no concurrent-write precondition.
+Delete sends `{}` once, requires an HTTP 200 success envelope, and polls
+complete lists every two seconds for 60 seconds unless `NoWait` is set.
+Unconfirmed removal returns `ErrNotSettled`. Inspect projects and billing
+before retrying. Removal leaves free trash for normal expiry; refunds vary.
+Both writes use `Once`, with no retries, resends, or redirects. The SDK never
+sends manual orders, pays separately, purges, or exposes payment URLs.
+
 ## Buckets
 
 ```go
 buckets, err := client.ListBuckets(ctx, &storage.ListBucketsInput{
 	Region:    "HCM04",
-	ProjectID: projects.Items[0].ID,
+	ProjectID: projectID,
 })
 if err != nil {
 	log.Fatal(err)
@@ -158,7 +169,7 @@ for _, b := range buckets.Items {
 }
 
 detail, err := client.GetBucket(ctx, &storage.GetBucketInput{
-	ProjectID: projects.Items[0].ID,
+	ProjectID: projectID,
 	Bucket:    buckets.Items[0].Name,
 })
 if err != nil {
@@ -235,14 +246,6 @@ to 30 seconds.
   The delete was accepted: do not send it again. Read the bucket later to
   confirm.
 
-```go
-_, err = client.DeleteBucket(ctx, &storage.DeleteBucketInput{
-	ProjectID: projectID,
-	Bucket:    "my-bucket",
-	NoWait:    true,
-})
-```
-
 With `NoWait`, `DeleteBucket` returns once the server accepts the `DELETE`
 and does not read the bucket again. Poll `GetBucket` until it returns
 `vngcloud.ErrNotFound` before you reuse the name, and treat code `-1` and
@@ -251,12 +254,10 @@ can stop at its first read's error, sending no `DELETE`.
 
 ## S3 keys
 
-An S3 key is an access key and a secret for one project. An S3 client signs
-its requests with it. The key has the rights of the IAM user that made it, on
-every bucket of the project, so make keys only with an IAM user that is
-scoped to vStorage. The server takes no name for a key, and an account holds
-at most 10. A key made this way is unrestricted. To scope a key, attach it to a
-service account ([below](#service-account-keys)).
+An S3 key grants its IAM creator's storage rights. Create keys only with an
+IAM user scoped to vStorage. The API takes no name and allows at most ten
+keys per account. A new key is unrestricted until attached to a service
+account ([below](#service-account-keys)).
 
 ```go
 created, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{
@@ -316,9 +317,7 @@ A key works on the data plane. With the AWS CLI, put the access key and
 secret in a credentials file and point `AWS_SHARED_CREDENTIALS_FILE` at it,
 then use the endpoint from `Region.S3Host` and the region name:
 
-```sh
-AWS_DEFAULT_REGION=HCM04 aws s3 ls --endpoint-url https://hcm04.vstorage.vngcloud.vn
-```
+Use `AWS_DEFAULT_REGION=HCM04` and `--endpoint-url` with the S3 host.
 
 ## Service account keys
 
@@ -448,3 +447,5 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | A bucket policy call refused, or a `Policy` that is not a JSON object with a non-empty `Statement` array | See [Storage Bucket Policy](Storage-Bucket-Policy.md#errors) |
 
 See [Errors](Errors.md) for `APIError` itself.
+
+[project-design]: https://github.com/dannyota/vngcloud/blob/master/docs/design/storage-projects.md

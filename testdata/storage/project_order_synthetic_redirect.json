@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "data": {
+    "redirectUrl": "https://console.example/storage/projects?token=synthetic-token"
+  }
+}

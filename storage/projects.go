@@ -10,15 +10,21 @@ import (
 // TotalQuota is in GB. Fields the API leaves null, such as Period, decode as
 // zero.
 type Project struct {
-	ID         string  `json:"projectId"`
-	Name       string  `json:"projectName"`
-	RegionID   string  `json:"regionId"`
-	RegionName string  `json:"regionName"`
-	Status     int     `json:"status"`
-	TotalQuota float64 `json:"totalQuota"`
-	StartTime  string  `json:"startTime"`
-	EndTime    string  `json:"endTime"`
-	Period     int     `json:"period"`
+	ID               string  `json:"projectId"`
+	Name             string  `json:"projectName"`
+	RegionID         string  `json:"regionId"`
+	RegionName       string  `json:"regionName"`
+	Status           int     `json:"status"`
+	TotalQuota       float64 `json:"totalQuota"`
+	StartTime        string  `json:"startTime"`
+	EndTime          string  `json:"endTime"`
+	Period           int     `json:"period"`
+	ProjectType      int     `json:"projectType"`
+	ProjectTypeName  string  `json:"projectTypeName"`
+	PurchaseTypeID   int     `json:"purchaseTypeId"`
+	PurchaseTypeName string  `json:"purchaseTypeName"`
+	EnableAutoRenew  *bool   `json:"enableAutoRenew"`
+	AutoRenewPeriod  *int    `json:"autoRenewPeriod"`
 }
 
 type ListProjectsInput struct {
