@@ -423,24 +423,36 @@ func TestProjectPricingMonthlyCatalogID(t *testing.T) {
 
 func TestProjectPricingConflictingIdentities(t *testing.T) {
 	typeRow := strings.TrimSuffix(strings.TrimPrefix(pricingTypes, `{"success":true,"datas":[`), `]}`)
+	purchaseRow := strings.TrimSuffix(strings.TrimPrefix(pricingPurchases, `{"success":true,"datas":[`), `]}`)
 	for _, method := range []string{"list", "quote"} {
-		for _, tc := range []struct{ path, body string }{
-			{"/internal/v1/billing/project_types", `{"success":true,"datas":[` + typeRow + `,` + strings.Replace(typeRow, `"name":"Gold"`, `"name":"Other"`, 1) + `]}`},
-			{"/internal/v1/billing/purchase_types", `{"success":true,"datas":[{"id":4,"name":"Normal","title":"Pay monthly","status":1},{"id":4,"name":"Other","title":"Other","status":1}]}`},
+		for _, tc := range []struct{ path, row, name, title string }{
+			{"/internal/v1/billing/project_types", typeRow, "Gold", "Gold Type"},
+			{"/internal/v1/billing/purchase_types", purchaseRow, "Normal", "Pay monthly"},
 		} {
-			t.Run(method+tc.path, func(t *testing.T) {
-				prices := 0
-				c := pricingClient(t, map[string]string{tc.path: tc.body}, &prices, nil)
-				var err error
-				if method == "list" {
-					_, err = c.ListProjectTypes(context.Background(), nil)
-				} else {
-					_, err = c.QuoteCreateProject(context.Background(), &CreateProjectInput{Type: "Gold", QuotaGB: 30})
+			for _, status := range []int{1, 0} {
+				for _, field := range []string{"name", "title"} {
+					t.Run(method+tc.path+"/"+strconv.Itoa(status)+"/"+field, func(t *testing.T) {
+						original := tc.name
+						if field == "title" {
+							original = tc.title
+						}
+						sibling := strings.Replace(tc.row, fmt.Sprintf(`"%s":%q`, field, original), fmt.Sprintf(`"%s":"Other"`, field), 1)
+						sibling = strings.Replace(sibling, `"status":1`, fmt.Sprintf(`"status":%d`, status), 1)
+						body := `{"success":true,"datas":[` + tc.row + `,` + sibling + `]}`
+						prices := 0
+						c := pricingClient(t, map[string]string{tc.path: body}, &prices, nil)
+						var err error
+						if method == "list" {
+							_, err = c.ListProjectTypes(context.Background(), nil)
+						} else {
+							_, err = c.QuoteCreateProject(context.Background(), &CreateProjectInput{Type: "Gold", QuotaGB: 30})
+						}
+						if !errors.Is(err, vngcloud.ErrInvalidInput) || prices != 0 {
+							t.Fatalf("error %v, prices %d", err, prices)
+						}
+					})
 				}
-				if !errors.Is(err, vngcloud.ErrInvalidInput) || prices != 0 {
-					t.Fatalf("error %v, prices %d", err, prices)
-				}
-			})
+			}
 		}
 	}
 }

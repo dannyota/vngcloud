@@ -250,21 +250,15 @@ func (c *Client) projectConfiguration(ctx context.Context, op, id, key string) (
 }
 
 func (catalog *projectCatalog) validateIdentities(op string) error {
-	types := make(map[int]string)
+	types := make(map[int]ProjectType)
 	for _, typ := range catalog.types {
-		if typ.Status != 1 {
-			continue
-		}
-		if name, ok := types[typ.ID]; ok && name != typ.Name {
+		if previous, ok := types[typ.ID]; ok && (previous.Name != typ.Name || previous.Title != typ.Title) {
 			return fmt.Errorf("%w: %s: conflicting project type identity", core.ErrInvalidInput, op)
 		}
-		types[typ.ID] = typ.Name
+		types[typ.ID] = typ
 	}
 	purchases := make(map[int]projectPurchaseType)
 	for _, purchase := range catalog.purchases {
-		if purchase.Status != 1 {
-			continue
-		}
 		if previous, ok := purchases[purchase.ID]; ok && (previous.Name != purchase.Name || previous.Title != purchase.Title) {
 			return fmt.Errorf("%w: %s: conflicting purchase type identity", core.ErrInvalidInput, op)
 		}
