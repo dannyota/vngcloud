@@ -21,7 +21,8 @@ const volumeCreateVolumeNote = "Orders nothing above --max-price, default 0: a b
 	"that may have already reached the server; list volumes by name before ordering again rather than " +
 	"repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, " +
 	"then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must " +
-	"not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.\n\n" + vserverDriftNote
+	"not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.\n\n" +
+	volumeEncryptedPriceNote + "\n\n" + vserverDriftNote
 
 // volumeDeleteVolumeNote documents delete-volume's pre-delete guard, its
 // wait bound, and that it destroys data: the flag table shows only
@@ -50,7 +51,7 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 	"again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to " +
 	"reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this " +
 	"create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.\n\n" +
-	idsForCreateServerLink + "\n\n" + vserverDriftNote
+	serverEncryptionNote + "\n\n" + idsForCreateServerLink + "\n\n" + vserverDriftNote
 
 // computeDeleteServerNote documents delete-server's own volume disposition,
 // its wait bound, and that it destroys the server: the flag table shows
@@ -138,7 +139,7 @@ const volumeAttachVolumeNote = "Already attached to --server-id: Changed is fals
 	"the transport's normal PUT retries: a repeat is refused as already attached, never a second charge. " +
 	"Without --no-wait, waits up to 5 minutes for the volume to read IN-USE with --server-id among its " +
 	"attached servers; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a " +
-	"rerun is safe, since this command always reads first.\n\n" + vserverDriftNote
+	"rerun is safe, since this command always reads first.\n\n" + volumeEncryptedAttachNote + "\n\n" + vserverDriftNote
 
 // volumeDetachVolumeNote documents detach-volume's own no-op case, its boot
 // volume and running-server guards, and why the latter needs --allow-running

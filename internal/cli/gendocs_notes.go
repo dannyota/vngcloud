@@ -134,7 +134,7 @@ const computeQuoteCreateServerNote = "Never orders anything: prices the server C
 	"create. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: " +
 	"UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an " +
 	"actual create. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size " +
-	"is the --root-disk-size value.\n\n" + idsForCreateServerLink
+	"is the --root-disk-size value.\n\n" + serverEncryptionNote + "\n\n" + idsForCreateServerLink
 
 // volumeQuoteCreateVolumeNote documents quote-create-volume's own price
 // guard exemptions and unit, matching computeQuoteCreateServerNote's shape
@@ -144,7 +144,7 @@ const volumeQuoteCreateVolumeNote = "Never orders anything: prices the volume Cr
 	"Needs only --zone-id, --size, and --volume-type-id; --name is optional here and required by " +
 	"create-volume. The CLI does not send --name or any other unpriced field to the billing gateway. " +
 	"Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an " +
-	"actual create."
+	"actual create.\n\n" + volumeEncryptedPriceNote
 
 // volumeGetDefaultVolumeTypeNote documents --zone-id's own effect: without
 // it, a disabled first zone reads as NotFound, which the flag table cannot
@@ -478,8 +478,9 @@ var docOpNotes = map[string]string{
 	"portal list-quota-used":                  portalMapRedactionNote,
 	"portal get-quota":                        portalMapRedactionNote,
 	"portal get-tag-quota":                    portalMapRedactionNote,
-	"volume get-volume":                       volumeShapeUnverifiedNote,
-	"volume get-underlying-volume":            volumeShapeUnverifiedNote,
+	"volume get-volume":                       volumeGetVolumeNote,
+	"volume get-underlying-volume":            volumeGetUnderlyingVolumeNote,
+	"volume list-encryption-types":            volumeListEncryptionTypesNote,
 	"volume list-snapshots":                   volumeShapeUnverifiedNote,
 	"volume get-default-volume-type":          volumeGetDefaultVolumeTypeNote,
 	"volume quote-create-volume":              volumeQuoteCreateVolumeNote,

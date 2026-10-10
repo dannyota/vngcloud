@@ -8,6 +8,8 @@ Kind: Write.
 
 Already attached to --server-id: Changed is false and nothing is sent. Attached to a different server, the PUT reaches the server, which refuses it with its own error. Keeps the transport's normal PUT retries: a repeat is refused as already attached, never a second charge. Without --no-wait, waits up to 5 minutes for the volume to read IN-USE with --server-id among its attached servers; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun is safe, since this command always reads first.
 
+An encrypted volume attached live to a server created with encrypted disks. Attaching one to any other server is untested, and the server may refuse it.
+
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 
 | Flag | Type | Required |
@@ -26,6 +28,8 @@ Kind: Write.
 
 Orders nothing above --max-price, default 0: a bare create-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a volume already named --name exactly. The order itself is never retried after a failure that may have already reached the server; list volumes by name before ordering again rather than repeating this command. Without --no-wait, waits up to 5 minutes for the new volume to reach AVAILABLE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new volume's UUID and Name set.
 
+--encryption-type-id creates an encrypted volume. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. An encrypted volume costs the same price as a plain one of the same size and type, live. Read the encryption type back with volume get-volume; get-underlying-volume does not carry it.
+
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 
 | Flag | Type | Required |
@@ -34,6 +38,7 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 | `--zone-id` | `string` | yes |
 | `--size` | `int` | yes |
 | `--volume-type-id` | `string` | yes |
+| `--encryption-type-id` | `string` |  |
 | `--auto-renew` | `bool` |  |
 | `--max-price` | `float64` |  |
 | `--no-wait` | `bool` |  |
@@ -96,7 +101,9 @@ vngcloud volume get-default-volume-type --query VolumeType
 
 Kind: Read.
 
-Unverified live: the test account has no volume, so this output shape comes from GreenNode's official SDK, not a live capture.
+Verified live: this output shape was read from a real encrypted volume.
+
+The output does not carry the encryption type; use volume get-volume to read it.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -110,7 +117,9 @@ vngcloud volume get-underlying-volume --volume-id <volume-id> --query Volume
 
 Kind: Read.
 
-Unverified live: the test account has no volume, so this output shape comes from GreenNode's official SDK, not a live capture.
+Verified live: this output shape was read from a real encrypted volume.
+
+This command reads a volume's encryption type (EncryptionType); null means the volume is not encrypted.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -145,6 +154,8 @@ vngcloud volume list-all-snapshots
 ## list-encryption-types
 
 Kind: Read.
+
+Lists the encryption types the project offers, live aes-xts-plain64_128 and aes-xts-plain64_256. Pass the ID to volume create-volume --encryption-type-id, or to compute create-server --root-disk-encryption-type-id and --data-disk-encryption-type-id.
 
 No fields.
 
@@ -230,12 +241,15 @@ Kind: Read.
 
 Never orders anything: prices the volume CreateVolumeInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Needs only --zone-id, --size, and --volume-type-id; --name is optional here and required by create-volume. The CLI does not send --name or any other unpriced field to the billing gateway. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create.
 
+--encryption-type-id creates an encrypted volume. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. An encrypted volume costs the same price as a plain one of the same size and type, live. Read the encryption type back with volume get-volume; get-underlying-volume does not carry it.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` |  |
 | `--zone-id` | `string` | yes |
 | `--size` | `int` | yes |
 | `--volume-type-id` | `string` | yes |
+| `--encryption-type-id` | `string` |  |
 | `--auto-renew` | `bool` |  |
 | `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
 | `NoWait` (via `--cli-input-json` only) | `bool` |  |
