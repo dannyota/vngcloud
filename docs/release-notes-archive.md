@@ -1,6 +1,6 @@
 # Release Notes Archive
 
-Releases before the ones listed in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
+Releases before the ones in [release-notes-archive-v0.59.md](release-notes-archive-v0.59.md).
 
 ## v0.52.0 - vStorage Bucket Create and Delete
 

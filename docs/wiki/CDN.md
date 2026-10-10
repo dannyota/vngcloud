@@ -341,7 +341,8 @@ status, so a call the server would refuse sends nothing:
 
 `PurgePaths` removes cached objects by path from the CDN named by its generated
 `CDNDomain`. It needs at least one non-empty path. A path cannot contain `*`.
-Other path syntax is sent to the server without extra SDK rules.
+Other path syntax is sent to the server without extra SDK rules. The server
+refuses a bare `/` as an invalid content URI; name files such as `/index.html`.
 
 ```go
 _, err := client.PurgePaths(ctx, &cdn.PurgePathsInput{
