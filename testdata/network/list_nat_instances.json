@@ -1,0 +1,245 @@
+{
+  "success": true,
+  "data": [
+    {
+      "uuid": "nat-example",
+      "natName": "nat-example",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-02T00:00:00Z",
+      "projectUuid": "project-1",
+      "zoneUuid": "zone-example",
+      "natGatewayIp": "203.0.113.10",
+      "publicIp": "198.51.100.10",
+      "deletedAt": null,
+      "billingStatus": "active",
+      "portalUserId": "excluded-canary",
+      "visible": "excluded-canary",
+      "message": "excluded-canary",
+      "subnet": {
+        "uuid": "excluded-canary"
+      },
+      "natPackage": {
+        "id": "package-1",
+        "uuid": "package-example",
+        "name": "package-example",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "packageId": "nat-package-example",
+        "default": true,
+        "monthlyPrice": 0,
+        "price": "excluded-canary",
+        "image": {
+          "id": "image-1",
+          "uuid": "image-example",
+          "imageType": "example",
+          "imageVersion": "1",
+          "licence": "example",
+          "flavorZoneIds": [
+            "zone-example"
+          ],
+          "packageLimit": {
+            "cpu": 2,
+            "memory": 4,
+            "diskSize": 8
+          },
+          "licenseKey": "excluded-canary"
+        }
+      },
+      "vpc": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "cidr": "203.0.113.0/24",
+        "status": "ACTIVE",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": [
+          "excluded-canary"
+        ],
+        "project": "excluded-canary"
+      }
+    },
+    {
+      "uuid": "nat-provisioning-example",
+      "natName": "nat-example",
+      "status": "PROVISIONING",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-02T00:00:00Z",
+      "projectUuid": "project-1",
+      "zoneUuid": "zone-example",
+      "natGatewayIp": null,
+      "publicIp": null,
+      "deletedAt": null,
+      "billingStatus": "provisioning",
+      "portalUserId": "excluded-canary",
+      "visible": "excluded-canary",
+      "message": "excluded-canary",
+      "subnet": {
+        "uuid": "excluded-canary"
+      },
+      "natPackage": {
+        "id": "package-1",
+        "uuid": "package-example",
+        "name": "package-example",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "packageId": "nat-package-example",
+        "default": true,
+        "monthlyPrice": 0,
+        "price": "excluded-canary",
+        "image": {
+          "id": "image-1",
+          "uuid": "image-example",
+          "imageType": "example",
+          "imageVersion": "1",
+          "licence": "example",
+          "flavorZoneIds": [
+            "zone-example"
+          ],
+          "packageLimit": {
+            "cpu": 2,
+            "memory": 4,
+            "diskSize": 8
+          },
+          "licenseKey": "excluded-canary"
+        }
+      },
+      "vpc": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "cidr": "203.0.113.0/24",
+        "status": "ACTIVE",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": [
+          "excluded-canary"
+        ],
+        "project": "excluded-canary"
+      }
+    },
+    {
+      "uuid": "nat-error-example",
+      "natName": "nat-example",
+      "status": "ERROR",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-02T00:00:00Z",
+      "projectUuid": "project-1",
+      "zoneUuid": "zone-example",
+      "natGatewayIp": null,
+      "publicIp": null,
+      "deletedAt": "2026-01-03T00:00:00Z",
+      "billingStatus": null,
+      "portalUserId": "excluded-canary",
+      "visible": "excluded-canary",
+      "message": "excluded-canary",
+      "subnet": {
+        "uuid": "excluded-canary"
+      },
+      "natPackage": {
+        "id": "package-1",
+        "uuid": "package-example",
+        "name": "package-example",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "packageId": "nat-package-example",
+        "default": true,
+        "monthlyPrice": 0,
+        "price": "excluded-canary",
+        "image": {
+          "id": "image-1",
+          "uuid": "image-example",
+          "imageType": "example",
+          "imageVersion": "1",
+          "licence": "example",
+          "flavorZoneIds": [
+            "zone-example"
+          ],
+          "packageLimit": {
+            "cpu": 2,
+            "memory": 4,
+            "diskSize": 8
+          },
+          "licenseKey": "excluded-canary"
+        }
+      },
+      "vpc": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "cidr": "203.0.113.0/24",
+        "status": "ACTIVE",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": [
+          "excluded-canary"
+        ],
+        "project": "excluded-canary"
+      }
+    },
+    {
+      "uuid": "nat-future-status-example",
+      "natName": "nat-example",
+      "status": "FUTURE_STATUS",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-02T00:00:00Z",
+      "projectUuid": "project-1",
+      "zoneUuid": "zone-example",
+      "natGatewayIp": null,
+      "publicIp": "",
+      "deletedAt": null,
+      "billingStatus": null,
+      "portalUserId": "excluded-canary",
+      "visible": "excluded-canary",
+      "message": "excluded-canary",
+      "subnet": {
+        "uuid": "excluded-canary"
+      },
+      "natPackage": {
+        "id": "package-1",
+        "uuid": "package-example",
+        "name": "package-example",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "packageId": "nat-package-example",
+        "default": true,
+        "monthlyPrice": 0,
+        "price": "excluded-canary",
+        "image": {
+          "id": "image-1",
+          "uuid": "image-example",
+          "imageType": "example",
+          "imageVersion": "1",
+          "licence": "example",
+          "flavorZoneIds": [
+            "zone-example"
+          ],
+          "packageLimit": {
+            "cpu": 2,
+            "memory": 4,
+            "diskSize": 8
+          },
+          "licenseKey": "excluded-canary"
+        }
+      },
+      "vpc": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "cidr": "203.0.113.0/24",
+        "status": "ACTIVE",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": [
+          "excluded-canary"
+        ],
+        "project": "excluded-canary"
+      }
+    }
+  ],
+  "page": 1,
+  "size": 10,
+  "totalPage": 7,
+  "total": 63
+}

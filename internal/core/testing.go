@@ -11,11 +11,12 @@ import (
 func NewTestClient(region, projectID string, endpointSet endpoints.Set, tc *transport.Client) *Client {
 	logger := slog.New(nopHandler{})
 	return &Client{
-		region:    region,
-		projectID: projectID,
-		endpoints: endpointSet,
-		transport: tc,
-		logger:    logger,
+		region:           region,
+		vnetworkOverride: endpointSet.VNetwork != "",
+		projectID:        projectID,
+		endpoints:        endpointSet,
+		transport:        tc,
+		logger:           logger,
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 func showNetwork(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	networkClient := network.New(cfg)
+	showNetworkNAT(ctx, cfg, outputs)
 
 	vnetRegionsOut, err := networkClient.ListVNetworkRegions(ctx, nil)
 	vnetRegions := []network.VNetworkRegion(nil)

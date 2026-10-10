@@ -18,10 +18,11 @@ import (
 const defaultUserAgent = "danny.vn/vngcloud"
 
 type Client struct {
-	region    string
-	endpoints endpoints.Set
-	transport *transport.Client
-	logger    *slog.Logger
+	region           string
+	vnetworkOverride bool
+	endpoints        endpoints.Set
+	transport        *transport.Client
+	logger           *slog.Logger
 
 	// profileSettings is the resolved profile's config section, set by
 	// LoadConfig only; a Client built by NewConfig or a direct option leaves
@@ -151,6 +152,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	c := &Client{
 		storageTestClock: settings.storageTestClock,
 		region:           settings.region,
+		vnetworkOverride: settings.endpoints.VNetwork != "",
 		projectID:        settings.projectID,
 		cdnAPIKey:        settings.cdnAPIKey,
 		endpoints:        resolvedEndpoints,
@@ -464,3 +466,6 @@ func (nopHandler) Enabled(context.Context, slog.Level) bool  { return false }
 func (nopHandler) Handle(context.Context, slog.Record) error { return nil }
 func (h nopHandler) WithAttrs([]slog.Attr) slog.Handler      { return h }
 func (h nopHandler) WithGroup(string) slog.Handler           { return h }
+
+// VNetworkOverride reports whether the caller supplied the vNetwork endpoint.
+func (c *Client) VNetworkOverride() bool { return c.vnetworkOverride }
