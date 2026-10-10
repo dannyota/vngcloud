@@ -96,3 +96,90 @@ Both writes use `Once`, with no retries, resends, or redirects. The SDK never
 sends manual orders, pays separately, purges, or exposes payment URLs.
 
 [project-design]: https://github.com/dannyota/vngcloud/blob/master/docs/design/storage-projects.md
+
+## Auto-renew
+
+`GetProjectAutoRenew` joins a complete regional project list with
+[billing resources](Billing-and-Pricing.md#prepaid-resources). Required
+`ProjectID` selects one exact project; `Region` defaults to the configured
+storage region. Missing projects return `vngcloud.ErrNotFound`. Duplicate,
+incomplete, conflicting, or missing billing rows return `*vngcloud.APIError`.
+
+```go
+renewal, err := client.GetProjectAutoRenew(ctx,
+    &storage.GetProjectAutoRenewInput{ProjectID: "project-1"})
+if err != nil {
+    log.Fatal(err)
+}
+log.Println(renewal.State.EndTime, renewal.State.PriceStatus)
+```
+
+`State` reports identity, end time in UTC, renewal type, nullable `Enabled`,
+and configured `PeriodMonths`. MANUAL exposes false and null months.
+AUTO-RENEW requires matching positive periods in both lists. Unknown states
+expose null `Enabled` and block writes. The billing end timestamp is the
+current term's end, not a promised charge time.
+
+The read prices the exact catalog type and positive integral GB quota with
+a fresh monthly create quote, including VAT. Preview `PeriodMonths` accepts
+1, 3, 6, or 12. Omission uses the configured enabled period or one month
+when off. `QuotePeriodMonths` and `QuotedRenewalCharge` describe the preview;
+`NextCharge` always estimates the configured enabled period. When off,
+`NextCharge` is null. Billing `Cost` never supplies a price.
+
+Pricing failure alone returns state successfully with null prices,
+`PriceStatus: "Unavailable"`, and a safe `PriceErrorCode`. Cancellation or
+failed state reads remain errors. `NextCharge` uses today's create price;
+future tariffs, renewal discounts, and payment success are unverified.
+
+```go
+changed, err := client.PutProjectAutoRenew(ctx,
+    &storage.PutProjectAutoRenewInput{
+        ProjectID: "project-1",
+        Enabled:   vngcloud.Ptr(true),
+        MaxPrice:  30000,
+    })
+if err != nil {
+    log.Fatal(err)
+}
+log.Println(changed.Changed)
+```
+
+`Enabled` is required. Enable defaults to one month when off; omission
+keeps the current period when enabled. An explicit different period updates
+the setting. Allowed periods are 1, 3, 6, and 12. The renewal menu is
+separate from purchase `AllowPeriod`. Only prepaid ordinary object-storage
+projects using the active Normal monthly purchase are supported. Enable
+and period changes require an active future term, no renewal in progress,
+and `MaxPrice` at least the fresh monthly quote times target months.
+Equality passes; default zero authorizes no change that enables spending.
+An already matching setting returns `Changed: false` without PUT or new
+price consent. A no-op enable still offers a fresh price when available.
+
+The cap is local consent to today's estimate. It is not sent to the server,
+saved for later charges, or a lifetime limit. Auto-renew can charge
+repeatedly until disabled. The setting places no order and does not extend
+the current term. Another actor can race the read and write; no conditional
+update exists.
+
+Disable uses `Enabled: vngcloud.Ptr(false)`, rejects `PeriodMonths`, and
+needs no quote, catalog, active term, or price cap. It works during a
+pricing outage. Disable output leaves prices unavailable; a later read can
+price the project. Disabling does not cancel a charge already in progress.
+
+Each actual PUT resolves fresh account identity internally, sends one
+resource with its observed channel, and uses no retries or redirects.
+Accepted writes confirm both lists immediately, then every two seconds for
+at most 30 seconds. `Changed: true` means a sent request was confirmed.
+Outputs retain the last valid observation on later errors; nil `State`
+means no valid join exists.
+
+An explicit rejection returns `*vngcloud.APIError` with code
+`AutoRenewRejected` and a safe error count. The SDK never publishes error
+entries or account identity. Lost, malformed, or unrecognized replies and
+failed confirmation return `storage.ErrNotSettled` with the underlying
+error. An inconsistent rejection also matches `ErrNotSettled`; observing
+the target never erases a rejected reply. Known HTTP refusals and failed
+dials retain their errors. Read `GetProjectAutoRenew`, reconcile both lists,
+and make a new deliberate setting if needed. The SDK never rolls back or
+resends automatically.

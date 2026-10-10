@@ -4,7 +4,8 @@
 and `danny.vn/vngcloud/pricing`. They are not clients on the root client from
 [Services](Services.md); each has its own `New(cfg)`.
 
-All amounts are VND. Field names carry no currency.
+Budget, cost, balance, and price amounts are VND. Resource `Cost` has no
+established meaning or currency.
 
 Budget, cost, and balance calls (the `billing` package) are per account: they
 send no project ID and ignore the region in `Config`. Price quotes (the
@@ -177,6 +178,35 @@ if balances.Balances.Cash != nil {
 	log.Printf("cash: %.0f", *balances.Balances.Cash)
 }
 ```
+
+## Prepaid resources
+
+`ListResources(ctx, nil)` reads the unfiltered central resource list across
+products. It takes no filters or pagination parameters and sends no region
+or project headers. `Items` contains resource rows; nullable counts and
+`Extra` preserve the server summaries and raw warning/alarm thresholds.
+Counts do not establish completeness.
+
+```go
+resources, err := client.ListResources(ctx, nil)
+if err != nil {
+    log.Fatal(err)
+}
+log.Println(len(resources.Items))
+```
+
+`Resource` retains artifact identity, product, billing type, renewal type,
+nullable channel, renewal period, dates, and `IsRenewing`. Times are epoch
+milliseconds. `RenewTypeNonRenewable`, `RenewTypeManual`, and
+`RenewTypeAutoRenew` name the known strings; unknown strings remain visible.
+Status fields, billing element quantity, and metadata preserve raw JSON.
+Creator tags are omitted from the public model and routine captures.
+
+Missing, null, or malformed envelope/list structure returns
+`*vngcloud.APIError`. An empty array is valid. `Cost` is never a price or
+estimated charge. The list does not quote every resource. For a vStorage
+project's joined state and price, use
+[Storage: Projects](Storage-Projects.md#auto-renew).
 
 ## Price quotes
 

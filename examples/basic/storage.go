@@ -36,6 +36,9 @@ func showStorage(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 		return
 	}
 
+	renewal, err := client.GetProjectAutoRenew(ctx, &storage.GetProjectAutoRenewInput{ProjectID: projects.Items[0].ID})
+	recordAccountOne(outputs, "storage/project_auto_renew", "storage project auto-renew", renewal, err)
+
 	buckets, err := client.ListBuckets(ctx, &storage.ListBucketsInput{ProjectID: projects.Items[0].ID})
 	recordAccount(outputs, "storage/bucket", "storage buckets", storageBucketItems(buckets), err)
 	if err != nil || buckets == nil || len(buckets.Items) == 0 {

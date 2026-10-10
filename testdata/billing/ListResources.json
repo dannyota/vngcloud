@@ -1,0 +1,117 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "data": [
+      {
+        "artifactId": "project-1",
+        "artifactName": "<account>",
+        "artifactType": "object-storage",
+        "product": "vstorage",
+        "renewType": "MANUAL",
+        "billingType": "PREPAID",
+        "startBillingTime": 1790000000000,
+        "endBillingTime": 1890000000000,
+        "dateLeft": 30,
+        "renewPeriod": null,
+        "channel": 0,
+        "isRenewing": false,
+        "cost": 123,
+        "status": 1,
+        "statusUI": {
+          "level": "good"
+        },
+        "billingElements": [
+          {
+            "sku": "synthetic-sku",
+            "quantity": 30,
+            "metaKey": {
+              "quota": 30
+            }
+          }
+        ],
+        "tags": {
+          "creator": "<account>",
+          "iam-id": "<id>"
+        }
+      },
+      {
+        "artifactId": "project-2",
+        "artifactName": "<account>",
+        "artifactType": "object-storage",
+        "product": "vstorage",
+        "renewType": "AUTO-RENEW",
+        "billingType": "PREPAID",
+        "startBillingTime": 1790000000000,
+        "endBillingTime": 1890000000000,
+        "dateLeft": 30,
+        "renewPeriod": 1,
+        "channel": 1,
+        "isRenewing": false,
+        "cost": 123,
+        "status": 1,
+        "statusUI": {
+          "level": "good"
+        },
+        "billingElements": [
+          {
+            "sku": "synthetic-sku",
+            "quantity": 30,
+            "metaKey": {
+              "quota": 30
+            }
+          }
+        ],
+        "tags": {
+          "creator": "<account>",
+          "iam-id": "<id>"
+        }
+      },
+      {
+        "artifactId": "project-3",
+        "artifactName": "<account>",
+        "artifactType": "object-storage",
+        "product": "vstorage",
+        "renewType": "FUTURE",
+        "billingType": "PREPAID",
+        "startBillingTime": 1790000000000,
+        "endBillingTime": 1890000000000,
+        "dateLeft": 30,
+        "renewPeriod": null,
+        "channel": 2,
+        "isRenewing": false,
+        "cost": 123,
+        "status": 1,
+        "statusUI": {
+          "level": "good"
+        },
+        "billingElements": [
+          {
+            "sku": "synthetic-sku",
+            "quantity": 30,
+            "metaKey": {
+              "quota": 30
+            }
+          }
+        ],
+        "tags": {
+          "creator": "<account>",
+          "iam-id": "<id>"
+        }
+      }
+    ],
+    "totalAutoRenews": 1,
+    "totalGoodResources": 3,
+    "totalWarningResources": 0,
+    "totalAlertedResources": 0,
+    "totalExpiredResources": 0,
+    "extra": {
+      "warningThresholds": [
+        7
+      ],
+      "alarmThresholds": [
+        1
+      ]
+    }
+  }
+}

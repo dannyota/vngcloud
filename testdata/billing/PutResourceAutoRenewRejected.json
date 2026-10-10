@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "data": {
+    "successAll": false,
+    "errorAutoRenewResources": [
+      {
+        "artifactId": "project-1",
+        "accountId": 12345,
+        "message": "<message>"
+      }
+    ]
+  }
+}

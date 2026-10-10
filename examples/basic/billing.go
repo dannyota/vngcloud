@@ -14,6 +14,9 @@ import (
 func showBilling(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	client := billing.New(cfg)
 
+	resources, err := client.ListResources(ctx, nil)
+	recordAccountOne(outputs, "billing/resources", "billing resources", resources, err)
+
 	budgets, err := client.ListBudgets(ctx, &billing.ListBudgetsInput{})
 	recordAccount(outputs, "billing/budget", "billing budgets", budgetItems(budgets), err)
 

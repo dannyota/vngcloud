@@ -45,6 +45,12 @@ type QuoteCreateProjectOutput struct {
 
 // QuoteCreateProject prices a package without placing an order.
 func (c *Client) QuoteCreateProject(ctx context.Context, in *CreateProjectInput) (*QuoteCreateProjectOutput, error) {
+	return c.quoteCreateProject(ctx, in, nil)
+}
+
+// Renewal guards check the identities from the catalog used by this quote,
+// avoiding a second catalog selection that could price a different purchase.
+func (c *Client) quoteCreateProject(ctx context.Context, in *CreateProjectInput, expected *Project) (*QuoteCreateProjectOutput, error) {
 	const op = "storage.QuoteCreateProject"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -63,9 +69,34 @@ func (c *Client) QuoteCreateProject(ctx context.Context, in *CreateProjectInput)
 	if err != nil {
 		return nil, err
 	}
+	if expected != nil {
+		typeKnown, purchaseKnown := false, false
+		for _, typ := range catalog.types {
+			if typ.ID == expected.ProjectType && typ.Name == expected.ProjectTypeName {
+				typeKnown = true
+			}
+		}
+		for _, purchase := range catalog.purchases {
+			if purchase.ID == expected.PurchaseTypeID && purchase.Title == expected.PurchaseTypeName {
+				purchaseKnown = true
+			}
+		}
+		if !typeKnown || !purchaseKnown {
+			return nil, projectResponseError(op, "project catalog identity is unknown or conflicting")
+		}
+	}
 	spec, err := catalog.resolve(op, in.Type, in.QuotaGB)
 	if err != nil {
 		return nil, err
+	}
+	if expected != nil {
+		monthly, identityErr := catalog.monthlyPurchase(op)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		if monthly == nil || spec.projectTypeID != expected.ProjectType || spec.purchaseTypeID != expected.PurchaseTypeID || monthly.Title != expected.PurchaseTypeName {
+			return nil, fmt.Errorf("%w: %s: unsupported project purchase identity", core.ErrInvalidInput, op)
+		}
 	}
 	return c.sendProjectQuote(ctx, op, id, spec)
 }

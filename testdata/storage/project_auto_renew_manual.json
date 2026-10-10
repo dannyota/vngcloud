@@ -1,0 +1,67 @@
+{
+  "code": 200,
+  "success": true,
+  "action": null,
+  "datas": [
+    {
+      "projectId": "new-1",
+      "projectName": "vngcloud-live-synthetic",
+      "description": null,
+      "userId": "<id>",
+      "userName": "<account>",
+      "userIdMapping": 1,
+      "status": 1,
+      "projectType": 1,
+      "projectTypeName": "Gold",
+      "purchaseTypeId": 4,
+      "purchaseTypeName": "Pay monthly",
+      "paymentMethod": 1,
+      "startTime": "2026-10-09T14:23:05.933+00:00",
+      "endTime": "2026-10-09T14:23:05.933+00:00",
+      "totalQuota": 30.0,
+      "usage": 0.0,
+      "period": null,
+      "backendQuota": null,
+      "traffic": null,
+      "accountUrl": null,
+      "roleId": "<id>",
+      "roleName": "Admin",
+      "regionId": "<region-id-2>",
+      "regionName": "HCM04",
+      "ownerId": "<id>",
+      "ownerName": "<account>",
+      "disabledTime": null,
+      "disabledBy": null,
+      "deletedTime": null,
+      "lifecycleRules": null,
+      "containers": null,
+      "actions": [
+        {
+          "id": 1,
+          "userIdMapping": 1,
+          "regionId": "<region-id-2>",
+          "projectId": "new-1",
+          "projectName": "vngcloud-live-synthetic",
+          "action": "Create",
+          "status": 1,
+          "stackTrace": null,
+          "description": null,
+          "createdTime": "2026-10-09T14:23:05.933+00:00",
+          "updatedTime": "2026-10-09T14:23:05.933+00:00"
+        }
+      ],
+      "resourceTags": [
+        {
+          "key": "vng.region",
+          "value": "hcm04"
+        },
+        {
+          "key": "vng.createdBy",
+          "value": "IAMUser:<iam-user-id>"
+        }
+      ],
+      "enableAutoRenew": false,
+      "autoRenewPeriod": 0
+    }
+  ]
+}
