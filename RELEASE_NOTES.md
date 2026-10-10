@@ -1,5 +1,32 @@
 # Release Notes
 
+## v0.60.1 - Transport and Login Hardening
+
+### Highlights
+
+- Every API request enforces the same-host, same-scheme redirect rule,
+  including with a client from `WithHTTPClient` and after that client's own
+  redirect hook. An HTTPS request never follows a redirect to HTTP.
+- IAM User login posts the TOTP code only to the sign-in origin and refuses
+  a login page redirect that changes scheme.
+- The access token or vCDN API key a request sent is replaced with
+  `[redacted]` in error codes, messages, debug log paths, and captured
+  response bodies. This covers errors built from success-status envelopes in
+  billing, storage, and vCDN.
+- Transport failures use fixed descriptions, such as `canceled`,
+  `timed out`, `no such host`, `connection reset`, a TLS certificate class,
+  or `response failed to decode`, and never a request URL, redirect
+  location, or query value.
+
+### Compatibility
+
+- `errors.As` no longer reaches the original `*url.Error` or other raw
+  transport cause inside an SDK error. `errors.Is` still matches
+  `context.Canceled` and `context.DeadlineExceeded`, and a timeout still
+  satisfies `net.Error` with `Timeout()` true.
+- An error code a server sends as a JSON object or array falls back to the
+  status-derived code.
+
 ## v0.60.0 - CDN Web Accelerators
 
 ### Highlights
@@ -311,115 +338,5 @@
 With this release every load balancer write in the design has shipped and
 has been checked live. The whole day of paid checks cost about 574 VND net
 after the deletes refunded the unused value.
-
-## v0.49.0 - Load Balancer Listeners
-
-### Highlights
-
-- New `loadbalancer.CreateListener`, `UpdateListener`, and
-  `DeleteListener` for HTTP, HTTPS, TCP, and UDP, with the matching
-  `vngcloud loadbalancer` commands. `AllowedCIDRs` is required and must be
-  IPv4 prefixes without host bits; certificate fields are accepted on HTTPS
-  only, and every certificate ID is checked before any request.
-- `create-listener` and `update-listener` need `--yes` when any allowed
-  CIDR is public (such as `0.0.0.0/0`); `delete-listener` always needs it.
-  A Layer 7 load balancer accepts HTTP and HTTPS listeners only; the SDK
-  refuses the others before sending.
-- Verified live on 2026-10-09 on an `ALB_Small`: an HTTP listener created
-  and its client timeout updated, a throwaway certificate imported, an
-  HTTPS listener created with it, and all three deleted, in 2m12s.
-
-## v0.48.0 - Load Balancer Pools and Members
-
-### Highlights
-
-- New `loadbalancer.CreatePool`, `UpdatePool`, `DeletePool`,
-  `AddPoolMember`, `UpdatePoolMember`, and `RemovePoolMember`, with the
-  matching `vngcloud loadbalancer` commands. Member writes read the pool,
-  send the whole member list once with the one change applied, and read
-  again to confirm; a repeat add is a no-op. `delete-pool` and
-  `remove-pool-member` need `--yes`.
-- Server rules the SDK now applies before sending: a Layer 7 load balancer
-  accepts HTTP pools only; an HTTP pool always sends `stickiness` and
-  `tlsEncryption` (default false); an HTTP health check defaults its path
-  to `/`, method to `GET`, success code to `200`, and HTTP version to
-  `1.1`; a member's monitor port defaults to its port. `DeletePool`
-  refuses, sending nothing, a pool a listener or policy still uses.
-- Verified live on 2026-10-09 on an `ALB_Small`: pool create, algorithm
-  update, two member adds, a weight update, a member removal, and the
-  delete, all settling within the design's bounds.
-
-## v0.47.0 - Load Balancer Resize
-
-### Highlights
-
-- New `loadbalancer.ResizeLoadBalancer`, with `vngcloud loadbalancer
-  resize-load-balancer`. It reads the load balancer first and returns
-  `Changed` false, sending nothing, when the package already matches;
-  otherwise it quotes and orders only at or under `MaxPrice`, sending the
-  PUT once, then waits for the load balancer to settle. `resize-load-balancer`
-  needs `--yes`.
-- A resize quote prices the new package for the rest of the current
-  period; a downsize quotes a negative amount (a refund) and is allowed. A
-  package from another zone is refused by the server; use the load
-  balancer's zone when listing packages.
-- Verified live on 2026-10-09: `ALB_Small` to `ALB_Medium` quoted 399,916
-  VND and settled in 2m7s; back down quoted -399,898 VND and settled in
-  1m56s.
-
-## v0.46.0 - Load Balancer Create and Delete
-
-### Highlights
-
-- New `loadbalancer.CreateLoadBalancer` and `DeleteLoadBalancer`, with
-  `vngcloud loadbalancer create-load-balancer` and `delete-load-balancer`.
-  A create quotes first and orders only at or under `MaxPrice`
-  (`--max-price`; a 0 quote is refused as `Unpriced`); the order is sent
-  once. `create-load-balancer` needs `--yes` unless `Scheme` is `Internal`,
-  since an Internet load balancer gets a public address; `delete-load-balancer`
-  always needs `--yes`.
-- Package IDs are zone-specific: list packages with the load balancer's
-  zone. `LoadBalancer.ZoneID` now decodes the API's `zone` object.
-- Waits: create to `ACTIVE`, delete to gone; `ERROR` is
-  `loadbalancer.ErrFailed`, a timeout `ErrNotSettled`. A 4xx "busy" refusal
-  while the load balancer settles an earlier write is `ErrBusy`; nothing
-  changed, so calling again later is safe.
-- Verified live on 2026-10-09: an Internal `ALB_Small` (400,000 VND a
-  month) created in 1m54s and deleted in 11 s, with the delete refunding
-  the unused value to the wallet.
-
-## v0.45.0 - Server and Volume Resize
-
-### Highlights
-
-- New `compute.QuoteResizeServer` and `ResizeServer`, and
-  `volume.QuoteResizeVolume` and `ResizeVolume`, with `vngcloud compute
-  quote-resize-server`, `resize-server`, `volume quote-resize-volume`, and
-  `resize-volume`. A resize quotes first and orders only at or under
-  `MaxPrice`; the PUT is sent once. `resize-server` and `resize-volume`
-  need `--yes`.
-- A resize quote prices the whole new configuration for the rest of the
-  current period, prorated to the minute, not the difference; budget for
-  it. A volume can only grow; a server resize needs the server `ACTIVE`
-  or `STOPPED` and ends `ACTIVE`.
-- Verified live on 2026-10-09: a data volume 10 to 20 GB, a server
-  `s2-general-1x2` to `s2-general-2x4`, and a root volume 20 to 30 GB, each
-  settling within the design's bounds, with the delete refunding the unused
-  value.
-
-## v0.44.0 - Volume Attach and Detach
-
-### Highlights
-
-- New `volume.AttachVolume` and `DetachVolume`, with `vngcloud volume
-  attach-volume` and `detach-volume`. Each reads the volume first and
-  returns `Changed` false, sending nothing, when it is already in the
-  requested state; the PUT then waits for `IN-USE` or `AVAILABLE`.
-- `DetachVolume` refuses, before any request, a server's boot volume
-  (`volume.ErrBootVolume`), a volume not attached to the named server, and
-  a running server unless `AllowRunning` (`--allow-running`) is set
-  (`volume.ErrServerRunning`); `detach-volume` needs `--yes`.
-- Verified live on 2026-10-09: attach settled in 8 s and detach in 6 s on
-  an `s2-general-1x2` server; every guard refused as designed.
 
 Older releases are in [docs/release-notes-archive.md](docs/release-notes-archive.md).
