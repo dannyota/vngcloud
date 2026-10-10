@@ -6,26 +6,41 @@ import (
 	"net/http"
 )
 
-// redirectClient copies base so SDK rules run before the caller's hook.
+// redirectClient copies base and checks destinations before and after the
+// caller's hook, which can rewrite the URL.
 func redirectClient(base *http.Client) *http.Client {
 	cp := *base
 	inner := base.CheckRedirect
+	var scheme, host string
 	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return errRedirectLimit
 		}
-		if req.URL.Host != via[0].URL.Host {
-			return &redirectError{from: via[0].URL.Host, to: req.URL.Host}
+		// A hook can also mutate via[0], so later hops use the saved origin.
+		if len(via) == 1 {
+			scheme, host = via[0].URL.Scheme, via[0].URL.Host
 		}
-		if req.URL.Scheme != via[0].URL.Scheme {
-			return errRedirectScheme
+		if err := checkRedirectOrigin(req, scheme, host); err != nil {
+			return err
 		}
 		if inner != nil {
-			return inner(req, via)
+			if err := inner(req, via); err != nil {
+				return err
+			}
 		}
-		return nil
+		return checkRedirectOrigin(req, scheme, host)
 	}
 	return &cp
+}
+
+func checkRedirectOrigin(req *http.Request, scheme, host string) error {
+	if req.URL.Host != host {
+		return &redirectError{from: host, to: req.URL.Host}
+	}
+	if req.URL.Scheme != scheme {
+		return errRedirectScheme
+	}
+	return nil
 }
 
 var (

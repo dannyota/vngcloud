@@ -48,7 +48,21 @@ type envelope struct {
 // doRaw sends req and returns the raw response body and HTTP status.
 func (c *Client) doRaw(ctx context.Context, req transport.Request) (json.RawMessage, int, error) {
 	var raw json.RawMessage
+	notFound := false
+	req.ClassifyError = func(status int, message string) string {
+		notFound = isNotFoundMessage(status, message)
+		if notFound {
+			return "NotFound"
+		}
+		return ""
+	}
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
+	var apiErr *core.APIError
+	if notFound && errors.As(err, &apiErr) {
+		mapped := *apiErr
+		mapped.Err = core.ErrNotFound
+		err = &mapped
+	}
 	return raw, status, err
 }
 
@@ -124,7 +138,7 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, e
 	raw, status, err := c.doRaw(ctx, req)
 	req.Redact = append(append([]string(nil), req.Redact...), credential)
 	if err != nil {
-		return status, mapNotFound(err)
+		return status, err
 	}
 	if len(raw) == 0 {
 		return status, nil
@@ -154,7 +168,7 @@ func (c *Client) doBalances(ctx context.Context, req transport.Request, out any)
 	raw, status, err := c.doRaw(ctx, req)
 	req.Redact = append(append([]string(nil), req.Redact...), credential)
 	if err != nil {
-		return mapNotFound(err)
+		return err
 	}
 	if len(raw) == 0 {
 		return nil
@@ -198,17 +212,16 @@ func mapNotFound(err error) error {
 	if !errors.As(err, &apiErr) {
 		return err
 	}
-	is400or2xx := apiErr.StatusCode == http.StatusBadRequest ||
-		(apiErr.StatusCode >= 200 && apiErr.StatusCode <= 299)
-	if !is400or2xx {
-		return err
-	}
-	if !strings.HasPrefix(apiErr.Message, "Budget not found") &&
-		!strings.HasPrefix(apiErr.Message, "Threshold not found") {
+	if !isNotFoundMessage(apiErr.StatusCode, apiErr.Message) {
 		return err
 	}
 	mapped := *apiErr
 	mapped.Code = "NotFound"
 	mapped.Err = core.ErrNotFound
 	return &mapped
+}
+
+func isNotFoundMessage(status int, message string) bool {
+	return (status == http.StatusBadRequest || status/100 == 2) &&
+		(strings.HasPrefix(message, "Budget not found") || strings.HasPrefix(message, "Threshold not found"))
 }

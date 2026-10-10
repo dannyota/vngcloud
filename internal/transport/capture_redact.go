@@ -40,13 +40,13 @@ func redactJSONCapture(body []byte, values []string) ([]byte, bool) {
 	}
 	cleaned, changed := redactJSONValue(value, values)
 	if !changed && !matched {
-		return append([]byte(nil), body...), true
+		return []byte(redact(string(body), values)), true
 	}
 	encoded, err := json.Marshal(cleaned)
 	if err != nil {
 		return []byte(redactedText), true
 	}
-	return encoded, true
+	return []byte(redact(string(encoded), values)), true
 }
 
 func redactJSONValue(value any, values []string) (any, bool) {

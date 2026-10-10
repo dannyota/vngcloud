@@ -8,7 +8,7 @@ turned off.
 - TLS verification is always on.
 - The SDK refuses redirects to another scheme, host, or port, including with a
   caller-supplied HTTP client. It allows at most 10 redirect hops and checks
-  these rules before the caller's redirect hook.
+  these rules before and after the caller's redirect hook.
 - Login page redirects keep the original scheme, host, and port. A TOTP
   destination must match the sign-in origin before the SDK fetches the page
   or requests and submits the code.
@@ -24,7 +24,8 @@ turned off.
   API keys with `[redacted]`. Each attempt uses the credential sent on that
   attempt for redaction, including HTTP 2xx error envelopes after a concurrent
   token refresh. JSON captures check decoded strings, object keys, and number
-  text, including Unicode escapes. Captures with no match keep the exact body.
+  text, including Unicode escapes. A raw-text check also scrubs credentials
+  that match JSON literals. Captures with no match keep the exact body.
   An invalid JSON body containing `\u` escapes is withheld when secrets need
   redaction.
 - A credentials file that group or others can read is refused.

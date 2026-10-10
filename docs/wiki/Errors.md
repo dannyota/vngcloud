@@ -67,7 +67,7 @@ vngcloud.ErrorCode(err)     // APIError.Code, or "" for a non-APIError
 
 A service can map its own error shape onto `NotFound`; see the billing
 wiki page for an example. That mapping always wins over the status-derived
-fallback above.
+fallback above. Classification uses the message before credential redaction.
 
 Network failure messages use fixed descriptions, such as `canceled`,
 `timed out`, or the network operation that failed. Unknown causes use
@@ -81,7 +81,11 @@ by the network operation when available. DNS names, servers, and raw details
 are withheld. Cancellation and deadlines still match their context
 sentinels with `errors.Is`. Network error chains expose fixed text and safe
 sentinels, never the original URL error or arbitrary transport cause.
-Timeouts retain a `net.Error` whose `Timeout()` returns true.
+Timeouts retain a `net.Error` whose `Timeout()` returns true. Connection resets
+use `connection reset`, prefixed by the network operation when available.
+
+JSON decode failures use `response failed to decode`. Syntax failures keep a
+safe `*json.SyntaxError` and its offset without exposing the response text.
 
 ## LoginError
 

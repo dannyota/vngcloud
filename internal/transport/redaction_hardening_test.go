@@ -87,3 +87,37 @@ func TestCaptureWithoutSecretsKeepsMalformedUnicode(t *testing.T) {
 		t.Fatalf("capture without secrets changed: %s", got)
 	}
 }
+
+func TestCaptureRedactsJSONLiteralCredential(t *testing.T) {
+	for _, secret := range []string{"true", "null"} {
+		for _, body := range []string{`{"value":` + secret + `}`, `{"text":"` + secret + `","value":` + secret + `}`} {
+			got := (Request{APIKey: secret}).redactBody([]byte(body))
+			if strings.Contains(string(got), secret) {
+				t.Errorf("literal credential retained: %s", got)
+			}
+		}
+	}
+}
+
+func TestJSONDecodeFailureHasFixedDescription(t *testing.T) {
+	for _, body := range []string{`{"name":}`, `{"name":"synthetic-private-secret"}`} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+		c := New(Config{HTTPClient: server.Client()})
+		var out struct {
+			Name int `json:"name"`
+		}
+		err := c.DoJSON(context.Background(), Request{URL: server.URL, SkipAuth: true}, &out)
+		server.Close()
+		if err == nil || err.Error() != "response failed to decode" {
+			t.Errorf("decode error = %v", err)
+		}
+		var original, sanitized *json.SyntaxError
+		decodeErr := json.Unmarshal([]byte(body), &out)
+		if errors.As(decodeErr, &original) && (!errors.As(err, &sanitized) || sanitized.Offset != original.Offset) {
+			t.Error("syntax type or offset lost")
+		}
+		if err != nil && strings.Contains(err.Error(), "synthetic-private-secret") {
+			t.Error("decode error leaked body")
+		}
+	}
+}

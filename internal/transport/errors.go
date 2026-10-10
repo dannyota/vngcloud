@@ -127,10 +127,16 @@ func decodeError(req Request, status int, body []byte) error {
 		msg = http.StatusText(status)
 	}
 
+	code := codeString(eb.Code)
+	if req.ClassifyError != nil {
+		if classified := req.ClassifyError(status, msg); classified != "" {
+			code = classified
+		}
+	}
 	apiErr := &APIError{
 		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       redact(codeString(eb.Code), req.redactValues()),
+		Code:       redact(code, req.redactValues()),
 		Message:    redact(strings.TrimSpace(msg), req.redactValues()),
 		Retryable:  req.retryable(status),
 	}

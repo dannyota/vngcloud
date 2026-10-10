@@ -164,6 +164,10 @@ type Request struct {
 	// SentCredential receives the final attempt's credential for envelope
 	// redaction. The pointer belongs to one call and must not be shared.
 	SentCredential *string
+
+	// ClassifyError returns a fixed code before credential redaction. An empty
+	// result keeps the server code. Callers must not retain the raw message.
+	ClassifyError func(status int, message string) string
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -234,7 +238,7 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 				// principle, rather than relying on that always staying true.
 				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
 			}
-			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(err, req.redactValues())}
+			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeDecodeError(err)}
 		}
 	}
 	return statusCode, nil

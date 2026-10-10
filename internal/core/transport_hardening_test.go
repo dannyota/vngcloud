@@ -264,3 +264,84 @@ func TestHTTPSRedirectRefusesSchemeChange(t *testing.T) {
 		}
 	}
 }
+
+func TestCallerRedirectHookCannotRewriteOrigin(t *testing.T) {
+	for _, mode := range []string{"host", "port", "scheme", "origin", "history"} {
+		for _, path := range []string{"json", "status", "raw"} {
+			t.Run(mode+"/"+path, func(t *testing.T) {
+				var hits atomic.Int64
+				target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); _, _ = w.Write([]byte(`{}`)) }))
+				defer target.Close()
+				source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if mode == "history" && r.URL.Path == "/next" {
+						http.Redirect(w, r, "http://foreign.invalid/final", http.StatusFound)
+						return
+					}
+					http.Redirect(w, r, "/next", http.StatusFound)
+				}))
+				defer source.Close()
+				base := source.Client().Transport.(*http.Transport).Clone()
+				defer base.CloseIdleConnections()
+				dialer := &net.Dialer{}
+				tlsDialer := &tls.Dialer{NetDialer: dialer, Config: base.TLSClientConfig}
+				base.DialTLSContext = tlsDialer.DialContext
+				targetURL, err := url.Parse(target.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+					return dialer.DialContext(ctx, network, targetURL.Host)
+				}
+				caller := &http.Client{Transport: base, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					switch mode {
+					case "host":
+						req.URL.Scheme = "http"
+						req.URL.Host = "foreign.invalid"
+					case "port":
+						req.URL.Scheme = "http"
+						req.URL.Host = targetURL.Host
+					case "scheme":
+						req.URL.Scheme = "http"
+					case "history":
+						if len(via) == 1 {
+							via[0].URL.Host = "foreign.invalid"
+							via[0].URL.Scheme = "http"
+						}
+					case "origin":
+						via[0].URL.Host = "foreign.invalid"
+						req.URL.Host = "foreign.invalid"
+						req.URL.Scheme = "http"
+						via[0].URL.Scheme = "http"
+					}
+					return nil
+				}}
+				c, err := newClient(WithRegion("hcm-3"), WithStaticToken("synthetic-bearer-secret"), WithHTTPClient(caller), WithRetry(0, 0))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req := transport.Request{URL: source.URL}
+				switch path {
+				case "json":
+					err = c.DoJSON(context.Background(), req, nil)
+				case "status":
+					_, err = c.DoJSONStatus(context.Background(), req, nil)
+				case "raw":
+					_, _, _, err = c.DoRaw(context.Background(), req)
+				}
+				if hits.Load() != 0 {
+					t.Error("rewritten redirect reached target")
+				}
+				if err == nil {
+					t.Fatal("rewritten redirect accepted")
+				}
+				expected := "cross-host redirect refused"
+				if mode == "scheme" {
+					expected = "scheme change refused"
+				}
+				if !strings.Contains(err.Error(), expected) {
+					t.Fatalf("error = %v", err)
+				}
+			})
+		}
+	}
+}

@@ -25,9 +25,9 @@ func (e *safeNetworkError) Unwrap() error   { return e.cause }
 func (e *safeNetworkError) Timeout() bool   { return e.timeout }
 func (e *safeNetworkError) Temporary() bool { return false }
 
-func sanitizeNetworkError(err error, values []string) error {
+func sanitizeNetworkError(err error, values []string) *safeNetworkError {
 	var sentinels []error
-	for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, net.ErrClosed, syscall.ECONNREFUSED, errRedirectLimit, errRedirectScheme} {
+	for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, net.ErrClosed, syscall.ECONNREFUSED, syscall.ECONNRESET, errRedirectLimit, errRedirectScheme} {
 		if errors.Is(err, sentinel) {
 			sentinels = append(sentinels, sentinel)
 		}
@@ -51,6 +51,12 @@ func sanitizeNetworkError(err error, values []string) error {
 		timeout: errors.Is(err, context.DeadlineExceeded) || hasTimeout(err),
 		cause:   errors.Join(sentinels...),
 	}
+}
+
+func sanitizeDecodeError(err error) error {
+	safe := sanitizeNetworkError(err, nil)
+	safe.message = "response failed to decode"
+	return safe
 }
 
 //nolint:errorlint // Inspect each cause directly; the first net.Error can hide a deeper timeout.
@@ -134,7 +140,13 @@ func NetworkFailureCause(err error) string {
 		if errors.Is(op, syscall.ECONNREFUSED) || (op.Err != nil && op.Err.Error() == "connect: connection refused") {
 			return operation + ": connect: connection refused"
 		}
+		if errors.Is(op, syscall.ECONNRESET) {
+			return operation + ": connection reset"
+		}
 		return operation + ": network request failed"
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "connection reset"
 	}
 	var dns *net.DNSError
 	if errors.As(err, &dns) && dns.IsNotFound {

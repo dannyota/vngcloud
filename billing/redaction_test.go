@@ -43,20 +43,27 @@ func TestEnvelopeRedactsBearerToken(t *testing.T) {
 }
 
 func TestEnvelopeRedactionPreservesNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":404,"message":"Budget not found"}`))
-	}))
-	defer server.Close()
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("found"), vngcloud.WithHTTPClient(server.Client()), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: server.URL}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = New(cfg).ListBudgets(context.Background(), nil)
-	if !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("not-found mapping lost: %v", err)
-	}
-	if strings.Contains(err.Error(), "found") {
-		t.Fatal("credential leaked")
+	for _, status := range []int{200, 400} {
+		for _, message := range []string{"Budget not found", "Threshold not found"} {
+			t.Run(fmt.Sprintf("%d/%s", status, message), func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(status)
+					_, _ = fmt.Fprintf(w, `{"code":404,"message":%q}`, message)
+				}))
+				defer server.Close()
+				cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("found"), vngcloud.WithHTTPClient(server.Client()), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: server.URL}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = New(cfg).ListBudgets(context.Background(), nil)
+				if !errors.Is(err, core.ErrNotFound) {
+					t.Fatalf("not-found mapping lost: %v", err)
+				}
+				if strings.Contains(err.Error(), "found") {
+					t.Fatal("credential leaked")
+				}
+			})
+		}
 	}
 }
 
@@ -123,5 +130,25 @@ func TestEnvelopeRejectsStructuredCodes(t *testing.T) {
 				t.Errorf("unsupported code = %q", ae.Code)
 			}
 		}
+	}
+}
+
+func TestHTTPNotFoundClassificationRedactsCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"message":"Budget not found"}`))
+	}))
+	defer server.Close()
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("NotFound"), vngcloud.WithHTTPClient(server.Client()), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: server.URL}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(cfg).ListBudgets(context.Background(), nil)
+	var ae *core.APIError
+	if !errors.As(err, &ae) || !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(ae.Code, "NotFound") {
+		t.Fatal("classification code leaked credential")
 	}
 }
