@@ -17,11 +17,14 @@ real API.
   status of the [status table](vserver-paid-writes-api.md#statuses). Until
   a live run captures a create response, its fixture is built from the
   reference and marked so in the test name.
-- Quote bodies: each quote sends the write's own body as `resourceInfo`,
-  plus `period` 1 and `isPoc` false, without `userData`; `action` is
-  `create` or `resize`; an empty `pricing.GetQuoteInput.Action` sends
-  `create`. A test decodes the quote and the write bodies from one Input
-  and compares every priced key.
+- Quote bodies: each quote sends only the priced keys in
+  [quote requests](vserver-paid-writes-api.md#quote-requests) as
+  `resourceInfo`, plus `period` 1 and `isPoc` false, and never `userData`;
+  `action` is `create` or `resize`; an empty
+  `pricing.GetQuoteInput.Action` sends `create`. The drift test builds the
+  quote and the write bodies from one Input with every field set and
+  checks every quote key except `period` and `isPoc` appears in the write
+  body with an equal value.
 - The price guard, per paid write: `MaxPrice` 0 with a quote of 347800
   sends no write and wraps `vngcloud.ErrPriceAboveMax`, naming both
   amounts; a quote equal to `MaxPrice` sends the write; NaN, `+Inf`,
@@ -39,7 +42,8 @@ real API.
   attach already done, detach of the boot volume, detach from an `ACTIVE`
   server without `AllowRunning`, detach of a volume not on that server.
 - Create bodies: every field in the create table and nothing from the
-  [non-goals](vserver-paid-writes.md#non-goals), `encryptionVolume` false,
+  [non-goals](vserver-paid-writes.md#non-goals), `encryptionVolume` false
+  with no encryption field set,
   `isEnableAutoRenew` false by default, `userData` base64 with
   `userDataBase64Encoded` true, half a data disk refused, an empty
   `SecurityGroupIDs` refused. Resize volume sends the read type as

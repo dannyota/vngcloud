@@ -28,3 +28,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [IAM writes](iam-writes.md) | Accepted |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
+| [Encrypted volumes](encrypted-volumes.md) | Accepted |

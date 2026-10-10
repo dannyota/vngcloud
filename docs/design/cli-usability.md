@@ -148,8 +148,8 @@ required checks do not change.
 
 | Quote | Required on the quote | Required on the create only | Body keys besides `period`, `isPoc` |
 |-|-|-|-|
-| `compute.QuoteCreateServer` | `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID` | `Name`, `VPCID`, `SubnetID`, `SecurityGroupIDs`, `SSHKeyID` | `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set |
-| `volume.QuoteCreateVolume` | `ZoneID`, `Size`, `VolumeTypeID` | `Name` | `zoneId`, `size`, `volumeTypeId` |
+| `compute.QuoteCreateServer` | `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID` | `Name`, `VPCID`, `SubnetID`, `SecurityGroupIDs`, `SSHKeyID` | `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set; [encryption keys](encrypted-volumes.md#body-keys) when set |
+| `volume.QuoteCreateVolume` | `ZoneID`, `Size`, `VolumeTypeID` | `Name` | `zoneId`, `size`, `volumeTypeId`; [encryption keys](encrypted-volumes.md#body-keys) when set |
 | `loadbalancer.QuoteCreateLoadBalancer` | `PackageID`, `ZoneID` | `Name`, `Scheme`, `SubnetID`, `Type` | `packageId`, `zoneId`, `isBuyMorePoc` (unchanged) |
 
 - Fields that are optional on the create, such as `ServerGroupID`,

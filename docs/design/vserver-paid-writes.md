@@ -25,8 +25,8 @@ and the security review are in
   elastic IP costs 120,000 VND a month and exposes the server.
 - Password login and Windows images: `userName`, `userPassword`,
   `osLicence`, and `expirePassword`.
-- Volume and root disk encryption, multi-attach volumes, volume type
-  change, and host groups.
+- Multi-attach volumes, volume type change, and host groups. Encryption
+  is in [encrypted volumes](encrypted-volumes.md).
 - Volume snapshots. Creating one needs the snapshot service, which the
   console activates through a billing order and a payment page. Server
   snapshots, backups, and restores likewise.
@@ -153,8 +153,8 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 | `MaxPrice` | VND a month; default 0 |
 | `NoWait` | Skip the wait |
 
-- The SDK sends `encryptionVolume` false and never sends the fields in
-  [Non-goals](#non-goals).
+- Encryption follows [encrypted volumes](encrypted-volumes.md). The SDK
+  never sends the fields in [Non-goals](#non-goals).
 - The duplicate-name check lists servers and matches the name exactly,
   since list filters match substrings. It runs before the quote. A rerun
   after an unclear failure then finds the first server by name instead of

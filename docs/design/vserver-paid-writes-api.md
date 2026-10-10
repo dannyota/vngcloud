@@ -75,7 +75,8 @@ them; the SDK sends `zoneId` only on creates.
   `userName`, `userPassword`, `osLicence`, `isPoc`, `hostGroupId`,
   `poolName`, `networks`, `createdFrom`, backup and snapshot restore
   fields, and the encryption types; the SDK never sends them. The API
-  takes one data disk.
+  takes one data disk. Encryption keys are in
+  [encrypted volumes](encrypted-volumes.md#body-keys).
 - Server delete: `deleteAllVolume` (bool). Terraform sends `false`.
 - Server resize: `flavorId`, `serverId` (the path ID), and an optional
   `hostGroupId` the SDK never sends.
@@ -84,7 +85,9 @@ them; the SDK sends `zoneId` only on creates.
 - Volume create: `name`, `size` (GB), `volumeTypeId`, `zoneId`, and
   optionally `isEnableAutoRenew`. The reference also lists `multiAttach`,
   `encryptionType`, `createdFrom`, `configVolumeRestore`, `imageId`,
-  `persistentVolume`, and `poolName`; the SDK never sends them.
+  `persistentVolume`, and `poolName`. The SDK sends `encryptionType` only
+  per [encrypted volumes](encrypted-volumes.md#body-keys), and never the
+  rest.
 - Volume resize: `newSize` and `newVolumeTypeId`, both required.
 - Attach and detach: an empty object `{}` with the JSON content type. A
   bodiless PUT is refused with 400 and the body `{"message":null}` (live).
@@ -209,9 +212,9 @@ the probes sent the create forms (live).
 
 | Quote | `resourceType`, `action` | `resourceInfo` |
 |-|-|-|
-| Server create | `server`, `create` | `period` 1, `isPoc` false, `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set |
+| Server create | `server`, `create` | `period` 1, `isPoc` false, `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set; encryption type keys when set |
 | Server resize | `server`, `resize` | `serverId`, `flavorId` |
-| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `size`, `volumeTypeId`, `zoneId` |
+| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `size`, `volumeTypeId`, `zoneId`; encryption keys when set |
 | Volume resize | `volume`, `resize` | `volumeId`, `newSize`, `newVolumeTypeId` |
 
 - The server quote ignores keys it does not price: `name`,
@@ -232,7 +235,9 @@ the probes sent the create forms (live).
 - A drift test builds a quote and a create from one Input with every
   field set. It checks that every quote key except `period` and `isPoc`
   appears in the create body with an equal value, so a priced key the
-  create sends cannot differ from the one the guard priced.
+  create sends cannot differ from the one the guard priced. The
+  encryption keys are in
+  [encrypted volumes](encrypted-volumes.md#body-keys).
 - A missing `zoneId` did not change a price (live).
 - A resize quote for an unknown ID returns 400: `Can not find this volume
   with id: <id>` for a volume and `Volume is not found` for a server
