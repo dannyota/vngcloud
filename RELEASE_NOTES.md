@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.68.1 - Server User Data Fix
+
+### Fixes
+
+- `compute create-server --user-data-file` always failed with HTTP 400:
+  GreenNode refuses user data together with an SSH key ("User data don't allow
+  input username, password and ssh key."), and `--ssh-key-id` was required.
+  Now set exactly one of `--ssh-key-id` or `--user-data-file`; with user data,
+  the cloud-config installs the login keys (for example
+  `ssh_authorized_keys`). Both or neither is refused before any request. SDK:
+  `CreateServerInput.SSHKeyID` is optional and `sshKeyId` is omitted when
+  empty.
+- `compute import-ssh-key` help now says GreenNode accepts RSA public keys
+  only; ed25519 and ECDSA keys are refused with 400 "Invalid public key".
+- Verified live on 2026-10-11 in `hcm-3`: a server created with user data and
+  no SSH key reached ACTIVE, cloud-init ran the user data, and the server was
+  deleted (8 VND net).
+
 ## v0.68.0 - Server Console Log
 
 ### Highlights
