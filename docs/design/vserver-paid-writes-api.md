@@ -160,9 +160,11 @@ live except where marked.
   user`. Whether a zero balance gives this message is a
   [probe](vserver-paid-writes-checks.md#refusal-probe).
 - Attach fails for a volume already attached (`already attached to
-  instance`, `this volume has been attached`) and for an encrypted volume
-  (`cannot attach encryption volume`). Any volume write fails while the
-  volume `is in-process` or `is migrating`.
+  instance`, `this volume has been attached`). VNG Cloud's SDK also maps
+  `cannot attach encryption volume`; an encrypted volume attached to a
+  server with encrypted disks without it (live), see
+  [encrypted volumes](encrypted-volumes.md#open-items). Any volume write
+  fails while the volume `is in-process` or `is migrating`.
 - A volume resize that changes neither size nor type fails with `volume
   size or volume type must be changed`. A new type must be in the same
   zone. Sizes outside the type's range fail with `field new_volume_size
@@ -212,9 +214,9 @@ the probes sent the create forms (live).
 
 | Quote | `resourceType`, `action` | `resourceInfo` |
 |-|-|-|
-| Server create | `server`, `create` | `period` 1, `isPoc` false, `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set; encryption type keys when set |
+| Server create | `server`, `create` | `period` 1, `isPoc` false, `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set |
 | Server resize | `server`, `resize` | `serverId`, `flavorId` |
-| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `size`, `volumeTypeId`, `zoneId`; encryption keys when set |
+| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `size`, `volumeTypeId`, `zoneId`; `encryptionType` when set |
 | Volume resize | `volume`, `resize` | `volumeId`, `newSize`, `newVolumeTypeId` |
 
 - The server quote ignores keys it does not price: `name`,
@@ -245,7 +247,8 @@ the probes sent the create forms (live).
 
 ## Prices
 
-Quotes in `hcm-3`, zone `HCM03-1C`, on 2026-09-28, VND a month with VAT.
+Quotes in `hcm-3`, zone `HCM03-1C`, on 2026-09-28 (encryption rows on
+2026-10-10), VND a month with VAT.
 The account had no discount. Prices are public list prices.
 
 | Item | Monthly |
@@ -255,6 +258,7 @@ The account had no discount. Prices are public list prices.
 | Flavor `s2-general-2x4` (2 vCPU, 4 GB) | 567,600 |
 | SSD volume, 3,000 IOPS | 3,200 a GB |
 | Volume encryption (`CES`), 1x2 flavor | 85,140 |
+| Volume encryption on a separate volume | 0 |
 | Elastic IP | 120,000 |
 | Snapshot service quote | 5,040 |
 
@@ -264,9 +268,12 @@ The account had no discount. Prices are public list prices.
 | The same with a 40 GB root | 411,800 |
 | The same 20 GB root with a 10 GB SSD data disk | 379,800 |
 | The same with `encryptionVolume` true | 432,940 |
+| The 10 GB data disk server with `encryptionVolume` true | 464,940 |
+| `encryptionVolume` true, 20 GB root and 20 GB data disk | 496,940 |
 | Server `s2-general-2x4`, 20 GB SSD root | 631,600 |
 | Volume, 1 GB SSD | 3,200 |
 | Volume, 10 GB SSD | 32,000 |
+| Volume, 10 GB SSD, either encryption type | 32,000 |
 | Volume, 20 GB SSD | 64,000 |
 
 The server quote splits into `propertiesPrice` lines named `INSTANCE
