@@ -111,6 +111,7 @@ var operationOutputPaths = map[string]string{
 	"storage.ListProjects":                       "storage/project",
 	"storage.ListBuckets":                        "storage/bucket",
 	"storage.GetBucket":                          "storage/bucket_detail",
+	"storage.GetBucketEncryption":                "storage/bucket_encryption",
 }
 
 type rawCaptureStore struct {

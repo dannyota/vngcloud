@@ -44,6 +44,11 @@ func showStorage(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 
 	detail, err := client.GetBucket(ctx, &storage.GetBucketInput{ProjectID: projects.Items[0].ID, Bucket: buckets.Items[0].Name})
 	recordAccountOne(outputs, "storage/bucket_detail", "storage bucket detail", detail, err)
+	for _, bucket := range buckets.Items {
+		encryption, err := client.GetBucketEncryption(ctx, &storage.GetBucketEncryptionInput{
+			ProjectID: projects.Items[0].ID, BucketName: bucket.Name})
+		recordAccountOne(outputs, "storage/bucket_encryption", "storage bucket encryption", encryption, err)
+	}
 }
 
 func storageRegionItems(result *storage.ListRegionsOutput) []storage.Region {

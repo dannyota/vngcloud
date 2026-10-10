@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -73,7 +72,7 @@ func (s *encryptionS3) request(ctx context.Context, method, bucket, key string, 
 	}
 	u.RawPath = s3EncodePath(u.Path)
 	u.RawQuery = canonicalQuery(q)
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body)) //nolint:gosec // The host is fixed; S3 keys only change the path.
 	if err != nil {
 		return 0, nil, nil, errors.New("build S3 request failed")
 	}
@@ -82,7 +81,7 @@ func (s *encryptionS3) request(ctx context.Context, method, bucket, key string, 
 		req.Header = make(http.Header)
 	}
 	s.objects.signer.sign(req, body, time.Now())
-	resp, err := s.objects.http.Do(req)
+	resp, err := s.objects.http.Do(req) //nolint:gosec // The host is fixed and redirects are refused.
 	if err != nil {
 		return 0, nil, nil, errors.New("S3 request failed")
 	}
@@ -149,78 +148,23 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 			t.Error("close report failed")
 		}
 	})
-	client := storage.New(liveWriteConfig(ctx, t, vngcloud.WithResponseCapture(report.capture)))
-	list, err := client.ListBuckets(ctx, &storage.ListBucketsInput{Region: "HCM04", ProjectID: project})
-	if err != nil {
-		t.Fatal("project bucket check failed")
+	cfg := liveWriteConfig(ctx, t, vngcloud.WithResponseCapture(report.capture))
+	run := newEncryptionResources(cfg, report, project)
+	if err := run.prepare(ctx); err != nil {
+		t.Fatal("project or key inventory check failed; no writes sent")
 	}
-	for _, b := range list.Items {
-		if !strings.HasPrefix(b.Name, "vngcloud-live-") {
-			t.Fatal("project safety check failed; no writes sent")
-		}
-	}
-	baseline, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{Region: "HCM04", ProjectID: project})
-	if err != nil {
-		t.Fatal("key baseline failed")
-	}
-	knownKeys := map[string]bool{}
-	for _, k := range baseline.Items {
-		knownKeys[k.UserKeyID] = true
-	}
+	client := run.client
 	bucket := "vngcloud-live-" + suffix
 	beforeBucket := bucket + "-before"
-	for _, existing := range list.Items {
+	for _, existing := range run.inventory {
 		if existing.Name == bucket || existing.Name == beforeBucket {
 			t.Fatal("bucket name collision; no writes sent")
 		}
 	}
-	buckets := []string{}
-	var s3 *encryptionS3
-	keyAttempted := false
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		leftovers := []string{}
-		for _, b := range buckets {
-			if s3 != nil {
-				if err := s3.empty(cleanup, b); err != nil {
-					leftovers = append(leftovers, "bucket "+b+": "+err.Error())
-					continue
-				}
-			}
-			_, err := client.DeleteBucket(cleanup, &storage.DeleteBucketInput{Region: "HCM04", ProjectID: project, Bucket: b})
-			if err != nil && !errors.Is(err, vngcloud.ErrNotFound) {
-				leftovers = append(leftovers, "bucket "+b)
-				continue
-			}
-			if _, err := client.GetBucket(cleanup, &storage.GetBucketInput{Region: "HCM04", ProjectID: project, Bucket: b}); !errors.Is(err, vngcloud.ErrNotFound) {
-				leftovers = append(leftovers, "bucket "+b)
-			}
-		}
-		if keyAttempted {
-			keys, err := client.ListS3Keys(cleanup, &storage.ListS3KeysInput{Region: "HCM04", ProjectID: project})
-			if err != nil {
-				leftovers = append(leftovers, "unconfirmed temporary S3 key")
-			} else {
-				for _, k := range keys.Items {
-					if !knownKeys[k.UserKeyID] {
-						if _, err := client.DeleteS3Key(cleanup, &storage.DeleteS3KeyInput{Region: "HCM04", ProjectID: project, UserKeyID: k.UserKeyID}); err != nil {
-							leftovers = append(leftovers, "key "+k.UserKeyID)
-						}
-					}
-				}
-				keys, err = client.ListS3Keys(cleanup, &storage.ListS3KeysInput{Region: "HCM04", ProjectID: project})
-				if err != nil {
-					leftovers = append(leftovers, "unconfirmed temporary S3 key")
-				} else {
-					for _, k := range keys.Items {
-						if !knownKeys[k.UserKeyID] {
-							leftovers = append(leftovers, "key "+k.UserKeyID)
-						}
-					}
-				}
-			}
-		}
+		leftovers := append(run.cleanupBuckets(cleanup), run.cleanupKeys(cleanup)...)
 		report.record(map[string]any{"leftovers": leftovers, "projectDeleted": false})
 		t.Logf("cleanup leftovers=%d", len(leftovers))
 		if len(leftovers) > 0 {
@@ -229,8 +173,7 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	})
 	create := func(b string, encrypted bool) {
 		t.Helper()
-		buckets = append(buckets, b)
-		if _, err := client.CreateBucket(ctx, &storage.CreateBucketInput{Region: "HCM04", ProjectID: project, Bucket: b, Encryption: encrypted}); err != nil {
+		if err := run.createBucket(ctx, b, encrypted); err != nil {
 			t.Fatal("create failed")
 		}
 		report.check(t)
@@ -267,8 +210,7 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	if !errors.Is(putErr, vngcloud.ErrNotFound) {
 		t.Fatal("missing bucket write check failed")
 	}
-	keyAttempted = true
-	key, err := client.CreateS3Key(ctx, &storage.CreateS3KeyInput{Region: "HCM04", ProjectID: project})
+	key, err := run.createKey(ctx)
 	if err != nil || key == nil {
 		t.Fatal("temporary S3 key failed")
 	}
@@ -276,7 +218,8 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	if err != nil {
 		t.Fatal("S3 setup failed")
 	}
-	s3 = &encryptionS3{objects: objects, report: report, t: t}
+	s3 := &encryptionS3{objects: objects, report: report, t: t}
+	run.s3 = s3
 	// An algorithm or a service error is evidence, not an assumed contract.
 	status, _, _, err := s3.request(ctx, "GET", bucket, "", url.Values{"encryption": {""}}, nil, nil)
 	report.check(t)
@@ -297,46 +240,12 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	}
 	create(beforeBucket, false)
 	read(beforeBucket, false)
-	s3.require(ctx, "PUT", beforeBucket, "before", nil, nil, payload, 200)
-	compare := func(keys ...string) {
-		t.Helper()
-		for _, k := range keys {
-			s3.require(ctx, "HEAD", beforeBucket, k, nil, nil, nil, 200)
-			_, body := s3.require(ctx, "GET", beforeBucket, k, nil, nil, nil, 200)
-			if !bytes.Equal(body, payload) {
-				t.Fatal("object read failed")
-			}
-		}
+	if err := s3.compareStates(ctx, beforeBucket, payload, func(enabled bool) error {
+		toggle(beforeBucket, enabled)
+		return nil
+	}); err != nil {
+		t.Fatal("object comparisons failed")
 	}
-	compare("before")
-	toggle(beforeBucket, true)
-	compare("before")
-	s3.require(ctx, "PUT", beforeBucket, "during", nil, nil, payload, 200)
-	copyHeaders := http.Header{"X-Amz-Copy-Source": {"/" + beforeBucket + "/before"}}
-	_, copyBody := s3.require(ctx, "PUT", beforeBucket, "copy", nil, copyHeaders, nil, 200)
-	var copied struct {
-		XMLName xml.Name
-		ETag    string `xml:"ETag"`
-	}
-	if xml.Unmarshal(copyBody, &copied) != nil || copied.XMLName.Local != "CopyObjectResult" || copied.ETag == "" {
-		t.Fatal("S3 copy failed")
-	}
-	compare("before", "during", "copy")
-	moveHeaders := http.Header{"X-Amz-Copy-Source": {"/" + beforeBucket + "/copy"}}
-	_, moveBody := s3.require(ctx, "PUT", beforeBucket, "moved", nil, moveHeaders, nil, 200)
-	if xml.Unmarshal(moveBody, &copied) != nil || copied.XMLName.Local != "CopyObjectResult" || copied.ETag == "" {
-		t.Fatal("S3 move copy failed")
-	}
-	s3.require(ctx, "DELETE", beforeBucket, "copy", nil, nil, nil, 204)
-	s3.require(ctx, "HEAD", beforeBucket, "copy", nil, nil, nil, 404)
-	// The copy followed by delete checks rename or move without inferring
-	// re-encryption from a successful read.
-	toggle(beforeBucket, false)
-	compare("before", "during", "moved")
-	s3.require(ctx, "PUT", beforeBucket, "after", nil, nil, payload, 200)
-	compare("before", "during", "moved", "after")
-	toggle(beforeBucket, true)
-	compare("before", "during", "moved", "after")
 	report.record(map[string]any{"result": "pass", "unresolved": []string{"effects invisible through S3", "encryption in other regions"}})
 	t.Log("encryption checks pass")
 }
@@ -419,21 +328,18 @@ func (s *encryptionS3) deleteObjects(ctx context.Context, bucket string, keys []
 // a truncated listing instead of deleting a bucket whose contents are unknown.
 func (s *encryptionS3) empty(ctx context.Context, bucket string) error {
 	status, _, body, err := s.request(ctx, "GET", bucket, "", url.Values{"uploads": {""}}, nil, nil)
-	if status == 404 && err == nil {
-		return nil
-	}
 	if err != nil || status != 200 {
 		return errors.New("uploads unconfirmed")
 	}
 	var uploads struct {
 		XMLName   xml.Name
-		Truncated bool `xml:"IsTruncated"`
+		Truncated *bool `xml:"IsTruncated"`
 		Uploads   []struct {
 			Key string `xml:"Key"`
 			ID  string `xml:"UploadId"`
 		} `xml:"Upload"`
 	}
-	if xml.Unmarshal(body, &uploads) != nil || uploads.XMLName.Local != "ListMultipartUploadsResult" || uploads.Truncated {
+	if xml.Unmarshal(body, &uploads) != nil || uploads.XMLName.Local != "ListMultipartUploadsResult" || uploads.Truncated == nil || *uploads.Truncated { //nolint:gosec // Bounded XML decodes into fixed fields without external entities.
 		return errors.New("uploads listing incomplete")
 	}
 	for _, u := range uploads.Uploads {
@@ -452,11 +358,11 @@ func (s *encryptionS3) empty(ctx context.Context, bucket string) error {
 	}
 	var versions struct {
 		XMLName   xml.Name
-		Truncated bool      `xml:"IsTruncated"`
+		Truncated *bool     `xml:"IsTruncated"`
 		Versions  []version `xml:"Version"`
 		Markers   []version `xml:"DeleteMarker"`
 	}
-	if xml.Unmarshal(body, &versions) != nil || versions.XMLName.Local != "ListVersionsResult" || versions.Truncated {
+	if xml.Unmarshal(body, &versions) != nil || versions.XMLName.Local != "ListVersionsResult" || versions.Truncated == nil || *versions.Truncated { //nolint:gosec // Bounded XML decodes into fixed fields without external entities.
 		return errors.New("versions listing incomplete")
 	}
 	for _, v := range append(versions.Versions, versions.Markers...) {
@@ -471,12 +377,12 @@ func (s *encryptionS3) empty(ctx context.Context, bucket string) error {
 	}
 	var listing struct {
 		XMLName   xml.Name
-		Truncated bool `xml:"IsTruncated"`
+		Truncated *bool `xml:"IsTruncated"`
 		Contents  []struct {
 			Key string `xml:"Key"`
 		} `xml:"Contents"`
 	}
-	if xml.Unmarshal(body, &listing) != nil || listing.XMLName.Local != "ListBucketResult" || listing.Truncated {
+	if xml.Unmarshal(body, &listing) != nil || listing.XMLName.Local != "ListBucketResult" || listing.Truncated == nil || *listing.Truncated { //nolint:gosec // Bounded XML decodes into fixed fields without external entities.
 		return errors.New("objects listing incomplete")
 	}
 	for _, o := range listing.Contents {
@@ -497,13 +403,13 @@ func (s *encryptionS3) empty(ctx context.Context, bucket string) error {
 		}
 		var remaining struct {
 			XMLName   xml.Name
-			Truncated bool       `xml:"IsTruncated"`
+			Truncated *bool      `xml:"IsTruncated"`
 			Uploads   []struct{} `xml:"Upload"`
 			Versions  []struct{} `xml:"Version"`
 			Markers   []struct{} `xml:"DeleteMarker"`
 			Objects   []struct{} `xml:"Contents"`
 		}
-		if err != nil || status != 200 || xml.Unmarshal(body, &remaining) != nil || remaining.XMLName.Local != expected || remaining.Truncated || len(remaining.Uploads)+len(remaining.Versions)+len(remaining.Markers)+len(remaining.Objects) != 0 {
+		if err != nil || status != 200 || xml.Unmarshal(body, &remaining) != nil || remaining.XMLName.Local != expected || remaining.Truncated == nil || *remaining.Truncated || len(remaining.Uploads)+len(remaining.Versions)+len(remaining.Markers)+len(remaining.Objects) != 0 { //nolint:gosec // Bounded XML decodes into fixed fields without external entities.
 			return errors.New("objects, versions, markers, or uploads remain")
 		}
 	}
