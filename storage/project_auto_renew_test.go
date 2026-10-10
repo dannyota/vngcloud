@@ -93,7 +93,7 @@ func (s *autoRenewServer) handler(t *testing.T) http.Handler {
 			body = testutil.FixtureBody(t, "../testdata/billing/PutResourceAutoRenew.json")
 		case "/internal/v1/projects":
 			s.projects++
-			body = projectList(strings.TrimSuffix(newProjectJSON, "}") + fmt.Sprintf(`,"enableAutoRenew":%t,"autoRenewPeriod":%d}`, s.enabled, s.months))
+			body = projectList(strings.Replace(newProjectJSON, `"enableAutoRenew":false,"autoRenewPeriod":0`, fmt.Sprintf(`"enableAutoRenew":%t,"autoRenewPeriod":%d`, s.enabled, s.months), 1))
 		default:
 			if strings.HasPrefix(r.URL.Path, "/gateway/") {
 				t.Error("unexpected billing route")

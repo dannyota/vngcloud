@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/billingresources"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 type GetProjectAutoRenewInput struct {
@@ -123,7 +125,16 @@ func (c *Client) readAutoRenew(ctx context.Context, op, region, projectID string
 		return nil, err
 	}
 	// Conflicting list keys cannot prove absence or provide a write guard.
-	env, err := c.do(ctx, "storage.ListProjects", c.route([]string{"projects"}, nil), id)
+	env, err := c.exchange(ctx, call{
+		op: "storage.ListProjects", method: http.MethodGet,
+		url: c.route([]string{"projects"}, nil), regionID: id, ok: []int{http.StatusOK},
+		validate: func(raw json.RawMessage) error {
+			if jsonresponse.Validate(raw) != nil {
+				return projectResponseError(op, "project list is malformed")
+			}
+			return nil
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

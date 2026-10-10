@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -82,7 +83,7 @@ func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.
 		Code json.RawMessage `json:"code"`
 		Data json.RawMessage `json:"data"`
 	}
-	if status != http.StatusOK || !object(raw) || json.Unmarshal(raw, &env) != nil || !successCode(env.Code) || !object(env.Data) {
+	if status != http.StatusOK || !object(raw) || jsonresponse.Validate(raw) != nil || json.Unmarshal(raw, &env) != nil || !successCode(env.Code) || !object(env.Data) {
 		return nil, status, responseError(req.Operation, status)
 	}
 	return env.Data, status, nil

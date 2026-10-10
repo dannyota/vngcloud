@@ -234,6 +234,8 @@ outage. A later disable does not cancel a charge already in progress.
 
 ## Read, send once, and confirm
 
+Duplicate JSON keys in any decoded response fail closed.
+
 1. Refuse read-only CLI profiles before authentication or any request,
    including requests for a no-op. Validate input shape locally.
 2. Join fresh project and resource reads as above. Require known renewal

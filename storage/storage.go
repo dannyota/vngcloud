@@ -73,6 +73,7 @@ type call struct {
 	regionID string
 	body     any
 	ok       []int
+	validate func(json.RawMessage) error
 
 	// write marks a request that changes state, so an empty response says the
 	// change may have happened.
@@ -120,6 +121,11 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return nil, emptyResponse(k, status)
+	}
+	if k.validate != nil {
+		if err := k.validate(raw); err != nil {
+			return nil, err
+		}
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
