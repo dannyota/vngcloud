@@ -425,16 +425,31 @@ func TestUpdateCancelledFollowUpReturnsPreWriteOutput(t *testing.T) {
 	s := newSim(t, StatusActive)
 	h, _ := s.harness(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	followUp := make(chan struct{})
+	release := make(chan struct{})
 	s.beforeDetail = func(n int) {
 		if n == 2 {
-			cancel()
+			close(followUp)
+			<-release
 		}
 	}
-	out, err := h.UpdateWebAccelerator(ctx, &UpdateWebAcceleratorInput{
-		CDNID: cdnID, CNames: []string{"a.example.test"}, NoWait: true,
-	})
-	if !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) || out == nil || out.WebAccelerator.Status != StatusActive {
-		t.Fatalf("out = %+v err = %v", out, err)
+	type result struct {
+		out *UpdateWebAcceleratorOutput
+		err error
+	}
+	results := make(chan result, 1)
+	go func() {
+		out, err := h.UpdateWebAccelerator(ctx, &UpdateWebAcceleratorInput{
+			CDNID: cdnID, CNames: []string{"a.example.test"}, NoWait: true,
+		})
+		results <- result{out: out, err: err}
+	}()
+	<-followUp
+	cancel()
+	got := <-results
+	close(release)
+	if !errors.Is(got.err, ErrNotSettled) || !errors.Is(got.err, context.Canceled) || got.out == nil || got.out.WebAccelerator.Status != StatusActive {
+		t.Fatalf("out = %+v err = %v", got.out, got.err)
 	}
 }
 
