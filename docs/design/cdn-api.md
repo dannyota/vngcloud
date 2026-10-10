@@ -1,12 +1,15 @@
 # vCDN API Design
 
-Status: Accepted.
+Status: Accepted; the C1b changes in
+[decisions 30 to 46](cdn-cli.md#owner-decisions) await approval.
 
 This design adds GreenNode vCDN management to the `cdn` package: Web
 Accelerator CDNs, certificates, cache purge, API key reads, and traffic
-analytics, on the vCDN API. The CLI commands, tests, live checks, releases,
-and owner decisions are in [vCDN CLI](cdn-cli.md). The CDN IP range read
-stays in [CDN IP ranges](cdn.md).
+analytics, on the vCDN API. It holds the source facts, credentials,
+transport, errors, reads, and analytics. The write rules are in
+[vCDN writes](cdn-writes.md). The CLI commands, tests, live checks,
+releases, and owner decisions are in [vCDN CLI](cdn-cli.md). The CDN IP
+range read stays in [CDN IP ranges](cdn.md).
 
 It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
 [ADR 0002](../adr/0002-write-api-conventions.md), and the status toggles
@@ -17,8 +20,9 @@ follow [ADR 0003](../adr/0003-toggle-writes.md).
 The vCDN API reference, v1.1.0, at `https://api-docs.vngcloud.vn/vcdn/`,
 and the GreenNode vCDN pages on API developers, HTTP origin, CNAME, purge,
 page rules, and pricing (`docs.greennode.ai/vcdn/...`), read on 2026-10-09.
-Read-only probes with the owner's API key on an account with no CDN, on
-2026-10-09, correct the reference where the two disagree.
+Probes with the owner's API key correct the reference where the two
+disagree: read-only on an empty account on 2026-10-09, and on 2026-10-10 on
+a real CDN made in the portal and deleted through the API.
 
 Facts from the reference:
 
@@ -34,41 +38,48 @@ Facts from the reference:
 - A CDN has a `cdnId`, the customer `domainName`, alternative `cName`
   names, and a generated `cdnDomain` such as `<random>webacc.vcdn.cloud`,
   which the customer's DNS points at.
-- Status codes: 0 `DISABLED`, 1 `ENABLED`, 2 `DELETED`, 3 `DEPLOYING`,
-  4 `DELETING`, 5 `DISABLING`, 6 `SUSPENDING`.
-- Delete and status change answer "will effect after 5 minutes".
 - No call lists, buys, or prices a package. No call quotes a price.
 
 Facts from the probes:
 
-- The probes reached the API at the base URL above.
 - The reference's Web Accelerator prefix `webacc` does not exist: every
   `webacc/*` route answers 404 problem+json, `"detail": "No static
   resource webacc/list."`. The live prefixes are `cdn`, `vod`, and
-  `obj-download`. `GET cdn/list`, `vod/list`, and `obj-download/list`
-  answer `200 {"success": true, "code": 200, "message": "Get CDN data
-  successful.", "data": []}`.
+  `obj-download`.
+- Success is HTTP 200 with the envelope
+  `{"success", "code", "message", "data"}`. Most failures are also HTTP
+  200, with `success: false`.
 - A write route reached with the wrong method still reaches its handler:
   `GET cdn/create`, `cdn/update`, `cdn/flush-cache`, and `vod/create`
-  answer `200 {"success": false, "code": 500, "message": null, "data":
-  ""}` and create nothing. Other routes answer a wrong method with 405.
-- `certificate/list` answers the envelope with `data: []`.
-- `apikey/list` answers the envelope with a list in `data`.
+  answer `success: false, code: 500, message: null, data: ""` and create
+  nothing. Other routes answer a wrong method with 405.
 - The key's `allowOriginHeader` limits the `Origin` request header only.
   A request with an `Origin` outside GreenNode and VNG Cloud hosts gets
   `403 Invalid CORS request` as plain text.
 - Responses carry no rate-limit headers.
+- Statuses seen: 3 deploying, 1 active, 5 disabling, 0 disabled. Create
+  goes 3 to 1 in about 3 minutes; disable 1 to 5 to 0 in about 4; enable
+  0 to 3 to 1 in about 5; update 1 to 3 to 1 in 4 to 5. Delete removes
+  the CDN at once. The reference's 2 `DELETED`, 4 `DELETING`, and
+  6 `SUSPENDING` never appeared.
+- A status change, update, or delete during a transition is refused with
+  `Current cdn status is not allow to update or delete` (envelope code 500
+  for the toggle, 400 for delete) and changes nothing.
+- Package limits are counted on the request body and refused with a
+  message that names the limit, such as `...not allow to create more than
+  0 cname, please upgrade your package`. The test account's package
+  allows 0 alternative names and 1 origin.
+- `certificate/list` does not list the `default` certificate a CDN uses.
 
 ### Paths
 
-The Web Accelerator operations use the `cdn` prefix: `cdn/list`,
+Every Web Accelerator path is confirmed live: `cdn/list`,
 `cdn/detail/{cdnId}`, `cdn/create`, `cdn/update`, `cdn/delete/{cdnId}`,
-`cdn/status/change/{cdnId}`, and `cdn/flush-cache`. Only `cdn/list` and
-the existence of the write routes are confirmed. The rest are inferred
-from the live prefix and the reference's `webacc` paths, with the
-reference's bodies. The first read of a real CDN
-([live checks](cdn-cli.md#live-checks)) confirms the list item and detail
-shapes; the Web Accelerator reads ship only after it does.
+`cdn/status/change/{cdnId}`, and `cdn/flush-cache`. `cdn/detail?cdnId=`
+and an unknown or malformed ID both answer `success: false, code: 500,
+message: null, data: ""`. `cdn/create` has not yet run through the API:
+the portal form posts to the portal, not to this API. The first API create
+is a [live check](cdn-cli.md#live-checks) before C1b code.
 
 ### Pricing
 
@@ -77,12 +88,8 @@ Package (Basic, Standard, Pro, Enterprise), which caps the number of CDNs
 (1, 3, 5, 20), alternative names, page rules (1, 3, 5, 100), origin IPs,
 and purges per day (5, 20, 50, 1000). Traffic is prepaid in 3, 6, or 12
 month domestic or international packages, or postpaid and billed monthly
-by use. Packages are bought in the portal only.
-
-Unconfirmed: whether an account with no package can create a Web
-Accelerator, what Basic costs, and whether a CDN with zero traffic costs
-anything. The [owner check](cdn-cli.md#live-checks) settles this before
-any create, by hand or by code.
+by use. Packages are bought in the portal only. On the test account a CDN
+with no traffic is free to create and delete.
 
 ## Credentials
 
@@ -98,11 +105,9 @@ uses:
 
 - No flag carries the key. `vngcloud configure set vcdn_api_key -` reads it
   from stdin; a literal value is refused, and `configure get` and `list`
-  mask it, as for `password` ([configure](cli.md#configure)). The
-  interactive `configure` prompts do not change.
+  mask it, as for `password` ([configure](cli.md#configure)).
 - The key does not count as an IAM credential. `LoadConfig` still returns
-  `ErrNoCredentials` when no IAM credential set resolves, so the CLI keeps
-  its current behavior for every command.
+  `ErrNoCredentials` when no IAM credential set resolves.
 - `LoadConfig` refuses, with `ErrInvalidConfig`, a key that holds
   whitespace or a control character or is longer than 4 KiB. The error
   names the source and never the value.
@@ -116,33 +121,22 @@ uses:
 
 ## Endpoint and transport
 
-`endpoints.Set` and `EndpointOverrides` gain `CDN`, default
-`https://vcdn-api.vngcloud.vn/vcdn-api/`, and `internal/routes` gains
-`ProductCDN`. The region is ignored and no project ID is sent. The SDK
-refuses cross-host redirects, as for every service.
+`endpoints.Set` and `EndpointOverrides` have `CDN`, default
+`https://vcdn-api.vngcloud.vn/vcdn-api/`. The region is ignored and no
+project ID is sent. The SDK refuses cross-host redirects.
 
-`transport.Request` gains `APIKey string`. When it is set:
-
-- The transport sends `Authorization: Bearer <APIKey>`, never asks the
-  credentials provider for a token, and never invalidates a token after a
-  401. A 401 is not retried.
-- The transport adds `APIKey` to `Redact`, so no error echoes it.
-- `SkipAuth` and `APIKey` together are a programming error that fails the
-  call before any request.
-
-Every vCDN call sets `APIKey`. The `cdn` client builds every URL from the
-`CDN` endpoint, so the key reaches no other host. The SDK sends no
-`Origin` header, so the server's CORS check and the key's
-`allowOriginHeader` never apply to it. `--debug` logs the path only, as
-for every request.
+`transport.Request.APIKey`, when set, is sent as `Authorization: Bearer`.
+The transport then never asks the credentials provider for a token, never
+retries a 401, and adds the key to `Redact`. `SkipAuth` with `APIKey` fails
+before any request. Every vCDN call sets `APIKey`, and every URL comes from
+the `CDN` endpoint, so the key reaches no other host. The SDK sends no
+`Origin` header. `--debug` logs the path only.
 
 ## Errors
 
-Success is the envelope
-`{"success": true, "code": 200, "message": "...", "data": ...}`. Every
-vCDN error is an `*APIError` with the operation. `transport.decodeError`
-builds it for a non-2xx status; the `cdn` package builds it for a 2xx
-envelope and applies the message rules below.
+Every vCDN error is an `*APIError` with the operation.
+`transport.decodeError` builds it for a non-2xx status; the `cdn` package
+builds it for a 2xx envelope and applies the message rules below.
 
 | Response | Error |
 |-|-|
@@ -164,271 +158,171 @@ The fixed messages:
   message names the account user.
 
 Problem+json bodies hold `type`, `title`, `status`, `detail`, and
-`instance`. `transport.errorBody` already reads `detail`; it gains `title`
-as the last fallback before the status text. That fallback changes no
-other service's message unless a body holds `title` and none of
-`message`, `error`, and `detail`.
+`instance`. `transport.errorBody` reads `detail`, then `title` as the last
+fallback before the status text.
 
 The envelope rule: a 2xx with `success: false` is an `*APIError` with the
-HTTP status, `Code` set to the envelope `code` as text (such as `500`),
-and `Message` set to `message`. Both are redacted with the request's
-secrets, the API key among them, before they reach the error, as the
-transport does for a non-2xx body.
+HTTP status, `Code` set to the envelope `code` as text, and `Message` set
+to `message`, both redacted with the request's secrets. It is never
+retried, since the HTTP status is 2xx. The first matching row applies:
 
-- Most failures arrive this way, with `code` 500 and `message` null, `""`,
-  or text. A null or empty message becomes `vCDN <operation> failed; the
-  server gave no reason`.
-- An envelope `code` 400, 401, 403, or 404 also matches that status's
-  sentinel. Code 500 matches none, and the call is not retried, since the
-  HTTP status is 2xx.
-- A detail read (`GetWebAccelerator`, `GetCertificate`) whose envelope is
-  `success: false` with `data` `""` or null maps to Code `NotFound`,
-  matching `ErrNotFound`; the CLI exits 4. This is inferred: an unknown ID
-  gave that answer on both detail routes, and no other cause of it is
-  known.
+| Envelope | Code | Matches |
+|-|-|-|
+| Detail read, `data` `""` or null | `NotFound` | `ErrNotFound`; CLI exit 4 |
+| Message holds `is not allow to update or delete`, any code | envelope code | `cdn.ErrBusy` only |
+| Message starts `Not found cdn`, any code | `NotFound` | `ErrNotFound`; CLI exit 4 |
+| Message starts `Last CDN flush cache time`, code 202 | `202` | `cdn.ErrPurgeCooldown` only |
+| Code 202 | `202` | `ErrInvalidInput`; CLI exit 2 |
+| Code 400, 401, 403, or 404 | that code | that status's sentinel |
+| Code null or absent | `EnvelopeError` | none |
+| Any other code, such as 500 | that code | none; CLI exit 1 |
+
+- A null or empty message becomes `vCDN <operation> failed; the server
+  gave no reason`.
+- Package limit messages pass through as text; they match no sentinel.
+- The detail rule covers `GetWebAccelerator` and `GetCertificate`, whose
+  unknown, malformed, and wrongly routed IDs all give that answer. The
+  write requests do not use it, since a refused toggle also has
+  `data: ""`.
 - Analytics on a domain the account does not own answers `User <email>
   is not the owner of all the request CDN.` Any message that holds an
   at sign (`@`, fullwidth U+FF20, or small U+FE6B) becomes `vCDN
   <operation> refused: the server message named an account user and was
   withheld; check that every domain is a CDN of this account`, so no
-  account email reaches an error. Other spellings of an
-  address are out of scope; see [decision 29](cdn-cli.md#owner-decisions).
+  account email reaches an error. Other spellings of an address are out
+  of scope; see [decision 29](cdn-cli.md#owner-decisions).
 
 Every message is cut to 256 bytes with control characters removed.
 
 ## SDK
 
 Operation names are `cdn.<Method>`. "(r)" marks `vngcloud:"required"`, and
-"L[T]" is `core.List[T]`. Paths are under `v1/`. "Inferred" marks a path
-from [Paths](#paths) that a live check confirms before it ships.
+"L[T]" is `core.List[T]`. Paths are under `v1/`. The write operations are
+in [vCDN writes](cdn-writes.md#sdk).
 
 ### Reads
 
 | Operation | Method and path | Input | Output |
 |-|-|-|-|
 | `ListWebAccelerators` | `GET cdn/list` | none | L[WebAcceleratorSummary] |
-| `GetWebAccelerator` | `GET cdn/detail/{cdnId}` (inferred) | `CDNID` (r) | `{WebAccelerator}` |
+| `GetWebAccelerator` | `GET cdn/detail/{cdnId}` | `CDNID` (r) | `{WebAccelerator}` |
 | `ListCertificates` | `GET certificate/list` | none | L[Certificate] |
 | `GetCertificate` | `GET certificate/detail/{id}` | `CertificateID` (r) | `{Certificate}` |
 | `ListAPIKeys` | `GET apikey/list` | none | L[APIKey] |
-| `GetTrafficReport` | `POST analytic/traffic-report` | `Domains` (r), `From` (r), `To` (r) | `{Items []DomainTraffic}` |
+| `GetTrafficReport` | `POST analytic/traffic-report` | `CDNDomains` (r), `From` (r), `To` (r) | `{Items []DomainTraffic}` |
 | `GetTraffic` | `POST analytic/traffic-consuming` | [Range](#analytics) | `{Points []CacheSample}` |
 | `GetRequestRate` | `POST analytic/cdn-requestsps` | [Range](#analytics) | `{Points []CacheSample}` |
-| `GetCacheStatus` | `POST analytic/cache-status` | [Range](#analytics) | `{Counts map[string]int64}` |
-| `GetHTTPCodes` | `POST analytic/cdn-http-codes` | [Range](#analytics) | `{Counts map[string]int64}` |
-
-### Web Accelerator writes
-
-| Operation | Method and path | Input | Output |
-|-|-|-|-|
-| `CreateWebAccelerator` | `POST cdn/create` (inferred) | `DomainName` (r), `Upstreams` (r), `DefaultRuleActions` (r), `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `PageRules`, `CNames` | `{WebAccelerator}` |
-| `UpdateWebAccelerator` | `GET cdn/detail/{cdnId}`, then `PUT cdn/update` (inferred) | `CDNID` (r), pointers to every create field except `DomainName` | `{WebAccelerator}` |
-| `DeleteWebAccelerator` | `DELETE cdn/delete/{cdnId}` (inferred) | `CDNID` (r) | `{}` |
-| `EnableWebAccelerator` | [Status toggle](#status-toggles) on `PUT cdn/status/change/{cdnId}` (inferred) | `CDNID` (r) | `{WebAccelerator; Changed bool}` |
-| `DisableWebAccelerator` | as above | `CDNID` (r) | `{WebAccelerator; Changed bool}` |
-
-### Purge and certificate writes
-
-| Operation | Method and path | Input | Output |
-|-|-|-|-|
-| `PurgePaths` | `POST cdn/flush-cache`, type `URI` | `CDNDomain` (r), `Paths` (r) | `{}` |
-| `PurgePattern` | `POST cdn/flush-cache`, type `BEGIN`, `END`, or `CONTAIN` | `CDNDomain` (r), `Match` (r), `Pattern` (r) | `{}` |
-| `PurgeAll` | `POST cdn/flush-cache`, type `ALL` | `CDNDomain` (r) | `{}` |
-| `ImportCertificate` | `POST certificate/api/upload` | `Certificate` (r), `PrivateKey vngcloud.Secret` (r), `CARoot`, `CertificateID` | `{Certificate *Certificate}` |
-| `EnableCertificate` | [Status toggle](#status-toggles) on `POST certificate/status/change/{id}` | `CertificateID` (r) | `{Certificate; Changed bool}` |
-| `DisableCertificate` | as above | `CertificateID` (r) | `{Certificate; Changed bool}` |
-| `DeleteCertificate` | `POST certificate/delete/{id}` | `CertificateID` (r) | `{}` |
+| `GetCacheStatus` | `POST analytic/cache-status` | [Range](#analytics) | `{Counts map[string]float64}` |
+| `GetHTTPCodes` | `POST analytic/cdn-http-codes` | [Range](#analytics) | `{Counts map[string]float64}` |
 
 ### Models
 
 Models keep their API JSON tags. They drop `customerId`, `userUuid`,
-`createdUser`, `updatedUser`, `deletedUser`, and `userEmail`, which are
-account data no caller needs.
+`userEmail`, `createdUser`, `updatedUser`, `deletedUser`, and
+`drmSecretKey`, which are account data or secrets no caller needs.
 
-- `WebAcceleratorSummary`: `CDNID`, `DomainName`, `CDNDomain`, `CNames`,
-  `Status int`, and `StatusName`, the name from the status table, or
-  `UNKNOWN(<n>)`.
-- `WebAccelerator`: the summary fields plus `Type`, `CertificateID`
-  (`sslId`), `LBType`, `OriginHostHeader`, `FailOverErrorCodes []string`,
-  `Upstreams []Upstream`, `DefaultRuleActions []RuleAction`, and
-  `PageRules []PageRule` (`childrenRule`).
+- `WebAcceleratorSummary`: `CDNID`, `DomainName`, `CDNDomain`,
+  `CNames []string` (`cName`), `Status int`, and `StatusName`. The list
+  item has 33 fields, but only these, `limitBw`, and five flags are
+  filled; the rest, the certificate (`sslCertificateId`) among them, are
+  null.
+- `WebAccelerator`: `CDNID`, `Type` (`webacc`), `DomainName`,
+  `CDNDomain`, `CNames`, `Status`, `StatusName`, `CertificateID` (`sslId`,
+  `default` for the shared certificate), `LBType` (`rr`),
+  `OriginHostHeader`, `FailOverErrorCodes []string` (`failOverErrorCode`),
+  `UseSSL`, `UseSmallFile`, and `EnableGzip` as `bool`,
+  `Upstreams []Upstream`, `DefaultRuleActions []RuleAction`
+  (`defaultRuleAction`), `PageRules` (`childrenRule`), and `AdvancedRule`
+  (`childrenAdvanceRule`). `PageRules` and `AdvancedRule` are
+  `json.RawMessage`: no page rule has been seen filled, and the update
+  sends them back unchanged.
 - `Upstream`: `ID` (`cdnUpstreamId`), `Priority int`, `IPAddress`
-  (`ipaddress`), `UpstreamType`, `OriginValue *string`, `UseSSL bool`,
-  `Status int`.
-- `RuleAction`: `ID`, `ActionName`, `Value string`, `Order int`. `Value`
-  stays the server's string, which is JSON text for some actions (`hsts`,
-  `redirect`, `originOverride`); the SDK does not parse it.
-- `PageRule`: `ID`, `Order`, `URLPattern []string`, `Actions`,
-  `Criteria []Criterion` (`criterias`), `Status`, `PageRules`
-  (`childrenRule`), and `CriteriaMustSatisfy *string`.
-  `Criterion`: `ID`, `CriteriaName`, `Value string`, `Order`.
-- `Certificate`: `ID` (`cdnSslcertificateId`), `CommonName`, `CName`,
-  `Issuer`, `ValidFrom`, `ExpiresOn`, `Status int`, `CDNUsing int`,
-  `CreatedTime`, and, from `GetCertificate` only, `Certificate` and
-  `CARoot`. It has no private key field, so a decode never holds the key
-  the server returns. Dates stay the server's strings, such as
-  `28 Apr 2025 06:53:20 GMT`.
-- `APIKey`: `ID int` (`apiKeyId`), `ExpiresAt` (`expiredDate`),
-  `CreateTime`, `UpdateTime`, `AllowOriginHeader string`, and
-  `Current bool`. The three times are `time.Time`, parsed as RFC 3339:
-  the server sends ISO 8601 with milliseconds and `+00:00`. It has no
-  token or email field.
+  (`ipaddress`), and `Status int`. The detail has no `upstreamType`,
+  `originValue`, or per-origin `useSsl`.
+- `RuleAction`: `ID`, `Name` (`actionName`), `Value string`, and
+  `Order int` (always 0 so far). `Value` stays the server's string. For
+  `hsts` it is JSON object text, such as
+  `{"hsts":"off","preload":"off","includeSubDomains":"off","maxAge":"0m"}`,
+  and for `minify` JSON array text, such as `["js","css","html"]`; the SDK
+  does not parse either.
+- `ID` fields are `string`. The decoder accepts a JSON string or integer,
+  and the update sends each ID back in the JSON form it read.
+- `Certificate` and `APIKey` are as shipped in C1: `Certificate` has no
+  private key field and keeps the server's date strings; `APIKey` has
+  `ID int`, `ExpiresAt`, `CreateTime`, `UpdateTime` as `time.Time`,
+  `AllowOriginHeader`, and `Current bool`, and no token or email.
+
+Status constants:
+
+| Constant | Value | `StatusName` |
+|-|-|-|
+| `StatusDisabled` | 0 | `DISABLED` |
+| `StatusActive` | 1 | `ACTIVE` |
+| `StatusDeploying` | 3 | `DEPLOYING` |
+| `StatusDisabling` | 5 | `DISABLING` |
+
+Any other value is `UNKNOWN(<n>)`, and every write refuses it with
+`cdn.ErrUnexpectedStatus`, sending nothing.
 
 ### Reads in detail
 
 - `ListWebAccelerators` and `ListCertificates` return every item in one
   call; the API has no paging. A `data` of `[]` or null gives empty
-  `Items` and no error, so an empty account reads as empty.
-- `ListAPIKeys` decodes the envelope with a list in `data`; anything else
-  is an `EmptyResponse` error. Nothing in the response marks the key in
-  use, so the SDK decodes each `token` into a private field, sets
-  `Current` when it equals the key the client sends (compared in constant
-  time), and drops the token before it returns. A caller can then find
-  the expiry of the key in use.
+  `Items` and no error.
+- `ListAPIKeys` accepts only the envelope list. It decodes each `token`
+  into a private field, sets `Current` when it equals the key in use
+  (compared in constant time), and drops the token before it returns.
 - `ListCertificates`, `GetCertificate`, and `ListAPIKeys` set `Sensitive`:
   the server returns every certificate's private key and every API key's
-  token in these reads. The capture hook never sees them, and a decode
-  error never quotes the body.
-- `CDNID` and `CertificateID` pass `core.CheckPathID` before any request,
-  reads included. Both are UUIDs or short hex in the reference.
+  token in these reads.
+- `CDNID` and `CertificateID` pass `core.CheckPathID` before any request.
 
 ### Analytics
 
-The Range Input of the four series calls has `Domains []string` (r),
+The Range Input of the four series calls has `CDNDomains []string` (r),
 `Period`, `From`, and `To`. Exactly one of `Period` or the pair `From` and
-`To` must be set; anything else is `ErrInvalidInput` before any request.
+`To` is set; anything else is `ErrInvalidInput` before any request.
 
-- `Period` is sent as given. The reference lists `30m`, `1h`, `3h`, `6h`,
-  `12h`, `24h`, `3d`, `7d`, `14d`, `30d`, `90d`, `180d`, `360d`. The
-  server checks domain ownership before it checks `period`, so no probe
-  has seen it validate one.
-- `From` and `To` are RFC 3339 strings, so the CLI can set them as flags.
-  The SDK converts each to `fromTime` and `toTime` in UTC+7 with
-  `time.FixedZone`. The reference names `dd/mm/yyyy hh:mm`. With an empty
-  `domains`, the server accepted `dd/mm/yyyy` and refused
-  `dd/mm/yyyy hh:mm`, so the format, and the time zone, stay unconfirmed
-  until a [live check](cdn-cli.md#live-checks) with a real domain. The
-  analytics reads ship only after it.
-- `Domains` holds the generated `cdnDomain` names, as the reference
-  examples do; the same live check tries `domainName`.
+- `CDNDomains` holds generated `cdnDomain` names; it goes out as
+  `domains`. A `domainName` is refused by the server, and an empty list
+  gives `Something went wrong`, so the SDK requires at least one entry,
+  none empty.
+- `Period` must be one of `30m`, `1h`, `3h`, `6h`, `12h`, `24h`, `3d`,
+  `7d`, `14d`, `30d`, `90d`, `180d`, or `360d`, checked before any
+  request. The server refuses others with `not support period value`.
+- `From` and `To` are calendar dates as `YYYY-MM-DD` strings, so the CLI
+  can set them as flags. The server reads only `dd/mm/yyyy`; it refuses a
+  time of day and ISO 8601. The SDK parses each date and sends it as
+  `dd/mm/yyyy`. The series calls read the range in UTC+7
+  (Asia/Ho_Chi_Minh, which has no daylight saving, so the SDK needs no
+  time zone database): from 00:00 on `From` to 23:59:59.999 on `To`.
+  `To` before `From` is `ErrInvalidInput`, since the server answers it
+  with an empty list.
+- With `Period`, the SDK sends `period` and no dates; with dates, it sends
+  `fromTime` and `toTime` and no `period`. The server lets `period` win
+  when both are sent.
 - All analytics calls are reads that use `POST` (ADR 0002 rule 1), so they
   set `Idempotent` and keep the transport's retries.
-- Series responses map epoch-millisecond keys (UTC) to values. The SDK
-  returns `Points` sorted by `Time time.Time` in UTC. `CacheSample` has
-  `Time`, `Cached`, and `Uncached` as `float64`. A key that is not an
+- `GetTraffic` and `GetRequestRate` decode `data` as an object from
+  epoch-millisecond keys to `{"cached", "uncached"}` floats. `CacheSample`
+  has `Time time.Time` (UTC, from `time.UnixMilli`), `Cached`, and
+  `Uncached`. `Points` is sorted by `Time`. Points are not evenly spaced:
+  with no traffic only the two window edges appear. A key that is not an
   integer fails the call.
-- `GetCacheStatus` and `GetHTTPCodes` receive `data` as a JSON string that
-  holds an object, such as `"{\"hit\":73,\"miss\":2074}"`. The SDK decodes
-  the string, then the object, into `Counts`.
-- `GetTrafficReport` takes no `Period`. `DomainTraffic` has `DomainName`
-  and `Points []Sample` with `Time` and `Value` in bytes.
+- `GetCacheStatus` and `GetHTTPCodes` receive `data` as a JSON string. The
+  string `"[]"` (no data) gives empty `Counts`. A string that holds an
+  object decodes into `Counts`. Anything else fails the call.
+- `GetTrafficReport` takes no `Period`; the server refuses one. Its `data`
+  is a list. `DomainTraffic` has `DomainName`, `CDNDomain`, `TrafficType`
+  (`Domestic`), `GroupType` (`Standard`), and `Points []Sample`, each with
+  `Time` and `Value float64`. The server buckets this report at UTC
+  midnight, not UTC+7.
+- No call has returned a non-zero value, so the wiki names no unit for any
+  value.
 
 The other analytics calls (origin request rate, unique visitors, speed,
 average speed, monthly traffic, origin HTTP codes, country traffic) are
 deferred; they reuse these shapes.
-
-## Write rules
-
-### Create
-
-- The SDK fills defaults when a field is empty: `LBType` `rr`,
-  `CertificateID` `default`, and `FailOverErrorCodes` `500`, `502`, `503`,
-  `504`, all from the reference. It sends `type: webacc` and `cName: []`.
-- `DefaultRuleActions` is required and has no SDK default. The allowed
-  actions depend on the package (Basic has no image optimization or
-  Brotli), so a fixed default could fail on one package and weaken another.
-  The wiki gives a template with `minimumTls` `TLS 1.2`.
-- `Upstreams` needs at least one entry with a non-empty `IPAddress`;
-  `UpstreamType` defaults to `httpOrigin`. Other value rules, such as the
-  domain name pattern and the error code list, stay on the server
-  (ADR 0002 rule 5).
-- Create is a `POST`, retried only after a 429 or a failed dial. After a
-  5xx, an envelope with `success: false` and `code` 500, or a network
-  error, the CDN may exist; the error names `list-web-accelerators` and the
-  `DomainName` to look for.
-- The Output is the server's `data`, which holds `CDNID` and the generated
-  `CDNDomain`.
-
-### Update
-
-The update call takes the whole CDN, and the server deletes every rule
-action and page rule whose `id` the body leaves out. So
-`UpdateWebAccelerator` reads, merges, and writes:
-
-1. `GET cdn/detail/{cdnId}`.
-2. Apply each non-nil Input field over the read. A list field replaces the
-   whole list; the caller keeps an entry by sending its `ID`.
-3. `PUT cdn/update` with the merged object, `cdnId`, `cdnDomain`, and
-   the read's `status` unchanged. A `PUT` keeps the transport's retries.
-
-Two updates that race lose one; the API has no conditional request. An
-update with no non-nil field sends nothing and returns the read.
-
-### Delete
-
-`DeleteWebAccelerator` and `DeleteCertificate` send one request and do not
-wait. A deleted CDN may show `DELETING` in reads for about five minutes.
-A repeat delete returns whatever the server answers; a live check records
-it.
-
-### Status toggles
-
-Both status calls flip the state and name no target, so they follow
-ADR 0003. One implementation serves the four operations, with target
-status `T` (1 or 0) and its transitional status `P` (3 `DEPLOYING` for
-enable, 5 `DISABLING` for disable):
-
-1. Check the ID; read with the detail call.
-2. Status `T` or `P`: return with `Changed: false`, sending nothing.
-3. Status other than 0 or 1: return `cdn.ErrUnexpectedStatus` naming it,
-   sending nothing.
-4. Send the toggle once, with `Once` set.
-5. A 4xx, an envelope with `success: false`, or a failed dial: return
-   that error.
-6. Otherwise read at once and after 2, 4, and 8 seconds, stopping at the
-   first read that shows `T` or `P`, and return it with `Changed: true`.
-7. No such read: return `cdn.ErrStatusUnconfirmed` wrapping the toggle
-   error and the last read error.
-
-Certificates have only 0 and 1, so they have no `P`. The confirm bound is
-about 14 seconds plus request time; a live check measures the real one.
-
-### Purge
-
-The three purge operations share one body, `{cdnDomain, type, patterns}`.
-The SDK checks shape before any request, because the server answers a bad
-shape with a 200 and `success: false`:
-
-- `PurgePaths`: at least one path, none empty, none holding `*`.
-- `PurgePattern`: `Match` is `BEGIN`, `END`, or `CONTAIN`; one non-empty
-  `Pattern`, which may hold `*`.
-- `PurgeAll`: sends `patterns: []`.
-
-A purge is a `POST`, retried only after a 429 or a failed dial. Each purge
-counts against the package's daily purge limit.
-
-### Certificates
-
-- `ImportCertificate` checks before any request that `Certificate` parses
-  with `crypto/x509` and `PrivateKey` is one PEM block whose type ends in
-  `PRIVATE KEY`, as [vLB certificates](lb-certificates.md) does.
-- With `CertificateID` set, the call replaces that certificate in place,
-  for a renewal; every CDN that uses it changes at once.
-- The request sets `Sensitive`, `Redact` with the key, and
-  `WithholdMessage`, since a 400 may quote the rejected input.
-- The server answers no ID. After a 2xx the SDK lists certificates once
-  and sets `Certificate` when exactly one matches the uploaded
-  certificate's common name and expiry; otherwise `Certificate` is nil and
-  there is no error.
-- A `POST`, retried only after a 429 or a failed dial.
-
-### API key writes
-
-The API can create, edit, and delete API keys with an API key. This design
-does not ship them; see [decision 9](cdn-cli.md#owner-decisions). If they
-ship later: create sets `Once` and `Sensitive`, returns the token as a
-`vngcloud.Secret` written only to `--secret-file`, and delete, which takes
-the token in its body, looks the token up by ID inside the SDK.
 
 ## Security
 
@@ -438,11 +332,11 @@ the token in its body, looks the token up by ID inside the SDK.
 - Any holder of one key can list every key's token and every certificate's
   private key through the API. A key is therefore as strong as the
   account's whole vCDN access; the wiki says so and advises the shortest
-  expiry that works. `allowOriginHeader` limits browsers only, not a
-  stolen key used from a script.
+  expiry that works. `allowOriginHeader` limits browsers only.
 - 401 and 403 messages are fixed text, and any message that holds an at
   sign is withheld, so no account user or email reaches a log.
-- `ListAPIKeys` drops each token and the account email before it returns.
-- Certificate reads and imports are `Sensitive`; the model has no key
-  field.
-- Every write gets an adversarial review before its release.
+- Models drop `userUuid`, `customerId`, `userEmail`, and `drmSecretKey`.
+  The update body carries `userUuid` back to the server as read; it never
+  reaches an Output, an error, or `--debug`.
+- Every write gets an adversarial review before its release; the review
+  list is in [vCDN writes](cdn-writes.md#security).

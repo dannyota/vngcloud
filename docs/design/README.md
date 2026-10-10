@@ -12,6 +12,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [CDN IP ranges](cdn.md) | Approved |
 | [vCDN API](cdn-api.md) | Accepted |
 | [vCDN CLI and releases](cdn-cli.md) | Accepted |
+| [vCDN writes](cdn-writes.md) | Accepted |
 | [vMonitor](monitor.md) | Accepted |
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
