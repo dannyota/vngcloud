@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.62.0 - Snapshot Policies
+
+### Highlights
+
+- `volume list-snapshot-backends --name HCM-03` finds the snapshot backend
+  ID, and `volume list-snapshot-policies --backend-id <id>` lists the
+  snapshot policies in the profile's project, with `ListSnapshotBackends`
+  and `ListSnapshotPolicies` in the SDK. Both work only in `hcm-3`.
+- Policies carry their type, timezone, hourly and daily settings, snapshot
+  counts, and the enable flags for every cadence. Weekly and monthly
+  details are not included until their fields are verified.
+- Snapshot backend IDs belong to the vServer snapshot gateway and are not
+  Backup Center IDs.
+- Verified live on 2026-10-10 in `hcm-3` through the SDK login.
+
 ## v0.61.0 - VKS Cluster Inventory
 
 ### Highlights
