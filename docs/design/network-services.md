@@ -1,6 +1,7 @@
 # vNetwork NAT and VPN Reads
 
-Status: Draft (2026-10-11), pending owner approval.
+Status: Accepted (2026-10-11) for the NAT and VPN list releases. Detail,
+rule, and write surfaces remain separate designs.
 
 Extend `network.Client` with read-only Public NAT and site-to-site VPN
 inventory. Ship NAT list first, then VPN list with inline sites and tunnels.
@@ -281,10 +282,9 @@ use deterministic tests for request and metadata handling.
 3. Detail or NAT rule reads only after their routes and schemas are proven.
 4. Audit endpoint, peering, and Cross Connect parity separately.
 
-The owner must approve this draft's list surface, field allowlists, and
-release order before implementation. No child-route decision blocks VPN
-inventory. No further public-model decision is open for these two lists;
-unverified null-only fields stay excluded under the stated rule.
+The owner approved this list surface, the field allowlists, and the release
+order on 2026-10-11. No child-route decision blocks VPN inventory.
+Unverified null-only fields stay excluded under the stated rule.
 
 Writes require separate designs for cost bounds, retry safety, cleanup,
 and per-run paid-operation approval. NAT creation changes VPC routing;
