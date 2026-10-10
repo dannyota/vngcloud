@@ -202,6 +202,9 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, storage.ErrBucketEncryptionIncomplete) {
 		return errorEnvelope{Code: "BucketEncryptionIncomplete", Message: err.Error()}
 	}
+	if errors.Is(err, cdn.ErrPurgeCooldown) {
+		return errorEnvelope{Code: "PurgeCooldown", Message: err.Error()}
+	}
 	if errors.Is(err, cdn.ErrStatusUnconfirmed) {
 		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
 	}
@@ -526,7 +529,7 @@ func exitCode(err error) int {
 	// network.ErrUnexpectedStatus, compute.ErrFailed, compute.ErrNotSettled,
 	// compute.ErrUnexpectedStatus, containerregistry.ErrNotSettled,
 	// containerregistry.ErrUserNotFound, iam.ErrNotSettled,
-	// tagging.ErrNotSettled, CDN's settle and status sentinels, monitor.ErrOTPRejected, volume.ErrFailed,
+	// tagging.ErrNotSettled, CDN's purge, settle, and status sentinels, monitor.ErrOTPRejected, volume.ErrFailed,
 	// volume.ErrNotSettled, volume.ErrVolumeInUse,
 	// volume.ErrUnexpectedStatus, loadbalancer.ErrFailed, and
 	// loadbalancer.ErrNotSettled join the same early return for the same
@@ -542,7 +545,7 @@ func exitCode(err error) int {
 	if errors.As(err, &attachFailed) {
 		return 1
 	}
-	if errors.Is(err, cdn.ErrStatusUnconfirmed) || errors.Is(err, cdn.ErrUnexpectedStatus) || errors.Is(err, cdn.ErrNotSettled) || errors.Is(err, cdn.ErrBusy) ||
+	if errors.Is(err, cdn.ErrPurgeCooldown) || errors.Is(err, cdn.ErrStatusUnconfirmed) || errors.Is(err, cdn.ErrUnexpectedStatus) || errors.Is(err, cdn.ErrNotSettled) || errors.Is(err, cdn.ErrBusy) ||
 		errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) || errors.Is(err, volume.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||

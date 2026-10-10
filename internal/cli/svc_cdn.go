@@ -43,6 +43,8 @@ var cdnOps = []Op[cdn.Client]{
 		kebab("EnableWebAccelerator"), (*cdn.Client).EnableWebAccelerator),
 	Write[cdn.Client, cdn.DisableWebAcceleratorInput, cdn.DisableWebAcceleratorOutput](
 		kebab("DisableWebAccelerator"), (*cdn.Client).DisableWebAccelerator, Destructive()),
+	Write[cdn.Client, cdn.PurgePathsInput, cdn.PurgePathsOutput](
+		kebab("PurgePaths"), (*cdn.Client).PurgePaths, WriteNoFlag("Paths")),
 }
 
 func newCDNCmd(e *env) *cobra.Command {

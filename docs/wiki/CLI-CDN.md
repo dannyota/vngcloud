@@ -206,6 +206,21 @@ No fields.
 vngcloud cdn list-web-accelerators
 ```
 
+## purge-paths
+
+Kind: Write.
+
+Purges exact cached paths. Supply Paths through --cli-input-json. Wait at least 30 seconds before another purge of the same CDN. Each purge consumes the package's daily purge limit; the Basic package permits five per day.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-domain` | `string` | yes |
+| `Paths` (via `--cli-input-json` only) | `[]string` | yes |
+
+```sh
+vngcloud cdn purge-paths --cdn-domain <cdn-domain> --cli-input-json '{"Paths":["/<path>"]}'
+```
+
 ## update-web-accelerator
 
 Kind: Write.

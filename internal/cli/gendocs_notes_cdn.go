@@ -31,6 +31,8 @@ const cdnUpdateWebAcceleratorNote = "Merges changes into a fresh CDN read. Use -
 
 const cdnToggleWebAcceleratorNote = "Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1."
 
+const cdnPurgePathsNote = "Purges exact cached paths. Supply Paths through --cli-input-json. Wait at least 30 seconds before another purge of the same CDN. Each purge consumes the package's daily purge limit; the Basic package permits five per day."
+
 // docOpNotesCDN holds cdn's entries of docOpNotes, merged into it at init.
 var docOpNotesCDN = map[string]string{
 	"cdn list-certificates":       cdnListCertificatesNote,
@@ -46,9 +48,11 @@ var docOpNotesCDN = map[string]string{
 	"cdn enable-web-accelerator":  cdnToggleWebAcceleratorNote,
 	"cdn disable-web-accelerator": cdnToggleWebAcceleratorNote,
 	"cdn delete-web-accelerator":  "Deletes the CDN and its generated CNAME target. Pass --yes to confirm.",
+	"cdn purge-paths":             cdnPurgePathsNote,
 }
 
 func init() {
+	docJSONPlaceholders["Paths"] = `["/<path>"]`
 	for k, v := range docOpNotesCDN {
 		docOpNotes[k] = v
 	}
