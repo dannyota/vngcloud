@@ -4,6 +4,9 @@ Use the [Storage client](Storage.md#setup) for these calls.
 
 ## Project pricing
 
+Prices are VND totals that include VAT, with no API VAT breakdown; see
+[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+
 `ListProjectTypes` reads the regional catalog, monthly purchase type, and
 quota configuration. It quotes each active monthly offer at its minimum
 quota. Each call reads fresh prices and configuration.

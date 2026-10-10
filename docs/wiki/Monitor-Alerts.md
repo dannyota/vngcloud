@@ -251,6 +251,9 @@ Enterprise, which has no retention options to order from.
 
 ### Pricing an order
 
+Prices are VND totals that include VAT, with no API VAT breakdown; see
+[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+
 ```go
 quote, err := client.QuoteCreateLogProject(ctx, &monitor.CreateLogProjectInput{
 	Name:          "vngcloud-my-logs",

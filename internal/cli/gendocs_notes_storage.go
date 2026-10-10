@@ -209,9 +209,9 @@ const storageDeleteBucketCORSNote = storageProjectIDNote + storageRegionNote + "
 var docOpNotesStorage = map[string]string{
 	"storage list-regions":                     storageListRegionsNote,
 	"storage list-projects":                    storageListProjectsNote,
-	"storage list-project-types":               storageListProjectTypesNote,
-	"storage quote-create-project":             storageQuoteCreateProjectNote,
-	"storage create-project":                   storageCreateProjectNote,
+	"storage list-project-types":               storageListProjectTypesNote + " " + vatInclusivePriceNote,
+	"storage quote-create-project":             storageQuoteCreateProjectNote + " " + vatInclusivePriceNote,
+	"storage create-project":                   storageCreateProjectNote + " " + vatInclusivePriceNote,
 	"storage delete-project":                   storageDeleteProjectNote,
 	"storage list-buckets":                     storageListBucketsNote,
 	"storage get-bucket":                       storageGetBucketNote,

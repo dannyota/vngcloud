@@ -40,7 +40,7 @@ vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
 
 Kind: Write.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Requires `--name`, `--type`, and `--quota-gb`. Buys a one-month package and charges the account balance at once; auto-renew is always off. Run `quote-create-project` first: `--max-price` must be at least the quote; default 0 buys nothing. The cap protects the quote, not the server's debit, because the API has no price lock. Sends one order and never retries. `--no-wait` skips readiness polling only. On `NotSettled` or `PaymentRequired` (exit 1), run `storage list-projects` in the same region and check pending orders in the console before trying again. Example: `vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000`.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Requires `--name`, `--type`, and `--quota-gb`. Buys a one-month package and charges the account balance at once; auto-renew is always off. Run `quote-create-project` first: `--max-price` must be at least the quote; default 0 buys nothing. The cap protects the quote, not the server's debit, because the API has no price lock. Sends one order and never retries. `--no-wait` skips readiness polling only. On `NotSettled` or `PaymentRequired` (exit 1), run `storage list-projects` in the same region and check pending orders in the console before trying again. Example: `vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000`. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -285,7 +285,7 @@ vngcloud storage list-buckets --project-id <project-id>
 
 Kind: Read.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Shows each type's monthly price at the region's minimum quota, plus the minimum and maximum quota in GB.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Shows each type's monthly price at the region's minimum quota, plus the minimum and maximum quota in GB. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -409,7 +409,7 @@ vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucke
 
 Kind: Read.
 
-`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. `quote-create-project --type Gold --quota-gb 30` prices a package without ordering. The quota must be within the region's limits. The type is the catalog `Name`, such as `Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase and are ignored in JSON input. Example: `vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`.
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. `quote-create-project --type Gold --quota-gb 30` prices a package without ordering. The quota must be within the region's limits. The type is the catalog `Name`, such as `Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase and are ignored in JSON input. Example: `vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|

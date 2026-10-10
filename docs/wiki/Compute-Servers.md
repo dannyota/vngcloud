@@ -10,6 +10,9 @@ Server](IDs-for-Create-Server.md) shows how to find each ID below.
 
 ## Creating, starting, stopping, rebooting, and deleting servers
 
+Prices are VND totals that include VAT, with no API VAT breakdown; see
+[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+
 Creating a server charges the account: a prepaid account pays one month's
 price from its credit wallet when the server is created, and deleting one
 refunds the unused value. The smallest server this SDK can create (1 vCPU,

@@ -12,7 +12,7 @@ Orders nothing above --max-price, default 0: a bare create-server refuses with e
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -321,7 +321,7 @@ Never orders anything: prices the server CreateServerInput describes without sen
 
 --root-disk-encryption-type-id and --data-disk-encryption-type-id encrypt that disk. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. --data-disk-encryption-type-id needs --data-disk-size and --data-disk-type-id. Either flag sets encryptionVolume, which the billing gateway prices as a surcharge on the flavor, 85,140 VND a month on s2-general-1x2 live, not on disk size.
 
-The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md). Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -353,7 +353,7 @@ vngcloud compute quote-create-server --zone-id <zone-id> --flavor-id <flavor-id>
 
 Kind: Read.
 
-Never sends a resize: prices the flavor change ResizeServerInput describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+Never sends a resize: prices the flavor change ResizeServerInput describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -406,7 +406,7 @@ Kind: Write, destructive.
 
 Needs --yes: a resize restarts the server and may charge more. Sends nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --flavor-id already names the server's current flavor, and with error code UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once and never retried after a failure that may have already reached the server; check get-server rather than repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 15 minutes for a read showing the new flavor with Status ACTIVE or STOPPED; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check get-server rather than repeating this command. The root disk does not grow with the flavor; use resize-volume on the server's own BootVolumeID (see get-server) for that.
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|

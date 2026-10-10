@@ -71,6 +71,9 @@ filter, and a negative value fails with `vngcloud.ErrInvalidInput`.
 
 ## Creating and deleting volumes
 
+Prices are VND totals that include VAT, with no API VAT breakdown; see
+[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+
 Creating a volume charges the account: a prepaid account pays one month's
 price from its credit wallet when the volume is created, and deleting one
 refunds the unused value. There is no hourly rate; a quote is VND a month. A

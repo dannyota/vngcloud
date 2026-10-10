@@ -30,7 +30,7 @@ Orders nothing above --max-price, default 0: a bare create-volume refuses with e
 
 --encryption-type-id creates an encrypted volume. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. An encrypted volume costs the same price as a plain one of the same size and type, live. Read the encryption type back with volume get-volume; get-underlying-volume does not carry it.
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -279,7 +279,7 @@ Kind: Read.
 
 Never orders anything: prices the volume CreateVolumeInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Needs only --zone-id, --size, and --volume-type-id; --name is optional here and required by create-volume. The CLI does not send --name or any other unpriced field to the billing gateway. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create.
 
---encryption-type-id creates an encrypted volume. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. An encrypted volume costs the same price as a plain one of the same size and type, live. Read the encryption type back with volume get-volume; get-underlying-volume does not carry it.
+--encryption-type-id creates an encrypted volume. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. An encrypted volume costs the same price as a plain one of the same size and type, live. Read the encryption type back with volume get-volume; get-underlying-volume does not carry it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -300,7 +300,7 @@ vngcloud volume quote-create-volume --zone-id <zone-id> --size <size> --volume-t
 
 Kind: Read.
 
-Reads the volume first, on every call, for its current size and type, then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize.
+Reads the volume first, on every call, for its current size and type, then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -319,7 +319,7 @@ Kind: Write, destructive.
 
 Needs --yes: a resize can charge more, and this design only grows a volume. Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the end of the data, and with error code UnexpectedStatus when the volume is neither AVAILABLE nor IN-USE. Resends the volume's own current volume type, so a type never changes by accident. The resize is sent at most once and never retried after a failure that may have already reached the server; check get-volume rather than repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 5 minutes for a read showing the new size with Status AVAILABLE or IN-USE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check get-volume rather than repeating this command. The filesystem inside a server that has this volume attached must still be grown separately; this command only grows the block device.
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|

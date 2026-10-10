@@ -6,6 +6,8 @@
 
 Kind: Read.
 
+Prices are VND totals that include VAT; the API gives no VAT breakdown.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--resource-type` | `string` | yes |

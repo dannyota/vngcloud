@@ -315,7 +315,7 @@ vngcloud monitor pause-check --check-id <check-id>
 
 Kind: Read.
 
-Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, never this read, which neither orders anything nor waits.
+Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only create-log-project's own price ceiling and wait, never this read, which neither orders anything nor waits. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -180,6 +180,13 @@ if balances.Balances.Cash != nil {
 
 ## Price quotes
 
+Prices are VND totals that include value-added tax (VAT); the API gives no
+VAT breakdown or rate. GreenNode's [invoice documentation][invoice-management]
+states that prepaid unit prices include VAT when an action is performed on
+a resource.
+
+[invoice-management]: https://docs.greennode.ai/billing-management/experience-with-billing-and-payment/invoice-management
+
 `pricing.GetQuote` asks what a resource would cost to create or resize. It
 changes nothing and places no order:
 

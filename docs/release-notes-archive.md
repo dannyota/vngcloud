@@ -2,6 +2,81 @@
 
 Releases before the ones listed in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
 
+## v0.52.0 - vStorage Bucket Create and Delete
+
+### Highlights
+
+- New `storage.CreateBucket` and `DeleteBucket`, with `vngcloud storage
+  create-bucket` and `delete-bucket` (`--yes`, global `--project-id`). The
+  create sends the console body for a bucket without object lock and
+  returns the bucket as read back; a repeat create of a name the account
+  owns is idempotent. The delete reads the bucket first and refuses with
+  `storage.ErrBucketNotEmpty` (CLI code `BucketNotEmpty`) when the object
+  count is above 0, null, or the size is above 0, sending nothing.
+- The server deletes asynchronously, so `DeleteBucket` polls `GetBucket`
+  every second for up to 30 s until the bucket is gone; `NoWait`
+  (`--no-wait`) skips the wait, and the bound returns
+  `storage.ErrNotSettled` (CLI code `NotSettled`).
+- Envelope code 112, the server's input refusal (for example an upper-case
+  bucket name), now matches `vngcloud.ErrInvalidInput`; the CLI prints code
+  `112` and exits 2.
+- Verified live on 2026-10-09 on a Gold 30 GB project in `HCM04`: create,
+  read back, duplicate create, invalid name, delete, and repeat delete.
+
+## v0.51.1 - vStorage Reads Fix
+
+### Highlights
+
+- Every `storage` call except `ListRegions` now sends the region ID in both
+  the `region` and `region_id` headers. The server scopes results by
+  `region`, so v0.41.0's `ListProjects` returned an empty list and
+  `ListBuckets` failed with code 114 on an account that has a project.
+- `testdata/storage/list_projects.json` now follows the live project shape;
+  the `Project` model is unchanged and `Period` decodes as zero when the API
+  returns null.
+- Verified live on 2026-10-09 in `HCM04` against a Gold 30 GB project:
+  `ListProjects` found it and `ListBuckets` listed zero buckets.
+
+## v0.51.0 - vMonitor Log Alarm Writes
+
+### Highlights
+
+- New `monitor.CreateLogAlarm`, `UpdateLogAlarm`, and `DeleteLogAlarm`,
+  with `vngcloud monitor create-log-alarm`, `update-log-alarm`, and
+  `delete-log-alarm`. A create needs an `ACTIVE` log project, a threshold,
+  and at least one channel; the POST is sent once and the wait settles only
+  when the alarm reads `ACTIVE` (up to 120 s). An update reads the alarm
+  first, resends every unset field as the console does, and refuses while
+  the alarm is still settling (the server answers 403 for about 30 s after
+  a create). `delete-log-alarm` needs `--yes`.
+- Read model: `Alarm.Kind` and `Status` now decode the API's `type` and
+  `progressStatus`; `Log.ID` carries the log detail's own id. A deleted
+  alarm lingers in the list for a few seconds, and a repeat delete is
+  refused by the server; the SDK confirms by listing and reports NotFound.
+- Verified live on 2026-10-09 on a Pro log project: create settled in 4 s,
+  update and delete passed, the project was deleted the same day and its
+  unused month refunded (637 VND net).
+
+## v0.50.0 - Load Balancer Policies
+
+### Highlights
+
+- New `loadbalancer.CreatePolicy`, `UpdatePolicy`, and `DeletePolicy` for
+  Layer 7 listeners, with the matching `vngcloud loadbalancer` commands. A
+  policy needs at least one rule and carries only the fields its action
+  uses: `REDIRECT_TO_POOL` takes a pool ID; `REDIRECT_TO_URL` takes a URL,
+  an HTTP code, and the keep-query-string flag. A field set for the wrong
+  action is refused before any request. `delete-policy` needs `--yes`.
+- An update reads the policy first and resends the unset fields of its
+  action unchanged, then reads again to confirm.
+- Verified live on 2026-10-09 on an `ALB_Small`: both policy kinds
+  created, rules replaced, a pool a policy uses refused deletion, and
+  everything deleted.
+
+With this release every load balancer write in the design has shipped and
+has been checked live. The whole day of paid checks cost about 574 VND net
+after the deletes refunded the unused value.
+
 ## v0.49.0 - Load Balancer Listeners
 
 ### Highlights
