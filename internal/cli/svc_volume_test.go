@@ -59,7 +59,7 @@ func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 		"get-underlying-volume":   {"volume-id"},
 		"list-volumes-by-server":  {"server-id"},
 		"list-volume-type-zones":  {"zone-id"},
-		"list-volume-types":       {"volume-type-zone-id"},
+		"list-volume-types":       {"volume-type-zone-id", "zone-id", "iops"},
 		"get-volume-type":         {"volume-type-id"},
 		"get-default-volume-type": {"zone-id"},
 		"list-encryption-types":   nil,

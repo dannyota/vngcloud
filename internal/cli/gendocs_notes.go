@@ -130,7 +130,7 @@ const computeQuoteCreateServerNote = "Never orders anything: prices the server C
 	"never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. " +
 	"The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, " +
 	"or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the " +
-	"volume type ID where the size belongs; the size is the --root-disk-size value."
+	"volume type ID where the size belongs; the size is the --root-disk-size value.\n\n" + idsForCreateServerLink
 
 // volumeQuoteCreateVolumeNote documents quote-create-volume's own price
 // guard exemptions and unit, matching computeQuoteCreateServerNote's shape
@@ -414,6 +414,9 @@ var docOpNotes = map[string]string{
 	"compute create-server-group":             computeCreateServerGroupNote,
 	"compute delete-server-group":             computeDeleteServerGroupNote,
 	"compute list-flavor-zones":               computeListFlavorZonesNote,
+	"compute list-flavors":                    computeListFlavorsNote,
+	"compute list-os-images":                  idsForCreateServerLink,
+	"volume list-volume-types":                volumeListVolumeTypesNote,
 	"compute quote-create-server":             computeQuoteCreateServerNote,
 	"compute create-server":                   computeCreateServerNote,
 	"compute delete-server":                   computeDeleteServerNote,
@@ -566,6 +569,7 @@ var docJSONPlaceholders = map[string]string{
 // update-pool-member, update-listener, and update-policy are the same shape
 // again: each requires at least one field to change beyond its path IDs.
 var docExampleExtraFlag = map[string]string{
+	"compute list-flavors":              "zone-id",
 	"compute update-server-group":       "name",
 	"dns update-hosted-zone":            "description",
 	"dns update-record":                 "ttl",
@@ -575,6 +579,7 @@ var docExampleExtraFlag = map[string]string{
 	"loadbalancer update-pool-member":   "weight",
 	"loadbalancer update-listener":      "timeout-client",
 	"loadbalancer update-policy":        "action",
+	"volume list-volume-types":          "zone-id",
 }
 
 // docExampleOverride gives a full example command line for "service

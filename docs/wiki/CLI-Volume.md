@@ -184,12 +184,18 @@ vngcloud volume list-volume-type-zones
 
 Kind: Read.
 
+Without a zone flag, lists the project's volume types. --volume-type-zone-id makes one request. --zone-id (a network zone, from portal list-zones) first lists that zone's volume type zones, then lists the types of each, one at a time: 1+M requests for M volume type zones. Setting both zone flags exits 2 before any request. --iops keeps only types whose IOPS equals it exactly, in every mode; 0 is no filter and a negative value exits 2. Rows follow the volume type zone order, and each row's VolumeTypeZoneID names the volume type zone it came from. A row's ZoneID is the API's own zone identifier, not the network zone name: filter rows by VolumeTypeZoneID or by the zone you asked for.
+
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
+
 | Flag | Type | Required |
 |-|-|-|
 | `--volume-type-zone-id` | `string` |  |
+| `--zone-id` | `string` |  |
+| `--iops` | `int` |  |
 
 ```sh
-vngcloud volume list-volume-types
+vngcloud volume list-volume-types --zone-id <zone-id>
 ```
 
 ## list-volumes

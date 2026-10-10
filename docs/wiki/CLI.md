@@ -23,6 +23,8 @@
 - [Tagging](CLI-Tagging.md)
 - [Volume](CLI-Volume.md)
 
+To find the IDs `compute create-server` and `compute quote-create-server` take, see [IDs for Create Server](IDs-for-Create-Server.md).
+
 ## Global flags
 
 | Flag | Meaning |
@@ -35,6 +37,10 @@
 | `--yes` | Confirm a destructive operation |
 | `--debug` | Log requests to stderr |
 | `--read-only` | Refuse every write command |
+
+## --query
+
+Every list command prints a JSON object whose rows are under `Items`, with any page fields such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: `--query "Items[].Name"`. `--output table` and `--output text` show the rows of `Items` without the wrapper.
 
 ## --cli-input-json
 

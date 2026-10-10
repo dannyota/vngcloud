@@ -54,6 +54,8 @@ rename; the module keeps the `vngcloud` name.
 
 - [CLI](CLI.md): commands, global flags, output, exit codes, and error
   classes.
+- [IDs for Create Server](IDs-for-Create-Server.md): the command or call that
+  finds each ID a server quote or create takes.
 - [CLI: Billing](CLI-Billing.md), [CLI: Pricing](CLI-Pricing.md),
   [CLI: Compute](CLI-Compute.md), [CLI: IAM](CLI-IAM.md),
   [CLI: Network](CLI-Network.md), [CLI: DNS](CLI-DNS.md),

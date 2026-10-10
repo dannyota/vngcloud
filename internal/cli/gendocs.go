@@ -331,6 +331,8 @@ func renderCLIPage(services []docService) string {
 		fmt.Fprintf(&b, "- [%s](CLI-%s.md)\n", serviceTitle(svc.name), serviceTitle(svc.name))
 	}
 	b.WriteString("\n")
+	b.WriteString("To find the IDs `compute create-server` and `compute quote-create-server` take, see " +
+		"[IDs for Create Server](IDs-for-Create-Server.md).\n\n")
 
 	b.WriteString("## Global flags\n\n")
 	b.WriteString("| Flag | Meaning |\n|-|-|\n")
@@ -347,6 +349,12 @@ func renderCLIPage(services []docService) string {
 		fmt.Fprintf(&b, "| `%s` | %s |\n", row[0], row[1])
 	}
 	b.WriteString("\n")
+
+	b.WriteString("## --query\n\n")
+	b.WriteString("Every list command prints a JSON object whose rows are under `Items`, with any page fields " +
+		"such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: " +
+		"`--query \"Items[].Name\"`. `--output table` and `--output text` show the rows of `Items` without " +
+		"the wrapper.\n\n")
 
 	b.WriteString("## --cli-input-json\n\n")
 	b.WriteString("Every operation command also accepts `--cli-input-json '<json>'` or " +

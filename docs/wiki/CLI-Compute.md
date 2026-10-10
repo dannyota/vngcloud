@@ -8,6 +8,8 @@ Kind: Write.
 
 Orders nothing above --max-price, default 0: a bare create-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a server already named --name exactly. Needs at least one --security-group-id; the SDK picks no default, so the project's own default group (open to the world on several ports) is only used when named explicitly. Cloud-init user data comes only from --user-data-file <path>, read once at most 64 KiB: it has no plain string flag, and an inline or file:// --cli-input-json value that sets UserData is refused outright, since either could put a secret on argv or in a JSON file that shell history or a process listing keeps; user data never reaches stdout, stderr, or --debug output. The order itself is never retried after a failure that may have already reached the server; list servers by name before ordering again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.
 
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
+
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 
 | Flag | Type | Required |
@@ -185,12 +187,18 @@ vngcloud compute list-flavor-zones
 
 Kind: Read.
 
+Set exactly one of --flavor-zone-id and --zone-id: neither, or both, exits 2 with the SDK's message before any request. --flavor-zone-id makes one request. --zone-id (a network zone, from portal list-zones) first lists that zone's flavor zones, then lists the flavors of each, one at a time: 1+N requests for N flavor zones. --name keeps only flavors whose Name equals it exactly, case included; use --query with contains() for a partial match. Rows follow the flavor zone order, and each row's FlavorZoneID names the flavor zone it came from. A row's ZoneID is the API's own zone identifier, not the network zone name: filter rows by FlavorZoneID or by the zone you asked for. Sold-out flavors stay listed with IsSoldOut true; drop them with --query "Items[?!IsSoldOut]".
+
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
+
 | Flag | Type | Required |
 |-|-|-|
-| `--flavor-zone-id` | `string` | yes |
+| `--flavor-zone-id` | `string` |  |
+| `--zone-id` | `string` |  |
+| `--name` | `string` |  |
 
 ```sh
-vngcloud compute list-flavors --flavor-zone-id <flavor-zone-id>
+vngcloud compute list-flavors --zone-id <zone-id>
 ```
 
 ## list-gpu-images
@@ -206,6 +214,8 @@ vngcloud compute list-gpu-images
 ## list-os-images
 
 Kind: Read.
+
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
 | Flag | Type | Required |
 |-|-|-|
@@ -304,6 +314,8 @@ vngcloud compute list-user-images
 Kind: Read.
 
 Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size is the --root-disk-size value.
+
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
 | Flag | Type | Required |
 |-|-|-|

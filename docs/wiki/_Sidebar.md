@@ -34,6 +34,7 @@
 **CLI**
 
 - [CLI](CLI.md)
+- [IDs for Create Server](IDs-for-Create-Server.md)
 - [CLI: Billing](CLI-Billing.md)
 - [CLI: Pricing](CLI-Pricing.md)
 - [CLI: Compute](CLI-Compute.md)

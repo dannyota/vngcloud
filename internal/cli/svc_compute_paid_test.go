@@ -84,30 +84,6 @@ func TestComputeListFlavorZonesFiltersByZoneIDEndToEnd(t *testing.T) {
 	}
 }
 
-// TestComputeListFlavorsMissingFlavorZoneIDStopsBeforeAnyRequest checks the
-// required-flag guard: list-flavors' --flavor-zone-id is
-// vngcloud:"required", so a missing flag must refuse the command with exit
-// code 2 before any request.
-func TestComputeListFlavorsMissingFlavorZoneIDStopsBeforeAnyRequest(t *testing.T) {
-	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-		"/v1/proj-1/": func(_ http.ResponseWriter, r *http.Request) {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-		},
-	})
-	root, _, stderr := newSvcRoot(t, fixture)
-	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "compute", "list-flavors"})
-	err := root.ExecuteContext(context.Background())
-	if err == nil {
-		t.Fatalf("expected an error for a missing --flavor-zone-id")
-	}
-	if exitCode(err) != 2 {
-		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", exitCode(err), stderr.String())
-	}
-	if n := fixture.requestCount(); n != 0 {
-		t.Fatalf("requestCount = %d, want 0", n)
-	}
-}
-
 // validQuoteCreateServerArgs is the flag set quote-create-server needs to
 // pass its required-field check, one repeatable --security-group-id given
 // twice so the request-body test below can confirm both values reach the

@@ -5,7 +5,8 @@ stopping, rebooting, renaming, resizing, and deleting servers. See
 [Compute](Compute.md) for reads, server groups, and SSH keys.
 
 This page assumes `cfg`, `ctx`, and `client := compute.New(cfg)` from
-[Compute's Setup](Compute.md#setup).
+[Compute's Setup](Compute.md#setup). [IDs for Create
+Server](IDs-for-Create-Server.md) shows how to find each ID below.
 
 ## Creating, starting, stopping, rebooting, and deleting servers
 

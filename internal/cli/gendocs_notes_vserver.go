@@ -49,7 +49,8 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 	"retried after a failure that may have already reached the server; list servers by name before ordering " +
 	"again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to " +
 	"reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this " +
-	"create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.\n\n" + vserverDriftNote
+	"create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.\n\n" +
+	idsForCreateServerLink + "\n\n" + vserverDriftNote
 
 // computeDeleteServerNote documents delete-server's own volume disposition,
 // its wait bound, and that it destroys the server: the flag table shows
@@ -209,3 +210,32 @@ const volumeQuoteResizeVolumeNote = "Reads the volume first, on every call, for 
 	"then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a " +
 	"month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
 	"only an actual resize."
+
+// idsForCreateServerLink points the commands that take or find a server's
+// IDs at the page that maps each create-server flag to its lookup command.
+const idsForCreateServerLink = "The command that finds each ID create-server takes is on " +
+	"[IDs for Create Server](IDs-for-Create-Server.md)."
+
+// computeListFlavorsNote documents list-flavors' one-of zone rule, its
+// request fan-out and cost, the exact-match --name, and the meaning of a
+// row's ZoneID: the flag table shows three plain optional strings.
+const computeListFlavorsNote = "Set exactly one of --flavor-zone-id and --zone-id: neither, or both, exits 2 " +
+	"with the SDK's message before any request. --flavor-zone-id makes one request. --zone-id (a network zone, " +
+	"from portal list-zones) first lists that zone's flavor zones, then lists the flavors of each, one at a " +
+	"time: 1+N requests for N flavor zones. --name keeps only flavors whose Name equals it exactly, case " +
+	"included; use --query with contains() for a partial match. Rows follow the flavor zone order, and each " +
+	"row's FlavorZoneID names the flavor zone it came from. A row's ZoneID is the API's own zone identifier, " +
+	"not the network zone name: filter rows by FlavorZoneID or by the zone you asked for. Sold-out flavors " +
+	"stay listed with IsSoldOut true; drop them with --query \"Items[?!IsSoldOut]\".\n\n" + idsForCreateServerLink
+
+// volumeListVolumeTypesNote documents list-volume-types' zone fan-out and
+// cost, the exact-match --iops, and the meaning of a row's ZoneID: the flag
+// table shows three plain optional flags.
+const volumeListVolumeTypesNote = "Without a zone flag, lists the project's volume types. --volume-type-zone-id " +
+	"makes one request. --zone-id (a network zone, from portal list-zones) first lists that zone's volume type " +
+	"zones, then lists the types of each, one at a time: 1+M requests for M volume type zones. Setting both " +
+	"zone flags exits 2 before any request. --iops keeps only types whose IOPS equals it exactly, in every " +
+	"mode; 0 is no filter and a negative value exits 2. Rows follow the volume type zone order, and each " +
+	"row's VolumeTypeZoneID names the volume type zone it came from. A row's ZoneID is the API's own zone " +
+	"identifier, not the network zone name: filter rows by VolumeTypeZoneID or by the zone you asked " +
+	"for.\n\n" + idsForCreateServerLink
