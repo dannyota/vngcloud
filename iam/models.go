@@ -3,40 +3,7 @@ package iam
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 )
-
-// epochMillis decodes a timestamp the accounts and policies APIs send in
-// three forms across otherwise identical rows: a plain epoch-milliseconds
-// number, an object {"$numberLong": "<digits>"}, or the key left out
-// entirely. A field routed through epochMillis, via the alias-struct
-// pattern each model's UnmarshalJSON below uses, reads as 0 when the key is
-// missing or null.
-type epochMillis int64
-
-func (m *epochMillis) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		*m = 0
-		return nil
-	}
-	var n int64
-	if err := json.Unmarshal(data, &n); err == nil {
-		*m = epochMillis(n)
-		return nil
-	}
-	var wrapped struct {
-		NumberLong string `json:"$numberLong"`
-	}
-	if err := json.Unmarshal(data, &wrapped); err != nil {
-		return fmt.Errorf("iam: timestamp: %w", err)
-	}
-	n, err := strconv.ParseInt(wrapped.NumberLong, 10, 64)
-	if err != nil {
-		return fmt.Errorf("iam: timestamp: %w", err)
-	}
-	*m = epochMillis(n)
-	return nil
-}
 
 // flexibleRoot decodes the "root" field a policy or group get response
 // sends: a JSON number holding the owning account number, a string, or a
