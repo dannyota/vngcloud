@@ -1,10 +1,10 @@
 # vCDN Writes
 
 Status: Accepted (2026-10-10).
-approval.
 
-The write rules for [vCDN API](cdn-api.md): Web Accelerator create,
-update, delete, enable, and disable, cache purge, and certificate writes.
+The write rules for [vCDN API](cdn-api.md): Web Accelerator update,
+delete, enable, and disable, cache purge, certificate writes, and the
+deferred create.
 Facts, errors, models, and reads are in that design; CLI commands, tests,
 and releases are in [vCDN CLI](cdn-cli.md). Writes follow
 [ADR 0002](../adr/0002-write-api-conventions.md), and the status toggles
@@ -18,7 +18,7 @@ follow [ADR 0003](../adr/0003-toggle-writes.md).
 
 | Operation | Method and path | Input | Output |
 |-|-|-|-|
-| `CreateWebAccelerator` | `POST cdn/create` | `DomainName` (r), `Upstreams` (r), `DefaultRuleActions`, `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `CNames`, `NoWait` | `{WebAccelerator}` |
+| `CreateWebAccelerator` (deferred) | `POST cdn/create` | `DomainName` (r), `Upstreams` (r), `DefaultRuleActions`, `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `CNames`, `NoWait` | `{WebAccelerator}` |
 | `UpdateWebAccelerator` | `GET cdn/detail/{cdnId}`, then `PUT cdn/update` | `CDNID` (r), `SetRuleActions`, `RemoveRuleActions`, `Upstreams`, `LBType`, `FailOverErrorCodes`, `CertificateID`, `OriginHostHeader`, `CNames`, `NoWait` | `{WebAccelerator}` |
 | `DeleteWebAccelerator` | `GET cdn/detail/{cdnId}`, then `DELETE cdn/delete/{cdnId}` | `CDNID` (r) | `{}` |
 | `EnableWebAccelerator` | `GET cdn/detail/{cdnId}`, then `PUT cdn/status/change/{cdnId}` | `CDNID` (r), `NoWait` | `{WebAccelerator; Changed bool}` |
@@ -76,14 +76,13 @@ its status, sending nothing when it refuses:
 
 ### Settle wait
 
-Create, update, enable, and disable wait for the CDN to settle unless
-`NoWait` is set. The wait reads `GET cdn/detail/{cdnId}` every 10
+Update, enable, and disable wait for the CDN to settle unless `NoWait`
+is set. The wait reads `GET cdn/detail/{cdnId}` every 10
 seconds, on an injected clock, for up to 6 minutes from the write's
 response:
 
 | Write | Pending | Settled |
 |-|-|-|
-| Create | 3 | 1 |
 | Update | 3 | 1 |
 | Enable | 3 | 1 |
 | Disable | 5 | 0 |
@@ -103,8 +102,8 @@ minute of margin. With `NoWait`, each write returns after one detail read.
 
 ### Sending
 
-- Create and purge are `POST`s, retried only after a 429 or a failed dial
-  (ADR 0002 rule 2).
+- Purge is a `POST`, retried only after a 429 or a failed dial (ADR 0002
+  rule 2).
 - Update, delete, and the toggles set `Once`. A resend after the first
   attempt landed meets the busy refusal or `Not found cdn` and hides the
   success.
@@ -112,7 +111,17 @@ minute of margin. With `NoWait`, each write returns after one detail read.
 
 ## Create
 
-The body is the reference's:
+`CreateWebAccelerator` is deferred and portal-only until the API accepts
+a create: every valid body fails with `Create CDN failed.`
+([paths](cdn-api.md#paths)). The owner creates each CDN in the vCDN
+Portal. A capture of the portal create gives nothing to copy, since the
+portal posts a form, not JSON.
+
+The retest, a free and cleanable write on the test account: send the
+body below with `userUuid` and `customerId` added, copied from the detail
+of a portal-made CDN, and delete any CDN it makes. When a retest
+succeeds, create ships in its own release on this contract. The body is
+the reference's:
 
 ```json
 {"type": "webacc", "domainName": "...",
@@ -144,6 +153,8 @@ The body is the reference's:
 - After a 5xx, an envelope failure with no sentinel, or a network error,
   the CDN may exist; the error names `list-web-accelerators` and the
   `DomainName` to look for.
+- A `POST`, retried only after a 429 or a failed dial. It waits as an
+  update does, from 3 to 1.
 
 ## Update
 
@@ -278,7 +289,7 @@ Ctrl-C during a wait still reports that the write was accepted.
 Every write gets an adversarial review before its release. The review
 checks:
 
-- No create or purge retry after a 5xx or an envelope failure; update,
+- No purge retry after a 5xx or an envelope failure; update,
   delete, and toggles send once (`Once`), even after a failed dial.
 - The status guard sends nothing on 0 for update, 3, 5, or an unknown
   status, and on the target status for a toggle.

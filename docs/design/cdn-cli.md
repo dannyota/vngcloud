@@ -20,7 +20,7 @@ shared rename table maps `CDNID` to `--cdn-id`.
 | `cdn list-certificates`, `get-certificate` | Read | No |
 | `cdn list-api-keys` | Read | No |
 | `cdn get-traffic-report`, `get-traffic`, `get-request-rate`, `get-cache-status`, `get-http-codes` | Read | No |
-| `cdn create-web-accelerator`, `update-web-accelerator` | Write | No |
+| `cdn update-web-accelerator` | Write | No |
 | `cdn enable-web-accelerator` | Write | No |
 | `cdn disable-web-accelerator` | Write | Yes |
 | `cdn delete-web-accelerator` | Write, destructive | Yes |
@@ -41,7 +41,7 @@ shared rename table maps `CDNID` to `--cdn-id`.
 - `import-certificate --certificate-id` replaces a certificate in place on
   every CDN that uses it, which a second command cannot undo without the
   old key, so it needs `--yes`. A new import does not.
-- Create, update, enable, and disable wait for the CDN to settle, up to 6
+- Update, enable, and disable wait for the CDN to settle, up to 6
   minutes; `--no-wait` comes from `NoWait` by the usual flag reflection.
 - `enable-*` and `disable-*` print the resource and `Changed`. After
   `StatusUnconfirmed` the command exits 1 and is not retried, as for
@@ -51,20 +51,23 @@ shared rename table maps `CDNID` to `--cdn-id`.
   `YYYY-MM-DD` dates in UTC+7. `get-traffic-report` takes `--from` and
   `--to` only.
 
-### create-web-accelerator and update-web-accelerator
+### Getting a CDN
 
-The body is too nested for flags, so the usual call is
-`--cli-input-json file://web-accelerator.json`. Flags exist for
-`--domain-name`, `--certificate-id`, `--lb-type`, `--origin-host-header`,
-and `--no-wait`. The wiki gives a JSON template: one HTTP origin with
-priority 1, and no rule actions, so the SDK sends its two defaults. The
-command prints the `WebAccelerator`, whose `CDNDomain` is the CNAME
-target.
+No command creates a CDN while [create](cdn-writes.md#create) is
+deferred. The wiki recipe says: the owner creates the CDN in the vCDN
+Portal, then runs `cdn list-web-accelerators` to find its `CDNID` and its
+`CDNDomain`, the CNAME target. For a live test the owner names it
+`vngcloud-live-<8 hex>.<parent>`, under a parent domain the owner
+controls, with one origin and no alternative names.
 
-`update-web-accelerator` takes `--cdn-id` and a file with only the
-changes, such as
-`{"SetRuleActions": [{"Name": "browserCache", "Value": "1d"}]}`. Action
-IDs never appear in it. The wiki says that no call removes an origin.
+### update-web-accelerator
+
+The body is too nested for flags, so the usual call is `--cdn-id` with
+`--cli-input-json file://changes.json` holding only the changes, such as
+`{"SetRuleActions": [{"Name": "browserCache", "Value": "1d"}]}`. Flags
+exist for `--certificate-id`, `--lb-type`, `--origin-host-header`, and
+`--no-wait`. Action IDs never appear in the file. The command prints the
+`WebAccelerator`. The wiki says that no call removes an origin.
 
 ### import-certificate
 
@@ -98,17 +101,13 @@ Unit tests use `httptest`, with fixtures in `testdata/cdn/`:
   code 202, a null code, and the at-sign rule.
 - Decode tests from sanitized live fixtures: the list item with its null
   fields, the detail with 12 actions (the `hsts` and `minify` values kept
-  as text), an upstream, string and integer IDs, the create and update
-  responses, and each analytics shape, including only two edge points,
-  the `"[]"` counts string, and the report list.
+  as text), an upstream, string and integer IDs, the update response,
+  and each analytics shape, including only two edge points, the `"[]"`
+  counts string, and the report list.
 - Analytics inputs: exactly one of `Period` or the dates; each allowed
   period and one refused; a bad date, a time of day, and `To` before
   `From` refused; `YYYY-MM-DD` sent as `dd/mm/yyyy`; empty `CDNDomains`
   refused; sorted points from `time.UnixMilli`; a non-integer key fails.
-- Create: the body with defaults and with every field; an upstream with
-  an `ID` or an empty address refused; `cdnId` from the response, from
-  the list fallback, and missing; no retry after a 502 or an envelope
-  failure.
 - Update merge: one action changed keeps its `id`; a new action has no
   `id`; a removed action is absent; unmodeled fields and `status` sent as
   read; upstreams nil, edit by ID, add, and unknown ID; empty Input and a
@@ -140,28 +139,28 @@ only, never names, domains, emails, or IDs.
 
 ### Live write test
 
-`TestLiveWriteCDN` needs `VNGCLOUD_LIVE_CDN=1` and
-`VNGCLOUD_LIVE_CDN_DOMAIN`, a parent domain the owner controls, never
-logged. It runs about 17 minutes of waits, under `-timeout 60m`. The
-create is free and the CDN serves no traffic, since no DNS record points
-at it. Each step asserts statuses and names only:
+`TestLiveWriteCDN` needs `VNGCLOUD_LIVE_CDN=1`. It takes its CDN from
+the list: the first whose `domainName` starts `vngcloud-live-` or
+`vngcloud-probe-`. With none, it skips and logs that the owner creates
+one in the portal ([getting a CDN](#getting-a-cdn)). It leaves every
+other CDN alone and ends by deleting the one it took, so each run needs a
+new portal CDN. It runs about 17 minutes of waits, under `-timeout 60m`.
+The CDN serves no traffic, since no DNS record points at it. Each step
+asserts statuses and names only:
 
-1. Sweep: delete every CDN whose `domainName` starts `vngcloud-live-` or
-   `vngcloud-probe-`, after reading until it is 0 or 1.
-2. Create `vngcloud-live-<8 hex>.<parent>` with one documentation-range
-   origin and no rule actions; `t.Cleanup` deletes it. Assert status 1,
-   type `webacc`, a `CDNDomain`, and `minimumTls`, `nosniff`, and
-   `alwaysHttps` among the actions.
-3. Reads: the list holds it; the detail matches; the five analytics
+1. Take the CDN; `t.Cleanup` deletes it. Read until it is 0 or 1, and
+   enable it when 0. Assert type `webacc`, a `CDNDomain`, and
+   `minimumTls`, `nosniff`, and `alwaysHttps` among the actions.
+2. Reads: the list holds it; the detail matches; the five analytics
    reads on its `cdnDomain` decode.
-4. Disable with `NoWait`: status 5; `EnableWebAccelerator` returns
+3. Disable with `NoWait`: status 5; `EnableWebAccelerator` returns
    `ErrBusy`. Poll the detail until 0. Disable again: `Changed: false`.
-5. Enable: status 1. Enable again: `Changed: false`.
-6. Update `developmentMode` to `on`: status 1, the value changed, every
+4. Enable: status 1. Enable again: `Changed: false`.
+5. Update `developmentMode` to `on`: status 1, the value changed, every
    other action name still there, and every `id` kept except
    `alwaysHttps`.
-7. Purge `/index.html` once.
-8. Delete the active CDN. The next detail read is `NotFound`, and a
+6. Purge `/index.html` once.
+7. Delete the active CDN. The next detail read is `NotFound`, and a
    second delete returns `NotFound` from its read.
 
 The C4 test imports a self-signed certificate made in the test, disables,
@@ -175,14 +174,11 @@ timings, the toggle, update, delete, and purge answers, the package
 limits, the analytics formats and shapes, and an unknown ID after a CDN
 exists. [vCDN API](cdn-api.md#source) records the results.
 
-Before C1b code, one hand probe with the standing approval for free,
-cleanable writes on the test account: create
-`vngcloud-probe-<8 hex>.<parent>` through `POST cdn/create` with the
-[create body](cdn-writes.md#create), and record whether the API accepts
-it, the response `data` shape, whether a documentation-range origin is
-accepted, and the JSON type of each ID. Capture raw list, detail, and
-analytics bodies for fixtures, then delete the CDN. Print field names,
-statuses, and counts only.
+The API create probe ran on 2026-10-10 and failed on every body
+([paths](cdn-api.md#paths)). C1b fixtures come from one hand capture of
+raw list, detail, and analytics bodies on a CDN the owner makes in the
+portal, then the CDN is deleted through the API. The capture prints field
+names, statuses, and counts only.
 
 Still open, for the live write test: a delete of an active CDN, and
 whether a purge on a CDN with traffic removes cached paths.
@@ -194,10 +190,11 @@ Each release ships the SDK and CLI together, with the `cdn` wiki pages.
 | Release | Content |
 |-|-|
 | C1 | Shipped in v0.56.0. The `CDN` endpoint, `transport.Request.APIKey`, `WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, the `vcdn_api_key` file key and `configure set vcdn_api_key -`, the envelope and problem+json error rules, `ListCertificates`, `GetCertificate`, and `ListAPIKeys`. Needs no CDN |
-| C1b | `ListWebAccelerators`, `GetWebAccelerator`, the models and status constants, the five analytics reads, and the null envelope code. Ships after the create probe gives fixtures |
-| C2 | `CreateWebAccelerator`, `UpdateWebAccelerator`, `DeleteWebAccelerator`, `EnableWebAccelerator`, and `DisableWebAccelerator`; the status guard, settle wait, `ErrBusy`, and `ErrNotSettled`; the busy and `Not found cdn` envelope rows; the live write test without the purge step |
+| C1b | `ListWebAccelerators`, `GetWebAccelerator`, the models and status constants, the five analytics reads, and the null envelope code. Fixtures come from a CDN made in the portal |
+| C2 | `UpdateWebAccelerator`, `DeleteWebAccelerator`, `EnableWebAccelerator`, and `DisableWebAccelerator`; the status guard, settle wait, `ErrBusy`, and `ErrNotSettled`; the busy and `Not found cdn` envelope rows; the live write test on a CDN from the list, without the purge step |
 | C3 | `PurgePaths`, `ErrPurgeCooldown`, and the code 202 rows; the purge step joins the live write test |
 | C4 | Certificate import, enable, disable, and delete |
+| Deferred | `CreateWebAccelerator` and `create-web-accelerator`: portal-only until the API accepts a create; the retest sends a body carrying `userUuid` and `customerId` from the detail of a portal-made CDN ([create](cdn-writes.md#create)) |
 | Deferred | `PurgePattern` and `PurgeAll`, Video On Demand, Object Download (its S3 origin holds an access key and secret, so it needs its own secret rules), page rule writes, the other analytics calls, and API key writes. Each waits for a need from aboutme or the owner |
 
 C1b to C4 add methods and commands only. C3 needs C1b's reads but not C2:
@@ -209,7 +206,6 @@ so no test adds an origin or a name, and each live run purges once.
 ## Owner decisions
 
 1 to 46 are approved; 17 is a gate the owner cleared on 2026-10-10.
-and 12 change with them.
 
 1. Approved: the API key resolves on its own, from `WithCDNAPIKey`,
    `VNGCLOUD_VCDN_API_KEY`, or `vcdn_api_key` in the credentials file, with
@@ -284,9 +280,10 @@ and 12 change with them.
     returns `Changed: false`.
 37. Approved: update refuses a disabled CDN until a check shows an
     update deploys it without enabling it.
-38. Approved: create, update, enable, and disable wait, polling the
-    detail every 10 seconds for up to 6 minutes; `NoWait` skips it; the
-    bound returns `ErrNotSettled` with the Output.
+38. Approved: update, enable, and disable wait, polling the detail
+    every 10 seconds for up to 6 minutes; `NoWait` skips it; the bound
+    returns `ErrNotSettled` with the Output. The deferred create waits
+    the same way when it ships.
 39. Approved: update merges rule actions by `actionName` on a fresh
     raw read, through `SetRuleActions` and `RemoveRuleActions`, so callers
     never handle action IDs; an empty Input is `ErrInvalidInput`, and a
@@ -309,15 +306,17 @@ and 12 change with them.
 45. Approved: C3 ships `PurgePaths` only; `PurgePattern` and
     `PurgeAll` wait for a check on a CDN with traffic, since the server
     accepts any purge `type`.
-46. Approved: fixtures come from one hand API create probe before
-    C1b code, and one live write test covers the C1b reads on a real CDN
-    and every C2 write.
+46. Approved: `CreateWebAccelerator` is deferred, since the API
+    refuses every create; the owner makes each test CDN in the portal.
+    C1b fixtures come from a hand capture on such a CDN. One live write
+    test takes the first `vngcloud-live-` or `vngcloud-probe-` CDN from
+    the list, skips when none exists, covers the C1b reads and every C2
+    write, and ends by deleting it.
 
 ## Open items
 
-- Whether `POST cdn/create` with the reference body succeeds through the
-  API, its response `data` shape, and whether a documentation-range
-  origin is accepted. The create probe settles all three.
+- Why `POST cdn/create` fails past validation; the
+  [retest](cdn-writes.md#create) adds `userUuid` and `customerId`.
 - Whether analytics with `period` alone, without dates, is accepted.
 - Analytics units: every value seen is zero.
 - What an update of a disabled CDN does to its status.

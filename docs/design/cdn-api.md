@@ -1,7 +1,6 @@
 # vCDN API Design
 
-Status: Accepted; the C1b changes in
-[decisions 30 to 46](cdn-cli.md#owner-decisions) await approval.
+Status: Accepted (2026-10-10).
 
 This design adds GreenNode vCDN management to the `cdn` package: Web
 Accelerator CDNs, certificates, cache purge, API key reads, and traffic
@@ -77,9 +76,18 @@ Every Web Accelerator path is confirmed live: `cdn/list`,
 `cdn/detail/{cdnId}`, `cdn/create`, `cdn/update`, `cdn/delete/{cdnId}`,
 `cdn/status/change/{cdnId}`, and `cdn/flush-cache`. `cdn/detail?cdnId=`
 and an unknown or malformed ID both answer `success: false, code: 500,
-message: null, data: ""`. `cdn/create` has not yet run through the API:
-the portal form posts to the portal, not to this API. The first API create
-is a [live check](cdn-cli.md#live-checks) before C1b code.
+message: null, data: ""`.
+
+`POST cdn/create` checks its body, then fails. On 2026-10-10 a bad
+`lbType` got code 400 `wrong lbType` and a bad origin IP got code 400, so
+the body parses. Every valid body got HTTP 200 with
+`{"success": false, "code": 500, "message": "Create CDN failed.",
+"data": ""}` and created nothing: the reference body, the portal's full
+12-action set, and the reference example with `order: 0` and
+`childrenRule: []`. The failure is past validation, such as an
+entitlement or an undocumented field like `userUuid` or `customerId`. The
+portal creates a CDN on package Basic through a server-rendered form, not
+this API. Create is [deferred](cdn-writes.md#create).
 
 ### Pricing
 
