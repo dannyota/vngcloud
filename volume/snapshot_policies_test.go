@@ -235,6 +235,52 @@ func TestSnapshotReadsResponseErrors(t *testing.T) {
 	}
 }
 
+func TestSnapshotReadsRedactEchoedToken(t *testing.T) {
+	for _, operation := range []struct {
+		name string
+		call func(*Client) error
+	}{
+		{"backends", func(c *Client) error {
+			_, err := c.ListSnapshotBackends(context.Background(), &ListSnapshotBackendsInput{Name: "HCM-03"})
+			return err
+		}},
+		{"policies", func(c *Client) error {
+			_, err := c.ListSnapshotPolicies(context.Background(), &ListSnapshotPoliciesInput{BackendID: "backend-1"})
+			return err
+		}},
+	} {
+		for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+			t.Run(fmt.Sprintf("%s/%d", operation.name, status), func(t *testing.T) {
+				const token = "test-token"
+				c, _, requests := snapshotClient(t, "hcm-3", true, "project-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					received := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+					if received != token {
+						t.Error("unexpected bearer token")
+					}
+					w.WriteHeader(status)
+					_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, received, "denied "+received)
+				}))
+				err := operation.call(c)
+				var api *vngcloud.APIError
+				if !errors.As(err, &api) || api.StatusCode != status {
+					t.Fatalf("error = %v, want APIError with status %d", err, status)
+				}
+				for name, text := range map[string]string{"error": err.Error(), "code": api.Code, "message": api.Message} {
+					if strings.Contains(text, token) {
+						t.Errorf("%s exposed bearer token", name)
+					}
+				}
+				if api.Code != "[redacted]" || api.Message != "denied [redacted]" {
+					t.Fatal("error fields lost redacted server text")
+				}
+				if *requests != 1 {
+					t.Fatalf("requests=%d, want 1", *requests)
+				}
+			})
+		}
+	}
+}
+
 func TestSnapshotPolicyRetainedFields(t *testing.T) {
 	c, _, _ := snapshotClient(t, "hcm-3", true, "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		testutil.WriteFixture(t, w, "../testdata/volume/snapshot_policies.json")

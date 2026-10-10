@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -156,6 +158,97 @@ func TestVolumeSnapshotReadsWithholdErrorBody(t *testing.T) {
 				}
 				if status == http.StatusOK && !strings.Contains(stderr.String(), "body withheld") {
 					t.Fatalf("stderr = %s, want body withheld", stderr.String())
+				}
+			})
+		}
+	}
+}
+
+func TestVolumeSnapshotReadsRedactEchoedToken(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		args []string
+	}{
+		{"list-snapshot-backends", []string{"--name", "HCM-03"}},
+		{"list-snapshot-policies", []string{"--backend-id", "backend-1"}},
+	} {
+		for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+			for _, debug := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%d/debug=%t", command.name, status, debug), func(t *testing.T) {
+					const token = "test-token"
+					fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+						"/": func(w http.ResponseWriter, r *http.Request) {
+							received := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+							if received != token {
+								t.Error("unexpected bearer token")
+							}
+							jsonHandler(status, fmt.Sprintf(`{"code":%q,"message":%q}`, received, "denied "+received))(w, r)
+						},
+					})
+					root, stdout, stderr := newSnapshotReadRoot(t, fixture)
+					args := []string{"--profile", "agent"}
+					if debug {
+						args = append(args, "--debug")
+					}
+					args = append(args, "volume", command.name)
+					root.SetArgs(append(args, command.args...))
+					err := root.ExecuteContext(context.Background())
+					var api *vngcloud.APIError
+					if !errors.As(err, &api) || api.StatusCode != status {
+						t.Fatalf("error = %v, want APIError with status %d", err, status)
+					}
+					if debug && !strings.Contains(stderr.String(), "request") {
+						t.Fatal("missing debug request output")
+					}
+					printError(stderr, err)
+					for name, text := range map[string]string{"error": err.Error(), "code": api.Code, "message": api.Message, "stdout": stdout.String(), "stderr": stderr.String()} {
+						if strings.Contains(text, token) {
+							t.Errorf("%s exposed bearer token", name)
+						}
+					}
+					if stdout.Len() != 0 || fixture.requestCount() != 1 {
+						t.Fatalf("stdout bytes=%d requests=%d", stdout.Len(), fixture.requestCount())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestVolumeSnapshotReadsDoNotRepeatServerURLInCause(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		args []string
+	}{
+		{"list-snapshot-backends", []string{"--name", "HCM-03"}},
+		{"list-snapshot-policies", []string{"--backend-id", "backend-1"}},
+	} {
+		for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+			t.Run(fmt.Sprintf("%s/%d", command.name, status), func(t *testing.T) {
+				const project = "proj-1"
+				const message = "failed https://upstream.invalid/path?projectId=" + project
+				fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+					"/": jsonHandler(status, fmt.Sprintf(`{"code":"Failure","message":%q}`, message)),
+				})
+				root, stdout, stderr := newSnapshotReadRoot(t, fixture)
+				args := []string{"--profile", "agent", "--debug", "volume", command.name}
+				root.SetArgs(append(args, command.args...))
+				err := root.ExecuteContext(context.Background())
+				var api *vngcloud.APIError
+				if !errors.As(err, &api) || api.StatusCode != status {
+					t.Fatalf("error = %v, want APIError with status %d", err, status)
+				}
+				if !strings.Contains(stderr.String(), "request") || strings.Contains(stderr.String(), project) {
+					t.Fatal("debug output missing or exposed project ID")
+				}
+				printError(stderr, err)
+				// The server message may contain a URL; SDK-added text must not repeat it.
+				added := strings.Replace(stderr.String(), message, "", 1)
+				if strings.Contains(added, project) {
+					t.Fatal("SDK-added stderr exposed project ID")
+				}
+				if stdout.Len() != 0 || fixture.requestCount() != 1 {
+					t.Fatalf("stdout bytes=%d requests=%d", stdout.Len(), fixture.requestCount())
 				}
 			})
 		}
