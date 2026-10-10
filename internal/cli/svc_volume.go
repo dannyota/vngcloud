@@ -7,14 +7,10 @@ import (
 	"danny.vn/vngcloud/volume"
 )
 
-// volumeOps is volume's operation table. GetDefaultVolumeType now takes an
-// optional ZoneID: the live 404 the CLI reads design found came from the
-// region's first zone being disabled for the account, not a broken
-// endpoint, so passing an enabled zone's ID (portal list-zones finds one)
-// avoids it. ListVolumesByServer and QuoteCreateVolume are the other paid
-// writes design reads; QuoteCreateVolume is Read, per ADR 0002 rule 1, and
-// hides MaxPrice and NoWait with NoFlag since both govern only an actual
-// create, which this SDK does not send yet.
+// QuoteCreateVolume and QuoteResizeVolume are reads under ADR 0002:
+// quoting does not order resources. MaxPrice and NoWait govern writes only,
+// so quote commands hide those fields. Snapshot backend and policy reads
+// use the SDK's region guard and remain available to read-only profiles.
 var volumeOps = []Op[volume.Client]{
 	Read[volume.Client, volume.ListVolumesInput, volume.ListVolumesOutput](
 		kebab("ListVolumes"), (*volume.Client).ListVolumes),
@@ -38,6 +34,10 @@ var volumeOps = []Op[volume.Client]{
 		kebab("ListSnapshots"), (*volume.Client).ListSnapshots),
 	Read[volume.Client, volume.ListAllSnapshotsInput, volume.ListAllSnapshotsOutput](
 		kebab("ListAllSnapshots"), (*volume.Client).ListAllSnapshots),
+	Read[volume.Client, volume.ListSnapshotBackendsInput, volume.ListSnapshotBackendsOutput](
+		kebab("ListSnapshotBackends"), (*volume.Client).ListSnapshotBackends),
+	Read[volume.Client, volume.ListSnapshotPoliciesInput, volume.ListSnapshotPoliciesOutput](
+		kebab("ListSnapshotPolicies"), (*volume.Client).ListSnapshotPolicies),
 	Read[volume.Client, volume.CreateVolumeInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateVolume"), (*volume.Client).QuoteCreateVolume,
 		NoFlag("MaxPrice", "NoWait"), Optional("Name")),

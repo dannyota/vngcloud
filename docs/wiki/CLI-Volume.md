@@ -163,6 +163,44 @@ No fields.
 vngcloud volume list-encryption-types
 ```
 
+## list-snapshot-backends
+
+Kind: Read.
+
+Works only in `hcm-3`. Find the snapshot backend ID with
+`vngcloud volume list-snapshot-backends --name HCM-03`, then pass the ID
+to `list-snapshot-policies --backend-id <id>`. Snapshot backend IDs are
+not Backup Center IDs. Every list prints `{"Items": [...]}`, so a `--query`
+starts with `Items`.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+
+```sh
+vngcloud volume list-snapshot-backends --name <name>
+```
+
+## list-snapshot-policies
+
+Kind: Read.
+
+Works only in `hcm-3`. Uses the profile's project and reads one page:
+page 1 and size 10 by default. Weekly and monthly schedule details are not
+included; only their enable flags are returned. Every list prints
+`{"Items": [...]}`, so a `--query` starts with `Items`. Find the backend ID
+with [list-snapshot-backends](CLI-Volume.md#list-snapshot-backends).
+
+| Flag | Type | Required |
+|-|-|-|
+| `--backend-id` | `string` | yes |
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud volume list-snapshot-policies --backend-id <backend-id>
+```
+
 ## list-snapshots
 
 Kind: Read.

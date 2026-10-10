@@ -65,6 +65,8 @@ func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 		"list-encryption-types":   nil,
 		"list-snapshots":          {"volume-id", "page", "size"},
 		"list-all-snapshots":      nil,
+		"list-snapshot-backends":  {"name"},
+		"list-snapshot-policies":  {"backend-id", "page", "size"},
 		"quote-create-volume":     {"name", "zone-id", "size", "volume-type-id", "encryption-type-id", "auto-renew"},
 		"create-volume":           {"name", "zone-id", "size", "volume-type-id", "encryption-type-id", "auto-renew", "max-price", "no-wait"},
 		"delete-volume":           {"volume-id", "no-wait"},
