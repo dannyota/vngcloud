@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,8 +14,8 @@ import (
 )
 
 const backupSecretMarker = "BACKUP-SECRET-MARKER"
-const backupBackendsBody = `{"items":[{"id":"backend-1","name":"backend","token":"BACKUP-SECRET-MARKER"}],"page":null,"pageSize":null,"totalPages":1,"totalItems":1}`
-const backupPoliciesBody = `{"items":[{"id":"policy-1","name":"policy","isDefault":true,"config":{"hourlyEnabled":true,"weeklyEnabled":true,"monthlyEnabled":true,"hourlyConfig":{"token":"BACKUP-SECRET-MARKER"}},"userId":"BACKUP-SECRET-MARKER"}],"page":1,"pageSize":200,"totalPages":2,"totalItems":3}`
+const backupBackendsBody = `{"items":[{"id":"backend-1","name":"backend","token":"BACKUP-SECRET-MARKER","credentials":{"password":"BACKUP-SECRET-MARKER"}}],"page":null,"pageSize":null,"totalPages":1,"totalItems":1}`
+const backupPoliciesBody = `{"items":[{"id":"policy-1","name":"policy","isDefault":true,"config":{"hourlyEnabled":true,"weeklyEnabled":true,"monthlyEnabled":true,"hourlyConfig":{"secret":"BACKUP-SECRET-MARKER"},"weeklyConfig":{"secret":"BACKUP-SECRET-MARKER"},"monthlyConfig":{"secret":"BACKUP-SECRET-MARKER"},"statusSendEmail":["BACKUP-SECRET-MARKER"]},"userId":"BACKUP-SECRET-MARKER","credentials":{"password":"BACKUP-SECRET-MARKER"},"errorMessage":"BACKUP-SECRET-MARKER"}],"page":1,"pageSize":200,"totalPages":2,"totalItems":3}`
 
 func backupCLI(t *testing.T, handler http.Handler) func(...string) (int, string, string) {
 	t.Helper()
@@ -143,6 +144,99 @@ func TestBackupPolicyQuery(t *testing.T) {
 	for _, value := range []string{"ID", "Name", "Default", "policy-1", "policy", "true"} {
 		if !strings.Contains(stdout, value) {
 			t.Fatalf("table lacks %q: %s", value, stdout)
+		}
+	}
+}
+
+func TestBackupOutputSecrecy(t *testing.T) {
+	for _, tc := range []struct {
+		command, route, body, id string
+	}{
+		{"list-backends", "/vbackup-gateway/v1/backends", backupBackendsBody, "backend-1"},
+		{"list-policies", "/vbackup-gateway/v1/backup-policies", backupPoliciesBody, "policy-1"},
+	} {
+		for _, output := range []string{"json", "table", "text"} {
+			for _, query := range []bool{false, true} {
+				for _, debug := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/%s/query=%t/debug=%t", tc.command, output, query, debug), func(t *testing.T) {
+						calls := 0
+						run := backupCLI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+							calls++
+							if r.Method != http.MethodGet || r.URL.Path != tc.route {
+								t.Errorf("request = %s %s, want GET %s", r.Method, r.URL.Path, tc.route)
+							}
+							jsonHandler(http.StatusOK, tc.body)(w, r)
+						}))
+						args := []string{"--profile", "agent", "--output", output, "backup", tc.command}
+						if query {
+							args = append(args, "--query", "Items")
+						}
+						if debug {
+							args = append(args, "--debug")
+						}
+						code, stdout, stderr := run(args...)
+						if code != 0 || calls != 1 || !strings.Contains(stdout, tc.id) {
+							t.Fatalf("exit=%d calls=%d stdout=%s stderr=%s", code, calls, stdout, stderr)
+						}
+						if strings.Contains(stdout, backupSecretMarker) || strings.Contains(stderr, backupSecretMarker) {
+							t.Fatal("response secret escaped")
+						}
+						if debug && !strings.Contains(stderr, "request") {
+							t.Fatalf("missing debug request: %s", stderr)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestBackupErrorTokenSecrecy(t *testing.T) {
+	for _, command := range []string{"list-backends", "list-policies"} {
+		for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+			for _, debug := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%d/debug=%t", command, status, debug), func(t *testing.T) {
+					calls := 0
+					var token string
+					run := backupCLI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						calls++
+						authorization := r.Header.Get("Authorization")
+						token = strings.TrimPrefix(authorization, "Bearer ")
+						if token == "" || token == authorization {
+							t.Error("missing bearer token")
+						}
+						body, err := json.Marshal(map[string]string{
+							"code": "code-" + token, "message": "message-" + token, "body": "body-" + token,
+						})
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						jsonHandler(status, string(body))(w, r)
+					}))
+					args := []string{"--profile", "agent", "backup", command}
+					if debug {
+						args = append(args, "--debug")
+					}
+					code, stdout, stderr := run(args...)
+					if code == 0 || calls != 1 || token == "" || stdout != "" {
+						t.Fatalf("exit=%d calls=%d stdout=%s stderr=%s", code, calls, stdout, stderr)
+					}
+					if strings.Contains(stdout, token) || strings.Contains(stderr, token) {
+						t.Fatal("bearer token escaped")
+					}
+					wantCode := "Forbidden"
+					if status == http.StatusInternalServerError {
+						wantCode = "ServerError"
+					}
+					if !strings.Contains(stderr, wantCode) || !strings.Contains(stderr, "backup.List") {
+						t.Fatalf("missing error code or operation: %s", stderr)
+					}
+					if debug && !strings.Contains(stderr, "request") {
+						t.Fatalf("missing debug request: %s", stderr)
+					}
+				})
+			}
 		}
 	}
 }
