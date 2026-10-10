@@ -190,8 +190,9 @@ the type back with `GetVolume`. A delete refunds the price, but the refund
 can post a few minutes after the delete settles.
 
 An encrypted volume attaches to a server created with encrypted disks (see
-[Compute-Servers](Compute-Servers.md#encrypted-disks)). Attaching one to
-other servers is untested.
+[Compute-Servers](Compute-Servers.md#encrypted-disks)). A server with
+plain disks refuses the attach with a 400 `BadRequest` whose message says
+`cannot attach encryption volume`.
 
 ## Attaching and detaching
 
@@ -242,9 +243,10 @@ waits up to 5 minutes, polling every 2 seconds, for the volume to read
 `AVAILABLE`.
 
 `ListVolumesByServer` lists a server's volumes, boot volume included
-(`GET /v2/{project}/volumes/servers/{serverId}`). The API documents the rows
-under `volumes`; the decoder reads that envelope, a bare array, or `data` or
-`listData`. This read has not been confirmed on a live server yet.
+(`GET /v2/{project}/volumes/servers/{serverId}`). The rows sit under
+`volumes`; the decoder also reads a bare array, `data`, or `listData`. A
+live read of a plain server returned its boot volume, with `serverIdList`
+empty and `serverId` and `serverNameList` naming the server.
 
 ## Resizing
 

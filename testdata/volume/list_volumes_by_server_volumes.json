@@ -1,30 +1,53 @@
 {
-  "errorCode": 0,
   "errorMsg": null,
-  "extra": null,
+  "errorCode": null,
   "success": true,
+  "extra": {},
   "volumes": [
     {
-      "uuid": "volume-boot",
+      "uuid": "<id>",
+      "projectId": "<project-id>",
       "name": "<name>",
-      "status": "IN-USE",
       "size": 20,
-      "bootable": true,
-      "bootIndex": 0,
-      "serverId": "<server-id>",
-      "serverIdList": ["<server-id>"],
-      "encryptionType": null
-    },
-    {
-      "uuid": "volume-data",
-      "name": "<name>",
       "status": "IN-USE",
-      "size": 10,
-      "bootable": false,
-      "bootIndex": 1,
+      "volumeTypeId": "<id>",
+      "volumeTypeZoneName": "<name>",
+      "iops": "3000",
       "serverId": "<server-id>",
-      "serverIdList": ["<server-id>"],
-      "encryptionType": null
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z",
+      "bootable": true,
+      "encryptionType": null,
+      "bootIndex": 0,
+      "multiAttach": false,
+      "serverIdList": [],
+      "serverNameList": [
+        "<name>"
+      ],
+      "location": "<location>",
+      "product": "vServer",
+      "persistentVolume": false,
+      "migrateState": null,
+      "statusMessage": null,
+      "volumeType": {
+        "iops": 3000,
+        "name": "<name>",
+        "throughPut": 209715200,
+        "id": "<id>",
+        "minSize": 1,
+        "maxSize": 5000,
+        "zoneId": "<id>"
+      },
+      "zone": {
+        "uuid": "<id>",
+        "name": "<name>",
+        "zoneType": "AVAILABILITY",
+        "isDefault": true,
+        "description": "<description>",
+        "isEnabled": true,
+        "volumeCount": 2,
+        "serverCount": 1
+      }
     }
   ]
 }

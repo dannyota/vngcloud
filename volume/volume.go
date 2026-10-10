@@ -154,9 +154,8 @@ type ListVolumesByServerInput struct {
 type ListVolumesByServerOutput = core.List[Volume]
 
 // ListVolumesByServer lists the volumes attached to one server, including
-// its boot volume. The documented envelope puts the rows under "volumes"
-// (pending a live read); the decoder also accepts a bare array or one
-// wrapped under "data" or "listData".
+// its boot volume. The rows sit under "volumes"; the decoder also accepts a
+// bare array or one wrapped under "data" or "listData".
 func (c *Client) ListVolumesByServer(ctx context.Context, in *ListVolumesByServerInput) (*ListVolumesByServerOutput, error) {
 	const op = "volume.ListVolumesByServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -357,9 +356,8 @@ type listEncryptionTypesResponse struct {
 	Items []EncryptionType
 }
 
-// listVolumesByServerResponse decodes ListVolumesByServer's response, whose
-// envelope is documented as "volumes" but not yet read live: a bare array,
-// or one wrapped under "volumes", "data" or "listData".
+// listVolumesByServerResponse decodes ListVolumesByServer's response: rows
+// under "volumes" as read live, or a bare array, or "data" or "listData".
 type listVolumesByServerResponse struct {
 	Items []Volume
 }

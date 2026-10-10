@@ -176,7 +176,8 @@ price on top. Encrypting only the data disk, which needs a data disk, still
 sets `encryptionVolume` and adds the same `CES` line. A server created with
 both disks encrypted shows an `encryptionType` on the boot volume and on the
 data volume in `volume.ListVolumes`. A separately created encrypted volume
-attaches to such a server.
+attaches to such a server; a server with plain disks refuses it with a 400
+`BadRequest` (`cannot attach encryption volume`).
 
 ## Resizing a server
 
