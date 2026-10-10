@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.61.0 - VKS Cluster Inventory
+
+### Highlights
+
+- New `vks` package and CLI group: `vks list-clusters`, `vks
+  list-cluster-versions`, and `vks get-quota` in `hcm-3` and `han-1`,
+  using the profile's IAM User login. Other regions are refused before
+  login.
+- `list-clusters` pages from 0 with a default size of 10; `--project-id`
+  does not select a VKS workspace.
+- Verified live on 2026-10-10 in both regions through the SDK login: the
+  cluster list, version catalog, and quota decode. The test account has no
+  clusters in either region, so cluster item decoding is checked against the
+  published schema only.
+- Cluster detail, node groups, nodes, events, and kubeconfig are not
+  included.
+
 ## v0.60.1 - Transport and Login Hardening
 
 ### Highlights
