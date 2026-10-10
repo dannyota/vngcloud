@@ -21,7 +21,8 @@ and the GreenNode vCDN pages on API developers, HTTP origin, CNAME, purge,
 page rules, and pricing (`docs.greennode.ai/vcdn/...`), read on 2026-10-09.
 Probes with the owner's API key correct the reference where the two
 disagree: read-only on an empty account on 2026-10-09, and on 2026-10-10 on
-a real CDN made in the portal and deleted through the API.
+CDNs made in the portal, through probes and the live write test, each
+deleted through the API.
 
 Facts from the reference:
 
@@ -56,18 +57,32 @@ Facts from the probes:
   A request with an `Origin` outside GreenNode and VNG Cloud hosts gets
   `403 Invalid CORS request` as plain text.
 - Responses carry no rate-limit headers.
-- Statuses seen: 3 deploying, 1 active, 5 disabling, 0 disabled. Create
-  goes 3 to 1 in about 3 minutes; disable 1 to 5 to 0 in about 4; enable
-  0 to 3 to 1 in about 5; update 1 to 3 to 1 in 4 to 5. Delete removes
-  the CDN at once. The reference's 2 `DELETED`, 4 `DELETING`, and
-  6 `SUSPENDING` never appeared.
-- A status change, update, or delete during a transition is refused with
-  `Current cdn status is not allow to update or delete` (envelope code 500
-  for the toggle, 400 for delete) and changes nothing.
+- Statuses seen: 3 deploying, 1 active, 4 deleting, 5 disabling,
+  0 disabled. Create goes 3 to 1 in about 3 minutes; disable 1 to 5 to 0
+  in 3m43s; enable 0 to 3 to 1 in 5m04s; update 1 to 3 to 1 in 4m54s,
+  showing 3 on the first read after the `PUT`. The reference's
+  2 `DELETED` and 6 `SUSPENDING` never appeared.
+- Delete removes a disabled CDN at once. An active CDN shows 4 for about
+  5 minutes, then the detail gives the not-found answer.
+- The detail has no `statusName`; the SDK derives it from `status`.
+- A status change, update, or delete during a transition, 4 included, is
+  refused with `Current cdn status is not allow to update or delete`
+  (envelope code 500 for the toggle and update, 400 for delete) and
+  changes nothing.
+- A delete or toggle on an unknown or deleted CDN answers code null with
+  `Not found cdn with cdnId is ...`. A toggle there can also answer
+  HTTP 401 with an empty body, the same answer as a rejected key.
+- The update response `data` holds the upstream twice and lacks
+  `alwaysHttps`. Every update gives `alwaysHttps` a new `id` and keeps
+  the other 11 action `id`s.
 - Package limits are counted on the request body and refused with a
   message that names the limit, such as `...not allow to create more than
   0 cname, please upgrade your package`. The test account's package
-  allows 0 alternative names and 1 origin.
+  allows 0 alternative names and 1 origin, and refuses the
+  `developmentMode` action on update with code 500 and `Current user
+  package is not allow to use feature developmentMode, please upgrade
+  your package`.
+- Analytics with `period` alone, without dates, is accepted.
 - `certificate/list` does not list the `default` certificate a CDN uses.
 
 ### Paths
@@ -148,7 +163,7 @@ builds it for a 2xx envelope and applies the message rules below.
 
 | Response | Error |
 |-|-|
-| 401, empty body | Code `Unauthorized`, fixed message; matches `ErrAuth`; not retried; CLI exit 3 |
+| 401, empty body | Code `Unauthorized`, fixed message; matches `ErrAuth`; not retried; CLI exit 3; update, delete, and Web Accelerator toggles first [re-read the CDN](cdn-writes.md#401-on-a-write) |
 | 403, any body | Code `Forbidden`, fixed message; matches `ErrPermission` |
 | 400 problem+json (malformed JSON) | Code `BadRequest`; matches `ErrInvalidInput`; CLI exit 2 |
 | 404 problem+json (unknown route) | Code `NotFound`; matches `ErrNotFound`; CLI exit 4 |
@@ -267,9 +282,11 @@ Status constants:
 | `StatusDisabled` | 0 | `DISABLED` |
 | `StatusActive` | 1 | `ACTIVE` |
 | `StatusDeploying` | 3 | `DEPLOYING` |
+| `StatusDeleting` | 4 | `DELETING` |
 | `StatusDisabling` | 5 | `DISABLING` |
 
-Any other value is `UNKNOWN(<n>)`, and every write refuses it with
+The server sends no name; `StatusName` comes from this table. Any other
+value is `UNKNOWN(<n>)`, and every write refuses it with
 `cdn.ErrUnexpectedStatus`, sending nothing.
 
 ### Reads in detail

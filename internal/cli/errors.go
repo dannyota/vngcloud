@@ -190,6 +190,18 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	if errors.Is(err, cdn.ErrStatusUnconfirmed) {
+		return errorEnvelope{Code: "StatusUnconfirmed", Message: err.Error()}
+	}
+	if errors.Is(err, cdn.ErrUnexpectedStatus) {
+		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
+	}
+	if errors.Is(err, cdn.ErrNotSettled) {
+		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	if errors.Is(err, cdn.ErrBusy) {
+		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
+	}
 	// Checked before errors.As(err, &apiErr) below: the real
 	// ErrStatusUnconfirmed error also wraps the toggle PUT's own *APIError
 	// (see monitor's design), and errors.As would otherwise find that inner
@@ -493,7 +505,7 @@ func exitCode(err error) int {
 	// network.ErrUnexpectedStatus, compute.ErrFailed, compute.ErrNotSettled,
 	// compute.ErrUnexpectedStatus, containerregistry.ErrNotSettled,
 	// containerregistry.ErrUserNotFound, iam.ErrNotSettled,
-	// tagging.ErrNotSettled, monitor.ErrOTPRejected, volume.ErrFailed,
+	// tagging.ErrNotSettled, CDN's settle and status sentinels, monitor.ErrOTPRejected, volume.ErrFailed,
 	// volume.ErrNotSettled, volume.ErrVolumeInUse,
 	// volume.ErrUnexpectedStatus, loadbalancer.ErrFailed, and
 	// loadbalancer.ErrNotSettled join the same early return for the same
@@ -509,7 +521,8 @@ func exitCode(err error) int {
 	if errors.As(err, &attachFailed) {
 		return 1
 	}
-	if errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
+	if errors.Is(err, cdn.ErrStatusUnconfirmed) || errors.Is(err, cdn.ErrUnexpectedStatus) || errors.Is(err, cdn.ErrNotSettled) || errors.Is(err, cdn.ErrBusy) ||
+		errors.Is(err, monitor.ErrStatusUnconfirmed) || errors.Is(err, monitor.ErrUnexpectedStatus) ||
 		errors.Is(err, network.ErrUnexpectedStatus) || errors.Is(err, compute.ErrUnexpectedStatus) || errors.Is(err, volume.ErrUnexpectedStatus) ||
 		errors.Is(err, dns.ErrZoneBusy) || errors.Is(err, dns.ErrFailed) || errors.Is(err, dns.ErrNotSettled) ||
 		errors.Is(err, network.ErrFailed) || errors.Is(err, network.ErrNotSettled) ||

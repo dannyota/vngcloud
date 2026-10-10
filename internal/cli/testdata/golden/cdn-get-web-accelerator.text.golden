@@ -1,0 +1,1 @@
+[]	cdn.example.test	cdn-1	[]	default	[]	app.example.test	false	[]	rr		[]	1	ACTIVE	webacc	[{"ID":"upstream-1","IPAddress":"192.0.2.1","Priority":0,"Status":0}]	false	false

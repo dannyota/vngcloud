@@ -24,6 +24,10 @@ follow [ADR 0003](../adr/0003-toggle-writes.md).
 | `EnableWebAccelerator` | `GET cdn/detail/{cdnId}`, then `PUT cdn/status/change/{cdnId}` | `CDNID` (r), `NoWait` | `{WebAccelerator; Changed bool}` |
 | `DisableWebAccelerator` | as above | `CDNID` (r), `NoWait` | `{WebAccelerator; Changed bool}` |
 
+Each resource-returning Web Accelerator write Output holds the CDN in a
+field named `WebAccelerator`, as `GetCertificateOutput` holds
+`Certificate`; the toggles add `Changed`. Delete returns an empty Output.
+
 Input types:
 
 - `UpstreamInput`: `ID`, `Priority int`, `IPAddress` (r), `UpstreamType`
@@ -60,11 +64,12 @@ its status, sending nothing when it refuses:
 |-|-|-|-|-|
 | 1 `ACTIVE` | Sends | Sends | `Changed: false` | Sends |
 | 0 `DISABLED` | `ErrInvalidInput` | Sends | Sends | `Changed: false` |
-| 3 `DEPLOYING`, 5 `DISABLING` | `ErrBusy` | `ErrBusy` | `ErrBusy` | `ErrBusy` |
+| 3 `DEPLOYING`, 4 `DELETING`, 5 `DISABLING` | `ErrBusy` | `ErrBusy` | `ErrBusy` | `ErrBusy` |
 | Any other | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` |
 
 - Status 3 follows a create, an enable, or an update alike, so it does
-  not show that an enable is under way. The server refuses every write
+  not show that an enable is under way. Status 4 follows a delete of an
+  active CDN and ends in not-found. The server refuses every write
   during a transition, so the guard saves a request and gives a clear
   error.
 - An update of a disabled CDN has not been tried, and it may enable the
@@ -76,10 +81,10 @@ its status, sending nothing when it refuses:
 
 ### Settle wait
 
-Update, enable, and disable wait for the CDN to settle unless `NoWait`
-is set. The wait reads `GET cdn/detail/{cdnId}` every 10
-seconds, on an injected clock, for up to 6 minutes from the write's
-response:
+Update, enable, and disable have a 6-minute bound from the write's
+response. Toggle confirmation counts against that bound. Unless `NoWait`
+is set, the settle wait reads `GET cdn/detail/{cdnId}` every 10 seconds,
+on an injected clock, for the time left in the bound:
 
 | Write | Pending | Settled |
 |-|-|-|
@@ -97,8 +102,11 @@ response:
   write was accepted and must not be repeated. The CLI prints the Output
   on stdout and the error on stderr.
 
-The measured transitions take 3 to 5 minutes, so the bound leaves one
-minute of margin. With `NoWait`, each write returns after one detail read.
+The measured transitions take 3m43s to 5m04s, so the bound leaves about
+one minute of margin. With `NoWait`, each write skips the settle wait.
+Update returns after one detail read following the write. A toggle still
+uses its confirmation schedule and returns after the first read that
+shows its pending or target status.
 
 ### Sending
 
@@ -108,6 +116,20 @@ minute of margin. With `NoWait`, each write returns after one detail read.
   attempt landed meets the busy refusal or `Not found cdn` and hides the
   success.
 - Every `CDNID` passes `core.CheckPathID` before any request.
+
+### 401 on a write
+
+A toggle on a CDN that is gone can answer HTTP 401 with an empty body,
+the answer a rejected key gets ([source](cdn-api.md#source)). After a
+401 on update, delete, or a toggle, the SDK reads
+`GET cdn/detail/{cdnId}` once:
+
+- `NotFound`: return `ErrNotFound`, saying the CDN no longer exists.
+- Any other result, a 401 or a success among them: return the write's
+  401 error unchanged.
+
+The re-read is a `GET` and sends no write. The write is not sent again,
+and the 401 is still never retried.
 
 ## Create
 
@@ -183,8 +205,9 @@ reads, merges by action name, and writes:
 7. When the merged object equals the read, send nothing and return the
    read.
 8. `PUT cdn/update` once, then the [settle wait](#settle-wait). The
-   response `data` lacks some actions, so the Output always comes from a
-   detail read.
+   status shows 3 on the first read after the `PUT`. The response `data`
+   holds the upstream twice and lacks `alwaysHttps`, so the Output always
+   comes from a detail read.
 
 - No call removes an origin: leaving one out of `upstreams` keeps it.
   The wiki says so, and says to edit an origin in place to change it. On
@@ -199,11 +222,16 @@ reads, merges by action name, and writes:
 ## Delete
 
 `DeleteWebAccelerator` reads, applies the [status guard](#status-guard),
-and sends `DELETE cdn/delete/{cdnId}` once. The CDN is gone from the next
-read, so the call does not wait. An unknown ID fails the read with
-`NotFound`, and a delete that loses a race to another gets `Not found
-cdn`, also `NotFound`. A delete of an active CDN has not been tried; the
-live test does it.
+and sends `DELETE cdn/delete/{cdnId}` once. It returns an empty Output and
+does not wait:
+
+- A disabled CDN is gone from the next read.
+- An active CDN shows 4 `DELETING` for about 5 minutes, then the detail
+  read gives `NotFound`. Every write, a second delete included, meets
+  `ErrBusy` meanwhile.
+
+An unknown ID fails the read with `NotFound`, and a delete that loses a
+race to another gets `Not found cdn`, also `NotFound`.
 
 ## Status toggles
 
@@ -214,14 +242,15 @@ the [settle wait](#settle-wait) table:
 1. Read, and apply the [status guard](#status-guard).
 2. Send the toggle once. Success is `success: true` with `data: ""`.
 3. A 4xx, an envelope failure, or a failed dial: return that error; the
-   server did not act. The busy message wraps `ErrBusy`.
-4. Otherwise confirm by reading at once and after 2, 4, and 8 seconds,
-   stopping at the first read that shows `P` or `T`. No such read:
-   return `ErrStatusUnconfirmed` wrapping the toggle error and the last
-   read error.
-5. With `NoWait`, return that read with `Changed: true`. Otherwise run
-   the settle wait to `T` and return with `Changed: true`, or the wait's
-   error with the Output.
+   server did not act. The busy message wraps `ErrBusy`, and a 401 first
+   gets the [re-read](#401-on-a-write).
+4. Otherwise confirm by reading at 0, 2, 4, and 8 seconds after the write
+   response, stopping at the first read that shows `P` or `T`. No such
+   read: return `ErrStatusUnconfirmed` wrapping the toggle error and the
+   last read error.
+5. With `NoWait`, return that read with `Changed: true`. Otherwise use
+   the time left in the 6-minute bound for the settle wait to `T` and
+   return with `Changed: true`, or the wait's error with the Output.
 
 Certificates have only 0 and 1, so they have no `P` and no settle wait;
 steps 1 to 4 apply with the certificate detail read.
@@ -273,12 +302,12 @@ the token in its body, looks the token up by ID inside the SDK.
 | Case | Error | CLI code and exit |
 |-|-|-|
 | Missing field, bad ID, empty update, update of a disabled CDN, bad merge | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
-| Status 3 or 5 before a write, or the server's busy message | `cdn.ErrBusy`, nothing changed | `ResourceBusy`, 1 |
+| Status 3, 4, or 5 before a write, or the server's busy message | `cdn.ErrBusy`, nothing changed | `ResourceBusy`, 1 |
 | Status outside the table | `cdn.ErrUnexpectedStatus`, nothing sent | `UnexpectedStatus`, 1 |
 | Toggle sent, no confirm read shows it | `cdn.ErrStatusUnconfirmed` | `StatusUnconfirmed`, 1 |
 | Write accepted, not settled within 6 minutes | `cdn.ErrNotSettled`, with Output | `NotSettled`, 1 |
 | Purge within 30 seconds of the last | `cdn.ErrPurgeCooldown` | `PurgeCooldown`, 1 |
-| Unknown CDN, repeat delete | `ErrNotFound` | `NotFound`, 4 |
+| Unknown CDN, repeat delete, a 401 on update, delete, or a toggle whose re-read is `NotFound` | `ErrNotFound` | `NotFound`, 4 |
 | Package limit, other server refusal | The envelope error | 1 |
 
 The CLI checks `ErrNotSettled` before its cancelled-context rule, so a
@@ -291,8 +320,11 @@ checks:
 
 - No purge retry after a 5xx or an envelope failure; update,
   delete, and toggles send once (`Once`), even after a failed dial.
-- The status guard sends nothing on 0 for update, 3, 5, or an unknown
-  status, and on the target status for a toggle.
+- The status guard sends nothing on 0 for update, 3, 4, 5, or an
+  unknown status, and on the target status for a toggle.
+- After a 401 on update, delete, or a toggle, the SDK sends only one
+  detail read and returns `ErrNotFound` only when that read is
+  `NotFound`.
 - The update body keeps every unmodeled field of the read, including
   `userUuid` and the page rules, and every action `id` it does not drop.
   `userUuid` never reaches an Output, an error, or `--debug`.

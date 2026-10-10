@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
@@ -507,7 +508,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			errors.Is(callErr, tagging.ErrNotSettled) ||
 			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
 			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled) ||
-			errors.Is(callErr, storage.ErrNotSettled)) && !isNilOutput(out) {
+			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled)) && !isNilOutput(out) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

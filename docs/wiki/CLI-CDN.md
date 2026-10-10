@@ -6,6 +6,67 @@
 
 Any key can read every key and certificate of the account, so keep its expiry short. The SDK sends no `Origin` header, so a key's `AllowOriginHeader` does not apply. A 401 (error code `Unauthorized`, exit 3) means the key is wrong or expired.
 
+## delete-web-accelerator
+
+Kind: Write, destructive.
+
+Deletes the CDN and its generated CNAME target. Pass --yes to confirm.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-id` | `string` | yes |
+
+```sh
+vngcloud cdn delete-web-accelerator --cdn-id <cdn-id> --yes
+```
+
+## disable-web-accelerator
+
+Kind: Write, destructive.
+
+Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud cdn disable-web-accelerator --cdn-id <cdn-id> --yes
+```
+
+## enable-web-accelerator
+
+Kind: Write.
+
+Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud cdn enable-web-accelerator --cdn-id <cdn-id>
+```
+
+## get-cache-status
+
+Kind: Read.
+
+Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `CDNDomains` (via `--cli-input-json` only) | `[]string` | yes |
+| `--period` | `string` |  |
+| `--from` | `string` |  |
+| `--to` | `string` |  |
+
+```sh
+vngcloud cdn get-cache-status --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' --query Counts
+```
+
 ## get-certificate
 
 Kind: Read.
@@ -18,6 +79,85 @@ Prints the certificate and CA chain as PEM text. The server also returns the pri
 
 ```sh
 vngcloud cdn get-certificate --certificate-id <certificate-id> --query Certificate
+```
+
+## get-http-codes
+
+Kind: Read.
+
+Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `CDNDomains` (via `--cli-input-json` only) | `[]string` | yes |
+| `--period` | `string` |  |
+| `--from` | `string` |  |
+| `--to` | `string` |  |
+
+```sh
+vngcloud cdn get-http-codes --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' --query Counts
+```
+
+## get-request-rate
+
+Kind: Read.
+
+Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `CDNDomains` (via `--cli-input-json` only) | `[]string` | yes |
+| `--period` | `string` |  |
+| `--from` | `string` |  |
+| `--to` | `string` |  |
+
+```sh
+vngcloud cdn get-request-rate --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' --query Points
+```
+
+## get-traffic
+
+Kind: Read.
+
+Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `CDNDomains` (via `--cli-input-json` only) | `[]string` | yes |
+| `--period` | `string` |  |
+| `--from` | `string` |  |
+| `--to` | `string` |  |
+
+```sh
+vngcloud cdn get-traffic --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' --query Points
+```
+
+## get-traffic-report
+
+Kind: Read.
+
+Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them.
+
+| Flag | Type | Required |
+|-|-|-|
+| `CDNDomains` (via `--cli-input-json` only) | `[]string` | yes |
+| `--from` | `string` | yes |
+| `--to` | `string` | yes |
+
+```sh
+vngcloud cdn get-traffic-report --from <from> --to <to> --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' --query Items
+```
+
+## get-web-accelerator
+
+Kind: Read.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-id` | `string` | yes |
+
+```sh
+vngcloud cdn get-web-accelerator --cdn-id <cdn-id> --query WebAccelerator
 ```
 
 ## list-api-keys
@@ -52,5 +192,40 @@ No fields.
 
 ```sh
 vngcloud cdn list-ip-ranges
+```
+
+## list-web-accelerators
+
+Kind: Read.
+
+Lists portal-created Web Accelerators. `CDNDomain` is the generated CNAME target.
+
+No fields.
+
+```sh
+vngcloud cdn list-web-accelerators
+```
+
+## update-web-accelerator
+
+Kind: Write.
+
+Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cdn-id` | `string` | yes |
+| `SetRuleActions` (via `--cli-input-json` only) | `[]cdn.RuleActionInput` |  |
+| `RemoveRuleActions` (via `--cli-input-json` only) | `[]string` |  |
+| `Upstreams` (via `--cli-input-json` only) | `[]cdn.UpstreamInput` |  |
+| `--lb-type` | `*string` |  |
+| `FailOverErrorCodes` (via `--cli-input-json` only) | `[]string` |  |
+| `--certificate-id` | `*string` |  |
+| `--origin-host-header` | `*string` |  |
+| `CNames` (via `--cli-input-json` only) | `[]string` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud cdn update-web-accelerator --cdn-id <cdn-id> --cli-input-json file://changes.json
 ```
 

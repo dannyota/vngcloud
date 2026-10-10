@@ -76,6 +76,10 @@ func TestLiveCLI(t *testing.T) {
 	})
 	t.Run("cdn", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "cdn", "list-ip-ranges")
+		if os.Getenv("VNGCLOUD_VCDN_API_KEY") == "" {
+			t.Skip("VNGCLOUD_VCDN_API_KEY not set; skipping vCDN CLI read")
+		}
+		testLiveCLIItems(ctx, t, "cdn", "list-web-accelerators")
 	})
 	t.Run("monitor", func(t *testing.T) {
 		testLiveCLIItems(ctx, t, "monitor", "list-checks")

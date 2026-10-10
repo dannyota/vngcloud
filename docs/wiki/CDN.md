@@ -119,6 +119,9 @@ Set the key with `vngcloud.WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`, or
 `cdn.ErrNoAPIKey`, which wraps `vngcloud.ErrNoCredentials`, before any
 request.
 
+The basic example runs read-only vCDN list, detail, and analytics calls only
+when `VNGCLOUD_VCDN_API_KEY` is set at runtime.
+
 ```go
 cfg, err := vngcloud.LoadConfig(ctx, vngcloud.WithRegion("hcm-3"))
 if err != nil {
@@ -308,16 +311,19 @@ status, so a call the server would refuse sends nothing:
 - Enable and disable return the CDN and `Changed`. A call on a CDN already at
   its target sends nothing and returns `Changed: false`.
 - Update, enable, and disable wait for the CDN to settle: they read it every 10
-  seconds for up to 6 minutes. `NoWait` returns after one read instead. When
-  the bound passes, the call returns the last good read and an error that
+  seconds for up to 6 minutes. Update with `NoWait` makes one follow-up read
+  and skips the settle wait. Enable and disable still confirm with reads at 0,
+  2, 4, and 8 seconds, then skip the settle wait. When the bound passes, the
+  call returns the last good read and an error that
   matches `cdn.ErrNotSettled`; the server accepted the write, so do not repeat
   it. Another status during the wait ends it with `cdn.ErrUnexpectedStatus` and
   the read. A deleted CDN ends it with `vngcloud.ErrNotFound`. An enable or
   disable that no read confirms returns `cdn.ErrStatusUnconfirmed`: read the CDN
   before doing anything else.
-- The server answers an enable or disable of a CDN that no longer exists with
-  a 401 and an empty body, like a rejected key. The SDK reads the CDN again
-  after such a 401 and returns `vngcloud.ErrNotFound` when it is gone.
+- The server can answer an update, delete, enable, or disable of a CDN that no
+  longer exists with a 401 and an empty body, like a rejected key. The SDK
+  reads the CDN again after such a 401 and returns `vngcloud.ErrNotFound` when
+  it is gone.
 - Delete takes an `ACTIVE` or `DISABLED` CDN and does not wait. The CDN loses
   its generated `CDNDomain`, which the customer's DNS points at. An `ACTIVE`
   CDN stays `DELETING` for about 5 minutes, and reads of it work until it
@@ -367,6 +373,44 @@ out, err := client.UpdateWebAccelerator(ctx, &cdn.UpdateWebAcceleratorInput{
   origin, so the Output always comes from a read of the CDN.
 - A package may refuse an action: the test account's package refuses
   `developmentMode`.
+
+## CLI
+
+Create the CDN in the vCDN Portal, then find its ID and generated CNAME target:
+
+```sh
+vngcloud cdn list-web-accelerators
+vngcloud cdn get-web-accelerator --cdn-id <cdn-id>
+```
+
+Analytics uses the generated domain, not the customer domain. It remains a
+read under a read-only profile, although the API uses POST. Set `CDNDomains`
+through `--cli-input-json`.
+
+```sh
+vngcloud cdn get-traffic --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' \
+  --period 24h
+vngcloud cdn get-traffic-report --cli-input-json '{"CDNDomains":["<cdn-domain>"]}' \
+  --from 2026-10-08 --to 2026-10-09
+```
+
+Use a JSON file for nested updates. `SetRuleActions`, `RemoveRuleActions`, and
+`Upstreams` use their Go field names. Update `--no-wait` makes one follow-up
+read and skips the settle wait. Toggle `--no-wait` still confirms at 0, 2, 4,
+and 8 seconds, then skips the settle wait.
+
+```sh
+vngcloud cdn update-web-accelerator --cdn-id <cdn-id> \
+  --cli-input-json file://changes.json
+vngcloud cdn enable-web-accelerator --cdn-id <cdn-id>
+vngcloud cdn disable-web-accelerator --cdn-id <cdn-id> --yes
+vngcloud cdn delete-web-accelerator --cdn-id <cdn-id> --yes
+```
+
+Update and enable do not need `--yes`. Disable and delete do. A command that
+returns `NotSettled` prints the last CDN read to stdout and exits 1. Read the
+CDN before repeating a write. `ResourceBusy`, `UnexpectedStatus`, and
+`StatusUnconfirmed` also exit 1.
 
 ### Create
 

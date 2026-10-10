@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.60.0 - CDN Web Accelerators
+
+### Highlights
+
+- The SDK and CLI list and read Web Accelerators, traffic reports, traffic,
+  request rates, cache status, and HTTP codes through the vCDN API.
+  Configure `VNGCLOUD_VCDN_API_KEY` or the `vcdn_api_key` profile key.
+- Update, enable, disable, and delete read the CDN status before writing.
+  Update merges changes into the current settings and preserves fields the
+  SDK does not model. Each write sends once. Update, enable, and disable
+  wait up to six minutes unless `--no-wait` is set.
+- Delete and disable require `--yes`. Read-only profiles refuse every
+  write and allow analytics reads. A wait that ends after an accepted
+  write returns `NotSettled` with the last read, including on cancellation.
+- Create remains a portal operation because the API rejects valid create
+  bodies. Purge and certificate writes remain planned separately.
+
 ## v0.59.0 - Encrypted Volumes
 
 ### Highlights

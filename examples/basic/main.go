@@ -104,6 +104,7 @@ func main() {
 			showContainerRegistry(ctx, cfg, sdkOutputs)
 			showPricing(ctx, cfg, region, sdkOutputs)
 			if regionIndex == 0 {
+				showCDN(ctx, cfg, sdkOutputs)
 				showBilling(ctx, cfg, sdkOutputs)
 				showMonitor(ctx, cfg, sdkOutputs)
 				showMonitorLocations(ctx, cfg, sdkOutputs)

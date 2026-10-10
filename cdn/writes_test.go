@@ -20,11 +20,11 @@ type writeCall struct {
 	path   string
 }
 
-func writeCalls(noWait bool) []writeCall {
+func writeCalls() []writeCall {
 	ctx := context.Background()
 	return []writeCall{
 		{"update", func(h *vcdnHarness) error {
-			_, err := h.UpdateWebAccelerator(ctx, &UpdateWebAcceleratorInput{CDNID: cdnID, SetRuleActions: []RuleActionInput{{Name: "browserCache", Value: "1d"}}, NoWait: noWait})
+			_, err := h.UpdateWebAccelerator(ctx, &UpdateWebAcceleratorInput{CDNID: cdnID, SetRuleActions: []RuleActionInput{{Name: "browserCache", Value: "1d"}}, NoWait: true})
 			return err
 		}, http.MethodPut, "PUT cdn/update"},
 		{"delete", func(h *vcdnHarness) error {
@@ -32,11 +32,11 @@ func writeCalls(noWait bool) []writeCall {
 			return err
 		}, http.MethodDelete, "DELETE cdn/delete/" + cdnID},
 		{"enable", func(h *vcdnHarness) error {
-			_, err := h.EnableWebAccelerator(ctx, &EnableWebAcceleratorInput{CDNID: cdnID, NoWait: noWait})
+			_, err := h.EnableWebAccelerator(ctx, &EnableWebAcceleratorInput{CDNID: cdnID, NoWait: true})
 			return err
 		}, http.MethodPut, "PUT cdn/status/change/" + cdnID},
 		{"disable", func(h *vcdnHarness) error {
-			_, err := h.DisableWebAccelerator(ctx, &DisableWebAcceleratorInput{CDNID: cdnID, NoWait: noWait})
+			_, err := h.DisableWebAccelerator(ctx, &DisableWebAcceleratorInput{CDNID: cdnID, NoWait: true})
 			return err
 		}, http.MethodPut, "PUT cdn/status/change/" + cdnID},
 	}
@@ -96,7 +96,7 @@ func TestWritesRefuseBadInputWithoutARequest(t *testing.T) {
 
 func TestWritesWithoutKeySendNothing(t *testing.T) {
 	h := newVCDN(t, "", reply(200, "application/json", `{}`))
-	for _, c := range writeCalls(true) {
+	for _, c := range writeCalls() {
 		if err := c.run(h); !errors.Is(err, ErrNoAPIKey) {
 			t.Errorf("%s err = %v, want ErrNoAPIKey", c.name, err)
 		}
@@ -125,7 +125,7 @@ func TestStatusGuard(t *testing.T) {
 		7:               {"update": {err: ErrUnexpectedStatus}, "delete": {err: ErrUnexpectedStatus}, "enable": {err: ErrUnexpectedStatus}, "disable": {err: ErrUnexpectedStatus}},
 	}
 	for status, row := range table {
-		for _, c := range writeCalls(true) {
+		for _, c := range writeCalls() {
 			w := row[c.name]
 			t.Run(StatusName(status)+" "+c.name, func(t *testing.T) {
 				s := newSim(t, status, StatusDeploying, StatusDisabling)
@@ -333,9 +333,145 @@ func TestToggleConfirmReadsAtZeroTwoFourEight(t *testing.T) {
 	if err != nil || out.WebAccelerator.Status != StatusDisabling {
 		t.Fatalf("out = %+v err = %v", out, err)
 	}
-	want := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
+	want := []time.Duration{2 * time.Second, 2 * time.Second, 4 * time.Second}
 	if len(clock.sleeps) != 3 || clock.sleeps[0] != want[0] || clock.sleeps[1] != want[1] || clock.sleeps[2] != want[2] {
 		t.Fatalf("sleeps = %v, want %v", clock.sleeps, want)
+	}
+}
+
+func TestToggleConfirmAccountsForReadDuration(t *testing.T) {
+	s := newSim(t, StatusActive)
+	s.seq = []int{StatusActive, StatusActive, StatusActive, StatusDisabling}
+	var clock *fakeClock
+	var start time.Time
+	var reads []time.Duration
+	s.beforeDetail = func(n int) {
+		if n >= 2 {
+			reads = append(reads, clock.time().Sub(start))
+			clock.advance(time.Second)
+		}
+	}
+	h, clock := s.harness(t)
+	start = clock.time()
+	out, err := h.DisableWebAccelerator(context.Background(), &DisableWebAcceleratorInput{CDNID: cdnID, NoWait: true})
+	if err != nil || out.WebAccelerator.Status != StatusDisabling {
+		t.Fatalf("out = %+v err = %v", out, err)
+	}
+	want := []time.Duration{0, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+	if len(reads) != len(want) {
+		t.Fatalf("reads = %v, want %v", reads, want)
+	}
+	for i := range want {
+		if reads[i] != want[i] {
+			t.Fatalf("reads = %v, want %v", reads, want)
+		}
+	}
+}
+
+func TestToggleSettleUsesWriteDeadline(t *testing.T) {
+	s := newSim(t, StatusActive)
+	s.seq = []int{StatusActive, StatusActive, StatusActive, StatusDisabling}
+	h, clock := s.harness(t)
+	_, err := h.DisableWebAccelerator(context.Background(), &DisableWebAcceleratorInput{CDNID: cdnID})
+	if !errors.Is(err, ErrNotSettled) || clock.slept() != settleBound {
+		t.Fatalf("err = %v slept = %v", err, clock.slept())
+	}
+}
+
+func TestUpdateRedactsUserUUIDFromWriteErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"envelope", 0, `{"success":false,"code":"<user-id>","message":"bad <user-id>","data":{}}`},
+		{"HTTP", http.StatusBadRequest, `{"code":"<user-id>","message":"bad <user-id>"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSim(t, StatusActive)
+			s.writeHTTP, s.writeBody = tc.status, tc.body
+			h, _ := s.harness(t)
+			_, err := h.UpdateWebAccelerator(context.Background(), &UpdateWebAcceleratorInput{
+				CDNID: cdnID, CNames: []string{"a.example.test"}, NoWait: true,
+			})
+			if err == nil || strings.Contains(err.Error(), "<user-id>") || strings.Contains(h.logs.String(), "<user-id>") || strings.Contains(h.writes.String(), "<user-id>") {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestUpdateNoWaitReadFailureReturnsPreWriteOutput(t *testing.T) {
+	s := newSim(t, StatusActive)
+	s.detailOverride = func(n int) (string, bool) {
+		if n >= 2 {
+			return `{"success":false,"code":500,"message":"try later","data":{}}`, true
+		}
+		return "", false
+	}
+	h, _ := s.harness(t)
+	out, err := h.UpdateWebAccelerator(context.Background(), &UpdateWebAcceleratorInput{
+		CDNID: cdnID, CNames: []string{"a.example.test"}, NoWait: true,
+	})
+	if !errors.Is(err, ErrNotSettled) || out == nil || out.WebAccelerator.Status != StatusActive {
+		t.Fatalf("out = %+v err = %v", out, err)
+	}
+	if s.log.count("PUT cdn/update") != 1 || s.reads != 2 {
+		t.Fatalf("writes = %d reads = %d", s.log.count("PUT cdn/update"), s.reads)
+	}
+}
+
+func TestUpdateCancelledFollowUpReturnsPreWriteOutput(t *testing.T) {
+	s := newSim(t, StatusActive)
+	h, _ := s.harness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	s.beforeDetail = func(n int) {
+		if n == 2 {
+			cancel()
+		}
+	}
+	out, err := h.UpdateWebAccelerator(ctx, &UpdateWebAcceleratorInput{
+		CDNID: cdnID, CNames: []string{"a.example.test"}, NoWait: true,
+	})
+	if !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) || out == nil || out.WebAccelerator.Status != StatusActive {
+		t.Fatalf("out = %+v err = %v", out, err)
+	}
+}
+
+func TestUpdateRepeatedFollowUpErrorsReturnPreWriteOutput(t *testing.T) {
+	s := newSim(t, StatusActive)
+	s.detailOverride = func(n int) (string, bool) {
+		if n >= 2 {
+			return `{"success":false,"code":500,"message":"try later","data":{}}`, true
+		}
+		return "", false
+	}
+	h, clock := s.harness(t)
+	out, err := h.UpdateWebAccelerator(context.Background(), &UpdateWebAcceleratorInput{
+		CDNID: cdnID, CNames: []string{"a.example.test"},
+	})
+	if !errors.Is(err, ErrNotSettled) || out == nil || out.WebAccelerator.Status != StatusActive || clock.slept() != settleBound {
+		t.Fatalf("out = %+v err = %v slept = %v", out, err, clock.slept())
+	}
+	if s.log.count("PUT cdn/update") != 1 {
+		t.Fatalf("writes = %d", s.log.count("PUT cdn/update"))
+	}
+}
+
+func TestUpdateDoesNotReadAfterDeadline(t *testing.T) {
+	s := newSim(t, StatusActive, StatusDeploying)
+	var clock *fakeClock
+	s.beforeDetail = func(n int) {
+		if n == 2 {
+			clock.advance(settleBound)
+		}
+	}
+	h, clock := s.harness(t)
+	out, err := h.UpdateWebAccelerator(context.Background(), &UpdateWebAcceleratorInput{
+		CDNID: cdnID, CNames: []string{"a.example.test"},
+	})
+	if !errors.Is(err, ErrNotSettled) || out == nil || out.WebAccelerator.Status != StatusActive || s.reads != 2 {
+		t.Fatalf("out = %+v err = %v reads = %d", out, err, s.reads)
 	}
 }
 
@@ -445,7 +581,7 @@ func TestDeleteAfterServerErrorIsNotResent(t *testing.T) {
 
 // Every write maps every error status and the envelope failure.
 func TestWriteErrorStatuses(t *testing.T) {
-	for _, c := range writeCalls(true) {
+	for _, c := range writeCalls() {
 		for _, tc := range []struct {
 			name string
 			http int
@@ -592,6 +728,51 @@ func TestToggleOnVanishedCDNIsNotFoundNotAuth(t *testing.T) {
 	_, err = h.DisableWebAccelerator(context.Background(), &DisableWebAcceleratorInput{CDNID: cdnID})
 	if !errors.Is(err, vngcloud.ErrAuth) || errors.Is(err, vngcloud.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrAuth only", err)
+	}
+}
+
+func TestUpdateAndDelete401ReadOnceMore(t *testing.T) {
+	for _, write := range []writeCall{writeCalls()[0], writeCalls()[1]} {
+		for _, tc := range []struct {
+			name       string
+			detailBody string
+			detailHTTP int
+			want       error
+		}{
+			{"still exists", "", 0, vngcloud.ErrAuth},
+			{"gone", readFixture(t, "webaccelerator-not-found.json"), 0, vngcloud.ErrNotFound},
+			{"second read is unauthorized", "", http.StatusUnauthorized, vngcloud.ErrAuth},
+			{"second read rejected", `{"success":false,"code":500,"message":"` + testKey + `","data":{}}`, 0, vngcloud.ErrAuth},
+		} {
+			t.Run(write.name+" "+tc.name, func(t *testing.T) {
+				s := newSim(t, StatusActive)
+				s.writeHTTP = http.StatusUnauthorized
+				if tc.detailHTTP != 0 {
+					s.detailHTTP = func(n int) int {
+						if n == 2 {
+							return tc.detailHTTP
+						}
+						return 0
+					}
+				}
+				if tc.detailBody != "" {
+					s.detailOverride = func(n int) (string, bool) {
+						return tc.detailBody, n == 2
+					}
+				}
+				h, _ := s.harness(t)
+				err := write.run(h)
+				if !errors.Is(err, tc.want) {
+					t.Fatalf("err = %v, want %v", err, tc.want)
+				}
+				if strings.Contains(err.Error(), testKey) || strings.Contains(h.logs.String(), testKey) {
+					t.Fatal("the key reached an error or log")
+				}
+				if s.reads != 2 || s.log.count(write.method) != 1 {
+					t.Fatalf("reads = %d, writes = %d, want 2 and 1", s.reads, s.log.count(write.method))
+				}
+			})
+		}
 	}
 }
 

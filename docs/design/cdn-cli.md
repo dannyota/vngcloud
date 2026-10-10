@@ -112,13 +112,18 @@ Unit tests use `httptest`, with fixtures in `testdata/cdn/`:
   `id`; a removed action is absent; unmodeled fields and `status` sent as
   read; upstreams nil, edit by ID, add, and unknown ID; empty Input and a
   merge with no change send nothing; a disabled CDN is refused.
-- Status guard: every cell of its table sends nothing where it refuses.
+- Status guard: every cell of its table sends nothing where it refuses,
+  status 4 included; `StatusName` derived for every constant.
+- A 401 on update, delete, and each toggle: one detail read follows;
+  `NotFound` gives `ErrNotFound`; a 401 or a success on the read gives
+  the 401 error; the write is not resent.
 - Settle wait on an injected clock: settled, pending, another status,
   `NotFound`, a read error then settled, the bound, a cancelled context,
   and `NoWait`; errors carry the Output.
 - Toggles: the confirm reads at 0, 2, 4, and 8 seconds; a 502 on the
   toggle not resent; `ErrStatusUnconfirmed`.
-- Delete: sent once, no wait; status guard; a 502 not resent.
+- Delete: sent once, empty Output, no wait, on status 0 and 1; status
+  guard; a 502 not resent.
 - Purge: path checks, the cooldown sentinel, code 202 as invalid input.
 - Statuses 200, 400, 401, 403, 404, 500, and a 200 envelope failure for
   every write; path rejection for `..`, `/`, `?`, and empty.
@@ -139,40 +144,46 @@ only, never names, domains, emails, or IDs.
 
 ### Live write test
 
-`TestLiveWriteCDN` needs `VNGCLOUD_LIVE_CDN=1`. It takes its CDN from
-the list: the first whose `domainName` starts `vngcloud-live-` or
-`vngcloud-probe-`. With none, it skips and logs that the owner creates
-one in the portal ([getting a CDN](#getting-a-cdn)). It leaves every
-other CDN alone and ends by deleting the one it took, so each run needs a
-new portal CDN. It runs about 17 minutes of waits, under `-timeout 60m`.
-The CDN serves no traffic, since no DNS record points at it. Each step
-asserts statuses and names only:
+`TestLiveWriteCDN` needs `VNGCLOUD_LIVE_WRITE=1` and
+`VNGCLOUD_LIVE_CDN=1`. It takes its CDN from the list: the first whose
+`domainName` starts `vngcloud-live-` or `vngcloud-probe-`. With none, it
+skips and logs that the owner creates one in the portal
+([getting a CDN](#getting-a-cdn)). It leaves every other CDN alone and
+ends by deleting the one it took, so each passing run needs a new portal
+CDN. A failed step leaves the CDN in place and logs that a leftover CDN
+remains, so the next run takes it again and the owner need not make
+another. It runs about 20 minutes, including up to 10 minutes for the
+delete, under `-timeout 60m`. The CDN serves no traffic, since no DNS
+record points at it. Each step asserts statuses and names only:
 
-1. Take the CDN; `t.Cleanup` deletes it. Read until it is 0 or 1, and
-   enable it when 0. Assert type `webacc`, a `CDNDomain`, and
-   `minimumTls`, `nosniff`, and `alwaysHttps` among the actions.
+1. Take the CDN. Read until it is 0 or 1, and enable it when 0. Assert
+   type `webacc`, a `CDNDomain`, and `minimumTls`, `nosniff`, and
+   `alwaysHttps` among the actions.
 2. Reads: the list holds it; the detail matches; the five analytics
    reads on its `cdnDomain` decode.
 3. Disable with `NoWait`: status 5; `EnableWebAccelerator` returns
    `ErrBusy`. Poll the detail until 0. Disable again: `Changed: false`.
 4. Enable: status 1. Enable again: `Changed: false`.
-5. Update `developmentMode` to `on`: status 1, the value changed, every
-   other action name still there, and every `id` kept except
-   `alwaysHttps`.
-6. Purge `/index.html` once.
-7. Delete the active CDN. The next detail read is `NotFound`, and a
-   second delete returns `NotFound` from its read.
+5. Update `browserCache` to `1d`, or to `1M` when it is `1d`: status 1,
+   the value changed, every other action name still there, and every
+   `id` kept except `alwaysHttps`. The test account's package refuses
+   `developmentMode`.
+6. Delete the active CDN: status 4 `DELETING`, and a second delete
+   returns `ErrBusy`. Poll the detail every 10 seconds, up to 10 minutes,
+   until `NotFound`. A third delete returns `NotFound` from its read.
 
 The C4 test imports a self-signed certificate made in the test, disables,
 enables, and deletes it.
 
 ## Live checks
 
-Done on 2026-10-10 on a CDN made in the portal and deleted through the
+Done on 2026-10-10 on CDNs made in the portal and deleted through the
 API: the paths, the list and detail shapes, the statuses and their
-timings, the toggle, update, delete, and purge answers, the package
-limits, the analytics formats and shapes, and an unknown ID after a CDN
-exists. [vCDN API](cdn-api.md#source) records the results.
+timings, the toggle, update, delete, and purge answers, a delete of an
+active CDN, a toggle and a delete on a deleted CDN, the package limits,
+the analytics formats and shapes, `period` alone, and an unknown ID after
+a CDN exists. The live write test passed every C2 step.
+[vCDN API](cdn-api.md#source) records the results.
 
 The API create probe ran on 2026-10-10 and failed on every body
 ([paths](cdn-api.md#paths)). C1b fixtures come from one hand capture of
@@ -180,8 +191,7 @@ raw list, detail, and analytics bodies on a CDN the owner makes in the
 portal, then the CDN is deleted through the API. The capture prints field
 names, statuses, and counts only.
 
-Still open, for the live write test: a delete of an active CDN, and
-whether a purge on a CDN with traffic removes cached paths.
+Still open: whether a purge on a CDN with traffic removes cached paths.
 
 ## Releases
 
@@ -197,15 +207,15 @@ Each release ships the SDK and CLI together, with the `cdn` wiki pages.
 | Deferred | `CreateWebAccelerator` and `create-web-accelerator`: portal-only until the API accepts a create; the retest sends a body carrying `userUuid` and `customerId` from the detail of a portal-made CDN ([create](cdn-writes.md#create)) |
 | Deferred | `PurgePattern` and `PurgeAll`, Video On Demand, Object Download (its S3 origin holds an access key and secret, so it needs its own secret rules), page rule writes, the other analytics calls, and API key writes. Each waits for a need from aboutme or the owner |
 
-C1b to C4 add methods and commands only. C3 needs C1b's reads but not C2:
-it works on a CDN made in the portal, so it can ship before C2 if aboutme
-needs purge sooner. Package limits are per account: the test account's
-package allows one origin, no alternative names, and five purges a day,
-so no test adds an origin or a name, and each live run purges once.
+C1b and C2 ship together as v0.60.0, after the CLI half and the review.
+C3 and C4 follow as separate releases. C1b to C4 add methods and commands
+only. Package limits are per account: the test account's package allows
+one origin, no alternative names, and five purges a day, so no test adds
+an origin or a name. The C3 live run purges once.
 
 ## Owner decisions
 
-1 to 46 are approved; 17 is a gate the owner cleared on 2026-10-10.
+1 to 48 are approved; 17 is a gate the owner cleared on 2026-10-10.
 
 1. Approved: the API key resolves on its own, from `WithCDNAPIKey`,
    `VNGCLOUD_VCDN_API_KEY`, or `vcdn_api_key` in the credentials file, with
@@ -238,8 +248,7 @@ so no test adds an origin or a name, and each live run purges once.
 16. Approved: certificate and API key reads set `Sensitive`, and their
     models have no key or token field.
 17. Approved and cleared: a create with no traffic adds no charge.
-18. Approved: the release order above, with purge free to move ahead of
-    C2.
+18. Approved: the release order above.
 19. Approved and confirmed live: Web Accelerator operations use `cdn/*`.
 20. Approved and done: the owner created the first CDN in the portal.
 21. Approved: a 2xx envelope with `success: false` is an `*APIError`
@@ -259,8 +268,8 @@ so no test adds an origin or a name, and each live run purges once.
     Accelerator and analytics reads.
 29. Approved: the at-sign rule also matches U+FF20 and U+FE6B.
 30. Approved: status constants 0 `DISABLED`, 1 `ACTIVE`,
-    3 `DEPLOYING`, 5 `DISABLING`; any other value is `UNKNOWN(<n>)` and
-    every write refuses it.
+    3 `DEPLOYING`, 4 `DELETING`, 5 `DISABLING`; any other value is
+    `UNKNOWN(<n>)` and every write refuses it.
 31. Approved: page rules stay `json.RawMessage` and round-trip on
     update; rule action values stay strings, `hsts` and `minify` as JSON
     text; IDs are strings decoded from a JSON string or integer.
@@ -274,7 +283,7 @@ so no test adds an origin or a name, and each live run purges once.
     list.
 35. Approved: cache status and HTTP code counts are
     `map[string]float64`, and the `"[]"` string is empty counts.
-36. Approved: every write refuses status 3 or 5 with `ErrBusy`,
+36. Approved: every write refuses status 3, 4, or 5 with `ErrBusy`,
     sending nothing, since the server refuses writes during a transition
     and 3 does not tell an enable from an update. A toggle on its target
     returns `Changed: false`.
@@ -299,7 +308,8 @@ so no test adds an origin or a name, and each live run purges once.
     resend after the first landed meets a busy or not-found refusal that
     hides the success.
 43. Approved: delete runs on status 0 or 1 without disabling first,
-    and does not wait.
+    and does not wait, though an active CDN stays 4 `DELETING` for about
+    5 minutes.
 44. Approved: the busy message wraps `ErrBusy`, `Not found cdn` maps
     to `NotFound`, code 202 matches `ErrInvalidInput`, the purge cooldown
     wraps `ErrPurgeCooldown`, and a null code is `EnvelopeError`.
@@ -311,16 +321,23 @@ so no test adds an origin or a name, and each live run purges once.
     C1b fixtures come from a hand capture on such a CDN. One live write
     test takes the first `vngcloud-live-` or `vngcloud-probe-` CDN from
     the list, skips when none exists, covers the C1b reads and every C2
-    write, and ends by deleting it.
+    write, and ends by deleting it. A failed step leaves the CDN for
+    the next run.
+47. Approved: after a 401 on update, delete, or a toggle, the SDK
+    reads the CDN once and returns `ErrNotFound` when it is gone,
+    otherwise the 401 error, since a toggle on a gone CDN answers the
+    same 401 as a rejected key.
+48. Approved: each resource-returning Web Accelerator write Output holds
+    the CDN in a field named `WebAccelerator`, as `GetCertificateOutput`
+    holds `Certificate`; the toggles add `Changed`. Delete returns an
+    empty Output.
 
 ## Open items
 
 - Why `POST cdn/create` fails past validation; the
   [retest](cdn-writes.md#create) adds `userUuid` and `customerId`.
-- Whether analytics with `period` alone, without dates, is accepted.
 - Analytics units: every value seen is zero.
 - What an update of a disabled CDN does to its status.
-- What a delete of an active CDN answers; the live write test records it.
 - The certificate item shape stays the reference's until a certificate
   exists; C4's import gives the first one.
 - The page rule docs describe `headerOverride` as a header sent to the

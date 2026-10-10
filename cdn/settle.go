@@ -134,16 +134,14 @@ func notSettled(op string, last *WebAccelerator, cause error) error {
 }
 
 // settle reads the CDN until it reaches t.settled, starting with cur when a
-// read is already in hand and with a fresh read when cur is nil. It reads
-// every settleInterval for up to settleBound by the client's clock. It
-// returns the last good read with every error.
-func (c *Client) settle(ctx context.Context, op, cdnID string, t settleTarget, cur *WebAccelerator) (*WebAccelerator, error) {
-	deadline := c.clock().Add(settleBound)
-	last := cur
+// read is already in hand and with a fresh read when cur is nil. deadline is
+// measured from the write response. It returns the last good read with every
+// error.
+func (c *Client) settle(ctx context.Context, op, cdnID string, t settleTarget, deadline time.Time, cur, last *WebAccelerator) (*WebAccelerator, error) {
 	var readErr error
 	for {
 		if cur == nil {
-			wa, err := c.detail(ctx, op, cdnID)
+			wa, err := c.detailByDeadline(ctx, op, cdnID, deadline)
 			switch {
 			case err == nil:
 				cur, last, readErr = wa, wa, nil
@@ -165,14 +163,30 @@ func (c *Client) settle(ctx context.Context, op, cdnID string, t settleTarget, c
 					ErrUnexpectedStatus, op, StatusName(cur.Status), StatusName(t.settled))
 			}
 		}
-		if !c.clock().Before(deadline) {
+		now := c.clock()
+		if !now.Before(deadline) {
 			return last, notSettled(op, last, readErr)
 		}
-		if err := c.sleeper()(ctx, settleInterval); err != nil {
+		wait := min(settleInterval, deadline.Sub(now))
+		if err := c.sleeper()(ctx, wait); err != nil {
 			return last, notSettled(op, last, err)
 		}
 		cur = nil
 	}
+}
+
+func (c *Client) detailByDeadline(ctx context.Context, op, cdnID string, deadline time.Time) (*WebAccelerator, error) {
+	remaining := deadline.Sub(c.clock())
+	if remaining <= 0 {
+		return nil, context.DeadlineExceeded
+	}
+	readCtx, cancel := context.WithTimeout(ctx, remaining)
+	defer cancel()
+	wa, err := c.detail(readCtx, op, cdnID)
+	if !c.clock().Before(deadline) {
+		return nil, context.DeadlineExceeded
+	}
+	return wa, err
 }
 
 // detail is a detail read that drops the raw object.

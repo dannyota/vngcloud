@@ -90,6 +90,18 @@ func (f *fakeClock) slept() time.Duration {
 	return total
 }
 
+func (f *fakeClock) advance(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.now = f.now.Add(d)
+}
+
+func (f *fakeClock) time() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.now
+}
+
 // detailWithStatus returns the detail fixture with its status replaced.
 func detailWithStatus(t *testing.T, status int) string {
 	t.Helper()
@@ -132,7 +144,11 @@ type sim struct {
 	writeHTTP int
 	// detailOverride, when set, answers a detail read instead of the status.
 	detailOverride func(n int) (string, bool)
-	reads          int
+	// detailHTTP, when set, answers a detail read with this status.
+	detailHTTP   func(n int) int
+	beforeDetail func(n int)
+	afterWrite   func()
+	reads        int
 }
 
 func newSim(t *testing.T, status int, seq ...int) *sim {
@@ -145,6 +161,15 @@ func (s *sim) handler(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/vcdn-api/v1/cdn/detail/"):
 		s.reads++
+		if s.beforeDetail != nil {
+			s.beforeDetail(s.reads)
+		}
+		if s.detailHTTP != nil {
+			if status := s.detailHTTP(s.reads); status != 0 {
+				w.WriteHeader(status)
+				return
+			}
+		}
 		if s.detailOverride != nil {
 			if body, ok := s.detailOverride(s.reads); ok {
 				jsonReply(w, body)
@@ -161,8 +186,14 @@ func (s *sim) handler(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, detailWithStatus(s.t, st))
 	default:
 		s.wrote = true
+		if s.afterWrite != nil {
+			defer s.afterWrite()
+		}
 		if s.writeHTTP != 0 {
 			w.WriteHeader(s.writeHTTP)
+			if s.writeBody != "" {
+				_, _ = w.Write([]byte(s.writeBody))
+			}
 			return
 		}
 		body := s.writeBody

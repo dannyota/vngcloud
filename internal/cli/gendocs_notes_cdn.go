@@ -23,11 +23,29 @@ const cdnListAPIKeysNote = "`Current` marks the key this command sent, so its `E
 	"the key in use. The server also returns every key's token and the account email; the CLI never prints " +
 	"them."
 
+const cdnListWebAcceleratorsNote = "Lists portal-created Web Accelerators. `CDNDomain` is the generated CNAME target."
+
+const cdnAnalyticsNote = "Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them."
+
+const cdnUpdateWebAcceleratorNote = "Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait."
+
+const cdnToggleWebAcceleratorNote = "Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1."
+
 // docOpNotesCDN holds cdn's entries of docOpNotes, merged into it at init.
 var docOpNotesCDN = map[string]string{
-	"cdn list-certificates": cdnListCertificatesNote,
-	"cdn get-certificate":   cdnGetCertificateNote,
-	"cdn list-api-keys":     cdnListAPIKeysNote,
+	"cdn list-certificates":       cdnListCertificatesNote,
+	"cdn get-certificate":         cdnGetCertificateNote,
+	"cdn list-api-keys":           cdnListAPIKeysNote,
+	"cdn list-web-accelerators":   cdnListWebAcceleratorsNote,
+	"cdn get-traffic":             cdnAnalyticsNote,
+	"cdn get-request-rate":        cdnAnalyticsNote,
+	"cdn get-cache-status":        cdnAnalyticsNote,
+	"cdn get-http-codes":          cdnAnalyticsNote,
+	"cdn get-traffic-report":      cdnAnalyticsNote,
+	"cdn update-web-accelerator":  cdnUpdateWebAcceleratorNote,
+	"cdn enable-web-accelerator":  cdnToggleWebAcceleratorNote,
+	"cdn disable-web-accelerator": cdnToggleWebAcceleratorNote,
+	"cdn delete-web-accelerator":  "Deletes the CDN and its generated CNAME target. Pass --yes to confirm.",
 }
 
 func init() {

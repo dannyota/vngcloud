@@ -30,6 +30,7 @@ type vcdnHarness struct {
 	requests atomic.Int64
 	captured atomic.Int64
 	logs     bytes.Buffer
+	writes   bytes.Buffer
 }
 
 func newVCDN(t *testing.T, key string, handler func(w http.ResponseWriter, r *http.Request)) *vcdnHarness {
@@ -45,8 +46,13 @@ func newVCDN(t *testing.T, key string, handler func(w http.ResponseWriter, r *ht
 		TokenSource:   failTokenSource{t},
 		RetryCount:    2,
 		RetryInterval: time.Millisecond,
-		Capture:       func(transport.Capture) { h.captured.Add(1) },
-		Logger:        slog.New(slog.NewTextHandler(&h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Capture: func(c transport.Capture) {
+			h.captured.Add(1)
+			if c.Operation == "cdn.UpdateWebAccelerator" {
+				h.writes.Write(c.Body)
+			}
+		},
+		Logger: slog.New(slog.NewTextHandler(&h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	set := endpoints.Set{CDN: server.URL + "/vcdn-api/"}
 	h.Client = New(core.NewTestConfigWithCDNAPIKey("hcm-3", "", set, tc, key))

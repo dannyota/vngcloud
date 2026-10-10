@@ -546,6 +546,7 @@ var docOpNotes = map[string]string{
 // make buildExample print a command that exits 2 when run as shown, so
 // buildExample panics instead of silently omitting the field.
 var docJSONPlaceholders = map[string]string{
+	"CDNDomains":  `["<cdn-domain>"]`,
 	"Locations":   `["<location-id>"]`,
 	"VPCIDs":      `["<vpc-id>"]`,
 	"Values":      `[{"Value":"<value>"}]`,
@@ -665,6 +666,8 @@ var docExampleExtraFlag = map[string]string{
 // (svc_network_dhcp.go) each refuse their own command without --yes on
 // every call.
 var docExampleOverride = map[string]string{
+	"cdn update-web-accelerator": "vngcloud cdn update-web-accelerator --cdn-id <cdn-id> " +
+		"--cli-input-json file://changes.json",
 	"storage put-bucket-policy":        "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",
 	"storage put-bucket-versioning":    "vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true",
 	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",

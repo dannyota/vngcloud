@@ -391,10 +391,9 @@ func renderCLIPage(services []docService) string {
 		"the SDK does not know, so nothing was sent, a network enable-vpc-private-dns read a VPC " +
 		"dnsStatus it does not know how to act on, so nothing was sent, a compute start-server, " +
 		"stop-server, reboot-server, or resize-server read a server status that call does not act on, " +
-		"or a volume resize-volume read a volume Status other than AVAILABLE or IN-USE, before any " +
-		"request; see [Compute](CLI-Compute.md#start-server) and [Volume](CLI-Volume.md#resize-volume)), " +
-		"`StatusUnconfirmed` (a vMonitor pause or resume " +
-		"may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming)), " +
+		"or a volume resize-volume read a volume Status other than AVAILABLE or IN-USE, or a CDN write found an unknown CDN status; see " +
+		"[Compute](CLI-Compute.md#start-server), [Volume](CLI-Volume.md#resize-volume), and [CDN](CDN.md#cli)), " +
+		"`StatusUnconfirmed` (a vMonitor or CDN toggle may have landed but a read did not confirm it; see [Monitor](Monitor.md#pausing-and-resuming) and [CDN](CDN.md#cli)), " +
 		"`ZoneBusy` (a vDNS zone stayed busy past the wait before a write, so nothing was sent), " +
 		"`WriteFailed` (a vDNS write went to status `ERROR`, a network create-security-group's post-" +
 		"create wait saw the group reach `ERROR`, a compute create-server, delete-server, start-server, " +
@@ -471,7 +470,7 @@ func renderCLIPage(services []docService) string {
 		"`DefaultResource` (a network delete-route-table targeted a VPC's main route table while a subnet " +
 		"names no route table of its own and so relies on it, though the server itself deletes a main " +
 		"table once nothing relies on it; or a write targeted a project's default network ACL or one of " +
-		"an ACL's own default rules), `ResourceBusy` (a network add-route, remove-route, or a network ACL " +
+		"an ACL's own default rules), `ResourceBusy` (a CDN write found the CDN changing, or a network add-route, remove-route, or a network ACL " +
 		"rule or subnet write read a table or ACL that was not ACTIVE and stayed that way past the wait " +
 		"before the write, or saw it change before the send, so nothing was sent; or a network ACL rules " +
 		"or subnets PUT, or a delete-network-acl DELETE, sent once with no retry landed in the ACL's own " +
@@ -493,7 +492,7 @@ func renderCLIPage(services []docService) string {
 		"never became an *APIError, such as monitor.GetChannel's page walk finding no matching ID; a real " +
 		"404 already carries code `NotFound` through the API error case above). For `WriteFailed`, `NotSettled`, " +
 		"and `UserNotFound` the CLI also prints the Output on stdout; see [DNS](DNS.md#waits), " +
-		"[Network](Network.md#waits), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
+		"[Network](Network.md#waits), [CDN](CDN.md#cli), [ContainerRegistry](CLI-ContainerRegistry.md#create-repository), " +
 		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user), and [Tagging](CLI-Tagging.md#tag-resource). " +
 		"`UnexpectedStatus`, `StatusUnconfirmed`, `ZoneBusy`, `WriteFailed`, " +
 		"`NotSettled`, `OTPRejected`, `PriceAboveMax`, `Unpriced`, `SelfChange`, `PrivilegedChange`, `ManagedPolicy`, " +

@@ -20,7 +20,8 @@ the rename and keeps the `vngcloud` name.
   cost and balances.
 - **Price before you buy:** get a quote for a resource; a quote never orders.
 - **Read your infrastructure:** servers, volumes, networks, load balancers,
-  DNS, container registries, quotas, and the published CDN IP ranges.
+  DNS, container registries, quotas, and CDN settings and analytics.
+- **Manage CDN sites:** update, enable, disable, and delete Web Accelerators.
 - **Change a few free resources:** private DNS zones and records, security
   groups and rules, and SSH keys.
 - **Watch uptime:** create, update, pause, and delete vMonitor checks; manage

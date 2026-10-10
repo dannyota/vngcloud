@@ -20,8 +20,31 @@ var cdnOps = []Op[cdn.Client]{
 		kebab("GetCertificate"), (*cdn.Client).GetCertificate),
 	Read[cdn.Client, cdn.ListAPIKeysInput, cdn.ListAPIKeysOutput](
 		kebab("ListAPIKeys"), (*cdn.Client).ListAPIKeys),
+	Read[cdn.Client, cdn.ListWebAcceleratorsInput, cdn.ListWebAcceleratorsOutput](
+		kebab("ListWebAccelerators"), (*cdn.Client).ListWebAccelerators),
+	Read[cdn.Client, cdn.GetWebAcceleratorInput, cdn.GetWebAcceleratorOutput](
+		kebab("GetWebAccelerator"), (*cdn.Client).GetWebAccelerator),
+	Read[cdn.Client, cdn.GetTrafficInput, cdn.GetTrafficOutput](
+		kebab("GetTraffic"), (*cdn.Client).GetTraffic, NoFlag("CDNDomains")),
+	Read[cdn.Client, cdn.GetRequestRateInput, cdn.GetRequestRateOutput](
+		kebab("GetRequestRate"), (*cdn.Client).GetRequestRate, NoFlag("CDNDomains")),
+	Read[cdn.Client, cdn.GetCacheStatusInput, cdn.GetCacheStatusOutput](
+		kebab("GetCacheStatus"), (*cdn.Client).GetCacheStatus, NoFlag("CDNDomains")),
+	Read[cdn.Client, cdn.GetHTTPCodesInput, cdn.GetHTTPCodesOutput](
+		kebab("GetHTTPCodes"), (*cdn.Client).GetHTTPCodes, NoFlag("CDNDomains")),
+	Read[cdn.Client, cdn.GetTrafficReportInput, cdn.GetTrafficReportOutput](
+		kebab("GetTrafficReport"), (*cdn.Client).GetTrafficReport, NoFlag("CDNDomains")),
+	Write[cdn.Client, cdn.UpdateWebAcceleratorInput, cdn.UpdateWebAcceleratorOutput](
+		kebab("UpdateWebAccelerator"), (*cdn.Client).UpdateWebAccelerator,
+		WriteNoFlag("RemoveRuleActions", "FailOverErrorCodes", "CNames")),
+	Write[cdn.Client, cdn.DeleteWebAcceleratorInput, cdn.DeleteWebAcceleratorOutput](
+		kebab("DeleteWebAccelerator"), (*cdn.Client).DeleteWebAccelerator, Destructive()),
+	Write[cdn.Client, cdn.EnableWebAcceleratorInput, cdn.EnableWebAcceleratorOutput](
+		kebab("EnableWebAccelerator"), (*cdn.Client).EnableWebAccelerator),
+	Write[cdn.Client, cdn.DisableWebAcceleratorInput, cdn.DisableWebAcceleratorOutput](
+		kebab("DisableWebAccelerator"), (*cdn.Client).DisableWebAccelerator, Destructive()),
 }
 
 func newCDNCmd(e *env) *cobra.Command {
-	return Service(e, "cdn", "Published CDN IP ranges, vCDN certificates, and API keys", cdn.New, cdnOps...)
+	return Service(e, "cdn", "CDN IP ranges and vCDN resources, analytics, and writes", cdn.New, cdnOps...)
 }

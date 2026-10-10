@@ -104,8 +104,8 @@ func (in *UpdateWebAcceleratorInput) check(op string) error {
 // the update body leaves out, so the call reads the CDN, merges the changes
 // by action name into the raw object, and sends the whole of it back, with
 // every field the SDK does not model unchanged. The CDN must be ACTIVE: a
-// DISABLED CDN gives ErrInvalidInput, and a DEPLOYING or DISABLING one
-// gives ErrBusy, both with nothing sent. When the merge changes nothing,
+// DISABLED CDN gives ErrInvalidInput, and a DEPLOYING, DELETING, or DISABLING
+// CDN gives ErrBusy, both with nothing sent. When the merge changes nothing,
 // nothing is sent and the Output is the read.
 //
 // The update is sent once. After a server error or a network failure it may
@@ -137,23 +137,34 @@ func (c *Client) UpdateWebAccelerator(ctx context.Context, in *UpdateWebAccelera
 	if !changed {
 		return &UpdateWebAcceleratorOutput{WebAccelerator: *wa}, nil
 	}
-	r := call{op: op, method: http.MethodPut, parts: []string{"cdn", "update"}, body: merged, once: true}
+	r := call{op: op, method: http.MethodPut, parts: []string{"cdn", "update"}, body: merged, once: true, redactValues: userUUID(raw)}
 	if _, err := c.do(ctx, r); err != nil {
-		return nil, maybeLanded(err, "update")
+		return nil, c.explainWrite401(ctx, op, in.CDNID, maybeLanded(err, "update"))
 	}
+	deadline := c.clock().Add(settleBound)
 	var out *WebAccelerator
 	if in.NoWait {
-		out, err = c.detail(ctx, op, in.CDNID)
+		out, err = c.detailByDeadline(ctx, op, in.CDNID, deadline)
 		if err != nil {
-			return nil, notSettled(op, nil, err)
+			return &UpdateWebAcceleratorOutput{WebAccelerator: *wa}, notSettled(op, wa, err)
 		}
 	} else {
-		out, err = c.settle(ctx, op, in.CDNID, settleActive, nil)
+		out, err = c.settle(ctx, op, in.CDNID, settleActive, deadline, nil, wa)
 	}
 	if out == nil {
-		return nil, err
+		return &UpdateWebAcceleratorOutput{WebAccelerator: *wa}, err
 	}
 	return &UpdateWebAcceleratorOutput{WebAccelerator: *out}, err
+}
+
+func userUUID(raw json.RawMessage) []string {
+	var value struct {
+		UserUUID string `json:"userUuid"`
+	}
+	if json.Unmarshal(raw, &value) != nil || value.UserUUID == "" {
+		return nil
+	}
+	return []string{value.UserUUID}
 }
 
 // mergeUpdate applies in to the raw CDN object. It reports whether the

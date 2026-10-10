@@ -66,6 +66,9 @@ type call struct {
 	// sensitive withholds the response from the capture hook and from decode
 	// errors, for a read whose body holds a private key or a token.
 	sensitive bool
+	// redactValues lists values from a request body that a server might echo in a
+	// response, capture, or error.
+	redactValues []string
 	// notFound, when set, marks a detail read: an envelope with success false
 	// and no data is ErrNotFound with this message.
 	notFound string
@@ -100,6 +103,7 @@ func (c *Client) do(ctx context.Context, r call) (json.RawMessage, error) {
 		OK:         []int{http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent},
 		APIKey:     key,
 		Sensitive:  r.sensitive,
+		Redact:     r.redactValues,
 		Body:       r.body,
 		Once:       r.once,
 		Idempotent: r.idempotent,
@@ -168,8 +172,8 @@ func (r call) envelopeError(status int, env envelope, key string) error {
 	return &core.APIError{
 		Operation:  r.op,
 		StatusCode: status,
-		Code:       transport.RedactValues(code, key),
-		Message:    transport.RedactValues(r.message(effective, msg, true), key),
+		Code:       r.redact(code, key),
+		Message:    r.redact(r.message(effective, msg, true), key),
 		Err:        sentinel,
 	}
 }
@@ -184,11 +188,16 @@ func (r call) cleanError(err error) error {
 		return err
 	}
 	cleaned := *apiErr
-	cleaned.Message = r.message(apiErr.StatusCode, apiErr.Message, false)
+	cleaned.Code = r.redact(apiErr.Code)
+	cleaned.Message = r.redact(r.message(apiErr.StatusCode, apiErr.Message, false))
 	if cleaned.Err == nil {
 		cleaned.Err = sentinelFor(apiErr.StatusCode)
 	}
 	return &cleaned
+}
+
+func (r call) redact(text string, values ...string) string {
+	return transport.RedactValues(text, append(append([]string(nil), r.redactValues...), values...)...)
 }
 
 // accountMarks are the at signs that mark an account email in a server

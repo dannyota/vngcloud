@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
 )
 
-// EnableWebAcceleratorInput identifies the CDN to enable. NoWait returns
-// after one read of the CDN instead of waiting for it to become ACTIVE.
+// EnableWebAcceleratorInput identifies the CDN to enable. NoWait skips the
+// settle wait after confirmation, which may read at 0, 2, 4, and 8 seconds.
 type EnableWebAcceleratorInput struct {
 	CDNID  string `vngcloud:"required"`
 	NoWait bool
@@ -24,7 +25,7 @@ type EnableWebAcceleratorOutput struct {
 
 // EnableWebAccelerator drives a disabled CDN to ACTIVE. It reads the CDN
 // first and sends the toggle only when the CDN is DISABLED; a CDN that is
-// DEPLOYING or DISABLING gives ErrBusy. The toggle is sent at most once
+// DEPLOYING, DELETING, or DISABLING gives ErrBusy. The toggle is sent at most once
 // (ADR 0003). Unless NoWait is set, the call waits up to six minutes for
 // ACTIVE; on ErrNotSettled the Output is the last good read, and the enable
 // must not be repeated.
@@ -43,8 +44,8 @@ func (c *Client) EnableWebAccelerator(ctx context.Context, in *EnableWebAccelera
 	return &EnableWebAcceleratorOutput{WebAccelerator: *wa, Changed: changed}, err
 }
 
-// DisableWebAcceleratorInput identifies the CDN to disable. NoWait returns
-// after one read of the CDN instead of waiting for it to become DISABLED.
+// DisableWebAcceleratorInput identifies the CDN to disable. NoWait skips the
+// settle wait after confirmation, which may read at 0, 2, 4, and 8 seconds.
 type DisableWebAcceleratorInput struct {
 	CDNID  string `vngcloud:"required"`
 	NoWait bool
@@ -97,10 +98,11 @@ func (c *Client) toggle(ctx context.Context, op, cdnID string, kind writeKind, n
 	r := call{op: op, method: http.MethodPut, parts: []string{"cdn", "status", "change", cdnID}, once: true}
 	_, putErr := c.do(ctx, r)
 	if putErr != nil && serverDidNotAct(putErr) {
-		return nil, false, c.explainRefusedToggle(ctx, op, cdnID, putErr)
+		return nil, false, c.explainWrite401(ctx, op, cdnID, putErr)
 	}
 
-	confirmed, readErr := c.confirm(ctx, op, cdnID, target)
+	deadline := c.clock().Add(settleBound)
+	confirmed, readErr := c.confirm(ctx, op, cdnID, target, deadline)
 	if confirmed == nil {
 		return nil, false, &statusUnconfirmedError{
 			msg:    ErrStatusUnconfirmed.Error() + ": the toggle was sent, or may have been sent, but no read showed the CDN changing; read the CDN before doing anything else",
@@ -110,16 +112,15 @@ func (c *Client) toggle(ctx context.Context, op, cdnID string, kind writeKind, n
 	if noWait {
 		return confirmed, true, nil
 	}
-	out, err := c.settle(ctx, op, cdnID, target, confirmed)
+	out, err := c.settle(ctx, op, cdnID, target, deadline, confirmed, confirmed)
 	return out, true, err
 }
 
-// explainRefusedToggle returns err, except for a 401. The server answers a
-// toggle on a CDN that no longer exists with a 401 and an empty body, the
-// same as a rejected key. The read before the toggle proved the key works, so
-// a second read tells the two apart: when the CDN is gone, the NotFound from
-// that read replaces the misleading key message.
-func (c *Client) explainRefusedToggle(ctx context.Context, op, cdnID string, err error) error {
+// explainWrite401 returns err, except when one detail read confirms that the
+// CDN no longer exists. A write can answer 401 for either a rejected key or a
+// gone CDN. The first detail read proved the key worked, so the second read
+// distinguishes those cases without resending the write.
+func (c *Client) explainWrite401(ctx context.Context, op, cdnID string, err error) error {
 	var apiErr *core.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
 		return err
@@ -133,15 +134,20 @@ func (c *Client) explainRefusedToggle(ctx context.Context, op, cdnID string, err
 // confirm reads the CDN at once and after 2, 4, and 8 seconds, stopping at
 // the first read that shows the pending or the final status. It returns nil
 // when none does, with the last read error.
-func (c *Client) confirm(ctx context.Context, op, cdnID string, t settleTarget) (*WebAccelerator, error) {
+func (c *Client) confirm(ctx context.Context, op, cdnID string, t settleTarget, deadline time.Time) (*WebAccelerator, error) {
 	var lastErr error
-	for _, wait := range confirmWaits {
-		if wait > 0 {
-			if err := c.sleeper()(ctx, wait); err != nil {
+	start := c.clock()
+	for _, offset := range confirmWaits {
+		readAt := start.Add(offset)
+		if now := c.clock(); now.Before(readAt) {
+			if err := c.sleeper()(ctx, readAt.Sub(now)); err != nil {
 				return nil, err
 			}
 		}
-		wa, err := c.detail(ctx, op, cdnID)
+		if !c.clock().Before(deadline) {
+			return nil, lastErr
+		}
+		wa, err := c.detailByDeadline(ctx, op, cdnID, deadline)
 		if err != nil {
 			lastErr = err
 			continue
@@ -201,10 +207,11 @@ type DeleteWebAcceleratorInput struct {
 type DeleteWebAcceleratorOutput struct{}
 
 // DeleteWebAccelerator deletes a CDN that is ACTIVE or DISABLED. It reads
-// the CDN first, sends the delete once, and does not wait: the CDN is gone
-// from the next read. A deleted CDN loses its generated CDNDomain, which the
-// customer's DNS points at. A CDN that is DEPLOYING or DISABLING gives
-// ErrBusy. An unknown ID gives ErrNotFound.
+// the CDN first, sends the delete once, and does not wait. A disabled CDN is
+// gone from the next read. An active CDN remains DELETING for a while. A
+// deleted CDN loses its generated CDNDomain, which the customer's DNS points
+// at. A CDN that is DEPLOYING, DELETING, or DISABLING gives ErrBusy. An
+// unknown ID gives ErrNotFound.
 func (c *Client) DeleteWebAccelerator(ctx context.Context, in *DeleteWebAcceleratorInput) (*DeleteWebAcceleratorOutput, error) {
 	const op = "cdn.DeleteWebAccelerator"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -222,7 +229,7 @@ func (c *Client) DeleteWebAccelerator(ctx context.Context, in *DeleteWebAccelera
 	}
 	r := call{op: op, method: http.MethodDelete, parts: []string{"cdn", "delete", in.CDNID}, once: true}
 	if _, err := c.do(ctx, r); err != nil {
-		return nil, maybeLanded(err, "delete")
+		return nil, c.explainWrite401(ctx, op, in.CDNID, maybeLanded(err, "delete"))
 	}
 	return &DeleteWebAcceleratorOutput{}, nil
 }

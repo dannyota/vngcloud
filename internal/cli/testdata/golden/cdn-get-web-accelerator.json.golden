@@ -1,0 +1,29 @@
+{
+  "WebAccelerator": {
+    "CDNID": "cdn-1",
+    "Type": "webacc",
+    "DomainName": "app.example.test",
+    "CDNDomain": "cdn.example.test",
+    "CNames": [],
+    "Status": 1,
+    "StatusName": "ACTIVE",
+    "CertificateID": "default",
+    "LBType": "rr",
+    "OriginHostHeader": "",
+    "FailOverErrorCodes": [],
+    "UseSSL": false,
+    "UseSmallFile": false,
+    "EnableGzip": false,
+    "Upstreams": [
+      {
+        "ID": "upstream-1",
+        "Priority": 0,
+        "IPAddress": "192.0.2.1",
+        "Status": 0
+      }
+    ],
+    "DefaultRuleActions": [],
+    "PageRules": [],
+    "AdvancedRule": []
+  }
+}
