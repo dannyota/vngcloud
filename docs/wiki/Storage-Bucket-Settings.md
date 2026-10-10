@@ -1,8 +1,9 @@
 # Storage Bucket Settings
 
-Versioning and CORS calls for `danny.vn/vngcloud/storage`:
+Versioning, encryption, and CORS calls for `danny.vn/vngcloud/storage`:
 `GetBucketVersioning`, `PutBucketVersioning`, `GetBucketCORS`,
-`PutBucketCORS`, and `DeleteBucketCORS`. See [Storage](Storage.md) for buckets
+`PutBucketCORS`, `DeleteBucketCORS`, `GetBucketEncryption`, and
+`PutBucketEncryption`. See [Storage](Storage.md) for buckets
 and S3 keys, and [Storage Bucket Policy](Storage-Bucket-Policy.md) for the
 bucket policy.
 
@@ -31,6 +32,70 @@ gives the same result, so the call keeps the transport's retries. With
 versioning on, overwrites and deletes keep old versions, which use quota and
 make `DeleteBucket` refuse the bucket. Suspending keeps the versions already
 stored.
+
+## Encryption
+
+```go
+state, err := client.GetBucketEncryption(ctx, &storage.GetBucketEncryptionInput{
+	ProjectID: projectID, BucketName: "my-bucket"})
+
+_, err = client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{
+	ProjectID: projectID, BucketName: "my-bucket", Enabled: true})
+```
+
+Encryption is server-managed. The SDK offers no key choice and makes no
+claim about an S3 algorithm. `Enabled` reads `data.encryption`; missing,
+null, or non-boolean state returns `*vngcloud.APIError` with code
+`InvalidResponse`. Both inputs require `ProjectID` and `BucketName`.
+`BucketName` follows the bucket name checks in [Storage](Storage.md#buckets).
+`Region` uses the same resolution and headers as other storage calls.
+
+`PutBucketEncryptionInput.Enabled` is a bool with a complete target state.
+False, including its zero value, disables default encryption. The request
+always sends `enable`. After an accepted PUT, the SDK reads
+`GetBucketEncryption` once under the caller's context. A matching state
+returns an empty Output. A failed or mismatching read returns a nil Output
+and an error wrapping `storage.ErrNotSettled`, with any read error preserved.
+The error names the bucket and `GetBucketEncryption` as the recovery check.
+A refused PUT returns the server error, including `vngcloud.ErrPermission`
+for envelope code 403. An uncertain response says the change may have
+happened and never becomes success from a later read.
+
+The PUT sends once, without automatic resends, until live checks confirm
+repeat behavior. Neither this call nor creation retries the whole sequence.
+Both encryption operations apply the missing-bucket fallback to an empty
+2xx response: one `GetBucket` returns `vngcloud.ErrNotFound` if the bucket is
+gone, otherwise the original `EmptyResponse` error. The fallback's read
+error does not replace that error.
+
+To create with encryption:
+
+```go
+created, err := client.CreateBucket(ctx, &storage.CreateBucketInput{
+	ProjectID: projectID, Bucket: "my-bucket", Encryption: true})
+```
+
+`Encryption: true` creates the bucket, enables encryption and confirms true,
+then reads the bucket for the usual `CreateBucketOutput`. An ambiguous
+create failure returns the existing recovery error and sends no encryption
+call. After a successful create, an enable failure, cancellation before
+enable, or failed confirmation returns a nil Output and
+`storage.ErrBucketEncryptionIncomplete`. The error preserves its cause for
+`errors.Is` and `errors.As`. A refused enable or confirmation of false says
+the bucket exists without encryption enabled by this call. A lost response
+or failed read says encryption is unconfirmed. Read with
+`get-bucket-encryption`, then use `put-bucket-encryption --enabled=true` if
+needed after fixing the cause. Do not upload backups until a read confirms
+true. A failed final bucket read says encryption was confirmed and preserves
+that read error.
+
+Create and enable are not atomic. Delay uploads until successful return.
+The SDK never deletes the bucket after a failed setup. A repeated create
+with `Encryption: true` also enables an existing bucket, which can hold data.
+False sends no encryption call and preserves an existing bucket's setting.
+The SDK does not rewrite existing objects. Effects of enabling or disabling
+on existing objects, the S3 algorithm, and S3 copy restrictions remain
+unverified. Disabling changes the default for future uploads.
 
 ## CORS
 

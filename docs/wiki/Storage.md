@@ -2,8 +2,8 @@
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages projects, buckets, S3 keys, IAM key attachments,
-regions, bucket policies, versioning, and CORS. Use an S3 client with an
-S3 key to read or write objects.
+regions, bucket policies, versioning, encryption, and CORS. Use an S3 client
+with an S3 key to read or write objects.
 
 `storage` calls the vStorage console API, which GreenNode does not document.
 It may change without notice.
@@ -140,6 +140,11 @@ and hyphens. That refusal is an `*vngcloud.APIError` with code `112` and the
 server's message, and it matches `vngcloud.ErrInvalidInput`: the server
 received the request and rejected the input.
 
+`CreateBucketInput.Encryption` enables default encryption before returning
+when true. False sends no encryption call. See
+[Storage Bucket Settings](Storage-Bucket-Settings.md#encryption) for the
+creation sequence, partial setup errors, and when uploads can start.
+
 `CreateBucket` is a `POST`, so the SDK retries it only after a 429 or a failed
 dial. After a 5xx or a network error the bucket may exist: the error names
 `GetBucket` as the check.
@@ -190,7 +195,8 @@ if err != nil {
 access := created.AccessKey
 secret := created.SecretKey.Reveal() // save this now; it is never shown again
 
-keys, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{ProjectID: projectID})
+keys, err := client.ListS3Keys(ctx, &storage.ListS3KeysInput{
+	ProjectID: projectID})
 if err != nil {
 	log.Fatal(err)
 }
@@ -334,10 +340,33 @@ key, since an attached key has no rights in a bucket until a policy names its
 principal. The key is attached before its secret is stored, since a key is
 unrestricted until its attach. [CLI-Storage](CLI-Storage.md) has the commands.
 
-## Versioning and CORS
+## Bucket settings
 
-Bucket versioning and CORS rules are on
+Bucket versioning, encryption, and CORS rules are on
 [Storage Bucket Settings](Storage-Bucket-Settings.md).
+
+## S3 compatibility notes
+
+Observed in HCM04 on 2026-10-10. These results help S3-client users; the SDK
+manages the console API and does not cover objects. They do not establish
+behavior in other regions or verify encryption.
+
+- `PutObject` with `If-None-Match: *` returns 200 for a new key and 412 for
+  an existing key.
+- `PutObject` with a matching quoted ETag in `If-Match`, the RFC form SDKs
+  send, returns 412. The matching unquoted ETag returns 200.
+- `DELETE` with a wrong `If-Match` returns 204 and deletes the object.
+  The condition is ignored. Do not rely on conditional deletion for safety.
+- OpenTofu 1.12.6's S3 backend with `use_lockfile = true` and path-style
+  addressing locks correctly. A second plan gets 412 and
+  "Error acquiring the state lock".
+- Path-style addressing, 12 MB multipart uploads, `ListObjectsV2` with
+  prefix and delimiter, `DeleteObjects`, and AWS CLI 2.37's default CRC32
+  checksums work.
+- `ListObjectsV2` omits `KeyCount` when the count is 0.
+- On a failed conditional PUT, AWS CLI 2.37 prints
+  "argument of type 'NoneType' is not a container or iterable" instead of
+  the 412 response.
 
 ## Errors
 

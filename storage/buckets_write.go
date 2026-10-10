@@ -19,6 +19,9 @@ type CreateBucketInput struct {
 	Region    string
 	ProjectID string `vngcloud:"required"`
 	Bucket    string `vngcloud:"required"`
+	// Encryption enables default encryption before returning. False sends no
+	// encryption call, including when the bucket already exists.
+	Encryption bool
 }
 
 type CreateBucketOutput struct {
@@ -32,6 +35,12 @@ type CreateBucketOutput struct {
 // The create is a POST, so it is retried only after a 429 or a failed dial.
 // After a 5xx or a network error the bucket may exist; the error names
 // GetBucket as the check.
+//
+// Encryption true enables encryption after creation and before the final read.
+// The sequence is not atomic: delay uploads until successful return. A repeat
+// create also enables an existing bucket. Failures never delete the bucket and
+// preserve their causes; setup failures wrap ErrBucketEncryptionIncomplete.
+// Existing objects are not rewritten by this call.
 func (c *Client) CreateBucket(ctx context.Context, in *CreateBucketInput) (*CreateBucketOutput, error) {
 	const op = "storage.CreateBucket"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -53,8 +62,19 @@ func (c *Client) CreateBucket(ctx context.Context, in *CreateBucketInput) (*Crea
 	if err != nil {
 		return nil, mayHaveCreated(err)
 	}
+	if in.Encryption {
+		if err := ctx.Err(); err != nil {
+			return nil, incompleteBucketEncryption(in.Bucket, err)
+		}
+		if _, err := c.PutBucketEncryption(ctx, &PutBucketEncryptionInput{Region: in.Region, ProjectID: in.ProjectID, BucketName: in.Bucket, Enabled: true}); err != nil {
+			return nil, incompleteBucketEncryption(in.Bucket, err)
+		}
+	}
 	got, err := c.GetBucket(ctx, &GetBucketInput{Region: in.Region, ProjectID: in.ProjectID, Bucket: in.Bucket})
 	if err != nil {
+		if in.Encryption {
+			return nil, fmt.Errorf("%s: bucket %q: encryption was confirmed but reading the bucket failed: %w", op, in.Bucket, err)
+		}
 		return nil, fmt.Errorf("%s: the bucket was created, but reading it back failed: %w", op, err)
 	}
 	return &CreateBucketOutput{Bucket: got.Bucket}, nil
