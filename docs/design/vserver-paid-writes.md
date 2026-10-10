@@ -60,11 +60,11 @@ the write's own Input (ADR 0002 rule 8):
 | `volume.CreateVolume` | `volume.QuoteCreateVolume` | `volume`, `create` |
 | `volume.ResizeVolume` | `volume.QuoteResizeVolume` | `volume`, `resize` |
 
-- One builder per write makes the request body. The quote sends that body
-  as `resourceInfo`, plus `period` 1 and `isPoc` false, and minus
-  `userData`, which is not priced and must not reach the billing gateway.
-  The server ignores keys it does not price
-  ([quote requests](vserver-paid-writes-api.md#quote-requests)).
+- One quote builder per write makes `resourceInfo` from the write's
+  Input: the priced keys only, plus `period` 1 and `isPoc` false. It never
+  holds `userData`. A quote requires only priced fields; see
+  [CLI usability](cli-usability.md#quotes-ask-only-for-priced-values) and
+  [quote requests](vserver-paid-writes-api.md#quote-requests).
 - The quote's Output is `pricing.GetQuoteOutput`. `OptimumPrice` is VND a
   month. For a resize it is the new configuration's price for the rest of
   the current period ([billing model](vserver-paid-writes-api.md#billing-model));
@@ -103,7 +103,7 @@ Free reads a caller needs to build a create:
 | Operation | Input | Output |
 |-|-|-|
 | `compute.ListFlavorZones` | `ZoneID` | `Items []FlavorZone` |
-| `compute.ListFlavors` | `FlavorZoneID` (r) | `Items []Flavor` |
+| `compute.ListFlavors` | `FlavorZoneID` or `ZoneID`, `Name` ([lookups](cli-usability.md#flavors-by-zone)) | `Items []Flavor` |
 | `volume.ListVolumesByServer` | `ServerID` (r) | `Items []Volume` |
 | `volume.GetDefaultVolumeType` | gains `ZoneID` | unchanged |
 

@@ -27,3 +27,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
 | [IAM writes](iam-writes.md) | Accepted |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
+| [CLI usability](cli-usability.md) | Accepted |

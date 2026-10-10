@@ -35,7 +35,7 @@ reason.
 |-|-|
 | `vngcloud configure` | Prompt for a profile's region and credentials |
 | `vngcloud configure set\|get\|list` | Script-friendly profile edits and reads |
-| `vngcloud version` | Print the version |
+| `vngcloud version`, `vngcloud --version` | Print the version |
 | `vngcloud <service> <operation>` | Call one SDK operation |
 
 Service names match the SDK packages. Operation names are the SDK method names
@@ -116,6 +116,9 @@ from either place. Cobra itself marks no flag required.
   tags.
 - Map-backed models (Portal, Container Registry) pass their keys through
   unchanged.
+- A list command prints an object with its rows under `Items`, and page
+  metadata beside it. No command prints a bare array; see
+  [CLI usability](cli-usability.md#list-output-shape).
 - `--query` runs on that JSON. `table` and `text` render the query result:
   `text` prints tab-separated values, one row per list item, and `table` draws
   a bordered grid. Both escape control characters in strings. They and
