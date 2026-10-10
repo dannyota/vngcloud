@@ -826,9 +826,13 @@ func TestGenDocsQuoteCreateServerDocumentsRepeatableSecurityGroupFlag(t *testing
 	if err != nil {
 		t.Fatalf("ReadFile CLI-Compute.md: %v", err)
 	}
-	want := "| `--security-group-id` | `[]string` | yes |"
-	if !strings.Contains(string(data), want) {
-		t.Errorf("quote-create-server doc is missing %q:\n%s", want, data)
+	want := "| `--security-group-id` | `[]string` |  |"
+	if got, ok := docRow(t, string(data), "quote-create-server", "security-group-id"); !ok || got != want {
+		t.Errorf("quote-create-server row = %q, found = %v, want %q", got, ok, want)
+	}
+	want = "| `--security-group-id` | `[]string` | yes |"
+	if got, ok := docRow(t, string(data), "create-server", "security-group-id"); !ok || got != want {
+		t.Errorf("create-server row = %q, found = %v, want %q", got, ok, want)
 	}
 }
 
@@ -930,6 +934,42 @@ func TestGenDocsNotesCoverZoneEnabledFlagAndRootDiskText(t *testing.T) {
 		for _, want := range checks.want {
 			if !strings.Contains(section, want) {
 				t.Errorf("%s section is missing %q:\n%s", checks.op, want, section)
+			}
+		}
+	}
+}
+
+// TestGenDocsNotesCoverQuoteOptionalFlagsAndVolumeTypeNames checks the notes
+// that say which quote flags are optional and why, and that equal volume
+// type names need an ID to tell them apart.
+func TestGenDocsNotesCoverQuoteOptionalFlagsAndVolumeTypeNames(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	for _, c := range []struct {
+		file, op string
+		want     []string
+		notWant  []string
+	}{
+		{"CLI-Compute.md", "quote-create-server", []string{"--ssh-key-id are optional", "does not send them"}, []string{"ignores every key"}},
+		{"CLI-Volume.md", "quote-create-volume", []string{"--name is optional", "does not send --name"}, nil},
+		{"CLI-LoadBalancer.md", "quote-create-load-balancer", []string{"--name, --scheme, --subnet-id, and --type are optional", "does not send them"}, []string{"ignores every key"}},
+		{"CLI-Volume.md", "list-volume-types", []string{"HCM03-1A", "32,960", "32,000", "by ID"}, nil},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, c.file))
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", c.file, err)
+		}
+		section := genDocsSection(t, string(data), c.op)
+		for _, want := range c.want {
+			if !strings.Contains(section, want) {
+				t.Errorf("%s section is missing %q", c.op, want)
+			}
+		}
+		for _, bad := range c.notWant {
+			if strings.Contains(section, bad) {
+				t.Errorf("%s section still says %q", c.op, bad)
 			}
 		}
 	}

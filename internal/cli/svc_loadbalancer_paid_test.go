@@ -40,8 +40,9 @@ func TestGoldenLoadBalancerQuoteResizeLoadBalancer(t *testing.T) {
 	checkGolden(t, "loadbalancer-quote-resize-load-balancer.table.golden", "table", "", v)
 }
 
-// validQuoteCreateLoadBalancerArgs is the flag set quote-create-load-balancer
-// needs to pass its required-field check.
+// validQuoteCreateLoadBalancerArgs sets every quote-create-load-balancer
+// flag, so the tests below can confirm the unpriced flags are accepted and
+// still stay out of the request body.
 var validQuoteCreateLoadBalancerArgs = []string{
 	"loadbalancer", "quote-create-load-balancer",
 	"--name", "lb-1", "--package-id", "pkg-1", "--type", "Layer 4",
@@ -49,10 +50,9 @@ var validQuoteCreateLoadBalancerArgs = []string{
 }
 
 // TestLoadBalancerQuoteCreateLoadBalancerSendsRequestBody drives
-// quote-create-load-balancer with every required flag, checking the exact
-// request body the CLI builds from that merge: the SDK's own test
-// (loadbalancer.TestQuoteCreateLoadBalancerSendsQuoteBody) checks the body
-// builder itself, not that the flags reach it field for field.
+// quote-create-load-balancer with every flag set and checks that the request
+// body holds only the priced keys: the other flags are accepted but never
+// sent.
 func TestLoadBalancerQuoteCreateLoadBalancerSendsRequestBody(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -123,8 +123,8 @@ func TestLoadBalancerQuoteCreateLoadBalancerHasNoMaxPriceOrNoWaitFlag(t *testing
 }
 
 // TestLoadBalancerQuoteCreateLoadBalancerMissingRequiredFieldExitsWithZeroRequests
-// checks that quote-create-load-balancer without --name fails the
-// required-field check before any request.
+// checks that quote-create-load-balancer without --package-id, a priced
+// field, fails the required-field check before any request.
 func TestLoadBalancerQuoteCreateLoadBalancerMissingRequiredFieldExitsWithZeroRequests(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
@@ -134,12 +134,12 @@ func TestLoadBalancerQuoteCreateLoadBalancerMissingRequiredFieldExitsWithZeroReq
 	root, _, stderr := newSvcRoot(t, fixture)
 	root.SetArgs([]string{
 		"--region", "hcm-3", "--project-id", "proj-1", "loadbalancer", "quote-create-load-balancer",
-		"--package-id", "pkg-1", "--type", "Layer 4", "--scheme", "Internal",
+		"--name", "lb-1", "--type", "Layer 4", "--scheme", "Internal",
 		"--subnet-id", "subnet-1", "--zone-id", "zone-1",
 	})
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
-		t.Fatalf("expected an error for a missing --name")
+		t.Fatalf("expected an error for a missing --package-id")
 	}
 	if exitCode(err) != 2 {
 		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", exitCode(err), stderr.String())

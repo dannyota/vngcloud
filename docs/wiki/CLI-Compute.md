@@ -313,20 +313,20 @@ vngcloud compute list-user-images
 
 Kind: Read.
 
-Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size is the --root-disk-size value.
+Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Needs only the flags that set the price: --zone-id, --flavor-id, --image-id, --root-disk-size, --root-disk-type-id, and the data disk pair --data-disk-size with --data-disk-type-id when there is a data disk. --name, --vpc-id, --subnet-id, --security-group-id, and --ssh-key-id are optional here and required by create-server. The CLI does not send them or any other unpriced field to the billing gateway, but still checks the shape of each one that is set, so a bad ID fails here as it will at the create. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size is the --root-disk-size value.
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
 | Flag | Type | Required |
 |-|-|-|
-| `--name` | `string` | yes |
+| `--name` | `string` |  |
 | `--zone-id` | `string` | yes |
 | `--flavor-id` | `string` | yes |
 | `--image-id` | `string` | yes |
-| `--vpc-id` | `string` | yes |
-| `--subnet-id` | `string` | yes |
-| `--security-group-id` | `[]string` | yes |
-| `--ssh-key-id` | `string` | yes |
+| `--vpc-id` | `string` |  |
+| `--subnet-id` | `string` |  |
+| `--security-group-id` | `[]string` |  |
+| `--ssh-key-id` | `string` |  |
 | `--root-disk-size` | `int` | yes |
 | `--root-disk-type-id` | `string` | yes |
 | `--data-disk-size` | `int` |  |
@@ -338,7 +338,7 @@ The command that finds each ID create-server takes is on [IDs for Create Server]
 | `NoWait` (via `--cli-input-json` only) | `bool` |  |
 
 ```sh
-vngcloud compute quote-create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
+vngcloud compute quote-create-server --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
 ```
 
 ## quote-resize-server

@@ -265,13 +265,14 @@ func setFieldValue(field reflect.Value, isPointer bool, value reflect.Value) {
 // field of the struct inputPtr points to that is still zero after the
 // --cli-input-json and flag merge: naming the flag for an ordinary field, or
 // the Go field name for one noFlag (op.go's NoFlag) marks, since that field
-// has no flag to name. noFlag may be nil, which no field is ever in.
-func checkRequiredFlags(inputPtr any, noFlag map[string]bool) error {
+// has no flag to name. A field in optional (op.go's Optional) is never
+// required. Either map may be nil, which no field is ever in.
+func checkRequiredFlags(inputPtr any, noFlag, optional map[string]bool) error {
 	v := reflect.ValueOf(inputPtr).Elem()
 	t := v.Type()
 	for i := range t.NumField() {
 		f := t.Field(i)
-		if f.Tag.Get("vngcloud") != "required" {
+		if f.Tag.Get("vngcloud") != "required" || optional[f.Name] {
 			continue
 		}
 		if !v.Field(i).IsZero() {

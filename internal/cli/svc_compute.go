@@ -74,7 +74,8 @@ var computeOps = []Op[compute.Client]{
 		kebab("ListFlavors"), (*compute.Client).ListFlavors),
 	Read[compute.Client, compute.CreateServerInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateServer"), (*compute.Client).QuoteCreateServer,
-		NoFlag("UserData", "MaxPrice", "NoWait")),
+		NoFlag("UserData", "MaxPrice", "NoWait"),
+		Optional("Name", "VPCID", "SubnetID", "SecurityGroupIDs", "SSHKeyID")),
 	createServerOp(),
 	Write[compute.Client, compute.DeleteServerInput, compute.DeleteServerOutput](
 		kebab("DeleteServer"), (*compute.Client).DeleteServer, Destructive()),

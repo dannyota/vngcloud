@@ -177,7 +177,7 @@ func TestApplyChangedFlagsLeavesStringSliceUntouchedWhenNotGiven(t *testing.T) {
 // []string field with no value (a nil slice, the zero value for Slice)
 // fails checkRequiredFlags the same way a missing required string does.
 func TestCheckRequiredFlagsNamesAMissingStringSliceFlag(t *testing.T) {
-	err := checkRequiredFlags(&sliceFlagsTestInput{}, nil)
+	err := checkRequiredFlags(&sliceFlagsTestInput{}, nil, nil)
 	if err == nil {
 		t.Fatalf("expected an error for a missing required []string field")
 	}
@@ -303,8 +303,27 @@ type requiredTestInput struct {
 	Name       string
 }
 
+// TestCheckRequiredFlagsSkipsOptionalFields checks that a field named in the
+// optional set (op.go's Optional) is not required, while another required
+// field still is.
+func TestCheckRequiredFlagsSkipsOptionalFields(t *testing.T) {
+	in := &twoRequiredTestInput{First: "a"}
+	if err := checkRequiredFlags(in, nil, map[string]bool{"Second": true}); err != nil {
+		t.Fatalf("unexpected error for an optional field: %v", err)
+	}
+	if err := checkRequiredFlags(&twoRequiredTestInput{Second: "b"}, nil, map[string]bool{"Second": true}); err == nil ||
+		err.Error() != "--first is required" {
+		t.Fatalf("error = %v, want --first is required", err)
+	}
+}
+
+type twoRequiredTestInput struct {
+	First  string `vngcloud:"required"`
+	Second string `vngcloud:"required"`
+}
+
 func TestCheckRequiredFlagsNamesTheFlag(t *testing.T) {
-	err := checkRequiredFlags(&requiredTestInput{}, nil)
+	err := checkRequiredFlags(&requiredTestInput{}, nil, nil)
 	if err == nil {
 		t.Fatalf("expected an error for a missing required field")
 	}
@@ -318,7 +337,7 @@ func TestCheckRequiredFlagsNamesTheFlag(t *testing.T) {
 }
 
 func TestCheckRequiredFlagsPassesWhenSet(t *testing.T) {
-	if err := checkRequiredFlags(&requiredTestInput{BudgetUUID: "b-1"}, nil); err != nil {
+	if err := checkRequiredFlags(&requiredTestInput{BudgetUUID: "b-1"}, nil, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -328,7 +347,7 @@ func TestCheckRequiredFlagsCanBeSatisfiedAfterJSONMerge(t *testing.T) {
 	if err := applyCLIInputJSON(`{"BudgetUUID":"b-1"}`, in); err != nil {
 		t.Fatalf("applyCLIInputJSON: %v", err)
 	}
-	if err := checkRequiredFlags(in, nil); err != nil {
+	if err := checkRequiredFlags(in, nil, nil); err != nil {
 		t.Fatalf("unexpected error after JSON supplied the required field: %v", err)
 	}
 }
@@ -345,7 +364,7 @@ type requiredNoFlagTestInput struct {
 // required field marked NoFlag gets an error naming the JSON field ("Region"),
 // never a flag ("--region") that flags.go never registered for it.
 func TestCheckRequiredFlagsNamesTheJSONFieldForANoFlagField(t *testing.T) {
-	err := checkRequiredFlags(&requiredNoFlagTestInput{}, map[string]bool{"Region": true})
+	err := checkRequiredFlags(&requiredNoFlagTestInput{}, map[string]bool{"Region": true}, nil)
 	if err == nil {
 		t.Fatalf("expected an error for a missing required NoFlag field")
 	}

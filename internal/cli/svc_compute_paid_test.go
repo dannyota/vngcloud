@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -84,10 +85,9 @@ func TestComputeListFlavorZonesFiltersByZoneIDEndToEnd(t *testing.T) {
 	}
 }
 
-// validQuoteCreateServerArgs is the flag set quote-create-server needs to
-// pass its required-field check, one repeatable --security-group-id given
-// twice so the request-body test below can confirm both values reach the
-// quote.
+// validQuoteCreateServerArgs sets every quote-create-server flag, with
+// --security-group-id given twice, so the tests below can confirm the
+// unpriced flags are accepted and still stay out of the request body.
 var validQuoteCreateServerArgs = []string{
 	"compute", "quote-create-server",
 	"--name", "web-1", "--zone-id", "zone-1", "--flavor-id", "flavor-1", "--image-id", "image-1",
@@ -96,12 +96,18 @@ var validQuoteCreateServerArgs = []string{
 	"--ssh-key-id", "key-1", "--root-disk-size", "20", "--root-disk-type-id", "voltype-1",
 }
 
+// pricedServerQuoteInfo is the resourceInfo a quote-create-server request
+// sends for validQuoteCreateServerArgs: the priced keys and nothing else.
+var pricedServerQuoteInfo = map[string]any{
+	"zoneId": "zone-1", "flavorId": "flavor-1", "imageId": "image-1",
+	"rootDiskSize": float64(20), "rootDiskTypeId": "voltype-1",
+	"encryptionVolume": false, "period": float64(1), "isPoc": false,
+}
+
 // TestComputeQuoteCreateServerSendsRequestBody drives quote-create-server
-// with every required flag, including --security-group-id given twice,
-// checking the exact request body the CLI builds from that merge and that
-// both repeated values reach it as an array: the SDK's own test
-// (compute.TestQuoteCreateServerSendsCreateBody) checks buildCreateServerBody
-// itself, not that the flags reach it field for field.
+// with every flag set, including --security-group-id given twice, and checks
+// that the request body holds only the priced keys: the unpriced flags are
+// accepted and checked but never sent.
 func TestComputeQuoteCreateServerSendsRequestBody(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -136,12 +142,8 @@ func TestComputeQuoteCreateServerSendsRequestBody(t *testing.T) {
 	if !ok {
 		t.Fatalf("resourceInfo missing or wrong type: %+v", decoded)
 	}
-	sgs, ok := info["securityGroup"].([]any)
-	if !ok || len(sgs) != 2 || sgs[0] != "sg-1" || sgs[1] != "sg-2" {
-		t.Fatalf("resourceInfo[securityGroup] = %v, want [sg-1 sg-2]", info["securityGroup"])
-	}
-	if info["name"] != "web-1" || info["flavorId"] != "flavor-1" || info["rootDiskSize"] != float64(20) {
-		t.Fatalf("unexpected resourceInfo: %+v", info)
+	if !reflect.DeepEqual(info, pricedServerQuoteInfo) {
+		t.Fatalf("resourceInfo = %v, want only the priced keys %v", info, pricedServerQuoteInfo)
 	}
 
 	var out pricing.GetQuoteOutput
@@ -171,9 +173,8 @@ func TestComputeQuoteCreateServerHasNoUserDataMaxPriceOrNoWaitFlag(t *testing.T)
 }
 
 // TestComputeQuoteCreateServerMissingRequiredFieldExitsWithZeroRequests
-// checks that quote-create-server without --security-group-id (or any other
-// required CreateServerInput field) fails the required-field check before
-// any request.
+// checks that quote-create-server without --root-disk-type-id, a priced
+// field, fails the required-field check before any request.
 func TestComputeQuoteCreateServerMissingRequiredFieldExitsWithZeroRequests(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/price": func(_ http.ResponseWriter, r *http.Request) {
@@ -184,12 +185,12 @@ func TestComputeQuoteCreateServerMissingRequiredFieldExitsWithZeroRequests(t *te
 	root.SetArgs([]string{
 		"--region", "hcm-3", "--project-id", "proj-1", "compute", "quote-create-server",
 		"--name", "web-1", "--zone-id", "zone-1", "--flavor-id", "flavor-1", "--image-id", "image-1",
-		"--vpc-id", "vpc-1", "--subnet-id", "subnet-1",
-		"--ssh-key-id", "key-1", "--root-disk-size", "20", "--root-disk-type-id", "voltype-1",
+		"--vpc-id", "vpc-1", "--subnet-id", "subnet-1", "--security-group-id", "sg-1",
+		"--ssh-key-id", "key-1", "--root-disk-size", "20",
 	})
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
-		t.Fatalf("expected an error for a missing --security-group-id")
+		t.Fatalf("expected an error for a missing --root-disk-type-id")
 	}
 	if exitCode(err) != 2 {
 		t.Fatalf("exitCode = %d, want 2 (stderr=%s)", exitCode(err), stderr.String())

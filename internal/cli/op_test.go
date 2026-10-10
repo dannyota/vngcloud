@@ -136,6 +136,22 @@ func (c *fakeClient) FakeTagsWrite(ctx context.Context, in *fakeTagsInput) (*fak
 	return &fakeTagsOutput{Tags: in.Tags}, nil
 }
 
+// fakeOptionalInput exercises Optional: both fields carry the required tag
+// the way a create and its quote share one Input, and the op marks Label
+// optional.
+type fakeOptionalInput struct {
+	ID    string `vngcloud:"required"`
+	Label string `vngcloud:"required"`
+}
+
+type fakeOptionalOutput struct{}
+
+func (c *fakeClient) FakeOptional(ctx context.Context, in *fakeOptionalInput) (*fakeOptionalOutput, error) {
+	atomic.AddInt32(c.calls, 1)
+	_ = in
+	return &fakeOptionalOutput{}, nil
+}
+
 // fakeHarness bundles a fake server, its request counter, and the env/root
 // a test drives commands through.
 type fakeHarness struct {
@@ -192,6 +208,8 @@ func fakeSecretGuard(cmd *cobra.Command, _ any) error {
 func (h *fakeHarness) fakeOps() []Op[fakeClient] {
 	return []Op[fakeClient]{
 		Read[fakeClient, fakeGetInput, fakeGetOutput]("fake-get", (*fakeClient).FakeGet),
+		Read[fakeClient, fakeOptionalInput, fakeOptionalOutput]("fake-optional", (*fakeClient).FakeOptional,
+			Optional("Label")),
 		Write[fakeClient, fakeDeleteInput, fakeDeleteOutput]("fake-delete", (*fakeClient).FakeDelete, Destructive()),
 		Write[fakeClient, fakeSecretInput, fakeSecretOutput]("fake-secret-write", (*fakeClient).FakeSecretWrite,
 			Guard(fakeSecretGuard),
@@ -618,6 +636,50 @@ func TestValidateOpsRejectsNoFlagNamingNoField(t *testing.T) {
 	}
 	if err := validateOps("fake", ops); err == nil {
 		t.Fatalf("expected an error for a NoFlag name that is not an Input field")
+	}
+}
+
+// TestOptionalDropsTheRequiredCheckForOneField checks that a field marked
+// Optional may be left out, still gets its flag, and that the op's other
+// required fields are still enforced.
+func TestOptionalDropsTheRequiredCheckForOneField(t *testing.T) {
+	run := func(t *testing.T, args ...string) (*fakeHarness, error) {
+		t.Helper()
+		h := newFakeHarness(t)
+		root := newTestRoot(h.e)
+		root.AddCommand(h.serviceCmd())
+		return h, execCmd(t, root, append([]string{"fake", "fake-optional"}, args...))
+	}
+
+	h, err := run(t, "--id", "x")
+	if err != nil {
+		t.Fatalf("without the optional flag: %v (stderr=%s)", err, h.stderr.String())
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 1 {
+		t.Fatalf("calls = %d, want 1", got)
+	}
+	if h, err = run(t, "--id", "x", "--label", "y"); err != nil {
+		t.Fatalf("with the optional flag: %v (stderr=%s)", err, h.stderr.String())
+	}
+
+	h, err = run(t, "--label", "y")
+	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--id is required") {
+		t.Fatalf("error = %v (exit %d), want exit 2 naming --id", err, exitCode(err))
+	}
+	if got := atomic.LoadInt32(&h.calls); got != 0 {
+		t.Fatalf("calls = %d, want 0", got)
+	}
+}
+
+// TestValidateOpsRejectsOptionalNamingNoField checks that a mistyped
+// Optional name fails at registration instead of silently keeping the field
+// required.
+func TestValidateOpsRejectsOptionalNamingNoField(t *testing.T) {
+	ops := []Op[fakeClient]{
+		Read[fakeClient, badNoFlagInput, badNoFlagOutput]("fake-bad-no-flag-method", fakeBadNoFlagMethod, Optional("NoSuchField")),
+	}
+	if err := validateOps("fake", ops); err == nil {
+		t.Fatalf("expected an error for an Optional name that is not an Input field")
 	}
 }
 

@@ -120,23 +120,29 @@ const computeListFlavorZonesNote = "Filters client side: the API always returns 
 	"and --zone-id only narrows what this command then prints."
 
 // computeQuoteCreateServerNote documents quote-create-server's own price
-// guard exemptions and unit, and that the billing gateway ignores fields it
-// does not price: the flag table shows every CreateServerInput field the
+// guard exemptions and unit, which flags are optional, and the gateway's
+// ROOT DISK text: the flag table shows every CreateServerInput field the
 // same way create-server itself will, with no hint that this command never
 // orders anything or that three of those fields do nothing here.
 const computeQuoteCreateServerNote = "Never orders anything: prices the server CreateServerInput describes " +
 	"without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. " +
-	"Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is " +
-	"never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. " +
-	"The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, " +
-	"or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the " +
-	"volume type ID where the size belongs; the size is the --root-disk-size value.\n\n" + idsForCreateServerLink
+	"Needs only the flags that set the price: --zone-id, --flavor-id, --image-id, --root-disk-size, " +
+	"--root-disk-type-id, and the data disk pair --data-disk-size with --data-disk-type-id when there is a " +
+	"data disk. --name, --vpc-id, --subnet-id, --security-group-id, and --ssh-key-id are optional here and " +
+	"required by create-server. The CLI does not send them or any other unpriced field to the billing " +
+	"gateway, but still checks the shape of each one that is set, so a bad ID fails here as it will at the " +
+	"create. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: " +
+	"UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an " +
+	"actual create. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size " +
+	"is the --root-disk-size value.\n\n" + idsForCreateServerLink
 
 // volumeQuoteCreateVolumeNote documents quote-create-volume's own price
 // guard exemptions and unit, matching computeQuoteCreateServerNote's shape
 // for the fields CreateVolumeInput shares with CreateServerInput.
 const volumeQuoteCreateVolumeNote = "Never orders anything: prices the volume CreateVolumeInput describes " +
 	"without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. " +
+	"Needs only --zone-id, --size, and --volume-type-id; --name is optional here and required by " +
+	"create-volume. The CLI does not send --name or any other unpriced field to the billing gateway. " +
 	"Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an " +
 	"actual create."
 

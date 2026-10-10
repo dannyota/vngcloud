@@ -30,9 +30,11 @@ const loadbalancerDeleteCertificateNote = "Refuses, before any request, a certif
 // of those fields do nothing here.
 const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices the load balancer " +
 	"CreateLoadBalancerInput describes without sending a create. OptimumPrice and every other price are VND " +
-	"a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets " +
-	"them: both govern only an actual create. The billing gateway also ignores every key it does not price, " +
-	"such as Name, Scheme, SubnetID, or Type: changing them does not change the quoted price."
+	"a month, one prepaid period. Needs only --package-id and --zone-id, the two values that set the price; " +
+	"--name, --scheme, --subnet-id, and --type are optional here and required by create-load-balancer. The " +
+	"CLI does not send them to the billing gateway, but still checks --scheme and --subnet-id when set. " +
+	"Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an " +
+	"actual create."
 
 // loadbalancerQuoteResizeLoadBalancerNote documents quote-resize-load-balancer's
 // own price guard exemptions, unit, and its not-found status, which differs

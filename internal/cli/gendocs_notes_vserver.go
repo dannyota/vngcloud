@@ -238,4 +238,6 @@ const volumeListVolumeTypesNote = "Without a zone flag, lists the project's volu
 	"mode; 0 is no filter and a negative value exits 2. Rows follow the volume type zone order, and each " +
 	"row's VolumeTypeZoneID names the volume type zone it came from. A row's ZoneID is the API's own zone " +
 	"identifier, not the network zone name: filter rows by VolumeTypeZoneID or by the zone you asked " +
-	"for.\n\n" + idsForCreateServerLink
+	"for. --iops does not name one type: in HCM03-1A, --iops 3000 returns two types that are both named " +
+	"\"3000\" and priced differently for 10 GB (32,960 and 32,000 VND), so pick a type by ID, not " +
+	"by Name.\n\n" + idsForCreateServerLink

@@ -96,7 +96,7 @@ var loadbalancerOps = []Op[loadbalancer.Client]{
 		kebab("DeleteCertificate"), (*loadbalancer.Client).DeleteCertificate, Destructive()),
 	Read[loadbalancer.Client, loadbalancer.CreateLoadBalancerInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateLoadBalancer"), (*loadbalancer.Client).QuoteCreateLoadBalancer,
-		NoFlag("MaxPrice", "NoWait")),
+		NoFlag("MaxPrice", "NoWait"), Optional("Name", "Scheme", "SubnetID", "Type")),
 	Read[loadbalancer.Client, loadbalancer.ResizeLoadBalancerInput, pricing.GetQuoteOutput](
 		kebab("QuoteResizeLoadBalancer"), (*loadbalancer.Client).QuoteResizeLoadBalancer,
 		NoFlag("MaxPrice", "NoWait")),

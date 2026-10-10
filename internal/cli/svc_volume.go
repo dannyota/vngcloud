@@ -40,7 +40,7 @@ var volumeOps = []Op[volume.Client]{
 		kebab("ListAllSnapshots"), (*volume.Client).ListAllSnapshots),
 	Read[volume.Client, volume.CreateVolumeInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateVolume"), (*volume.Client).QuoteCreateVolume,
-		NoFlag("MaxPrice", "NoWait")),
+		NoFlag("MaxPrice", "NoWait"), Optional("Name")),
 	// CreateVolume is Write but not Destructive: per the paid writes design,
 	// --max-price is its own consent, and the default of 0 already orders
 	// nothing since the quote guard refuses any priced order above it.

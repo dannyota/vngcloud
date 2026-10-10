@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -136,11 +137,16 @@ func TestVolumeGetDefaultVolumeTypeRunsWithoutZoneID(t *testing.T) {
 	}
 }
 
+// pricedVolumeQuoteInfo is the resourceInfo a quote-create-volume request
+// sends: the priced keys and nothing else.
+var pricedVolumeQuoteInfo = map[string]any{
+	"zoneId": "zone-1", "size": float64(10), "volumeTypeId": "voltype-1",
+	"period": float64(1), "isPoc": false,
+}
+
 // TestVolumeQuoteCreateVolumeSendsRequestBody drives quote-create-volume
-// with every flag-settable CreateVolumeInput field set, checking the exact
-// request body the CLI builds from that merge: the SDK's own test
-// (volume.TestQuoteCreateVolumeSendsCreateBody) checks buildCreateVolumeBody
-// itself, not that the flags reach it field for field.
+// with --name set and checks that the request body holds only the priced
+// keys: --name is accepted but never sent.
 func TestVolumeQuoteCreateVolumeSendsRequestBody(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -178,11 +184,8 @@ func TestVolumeQuoteCreateVolumeSendsRequestBody(t *testing.T) {
 	if !ok {
 		t.Fatalf("resourceInfo missing or wrong type: %+v", decoded)
 	}
-	want := map[string]any{"name": "vol-1", "zoneId": "zone-1", "size": float64(10), "volumeTypeId": "voltype-1"}
-	for k, v := range want {
-		if info[k] != v {
-			t.Fatalf("resourceInfo[%q] = %v, want %v", k, info[k], v)
-		}
+	if !reflect.DeepEqual(info, pricedVolumeQuoteInfo) {
+		t.Fatalf("resourceInfo = %v, want only the priced keys %v", info, pricedVolumeQuoteInfo)
 	}
 
 	var out pricing.GetQuoteOutput

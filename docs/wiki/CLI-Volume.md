@@ -184,7 +184,7 @@ vngcloud volume list-volume-type-zones
 
 Kind: Read.
 
-Without a zone flag, lists the project's volume types. --volume-type-zone-id makes one request. --zone-id (a network zone, from portal list-zones) first lists that zone's volume type zones, then lists the types of each, one at a time: 1+M requests for M volume type zones. Setting both zone flags exits 2 before any request. --iops keeps only types whose IOPS equals it exactly, in every mode; 0 is no filter and a negative value exits 2. Rows follow the volume type zone order, and each row's VolumeTypeZoneID names the volume type zone it came from. A row's ZoneID is the API's own zone identifier, not the network zone name: filter rows by VolumeTypeZoneID or by the zone you asked for.
+Without a zone flag, lists the project's volume types. --volume-type-zone-id makes one request. --zone-id (a network zone, from portal list-zones) first lists that zone's volume type zones, then lists the types of each, one at a time: 1+M requests for M volume type zones. Setting both zone flags exits 2 before any request. --iops keeps only types whose IOPS equals it exactly, in every mode; 0 is no filter and a negative value exits 2. Rows follow the volume type zone order, and each row's VolumeTypeZoneID names the volume type zone it came from. A row's ZoneID is the API's own zone identifier, not the network zone name: filter rows by VolumeTypeZoneID or by the zone you asked for. --iops does not name one type: in HCM03-1A, --iops 3000 returns two types that are both named "3000" and priced differently for 10 GB (32,960 and 32,000 VND), so pick a type by ID, not by Name.
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
@@ -228,11 +228,11 @@ vngcloud volume list-volumes-by-server --server-id <server-id>
 
 Kind: Read.
 
-Never orders anything: prices the volume CreateVolumeInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create.
+Never orders anything: prices the volume CreateVolumeInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Needs only --zone-id, --size, and --volume-type-id; --name is optional here and required by create-volume. The CLI does not send --name or any other unpriced field to the billing gateway. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual create.
 
 | Flag | Type | Required |
 |-|-|-|
-| `--name` | `string` | yes |
+| `--name` | `string` |  |
 | `--zone-id` | `string` | yes |
 | `--size` | `int` | yes |
 | `--volume-type-id` | `string` | yes |
@@ -241,7 +241,7 @@ Never orders anything: prices the volume CreateVolumeInput describes without sen
 | `NoWait` (via `--cli-input-json` only) | `bool` |  |
 
 ```sh
-vngcloud volume quote-create-volume --name <name> --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
+vngcloud volume quote-create-volume --zone-id <zone-id> --size <size> --volume-type-id <volume-type-id>
 ```
 
 ## quote-resize-volume

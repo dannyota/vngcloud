@@ -71,7 +71,7 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 		for _, f := range extra {
 			extraNames[f.name] = true
 		}
-		fields := docFieldsFor(op.newInput(), op.noFlag, extraNames)
+		fields := docFieldsFor(op.newInput(), op.noFlag, op.optional, extraNames)
 		for j := range fields {
 			// The global --project-id flag fills this field, so it reads as
 			// a flag, not as a JSON-only field.
@@ -100,6 +100,9 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // such as import-certificate's --private-key-file or create-server's
 // --user-data-file.
 //
+// optional holds the fields op.go's Optional marks, which are listed as not
+// required even though their tag says so.
+//
 // extraFlagNames holds the flag names the same operation's own extraFlags
 // registers (buildDocService computes it from extraDocFields before calling
 // this). A NoFlag'd field whose mechanical flag name (flagNameFor) is one of
@@ -108,7 +111,7 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 // documents its real flag, and a viaJSON entry alongside it would tell the
 // reader it takes no flag at all, when it does, just not the one flags.go
 // would have derived.
-func docFieldsFor(inputPtr any, noFlag, extraFlagNames map[string]bool) []docField {
+func docFieldsFor(inputPtr any, noFlag, optional, extraFlagNames map[string]bool) []docField {
 	t := reflect.TypeOf(inputPtr).Elem()
 	fields := make([]docField, 0, t.NumField())
 	for i := range t.NumField() {
@@ -116,7 +119,7 @@ func docFieldsFor(inputPtr any, noFlag, extraFlagNames map[string]bool) []docFie
 		if !f.IsExported() || isSecretFieldType(f.Type) {
 			continue
 		}
-		required := f.Tag.Get("vngcloud") == "required"
+		required := f.Tag.Get("vngcloud") == "required" && !optional[f.Name]
 		if noFlag[f.Name] {
 			if extraFlagNames[flagNameFor(f.Name)] {
 				continue

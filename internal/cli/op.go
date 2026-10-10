@@ -40,6 +40,9 @@ type Op[C any] struct {
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
 	noFlag      map[string]bool
+	// optional holds Input fields whose vngcloud:"required" tag the CLI
+	// does not enforce for this op; see Optional.
+	optional map[string]bool
 	// globalProject names the Input field the global --project-id flag
 	// fills, for an op whose project is not the account's vServer project.
 	globalProject string
@@ -117,9 +120,11 @@ func WriteGlobalProjectID(field string) writeOption {
 	return writeOption{noFlag: map[string]bool{field: true}, globalProject: field}
 }
 
-// readOption configures a Read operation: NoFlag, Redact, or both.
+// readOption configures a Read operation: NoFlag, Optional, GlobalProjectID,
+// and Redact.
 type readOption struct {
 	noFlag        map[string]bool
+	optional      map[string]bool
 	globalProject string
 	redact        any // func(*Out) for the Read's own Out, checked in Read
 }
@@ -148,6 +153,20 @@ func NoFlag(fields ...string) readOption {
 	return readOption{noFlag: m}
 }
 
+// Optional marks Input fields that this operation does not require, though
+// their vngcloud:"required" tag does: the CLI's required-flag check skips
+// them and gen-docs lists them as not required. The three create quotes use
+// it for the fields that do not change a price. The SDK still checks the
+// shape of a value that is set. validateOps rejects a name that is not a
+// field of the Input.
+func Optional(fields ...string) readOption {
+	m := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		m[f] = true
+	}
+	return readOption{optional: m}
+}
+
 // GlobalProjectID marks an Input field that the global --project-id flag
 // fills, in place of a flag of its own that would collide with it. Only the
 // flag counts: a project ID from the environment or the profile is the
@@ -159,11 +178,13 @@ func GlobalProjectID(field string) readOption {
 
 // Read registers a read operation: name is its kebab-case command name, and
 // method is an SDK method expression such as (*compute.Client).ListServers.
-// opts holds NoFlag and Redact where an operation needs them. A Redact
+// opts holds NoFlag, Optional, GlobalProjectID, and Redact where an operation
+// needs them. A Redact
 // whose function does not take this Read's Output panics at registration.
 func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...readOption) Op[C] {
 	var redact func(*Out)
 	noFlag := map[string]bool{}
+	optional := map[string]bool{}
 	globalProject := ""
 	for _, o := range opts {
 		if o.globalProject != "" {
@@ -171,6 +192,9 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 		}
 		for f := range o.noFlag {
 			noFlag[f] = true
+		}
+		for f := range o.optional {
+			optional[f] = true
 		}
 		if o.redact != nil {
 			if redact != nil {
@@ -188,6 +212,7 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 		methodName:    funcName(method),
 		kind:          kindRead,
 		noFlag:        noFlag,
+		optional:      optional,
 		globalProject: globalProject,
 		newInput:      func() any { return new(In) },
 		newOutput:     func() any { return new(Out) },
@@ -311,6 +336,12 @@ func validateOps[C any](serviceName string, ops []Op[C]) error {
 					serviceName, op.name, name)
 			}
 		}
+		for name := range op.optional {
+			if !fieldNames[name] {
+				return newUsageError("service %q op %q: Optional(%q) names no field of its Input",
+					serviceName, op.name, name)
+			}
+		}
 		specs, err := flagSpecsFor(input)
 		if err != nil {
 			return newUsageError("service %q op %q: %s", serviceName, op.name, err)
@@ -389,7 +420,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		}
 	}
 
-	if err := checkRequiredFlags(input, op.noFlag); err != nil {
+	if err := checkRequiredFlags(input, op.noFlag, op.optional); err != nil {
 		return err
 	}
 	// Compiled again in renderOutput once there is a result to run it
