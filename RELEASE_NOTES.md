@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.64.0 - vStorage Project Prices
+
+### Highlights
+
+- `storage list-project-types` lists the vStorage project types a region
+  offers, with the monthly price at the region's minimum size and the
+  minimum and maximum size in GB; `storage quote-create-project --type Gold
+  --quota-gb 30` prices a package without ordering. The SDK methods are
+  `ListProjectTypes` and `QuoteCreateProject`.
+- Live on 2026-10-10 in `HCM04`: Gold costs 1,000 VND per GB a month (30 GB
+  is 30,000 VND) and Instant Archive 530 VND per GB (30 GB is 15,900 VND);
+  the minimum is 30 GB. A size outside the region's limits is refused
+  before any price call.
+- Buying and deleting a project come in a later release.
+- The CLI now renders raw JSON fields as JSON instead of byte arrays.
+
 ## v0.63.0 - Backup Center Backends and Policies
 
 ### Highlights
