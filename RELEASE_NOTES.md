@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.68.0 - Server Console Log
+
+### Highlights
+
+- `compute get-server-console-log --server-id <id>` reads a server's boot and
+  serial output, for a server that SSH cannot reach. Logs can hold passwords
+  and keys. `--output text` writes the log as is to a pipe or file; on a
+  terminal it escapes control characters other than newline and tab, so a log
+  cannot drive the terminal. JSON prints `{"Log": "..."}`. SDK:
+  `compute.GetServerConsoleLog`, whose `Log` is a `vngcloud.Secret` (hidden
+  from formatting, JSON, and slog until `Log.Reveal()`).
+- The log never reaches stderr, error messages, `--debug`, or captures. The
+  response is capped at 8 MiB, with no partial output; redirects are refused.
+- Every command's text and table output now also escapes C1 controls and
+  bidirectional format characters (for example U+009B and U+202E), not only
+  C0 and DEL, and JSON output writes them as `\u` escapes that decode to the
+  same value.
+- Verified live on 2026-10-11 in `hcm-3`: a 100 KB log read through the SDK
+  and the CLI, piped, as JSON, and on a pseudo-terminal; an unknown server ID
+  exits 4 with `NotFound`.
+
 ## v0.67.0 - vStorage Project Auto-Renew
 
 ### Highlights
