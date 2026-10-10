@@ -55,7 +55,7 @@ func (c *Client) PutProjectAutoRenew(ctx context.Context, in *PutProjectAutoRene
 		}
 		return out, nil
 	}
-	if o.resource.BillingType == "" || o.resource.Channel == nil || o.resource.IsRenewing == nil {
+	if o.resource.BillingType == "" || o.resource.Channel == nil {
 		return out, projectResponseError(op, "billing eligibility fields are missing")
 	}
 	if o.resource.BillingType != "PREPAID" && o.resource.BillingType != "POSTPAID" {
@@ -64,7 +64,7 @@ func (c *Client) PutProjectAutoRenew(ctx context.Context, in *PutProjectAutoRene
 	if o.resource.BillingType != "PREPAID" {
 		return out, fmt.Errorf("%w: %s: resource is not prepaid", core.ErrInvalidInput, op)
 	}
-	if *o.resource.IsRenewing {
+	if o.resource.IsRenewing != nil && *o.resource.IsRenewing {
 		return out, fmt.Errorf("%w: %s: renewal is in progress", core.ErrInvalidInput, op)
 	}
 	if *in.Enabled {

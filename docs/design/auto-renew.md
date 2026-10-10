@@ -240,10 +240,11 @@ outage. A later disable does not cancel a charge already in progress.
    state. If both reads already show the target state and period, return
    Changed false without PUT. No-op enable needs no new price consent;
    quote failure only marks its output Unavailable.
-3. For a change, require PREPAID, a present channel, and explicit
-   `isRenewing: false`. Refuse renewal already in progress. For enable or
-   period change, also require an active storage project, end time in the
-   future, and the supported monthly purchase. Reject NON-RENEWABLE and
+3. For a change, require PREPAID and a present channel; live rows carry
+   `isRenewing: null` when no renewal is in progress, absence also means no
+   renewal in progress, and only `isRenewing: true` refuses the change. For
+   enable or period change, also require an active storage project, end time
+   in the future, and the supported monthly purchase. Reject NON-RENEWABLE and
    unsupported eligibility with `ErrInvalidInput`. Unknown or missing
    guard data returns `*APIError`. Disable does not require an active term,
    current catalog, or successful price lookup.

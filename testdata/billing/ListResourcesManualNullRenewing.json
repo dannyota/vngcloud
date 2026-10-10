@@ -1,0 +1,40 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "data": [
+      {
+        "artifactId": "new-1",
+        "artifactName": "<account>",
+        "artifactType": "object-storage",
+        "product": "vstorage",
+        "renewType": "MANUAL",
+        "billingType": "PREPAID",
+        "startBillingTime": 1790000000000,
+        "endBillingTime": 1890000000000,
+        "dateLeft": 30,
+        "renewPeriod": null,
+        "channel": 0,
+        "isRenewing": null,
+        "cost": 123,
+        "status": 1,
+        "statusUI": {
+          "level": "good"
+        },
+        "billingElements": [
+          {
+            "sku": "synthetic-sku",
+            "quantity": 30,
+            "metaKey": {
+              "quota": 30
+            }
+          }
+        ],
+        "tags": {
+          "creator": "<account>",
+          "iam-id": "<id>"
+        }
+      }
+    ]
+  }
+}

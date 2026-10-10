@@ -197,6 +197,33 @@ func TestProjectAutoRenewSendOnce(t *testing.T) {
 	}
 }
 
+func TestProjectAutoRenewNoRenewalInProgress(t *testing.T) {
+	fixture := testutil.FixtureBody(t, "../testdata/billing/ListResourcesManualNullRenewing.json")
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{"null", fixture},
+		{"absent", strings.ReplaceAll(fixture, `"isRenewing": null,`, "")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &autoRenewServer{overrides: map[string]string{"/gateway/api/v1/resources": tc.body}}
+			base := s.handler(t)
+			cfg := testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					delete(s.overrides, "/gateway/api/v1/resources")
+				}
+				base.ServeHTTP(w, r)
+			}))
+			c := autoRenewClient(t, s)
+			c.c = core.ClientOf(cfg)
+			out, err := c.PutProjectAutoRenew(context.Background(), &PutProjectAutoRenewInput{ProjectID: "new-1", Enabled: vngcloud.Ptr(true), MaxPrice: 30000})
+			if err != nil || !out.Changed || out.State == nil || out.State.Enabled == nil || !*out.State.Enabled || s.puts != 1 || s.accounts != 1 {
+				t.Fatalf("enable without renewal in progress: %+v error %v, PUTs %d, account reads %d", out, err, s.puts, s.accounts)
+			}
+		})
+	}
+}
+
 func TestProjectAutoRenewGuards(t *testing.T) {
 	baseResource := `{"code":200,"data":{"data":[{"artifactId":"new-1","artifactType":"object-storage","product":"vstorage","renewType":"MANUAL","billingType":"PREPAID","channel":0,"isRenewing":false,"endBillingTime":1890000000000,"renewPeriod":null}]}}`
 	for _, tc := range []struct {
@@ -212,9 +239,9 @@ func TestProjectAutoRenewGuards(t *testing.T) {
 		{"unknown renew", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, "MANUAL", "FUTURE"), false},
 		{"fixed artifact", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, "object-storage", "OBJECT_STORAGE_6"), false},
 		{"wrong product", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, "vstorage", "vmonitor"), false},
+		{"missing billing type", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, `"billingType":"PREPAID"`, `"billingType":null`), false},
 		{"missing channel", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, `"channel":0`, `"channel":null`), false},
 		{"renewing", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, `"isRenewing":false`, `"isRenewing":true`), false},
-		{"missing renewing", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, `"isRenewing":false`, `"isRenewing":null`), false},
 		{"missing timestamp", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, `"endBillingTime":1890000000000`, `"endBillingTime":null`), false},
 		{"expired", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, "1890000000000", "1690000000000"), false},
 		{"not prepaid", "/gateway/api/v1/resources", strings.ReplaceAll(baseResource, "PREPAID", "POSTPAID"), false},
