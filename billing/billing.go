@@ -86,12 +86,17 @@ func envelopeSuccess(code string) bool {
 func (c *Client) finishEnvelope(req transport.Request, status int, env envelope, out any) error {
 	code := envelopeCode(env.Code)
 	if !envelopeSuccess(code) {
-		return mapNotFound(&core.APIError{
+		err := mapNotFound(&core.APIError{
 			Operation:  req.Operation,
 			StatusCode: status,
 			Code:       code,
 			Message:    env.Message,
 		})
+		var apiErr *core.APIError
+		if errors.As(err, &apiErr) {
+			apiErr.Message, apiErr.Code = c.c.RedactError(apiErr.Message, apiErr.Code, append(append([]string(nil), req.Redact...), req.APIKey)...)
+		}
+		return err
 	}
 	if out != nil && len(env.Data) > 0 && !isJSONNull(env.Data) {
 		if err := json.Unmarshal(env.Data, out); err != nil {

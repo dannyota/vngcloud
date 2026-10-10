@@ -37,6 +37,9 @@ func (r Request) redactBody(body []byte) []byte {
 	if len(r.redactValues()) == 0 {
 		return append([]byte(nil), body...)
 	}
+	if cleaned, ok := redactJSONCapture(body, r.redactValues()); ok {
+		return cleaned
+	}
 	return []byte(redact(string(body), r.redactValues()))
 }
 

@@ -221,7 +221,7 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 				// principle, rather than relying on that always staying true.
 				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
 			}
-			return statusCode, &APIError{Operation: req.Operation, Err: err}
+			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(err, req.redactValues())}
 		}
 	}
 	return statusCode, nil
@@ -362,7 +362,7 @@ func retryAfterHint(h http.Header) time.Duration {
 func (c *Client) send(ctx context.Context, req Request, client *http.Client) (int, string, []byte, string, error) {
 	body, err := jsonBody(req.Body)
 	if err != nil {
-		return 0, "", nil, "", &APIError{Operation: req.Operation, Err: err}
+		return 0, "", nil, "", &APIError{Operation: req.Operation, Err: sanitizeNetworkError(err, req.redactValues())}
 	}
 
 	// maxAttempts is the last attempt index the loop below may reach before
@@ -386,7 +386,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		start := time.Now()
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
-			return 0, "", nil, "", &APIError{Operation: req.Operation, Err: err}
+			return 0, "", nil, "", &APIError{Operation: req.Operation, Err: sanitizeNetworkError(err, req.redactValues())}
 		}
 		if req.Body != nil {
 			httpReq.Header.Set("Content-Type", "application/json")
@@ -415,6 +415,8 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 		}
 
+		attemptReq := req
+		attemptReq.Redact = append(append([]string(nil), req.Redact...), sentToken)
 		resp, err := sendClient.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
@@ -435,7 +437,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 				}
 				continue
 			}
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: safeNetworkError{err}}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(err, attemptReq.redactValues())}
 		}
 		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration)
 
@@ -445,10 +447,10 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
 		if readErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: readErr}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(readErr, attemptReq.redactValues())}
 		}
 		if closeErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: closeErr}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(closeErr, attemptReq.redactValues())}
 		}
 
 		// A non-idempotent request retries only on 429: the server has not
@@ -462,13 +464,11 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			continue
 		}
-		captureReq := req
-		captureReq.Redact = append(append([]string(nil), req.Redact...), sentToken)
-		c.captureResponse(captureReq, resp.StatusCode, respBody)
+		c.captureResponse(attemptReq, resp.StatusCode, respBody)
 		return resp.StatusCode, resp.Header.Get("Content-Type"), respBody, sentToken, nil
 	}
 
-	return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: lastErr}
+	return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(lastErr, req.redactValues())}
 }
 
 // readBody reads r fully when maxBody is not positive. Otherwise it reads at
@@ -665,4 +665,9 @@ func containsStatus(statuses []int, status int) bool {
 		}
 	}
 	return false
+}
+
+// RedactCurrentToken scrubs the current token without exposing its value.
+func (c *Client) RedactCurrentToken(text string) string {
+	return redact(text, []string{c.currentToken().AccessToken})
 }

@@ -178,10 +178,15 @@ func Login(ctx context.Context, req LoginRequest) (Result, error) {
 }
 
 func handle2FA(ctx context.Context, client *http.Client, signinBaseURL, redirectPath string, totp TOTPProvider) (string, error) {
-	twoFAURL := redirectPath
-	if !strings.HasPrefix(redirectPath, "http") {
-		twoFAURL = signinBaseURL + redirectPath
+	origin, err := url.Parse(signinBaseURL)
+	if err != nil {
+		return "", &LoginFailure{Step: StepTOTPPage, cause: errors.New("invalid signin origin")}
 	}
+	destination, err := origin.Parse(redirectPath)
+	if err != nil || destination.Scheme != origin.Scheme || destination.Host != origin.Host || destination.User != nil {
+		return "", &LoginFailure{Step: StepTOTPPage, cause: errors.New("two-factor destination is outside the signin origin")}
+	}
+	twoFAURL := destination.String()
 
 	pageBody, pageStatus, err := doGet(ctx, client, twoFAURL)
 	if err != nil {
@@ -277,6 +282,9 @@ func doGet(ctx context.Context, client *http.Client, reqURL string) ([]byte, int
 			}
 			if req.URL.Host != via[0].URL.Host {
 				return fmt.Errorf("redirected to %q: the signin endpoint has moved", req.URL.Host)
+			}
+			if req.URL.Scheme != via[0].URL.Scheme {
+				return errors.New("signin redirect scheme change refused")
 			}
 			return nil
 		},

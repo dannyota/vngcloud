@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCredentialEchoRedaction(t *testing.T) {
@@ -92,15 +93,22 @@ func TestNetworkFailureKeepsMatchingAndRetries(t *testing.T) {
 		rt := &stubRoundTripper{failErr: cause}
 		c := New(Config{HTTPClient: &http.Client{Transport: rt}})
 		err := c.DoJSON(context.Background(), Request{URL: "http://host/path", SkipAuth: true}, nil)
-		if !errors.Is(err, cause) {
-			t.Fatal("cause matching lost")
+		if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+			if !errors.Is(err, cause) {
+				t.Fatal("context matching lost")
+			}
+		} else if errors.Is(err, cause) {
+			t.Fatal("arbitrary cause retained")
 		}
 		if strings.Contains(err.Error(), "synthetic-secret") || strings.Contains(err.Error(), "http://") {
 			t.Fatal("cause leaked")
 		}
 	}
 	rt := &stubRoundTripper{failErr: errors.New("http://host/path?secret=synthetic-secret")}
-	c := New(Config{HTTPClient: &http.Client{Transport: rt}, RetryCount: 1})
+	c := New(Config{HTTPClient: &http.Client{Transport: rt}, RetryCount: 1, RetryInterval: time.Nanosecond})
+	if c.backoff(0, 0) != 0 {
+		t.Fatal("retry test must use zero backoff")
+	}
 	if err := c.DoJSON(context.Background(), Request{URL: "http://host/path", SkipAuth: true}, nil); err != nil {
 		t.Fatal(err)
 	}

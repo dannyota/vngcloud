@@ -124,7 +124,7 @@ func (c *Client) do(ctx context.Context, r call) (json.RawMessage, error) {
 	if *env.Success {
 		return env.Data, nil
 	}
-	return nil, r.envelopeError(status, env, key)
+	return nil, r.envelopeError(c.c, status, env, key)
 }
 
 func (r call) unexpected(status int) error {
@@ -139,9 +139,8 @@ func (r call) unexpected(status int) error {
 // envelopeError builds the error for a 2xx answer with success false: the
 // envelope code is the Code, and a code of 400, 401, 403, or 404 also
 // matches that status's sentinel. The HTTP status stays 2xx, so the call is
-// never retried. The code and message have the API key redacted, since the
-// transport redacts only the bodies of failed responses.
-func (r call) envelopeError(status int, env envelope, key string) error {
+// never retried. Error fields redact credentials before applying length caps.
+func (r call) envelopeError(client *core.Client, status int, env envelope, key string) error {
 	code := codeText(env.Code)
 	effective, _ := strconv.Atoi(code)
 	if r.notFound != "" && emptyData(env.Data) {
@@ -169,10 +168,14 @@ func (r call) envelopeError(status int, env envelope, key string) error {
 	case effective == codeInputRefused:
 		sentinel = core.ErrInvalidInput
 	}
+	if strings.ContainsAny(msg, accountMarks) {
+		msg = r.message(effective, msg, true)
+	}
+	msg, code = client.RedactError(msg, code, append(append([]string(nil), r.redactValues...), key)...)
 	return &core.APIError{
 		Operation:  r.op,
 		StatusCode: status,
-		Code:       r.redact(code, key),
+		Code:       code,
 		Message:    r.redact(r.message(effective, msg, true), key),
 		Err:        sentinel,
 	}

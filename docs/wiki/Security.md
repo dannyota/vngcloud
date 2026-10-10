@@ -9,6 +9,9 @@ turned off.
 - The SDK refuses redirects to another scheme, host, or port, including with a
   caller-supplied HTTP client. It allows at most 10 redirect hops and checks
   these rules before the caller's redirect hook.
+- Login page redirects keep the original scheme, host, and port. A TOTP
+  destination must match the sign-in origin before the SDK fetches the page
+  or requests and submits the code.
 - Public pages, such as the CDN IP range FAQ, are fetched with no token and
   no cookies.
 
@@ -19,7 +22,8 @@ turned off.
   and timing.
 - Errors and captured response bodies replace echoed access tokens and vCDN
   API keys with `[redacted]`. Each attempt uses the credential sent on that
-  attempt for redaction.
+  attempt for redaction. JSON captures check decoded strings and object keys,
+  including Unicode escapes. Captures with no match keep the exact body.
 - A credentials file that group or others can read is refused.
 - Credentials files are written with mode 0600, and the token cache with mode
   0600 files in a 0700 directory.

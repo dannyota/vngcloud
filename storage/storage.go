@@ -128,7 +128,7 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		return nil, envelopeError(k.op, status, &env)
+		return nil, c.envelopeError(k.op, status, &env)
 	}
 	return &env, nil
 }
@@ -151,9 +151,10 @@ func emptyResponse(k call, status int) error {
 // envelopeError turns a success:false envelope into an *APIError. A code
 // from 400 to 599 also matches that status's sentinel, and code 112, the
 // server's input check, matches ErrInvalidInput.
-func envelopeError(op string, status int, env *envelope) error {
+func (c *Client) envelopeError(op string, status int, env *envelope) error {
 	code := codeText(env.Code)
-	apiErr := &core.APIError{Operation: op, StatusCode: status, Code: code, Message: cut(env.ErrMsg, maxEnvelopeMessage)}
+	message, cleanCode := c.c.RedactError(env.ErrMsg, code)
+	apiErr := &core.APIError{Operation: op, StatusCode: status, Code: cleanCode, Message: cut(message, maxEnvelopeMessage)}
 	if n, err := strconv.Atoi(code); err == nil && n == codeInvalidInput {
 		apiErr.Err = core.ErrInvalidInput
 	} else if err == nil && n >= 400 && n <= 599 {
