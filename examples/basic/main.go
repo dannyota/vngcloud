@@ -90,6 +90,7 @@ func main() {
 			fmt.Printf("region: %s\n", cfg.Region())
 			sdkOutputs.setConfig(configName)
 			showProjects(ctx, cfg, sdkOutputs)
+			showBackup(ctx, cfg, sdkOutputs)
 			showPortal(ctx, cfg, sdkOutputs)
 			showCompute(ctx, cfg, sdkOutputs)
 			showVolume(ctx, cfg, sdkOutputs)

@@ -35,6 +35,9 @@ const (
 	// ProductVServerBackup is the vServer snapshot gateway, which differs from
 	// Backup Center's gateway.
 	ProductVServerBackup Product = "vserverbackup"
+	// ProductBackupCenter is Backup Center's gateway, which differs from the
+	// vServer snapshot gateway.
+	ProductBackupCenter Product = "backupcenter"
 )
 
 type Endpoints interface {

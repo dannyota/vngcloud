@@ -112,6 +112,7 @@ func TestLive(t *testing.T) {
 	// (Global scope, per the CLI reads design's scope table for
 	// globalloadbalancer), so they run once here instead of once per region
 	// inside testLiveRegion.
+	t.Run("backup", func(t *testing.T) { testLiveBackup(ctx, t) })
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })

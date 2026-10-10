@@ -64,6 +64,7 @@ type Overrides struct {
 	CDN                string
 	VKS                string
 	VServerBackup      string
+	BackupCenter       string
 }
 
 type Set struct {
@@ -86,6 +87,12 @@ type Set struct {
 	CDN           string
 	VKS           string
 	VServerBackup string
+	BackupCenter  string
+}
+
+// Backup Center IAM routing is verified only in hcm-3.
+var backupCenterEndpoints = map[string]string{
+	"hcm-3": "https://hcm-3.api.vngcloud.vn/vbackup-gateway/",
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -107,6 +114,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		Storage:       DefaultStorage,
 		CDN:           DefaultCDN,
 		VServerBackup: VServerBackup(region),
+		BackupCenter:  backupCenterEndpoints[region],
 	}
 	switch region {
 	case "hcm-3":
@@ -170,6 +178,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.VServerBackup != "" {
 		set.VServerBackup = overrides.VServerBackup
 	}
+	if overrides.BackupCenter != "" {
+		set.BackupCenter = overrides.BackupCenter
+	}
 	return set.Normalize()
 }
 
@@ -202,6 +213,7 @@ func (s Set) Normalize() Set {
 	s.VKS = normalizeURL(s.VKS)
 	s.CDN = normalizeURL(s.CDN)
 	s.VServerBackup = normalizeURL(s.VServerBackup)
+	s.BackupCenter = normalizeURL(s.BackupCenter)
 	return s
 }
 

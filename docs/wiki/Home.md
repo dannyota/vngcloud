@@ -13,6 +13,7 @@ rename; the module keeps the `vngcloud` name.
 - [Configuration](Configuration.md): regions, projects, and endpoints.
 - [Errors](Errors.md): `APIError`, `LoginError`, and debug logging.
 - [Services](Services.md): every service client and its methods.
+- [Backup](Backup.md): Backup Center backends and policies in `hcm-3`.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
 - [CDN](CDN.md): the published GreenNode CDN IP ranges, plus the vCDN API key,

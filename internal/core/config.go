@@ -64,4 +64,5 @@ type EndpointOverrides struct {
 	CDN                string
 	VKS                string
 	VServerBackup      string
+	BackupCenter       string
 }

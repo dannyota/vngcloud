@@ -271,6 +271,8 @@ func (c *Client) Endpoint(product routes.Product) string {
 		return c.endpoints.Storage
 	case routes.ProductVKS:
 		return c.endpoints.VKS
+	case routes.ProductBackupCenter:
+		return c.endpoints.BackupCenter
 	case routes.ProductCDN:
 		return c.endpoints.CDN
 	case routes.ProductVServerBackup:

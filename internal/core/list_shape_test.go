@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"danny.vn/vngcloud/backup"
 	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
@@ -33,6 +34,7 @@ import (
 // package must be added here; TestEveryServiceClientIsListed fails until it
 // is.
 var serviceClients = map[string]reflect.Type{
+	"backup":             reflect.TypeFor[*backup.Client](),
 	"billing":            reflect.TypeFor[*billing.Client](),
 	"cdn":                reflect.TypeFor[*cdn.Client](),
 	"compute":            reflect.TypeFor[*compute.Client](),

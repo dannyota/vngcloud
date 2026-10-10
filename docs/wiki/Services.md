@@ -39,6 +39,7 @@ tags on any resource type. See [Tagging](Tagging.md).
 
 | Product | Package | Coverage | Model Shape | Notes |
 |---|---|---|---|---|
+| Backup Center | `backup` | Backends and policies | Typed | See [Backup](Backup.md); `hcm-3` only, no project scope. |
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
 | Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |

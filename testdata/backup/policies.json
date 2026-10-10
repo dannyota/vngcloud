@@ -1,0 +1,54 @@
+{
+  "items": [
+    {
+      "id": "policy-1",
+      "userId": 123,
+      "backendId": "backend-1",
+      "projectId": "project-1",
+      "product": "SERVER",
+      "name": "policy",
+      "isDefault": true,
+      "config": {
+        "hour": 1.0,
+        "minute": 30.0,
+        "timeZone": "UTC",
+        "hourlyEnabled": true,
+        "hourlyConfig": {
+          "secret": "SECRET-MARKER",
+          "interval": 9
+        },
+        "dailyEnabled": true,
+        "dailyConfig": {
+          "retention": 7.0,
+          "backupType": "incremental",
+          "incrementalQuantity": 2.0
+        },
+        "weeklyEnabled": true,
+        "weeklyConfig": {
+          "secret": "SECRET-MARKER",
+          "interval": 9
+        },
+        "monthlyEnabled": true,
+        "monthlyConfig": {
+          "secret": "SECRET-MARKER",
+          "interval": 9
+        },
+        "isProtectedServer": true,
+        "statusSendEmail": [
+          "SECRET-MARKER"
+        ]
+      },
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-02T00:00:00Z",
+      "backupInstanceCount": 3,
+      "credentials": {
+        "password": "SECRET-MARKER"
+      },
+      "errorMessage": "SECRET-MARKER"
+    }
+  ],
+  "page": 1,
+  "pageSize": 200,
+  "totalPages": 2,
+  "totalItems": 3
+}

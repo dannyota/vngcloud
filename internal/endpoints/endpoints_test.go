@@ -172,3 +172,15 @@ func TestVServerBackupEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupCenter(t *testing.T) {
+	if got := ResolveIAMUser("hcm-3", Overrides{}).BackupCenter; got != "https://hcm-3.api.vngcloud.vn/vbackup-gateway/" {
+		t.Fatal(got)
+	}
+	if got := ResolveIAMUser("han-1", Overrides{}).BackupCenter; got != "" {
+		t.Fatal(got)
+	}
+	if got := ResolveIAMUser("hcm-3", Overrides{BackupCenter: "https://backup.example/gateway"}).BackupCenter; got != "https://backup.example/gateway/" {
+		t.Fatal(got)
+	}
+}

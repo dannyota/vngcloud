@@ -39,3 +39,10 @@ func TestVServerBackupRoute(t *testing.T) {
 		t.Fatalf("unexpected route: %s", got)
 	}
 }
+
+func TestBackupCenterURL(t *testing.T) {
+	got := URL(testEndpoints{ProductBackupCenter: "https://backup.example/vbackup-gateway/", ProductVServer: "https://server.example/"}, Route{Product: ProductBackupCenter, Version: "v1", Parts: []string{"backup-policies"}, Query: url.Values{"page": {"1"}, "size": {"200"}}})
+	if got != "https://backup.example/vbackup-gateway/v1/backup-policies?page=1&size=200" {
+		t.Fatal(got)
+	}
+}

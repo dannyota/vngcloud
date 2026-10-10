@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "backend-1",
+      "name": "backend",
+      "credentials": {
+        "password": "SECRET-MARKER"
+      }
+    }
+  ],
+  "page": null,
+  "pageSize": null,
+  "totalPages": 1,
+  "totalItems": 1
+}

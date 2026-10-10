@@ -7,6 +7,7 @@
 - [Configuration](Configuration.md)
 - [Errors](Errors.md)
 - [Services](Services.md)
+- [Backup](Backup.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
 - [CDN](CDN.md)
 - [Compute](Compute.md)
