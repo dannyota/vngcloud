@@ -4,8 +4,10 @@ package vngcloud_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +18,8 @@ import (
 )
 
 // TestLiveWriteCDN drives one Web Accelerator CDN through every write: it
-// disables, enables, updates, and deletes it. The API cannot create a CDN
-// (it answers "Create CDN failed."), so the owner creates it in the vCDN
+// disables, enables, updates, purges, and deletes it. The API cannot create a
+// CDN (it answers "Create CDN failed."), so the owner creates it in the vCDN
 // Portal first, as a name that starts vngcloud-live- or vngcloud-probe-. The
 // test takes the first such CDN and skips when there is none. It needs
 // VNGCLOUD_LIVE_WRITE=1, VNGCLOUD_LIVE_CDN=1, and VNGCLOUD_VCDN_API_KEY, and
@@ -40,7 +42,20 @@ func TestLiveWriteCDN(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("unused"), vngcloud.WithCDNAPIKey(key))
+	var purgeCapture *vngcloud.ResponseCapture
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("hcm-3"),
+		vngcloud.WithStaticToken("unused"),
+		vngcloud.WithCDNAPIKey(key),
+		vngcloud.WithResponseCapture(func(captured vngcloud.ResponseCapture) {
+			if captured.Operation != "cdn.PurgePaths" {
+				return
+			}
+			copy := captured
+			copy.Body = append([]byte(nil), captured.Body...)
+			purgeCapture = &copy
+		}),
+	)
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
@@ -216,6 +231,21 @@ func TestLiveWriteCDN(t *testing.T) {
 		}
 	})
 
+	t.Run("purge", func(t *testing.T) {
+		out, err := client.PurgePaths(ctx, &cdn.PurgePathsInput{
+			CDNDomain: wa.CDNDomain,
+			Paths:     []string{"/"},
+		})
+		if err != nil {
+			t.Fatalf("PurgePaths: %v", err)
+		}
+		if out == nil {
+			t.Fatal("PurgePaths returned a nil Output")
+		}
+		saveLiveCDNPurge(t, purgeCapture, out)
+		t.Log("purge: paths 1")
+	})
+
 	t.Run("delete", func(t *testing.T) {
 		start := time.Now()
 		if _, err := client.DeleteWebAccelerator(ctx, &cdn.DeleteWebAcceleratorInput{CDNID: id}); err != nil {
@@ -262,6 +292,44 @@ func TestLiveWriteCDN(t *testing.T) {
 		}
 		t.Logf("web accelerators after the run: %d", len(mustListCDN(ctx, t, client)))
 	})
+}
+
+func saveLiveCDNPurge(t *testing.T, captured *vngcloud.ResponseCapture, out *cdn.PurgePathsOutput) {
+	t.Helper()
+	if captured == nil || !json.Valid(captured.Body) {
+		t.Fatal("PurgePaths did not capture a JSON response")
+	}
+	rawDir := filepath.Join("examples", "basic", "output", "raw", "cdn")
+	sdkDir := filepath.Join("examples", "basic", "output", "sdk", "cdn")
+	for _, dir := range []string{rawDir, sdkDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("create purge output directory: %v", err)
+		}
+	}
+	raw := struct {
+		Operation  string          `json:"operation"`
+		Method     string          `json:"method"`
+		URL        string          `json:"url"`
+		StatusCode int             `json:"statusCode"`
+		Body       json.RawMessage `json:"body"`
+	}{
+		Operation: captured.Operation, Method: captured.Method, URL: captured.URL,
+		StatusCode: captured.StatusCode, Body: append(json.RawMessage(nil), captured.Body...),
+	}
+	writeLiveCDNJSON(t, filepath.Join(rawDir, "purge_paths.json"), raw)
+	writeLiveCDNJSON(t, filepath.Join(sdkDir, "purge_paths.json"), out)
+}
+
+func writeLiveCDNJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	b, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("encode purge output: %v", err)
+	}
+	b = append(b, '\n')
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatalf("write purge output: %v", err)
+	}
 }
 
 func mustListCDN(ctx context.Context, t *testing.T, client *cdn.Client) []cdn.WebAcceleratorSummary {

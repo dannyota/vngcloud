@@ -31,6 +31,7 @@ type vcdnHarness struct {
 	captured atomic.Int64
 	logs     bytes.Buffer
 	writes   bytes.Buffer
+	captures bytes.Buffer
 }
 
 func newVCDN(t *testing.T, key string, handler func(w http.ResponseWriter, r *http.Request)) *vcdnHarness {
@@ -48,6 +49,7 @@ func newVCDN(t *testing.T, key string, handler func(w http.ResponseWriter, r *ht
 		RetryInterval: time.Millisecond,
 		Capture: func(c transport.Capture) {
 			h.captured.Add(1)
+			h.captures.Write(c.Body)
 			if c.Operation == "cdn.UpdateWebAccelerator" {
 				h.writes.Write(c.Body)
 			}

@@ -147,6 +147,7 @@ for _, k := range keys.Items {
 | `ListAPIKeys` | none | `Items []APIKey` |
 | `ListWebAccelerators` | none | `Items []WebAcceleratorSummary` |
 | `GetWebAccelerator` | `CDNID` | `WebAccelerator` |
+| `PurgePaths` | `CDNDomain`, `Paths` | empty |
 
 - `Certificate` holds the ID, common name, issuer, dates as the server's
   strings, `Status` (1 active, 0 inactive), and `CDNUsing`, the number of
@@ -331,9 +332,34 @@ status, so a call the server would refuse sends nothing:
 - Package limits arrive as a failure whose message names the limit, such as
   `Current user package is not allow to use feature developmentMode, please
   upgrade your package`. They match no sentinel.
-- A refusal with code 202 matches `vngcloud.ErrInvalidInput`. A message that
-  starts `Not found cdn` matches `vngcloud.ErrNotFound`. A failure with a null
-  code has the code `EnvelopeError`.
+- A refusal with code 202 matches `vngcloud.ErrInvalidInput`, except for the
+  purge cooldown described below. A message that starts `Not found cdn`
+  matches `vngcloud.ErrNotFound`. A failure with a null code has the code
+  `EnvelopeError`.
+
+### Purge paths
+
+`PurgePaths` removes cached objects by path from the CDN named by its generated
+`CDNDomain`. It needs at least one non-empty path. A path cannot contain `*`.
+Other path syntax is sent to the server without extra SDK rules.
+
+```go
+_, err := client.PurgePaths(ctx, &cdn.PurgePathsInput{
+	CDNDomain: got.WebAccelerator.CDNDomain,
+	Paths:     []string{"/assets/app.js", "/index.html"},
+})
+```
+
+The API allows one purge on a CDN every 30 seconds. A refusal whose message
+starts `Last CDN flush cache time` matches `cdn.ErrPurgeCooldown` only. The SDK
+does not wait and retry after that refusal. Other code 202 refusals match
+`vngcloud.ErrInvalidInput`.
+
+A purge is a non-idempotent `POST`. The transport retries only after a 429 or a
+failed dial, where the server did not act. It does not retry after a 5xx, a
+failed envelope, or an ambiguous network failure. Check the CDN before running
+the purge again after an ambiguous failure. Each purge counts against the
+account package's daily purge limit.
 
 ### Update
 

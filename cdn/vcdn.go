@@ -45,6 +45,9 @@ const (
 	busyMessage = "is not allow to update or delete"
 	// notFoundMessage starts the message of a write on a CDN that is gone.
 	notFoundMessage = "Not found cdn"
+	// purgeCooldownMessage starts the refusal for a purge sent less than 30
+	// seconds after the previous purge.
+	purgeCooldownMessage = "Last CDN flush cache time"
 	// codeInputRefused is the envelope code the server uses for an input it
 	// refuses.
 	codeInputRefused = 202
@@ -169,6 +172,8 @@ func (r call) envelopeError(client *core.Client, status int, env envelope, key s
 		sentinel = ErrBusy
 	case strings.HasPrefix(msg, notFoundMessage):
 		code, sentinel = "NotFound", core.ErrNotFound
+	case effective == codeInputRefused && strings.HasPrefix(msg, purgeCooldownMessage):
+		sentinel = ErrPurgeCooldown
 	case effective == codeInputRefused:
 		sentinel = core.ErrInvalidInput
 	}
