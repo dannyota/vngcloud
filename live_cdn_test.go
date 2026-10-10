@@ -234,7 +234,8 @@ func TestLiveWriteCDN(t *testing.T) {
 	t.Run("purge", func(t *testing.T) {
 		out, err := client.PurgePaths(ctx, &cdn.PurgePathsInput{
 			CDNDomain: wa.CDNDomain,
-			Paths:     []string{"/"},
+			// The server refuses a bare "/" as an invalid content URI.
+			Paths: []string{"/index.html"},
 		})
 		if err != nil {
 			t.Fatalf("PurgePaths: %v", err)
