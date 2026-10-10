@@ -58,3 +58,24 @@ func truncateForError(value string) string {
 	}
 	return value[:maxEchoLen]
 }
+
+// CheckRequiredFields returns an error wrapping ErrInvalidInput for the first
+// of the named fields that holds its zero value, in the order given. A quote
+// uses it to require only the fields that change a price, while the create it
+// shares an Input with requires every tagged field. A nil pointer counts as
+// all fields empty, and a name that is not a field of in is an error, so a
+// renamed field cannot silently drop a check. in must be a pointer to a
+// struct.
+func CheckRequiredFields(op string, in any, fields ...string) error {
+	v := reflect.ValueOf(in)
+	for _, name := range fields {
+		f, ok := v.Type().Elem().FieldByName(name)
+		if !ok {
+			return fmt.Errorf("%w: %s: %s has no field %s", ErrInvalidInput, op, v.Type().Elem().Name(), name)
+		}
+		if v.IsNil() || v.Elem().FieldByIndex(f.Index).IsZero() {
+			return fmt.Errorf("%w: %s requires %s", ErrInvalidInput, op, name)
+		}
+	}
+	return nil
+}

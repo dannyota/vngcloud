@@ -211,9 +211,8 @@ write would create:
 
 ```go
 quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
-	Name: "web-1", ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
-	VPCID: "<vpc-id>", SubnetID: "<subnet-id>", SecurityGroupIDs: []string{"<security-group-id>"},
-	SSHKeyID: "<ssh-key-id>", RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
+	ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
+	RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
 })
 if err != nil {
 	log.Fatal(err)
@@ -222,11 +221,24 @@ log.Printf("server would cost %.0f VND a month", quote.OptimumPrice)
 ```
 
 `volumeClient.QuoteCreateVolume` and `lbClient.QuoteCreateLoadBalancer` work
-the same way for a volume and a load balancer create. All three build the
-create's own request body and quote it, minus any field the create never
-prices, such as user data; all three ignore the Input's `MaxPrice` and
-`NoWait` fields, which govern only the write itself once it orders
-something.
+the same way for a volume and a load balancer create. A create quote
+requires and sends only the fields that change the price, as the console
+does:
+
+| Quote | Required | Optional, never sent |
+|-|-|-|
+| `QuoteCreateServer` | `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID`; the data disk pair when set | `Name`, `VPCID`, `SubnetID`, `SecurityGroupIDs`, `SSHKeyID` |
+| `QuoteCreateVolume` | `ZoneID`, `Size`, `VolumeTypeID` | `Name` |
+| `QuoteCreateLoadBalancer` | `PackageID`, `ZoneID` | `Name`, `Scheme`, `SubnetID`, `Type` |
+
+A quote checks the shape of the IDs and of `Scheme` when they are set, so
+a bad value fails there as it will at the create. It does not check `Name`
+or `Type`, which it never sends.
+
+The create still requires every field. The create's price guard quotes the
+same priced-only body, so a quote and the guard price one request. Both
+ignore the Input's `MaxPrice` and `NoWait` fields, which govern only the
+write itself once it orders something, and neither sends user data.
 
 `computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
 a flavor change or a grow the same way, from `compute.ResizeServerInput`

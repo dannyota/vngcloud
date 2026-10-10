@@ -80,7 +80,7 @@ Pricing](Billing-and-Pricing.md#vserver-prices) for the fuller price table.
 
 ```go
 quote, err := client.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
-	Name: "vngcloud-my-data", ZoneID: "<zone-id>", Size: 10, VolumeTypeID: "<volume-type-id>",
+	ZoneID: "<zone-id>", Size: 10, VolumeTypeID: "<volume-type-id>",
 })
 if err != nil {
 	log.Fatal(err)
@@ -105,6 +105,10 @@ if _, err := client.DeleteVolume(ctx, &volume.DeleteVolumeInput{
 	log.Fatal(err)
 }
 ```
+
+`QuoteCreateVolume` requires only `ZoneID`, `Size`, and `VolumeTypeID`, the
+fields that change the price; `Name` is optional there. `CreateVolume` quotes
+the same priced-only body for its price guard and still requires `Name`.
 
 `CreateVolume`'s `MaxPrice` is VND a month and defaults to 0, so
 `CreateVolumeInput{Name: "x", ZoneID: z, Size: 10, VolumeTypeID: t}` alone

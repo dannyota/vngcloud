@@ -13,7 +13,9 @@ import (
 
 // CreateVolumeInput creates a volume. QuoteCreateVolume takes the same
 // Input and prices it, per the SDK's paid-write convention that a quote is
-// built from the create's own code.
+// built from the create's own code. A quote requires only ZoneID, Size, and
+// VolumeTypeID: Name and AutoRenew do not change the price and never reach
+// the billing gateway.
 type CreateVolumeInput struct {
 	// Name must not match an existing volume's name exactly.
 	Name         string `vngcloud:"required"`
@@ -33,8 +35,8 @@ type CreateVolumeInput struct {
 	NoWait bool
 }
 
-// createVolumeBody is CreateVolume and QuoteCreateVolume's shared request
-// body, built by buildCreateVolumeBody.
+// createVolumeBody is CreateVolume's request body, built by
+// buildCreateVolumeBody.
 type createVolumeBody struct {
 	Name              string `json:"name"`
 	Size              int    `json:"size"`
@@ -43,16 +45,53 @@ type createVolumeBody struct {
 	IsEnableAutoRenew bool   `json:"isEnableAutoRenew"`
 }
 
-// buildCreateVolumeBody validates in and builds the body CreateVolume and
-// QuoteCreateVolume both send.
+// checkVolumeShape checks the shape of the fields of in that are set, under
+// op's name. A zero Size passes here; the quote and the create each require
+// their own set first.
+func checkVolumeShape(op string, in *CreateVolumeInput) error {
+	if in.Size < 0 {
+		return fmt.Errorf("%w: %s: Size must be greater than 0, got %d", core.ErrInvalidInput, op, in.Size)
+	}
+	if in.VolumeTypeID != "" {
+		return core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID)
+	}
+	return nil
+}
+
+// volumeQuoteBody is the volume create quote's resourceInfo: the keys the
+// billing gateway prices. QuoteCreateVolume and CreateVolume's price guard
+// both build it with buildVolumeQuoteInfo.
+type volumeQuoteBody struct {
+	Size         int    `json:"size"`
+	VolumeTypeID string `json:"volumeTypeId"`
+	ZoneID       string `json:"zoneId"`
+}
+
+// buildVolumeQuoteInfo validates the priced fields of in and builds the
+// quote's resourceInfo from them alone. QuoteCreateVolume and CreateVolume's
+// price guard both call it, so the price a caller sees is the price the
+// guard checks (ADR 0002 rule 8).
+func buildVolumeQuoteInfo(op string, in *CreateVolumeInput) (map[string]any, error) {
+	if err := core.CheckRequiredFields(op, in, "ZoneID", "Size", "VolumeTypeID"); err != nil {
+		return nil, err
+	}
+	if err := checkVolumeShape(op, in); err != nil {
+		return nil, err
+	}
+	return core.QuoteResourceInfo(volumeQuoteBody{
+		Size:         in.Size,
+		VolumeTypeID: in.VolumeTypeID,
+		ZoneID:       in.ZoneID,
+	})
+}
+
+// buildCreateVolumeBody validates in and builds the body CreateVolume sends.
+// It requires every field tagged vngcloud:"required".
 func buildCreateVolumeBody(op string, in *CreateVolumeInput) (createVolumeBody, error) {
 	if err := core.CheckRequired(op, in); err != nil {
 		return createVolumeBody{}, err
 	}
-	if in.Size <= 0 {
-		return createVolumeBody{}, fmt.Errorf("%w: %s: Size must be greater than 0, got %d", core.ErrInvalidInput, op, in.Size)
-	}
-	if err := core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID); err != nil {
+	if err := checkVolumeShape(op, in); err != nil {
 		return createVolumeBody{}, err
 	}
 	return createVolumeBody{
@@ -65,16 +104,12 @@ func buildCreateVolumeBody(op string, in *CreateVolumeInput) (createVolumeBody, 
 }
 
 // QuoteCreateVolume prices the volume Input would create, without ordering
-// it. It builds the same body a create sends and quotes it with
-// ActionCreate. It ignores Input.MaxPrice and Input.NoWait, which govern
-// only an actual create.
+// it. It requires and sends only the fields that change the price (see
+// CreateVolumeInput). It ignores Input.MaxPrice and Input.NoWait, which
+// govern only an actual create.
 func (c *Client) QuoteCreateVolume(ctx context.Context, in *CreateVolumeInput) (*pricing.GetQuoteOutput, error) {
 	const op = "volume.QuoteCreateVolume"
-	body, err := buildCreateVolumeBody(op, in)
-	if err != nil {
-		return nil, err
-	}
-	info, err := core.QuoteResourceInfo(body)
+	info, err := buildVolumeQuoteInfo(op, in)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +149,10 @@ type createVolumeResponse struct {
 // unclear failure must never risk ordering a second volume under the same
 // name.
 //
-// CreateVolume builds one order body from Input with buildCreateVolumeBody
-// (ADR 0002 rule 8) and sends that same body to QuoteCreateVolume's own
-// quote endpoint first. It refuses with vngcloud.ErrPriceAboveMax, ordering
+// CreateVolume builds the order body from Input with buildCreateVolumeBody
+// and its price guard's quote body with buildVolumeQuoteInfo (ADR 0002
+// rule 8), the same builder QuoteCreateVolume uses, so the guard prices the
+// request the quote command prints. It refuses with vngcloud.ErrPriceAboveMax, ordering
 // nothing, when the quote's OptimumPrice exceeds Input.MaxPrice (default
 // 0). A quote response missing optimumPrice is itself an error from
 // pricing.GetQuote, never a silent price of 0.
@@ -152,14 +188,14 @@ func (c *Client) CreateVolume(ctx context.Context, in *CreateVolumeInput) (*Crea
 	if err != nil {
 		return nil, err
 	}
+	info, err := buildVolumeQuoteInfo(op, in)
+	if err != nil {
+		return nil, err
+	}
 	if err := c.refuseIfVolumeNameExists(ctx, op, in.Name); err != nil {
 		return nil, err
 	}
 
-	info, err := core.QuoteResourceInfo(body)
-	if err != nil {
-		return nil, err
-	}
 	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceVolume,
 		Action:       pricing.ActionCreate,

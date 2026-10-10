@@ -1,6 +1,7 @@
 package loadbalancer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -90,7 +91,7 @@ func TestQuoteCreateLoadBalancerIgnoresMaxPriceAndNoWait(t *testing.T) {
 	}
 }
 
-func TestQuoteCreateLoadBalancerRejectsMissingFields(t *testing.T) {
+func TestQuoteCreateLoadBalancerRejectsMissingPricedFields(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler should not be called")
 	}))
@@ -98,11 +99,7 @@ func TestQuoteCreateLoadBalancerRejectsMissingFields(t *testing.T) {
 		name string
 		zero func(in *CreateLoadBalancerInput)
 	}{
-		{"Name", func(in *CreateLoadBalancerInput) { in.Name = "" }},
 		{"PackageID", func(in *CreateLoadBalancerInput) { in.PackageID = "" }},
-		{"Type", func(in *CreateLoadBalancerInput) { in.Type = "" }},
-		{"Scheme", func(in *CreateLoadBalancerInput) { in.Scheme = "" }},
-		{"SubnetID", func(in *CreateLoadBalancerInput) { in.SubnetID = "" }},
 		{"ZoneID", func(in *CreateLoadBalancerInput) { in.ZoneID = "" }},
 	}
 	for _, f := range fields {
@@ -114,6 +111,77 @@ func TestQuoteCreateLoadBalancerRejectsMissingFields(t *testing.T) {
 	}
 	if _, err := c.QuoteCreateLoadBalancer(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("nil input err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestQuoteCreateLoadBalancerUnpricedFieldsOptional checks that a quote with
+// only PackageID and ZoneID sends the same body as one with every field set.
+func TestQuoteCreateLoadBalancerUnpricedFieldsOptional(t *testing.T) {
+	var bodies [][]byte
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, data)
+		testutil.WriteFixture(t, w, "../testdata/loadbalancer/quote_create_load_balancer.json")
+	}))
+	if _, err := c.QuoteCreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{PackageID: "pkg-1", ZoneID: "zone-1"}); err != nil {
+		t.Fatalf("priced fields only: %v", err)
+	}
+	if _, err := c.QuoteCreateLoadBalancer(context.Background(), validCreateLoadBalancerInput()); err != nil {
+		t.Fatalf("all fields: %v", err)
+	}
+	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) {
+		t.Fatalf("bodies differ: %q", bodies)
+	}
+}
+
+func TestCreateLoadBalancerStillRequiresUnpricedFields(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	fields := []struct {
+		name string
+		zero func(in *CreateLoadBalancerInput)
+	}{
+		{"Name", func(in *CreateLoadBalancerInput) { in.Name = "" }},
+		{"Type", func(in *CreateLoadBalancerInput) { in.Type = "" }},
+		{"Scheme", func(in *CreateLoadBalancerInput) { in.Scheme = "" }},
+		{"SubnetID", func(in *CreateLoadBalancerInput) { in.SubnetID = "" }},
+	}
+	for _, f := range fields {
+		in := validCreateLoadBalancerInput()
+		in.MaxPrice = 400000
+		f.zero(in)
+		if _, err := c.CreateLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("%s empty: err = %v, want ErrInvalidInput", f.name, err)
+		}
+	}
+}
+
+// TestCreateLoadBalancerGuardQuotesSameBodyAsQuote checks that the quote the
+// price guard sends is byte for byte the request QuoteCreateLoadBalancer
+// sends for the same Input.
+func TestCreateLoadBalancerGuardQuotesSameBodyAsQuote(t *testing.T) {
+	var bodies [][]byte
+	inner := createLoadBalancerHandler([]string{"CREATED"}, nil)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/price" {
+			data, _ := io.ReadAll(r.Body)
+			bodies = append(bodies, data)
+			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+		inner(w, r)
+	}))
+	withInstantSleep(c)
+	in := validCreateLoadBalancerInput()
+	in.MaxPrice = 400000
+	if _, err := c.QuoteCreateLoadBalancer(context.Background(), in); err != nil {
+		t.Fatalf("QuoteCreateLoadBalancer() error = %v", err)
+	}
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err != nil {
+		t.Fatalf("CreateLoadBalancer() error = %v", err)
+	}
+	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) {
+		t.Fatalf("price request bodies differ or missing: %q", bodies)
 	}
 }
 
@@ -131,6 +199,19 @@ func TestQuoteCreateLoadBalancerRejectsBadScheme(t *testing.T) {
 		if _, err := c.QuoteCreateLoadBalancer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("Scheme=%q err = %v, want ErrInvalidInput", bad, err)
 		}
+	}
+}
+
+// TestQuoteCreateLoadBalancerEmptySchemeAllowed checks that an unset Scheme
+// is optional on the quote while a set one is still shape-checked.
+func TestQuoteCreateLoadBalancerEmptySchemeAllowed(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/loadbalancer/quote_create_load_balancer.json")
+	}))
+	in := validCreateLoadBalancerInput()
+	in.Scheme = ""
+	if _, err := c.QuoteCreateLoadBalancer(context.Background(), in); err != nil {
+		t.Fatalf("QuoteCreateLoadBalancer() error = %v", err)
 	}
 }
 
@@ -171,4 +252,54 @@ func TestQuoteCreateLoadBalancerUnknownPackagePassesThrough(t *testing.T) {
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 500 {
 		t.Fatalf("err = %v, want *vngcloud.APIError with status 500", err)
 	}
+}
+
+// TestLoadBalancerQuoteBodyKeysMatchCreateBody creates from one fully
+// populated Input and checks that every priced key the price guard's quote
+// sends reaches the order body with the same value. A priced field added
+// only to the order body would let the quote understate the bill.
+// isBuyMorePoc is a constant of the quote alone, with no order counterpart.
+func TestLoadBalancerQuoteBodyKeysMatchCreateBody(t *testing.T) {
+	var quote, order map[string]any
+	inner := createLoadBalancerHandler([]string{"CREATED"}, nil)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var dst *map[string]any
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+			dst = &quote
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/project-1/loadBalancers":
+			dst = &order
+		}
+		if dst != nil {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if err := json.Unmarshal(data, dst); err != nil {
+				t.Fatalf("decode body: %v, raw = %s", err, data)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+		inner(w, r)
+	}))
+	withInstantSleep(c)
+	in := &CreateLoadBalancerInput{
+		Name:      "lb-1",
+		PackageID: "pkg-1",
+		Type:      TypeLayer7,
+		Scheme:    SchemeInternet,
+		SubnetID:  "subnet-1",
+		ZoneID:    "zone-1",
+		MaxPrice:  400000,
+		NoWait:    true,
+	}
+	testutil.RequireAllFieldsSet(t, in)
+	if _, err := c.CreateLoadBalancer(context.Background(), in); err != nil {
+		t.Fatalf("CreateLoadBalancer() error = %v", err)
+	}
+	info, ok := quote["resourceInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("quote resourceInfo missing: %v", quote)
+	}
+	testutil.RequireQuoteKeysInCreate(t, info, order, "period", "isPoc", "isBuyMorePoc")
 }

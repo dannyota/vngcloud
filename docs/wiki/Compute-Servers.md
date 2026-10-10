@@ -18,9 +18,8 @@ Pricing](Billing-and-Pricing.md#vserver-prices).
 
 ```go
 quote, err := client.QuoteCreateServer(ctx, &compute.CreateServerInput{
-	Name: "web-1", ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
-	VPCID: "<vpc-id>", SubnetID: "<subnet-id>", SecurityGroupIDs: []string{"<security-group-id>"},
-	SSHKeyID: "<ssh-key-id>", RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
+	ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
+	RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
 })
 if err != nil {
 	log.Fatal(err)
@@ -62,12 +61,17 @@ costs 120,000 VND a month and exposes the server, so getting one is not
 part of this design. `AutoRenew` defaults to false, so nothing renews from
 credit without a later command. `UserData`, when set, makes the create
 `transport.Request.Sensitive`, so a decode failure never quotes the
-response body; it is never sent to `QuoteCreateServer`'s quote, logged, or
+response body; it is never sent to a quote, logged, or
 echoed in any error, and the SDK base64-encodes it itself.
 
-`CreateServer` builds one request body from `Input` and sends a copy of it,
-with `UserData` cleared, to `QuoteCreateServer`'s own quote endpoint first,
-so the quote always prices the exact server the create would make. The
+`QuoteCreateServer` requires and sends only the fields that change the
+price: `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID`,
+and the data disk pair when set. `Name`, `VPCID`, `SubnetID`,
+`SecurityGroupIDs`, and `SSHKeyID` are optional on a quote. A quote still
+checks the shape of any of these IDs that is set, so a bad ID fails there as
+it will at the create. `Name` has no shape rule and is simply not sent. `CreateServer` quotes the same priced-only body before
+it orders, so the quote you read and the guard it checks price one request.
+The create itself still requires every field above. The
 order is a `POST` and is never retried after a failure that may have
 already reached the server: after any error that is not a 4xx
 `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the server may exist,

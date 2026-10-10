@@ -96,3 +96,44 @@ func TestCheckDate(t *testing.T) {
 		}
 	}
 }
+
+type reqFieldsInput struct {
+	ZoneID string `vngcloud:"required"`
+	Name   string `vngcloud:"required"`
+	Size   int
+}
+
+func TestCheckRequiredFields(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     any
+		fields []string
+		want   string
+	}{
+		{"nil pointer", (*reqFieldsInput)(nil), []string{"ZoneID"}, "ZoneID"},
+		{"named field empty", &reqFieldsInput{Name: "n"}, []string{"ZoneID"}, "ZoneID"},
+		{"unnamed required field empty", &reqFieldsInput{ZoneID: "z"}, []string{"ZoneID"}, ""},
+		{"field without the tag", &reqFieldsInput{ZoneID: "z", Name: "n"}, []string{"ZoneID", "Size"}, "Size"},
+		{"first empty in order given", &reqFieldsInput{}, []string{"Name", "ZoneID"}, "Name"},
+		{"all set", &reqFieldsInput{ZoneID: "z", Size: 1}, []string{"ZoneID", "Size"}, ""},
+	}
+	for _, tc := range cases {
+		err := CheckRequiredFields("volume.QuoteCreateVolume", tc.in, tc.fields...)
+		if tc.want == "" {
+			if err != nil {
+				t.Fatalf("%s: err = %v", tc.name, err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "requires "+tc.want) || !strings.Contains(err.Error(), "volume.QuoteCreateVolume") {
+			t.Fatalf("%s: err = %v", tc.name, err)
+		}
+	}
+}
+
+func TestCheckRequiredFieldsUnknownField(t *testing.T) {
+	err := CheckRequiredFields("op", &reqFieldsInput{}, "Missing")
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}

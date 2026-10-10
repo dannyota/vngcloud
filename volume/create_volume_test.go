@@ -6,14 +6,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/testutil"
 )
 
 const quoteVolumeFixture = `{"optimumPrice":32000,"originalPrice":32000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[{"name":"Volume","description":"","optimumPrice":32000,"monthlyPrice":32000,"currentPrice":null,"discountPercent":0}]}`
 
-func TestQuoteCreateVolumeSendsCreateBody(t *testing.T) {
+func TestQuoteCreateVolumeSendsPricedBody(t *testing.T) {
 	var gotPath string
 	var body map[string]any
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +31,7 @@ func TestQuoteCreateVolumeSendsCreateBody(t *testing.T) {
 	}))
 
 	out, err := c.QuoteCreateVolume(context.Background(), &CreateVolumeInput{
-		Name: "vol-1", ZoneID: "zone-1", Size: 10, VolumeTypeID: "voltype-1",
+		ZoneID: "zone-1", Size: 10, VolumeTypeID: "voltype-1",
 	})
 	if err != nil {
 		t.Fatalf("QuoteCreateVolume() error = %v", err)
@@ -45,13 +47,11 @@ func TestQuoteCreateVolumeSendsCreateBody(t *testing.T) {
 		t.Fatalf("resourceInfo missing or wrong type: %+v", body)
 	}
 	want := map[string]any{
-		"name": "vol-1", "size": float64(10), "volumeTypeId": "voltype-1",
-		"zoneId": "zone-1", "isEnableAutoRenew": false, "period": float64(1), "isPoc": false,
+		"size": float64(10), "volumeTypeId": "voltype-1",
+		"zoneId": "zone-1", "period": float64(1), "isPoc": false,
 	}
-	for k, v := range want {
-		if info[k] != v {
-			t.Fatalf("resourceInfo[%q] = %v, want %v", k, info[k], v)
-		}
+	if !reflect.DeepEqual(info, want) {
+		t.Fatalf("resourceInfo = %v, want %v", info, want)
 	}
 	if out.OptimumPrice != 32000 {
 		t.Fatalf("OptimumPrice = %v, want 32000", out.OptimumPrice)
@@ -108,4 +108,72 @@ func TestQuoteCreateVolumeRejectsBadVolumeTypeID(t *testing.T) {
 			t.Fatalf("VolumeTypeID=%q err = %v, want ErrInvalidInput", bad, err)
 		}
 	}
+}
+
+// TestQuoteCreateVolumeSetUnpricedFieldsStayOutOfBody checks that a Name and
+// AutoRenew the caller sets never reach the billing gateway.
+func TestQuoteCreateVolumeSetUnpricedFieldsStayOutOfBody(t *testing.T) {
+	var body map[string]any
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(data, &body); err != nil {
+			t.Fatalf("decode body: %v, raw = %s", err, data)
+		}
+		_, _ = w.Write([]byte(quoteVolumeFixture))
+	}))
+	if _, err := c.QuoteCreateVolume(context.Background(), &CreateVolumeInput{
+		Name: "vol-1", ZoneID: "zone-1", Size: 10, VolumeTypeID: "voltype-1", AutoRenew: true,
+	}); err != nil {
+		t.Fatalf("QuoteCreateVolume() error = %v", err)
+	}
+	info := body["resourceInfo"].(map[string]any)
+	for _, k := range []string{"name", "isEnableAutoRenew"} {
+		if _, ok := info[k]; ok {
+			t.Fatalf("resourceInfo has %q: %v", k, info)
+		}
+	}
+}
+
+func TestQuoteCreateVolumeRequiresPricedFields(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	for name, in := range map[string]*CreateVolumeInput{
+		"ZoneID":       {Size: 10, VolumeTypeID: "voltype-1"},
+		"Size":         {ZoneID: "zone-1", VolumeTypeID: "voltype-1"},
+		"VolumeTypeID": {ZoneID: "zone-1", Size: 10},
+	} {
+		if _, err := c.QuoteCreateVolume(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+			t.Fatalf("%s empty: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+	if _, err := c.QuoteCreateVolume(context.Background(), nil); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("nil input: err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestVolumeQuoteBodyKeysMatchCreateBody builds the quote and the create
+// from one fully populated Input and checks that every priced key the quote
+// sends reaches the create with the same value. A priced field added only
+// to the create body would let the quote understate the bill.
+func TestVolumeQuoteBodyKeysMatchCreateBody(t *testing.T) {
+	in := &CreateVolumeInput{
+		Name:         "vol-1",
+		ZoneID:       "zone-1",
+		Size:         10,
+		VolumeTypeID: "voltype-1",
+		AutoRenew:    true,
+		MaxPrice:     1,
+		NoWait:       true,
+	}
+	testutil.RequireAllFieldsSet(t, in)
+	info, err := buildVolumeQuoteInfo("op", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := buildCreateVolumeBody("op", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.RequireQuoteKeysInCreate(t, info, body, "period", "isPoc")
 }

@@ -32,7 +32,10 @@ const (
 
 // CreateLoadBalancerInput creates a load balancer. QuoteCreateLoadBalancer
 // takes the same Input and prices it, per the SDK's paid-write convention
-// that a quote is built from the create's own code. Scheme has no default,
+// that a quote is built from the create's own code. A quote requires only
+// PackageID and ZoneID: Name, Scheme, SubnetID, and Type do not change the
+// price and never reach the billing gateway. A quote still checks the shape
+// of Scheme and SubnetID when they are set. Scheme has no default,
 // unlike the console's Internet: an Internet load balancer gets a public
 // address, and the caller names that exposure by setting Scheme itself.
 type CreateLoadBalancerInput struct {
@@ -56,9 +59,9 @@ type CreateLoadBalancerInput struct {
 }
 
 // createLoadBalancerQuoteBody is the create quote's own resourceInfo shape.
-// It is not the create request body itself, which will also carry name,
-// scheme, subnetId, and type once CreateLoadBalancer ships: the billing
-// gateway prices a load balancer by its package and zone alone.
+// It is not the create request body itself, which also carries name,
+// scheme, subnetId, and type: the billing gateway prices a load balancer by
+// its package and zone alone.
 type createLoadBalancerQuoteBody struct {
 	PackageID    string `json:"packageId"`
 	ZoneID       string `json:"zoneId"`
@@ -78,24 +81,39 @@ func checkScheme(op, scheme string) error {
 	return nil
 }
 
-// createLoadBalancerQuoteInfo checks in's shape under op's name and builds
-// the create quote's resourceInfo from it, shared by QuoteCreateLoadBalancer
-// and CreateLoadBalancer so both check the same fields and price the same
-// way; each keeps its own op in every error it returns.
-func createLoadBalancerQuoteInfo(op string, in *CreateLoadBalancerInput) (map[string]any, error) {
-	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
-	}
-	if err := checkScheme(op, in.Scheme); err != nil {
-		return nil, err
+// checkLoadBalancerShape checks the shape of the fields of in that are set,
+// under op's name: Scheme and the IDs. The quote and the create each require
+// their own set first.
+func checkLoadBalancerShape(op string, in *CreateLoadBalancerInput) error {
+	if in.Scheme != "" {
+		if err := checkScheme(op, in.Scheme); err != nil {
+			return err
+		}
 	}
 	for _, id := range [...]struct{ field, value string }{
 		{"PackageID", in.PackageID},
 		{"SubnetID", in.SubnetID},
 	} {
-		if err := core.CheckPathID(op, id.field, id.value); err != nil {
-			return nil, err
+		if id.value == "" {
+			continue
 		}
+		if err := core.CheckPathID(op, id.field, id.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createLoadBalancerQuoteInfo checks the priced fields of in under op's name
+// and builds the create quote's resourceInfo from them alone, shared by
+// QuoteCreateLoadBalancer and CreateLoadBalancer's price guard so both price
+// the same request; each keeps its own op in every error it returns.
+func createLoadBalancerQuoteInfo(op string, in *CreateLoadBalancerInput) (map[string]any, error) {
+	if err := core.CheckRequiredFields(op, in, "PackageID", "ZoneID"); err != nil {
+		return nil, err
+	}
+	if err := checkLoadBalancerShape(op, in); err != nil {
+		return nil, err
 	}
 	return core.QuoteResourceInfo(createLoadBalancerQuoteBody{
 		PackageID:    in.PackageID,
@@ -105,12 +123,10 @@ func createLoadBalancerQuoteInfo(op string, in *CreateLoadBalancerInput) (map[st
 }
 
 // QuoteCreateLoadBalancer prices the load balancer Input would create,
-// without ordering it. It checks every field a real CreateLoadBalancer will
-// require, so a shape error surfaces here the same way it will for that
-// write, then quotes only PackageID and ZoneID: Name, Scheme, SubnetID, and
-// Type all reach the write's own body but never change the price. It
-// ignores Input.MaxPrice and Input.NoWait, which govern only an actual
-// create.
+// without ordering it. It requires and sends only PackageID and ZoneID, and
+// checks the shape of Scheme and SubnetID when they are set, so a bad value
+// fails here as it will at the create. It ignores Input.MaxPrice and
+// Input.NoWait, which govern only an actual create.
 func (c *Client) QuoteCreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerInput) (*pricing.GetQuoteOutput, error) {
 	const op = "loadbalancer.QuoteCreateLoadBalancer"
 	info, err := createLoadBalancerQuoteInfo(op, in)
@@ -122,6 +138,16 @@ func (c *Client) QuoteCreateLoadBalancer(ctx context.Context, in *CreateLoadBala
 		Action:       pricing.ActionCreate,
 		ResourceInfo: info,
 	})
+}
+
+// checkCreateLoadBalancerInput requires every field tagged
+// vngcloud:"required" and checks the shape of the fields CreateLoadBalancer
+// sends.
+func checkCreateLoadBalancerInput(op string, in *CreateLoadBalancerInput) error {
+	if err := core.CheckRequired(op, in); err != nil {
+		return err
+	}
+	return checkLoadBalancerShape(op, in)
 }
 
 // CreateLoadBalancerOutput is CreateLoadBalancer's result. QuotedPrice is
@@ -146,16 +172,15 @@ type createLoadBalancerBody struct {
 }
 
 // CreateLoadBalancer orders a load balancer. Before any request, it checks
-// Input's shape (createLoadBalancerQuoteInfo, which also refuses a nil in)
+// Input's shape (checkCreateLoadBalancerInput, which also refuses a nil in)
 // and then rejects a NaN, +Inf, -Inf, or negative MaxPrice with
 // core.ErrInvalidInput (checkMaxPrice): the price guard below cannot compare
 // any of those safely, and a bad guard on a paid create must fail closed
 // rather than order anyway.
 //
-// It then quotes with the same fields QuoteCreateLoadBalancer checks and
-// prices (createLoadBalancerQuoteInfo), so the quote and the order always
-// describe the same resource; QuoteCreateLoadBalancer, called separately,
-// keeps its own independent behavior. The quote is read and checked by
+// It then quotes with the same priced-only body QuoteCreateLoadBalancer
+// sends (createLoadBalancerQuoteInfo), so the quote command and the guard
+// price one request. The quote is read and checked by
 // quotedPrice, which refuses a missing, null, non-finite, or unpriced (0 or
 // less, ErrUnpriced) price on its own, regardless of what
 // pricing.Client.GetQuote would have done with the same response. When the price exceeds Input.MaxPrice (default
@@ -186,9 +211,12 @@ type createLoadBalancerBody struct {
 // returns that same fallback at once.
 func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerInput) (*CreateLoadBalancerOutput, error) {
 	const op = "loadbalancer.CreateLoadBalancer"
-	// createLoadBalancerQuoteInfo runs core.CheckRequired first, so a nil in
+	// checkCreateLoadBalancerInput runs core.CheckRequired first, so a nil in
 	// is refused here rather than dereferenced below: checkMaxPrice(in.MaxPrice)
 	// must never run before this, since in.MaxPrice would panic on a nil in.
+	if err := checkCreateLoadBalancerInput(op, in); err != nil {
+		return nil, err
+	}
 	info, err := createLoadBalancerQuoteInfo(op, in)
 	if err != nil {
 		return nil, err

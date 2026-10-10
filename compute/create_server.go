@@ -20,8 +20,12 @@ const createServerWithheldMessage = "server message withheld: it may quote user 
 
 // CreateServerInput creates a server. QuoteCreateServer takes the same
 // Input and prices it, per the SDK's paid-write convention that a quote is
-// built from the create's own code. Every ID below, in a path or a body, is
-// checked with core.CheckPathID before any request, including the quote.
+// built from the create's own code. A quote requires only ZoneID, FlavorID,
+// ImageID, RootDiskSize, and RootDiskTypeID, plus the data disk pair when
+// set: the other fields do not change the price and never reach the billing
+// gateway. A quote still checks the shape of every field that is set. Every
+// ID below, in a path or a body, is checked with core.CheckPathID before
+// any request, including the quote.
 type CreateServerInput struct {
 	// Name must not match an existing server's name exactly.
 	Name     string `vngcloud:"required"`
@@ -67,11 +71,11 @@ type CreateServerInput struct {
 	NoWait bool
 }
 
-// createServerBody is CreateServer and QuoteCreateServer's shared request
-// body, built by buildCreateServerBody. EncryptionVolume and
-// IsEnableAutoRenew carry no omitempty tag, so a false value still reaches
-// the wire: the server requires encryptionVolume, and an omitted
-// isEnableAutoRenew must never be read as true.
+// createServerBody is CreateServer's request body, built by
+// buildCreateServerBody. EncryptionVolume and IsEnableAutoRenew carry no
+// omitempty tag, so a false value still reaches the wire: the server
+// requires encryptionVolume, and an omitted isEnableAutoRenew must never be
+// read as true.
 type createServerBody struct {
 	Name                  string   `json:"name"`
 	ZoneID                string   `json:"zoneId"`
@@ -93,25 +97,33 @@ type createServerBody struct {
 	IsEnableAutoRenew     bool     `json:"isEnableAutoRenew"`
 }
 
-// buildCreateServerBody validates in and builds the body CreateServer and
-// QuoteCreateServer both send. It never sets attachFloating, userName,
-// userPassword, osLicence, or expirePassword: this SDK has no field for a
-// public IP or password login on create.
-func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, error) {
-	if err := core.CheckRequired(op, in); err != nil {
-		return createServerBody{}, err
-	}
-	if len(in.SecurityGroupIDs) == 0 {
-		return createServerBody{}, fmt.Errorf("%w: %s requires at least one SecurityGroupIDs entry", core.ErrInvalidInput, op)
-	}
-	if in.RootDiskSize <= 0 {
-		return createServerBody{}, fmt.Errorf("%w: %s: RootDiskSize must be greater than 0, got %d", core.ErrInvalidInput, op, in.RootDiskSize)
+// serverQuoteBody is the server create quote's resourceInfo: the keys the
+// billing gateway prices, as the console sends them. QuoteCreateServer and
+// CreateServer's price guard both build it with buildServerQuoteInfo.
+// EncryptionVolume has no omitempty tag, so false still reaches the wire.
+type serverQuoteBody struct {
+	ZoneID           string `json:"zoneId"`
+	FlavorID         string `json:"flavorId"`
+	ImageID          string `json:"imageId"`
+	RootDiskSize     int    `json:"rootDiskSize"`
+	RootDiskTypeID   string `json:"rootDiskTypeId"`
+	EncryptionVolume bool   `json:"encryptionVolume"`
+	DataDiskSize     int    `json:"dataDiskSize,omitempty"`
+	DataDiskTypeID   string `json:"dataDiskTypeId,omitempty"`
+}
+
+// checkServerShape checks the shape of every field of in that is set, under
+// op's name: sizes, the data disk pair, and each ID. A zero RootDiskSize
+// passes here; the quote and the create each require their own set first.
+func checkServerShape(op string, in *CreateServerInput) error {
+	if in.RootDiskSize < 0 {
+		return fmt.Errorf("%w: %s: RootDiskSize must be greater than 0, got %d", core.ErrInvalidInput, op, in.RootDiskSize)
 	}
 	if in.DataDiskSize < 0 {
-		return createServerBody{}, fmt.Errorf("%w: %s: DataDiskSize must not be negative, got %d", core.ErrInvalidInput, op, in.DataDiskSize)
+		return fmt.Errorf("%w: %s: DataDiskSize must not be negative, got %d", core.ErrInvalidInput, op, in.DataDiskSize)
 	}
 	if (in.DataDiskSize > 0) != (in.DataDiskTypeID != "") {
-		return createServerBody{}, fmt.Errorf("%w: %s requires DataDiskSize and DataDiskTypeID together or neither", core.ErrInvalidInput, op)
+		return fmt.Errorf("%w: %s requires DataDiskSize and DataDiskTypeID together or neither", core.ErrInvalidInput, op)
 	}
 	for _, id := range [...]struct{ field, value string }{
 		{"FlavorID", in.FlavorID},
@@ -120,25 +132,61 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 		{"SubnetID", in.SubnetID},
 		{"SSHKeyID", in.SSHKeyID},
 		{"RootDiskTypeID", in.RootDiskTypeID},
+		{"ServerGroupID", in.ServerGroupID},
+		{"DataDiskTypeID", in.DataDiskTypeID},
 	} {
+		if id.value == "" {
+			continue
+		}
 		if err := core.CheckPathID(op, id.field, id.value); err != nil {
-			return createServerBody{}, err
+			return err
 		}
 	}
 	for i, sgID := range in.SecurityGroupIDs {
 		if err := core.CheckPathID(op, fmt.Sprintf("SecurityGroupIDs[%d]", i), sgID); err != nil {
-			return createServerBody{}, err
+			return err
 		}
 	}
-	if in.ServerGroupID != "" {
-		if err := core.CheckPathID(op, "ServerGroupID", in.ServerGroupID); err != nil {
-			return createServerBody{}, err
-		}
+	return nil
+}
+
+// buildServerQuoteInfo validates the priced fields of in and builds the
+// quote's resourceInfo from them alone. QuoteCreateServer and CreateServer's
+// price guard both call it, so the price a caller sees is the price the
+// guard checks (ADR 0002 rule 8). The body type has no field for user data,
+// which is not priced and must never reach the billing gateway.
+func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, error) {
+	if err := core.CheckRequiredFields(op, in, "ZoneID", "FlavorID", "ImageID", "RootDiskSize", "RootDiskTypeID"); err != nil {
+		return nil, err
 	}
-	if in.DataDiskTypeID != "" {
-		if err := core.CheckPathID(op, "DataDiskTypeID", in.DataDiskTypeID); err != nil {
-			return createServerBody{}, err
-		}
+	if err := checkServerShape(op, in); err != nil {
+		return nil, err
+	}
+	return core.QuoteResourceInfo(serverQuoteBody{
+		ZoneID:           in.ZoneID,
+		FlavorID:         in.FlavorID,
+		ImageID:          in.ImageID,
+		RootDiskSize:     in.RootDiskSize,
+		RootDiskTypeID:   in.RootDiskTypeID,
+		EncryptionVolume: false,
+		DataDiskSize:     in.DataDiskSize,
+		DataDiskTypeID:   in.DataDiskTypeID,
+	})
+}
+
+// buildCreateServerBody validates in and builds the body CreateServer
+// sends. It requires every field tagged vngcloud:"required". It never sets
+// attachFloating, userName, userPassword, osLicence, or expirePassword:
+// this SDK has no field for a public IP or password login on create.
+func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, error) {
+	if err := core.CheckRequired(op, in); err != nil {
+		return createServerBody{}, err
+	}
+	if len(in.SecurityGroupIDs) == 0 {
+		return createServerBody{}, fmt.Errorf("%w: %s requires at least one SecurityGroupIDs entry", core.ErrInvalidInput, op)
+	}
+	if err := checkServerShape(op, in); err != nil {
+		return createServerBody{}, err
 	}
 
 	body := createServerBody{
@@ -167,20 +215,14 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 }
 
 // QuoteCreateServer prices the server Input would create, without ordering
-// it. It builds the same body a create sends, with UserData and
-// UserDataBase64Encoded cleared first, since user data is not priced and
-// must never reach the billing gateway, and quotes it with ActionCreate.
-// It ignores Input.MaxPrice and Input.NoWait, which govern only an actual
-// create.
+// it. It requires and sends only the fields that change the price (see
+// CreateServerInput) and checks the shape of every other field that is set,
+// so a bad ID fails here as it will at the create. UserData never reaches
+// the billing gateway. It ignores Input.MaxPrice and Input.NoWait, which
+// govern only an actual create.
 func (c *Client) QuoteCreateServer(ctx context.Context, in *CreateServerInput) (*pricing.GetQuoteOutput, error) {
 	const op = "compute.QuoteCreateServer"
-	body, err := buildCreateServerBody(op, in)
-	if err != nil {
-		return nil, err
-	}
-	body.UserData = ""
-	body.UserDataBase64Encoded = false
-	info, err := core.QuoteResourceInfo(body)
+	info, err := buildServerQuoteInfo(op, in)
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +260,11 @@ type createServerResponse struct {
 // already exists with Input.Name exactly, so a rerun after an unclear
 // failure never risks ordering a second server under the same name.
 //
-// CreateServer builds one request body from Input with buildCreateServerBody
-// (ADR 0002 rule 8), the same builder QuoteCreateServer uses. It sends a
-// copy of that body, with UserData and UserDataBase64Encoded cleared, to
-// the quote endpoint first, since user data is not priced and must never
-// reach the billing gateway. It refuses with vngcloud.ErrPriceAboveMax,
+// CreateServer builds the order body from Input with buildCreateServerBody
+// and its price guard's quote body with buildServerQuoteInfo (ADR 0002
+// rule 8), the same builder QuoteCreateServer uses, so the guard prices the
+// request the quote command prints. That body holds only priced fields:
+// user data is not priced and never reaches the billing gateway. It refuses with vngcloud.ErrPriceAboveMax,
 // ordering nothing, when the quote's OptimumPrice exceeds Input.MaxPrice
 // (default 0).
 //
@@ -260,17 +302,14 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*Crea
 	if err != nil {
 		return nil, err
 	}
+	info, err := buildServerQuoteInfo(op, in)
+	if err != nil {
+		return nil, err
+	}
 	if err := c.refuseIfServerNameExists(ctx, op, in.Name); err != nil {
 		return nil, err
 	}
 
-	quoteBody := body
-	quoteBody.UserData = ""
-	quoteBody.UserDataBase64Encoded = false
-	info, err := core.QuoteResourceInfo(quoteBody)
-	if err != nil {
-		return nil, err
-	}
 	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceServer,
 		Action:       pricing.ActionCreate,

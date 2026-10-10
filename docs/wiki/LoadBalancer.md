@@ -55,15 +55,15 @@ The rest of this page assumes `cfg` and `ctx` from this setup, plus
 matching `Quote` method, `QuoteCreateLoadBalancer` and
 `QuoteResizeLoadBalancer`, that takes the same Input and prices it without
 ordering anything; see [Billing and
-Pricing](Billing-and-Pricing.md#quoting-a-paid-write). The write itself
-quotes again with its own code before sending anything, and refuses with
-`loadbalancer.ErrPriceAboveMax`, naming both amounts, when the quote's
-`OptimumPrice` is above `Input.MaxPrice`. `MaxPrice` defaults to 0, so a
-bare `CreateLoadBalancerInput{}` orders nothing: every package prices above
-0 VND today. A create quote of 0 or less, or a resize quote of exactly 0,
-refuses with `vngcloud.ErrUnpriced` whatever `MaxPrice` is, since nothing in vLB is free and such a quote means
-the gateway could not price the input. Set `MaxPrice` to what `QuoteCreateLoadBalancer` returned, or
-higher, to let the order through:
+Pricing](Billing-and-Pricing.md#quoting-a-paid-write). A create quote needs
+only `PackageID` and `ZoneID`. The write quotes that same body first and
+refuses with `loadbalancer.ErrPriceAboveMax`, naming both amounts, when the
+quote's `OptimumPrice` is above `Input.MaxPrice`. `MaxPrice` defaults to 0,
+so a bare `CreateLoadBalancerInput{}` orders nothing. A create quote of 0 or
+less, or a resize quote of exactly 0, refuses with `vngcloud.ErrUnpriced`
+whatever `MaxPrice` is, since nothing in vLB is free and such a quote means
+the gateway could not price the input. Set `MaxPrice` to what
+`QuoteCreateLoadBalancer` returned, or higher, to let the order through:
 
 ```go
 in := &loadbalancer.CreateLoadBalancerInput{

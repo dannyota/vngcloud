@@ -895,14 +895,9 @@ func testLiveLoadBalancerPaidWritesL1(ctx context.Context, t *testing.T, cfg vng
 		if !ok {
 			t.Fatalf("package %s not found in %s", name, zoneID)
 		}
-		lbType := loadbalancer.TypeLayer4
-		if strings.HasPrefix(name, "ALB") {
-			lbType = loadbalancer.TypeLayer7
-		}
 		t.Run("quote-create-load-balancer-"+name, func(t *testing.T) {
 			quote, err := client.QuoteCreateLoadBalancer(ctx, &loadbalancer.CreateLoadBalancerInput{
-				Name: "vngcloud-live-quote", PackageID: packageID, Type: lbType,
-				Scheme: loadbalancer.SchemeInternal, SubnetID: "quote-only", ZoneID: zoneID,
+				PackageID: packageID, ZoneID: zoneID,
 			})
 			if err != nil {
 				t.Fatalf("QuoteCreateLoadBalancer(%s): %v", name, err)
@@ -1126,10 +1121,9 @@ func testLiveFlavorsByZone(ctx context.Context, t *testing.T, cfg vngcloud.Confi
 // testLiveVServerPaidWritesP1 runs the vServer paid writes design's P1 free
 // checks: flavor and volume reads, and the create quotes for a server and a
 // volume. It sends no write; every call here is a read or a price quote,
-// and QuoteCreateServer's placeholder network, subnet, security group, and
-// SSH key values are never priced or sent anywhere but this one quote
-// request. It runs only in hcm-3, the design's own test region, since its
-// flavor names and zone id are specific to that region's catalog.
+// and each quote sends only the fields that change the price. It runs only
+// in hcm-3, the design's own test region, since its flavor names and zone
+// id are specific to that region's catalog.
 func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	if cfg.Region() != "hcm-3" {
 		t.Skip("vServer paid writes P1 checks run only in hcm-3")
@@ -1208,9 +1202,8 @@ func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud
 
 	t.Run("quote-create-server", func(t *testing.T) {
 		quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
-			Name: "vngcloud-live-quote", ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
-			VPCID: "quote-only", SubnetID: "quote-only", SecurityGroupIDs: []string{"quote-only"},
-			SSHKeyID: "quote-only", RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+			ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+			RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
 		})
 		if err != nil {
 			t.Fatalf("QuoteCreateServer: %v", err)
@@ -1235,9 +1228,8 @@ func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud
 
 	t.Run("quote-create-server-with-data-disk", func(t *testing.T) {
 		quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
-			Name: "vngcloud-live-quote", ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
-			VPCID: "quote-only", SubnetID: "quote-only", SecurityGroupIDs: []string{"quote-only"},
-			SSHKeyID: "quote-only", RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+			ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+			RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
 			DataDiskSize: 10, DataDiskTypeID: volType.VolumeType.ID,
 		})
 		if err != nil {
@@ -1256,7 +1248,7 @@ func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud
 
 	t.Run("quote-create-volume", func(t *testing.T) {
 		quote, err := volumeClient.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
-			Name: "vngcloud-live-quote", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID,
+			ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID,
 		})
 		if err != nil {
 			t.Fatalf("QuoteCreateVolume: %v", err)

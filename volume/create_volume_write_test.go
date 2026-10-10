@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -717,5 +718,55 @@ func TestCreateVolumeZeroQuoteRefusesAndSendsNoOrder(t *testing.T) {
 	}
 	if orderCalls.Load() != 0 {
 		t.Fatalf("order calls = %d, want 0", orderCalls.Load())
+	}
+}
+
+func TestCreateVolumeStillRequiresName(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+	in := validCreateVolumeInput()
+	in.Name = ""
+	in.MaxPrice = 32000
+	if _, err := c.CreateVolume(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if _, err := buildCreateVolumeBody("op", in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("build err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestCreateVolumeGuardQuotesSamePricedBodyAsQuote checks that the quote the
+// price guard sends is byte for byte the request QuoteCreateVolume sends for
+// the same Input.
+func TestCreateVolumeGuardQuotesSamePricedBodyAsQuote(t *testing.T) {
+	var bodies [][]byte
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/price" {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			bodies = append(bodies, data)
+			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+		routeVolumeWriteRequest(t, w, r, emptyListVolumesPage,
+			func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1"}}`))
+			},
+			staticGet(`{"data":{"uuid":"volume-1","status":"AVAILABLE"}}`))
+	})))
+	in := validCreateVolumeInput()
+	in.AutoRenew = true
+	in.MaxPrice = 32000
+	if _, err := c.QuoteCreateVolume(context.Background(), in); err != nil {
+		t.Fatalf("QuoteCreateVolume() error = %v", err)
+	}
+	if _, err := c.CreateVolume(context.Background(), in); err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
+	}
+	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) {
+		t.Fatalf("price request bodies differ or missing: %q", bodies)
 	}
 }

@@ -29,67 +29,6 @@ func validCreateServerInput() *CreateServerInput {
 
 const quoteServerFixture = `{"optimumPrice":347800,"originalPrice":347800,"discountPrice":0,"discountPercent":0,"propertiesPrice":[{"name":"INSTANCE TYPE","description":"","optimumPrice":283800,"monthlyPrice":283800,"currentPrice":null,"discountPercent":0},{"name":"ROOT DISK","description":"","optimumPrice":64000,"monthlyPrice":64000,"currentPrice":null,"discountPercent":0}]}`
 
-func TestQuoteCreateServerSendsCreateBody(t *testing.T) {
-	var gotPath string
-	var body map[string]any
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		data, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
-		if err := json.Unmarshal(data, &body); err != nil {
-			t.Fatalf("decode body: %v, raw = %s", err, data)
-		}
-		_, _ = w.Write([]byte(quoteServerFixture))
-	}))
-
-	out, err := c.QuoteCreateServer(context.Background(), validCreateServerInput())
-	if err != nil {
-		t.Fatalf("QuoteCreateServer() error = %v", err)
-	}
-	if gotPath != "/v1/price" {
-		t.Fatalf("path = %s, want /v1/price", gotPath)
-	}
-	if body["resourceType"] != "server" || body["action"] != "create" {
-		t.Fatalf("unexpected resourceType/action: %+v", body)
-	}
-	info, ok := body["resourceInfo"].(map[string]any)
-	if !ok {
-		t.Fatalf("resourceInfo missing or wrong type: %+v", body)
-	}
-	want := map[string]any{
-		"name": "web-1", "zoneId": "zone-1", "flavorId": "flavor-1", "imageId": "image-1",
-		"networkId": "vpc-1", "subnetId": "subnet-1", "sshKeyId": "key-1",
-		"rootDiskSize": float64(20), "rootDiskTypeId": "voltype-1",
-		"encryptionVolume": false, "isEnableAutoRenew": false,
-		"period": float64(1), "isPoc": false,
-	}
-	for k, v := range want {
-		if info[k] != v {
-			t.Fatalf("resourceInfo[%q] = %v, want %v", k, info[k], v)
-		}
-	}
-	if _, ok := info["userData"]; ok {
-		t.Fatal("resourceInfo has userData, want it excluded")
-	}
-	if out.OptimumPrice != 347800 {
-		t.Fatalf("OptimumPrice = %v, want 347800", out.OptimumPrice)
-	}
-	var hasInstance, hasRootDisk bool
-	for _, p := range out.Properties {
-		switch p.Name {
-		case "INSTANCE TYPE":
-			hasInstance = true
-		case "ROOT DISK":
-			hasRootDisk = true
-		}
-	}
-	if !hasInstance || !hasRootDisk {
-		t.Fatalf("missing expected price lines: %+v", out.Properties)
-	}
-}
-
 func TestQuoteCreateServerExcludesUserData(t *testing.T) {
 	var raw []byte
 	var body map[string]any
@@ -131,23 +70,6 @@ func TestQuoteCreateServerIgnoresMaxPriceAndNoWait(t *testing.T) {
 	in.NoWait = true
 	if _, err := c.QuoteCreateServer(context.Background(), in); err != nil {
 		t.Fatalf("QuoteCreateServer() error = %v", err)
-	}
-}
-
-func TestQuoteCreateServerRejectsEmptySecurityGroups(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not be called")
-	}))
-	in := validCreateServerInput()
-	in.SecurityGroupIDs = nil
-	if _, err := c.QuoteCreateServer(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
-		t.Fatalf("err = %v, want ErrInvalidInput", err)
-	}
-
-	in2 := validCreateServerInput()
-	in2.SecurityGroupIDs = []string{}
-	if _, err := c.QuoteCreateServer(context.Background(), in2); !errors.Is(err, vngcloud.ErrInvalidInput) {
-		t.Fatalf("empty slice: err = %v, want ErrInvalidInput", err)
 	}
 }
 
