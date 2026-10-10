@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.56.1 - CLI Usability Fixes
+
+### Highlights
+
+- `vngcloud --version` and `-v` print the version like `vngcloud version`.
+- `vngcloud configure list` prints a hint on stderr naming the config and
+  credentials file paths it read when no region is set; stdout is
+  unchanged.
+- The Configuration wiki page gains a "Read-only agent profile" recipe
+  (profile, credential keys, `region` with no default, `read_only` set
+  last, how to verify).
+- Notes: `portal list-zones` may report `HCM03-1A` with `IsEnabled=false`
+  while quotes and creates work there; the gateway's quote text shows the
+  root volume type id where the size belongs, the size is the
+  `--root-disk-size` value.
+
 ## v0.56.0 - vCDN API Key, Certificates, and API Key Reads
 
 ### Highlights
@@ -378,62 +394,5 @@ after the deletes refunded the unused value.
 - New [Storage](https://github.com/dannyota/vngcloud/wiki/Storage) and
   [CLI: Storage](https://github.com/dannyota/vngcloud/wiki/CLI-Storage)
   wiki pages.
-
-## v0.40.0 - Resource Tags
-
-### Highlights
-
-- New `tagging` package: `ListResourceTags`, `TagResource`, and
-  `UntagResource`, with `vngcloud tagging list-resource-tags`,
-  `tag-resource`, and `untag-resource`. One tag API serves every resource
-  type; `tagging.ResourceTypeVirtualIPAddress` is confirmed live and free,
-  and VNG Cloud's own types `SERVER`, `VOLUME`, and `LOAD-BALANCER` are
-  accepted as given.
-- A write reads the resource's tags, sends the whole user tag list once
-  with the one change applied, and reads again to confirm; it never sends
-  a system tag, and refuses a `vng.` key with `tagging.ErrSystemTag`. The
-  API has no conditional update, so keep tag writes on one resource to one
-  writer at a time.
-- New [Tagging](https://github.com/dannyota/vngcloud/wiki/Tagging) wiki
-  page.
-
-## v0.39.0 - Private Virtual IPs
-
-### Highlights
-
-- New `network.CreateVirtualIPAddress`, `UpdateVirtualIPAddress`, and
-  `DeleteVirtualIPAddress`, with matching `vngcloud network` commands. A
-  private virtual IP is free; `Mode` is required on create, and the
-  address is the server's choice when left empty.
-- `UpdateVirtualIPAddress` reads the virtual IP first and resends every
-  field the caller left unset, since the API replaces all of them on each
-  `PUT`. `DeleteVirtualIPAddress` refuses with `network.ErrInUse` while
-  an address pair still binds the address, and with
-  `vngcloud.ErrInvalidInput` for any virtual IP whose type is not
-  `private`, so a public virtual IP is never deleted through it.
-- New [Network Virtual IPs](https://github.com/dannyota/vngcloud/wiki/Network-VirtualIPs)
-  wiki page.
-
-## v0.38.0 - DHCP Options Sets
-
-### Highlights
-
-- New `network.ListDHCPOptions`, `GetDHCPOptions`, `CreateDHCPOptions`,
-  `DeleteDHCPOptions`, `SetVPCDHCPOptions`, and `ClearVPCDHCPOptions`, with
-  matching `vngcloud network` commands. A set holds up to four IPv4
-  resolvers and an optional MTU; the SDK never adds a region's default
-  resolvers on its own.
-- `SetVPCDHCPOptions` and `ClearVPCDHCPOptions` read the VPC first and
-  return `Changed` false, sending nothing, when the VPC already uses that
-  set. `DeleteDHCPOptions` refuses with `network.ErrInUse`, naming the
-  VPCs, while any VPC still uses the set.
-- New [Network DHCP Options](https://github.com/dannyota/vngcloud/wiki/Network-DHCPOptions)
-  wiki page.
-
-### Behavior changes
-
-`CreateDHCPOptions` refuses a name starting with `dhcp-option-dns-`, which
-the API reserves for the set it creates when Private DNS is enabled, with
-`vngcloud.ErrInvalidInput`.
 
 Older releases are in [docs/release-notes-archive.md](docs/release-notes-archive.md).
