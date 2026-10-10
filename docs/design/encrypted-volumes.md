@@ -29,10 +29,10 @@ and prices are in [vServer paid writes: API](vserver-paid-writes-api.md).
   32,000 VND with either type (live).
 - `GetVolume` and `ListVolumes` rows carry `encryptionType`, null for a
   plain volume. `GetUnderlyingVolume` does not carry it (live).
-- VNG Cloud's SDK maps the attach error `cannot attach encryption volume`.
-  An encrypted volume attached to a server with encrypted disks (live), so
-  that error did not occur. Attaching one to a server without encrypted
-  disks is untried; see [open items](#open-items).
+- An encrypted volume attaches only to a server whose disks are encrypted.
+  Attaching one to a server with plain disks fails with HTTP 400
+  `BadRequest` and a message containing `cannot attach encryption volume`
+  (live). See [live results](#live-results).
 
 ## Body keys
 
@@ -200,16 +200,22 @@ with VAT. Everything was deleted and refunded.
 | 6 | `ACTIVE` in 2m10s; both volumes read their `encryptionType` |
 | 6 | A separate encrypted volume attached, `IN-USE` in 17 s |
 | 6 | It detached after a server stop |
+| 7 | 10 GB `aes-xts-plain64_256` volume, plain-disk server: attach refused |
 
-After cleanup the balance was 24 VND below its start.
+Rule: an encrypted volume attaches to a server with encrypted root and data
+disks (check 6) and not to a server with plain disks (check 7). On a plain
+server `AttachVolume` answers HTTP 400 `BadRequest` with a message
+containing `cannot attach encryption volume`.
+
+After cleanup the balance was 24 VND below its start for checks 2 to 6 and
+8 VND below for check 7, after its refund.
 
 ## Open items
 
 - `ListVolumesByServer` returned 0 rows for the check 6 server, which held
-  2 volumes. The cause is unknown and unrelated to encryption.
-- Attaching an encrypted volume to a server without encrypted disks is
-  untried, so whether `cannot attach encryption volume` applies there is
-  unknown.
+  2 volumes. The cause is unknown and unrelated to encryption. The decoder
+  now reads the `volumes` key, as VNG Cloud's SDK does. A second paid run
+  is capturing the raw body to confirm the shape.
 
 ## Release
 

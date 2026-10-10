@@ -160,10 +160,11 @@ live except where marked.
   user`. Whether a zero balance gives this message is a
   [probe](vserver-paid-writes-checks.md#refusal-probe).
 - Attach fails for a volume already attached (`already attached to
-  instance`, `this volume has been attached`). VNG Cloud's SDK also maps
-  `cannot attach encryption volume`; an encrypted volume attached to a
-  server with encrypted disks without it (live), see
-  [encrypted volumes](encrypted-volumes.md#open-items). Any volume write
+  instance`, `this volume has been attached`). Attaching an encrypted
+  volume to a server with plain disks fails with HTTP 400 `BadRequest` and
+  `cannot attach encryption volume` (live); it attaches to a server with
+  encrypted disks, see
+  [encrypted volumes](encrypted-volumes.md#live-results). Any volume write
   fails while the volume `is in-process` or `is migrating`.
 - A volume resize that changes neither size nor type fails with `volume
   size or volume type must be changed`. A new type must be in the same
