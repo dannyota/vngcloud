@@ -61,7 +61,12 @@ func (e *queryFailedError) Error() string {
 	return fmt.Sprintf("query failed: %s", e.err)
 }
 
-func (e *queryFailedError) Unwrap() error { return e.err }
+func (e *queryFailedError) Unwrap() error {
+	if e.withheldMessage != "" {
+		return nil
+	}
+	return e.err
+}
 
 // errorEnvelope is the one JSON line the CLI prints to stderr for a failed
 // command, per the CLI design's error shape.

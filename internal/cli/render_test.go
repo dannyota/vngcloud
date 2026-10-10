@@ -2,9 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -259,5 +262,105 @@ func TestRenderOutputRuntimeQueryFailureIsQueryFailed(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(err.Error()), []byte("write succeeded")) {
 		t.Fatalf("error = %q, want it to say the write succeeded", err.Error())
+	}
+}
+
+func TestRenderOutputTerminalUnsafeRunes(t *testing.T) {
+	const input = "Việt Nam\u009b2J\u0085\u202e\u2066\x7f\t\n\r\x00<&\\u009b"
+	const text = `Việt Nam\x9b2J\x85\u202e\u2066\x7f\t\n\r\x00<&\u009b`
+	const jsonText = `"Việt Nam\u009b2J\u0085\u202e\u2066\u007f\t\n\r\u0000\u003c\u0026\\u009b"`
+	for _, query := range []string{"", "Name"} {
+		for _, format := range []string{outputText, outputTable, outputJSON} {
+			t.Run(format+"/"+query, func(t *testing.T) {
+				var buf bytes.Buffer
+				if err := renderOutput(&buf, format, query, &goldenControlChars{Name: input}, false); err != nil {
+					t.Fatal(err)
+				}
+				switch format {
+				case outputJSON:
+					want := jsonText + "\n"
+					if query == "" {
+						want = "{\n  \"Name\": " + jsonText + "\n}\n"
+					}
+					if buf.String() != want {
+						t.Fatalf("output = %q, want %q", buf.String(), want)
+					}
+					var decoded any
+					if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+						t.Fatal(err)
+					}
+					if query == "" {
+						decoded = decoded.(map[string]any)["Name"]
+					}
+					if decoded != input {
+						t.Fatalf("decoded = %q, want %q", decoded, input)
+					}
+				case outputText:
+					if buf.String() != text+"\n" {
+						t.Fatalf("output = %q", buf.String())
+					}
+				case outputTable:
+					if !strings.Contains(buf.String(), "| "+text+" |\n") {
+						t.Fatalf("output = %q", buf.String())
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestEscapeControlCharsCoveredSet(t *testing.T) {
+	for r := rune(0); r <= 0x2069; r++ {
+		covered := r < 0x20 || (r >= 0x7f && r <= 0x9f) || r == 0x061c || r == 0x200e || r == 0x200f ||
+			(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
+		want := string(r)
+		if covered {
+			switch r {
+			case '\t':
+				want = `\t`
+			case '\n':
+				want = `\n`
+			case '\r':
+				want = `\r`
+			default:
+				if r <= 0xff {
+					want = fmt.Sprintf(`\x%02x`, r)
+				} else {
+					want = fmt.Sprintf(`\u%04x`, r)
+				}
+			}
+		}
+		if got := escapeControlChars(string(r)); got != want {
+			t.Errorf("rune %U: got %q, want %q", r, got, want)
+		}
+	}
+}
+
+func TestRenderOutputUnsafeKeysAndNestedStrings(t *testing.T) {
+	const value = "Việt Nam\u009b2J\u0085\u202e\u2066\x7f"
+	for _, format := range []string{outputJSON, outputText, outputTable} {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := renderOutput(&buf, format, "", map[string]any{value: []string{value}}, false); err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range []rune{0x9b, 0x85, 0x202e, 0x2066, 0x7f} {
+				if strings.ContainsRune(buf.String(), r) {
+					t.Errorf("output contains %U", r)
+				}
+			}
+			if !strings.Contains(buf.String(), "Việt Nam") {
+				t.Fatal("ordinary Unicode changed")
+			}
+			if format == outputJSON {
+				var decoded map[string][]string
+				if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+					t.Fatal(err)
+				}
+				if len(decoded[value]) != 1 || decoded[value][0] != value {
+					t.Fatalf("decoded = %q", decoded)
+				}
+			}
+		})
 	}
 }

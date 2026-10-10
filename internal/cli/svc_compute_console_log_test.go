@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -36,6 +38,8 @@ func TestComputeConsoleLogOutput(t *testing.T) {
 		{name: "newline", log: "line\n", format: "text", want: "line\n"},
 		{name: "controls", log: "\x00\x1b[31m\r\x7f\n\t", format: "text", want: "\x00\x1b[31m\r\x7f\n\t"},
 		{name: "terminal", log: "\x00\x1b[31m\r\x7f\n\t", format: "text", want: `\x00\x1b[31m\r\x7f` + "\n\t", terminal: true},
+		{name: "unicode-terminal", log: "Việt Nam\u009b2J\u0085\u202e\u2066\x7f\n\t", format: "text", want: `Việt Nam\x9b2J\x85\u202e\u2066\x7f` + "\n\t", terminal: true},
+		{name: "unicode-terminal-query", log: "Việt Nam\u009b2J\u0085\u202e\u2066\x7f\n\t", format: "text", query: "Log", want: `Việt Nam\x9b2J\x85\u202e\u2066\x7f` + "\n\t", terminal: true},
 		{name: "empty", format: "text"},
 		{name: "empty-terminal", format: "text", terminal: true},
 		{name: "json", log: "\x1b\n\t", format: "json", want: "{\n  \"Log\": \"\\u001b\\n\\t\"\n}\n"},
@@ -115,6 +119,20 @@ func TestComputeConsoleLogErrors(t *testing.T) {
 			if exitCode(err) != tt.exit || classify(err).Code != tt.code {
 				t.Fatalf("error = %v, exit = %d, code = %s", err, exitCode(err), classify(err).Code)
 			}
+			if tt.name == "runtime-query" {
+				var queryErr *queryFailedError
+				if !errors.As(err, &queryErr) {
+					t.Fatalf("error type = %T", err)
+				}
+				if queryErr.err != nil || errors.Unwrap(queryErr) != nil {
+					t.Fatal("query error retained an underlying error")
+				}
+				for current := fmt.Errorf("command: %w", err); current != nil; current = errors.Unwrap(current) {
+					if strings.Contains(current.Error(), "synthetic-marker") || strings.Contains(current.Error(), "JMESPath") || strings.Contains(current.Error(), "Invalid type") {
+						t.Fatal("wrapped error leaked query details")
+					}
+				}
+			}
 			if tt.message != "" && classify(err).Message != tt.message {
 				t.Fatalf("message = %q", classify(err).Message)
 			}
@@ -158,7 +176,7 @@ func TestComputeConsoleLogHelp(t *testing.T) {
 }
 
 func TestComputeConsoleLogPipe(t *testing.T) {
-	for _, log := range []string{"", "synthetic-marker", "synthetic-marker\n", "\x00\x1b[31m\r\x7f\n\t"} {
+	for _, log := range []string{"", "synthetic-marker", "synthetic-marker\n", "\x00\x1b[31m\r\x7f\n\t", "Việt Nam\u009b2J\u0085\u202e\u2066\x7f\n\t"} {
 		t.Run(log, func(t *testing.T) {
 			fixture := consoleLogFixture(t, log, http.StatusOK)
 			_, _, stderr := newSvcRoot(t, fixture)
@@ -189,5 +207,16 @@ func TestComputeConsoleLogQueryStderr(t *testing.T) {
 	const want = "{\"error\":{\"code\":\"QueryFailed\",\"message\":\"console log query failed; result withheld\"}}\n"
 	if code != 1 || stdout.Len() != 0 || stderr.String() != want {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestWithheldQueryErrorUnwrap(t *testing.T) {
+	err := &queryFailedError{withheldMessage: "console log query failed; result withheld", err: errors.New("JMESPath: synthetic-marker")}
+	if errors.Unwrap(err) != nil {
+		t.Fatal("withheld query error exposed its cause")
+	}
+	wrapped := fmt.Errorf("command: %w", err)
+	if errors.Unwrap(errors.Unwrap(wrapped)) != nil {
+		t.Fatal("wrapped withheld query error exposed its cause")
 	}
 }

@@ -49,7 +49,7 @@ func renderOutput(w io.Writer, format, query string, out any, writeSucceeded boo
 	}
 
 	if format == outputJSON && jp == nil {
-		_, err := fmt.Fprintln(w, string(data))
+		_, err := fmt.Fprintln(w, escapeJSONControlChars(string(data)))
 		return err
 	}
 
@@ -77,7 +77,7 @@ func renderJSON(w io.Writer, result any) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(w, string(data))
+	_, err = fmt.Fprintln(w, escapeJSONControlChars(string(data)))
 	return err
 }
 
@@ -222,6 +222,9 @@ func columnHeaders(v any) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	for i, key := range keys {
+		keys[i] = escapeControlChars(key)
+	}
 	return keys
 }
 
@@ -242,16 +245,11 @@ func cellText(v any) string {
 		if err != nil {
 			return fmt.Sprint(val)
 		}
-		return string(data)
+		return escapeJSONControlChars(string(data))
 	}
 }
 
-// escapeControlChars replaces every ASCII control character and DEL in s
-// with a visible escape (\t, \n, \r, or \xHH for anything else), so a string
-// cell can never break a tab-separated text row, a table border, or hide an
-// ANSI escape sequence such as ESC (\x1b) on a terminal. JSON output does not
-// go through this: encoding/json already escapes the same characters its own
-// way, and the two must not be conflated.
+// escapeControlChars makes terminal controls visible in text and table cells.
 func escapeControlChars(s string) string {
 	if !strings.ContainsFunc(s, isControlRune) {
 		return s
@@ -267,7 +265,11 @@ func escapeControlChars(s string) string {
 			b.WriteString(`\r`)
 		default:
 			if isControlRune(r) {
-				fmt.Fprintf(&b, `\x%02x`, r)
+				if r <= 0xff {
+					fmt.Fprintf(&b, `\x%02x`, r)
+				} else {
+					fmt.Fprintf(&b, `\u%04x`, r)
+				}
 			} else {
 				b.WriteRune(r)
 			}
@@ -277,5 +279,25 @@ func escapeControlChars(s string) string {
 }
 
 func isControlRune(r rune) bool {
-	return r < 0x20 || r == 0x7f
+	return r < 0x20 || (r >= 0x7f && r <= 0x9f) ||
+		r == 0x061c || r == 0x200e || r == 0x200f ||
+		(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
+}
+
+// escapeJSONControlChars processes encoded JSON. C0 controls inside strings
+// are already escaped; literal newlines and tabs belong to JSON whitespace.
+func escapeJSONControlChars(s string) string {
+	unsafe := func(r rune) bool { return r >= 0x7f && isControlRune(r) }
+	if !strings.ContainsFunc(s, unsafe) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unsafe(r) {
+			fmt.Fprintf(&b, `\u%04x`, r)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
