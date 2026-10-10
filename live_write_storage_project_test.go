@@ -377,13 +377,31 @@ func TestStorageProjectRefundBounds(t *testing.T) {
 }
 
 func TestStorageProjectCompleteLists(t *testing.T) {
-	for _, raw := range []string{`{"success":true}`, `{"success":true,"datas":null}`, `{"success":true,"datas":[],"isNext":true}`, `{"success":true,"datas":{}}`} {
-		if storageProjectListComplete([]byte(raw)) {
-			t.Fatal("incomplete list accepted")
-		}
-	}
-	if !storageProjectListComplete([]byte(`{"success":true,"datas":[],"isNext":false}`)) {
-		t.Fatal("complete list rejected")
+	for _, tc := range []struct {
+		name, raw string
+		valid     bool
+	}{
+		{"absent", testutil.FixtureBody(t, "testdata/storage/project_list_empty.json"), true},
+		{"datas empty", `{"success":true,"datas":[],"isNext":false}`, true},
+		{"data empty", `{"success":true,"data":[]}`, true},
+		{"datas null", `{"success":true,"datas":null}`, false},
+		{"data null", `{"success":true,"data":null}`, false},
+		{"null with fallback", `{"success":true,"datas":null,"data":[]}`, false},
+		{"null secondary", `{"success":true,"datas":[],"data":null}`, false},
+		{"non-array", `{"success":true,"datas":{}}`, false},
+		{"non-array data", `{"success":true,"data":"invalid"}`, false},
+		{"malformed secondary", `{"success":true,"datas":[],"data":{}}`, false},
+		{"malformed JSON", `{"success":true,"datas":[invalid}`, false},
+		{"incomplete absent", `{"success":true,"isNext":true}`, false},
+		{"incomplete array", `{"success":true,"datas":[],"isNext":true}`, false},
+		{"refusal", `{"success":false}`, false},
+		{"missing success", `{"code":200}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if storageProjectListComplete([]byte(tc.raw)) != tc.valid {
+				t.Fatal("complete list classification mismatch")
+			}
+		})
 	}
 }
 
@@ -421,13 +439,17 @@ func storageProjectListComplete(body []byte) bool {
 	if json.Unmarshal(body, &env) != nil || env.Success == nil || !*env.Success || env.IsNext {
 		return false
 	}
-	raw := env.Datas
-	if len(raw) == 0 || string(raw) == "null" {
-		raw = env.Data
-	}
-	var items []storage.Project
-	if json.Unmarshal(raw, &items) != nil || items == nil {
-		return false
+	// Empty regions omit both keys. Validate every present list field.
+	items := []storage.Project{}
+	for _, raw := range []json.RawMessage{env.Data, env.Datas} {
+		if len(raw) == 0 {
+			continue
+		}
+		var decoded []storage.Project
+		if json.Unmarshal(raw, &decoded) != nil || decoded == nil {
+			return false
+		}
+		items = decoded
 	}
 	seen := map[string]bool{}
 	for _, p := range items {

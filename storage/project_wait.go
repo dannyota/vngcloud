@@ -47,16 +47,23 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 }
 
 func completeProjectList(op string, env *envelope) ([]json.RawMessage, error) {
+	if env.Success == nil || !*env.Success {
+		return nil, projectResponseError(op, "list has no success envelope")
+	}
 	if env.IsNext {
 		return nil, projectResponseError(op, "list is incomplete (isNext)")
 	}
-	raw := env.Datas
-	if len(raw) == 0 || string(raw) == "null" {
-		raw = env.Data
-	}
-	var items []json.RawMessage
-	if len(raw) == 0 || string(raw) == "null" || json.Unmarshal(raw, &items) != nil || items == nil {
-		return nil, projectResponseError(op, "list is missing, null, or malformed")
+	// Empty regions omit both list keys. Present fields must still be arrays.
+	items := []json.RawMessage{}
+	for _, raw := range []json.RawMessage{env.Data, env.Datas} {
+		if len(raw) == 0 {
+			continue
+		}
+		var decoded []json.RawMessage
+		if json.Unmarshal(raw, &decoded) != nil || decoded == nil {
+			return nil, projectResponseError(op, "list is null or malformed")
+		}
+		items = decoded
 	}
 	return items, nil
 }

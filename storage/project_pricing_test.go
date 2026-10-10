@@ -159,7 +159,7 @@ func TestProjectPricingFailures(t *testing.T) {
 		{"inconsistent limits", "vos_billing_normal_max_quota", `{"success":true,"datas":[{"key":"vos_billing_normal_max_quota","value":"20"}]}`, false, false},
 		{"duplicate limits", "vos_billing_normal_min_quota", `{"success":true,"datas":[{"key":"vos_billing_normal_min_quota","value":"30"},{"key":"vos_billing_normal_min_quota","value":"30"}]}`, false, false},
 		{"bad boolean", "enable_iam_checkout", `{"success":true,"datas":[{"key":"enable_iam_checkout","value":"TRUE"}]}`, false, false},
-		{"missing catalog", "/internal/v1/billing/project_types", `{"success":true}`, false, false},
+		{"empty catalog", "/internal/v1/billing/project_types", `{"success":true}`, false, true},
 		{"disabled type", "/internal/v1/billing/project_types", `{"success":true,"datas":[{"id":1,"name":"Gold","status":0,"allowPeriod":[1]}]}`, false, true},
 		{"no monthly period", "/internal/v1/billing/project_types", `{"success":true,"datas":[{"id":1,"name":"Gold","status":1,"allowPeriod":[3]}]}`, false, true},
 		{"missing monthly purchase", "/internal/v1/billing/purchase_types", `{"success":true,"datas":[]}`, false, true},

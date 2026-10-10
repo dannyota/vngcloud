@@ -144,14 +144,19 @@ func (c *Client) projectBillingRoute(version string, parts []string, q url.Value
 }
 
 func requiredProjectList[T any](op string, env *envelope) ([]T, error) {
-	raw := env.Datas
-	if len(raw) == 0 || string(raw) == "null" {
-		raw = env.Data
+	raw, err := completeProjectList(op, env)
+	if err != nil {
+		return nil, err
 	}
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, projectResponseError(op, "missing catalog data")
+	items := make([]T, 0, len(raw))
+	for _, item := range raw {
+		var value T
+		if json.Unmarshal(item, &value) != nil {
+			return nil, projectResponseError(op, "malformed catalog data")
+		}
+		items = append(items, value)
 	}
-	return decodeList[T](op, 200, env)
+	return items, nil
 }
 
 func projectResponseError(op, message string) error {
