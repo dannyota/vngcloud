@@ -25,6 +25,10 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 - vCDN C1 needs one real Web Accelerator to confirm the `cdn/*` body shape (the documented `webacc/*` routes answer 404): the owner creates one in the vCDN Portal, or clears the cost check and C2 creates one.
 - The budget `vngcloud-live-cap` (1,000,000 VND a month, alert at 50%) stays on the account for later paid runs.
 
+## Encrypted volumes (requested by aboutme, 2026-10-10)
+
+`volume create-volume` and `compute create-server` cannot ask for an encrypted volume: the bodies send `encryptionVolume: false` and `CreateVolumeInput` has no encryption field, although `volume list-encryption-types` lists `aes-xts-plain64` 128 and 256. aboutme's production shape needs an encrypted data volume. Work: architect designs `EncryptionTypeID` on the volume create and quote (and the server root disk), the sdk adds it with the quote pricing it (live: an encrypted boot disk added about 30% to the flavor price on 2026-09-28; measure the data volume), the cli adds `--encryption-type-id`; one paid live check (create and delete an encrypted 10 GB volume, refund on delete).
+
 ## CLI usability (from the first external agent run, 2026-10-10)
 
 An agent set up the CLI read-only and quoted servers end to end. Design: `docs/design/cli-usability.md`. U1 (items 1 and 3's note) shipped as v0.57.0; items 5 to 7 as v0.56.1; U2 (item 2) is in review. Its findings, in order of value:
