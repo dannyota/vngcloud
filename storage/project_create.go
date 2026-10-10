@@ -8,6 +8,8 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
@@ -149,7 +151,7 @@ func projectUnsettled(op string, err error, recovery string) error {
 
 func projectWriteError(op string, err error, recovery string) error {
 	var api *core.APIError
-	if errors.As(err, &api) && ((api.StatusCode >= 400 && api.StatusCode <= 599) || errors.Is(err, errProjectWriteRefused)) {
+	if errors.As(err, &api) && errors.Is(err, errProjectWriteRefused) {
 		return err
 	}
 	return projectUnsettled(op, err, recovery)
@@ -157,13 +159,28 @@ func projectWriteError(op string, err error, recovery string) error {
 
 // exchangeProjectWrite withholds payment responses from capture and errors.
 // The live check uses a private HTTP transport to capture the response safely.
-func (c *Client) exchangeProjectWrite(ctx context.Context, k call) (*envelope, error) {
+func (c *Client) exchangeProjectWrite(ctx context.Context, k call, redact ...string) (*envelope, error) {
 	var raw json.RawMessage
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok, Once: true, Sensitive: true, WithholdMessage: "project write response withheld", Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
+	var credential string
+	// Decode 4xx envelopes to distinguish a refusal from an uncertain result.
+	ok := append([]int(nil), k.ok...)
+	for status := 400; status < 500; status++ {
+		ok = append(ok, status)
+	}
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{SentCredential: &credential, Redact: redact, Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: ok, Once: true, Sensitive: true, WithholdMessage: "project write response withheld", Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
 	if err != nil {
 		var api *core.APIError
 		if errors.As(err, &api) {
 			safe := *api
+			if safe.StatusCode == 0 && status > 0 {
+				safe.StatusCode = status
+				mapped := c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status))})
+				var statusError *core.APIError
+				if errors.As(mapped, &statusError) {
+					safe.Err = errors.Join(safe.Err, statusError.Err)
+					safe.Code = statusError.Code
+				}
+			}
 			safe.Message = "project write response withheld"
 			safe.Code = safeProjectErrorCode(safe.StatusCode, safe.Code)
 			return nil, &safe
@@ -172,18 +189,30 @@ func (c *Client) exchangeProjectWrite(ctx context.Context, k call) (*envelope, e
 	}
 	var env envelope
 	if json.Unmarshal(raw, &env) != nil || env.Success == nil {
+		if status/100 == 4 {
+			return nil, c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status)), ErrMsg: "project write response withheld"})
+		}
 		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		err = c.envelopeError(k.op, status, &env)
+		code, valid := transport.ParseErrorCode(env.Code)
+		if (!valid || strings.TrimSpace(code) == "") && status/100 == 4 {
+			return nil, c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status)), ErrMsg: "project write response withheld"})
+		}
+		err = c.envelopeError(k.op, status, &env, credential)
 		var api *core.APIError
 		if errors.As(err, &api) {
 			api.Message = "server refused project write; response withheld"
 			api.Code = safeProjectErrorCode(status, api.Code)
 			// A refusal is distinct from an unreadable HTTP 200 response.
-			api.Err = errors.Join(api.Err, errProjectWriteRefused)
+			if valid && strings.TrimSpace(code) != "" && (status == http.StatusOK || status/100 == 4) {
+				api.Err = errors.Join(api.Err, errProjectWriteRefused)
+			}
 		}
 		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status)), ErrMsg: "project write response withheld"})
 	}
 	return &env, nil
 }

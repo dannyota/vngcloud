@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -84,13 +85,26 @@ func (c *Client) confirmProjectOrder(ctx context.Context, op, id string, in *Cre
 	if len(env.Data) == 0 || string(env.Data) == "null" {
 		return out, projectUnsettled(op, projectResponseError(op, "order response has no recognized data"), projectOrderRecovery)
 	}
-	// Only an echoed project identity can support readiness polling. A redirect
-	// is never evidence of acceptance, payment, or a project ID.
+	// A checkout URL identifies the response shape, never payment or identity.
 	var echoed Project
 	echoErr := json.Unmarshal(env.Data, &echoed)
 	var fields map[string]json.RawMessage
 	fieldsErr := json.Unmarshal(env.Data, &fields)
 	accepted := echoErr == nil && fieldsErr == nil && (projectRecord{project: echoed, fields: fields}).matches(id, in, spec)
+	var redirect string
+	_ = json.Unmarshal(fields["redirectUrl"], &redirect)
+	checkout := strings.TrimSpace(redirect) != ""
+	if !accepted && !checkout {
+		// Reconcile once, but an unknown response cannot establish acceptance.
+		err := c.pollProject(ctx, projectCreateBound, func(ctx context.Context) (bool, error) {
+			_, err := c.completeProjects(ctx, op, id)
+			return true, err
+		}, func() error { return projectResponseError(op, "project confirmation timed out after 120s") })
+		if err == nil {
+			err = projectResponseError(op, "order response has no recognized data")
+		}
+		return out, projectUnsettled(op, err, projectOrderRecovery)
+	}
 	baseline := map[string]bool{}
 	for _, r := range before {
 		baseline[r.project.ID] = true
@@ -118,7 +132,7 @@ func (c *Client) confirmProjectOrder(ctx context.Context, op, id string, in *Cre
 			found = r
 		}
 		if found == nil {
-			if !accepted {
+			if checkout && !accepted {
 				return true, fmt.Errorf("%w: %s", ErrPaymentRequired, projectPaymentRecovery)
 			}
 			if in.NoWait {
@@ -137,12 +151,15 @@ func (c *Client) confirmProjectOrder(ctx context.Context, op, id string, in *Cre
 		if p.Status == 1 && p.EnableAutoRenew != nil && !*p.EnableAutoRenew {
 			return true, nil
 		}
+		if in.NoWait && p.EnableAutoRenew != nil && !*p.EnableAutoRenew {
+			return true, nil
+		}
 		if !accepted || in.NoWait {
 			return true, projectResponseError(op, "project readiness or disabled renewal is unconfirmed")
 		}
 		return false, nil
 	}
-	err := poll(ctx, c.now, c.sleep, projectPollInterval, projectCreateBound, step, func() error { return projectResponseError(op, "project readiness timed out after 120s") })
+	err := c.pollProject(ctx, projectCreateBound, step, func() error { return projectResponseError(op, "project readiness timed out after 120s") })
 	if err != nil {
 		if errors.Is(err, ErrPaymentRequired) {
 			return out, err
@@ -153,7 +170,7 @@ func (c *Client) confirmProjectOrder(ctx context.Context, op, id string, in *Cre
 }
 
 func (c *Client) waitProjectGone(ctx context.Context, op, id, projectID string) error {
-	err := poll(ctx, c.now, c.sleep, projectPollInterval, projectDeleteBound, func(ctx context.Context) (bool, error) {
+	err := c.pollProject(ctx, projectDeleteBound, func(ctx context.Context) (bool, error) {
 		items, err := c.completeProjects(ctx, op, id)
 		if err != nil {
 			return true, err
@@ -169,4 +186,36 @@ func (c *Client) waitProjectGone(ctx context.Context, op, id, projectID string) 
 		return projectUnsettled(op, err, projectDeleteRecovery)
 	}
 	return nil
+}
+
+// Use the injected clock for the bound and a remaining-time context for each
+// read. Reject late results even when a transport ignores context cancellation.
+func (c *Client) pollProject(ctx context.Context, bound time.Duration, step func(context.Context) (bool, error), timeout func() error) error {
+	deadline := c.now().Add(bound)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		remaining := deadline.Sub(c.now())
+		if remaining <= 0 {
+			return timeout()
+		}
+		readCtx, cancel := context.WithTimeout(ctx, remaining)
+		done, err := step(readCtx)
+		readErr := readCtx.Err()
+		cancel()
+		if !c.now().Before(deadline) {
+			return timeout()
+		}
+		if readErr != nil {
+			return readErr
+		}
+		if err != nil || done {
+			return err
+		}
+		delay := min(projectPollInterval, deadline.Sub(c.now()))
+		if err := c.sleep(ctx, delay); err != nil {
+			return err
+		}
+	}
 }

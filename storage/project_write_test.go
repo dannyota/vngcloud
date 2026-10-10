@@ -225,7 +225,7 @@ func TestCreateProjectOnceAndUncertain(t *testing.T) {
 		lose     bool
 		sentinel error
 	}{
-		{"5xx", 503, `{}`, false, nil},
+		{"5xx", 503, `{}`, false, ErrNotSettled},
 		{"401", 401, `{}`, false, vngcloud.ErrAuth},
 		{"429", 429, `{}`, false, vngcloud.ErrRateLimited},
 		{"redirect", 302, `{}`, false, ErrNotSettled},
@@ -237,7 +237,7 @@ func TestCreateProjectOnceAndUncertain(t *testing.T) {
 		{"missing success", 0, `{"data":{}}`, false, ErrNotSettled},
 		{"refusal", 0, `{"success":false,"code":403,"errorMsg":"refused"}`, false, vngcloud.ErrPermission},
 		{"checkout", 0, syntheticOrderJSON, false, ErrPaymentRequired},
-		{"unknown", 0, `{"success":true,"data":{"unknown":true}}`, false, ErrPaymentRequired},
+		{"unknown", 0, `{"success":true,"data":{"unknown":true}}`, false, ErrNotSettled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &projectWriteServer{status: tc.status, order: tc.body, lose: tc.lose, lost: make(chan struct{})}
@@ -352,10 +352,10 @@ func TestCreateProjectWaitAndNoWait(t *testing.T) {
 			in := validProjectCreate()
 			in.NoWait = tc.noWait
 			out, err := c.CreateProject(context.Background(), in)
-			if !errors.Is(err, ErrNotSettled) || out == nil || out.Project == nil || *elapsed != tc.elapsed || s.orders != 1 {
+			if (!tc.noWait && !errors.Is(err, ErrNotSettled)) || (tc.noWait && err != nil) || out == nil || out.Project == nil || *elapsed != tc.elapsed || s.orders != 1 {
 				t.Fatalf("output %+v error %v elapsed %s orders %d", out, err, *elapsed, s.orders)
 			}
-			if *elapsed > 0 && s.lists != int(tc.elapsed/(2*time.Second))+2 {
+			if *elapsed > 0 && s.lists != int(tc.elapsed/(2*time.Second))+1 {
 				t.Fatalf("lists %d", s.lists)
 			}
 		})
@@ -602,7 +602,7 @@ func TestCreateProjectUnclassifiedData(t *testing.T) {
 		s := &projectWriteServer{order: `{"success":true,"data":` + data + `}`}
 		c := newTestClient(t, s.handler(t))
 		_, err := c.CreateProject(context.Background(), validProjectCreate())
-		if !errors.Is(err, ErrPaymentRequired) || s.lists != 2 {
+		if !errors.Is(err, ErrNotSettled) || s.lists != 2 {
 			t.Fatalf("error %v reads %d", err, s.lists)
 		}
 	}

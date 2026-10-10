@@ -54,24 +54,31 @@ Purchase and delete are pending the paid live check in
 [vStorage projects][project-design].
 
 Set `Name` and `MaxPrice` on `CreateProjectInput`, then pass the input to
-`CreateProject`. Use the exact catalog type and integer GB quota.
-Create checks fresh configuration, quota, duplicate names, and project count.
-It quotes immediately before one auto order for one month with renewal off.
-Default `MaxPrice: 0` buys nothing. The cap protects the quote, not the
-server's debit, because the API has no price lock. Output holds `Project`,
-`OrderID`, `MonthlyPrice`, and `TotalPrice`. Unverified order ID fields leave
-`OrderID` empty. `Project` stays nil until a read confirms identity. Success
-requires exact name, region, type, quota, active status 1, and renewal off.
+`CreateProject`. Use the exact catalog type and integer GB quota. Create checks
+fresh configuration, quota, duplicate names, and project count. It quotes
+immediately before one auto order for one month with renewal off. Default
+`MaxPrice: 0` buys nothing. The cap protects the quote, not the server's debit,
+because the API has no price lock. Output holds `Project`, `OrderID`,
+`MonthlyPrice`, and `TotalPrice`. Unverified order ID fields leave `OrderID`
+empty. `Project` stays nil until a read confirms identity. Ready success
+requires exact name, region, type, quota, active status 1, and renewal off. With
+`NoWait`, a matching pending project with renewal explicitly off returns partial
+output with `Project` set.
 
-An echoed project identity supports readiness polling every two seconds for
-120 seconds. Checkout or unclassified responses get one complete project
-read. No new exact-name project returns `storage.ErrPaymentRequired`;
-failed or incomplete reads, unconfirmed projects, and lost or malformed
-responses return `storage.ErrNotSettled`. Inspect pending orders and billing
-before retrying. Neither refusal nor absence proves that no money moved.
-Server refusals retain `*vngcloud.APIError` and its sentinel. `ErrFailed` is
-reserved for proven terminal failures; no terminal status is assumed.
-`NoWait` skips readiness polling only. Renewal true always fails.
+An echoed project identity supports readiness polling every two seconds for 120
+seconds. A non-empty checkout redirect gets one complete project read. No new
+exact-name project returns `storage.ErrPaymentRequired`; failed or incomplete
+reads, unconfirmed projects, and lost or malformed responses return
+`storage.ErrNotSettled`. Unknown order data always returns `ErrNotSettled`, even
+if a later read could find a matching project. Inspect pending orders and
+billing before retrying. Neither refusal nor absence proves that no money moved.
+An HTTP 200 or 4xx refusal with `success: false` and a code retains plain
+`*vngcloud.APIError` and its sentinel. Other 4xx and all 5xx order responses
+return `ErrNotSettled` with the `*vngcloud.APIError` in the error chain.
+`ErrFailed` is reserved for proven terminal failures; no terminal status is
+assumed. `NoWait` skips readiness polling only. Renewal true always fails. Each
+confirmation read uses the remaining deadline; late reads cannot confirm
+success.
 
 `DeleteProject` takes `Region`, `ProjectID`, and `NoWait`. It requires the ID
 in a complete list, or returns `vngcloud.ErrNotFound`. Any bucket returns
