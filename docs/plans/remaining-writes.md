@@ -31,7 +31,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 ## CLI usability (from the first external agent run, 2026-10-10)
 
-An agent set up the CLI read-only and quoted servers end to end. Design: `docs/design/cli-usability.md`. U1 (items 1 and 3's note) shipped as v0.57.0; items 5 to 7 as v0.56.1; U2 (item 2) is in review. Its findings, in order of value:
+An agent set up the CLI read-only and quoted servers end to end. Design: `docs/design/cli-usability.md`. U1 (items 1 and 3's note) shipped as v0.57.0; items 5 to 7 as v0.56.1; U2 (item 2) as v0.58.0. Item 4 stays a doc note. This section is done. Its findings, in order of value:
 
 1. ID discovery for a quote takes five calls (zones, flavor zones, flavors, volume type zones, volume types) with same-named flavor zones that return no flavors. Wanted: `compute list-flavors --zone-id <zone> [--name <flavor>]` fanning out over the zone's flavor zones client side, `volume list-volume-types --zone-id <zone> [--iops N]`, and a wiki page listing the IDs `create-server` needs and where each comes from. Architect decides the shape.
 2. `quote-create-server` requires `--vpc-id`, `--subnet-id`, `--security-group-id`, `--ssh-key-id`, `--name` although the gateway ignores them for pricing; placeholders work. Architect decides: optional on the quote command, or a documented placeholder.
