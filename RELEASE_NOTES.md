@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.57.0 - Flavors and Volume Types by Zone
+
+### Highlights
+
+- `compute list-flavors --zone-id <zone> [--name <flavor>]` lists the
+  zone's flavor zones and then the flavors of each (one call per flavor
+  zone), so one command finds `s2-general-2x4` in `HCM03-1A`; `--flavor-
+  zone-id` still works and exactly one zone flag is required. `volume
+  list-volume-types --zone-id <zone> [--iops N]` does the same over the
+  zone's volume type zones. Rows keep the API's own `ZoneID`; filter by
+  `FlavorZoneID` or `VolumeTypeZoneID`.
+- New wiki page "IDs for create-server": each ID the create needs and the
+  SDK call and CLI command that finds it. Every list returns
+  `{"Items": [...]}`, so a `--query` starts with `Items[...]`; the CLI page
+  now says so.
+- SDK: `compute.ListFlavorsInput{ZoneID, Name}` and
+  `volume.ListVolumeTypesInput{ZoneID, IOPS}`.
+
 ## v0.56.2 - IAM Timestamp Decode Fix
 
 ### Highlights
