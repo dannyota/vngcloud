@@ -53,7 +53,9 @@ const storageCreateBucketNote = storageProjectIDNote + storageRegionNote + " Sen
 	"digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way " +
 	"that may have reached the server, the message says the bucket may exist: check with get-bucket before " +
 	"running it again. `--encryption` enables server-managed default encryption before success, also on an " +
-	"existing bucket. Omission or `--encryption=false` does not disable encryption. Create and enable are " +
+	"existing bucket. Omission or `--encryption=false` does not disable encryption. Encryption applies to " +
+	"uploads only; objects stored before enabling stay unencrypted, and objects written while enabled stay " +
+	"encrypted after disabling. Create and enable are " +
 	"not atomic; delay uploads until success. `BucketEncryptionIncomplete` (exit 1) means the bucket exists " +
 	"but setup failed: run get-bucket-encryption, then put-bucket-encryption --enabled=true if needed after " +
 	"fixing the cause. Do not upload backups until a read confirms true."
@@ -176,8 +178,10 @@ const storageGetBucketEncryptionNote = storageProjectIDNote + storageRegionNote 
 
 const storagePutBucketEncryptionNote = storageProjectIDNote + storageRegionNote + " Sets server-managed " +
 	"default encryption. Needs `--enabled=true` or `--enabled=false`; omitted or null JSON `Enabled` exits " +
-	"2 before any request. `--bucket` names the bucket; JSON uses `BucketName`. Disabling changes the default " +
-	"for future uploads; effects on existing objects remain unverified. Confirms the state with one read. " +
+	"2 before any request. `--bucket` names the bucket; JSON uses `BucketName`. Encryption applies to uploads " +
+	"only; objects stored before enabling stay unencrypted, and objects written while enabled stay encrypted " +
+	"after disabling. S3 copy of an encrypted object fails with 501 `NotImplemented`, so copy, move, and rename " +
+	"do not work for encrypted data. Confirms the state with one read. " +
 	"On `NotSettled` (exit 1), read get-bucket-encryption before writing again. Needs no `--yes` or prompt. " +
 	"A read-only profile refuses the write before any request."
 

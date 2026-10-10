@@ -192,8 +192,18 @@ func TestStorageCreateBucketEncryptionRefusedPrintsNoOutput(t *testing.T) {
 func TestStorageBucketEncryptionHelp(t *testing.T) {
 	for command, phrases := range map[string][]string{
 		"get-bucket-encryption": {"encryption", "Enabled", "--bucket"},
-		"put-bucket-encryption": {"encryption", "--enabled=true", "--enabled=false", "future uploads", "existing objects", "unverified"},
-		"create-bucket":         {"--encryption", "existing bucket", "does not disable"},
+		"put-bucket-encryption": {
+			"encryption", "--enabled=true", "--enabled=false", "Encryption applies to uploads only",
+			"objects stored before enabling stay unencrypted",
+			"objects written while enabled stay encrypted after disabling",
+			"S3 copy of an encrypted object fails with 501 `NotImplemented`",
+			"copy, move, and rename do not work for encrypted data",
+		},
+		"create-bucket": {
+			"--encryption", "existing bucket", "does not disable", "Encryption applies to uploads only",
+			"objects stored before enabling stay unencrypted",
+			"objects written while enabled stay encrypted after disabling",
+		},
 	} {
 		r := runStorage(t, map[string]func(http.ResponseWriter, *http.Request){}, "storage", command, "--help")
 		if r.err != nil || r.fixture.requestCount() != 0 {

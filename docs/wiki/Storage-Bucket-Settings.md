@@ -43,12 +43,13 @@ _, err = client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{
 	ProjectID: projectID, BucketName: "my-bucket", Enabled: true})
 ```
 
-Encryption is server-managed. The SDK offers no key choice and makes no
-claim about an S3 algorithm. `Enabled` reads `data.encryption`; missing,
-null, or non-boolean state returns `*vngcloud.APIError` with code
-`InvalidResponse`. Both inputs require `ProjectID` and `BucketName`.
-`BucketName` follows the bucket name checks in [Storage](Storage.md#buckets).
-`Region` uses the same resolution and headers as other storage calls.
+Encryption is server-managed SSE-S3: S3 `GetBucketEncryption` reports `AES256`,
+and uploads to an enabled bucket answer `x-amz-server-side-encryption: AES256`.
+There is no key choice. `Enabled` reads `data.encryption`; missing, null, or
+non-boolean state returns `*vngcloud.APIError` with code `InvalidResponse`. Both
+inputs require `ProjectID` and `BucketName`. `BucketName` follows the bucket
+name checks in [Storage](Storage.md#buckets). `Region` uses the same resolution
+and headers as other storage calls.
 
 `PutBucketEncryptionInput.Enabled` is a bool with a complete target state.
 False, including its zero value, disables default encryption. The request
@@ -93,9 +94,14 @@ Create and enable are not atomic. Delay uploads until successful return.
 The SDK never deletes the bucket after a failed setup. A repeated create
 with `Encryption: true` also enables an existing bucket, which can hold data.
 False sends no encryption call and preserves an existing bucket's setting.
-The SDK does not rewrite existing objects. Effects of enabling or disabling
-on existing objects, the S3 algorithm, and S3 copy restrictions remain
-unverified. Disabling changes the default for future uploads.
+Encryption applies to uploads only (checked live on 2026-10-10 in `HCM04`):
+objects written before enabling stay unencrypted, and objects written while
+enabled stay encrypted after disabling. Conditional `PutObject`
+(`If-None-Match: *`), multipart uploads, and `DeleteObjects` work on an
+encrypted bucket. S3 `CopyObject` of an encrypted object answers 501
+`NotImplemented`, and a copy of an unencrypted object is not encrypted, so
+copy, move, and rename do not work for encrypted data; download and upload
+again instead.
 
 ## CORS
 

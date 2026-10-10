@@ -36,7 +36,7 @@ field `BucketName`.
 
 ## Encryption
 
-Status: Accepted (2026-10-10), live check pending.
+Status: Accepted (2026-10-10). The live check passed on 2026-10-10.
 
 This section adds per-bucket default encryption for backup workloads and
 supersedes the encryption non-goal in [vStorage](storage.md#non-goals).
@@ -198,12 +198,16 @@ project, never a shared test project or a production project:
    by the run, then its bucket and key, then the project. Verify cleanup;
    report leftovers instead of deleting a parent that still holds data.
 
-Open questions are the S3 algorithm, whether disabling affects existing
-objects, whether enabling re-encrypts existing objects, and whether S3
-rename, move, or copy has the console's restrictions. The live check records
-what it can establish; effects invisible through S3 stay unresolved.
-Repeat PUT semantics, read visibility, and missing-bucket behavior also
-remain unverified. Raw responses stay in ignored output paths; only
+The live check on 2026-10-10 in `HCM04` found: `GET` answers
+`data.encryption` and `PUT` answers `data: true`, visible at once; S3
+`GetBucketEncryption` reports `AES256` (SSE-S3); a plain `PutObject` on an
+enabled bucket answers `x-amz-server-side-encryption: AES256`; objects
+written before enabling stay unencrypted and objects written while enabled
+stay `AES256` after disabling; `If-None-Match: *` answers 200 then 412, a
+two-part multipart upload completes as `AES256`, and `DeleteObjects` works;
+`CopyObject` of an encrypted source answers 501 `NotImplemented`, and a
+copy of an unencrypted source succeeds but is not encrypted. Effects
+invisible through S3 stay unresolved. Raw responses stay in ignored output paths; only
 sanitized response shapes become fixtures. Never capture key secrets.
 
 Release this as one encryption feature after the live contract check,
