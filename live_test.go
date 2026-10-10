@@ -119,6 +119,7 @@ func TestLive(t *testing.T) {
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 	t.Run("iam", func(t *testing.T) { testLiveIAM(ctx, t, firstCfg) })
 	t.Run("storage", func(t *testing.T) { testLiveStorage(ctx, t, firstCfg) })
+	t.Run("vks", func(t *testing.T) { testLiveVKS(ctx, t, cacheDir, emptyConfigFile, emptyCredentialsFile) })
 
 	for i, region := range regions {
 		cfg := firstCfg

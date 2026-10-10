@@ -62,4 +62,5 @@ type EndpointOverrides struct {
 	IAM                string
 	Storage            string
 	CDN                string
+	VKS                string
 }

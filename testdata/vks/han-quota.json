@@ -1,0 +1,6 @@
+{
+  "maxClusters": 1,
+  "numClusters": 2,
+  "maxNodeGroupsPerCluster": 3,
+  "maxNodesPerNodeGroup": 4
+}

@@ -48,9 +48,10 @@ tags on any resource type. See [Tagging](Tagging.md).
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](Container-Registry.md) for writes, waits, and secret handling. |
-| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, unlike the rest of the SDK; see [IAM](#iam) below for writes and guards. |
+| IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, as in VKS; see [IAM](#iam) below for writes and guards. |
 | Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
 | Storage | `storage` | vStorage regions and projects, buckets, bucket detail, S3 keys, plus bucket and S3 key writes | Typed | Calls an undocumented console API. See [Storage](Storage.md). |
+| VKS | `vks` | Clusters, versions, quota | Typed | [VKS](VKS.md). |
 
 ## Project
 
@@ -59,8 +60,8 @@ projectClient := project.New(cfg)
 projectClient.ListProjects(ctx, in) // Region (optional; defaults to cfg's region)
 ```
 
-Every other service discovers its project the same way when `Config` has no
-`ProjectID` set and exactly one project matches the region.
+Project-scoped services discover their project the same way when `Config`
+has no `ProjectID` set and exactly one project matches the region.
 
 ## Portal
 
@@ -314,7 +315,7 @@ iamClient.ListServiceAccountPolicies(ctx, in)  // ServiceAccountID (required), P
 
 Policy and group reads run on the IAM console host; every other call,
 including every service account call, runs on the dashboard host. Page
-numbers start at 0 in `iam`, unlike the rest of the SDK: `Page: 0` is the
+numbers start at 0 in `iam`, as in `vks`: `Page: 0` is the
 first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it

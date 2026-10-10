@@ -62,6 +62,7 @@ type Overrides struct {
 	IAM                string
 	Storage            string
 	CDN                string
+	VKS                string
 }
 
 type Set struct {
@@ -82,6 +83,7 @@ type Set struct {
 	IAM       string
 	Storage   string
 	CDN       string
+	VKS       string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -102,6 +104,15 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		IAM:       DefaultIAM,
 		Storage:   DefaultStorage,
 		CDN:       DefaultCDN,
+	}
+	switch region {
+	case "hcm-3":
+		set.VKS = "https://vks.console.greennode.ai/vks-api/"
+	case "han-1":
+		set.VKS = "https://vks-han-1.console.greennode.ai/vks-api/"
+	}
+	if overrides.VKS != "" {
+		set.VKS = overrides.VKS
 	}
 	if overrides.VServer != "" {
 		set.VServer = overrides.VServer
@@ -182,6 +193,7 @@ func (s Set) Normalize() Set {
 	s.Monitor = normalizeURL(s.Monitor)
 	s.IAM = normalizeURL(s.IAM)
 	s.Storage = normalizeURL(s.Storage)
+	s.VKS = normalizeURL(s.VKS)
 	s.CDN = normalizeURL(s.CDN)
 	return s
 }

@@ -25,6 +25,7 @@ import (
 	"danny.vn/vngcloud/project"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
+	"danny.vn/vngcloud/vks"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -48,6 +49,7 @@ var serviceClients = map[string]reflect.Type{
 	"storage":            reflect.TypeFor[*storage.Client](),
 	"tagging":            reflect.TypeFor[*tagging.Client](),
 	"volume":             reflect.TypeFor[*volume.Client](),
+	"vks":                reflect.TypeFor[*vks.Client](),
 }
 
 // listShapeExceptions names list methods whose Output holds several lists by

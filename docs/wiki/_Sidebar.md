@@ -29,6 +29,7 @@
 - [Storage: Bucket Settings](Storage-Bucket-Settings.md)
 - [Security](Security.md)
 - [Volume](Volume.md)
+- [VKS](VKS.md)
 - [Limitations](Limitations.md)
 
 **CLI**

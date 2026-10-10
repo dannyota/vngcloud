@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "id": "cls-1",
+      "name": "<account>",
+      "description": "<account>",
+      "status": "UNKNOWN",
+      "releaseChannel": "STABLE",
+      "version": "synthetic",
+      "azStrategy": "UNKNOWN",
+      "createdAt": "synthetic-date",
+      "updatedAt": "synthetic-date",
+      "numNodes": 3,
+      "enablePrivateCluster": true
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "pageSize": 2
+}

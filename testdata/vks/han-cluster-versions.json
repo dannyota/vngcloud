@@ -1,0 +1,37 @@
+[
+  {
+    "version": "synthetic-0",
+    "enable": true,
+    "stage": "STABLE"
+  },
+  {
+    "version": "synthetic-1",
+    "enable": true,
+    "stage": "STABLE"
+  },
+  {
+    "version": "synthetic-2",
+    "enable": true,
+    "stage": "RAPID"
+  },
+  {
+    "version": "synthetic-3",
+    "enable": true,
+    "stage": "STABLE"
+  },
+  {
+    "version": "synthetic-4",
+    "enable": true,
+    "stage": "STABLE"
+  },
+  {
+    "version": "synthetic-5",
+    "enable": true,
+    "stage": "STABLE"
+  },
+  {
+    "version": "synthetic-6",
+    "enable": true,
+    "stage": "STABLE"
+  }
+]

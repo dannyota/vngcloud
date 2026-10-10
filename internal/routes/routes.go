@@ -31,6 +31,7 @@ const (
 	// ProductCDN is the vCDN API host. It takes an API key, not an IAM
 	// token, and ignores the region.
 	ProductCDN Product = "cdn"
+	ProductVKS Product = "vks"
 )
 
 type Endpoints interface {

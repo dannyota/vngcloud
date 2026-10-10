@@ -25,3 +25,10 @@ func TestURL(t *testing.T) {
 		t.Fatalf("URL() = %q, want %q", got, want)
 	}
 }
+
+func TestVKSURL(t *testing.T) {
+	got := URL(testEndpoints{ProductVKS: "https://example.test/vks-api/"}, Route{Product: ProductVKS, Version: "v1", Parts: []string{"clusters"}, Query: url.Values{"page": {"0"}, "pageSize": {"10"}}})
+	if got != "https://example.test/vks-api/v1/clusters?page=0&pageSize=10" {
+		t.Fatal(got)
+	}
+}

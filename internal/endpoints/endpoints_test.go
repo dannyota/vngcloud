@@ -144,3 +144,14 @@ func TestResolveIAMUserCDN(t *testing.T) {
 		t.Fatalf("unexpected cdn override: %s", got.CDN)
 	}
 }
+
+func TestResolveIAMUserVKS(t *testing.T) {
+	for region, want := range map[string]string{"hcm-3": "https://vks.console.greennode.ai/vks-api/", "han-1": "https://vks-han-1.console.greennode.ai/vks-api/", "unsupported": ""} {
+		if got := ResolveIAMUser(region, Overrides{}).VKS; got != want {
+			t.Fatalf("VKS %q, want %q", got, want)
+		}
+	}
+	if got := ResolveIAMUser("han-1", Overrides{VKS: "http://example.test/vks"}).VKS; got != "http://example.test/vks/" {
+		t.Fatal(got)
+	}
+}
