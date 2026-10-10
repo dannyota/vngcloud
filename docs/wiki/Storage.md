@@ -77,8 +77,7 @@ the endpoint for an S3 client.
 
 ## Projects
 
-A vStorage project is a paid storage package in one region. The SDK cannot
-create one: buy it in the console.
+A vStorage project is a paid storage package in one region.
 
 ```go
 projects, err := client.ListProjects(ctx, &storage.ListProjectsInput{Region: "HCM04"})
@@ -97,6 +96,52 @@ one.
 `Project` has `ID`, `Name`, `RegionID`, `RegionName`, `Status`,
 `TotalQuota` (GB), `StartTime`, `EndTime`, and `Period`. `Period` is zero
 when the API returns null.
+
+## Project pricing
+
+`ListProjectTypes` reads the regional catalog, monthly purchase type, and
+quota configuration. It quotes each active monthly offer at its minimum
+quota. Prices and configuration are read fresh on every call.
+
+```go
+types, err := client.ListProjectTypes(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(len(types.Items))
+
+quote, err := client.QuoteCreateProject(ctx, &storage.CreateProjectInput{
+	Type:    "Gold",
+	QuotaGB: 30,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("monthly %.0f, total %.0f %s", quote.MonthlyPrice,
+	quote.TotalPrice, quote.Currency)
+```
+
+Use the exact catalog `Name`, such as `Gold` or `Instant-Archive-2`.
+`ProjectType` preserves descriptions, SKU metadata, billable resources,
+storage policy, and `AllowPeriod`. Each offer includes the purchase type,
+price key, nullable billable period, minimum and maximum quota in GB,
+quoted quota, monthly package price, and currency. `StepQuotaGB` is null
+because the API supplies no step. Unknown purchase types remain visible
+without a quote; `QuotedQuotaGB` stays zero for those offers.
+
+`QuoteCreateProject` places no order. `QuotaGB` must be a positive integer
+within the configured limits. A disabled or ambiguous type, an unknown
+name, or a type that does not allow one month returns
+`vngcloud.ErrInvalidInput`. Missing or malformed required configuration
+returns `*vngcloud.APIError` before pricing.
+
+Quotes ignore `Name`, `MaxPrice`, and `NoWait` in `CreateProjectInput`.
+There is no `Period` field. `MonthlyPrice` and `TotalPrice` both equal
+`OptimumPrice` for one month, in VND. The output also preserves original
+price, discount price, nullable discount percent, and property prices with
+nullable names and descriptions. Zero or negative prices return
+`vngcloud.ErrUnpriced`; missing, null, malformed, or non-finite prices
+return `*vngcloud.APIError`.
 
 ## Buckets
 

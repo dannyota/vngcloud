@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "key": "enable_iam_checkout",
+      "value": "true"
+    }
+  ]
+}

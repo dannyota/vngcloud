@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "key": "vos_billing_normal_min_quota",
+      "value": "30"
+    }
+  ]
+}

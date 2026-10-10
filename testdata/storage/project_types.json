@@ -1,0 +1,214 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "id": 1,
+      "name": "Gold",
+      "title": "Gold Type",
+      "group": "Gold",
+      "descriptionEn": "Best for storing hot content such as media, creating an origin for CDN or objects with daily access.",
+      "descriptionVi": "Dành cho việc lưu trữ các nội dung với mức độ truy cập thường xuyên như dữ liệu đa phương tiện, làm đầu origin cho CDN.",
+      "status": 1,
+      "storageClass": {
+        "id": 0,
+        "storagePolicy": "Gold",
+        "title": "Gold",
+        "status": null,
+        "configs": {
+          "id": null,
+          "storageClassId": null,
+          "regionName": null,
+          "status": null,
+          "isArchiveDelete": null,
+          "archiveDeleteMinDay": null,
+          "archiveDeleteMaxDay": null,
+          "bulkDeletePageSize": null,
+          "allowUpdateTags": null,
+          "allowUpdateMetadata": null,
+          "allowVersioning": null,
+          "locationConstraint": "default:GOLD_S01"
+        },
+        "placement": null
+      },
+      "allowPeriod": [
+        1,
+        3,
+        6,
+        12,
+        24,
+        36
+      ],
+      "sku": [
+        "Gold-PAYG",
+        "vStorage-Gold"
+      ],
+      "skuMappings": [
+        {
+          "id": 137,
+          "sku": "Gold-PAYG",
+          "purchaseTypeId": 3,
+          "projectTypeId": 1,
+          "storageClassId": null,
+          "resourceType": "quota",
+          "period": null,
+          "minValue": null,
+          "maxValue": null
+        },
+        {
+          "id": 6,
+          "sku": "vStorage-Gold",
+          "purchaseTypeId": 4,
+          "projectTypeId": 1,
+          "storageClassId": null,
+          "resourceType": "quota",
+          "period": null,
+          "minValue": null,
+          "maxValue": null
+        }
+      ],
+      "billingUnitPrice": {
+        "vStorage-Gold": {
+          "traffic_free_multiples": 10,
+          "traffic_unit_price": 280,
+          "request_unlimited": 1,
+          "request_block": 1000,
+          "excess_domestic_traffic_all": 280,
+          "excess_international_traffic_1_100": 580,
+          "excess_international_traffic_101_200": 510,
+          "excess_international_traffic_201_500": 420,
+          "excess_international_traffic_501_1000": 370,
+          "excess_international_traffic_gte1001": 330
+        },
+        "Gold-PAYG": {
+          "traffic_free_multiples": 10,
+          "traffic_unit_price": 280,
+          "request_unlimited": 1,
+          "request_block": 1000,
+          "excess_domestic_traffic_all": 280,
+          "excess_international_traffic_1_100": 580,
+          "excess_international_traffic_101_200": 510,
+          "excess_international_traffic_201_500": 420,
+          "excess_international_traffic_501_1000": 370,
+          "excess_international_traffic_gte1001": 330
+        }
+      },
+      "billableResources": [
+        {
+          "id": 6,
+          "name": "Normal - Gold",
+          "priceKey": "objng-quota",
+          "purchaseTypeId": 4,
+          "projectTypeId": 1,
+          "period": null
+        }
+      ],
+      "order": null,
+      "isDefault": null
+    },
+    {
+      "id": 7,
+      "name": "Instant-Archive-2",
+      "title": "Instant Archive Type",
+      "group": "Instant Archive",
+      "descriptionEn": "Best for long-term storing data with rare access.",
+      "descriptionVi": "Dành cho mục đích lưu trữ dữ liệu dài hạn với tần suất truy cập thấp.",
+      "status": 1,
+      "storageClass": {
+        "id": 10,
+        "storagePolicy": "Instant Archive",
+        "title": "Instant Archive",
+        "status": null,
+        "configs": {
+          "id": null,
+          "storageClassId": null,
+          "regionName": null,
+          "status": null,
+          "isArchiveDelete": null,
+          "archiveDeleteMinDay": null,
+          "archiveDeleteMaxDay": null,
+          "bulkDeletePageSize": null,
+          "allowUpdateTags": null,
+          "allowUpdateMetadata": null,
+          "allowVersioning": null,
+          "locationConstraint": "default:default-placement"
+        },
+        "placement": null
+      },
+      "allowPeriod": [
+        1,
+        3,
+        6,
+        12,
+        24,
+        36
+      ],
+      "sku": [
+        "Instant-Archive-PAYG",
+        "Instant-Archive-2"
+      ],
+      "skuMappings": [
+        {
+          "id": 138,
+          "sku": "Instant-Archive-PAYG",
+          "purchaseTypeId": 3,
+          "projectTypeId": 7,
+          "storageClassId": null,
+          "resourceType": "quota",
+          "period": null,
+          "minValue": null,
+          "maxValue": null
+        },
+        {
+          "id": 96,
+          "sku": "Instant-Archive-2",
+          "purchaseTypeId": 4,
+          "projectTypeId": 7,
+          "storageClassId": null,
+          "resourceType": "quota",
+          "period": null,
+          "minValue": null,
+          "maxValue": null
+        }
+      ],
+      "billingUnitPrice": {
+        "Instant-Archive-2": {
+          "traffic_free": 3000,
+          "traffic_unit_price": 280,
+          "request_unlimited": 1,
+          "request_block": 1000,
+          "excess_domestic_traffic_all": 280,
+          "excess_international_traffic_1_100": 580,
+          "excess_international_traffic_101_200": 510,
+          "excess_international_traffic_201_500": 420,
+          "excess_international_traffic_501_1000": 370,
+          "excess_international_traffic_gte1001": 330
+        },
+        "Instant-Archive-PAYG": {
+          "traffic_free": 3000,
+          "traffic_unit_price": 280,
+          "request_unlimited": 1,
+          "request_block": 1000,
+          "excess_domestic_traffic_all": 280,
+          "excess_international_traffic_1_100": 580,
+          "excess_international_traffic_101_200": 510,
+          "excess_international_traffic_201_500": 420,
+          "excess_international_traffic_501_1000": 370,
+          "excess_international_traffic_gte1001": 330
+        }
+      },
+      "billableResources": [
+        {
+          "id": 21,
+          "name": "Normal - Instant Archive 2",
+          "priceKey": "Instant-archive-2",
+          "purchaseTypeId": 4,
+          "projectTypeId": 7,
+          "period": null
+        }
+      ],
+      "order": null,
+      "isDefault": null
+    }
+  ]
+}

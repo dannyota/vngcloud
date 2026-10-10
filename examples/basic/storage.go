@@ -7,15 +7,28 @@ import (
 	"danny.vn/vngcloud/storage"
 )
 
-// showStorage records the vStorage regions, the projects in the configured
-// region's vStorage region, and, for the first project, its buckets and the
-// first bucket's detail. Storage is account-wide, so main calls this once
-// per config.
+// Storage is account-wide, so main calls showStorage once per config.
 func showStorage(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	client := storage.New(cfg)
 
 	regions, err := client.ListRegions(ctx, nil)
 	recordAccount(outputs, "storage/region", "storage regions", storageRegionItems(regions), err)
+
+	types, err := client.ListProjectTypes(ctx, nil)
+	if types != nil {
+		recordAccount(outputs, "storage/project_types", "storage project types", types.Items, err)
+		for _, typ := range types.Items {
+			for _, offer := range typ.Offers {
+				if offer.QuotedQuotaGB == 0 {
+					continue
+				}
+				quote, err := client.QuoteCreateProject(ctx, &storage.CreateProjectInput{Type: typ.Name, QuotaGB: offer.MinQuotaGB})
+				recordAccountOne(outputs, "storage/project_quote_"+typ.Name, "storage project quote", quote, err)
+			}
+		}
+	} else {
+		recordAccount(outputs, "storage/project_types", "storage project types", []storage.ProjectType(nil), err)
+	}
 
 	projects, err := client.ListProjects(ctx, nil)
 	recordAccount(outputs, "storage/project", "storage projects", storageProjectItems(projects), err)

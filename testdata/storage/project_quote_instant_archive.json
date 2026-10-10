@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "optimumPrice": 15900,
+    "discountPercent": 0.0,
+    "originalPrice": 15900,
+    "discountPrice": 0,
+    "propertiesPrice": [
+      {
+        "optimumPrice": 15900,
+        "monthlyPrice": 15900,
+        "discountPercent": 0.0,
+        "name": "Instant-Archive-2",
+        "description": null
+      }
+    ]
+  }
+}
