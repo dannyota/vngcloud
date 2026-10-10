@@ -22,8 +22,8 @@ rests on are in [vStorage: API](storage-api.md), with their sources.
 
 ## Non-goals
 
-- Creating, resizing, or deleting a project: a paid checkout, so a console
-  step. The SDK would need a quote (ADR 0002 rule 8) and its own design.
+- Resizing a project. Project prices, purchase, and deletion have their
+  own [vStorage projects design](storage-projects.md).
 - Objects, directories, presigned URLs, and uploads. Use an S3 client.
 - Lifecycle, encryption, object lock, notifications, ACLs, IP range ACLs,
   usage alerts, reports, the Swift farm (`HCM03`), and Swift users.
