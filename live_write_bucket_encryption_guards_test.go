@@ -15,6 +15,7 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/storage"
 )
 
 type encryptionFakeHTTP func(*http.Request) (*http.Response, error)
@@ -43,6 +44,79 @@ func offlineEncryptionConfig(t *testing.T, fn encryptionFakeHTTP) vngcloud.Confi
 	t.Helper()
 	tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: fn}})
 	return core.NewTestConfig("hcm-3", "project-1", endpoints.Set{Storage: "https://console.invalid/", Region: "hcm-3"}, tc)
+}
+
+func TestBucketEncryptionRefusedCreateDoesNotOwnBucket(t *testing.T) {
+	const bucket = "vngcloud-live-unit"
+	attempted, deleted := false, false
+	objectDeletes, bucketDeletes := 0, 0
+	cfg := offlineEncryptionConfig(t, func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/internal/v1/regions":
+			return encryptionResponse(200, `{"success":true,"datas":[{"regionId":"region-1","regionName":"HCM04"}]}`), nil
+		case r.URL.Path == "/internal/v1/users/s3_keys":
+			return encryptionResponse(200, `{"success":true,"datas":[]}`), nil
+		case r.Method == "POST":
+			attempted = true
+			return encryptionResponse(403, `{"success":false,"code":403}`), nil
+		case r.Method == "DELETE":
+			bucketDeletes++
+			deleted = true
+			return encryptionResponse(200, `{"success":true}`), nil
+		case strings.HasSuffix(r.URL.Path, "/details"):
+			if deleted {
+				return encryptionResponse(200, `{"success":false,"code":404}`), nil
+			}
+			return encryptionResponse(200, `{"success":true,"data":{"name":"vngcloud-live-unit","count":0,"size":0}}`), nil
+		case r.URL.Path == "/internal/v1/ceph/projects/project-1":
+			if attempted && !deleted {
+				return encryptionResponse(200, `{"success":true,"isNext":false,"datas":[{"name":"vngcloud-live-unit"}]}`), nil
+			}
+			return encryptionResponse(200, `{"success":true,"isNext":false,"datas":[]}`), nil
+		default:
+			t.Errorf("unexpected console request %s %s", r.Method, r.URL.Path)
+			return encryptionResponse(500, ""), nil
+		}
+	})
+	report, _ := offlineEncryptionReport(t)
+	run := newEncryptionResources(cfg, report, "project-1")
+	if err := run.prepare(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	objects, err := newLiveObjects("https://s3.invalid", "HCM04", "fake-access", "fake-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects.http = &http.Client{Transport: encryptionFakeHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "DELETE" {
+			objectDeletes++
+			return encryptionResponse(204, ""), nil
+		}
+		root, child := "ListBucketResult", ""
+		switch {
+		case r.URL.Query().Has("uploads"):
+			root = "ListMultipartUploadsResult"
+		case r.URL.Query().Has("versions"):
+			root = "ListVersionsResult"
+		case objectDeletes == 0:
+			child = `<Contents><Key>foreign-object</Key></Contents>`
+		}
+		return encryptionResponse(200, "<"+root+"><IsTruncated>false</IsTruncated>"+child+"</"+root+">"), nil
+	})}
+	run.s3 = &encryptionS3{objects: objects, report: report, t: t}
+	if err := run.createBucket(t.Context(), bucket, false); err == nil {
+		t.Fatal("refused create succeeded")
+	}
+	if _, err := run.client.GetBucket(t.Context(), &storage.GetBucketInput{Region: "HCM04", ProjectID: "project-1", Bucket: bucket}); err != nil {
+		t.Fatalf("bucket-present read failed: %v", err)
+	}
+	left := run.cleanupBuckets(t.Context())
+	if objectDeletes != 0 || bucketDeletes != 0 {
+		t.Fatalf("object deletes=%d bucket deletes=%d", objectDeletes, bucketDeletes)
+	}
+	if len(left) != 1 || !strings.Contains(left[0], bucket) || !strings.Contains(left[0], "manual cleanup") {
+		t.Fatalf("unconfirmed bucket missing from leftovers: %v", left)
+	}
 }
 
 func TestBucketEncryptionInventoryGuards(t *testing.T) {

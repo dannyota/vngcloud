@@ -19,18 +19,19 @@ import (
 )
 
 type encryptionResources struct {
-	cfg          vngcloud.Config
-	client       *storage.Client
-	report       *encryptionReport
-	project      string
-	regionID     string
-	ready        bool
-	inventory    []storage.Bucket
-	baseline     map[string]bool
-	buckets      []string
-	s3           *encryptionS3
-	keyAttempted bool
-	createdKey   string
+	cfg              vngcloud.Config
+	client           *storage.Client
+	report           *encryptionReport
+	project          string
+	regionID         string
+	ready            bool
+	inventory        []storage.Bucket
+	baseline         map[string]bool
+	buckets          []string
+	attemptedBuckets []string
+	s3               *encryptionS3
+	keyAttempted     bool
+	createdKey       string
 }
 
 func newEncryptionResources(cfg vngcloud.Config, report *encryptionReport, project string) *encryptionResources {
@@ -169,9 +170,11 @@ func (r *encryptionResources) createBucket(ctx context.Context, bucket string, e
 			return errors.New("bucket name collision")
 		}
 	}
-	// A lost create response can still leave a bucket, so register it first.
-	r.buckets = append(r.buckets, bucket)
+	r.attemptedBuckets = append(r.attemptedBuckets, bucket)
 	_, err := r.client.CreateBucket(ctx, &storage.CreateBucketInput{Region: "HCM04", ProjectID: r.project, Bucket: bucket, Encryption: encrypted})
+	if err == nil {
+		r.buckets = append(r.buckets, bucket)
+	}
 	return err
 }
 
@@ -192,6 +195,20 @@ func (r *encryptionResources) createKey(ctx context.Context) (*storage.CreateS3K
 
 func (r *encryptionResources) cleanupBuckets(ctx context.Context) []string {
 	leftovers := []string{}
+	owned := map[string]bool{}
+	for _, bucket := range r.buckets {
+		owned[bucket] = true
+	}
+	for _, bucket := range r.attemptedBuckets {
+		if owned[bucket] {
+			continue
+		}
+		// Presence after a failed create does not prove which client owns it.
+		_, err := r.client.GetBucket(ctx, &storage.GetBucketInput{Region: "HCM04", ProjectID: r.project, Bucket: bucket})
+		if !errors.Is(err, vngcloud.ErrNotFound) {
+			leftovers = append(leftovers, "bucket "+bucket+": creation unconfirmed; manual cleanup required")
+		}
+	}
 	for _, bucket := range r.buckets {
 		_, err := r.client.GetBucket(ctx, &storage.GetBucketInput{Region: "HCM04", ProjectID: r.project, Bucket: bucket})
 		if errors.Is(err, vngcloud.ErrNotFound) {
