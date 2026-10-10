@@ -952,7 +952,7 @@ func TestGenDocsNotesCoverQuoteOptionalFlagsAndVolumeTypeNames(t *testing.T) {
 		want     []string
 		notWant  []string
 	}{
-		{"CLI-Compute.md", "quote-create-server", []string{"--ssh-key-id are optional", "does not send them"}, []string{"ignores every key"}},
+		{"CLI-Compute.md", "quote-create-server", []string{"--ssh-key-id is optional", "exactly one of --ssh-key-id or --user-data-file", "does not send them"}, []string{"ignores every key"}},
 		{"CLI-Volume.md", "quote-create-volume", []string{"--name is optional", "does not send --name"}, nil},
 		{"CLI-LoadBalancer.md", "quote-create-load-balancer", []string{"--name, --scheme, --subnet-id, and --type are optional", "does not send them"}, []string{"ignores every key"}},
 		{"CLI-Volume.md", "list-volume-types", []string{"HCM03-1A", "32,960", "32,000", "by ID"}, nil},
@@ -961,7 +961,7 @@ func TestGenDocsNotesCoverQuoteOptionalFlagsAndVolumeTypeNames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadFile %s: %v", c.file, err)
 		}
-		section := genDocsSection(t, string(data), c.op)
+		section := strings.Join(strings.Fields(genDocsSection(t, string(data), c.op)), " ")
 		for _, want := range c.want {
 			if !strings.Contains(section, want) {
 				t.Errorf("%s section is missing %q", c.op, want)
@@ -970,6 +970,33 @@ func TestGenDocsNotesCoverQuoteOptionalFlagsAndVolumeTypeNames(t *testing.T) {
 		for _, bad := range c.notWant {
 			if strings.Contains(section, bad) {
 				t.Errorf("%s section still says %q", c.op, bad)
+			}
+		}
+	}
+}
+
+func TestGenDocsComputeLogin(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Compute.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"create-server", "quote-create-server"} {
+		if row, ok := docRow(t, string(data), op, "ssh-key-id"); !ok || row != "| `--ssh-key-id` | `string` |  |" {
+			t.Errorf("%s ssh-key-id row = %q, want optional", op, row)
+		}
+	}
+	for op, phrases := range map[string][]string{
+		"create-server":  {"exactly one of --ssh-key-id or --user-data-file", "GreenNode refuses both together", "ssh_authorized_keys", "--ssh-key-id <ssh-key-id>"},
+		"import-ssh-key": {"Only RSA", "ed25519 and ECDSA", "400", "Invalid public key"},
+	} {
+		section := strings.Join(strings.Fields(genDocsSection(t, string(data), op)), " ")
+		for _, phrase := range phrases {
+			if !strings.Contains(section, phrase) {
+				t.Errorf("%s is missing %q", op, phrase)
 			}
 		}
 	}

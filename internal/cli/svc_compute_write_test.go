@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,6 +44,18 @@ var validCreateServerArgs = []string{
 	"--name", "web-1", "--zone-id", "zone-1", "--flavor-id", "flavor-1", "--image-id", "image-1",
 	"--vpc-id", "vpc-1", "--subnet-id", "subnet-1", "--security-group-id", "sg-1",
 	"--ssh-key-id", "key-1", "--root-disk-size", "20", "--root-disk-type-id", "voltype-1",
+}
+
+func createServerArgsWithoutSSHKey() []string {
+	args := make([]string, 0, len(validCreateServerArgs)-2)
+	for i := 0; i < len(validCreateServerArgs); i++ {
+		if validCreateServerArgs[i] == "--ssh-key-id" {
+			i++
+			continue
+		}
+		args = append(args, validCreateServerArgs[i])
+	}
+	return args
 }
 
 // TestGoldenComputeCreateServer checks create-server's exact output shape:
@@ -293,13 +307,28 @@ func TestComputeCreateServerUserDataFileNeverPrinted(t *testing.T) {
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1", "--debug"},
-		append(validCreateServerArgs, "--max-price", "347800", "--no-wait", "--user-data-file", path)...))
+		append(createServerArgsWithoutSSHKey(), "--max-price", "347800", "--no-wait", "--user-data-file", path)...))
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("create-server: %v (stderr=%s)", err, stderr.String())
 	}
 
 	if !strings.Contains(string(orderBody), "userData") {
 		t.Fatalf("order body = %s, want a userData key", orderBody)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(orderBody, &body); err != nil {
+		t.Fatalf("order body: %v", err)
+	}
+	if _, ok := body["sshKeyId"]; ok {
+		t.Fatal("order body contains sshKeyId with userData")
+	}
+	var encoded string
+	if err := json.Unmarshal(body["userData"], &encoded); err != nil {
+		t.Fatalf("userData: %v", err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || string(decoded) != secret {
+		t.Fatal("userData does not encode the file content")
 	}
 	if strings.Contains(string(orderBody), "super-secret-token") {
 		t.Fatalf("order body = %s, want the user data base64-encoded, not sent in the clear", orderBody)
@@ -690,5 +719,45 @@ func TestComputeRenameServerSendsNewNameNoYesNeeded(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"Name": "web-2"`) {
 		t.Fatalf("stdout = %s, want the renamed server printed", stdout.String())
+	}
+}
+
+func TestComputeCreateServerLoginInvalidInput(t *testing.T) {
+	const secret = "#!/bin/sh\necho super-secret-token"
+	path := filepath.Join(t.TempDir(), "user-data.sh")
+	if err := os.WriteFile(path, []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		message string
+	}{
+		{"both", append(append([]string(nil), validCreateServerArgs...), "--user-data-file", path),
+			"GreenNode refuses user data together with an SSH key; put the key in the cloud-config"},
+		{"neither", createServerArgsWithoutSSHKey(),
+			"login is required: an SSH key, or user data that installs keys"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newSvcFixture(nil)
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1", "--debug"}, tc.args...))
+			err := root.ExecuteContext(context.Background())
+			if !errors.Is(err, vngcloud.ErrInvalidInput) || exitCode(err) != 2 {
+				t.Fatalf("error = %v, exitCode = %d, want invalid input and 2", err, exitCode(err))
+			}
+			if !strings.Contains(err.Error(), tc.message) {
+				t.Fatalf("error = %v, want SDK message %q", err, tc.message)
+			}
+			printError(stderr, err)
+			for _, output := range []string{err.Error(), stdout.String(), stderr.String()} {
+				if strings.Contains(output, "super-secret-token") {
+					t.Fatal("user data leaked in error or output")
+				}
+			}
+			if n := fixture.requestCount(); n != 0 {
+				t.Fatalf("requestCount = %d, want 0", n)
+			}
+		})
 	}
 }

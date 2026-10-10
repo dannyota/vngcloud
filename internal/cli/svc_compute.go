@@ -100,7 +100,14 @@ var computeOps = []Op[compute.Client]{
 }
 
 func newComputeCmd(e *env) *cobra.Command {
-	return Service(e, "compute", "Servers, images, and SSH keys", compute.New, computeOps...)
+	cmd := Service(e, "compute", "Servers, images, and SSH keys", compute.New, computeOps...)
+	for _, child := range cmd.Commands() {
+		switch child.Name() {
+		case "create-server", "quote-create-server", "import-ssh-key":
+			child.Long = docOpNotes["compute "+child.Name()]
+		}
+	}
+	return cmd
 }
 
 // createSSHKeyOutput is create-ssh-key's own JSON shape: compute's

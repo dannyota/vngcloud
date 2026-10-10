@@ -33,26 +33,6 @@ const volumeDeleteVolumeNote = "Destroys the volume's data; there is no undo. Re
 	"ERROR during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command " +
 	"reads the volume first every time.\n\n" + vserverDriftNote
 
-// computeCreateServerNote documents create-server's own price guard
-// default, its duplicate-name guard, --user-data-file, the unretried order,
-// and the post-order wait bound: the flag table shows --max-price as a
-// plain, optional float and lists no UserData field at all, with no hint of
-// any of this.
-const computeCreateServerNote = "Orders nothing above --max-price, default 0: a bare create-server refuses with " +
-	"error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is " +
-	"refused as Unpriced whatever --max-price says. Refuses, before any " +
-	"request, a server already named --name exactly. Needs at least one --security-group-id; the SDK picks no " +
-	"default, so the project's own default group (open to the world on several ports) is only used when named " +
-	"explicitly. Cloud-init user data comes only from --user-data-file <path>, read once at most 64 KiB: it " +
-	"has no plain string flag, and an inline or file:// --cli-input-json value that sets UserData is refused " +
-	"outright, since either could put a secret on argv or in a JSON file that shell history or a process " +
-	"listing keeps; user data never reaches stdout, stderr, or --debug output. The order itself is never " +
-	"retried after a failure that may have already reached the server; list servers by name before ordering " +
-	"again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to " +
-	"reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this " +
-	"create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.\n\n" +
-	serverEncryptionNote + "\n\n" + idsForCreateServerLink + "\n\n" + vserverDriftNote
-
 // computeDeleteServerNote documents delete-server's own volume disposition,
 // its wait bound, and that it destroys the server: the flag table shows
 // --delete-volumes as a plain, optional bool, with no hint of any of this.

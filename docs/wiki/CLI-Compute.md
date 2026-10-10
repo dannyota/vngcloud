@@ -6,7 +6,25 @@
 
 Kind: Write.
 
-Orders nothing above --max-price, default 0: a bare create-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses, before any request, a server already named --name exactly. Needs at least one --security-group-id; the SDK picks no default, so the project's own default group (open to the world on several ports) is only used when named explicitly. Cloud-init user data comes only from --user-data-file <path>, read once at most 64 KiB: it has no plain string flag, and an inline or file:// --cli-input-json value that sets UserData is refused outright, since either could put a secret on argv or in a JSON file that shell history or a process listing keeps; user data never reaches stdout, stderr, or --debug output. The order itself is never retried after a failure that may have already reached the server; list servers by name before ordering again rather than repeating this command. Without --no-wait, waits up to 15 minutes for the new server to reach ACTIVE, then prints it; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, and this create must not be repeated. --no-wait returns at once with only the new server's UUID and Name set.
+Orders nothing above --max-price, default 0: a bare create-server refuses with
+error code PriceAboveMax until --max-price is raised to at least the quoted
+price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses,
+before any request, a server already named --name exactly. Needs at least one
+--security-group-id; the SDK picks no default, so the project's own default
+group (open to the world on several ports) is only used when named explicitly.
+Set exactly one of --ssh-key-id or --user-data-file. GreenNode refuses both
+together. With user data, the cloud-config must install authorized keys, for
+example with ssh_authorized_keys. Cloud-init user data comes only from
+--user-data-file <path>, read once at most 64 KiB: it has no plain string flag,
+and an inline or file:// --cli-input-json value that sets UserData is refused
+outright, since either could put a secret on argv or in a JSON file that shell
+history or a process listing keeps; user data never reaches stdout, stderr, or
+--debug output. The order itself is never retried after a failure that may have
+already reached the server; list servers by name before ordering again rather
+than repeating this command. Without --no-wait, waits up to 15 minutes for the
+new server to reach ACTIVE, then prints it; a timeout, or ERROR during that
+wait, is NotSettled or WriteFailed, and this create must not be repeated.
+--no-wait returns at once with only the new server's UUID and Name set.
 
 --root-disk-encryption-type-id and --data-disk-encryption-type-id encrypt that disk. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. --data-disk-encryption-type-id needs --data-disk-size and --data-disk-type-id. Either flag sets encryptionVolume, which the billing gateway prices as a surcharge on the flavor, 85,140 VND a month on s2-general-1x2 live, not on disk size.
 
@@ -23,7 +41,7 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 | `--vpc-id` | `string` | yes |
 | `--subnet-id` | `string` | yes |
 | `--security-group-id` | `[]string` | yes |
-| `--ssh-key-id` | `string` | yes |
+| `--ssh-key-id` | `string` |  |
 | `--root-disk-size` | `int` | yes |
 | `--root-disk-type-id` | `string` | yes |
 | `--root-disk-encryption-type-id` | `string` |  |
@@ -38,7 +56,7 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 | `--user-data-file` | `string` |  |
 
 ```sh
-vngcloud compute create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id>
+vngcloud compute create-server --name <name> --zone-id <zone-id> --flavor-id <flavor-id> --image-id <image-id> --vpc-id <vpc-id> --subnet-id <subnet-id> --security-group-id <security-group-id> --root-disk-size <root-disk-size> --root-disk-type-id <root-disk-type-id> --ssh-key-id <ssh-key-id>
 ```
 
 ## create-server-group
@@ -189,7 +207,12 @@ vngcloud compute get-ssh-key --ssh-key-id <ssh-key-id> --query SSHKey
 
 Kind: Write.
 
-Preferred over create-ssh-key: PublicKey is made elsewhere, for example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans more than one line, or that contains the text "PRIVATE KEY", before any request; neither error ever quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with 400 "Invalid public key".
+Preferred over create-ssh-key: PublicKey is made elsewhere, for example by
+ssh-keygen, so the private key never reaches GreenNode at all. Refuses a
+PublicKey that spans more than one line, or that contains the text "PRIVATE
+KEY", before any request; neither error ever quotes the value. Only RSA public
+keys are accepted: ed25519 and ECDSA keys are refused by the server with 400
+"Invalid public key".
 
 | Flag | Type | Required |
 |-|-|-|
@@ -344,7 +367,20 @@ vngcloud compute list-user-images
 
 Kind: Read.
 
-Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Needs only the flags that set the price: --zone-id, --flavor-id, --image-id, --root-disk-size, --root-disk-type-id, and the data disk pair --data-disk-size with --data-disk-type-id when there is a data disk. --name, --vpc-id, --subnet-id, --security-group-id, and --ssh-key-id are optional here and required by create-server. The CLI does not send them or any other unpriced field to the billing gateway, but still checks the shape of each one that is set, so a bad ID fails here as it will at the create. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size is the --root-disk-size value.
+Never orders anything: prices the server CreateServerInput describes without
+sending a create. OptimumPrice and every other price are VND a month, one
+prepaid period. Needs only the flags that set the price: --zone-id, --flavor-id,
+--image-id, --root-disk-size, --root-disk-type-id, and the data disk pair
+--data-disk-size with --data-disk-type-id when there is a data disk. --name,
+--vpc-id, --subnet-id, and --security-group-id are optional here and required by
+create-server. --ssh-key-id is optional here; create-server needs exactly one of
+--ssh-key-id or --user-data-file. The CLI does not send them or any other
+unpriced field to the billing gateway, but still checks the shape of each one
+that is set, so a bad ID fails here as it will at the create. Ignores UserData,
+MaxPrice, and NoWait even when an inline --cli-input-json value sets them:
+UserData is never sent to the quote, since it can hold secrets, and MaxPrice and
+NoWait govern only an actual create. The gateway's ROOT DISK text shows the
+volume type ID where the size belongs; the size is the --root-disk-size value.
 
 --root-disk-encryption-type-id and --data-disk-encryption-type-id encrypt that disk. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. --data-disk-encryption-type-id needs --data-disk-size and --data-disk-type-id. Either flag sets encryptionVolume, which the billing gateway prices as a surcharge on the flavor, 85,140 VND a month on s2-general-1x2 live, not on disk size.
 

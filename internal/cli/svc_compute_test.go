@@ -656,3 +656,28 @@ func TestComputeCreateSSHKeyCleanupSurvivesCanceledContext(t *testing.T) {
 		t.Fatalf("the private key leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
 	}
 }
+
+func TestComputeLoginHelp(t *testing.T) {
+	for _, tc := range []struct {
+		op   string
+		want []string
+	}{
+		{"create-server", []string{"exactly one of --ssh-key-id or --user-data-file", "GreenNode refuses both together", "ssh_authorized_keys"}},
+		{"quote-create-server", []string{"--ssh-key-id is optional", "exactly one of --ssh-key-id or --user-data-file"}},
+		{"import-ssh-key", []string{"RSA", "ed25519", "ECDSA", "400", "Invalid public key"}},
+	} {
+		t.Run(tc.op, func(t *testing.T) {
+			root, stdout, _ := newSvcRoot(t, newSvcFixture(nil))
+			root.SetArgs([]string{"compute", tc.op, "--help"})
+			if err := root.ExecuteContext(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			help := strings.Join(strings.Fields(stdout.String()), " ")
+			for _, want := range tc.want {
+				if !strings.Contains(help, want) {
+					t.Errorf("help is missing %q", want)
+				}
+			}
+		})
+	}
+}

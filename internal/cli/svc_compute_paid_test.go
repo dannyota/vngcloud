@@ -226,3 +226,19 @@ func TestComputeQuoteCreateServerIsAReadUnderReadOnly(t *testing.T) {
 		t.Fatalf("requestCount = %d, want 1 (quote-create-server must run as a read under read-only)", n)
 	}
 }
+
+func TestComputeQuoteCreateServerWithoutLogin(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v1/price": jsonHandler(http.StatusOK, computeQuoteJSON(347800)),
+	})
+	root, _, stderr := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "compute", "quote-create-server",
+		"--zone-id", "zone-1", "--flavor-id", "flavor-1", "--image-id", "image-1",
+		"--root-disk-size", "20", "--root-disk-type-id", "voltype-1"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("quote-create-server: %v (stderr=%s)", err, stderr.String())
+	}
+	if n := fixture.requestCount(); n != 1 {
+		t.Fatalf("requestCount = %d, want 1", n)
+	}
+}

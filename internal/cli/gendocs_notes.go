@@ -61,17 +61,6 @@ const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up,
 // import-ssh-key and create-ssh-key ever see one, and only once.
 const computeGetSSHKeyNote = "SSHKey never includes a private key; see import-ssh-key and create-ssh-key."
 
-// computeImportSSHKeyPreferredNote documents the wiki's own recommendation
-// for import-ssh-key, and the key type GreenNode actually accepts: the flag
-// table cannot show either. Only an RSA public key is accepted live; an
-// ssh-ed25519 key gets a 400 "Invalid public key" from the server, even
-// though ssh-keygen happily makes one.
-const computeImportSSHKeyPreferredNote = "Preferred over create-ssh-key: PublicKey is made elsewhere, for " +
-	"example by ssh-keygen, so the private key never reaches GreenNode at all. Refuses a PublicKey that spans " +
-	"more than one line, or that contains the text \"PRIVATE KEY\", before any request; neither error ever " +
-	"quotes the value. Only an RSA public key is accepted: an ssh-ed25519 key is refused by the server with " +
-	"400 \"Invalid public key\"."
-
 // computeCreateSSHKeyNote documents create-ssh-key's --secret-file
 // requirement and its cleanup-on-failure rule: the flag table shows no
 // --secret-file at all, since it backs no Input field, and shows PrivateKey
@@ -118,23 +107,6 @@ const computeDeleteServerGroupNote = "Refuses, before any write, a group with an
 // the API itself always returns every zone's flavor zones regardless.
 const computeListFlavorZonesNote = "Filters client side: the API always returns every zone's flavor zones, " +
 	"and --zone-id only narrows what this command then prints."
-
-// computeQuoteCreateServerNote documents quote-create-server's own price
-// guard exemptions and unit, which flags are optional, and the gateway's
-// ROOT DISK text: the flag table shows every CreateServerInput field the
-// same way create-server itself will, with no hint that this command never
-// orders anything or that three of those fields do nothing here.
-const computeQuoteCreateServerNote = "Never orders anything: prices the server CreateServerInput describes " +
-	"without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. " +
-	"Needs only the flags that set the price: --zone-id, --flavor-id, --image-id, --root-disk-size, " +
-	"--root-disk-type-id, and the data disk pair --data-disk-size with --data-disk-type-id when there is a " +
-	"data disk. --name, --vpc-id, --subnet-id, --security-group-id, and --ssh-key-id are optional here and " +
-	"required by create-server. The CLI does not send them or any other unpriced field to the billing " +
-	"gateway, but still checks the shape of each one that is set, so a bad ID fails here as it will at the " +
-	"create. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: " +
-	"UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an " +
-	"actual create. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size " +
-	"is the --root-disk-size value.\n\n" + serverEncryptionNote + "\n\n" + idsForCreateServerLink
 
 // volumeQuoteCreateVolumeNote documents quote-create-volume's own price
 // guard exemptions and unit, matching computeQuoteCreateServerNote's shape
@@ -577,6 +549,7 @@ var docJSONPlaceholders = map[string]string{
 // update-pool-member, update-listener, and update-policy are the same shape
 // again: each requires at least one field to change beyond its path IDs.
 var docExampleExtraFlag = map[string]string{
+	"compute create-server":             "ssh-key-id",
 	"compute list-flavors":              "zone-id",
 	"compute update-server-group":       "name",
 	"dns update-hosted-zone":            "description",
