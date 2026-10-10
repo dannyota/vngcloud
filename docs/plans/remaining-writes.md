@@ -15,7 +15,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vCDN | C1 (v0.56.0); C1b and C2 in v0.60.0 | C3: path purge. C4: certificate import, enable, disable, and delete. Create stays deferred because the API refuses valid bodies | C3 needs a portal-made test CDN; C4 uses a self-signed test certificate; paid or uncleanable writes still need owner approval |
+| vCDN | C1 (v0.56.0); C1b and C2 in v0.60.0; C3 implemented and reviewed with local checks passing in `feat/cdn-purge-v061`, deferred by the owner for Claude to resume | [C3: path purge](cdn-purge.md) needs live proof and a captured fixture. C4: certificate import, enable, disable, and delete. Create stays deferred because the API refuses valid bodies | C3 needs a portal-made test CDN after the owner resumes it; C4 uses a self-signed test certificate; paid or uncleanable writes still need owner approval |
 
 ## Open on the account
 
