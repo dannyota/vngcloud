@@ -20,6 +20,7 @@ import (
 
 func TestPurgePathsRequest(t *testing.T) {
 	const wantBody = `{"cdnDomain":"cdn.example.test","type":"URI","patterns":["/","..","?"]}`
+	response := readFixture(t, "purge-success.json")
 	h := newVCDN(t, testKey, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/vcdn-api/v1/cdn/flush-cache" {
 			t.Errorf("request = %s %s", r.Method, r.URL.Path)
@@ -31,7 +32,7 @@ func TestPurgePathsRequest(t *testing.T) {
 		if string(body) != wantBody {
 			t.Errorf("body = %s, want %s", body, wantBody)
 		}
-		jsonReply(w, `{"success":true,"code":200,"message":"ok","data":""}`)
+		jsonReply(w, response)
 	})
 	out, err := h.PurgePaths(context.Background(), &PurgePathsInput{
 		CDNDomain: "cdn.example.test",
@@ -39,6 +40,9 @@ func TestPurgePathsRequest(t *testing.T) {
 	})
 	if err != nil || out == nil {
 		t.Fatalf("out = %+v, err = %v", out, err)
+	}
+	if *out != (PurgePathsOutput{}) {
+		t.Errorf("out = %+v, want empty output", out)
 	}
 }
 
