@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.58.0 - Priced-Only Quotes
+
+### Highlights
+
+- `quote-create-server` now needs only `--zone-id`, `--flavor-id`,
+  `--image-id`, `--root-disk-size`, and `--root-disk-type-id` (data disk
+  size and type together when wanted); `--name`, `--vpc-id`,
+  `--subnet-id`, `--security-group-id`, and `--ssh-key-id` are optional
+  and left out of the request. `quote-create-volume` makes `--name`
+  optional; `quote-create-load-balancer` makes `--name`, `--scheme`,
+  `--subnet-id`, and `--type` optional. Optional values that are set are
+  still shape-checked before any request.
+- The paid creates' price guards quote the same priced-only body as the
+  quote commands, so a guard and a quote always price the same request.
+  Live, the priced-only quotes return the same amounts as the full ones
+  (347,800 VND for `s2-general-1x2` with Ubuntu 24.04 and a 20 GB SSD
+  root; 951,600 VND for `s2-general-2x4` with 40 GB root and 80 GB data).
+- Note: `volume list-volume-types --iops 3000` in `HCM03-1A` returns two
+  types both named "3000" with different prices; pick by `ID`.
+
 ## v0.57.0 - Flavors and Volume Types by Zone
 
 ### Highlights
