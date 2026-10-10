@@ -209,3 +209,24 @@ func TestStorageProjectPricingWithholdsUpstreamBody(t *testing.T) {
 		})
 	}
 }
+
+func TestStorageProjectRawMetadataOutput(t *testing.T) {
+	for _, format := range []string{"json", "table", "text"} {
+		for _, query := range []string{"", "Items[0].StorageClass.storagePolicy"} {
+			t.Run(format+"/"+query, func(t *testing.T) {
+				prices := 0
+				r := runStorage(t, storageProjectPricingRoutes(t, "region-hcm", 30, &prices), "storage", "list-project-types", "--output", format, "--query", query)
+				if r.err != nil {
+					t.Fatal(r.err)
+				}
+				if query != "" {
+					if !strings.Contains(r.stdout, "Gold") {
+						t.Fatalf("output = %s", r.stdout)
+					}
+				} else if !strings.Contains(r.stdout, "storagePolicy") || !strings.Contains(r.stdout, "Gold") {
+					t.Fatalf("raw metadata missing: %s", r.stdout)
+				}
+			})
+		}
+	}
+}

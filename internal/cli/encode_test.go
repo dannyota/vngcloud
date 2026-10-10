@@ -146,3 +146,16 @@ func TestEncodeJSONUnexportedFieldsSkipped(t *testing.T) {
 		t.Fatalf("unexported field value leaked: %s", got)
 	}
 }
+
+func TestEncodeJSONRawMessage(t *testing.T) {
+	for _, raw := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`{"storagePolicy":"Gold"}`), json.RawMessage(`[1,"two"]`), json.RawMessage(`42`), json.RawMessage(`"Gold"`)} {
+		want := string(raw)
+		if raw == nil {
+			want = "[]"
+		}
+		assertJSONEqual(t, mustEncode(t, struct{ Value any }{Value: &raw}), `{"Value":`+want+`}`)
+	}
+	if _, err := encodeJSON(json.RawMessage(`invalid`)); err == nil {
+		t.Fatal("invalid raw JSON accepted")
+	}
+}

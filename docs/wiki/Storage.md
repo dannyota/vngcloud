@@ -101,7 +101,11 @@ when the API returns null.
 
 `ListProjectTypes` reads the regional catalog, monthly purchase type, and
 quota configuration. It quotes each active monthly offer at its minimum
-quota. Prices and configuration are read fresh on every call.
+quota. Each call reads fresh prices and configuration.
+Both pricing methods validate both regions before authentication or requests,
+even with endpoint overrides. Config must use `hcm-3` or `han-1`; explicit
+vStorage names must match `HCM04` or `HAN02`, ignoring case. Price requests
+refuse redirects and retain retries for transient failures.
 
 ```go
 types, err := client.ListProjectTypes(ctx, nil)
@@ -122,26 +126,22 @@ log.Printf("monthly %.0f, total %.0f %s", quote.MonthlyPrice,
 ```
 
 Use the exact catalog `Name`, such as `Gold` or `Instant-Archive-2`.
-`ProjectType` preserves descriptions, SKU metadata, billable resources,
-storage policy, and `AllowPeriod`. Each offer includes the purchase type,
-price key, nullable billable period, minimum and maximum quota in GB,
-quoted quota, monthly package price, and currency. `StepQuotaGB` is null
-because the API supplies no step. Unknown purchase types remain visible
-without a quote; `QuotedQuotaGB` stays zero for those offers.
+`ProjectType` preserves descriptions, SKU metadata, billable resources, storage
+policy, and `AllowPeriod`. Offers include purchase type, price key, nullable
+period, quota limits in GB, quoted quota, monthly price, and currency.
+`StepQuotaGB` is null because the API supplies no step. Unknown purchases
+remain visible without a quote; their `QuotedQuotaGB` stays zero.
 
 `QuoteCreateProject` places no order. `QuotaGB` must be a positive integer
-within the configured limits. A disabled or ambiguous type, an unknown
-name, or a type that does not allow one month returns
-`vngcloud.ErrInvalidInput`. Missing or malformed required configuration
-returns `*vngcloud.APIError` before pricing.
+within configured limits. Disabled, ambiguous, unknown, or non-monthly types
+return `vngcloud.ErrInvalidInput`. Missing or malformed configuration returns
+`*vngcloud.APIError` before pricing.
 
-Quotes ignore `Name`, `MaxPrice`, and `NoWait` in `CreateProjectInput`.
-There is no `Period` field. `MonthlyPrice` and `TotalPrice` both equal
-`OptimumPrice` for one month, in VND. The output also preserves original
-price, discount price, nullable discount percent, and property prices with
-nullable names and descriptions. Zero or negative prices return
-`vngcloud.ErrUnpriced`; missing, null, malformed, or non-finite prices
-return `*vngcloud.APIError`.
+Quotes ignore `Name`, `MaxPrice`, and `NoWait`; Input has no `Period`.
+`MonthlyPrice` and `TotalPrice` equal `OptimumPrice` for one month in VND.
+Output preserves original price, discounts, and property prices with nullable
+names and descriptions. Zero or negative prices return `vngcloud.ErrUnpriced`.
+Missing, null, malformed, or non-finite prices return `*vngcloud.APIError`.
 
 ## Buckets
 

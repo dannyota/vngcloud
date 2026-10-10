@@ -52,6 +52,9 @@ func (c *Client) QuoteCreateProject(ctx context.Context, in *CreateProjectInput)
 	if in.QuotaGB <= 0 {
 		return nil, fmt.Errorf("%w: %s: QuotaGB must be positive", core.ErrInvalidInput, op)
 	}
+	if err := c.validateProjectRegion(op, in.Region); err != nil {
+		return nil, err
+	}
 	id, err := c.regionID(ctx, op, in.Region)
 	if err != nil {
 		return nil, err
@@ -110,7 +113,7 @@ func (c *Client) sendProjectQuote(ctx context.Context, op, id string, spec proje
 func (c *Client) exchangeProjectPrice(ctx context.Context, k call) (*envelope, error) {
 	var credential string
 	var raw json.RawMessage
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok, Idempotent: true, SentCredential: &credential, Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok, Idempotent: true, NoRedirect: true, SentCredential: &credential, Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
 	if err != nil {
 		var syn *json.SyntaxError
 		if status > 0 && errors.As(err, &syn) {

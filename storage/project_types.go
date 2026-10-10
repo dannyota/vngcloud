@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/routes"
@@ -85,6 +86,9 @@ func (c *Client) ListProjectTypes(ctx context.Context, in *ListProjectTypesInput
 	if in != nil {
 		region = in.Region
 	}
+	if err := c.validateProjectRegion(op, region); err != nil {
+		return nil, err
+	}
 	id, err := c.regionID(ctx, op, region)
 	if err != nil {
 		return nil, err
@@ -123,6 +127,16 @@ func (c *Client) ListProjectTypes(ctx context.Context, in *ListProjectTypesInput
 		}
 	}
 	return &ListProjectTypesOutput{Items: catalog.types}, nil
+}
+
+func (c *Client) validateProjectRegion(op, name string) error {
+	if region := c.c.Region(); region != "hcm-3" && region != "han-1" {
+		return fmt.Errorf("%w: %s: unsupported config region %q", core.ErrInvalidInput, op, region)
+	}
+	if name != "" && !strings.EqualFold(name, "HCM04") && !strings.EqualFold(name, "HAN02") {
+		return fmt.Errorf("%w: %s: unknown vStorage region %q", core.ErrInvalidInput, op, name)
+	}
+	return nil
 }
 
 func (c *Client) projectBillingRoute(version string, parts []string, q url.Values) string {
@@ -171,6 +185,9 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 		return nil, err
 	}
 	catalog := &projectCatalog{types: types, purchases: purchases}
+	if err := catalog.validateIdentities(op); err != nil {
+		return nil, err
+	}
 	for _, item := range []struct {
 		key    string
 		target *int64
@@ -232,6 +249,30 @@ func (c *Client) projectConfiguration(ctx context.Context, op, id, key string) (
 	return *items[0].Value, nil
 }
 
+func (catalog *projectCatalog) validateIdentities(op string) error {
+	types := make(map[int]string)
+	for _, typ := range catalog.types {
+		if typ.Status != 1 {
+			continue
+		}
+		if name, ok := types[typ.ID]; ok && name != typ.Name {
+			return fmt.Errorf("%w: %s: conflicting project type identity", core.ErrInvalidInput, op)
+		}
+		types[typ.ID] = typ.Name
+	}
+	purchases := make(map[int]projectPurchaseType)
+	for _, purchase := range catalog.purchases {
+		if purchase.Status != 1 {
+			continue
+		}
+		if previous, ok := purchases[purchase.ID]; ok && (previous.Name != purchase.Name || previous.Title != purchase.Title) {
+			return fmt.Errorf("%w: %s: conflicting purchase type identity", core.ErrInvalidInput, op)
+		}
+		purchases[purchase.ID] = purchase
+	}
+	return nil
+}
+
 func (catalog *projectCatalog) monthlyPurchase(op string) (*projectPurchaseType, error) {
 	var selected *projectPurchaseType
 	for i := range catalog.purchases {
@@ -239,8 +280,8 @@ func (catalog *projectCatalog) monthlyPurchase(op string) (*projectPurchaseType,
 		if p.Status != 1 || p.Name != "Normal" || p.Title != "Pay monthly" {
 			continue
 		}
-		if selected != nil || p.ID != 4 {
-			return nil, fmt.Errorf("%w: %s: ambiguous or unsupported monthly purchase", core.ErrInvalidInput, op)
+		if selected != nil || p.ID <= 0 {
+			return nil, fmt.Errorf("%w: %s: ambiguous or invalid monthly purchase", core.ErrInvalidInput, op)
 		}
 		selected = p
 	}

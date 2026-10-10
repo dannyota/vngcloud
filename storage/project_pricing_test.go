@@ -6,12 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 const pricingTypes = `{"success":true,"datas":[{"id":1,"name":"Gold","title":"Gold Type","group":"Gold","status":1,"storageClass":{"storagePolicy":"Gold"},"allowPeriod":[1,3],"sku":["vStorage-Gold"],"skuMappings":{"a":"b"},"billingUnitPrice":{"vStorage-Gold":{"traffic_unit_price":280}},"billableResources":[{"id":6,"name":"Normal - Gold","priceKey":"objng-quota","purchaseTypeId":4,"projectTypeId":1,"period":null}]}]}`
@@ -54,8 +61,12 @@ func pricingClient(t *testing.T, override map[string]string, prices *int, config
 			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 				t.Fatal(err)
 			}
+			purchaseID := float64(4)
+			if strings.Contains(override["/internal/v1/billing/purchase_types"], `"id":42`) {
+				purchaseID = 42
+			}
 			quota := got["resourceInfo"].(map[string]any)["quota"]
-			want := map[string]any{"resourceType": "object_storage", "action": "create", "resourceInfo": map[string]any{"quota": quota, "purchaseTypeId": float64(4), "projectType": float64(1)}}
+			want := map[string]any{"resourceType": "object_storage", "action": "create", "resourceInfo": map[string]any{"quota": quota, "purchaseTypeId": purchaseID, "projectType": float64(1)}}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("price body = %#v", got)
 			}
@@ -328,5 +339,108 @@ func TestProjectPricingCatalogFailsOnUnpricedOffer(t *testing.T) {
 	out, err := c.ListProjectTypes(context.Background(), nil)
 	if out != nil || !errors.Is(err, vngcloud.ErrUnpriced) || prices != 1 {
 		t.Fatalf("output %v error %v prices %d", out, err, prices)
+	}
+}
+
+func TestProjectPriceRejectsRedirects(t *testing.T) {
+	for _, status := range []int{307, 308} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path == "/billing-api/v2/price" {
+					w.Header().Set("Location", "/internal/v2/orders")
+					w.WriteHeader(status)
+					return
+				}
+				_, _ = w.Write([]byte(pricingQuote))
+			}))
+			_, err := c.sendProjectQuote(context.Background(), "storage.QuoteCreateProject", "region", projectPurchaseSpec{quota: 30, purchaseTypeID: 4, projectTypeID: 1})
+			var api *vngcloud.APIError
+			if !errors.As(err, &api) || api.StatusCode != status || calls != 1 {
+				t.Fatalf("error %v, requests %d, want redirect error and one request", err, calls)
+			}
+		})
+	}
+}
+
+type pricingTokenSource struct{ calls atomic.Int64 }
+
+func (s *pricingTokenSource) Token(context.Context) (transport.Token, error) {
+	s.calls.Add(1)
+	return transport.Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+func (*pricingTokenSource) Invalidate(string) {}
+
+func TestProjectPricingRegionsBeforeAuthentication(t *testing.T) {
+	for _, method := range []string{"list", "quote"} {
+		for _, regions := range [][2]string{{"hcm-3", "unknown"}, {"unknown", "HCM04"}, {"unknown", ""}} {
+			t.Run(method+"/"+regions[0]+"/"+regions[1], func(t *testing.T) {
+				requests := 0
+				source := &pricingTokenSource{}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests++
+					if r.URL.Path == "/internal/v1/regions" {
+						testutil.WriteFixture(t, w, fixtures+"list_regions.json")
+						return
+					}
+					_, _ = w.Write([]byte(pricingQuote))
+				}))
+				defer server.Close()
+				tr := transport.New(transport.Config{TokenSource: source, HTTPClient: server.Client()})
+				c := New(core.NewTestConfig(regions[0], "", endpoints.Set{Storage: server.URL + "/"}, tr))
+				var err error
+				if method == "list" {
+					_, err = c.ListProjectTypes(context.Background(), &ListProjectTypesInput{Region: regions[1]})
+				} else {
+					_, err = c.QuoteCreateProject(context.Background(), &CreateProjectInput{Region: regions[1], Type: "Gold", QuotaGB: 30})
+				}
+				if !errors.Is(err, vngcloud.ErrInvalidInput) || source.calls.Load() != 0 || requests != 0 {
+					t.Fatalf("error %v, authentication %d, requests %d", err, source.calls.Load(), requests)
+				}
+			})
+		}
+	}
+}
+
+func TestProjectPricingMonthlyCatalogID(t *testing.T) {
+	prices := 0
+	types := strings.ReplaceAll(pricingTypes, `"purchaseTypeId":4`, `"purchaseTypeId":42`)
+	purchases := strings.ReplaceAll(pricingPurchases, `"id":4`, `"id":42`)
+	c := pricingClient(t, map[string]string{"/internal/v1/billing/project_types": types, "/internal/v1/billing/purchase_types": purchases}, &prices, nil)
+	out, err := c.ListProjectTypes(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Items[0].Offers[0].PurchaseTypeID != 42 || prices != 1 {
+		t.Fatalf("output %+v, prices %d", out, prices)
+	}
+	_, err = c.QuoteCreateProject(context.Background(), &CreateProjectInput{Type: "Gold", QuotaGB: 30})
+	if err != nil || prices != 2 {
+		t.Fatalf("error %v, prices %d", err, prices)
+	}
+}
+
+func TestProjectPricingConflictingIdentities(t *testing.T) {
+	typeRow := strings.TrimSuffix(strings.TrimPrefix(pricingTypes, `{"success":true,"datas":[`), `]}`)
+	for _, method := range []string{"list", "quote"} {
+		for _, tc := range []struct{ path, body string }{
+			{"/internal/v1/billing/project_types", `{"success":true,"datas":[` + typeRow + `,` + strings.Replace(typeRow, `"name":"Gold"`, `"name":"Other"`, 1) + `]}`},
+			{"/internal/v1/billing/purchase_types", `{"success":true,"datas":[{"id":4,"name":"Normal","title":"Pay monthly","status":1},{"id":4,"name":"Other","title":"Other","status":1}]}`},
+		} {
+			t.Run(method+tc.path, func(t *testing.T) {
+				prices := 0
+				c := pricingClient(t, map[string]string{tc.path: tc.body}, &prices, nil)
+				var err error
+				if method == "list" {
+					_, err = c.ListProjectTypes(context.Background(), nil)
+				} else {
+					_, err = c.QuoteCreateProject(context.Background(), &CreateProjectInput{Type: "Gold", QuotaGB: 30})
+				}
+				if !errors.Is(err, vngcloud.ErrInvalidInput) || prices != 0 {
+					t.Fatalf("error %v, prices %d", err, prices)
+				}
+			})
+		}
 	}
 }

@@ -46,6 +46,9 @@ func (e *jsonEncoder) encode(v reflect.Value, depth int) error {
 		e.buf = append(e.buf, "null"...)
 		return nil
 	}
+	if v.Type() == reflect.TypeOf(json.RawMessage(nil)) && !v.IsNil() {
+		return e.encodeScalar(v)
+	}
 	switch v.Kind() {
 	case reflect.Interface:
 		if v.IsNil() {

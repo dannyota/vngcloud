@@ -116,6 +116,9 @@ type Request struct {
 	// effect, such as a price quote.
 	Idempotent bool
 
+	// NoRedirect refuses redirects without changing retries.
+	NoRedirect bool
+
 	// MaxBody caps the response body at MaxBody bytes; zero means unlimited.
 	// The transport reads at most MaxBody+1 bytes, so it can tell a body
 	// that exactly fills the cap from one that overflows it: reading that
@@ -389,10 +392,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 	sendClient := redirectClient(client)
 	if req.Once {
 		maxAttempts = 0
-		// net/http resends a redirected PUT's method and body at the
-		// Location it names, which would send the toggle a second time.
-		// http.ErrUseLastResponse stops it from following any redirect at
-		// all, so the caller sees the 3xx itself instead.
+	}
+	if req.Once || req.NoRedirect {
+		// A redirect can replay the method and body at another route.
 		sendClient = refuseRedirects(sendClient)
 	}
 
