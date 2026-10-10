@@ -9,6 +9,7 @@ import (
 
 func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	volumeClient := volume.New(cfg)
+	showSnapshotPolicies(ctx, cfg, outputs)
 
 	volumes, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]volume.Volume, int, error) {
 		out, err := volumeClient.ListVolumes(ctx, &volume.ListVolumesInput{Page: page, Size: size})
@@ -83,4 +84,31 @@ func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStor
 		snapshots = snapshotsOut.Items
 	}
 	record(outputs, cfg, "volume/snapshot", "snapshots", snapshots, err)
+}
+
+func showSnapshotPolicies(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
+	if cfg.Region() != "hcm-3" {
+		return
+	}
+	client := volume.New(cfg)
+	backends, err := client.ListSnapshotBackends(ctx, &volume.ListSnapshotBackendsInput{Name: "HCM-03"})
+	var items []volume.SnapshotBackend
+	if backends != nil {
+		items = backends.Items
+	}
+	record(outputs, cfg, "volume/snapshot_backend", "snapshot backends", items, err)
+	if err != nil {
+		return
+	}
+	// Each returned backend keeps its own scope; no first-match selection.
+	for _, backend := range items {
+		policies, err := collectPaged(10, func(page, size int) ([]volume.SnapshotPolicy, int, error) {
+			out, err := client.ListSnapshotPolicies(ctx, &volume.ListSnapshotPoliciesInput{BackendID: backend.ID, Page: page, Size: size})
+			if err != nil {
+				return nil, 0, err
+			}
+			return out.Items, out.TotalPage, nil
+		})
+		record(outputs, cfg, "volume/snapshot_policy/"+backend.ID, "snapshot policies", policies, err)
+	}
 }

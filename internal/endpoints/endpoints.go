@@ -63,47 +63,50 @@ type Overrides struct {
 	Storage            string
 	CDN                string
 	VKS                string
+	VServerBackup      string
 }
 
 type Set struct {
-	Region    string
-	VServer   string
-	VLB       string
-	VNetwork  string
-	GLB       string
-	DNS       string
-	VCR       string
-	Portal    string
-	Signin    string
-	Dashboard string
-	Token     string
-	Billing   string
-	CDNDocs   string
-	Monitor   string
-	IAM       string
-	Storage   string
-	CDN       string
-	VKS       string
+	Region        string
+	VServer       string
+	VLB           string
+	VNetwork      string
+	GLB           string
+	DNS           string
+	VCR           string
+	Portal        string
+	Signin        string
+	Dashboard     string
+	Token         string
+	Billing       string
+	CDNDocs       string
+	Monitor       string
+	IAM           string
+	Storage       string
+	CDN           string
+	VKS           string
+	VServerBackup string
 }
 
 func ResolveIAMUser(region string, overrides Overrides) Set {
 	set := Set{
-		Region:    region,
-		VServer:   fmt.Sprintf("https://%s.%s/vserver/iam-vserver-gateway/", region, ConsoleDomain),
-		VLB:       fmt.Sprintf("https://%s.%s/vserver/iam-vlb-gateway/", region, ConsoleDomain),
-		VNetwork:  fmt.Sprintf("https://%s.%s/vserver/vnetwork-gateway/", region, ConsoleDomain),
-		GLB:       fmt.Sprintf("https://glb.%s/glb-controller/", ConsoleDomain),
-		DNS:       fmt.Sprintf("https://vdns.%s/vdns-api/", ConsoleDomain),
-		VCR:       fmt.Sprintf("https://vcr.%s/vcr-api/", ConsoleDomain),
-		Portal:    fmt.Sprintf("https://%s.%s/vserver/iam-billing-gateway/", region, ConsoleDomain),
-		Signin:    DefaultSignin,
-		Dashboard: DefaultDashboard,
-		Token:     DefaultToken,
-		CDNDocs:   DefaultCDNDocs,
-		Monitor:   DefaultMonitor,
-		IAM:       DefaultIAM,
-		Storage:   DefaultStorage,
-		CDN:       DefaultCDN,
+		Region:        region,
+		VServer:       fmt.Sprintf("https://%s.%s/vserver/iam-vserver-gateway/", region, ConsoleDomain),
+		VLB:           fmt.Sprintf("https://%s.%s/vserver/iam-vlb-gateway/", region, ConsoleDomain),
+		VNetwork:      fmt.Sprintf("https://%s.%s/vserver/vnetwork-gateway/", region, ConsoleDomain),
+		GLB:           fmt.Sprintf("https://glb.%s/glb-controller/", ConsoleDomain),
+		DNS:           fmt.Sprintf("https://vdns.%s/vdns-api/", ConsoleDomain),
+		VCR:           fmt.Sprintf("https://vcr.%s/vcr-api/", ConsoleDomain),
+		Portal:        fmt.Sprintf("https://%s.%s/vserver/iam-billing-gateway/", region, ConsoleDomain),
+		Signin:        DefaultSignin,
+		Dashboard:     DefaultDashboard,
+		Token:         DefaultToken,
+		CDNDocs:       DefaultCDNDocs,
+		Monitor:       DefaultMonitor,
+		IAM:           DefaultIAM,
+		Storage:       DefaultStorage,
+		CDN:           DefaultCDN,
+		VServerBackup: VServerBackup(region),
 	}
 	switch region {
 	case "hcm-3":
@@ -164,6 +167,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.CDN != "" {
 		set.CDN = overrides.CDN
 	}
+	if overrides.VServerBackup != "" {
+		set.VServerBackup = overrides.VServerBackup
+	}
 	return set.Normalize()
 }
 
@@ -195,6 +201,7 @@ func (s Set) Normalize() Set {
 	s.Storage = normalizeURL(s.Storage)
 	s.VKS = normalizeURL(s.VKS)
 	s.CDN = normalizeURL(s.CDN)
+	s.VServerBackup = normalizeURL(s.VServerBackup)
 	return s
 }
 
@@ -212,4 +219,13 @@ func VNetworkRegionalGateway(region string) string {
 		return ""
 	}
 	return fmt.Sprintf("https://%s-vnetwork.%s/vnetwork-gateway/", region, ConsoleDomain)
+}
+
+// VServerBackup returns only gateways verified for snapshot policy reads.
+func VServerBackup(region string) string {
+	return vServerBackupEndpoints[region]
+}
+
+var vServerBackupEndpoints = map[string]string{
+	"hcm-3": "https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/",
 }

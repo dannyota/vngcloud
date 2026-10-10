@@ -155,3 +155,20 @@ func TestResolveIAMUserVKS(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestVServerBackupEndpoint(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1", "unknown"} {
+		got := ResolveIAMUser(region, Overrides{})
+		want := ""
+		if region == "hcm-3" {
+			want = "https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/"
+		}
+		if got.VServerBackup != want || VServerBackup(region) != want {
+			t.Errorf("region %s: unexpected backup endpoint", region)
+		}
+		overridden := ResolveIAMUser(region, Overrides{VServerBackup: "https://backup.example.test/gateway"})
+		if overridden.VServerBackup != "https://backup.example.test/gateway/" || overridden.VServer != got.VServer || overridden.Portal != got.Portal {
+			t.Fatal("backup override is not isolated")
+		}
+	}
+}

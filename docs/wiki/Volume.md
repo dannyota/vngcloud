@@ -1,8 +1,8 @@
 # Volume
 
 `volume` is `danny.vn/vngcloud/volume`, with its own `New(cfg)`. It reads
-vServer volumes, volume types, and snapshots, and orders and deletes
-volumes. See [Services](Services.md#volume) for the full read method list.
+vServer volumes, volume types, snapshots, and snapshot policies, and orders
+and deletes volumes. See [Services](Services.md#volume) for other read methods.
 
 ## Setup
 
@@ -296,6 +296,60 @@ on).
 
 If a volume is managed by OpenTofu or Terraform, a write made here drifts
 from that state; keep such a volume's writes in its own tool.
+
+## Snapshot policies
+
+Snapshot backend and policy reads use the vServer backup gateway in `hcm-3`.
+Other regions return `vngcloud.ErrInvalidConfig` before authentication,
+project discovery, or HTTP access. `EndpointOverrides.VServerBackup` changes
+only this gateway and cannot enable another region. Snapshot backend IDs
+belong to this gateway and must not be used with Backup Center.
+
+```go
+backends, err := client.ListSnapshotBackends(ctx,
+	&volume.ListSnapshotBackendsInput{Name: "HCM-03"})
+if err != nil {
+	log.Fatal(err)
+}
+for _, backend := range backends.Items {
+	log.Println(backend.ID, backend.Name)
+}
+
+// Choose the backend explicitly from the lookup results.
+policies, err := client.ListSnapshotPolicies(ctx,
+	&volume.ListSnapshotPoliciesInput{
+		BackendID: "<backend-id>", Page: 1, Size: 10,
+	})
+if err != nil {
+	log.Fatal(err)
+}
+for _, policy := range policies.Items {
+	log.Println(policy.Name, policy.PolicyType)
+}
+```
+
+`ListSnapshotBackends` requires `Name` and returns an unpaged `Items` list
+with backend `ID` and `Name`. It does not derive a backend name from the
+region or select the first result. `ListSnapshotPolicies` requires
+`BackendID` and uses the configured project. Each call reads one page and
+returns `Items`, `Page`, `PageSize`, `TotalPage`, and `TotalItem`. Zero `Page`
+and `Size` select 1 and 10. Negative values, malformed backend IDs, nil
+inputs, and empty required fields return `vngcloud.ErrInvalidInput` before
+access.
+
+`SnapshotPolicy` retains identity, name, type, timestamps, snapshot counts,
+and verified config fields. Unknown policy types and status strings survive
+decoding. Timestamps and timezone strings remain as received. Hourly and
+daily config objects use pointers: missing or null is nil, an empty object
+has nil members, and an explicit zero has a non-nil pointer to zero. Interval
+and retention units are undocumented.
+
+Policies are summaries, not complete configuration exports. Weekly and
+monthly settings are omitted because their field types are unverified;
+the enabled flags remain visible. Account identifiers, duplicated backend
+and project scope, and the untyped null fields `isDefault` and `deletedAt`
+are also omitted. Do not use a summary as a policy write or replacement
+body. Snapshot history and policy writes have no SDK methods.
 
 ## Errors
 

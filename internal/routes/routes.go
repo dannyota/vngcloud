@@ -32,6 +32,9 @@ const (
 	// token, and ignores the region.
 	ProductCDN Product = "cdn"
 	ProductVKS Product = "vks"
+	// ProductVServerBackup is the vServer snapshot gateway, which differs from
+	// Backup Center's gateway.
+	ProductVServerBackup Product = "vserverbackup"
 )
 
 type Endpoints interface {

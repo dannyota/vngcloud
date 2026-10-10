@@ -1,0 +1,42 @@
+{
+  "items": [
+    {
+      "id": "policy-2",
+      "userId": 1,
+      "backendId": "backend-1",
+      "projectId": "project-1",
+      "name": "<account>",
+      "isDefault": null,
+      "policyType": "ENHANCED",
+      "config": {
+        "hour": 0.0,
+        "minute": 0.0,
+        "timeZone": "UTC",
+        "hourlyEnabled": true,
+        "hourlyConfig": {
+          "interval": 1.0,
+          "retention": 1.0
+        },
+        "dailyEnabled": false,
+        "dailyConfig": {},
+        "weeklyEnabled": false,
+        "weeklyConfig": {},
+        "monthlyEnabled": false,
+        "monthlyConfig": {},
+        "isProtectedServer": true,
+        "statusSendEmail": [
+          "ERROR"
+        ]
+      },
+      "createdAt": "2026-01-01T00:00:00",
+      "updatedAt": "2026-01-01T00:00:00",
+      "deletedAt": null,
+      "snapshotServerCount": 0,
+      "snapshotVolumeCount": 0
+    }
+  ],
+  "page": 2,
+  "pageSize": 1,
+  "totalPages": 2,
+  "totalItems": 2
+}

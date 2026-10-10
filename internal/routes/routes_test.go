@@ -32,3 +32,10 @@ func TestVKSURL(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestVServerBackupRoute(t *testing.T) {
+	got := URL(testEndpoints{ProductVServerBackup: "https://backup.example.test/vserver/vbackup-gateway/", ProductVServer: "https://wrong.example.test/", Product("backupcenter"): "https://wrong.example.test/"}, Route{Product: ProductVServerBackup, Version: "v1", Parts: []string{"snapshot-policies"}, Query: url.Values{"backendId": {"backend-1"}, "projectId": {"project-1"}, "page": {"1"}, "size": {"10"}}})
+	if got != "https://backup.example.test/vserver/vbackup-gateway/v1/snapshot-policies?backendId=backend-1&page=1&projectId=project-1&size=10" {
+		t.Fatalf("unexpected route: %s", got)
+	}
+}

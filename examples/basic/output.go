@@ -37,6 +37,8 @@ var operationOutputPaths = map[string]string{
 	"volume.ListVolumeTypes":                     "volume/type",
 	"volume.ListEncryptionTypes":                 "volume/encryption_type",
 	"volume.ListSnapshots":                       "volume/snapshot",
+	"volume.ListSnapshotBackends":                "volume/snapshot_backend",
+	"volume.ListSnapshotPolicies":                "volume/snapshot_policy",
 	"network.ListVPCs":                           "network/vpc",
 	"network.GetVPC":                             "network/vpc_detail",
 	"network.ListVNetworkRegions":                "network/vnetwork_region",

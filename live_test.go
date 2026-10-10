@@ -120,6 +120,7 @@ func TestLive(t *testing.T) {
 	t.Run("iam", func(t *testing.T) { testLiveIAM(ctx, t, firstCfg) })
 	t.Run("storage", func(t *testing.T) { testLiveStorage(ctx, t, firstCfg) })
 	t.Run("vks", func(t *testing.T) { testLiveVKS(ctx, t, cacheDir, emptyConfigFile, emptyCredentialsFile) })
+	t.Run("snapshot-policies", func(t *testing.T) { testLiveSnapshotPolicies(ctx, t) })
 
 	for i, region := range regions {
 		cfg := firstCfg
