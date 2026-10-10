@@ -103,7 +103,8 @@ sends them as given (ADR 0002 rule 5).
 - The create body is `name`, `packageId`, `scheme`, `subnetId`, `type`,
   `zoneId`, `autoScalable` false, and `isPoc` false. The quote body is
   `packageId`, `zoneId`, `period` 1, `isPoc` false, and `isBuyMorePoc`
-  false, built from the same Input by one function.
+  false, built from the same Input by one function that the quote and the
+  guard share. A drift test checks that `packageId` and `zoneId` match.
 - `QuotedPrice` is the `OptimumPrice` the guard accepted.
 - Resize reads the load balancer first. The same `PackageID` returns
   `Changed` false with nothing quoted or sent. Otherwise it waits until

@@ -61,10 +61,12 @@ the write's own Input (ADR 0002 rule 8):
 | `volume.ResizeVolume` | `volume.QuoteResizeVolume` | `volume`, `resize` |
 
 - One quote builder per write makes `resourceInfo` from the write's
-  Input: the priced keys only, plus `period` 1 and `isPoc` false. It never
-  holds `userData`. A quote requires only priced fields; see
-  [CLI usability](cli-usability.md#quotes-ask-only-for-priced-values) and
-  [quote requests](vserver-paid-writes-api.md#quote-requests).
+  Input: only the priced keys in
+  [quote requests](vserver-paid-writes-api.md#quote-requests), plus
+  `period` 1 and `isPoc` false. It never holds `userData` or `osLicence`.
+  The create's price guard calls the same builder. A quote requires only
+  priced fields; see
+  [CLI usability](cli-usability.md#quotes-ask-only-for-priced-values).
 - The quote's Output is `pricing.GetQuoteOutput`. `OptimumPrice` is VND a
   month. For a resize it is the new configuration's price for the rest of
   the current period ([billing model](vserver-paid-writes-api.md#billing-model));
@@ -328,9 +330,8 @@ package gets a poll helper with the injected clock and sleep that
   before any request. Quotes are reads and still run.
 
 ```sh
-vngcloud compute quote-create-server --name web-1 --zone-id <zone> \
-  --flavor-id <flavor> --image-id <image> --vpc-id <vpc> \
-  --subnet-id <subnet> --security-group-id <sg> --ssh-key-id <key> \
+vngcloud compute quote-create-server --zone-id <zone> \
+  --flavor-id <flavor> --image-id <image> \
   --root-disk-size 20 --root-disk-type-id <type>
 vngcloud compute create-server ... --max-price 347800
 ```

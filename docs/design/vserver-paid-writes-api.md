@@ -209,16 +209,30 @@ the probes sent the create forms (live).
 
 | Quote | `resourceType`, `action` | `resourceInfo` |
 |-|-|-|
-| Server create | `server`, `create` | `period` 1, `isPoc` false, `imageId`, `flavorId`, `rootDiskSize`, `rootDiskTypeId`, `dataDiskSize`, `dataDiskTypeId`, `encryptionVolume`, `osLicence`, `zoneId` |
+| Server create | `server`, `create` | `period` 1, `isPoc` false, `zoneId`, `flavorId`, `imageId`, `rootDiskSize`, `rootDiskTypeId`, `encryptionVolume`; `dataDiskSize` and `dataDiskTypeId` when set |
 | Server resize | `server`, `resize` | `serverId`, `flavorId` |
-| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `volumeTypeId`, `size`, `zoneId` |
+| Volume create | `volume`, `create` | `period` 1, `isPoc` false, `size`, `volumeTypeId`, `zoneId` |
 | Volume resize | `volume`, `resize` | `volumeId`, `newSize`, `newVolumeTypeId` |
 
 - The server quote ignores keys it does not price: `name`,
   `securityGroup`, `subnetId`, and `attachFloating` did not change it
-  (live). So the SDK sends the create body itself, plus `period` and
-  `isPoc`, without `userData`; see
+  (live). So the SDK sends the priced keys in the table and nothing else:
+  no `name`, `networkId`, `subnetId`, `securityGroup`, `sshKeyId`,
+  `serverGroupId`, or `userData`.
+  The priced-only bodies quote the same as the full create bodies (live):
+  347,800 VND for `s2-general-1x2` with Ubuntu 24.04 and a 20 GB SSD root,
+  951,600 VND for `s2-general-2x4` with a 40 GB root and an 80 GB data
+  disk, and 32,000 VND for a 10 GB volume.
+- Neither the quote nor the server create sends `osLicence`; the SDK
+  creates no Windows server
+  ([non-goals](vserver-paid-writes.md#non-goals)).
+- One function per create builds the quote body. The quote operation and
+  the create's price guard both call it; see
   [quote before a paid write](vserver-paid-writes.md#quote-before-a-paid-write).
+- A drift test builds a quote and a create from one Input with every
+  field set. It checks that every quote key except `period` and `isPoc`
+  appears in the create body with an equal value, so a priced key the
+  create sends cannot differ from the one the guard priced.
 - A missing `zoneId` did not change a price (live).
 - A resize quote for an unknown ID returns 400: `Can not find this volume
   with id: <id>` for a volume and `Volume is not found` for a server

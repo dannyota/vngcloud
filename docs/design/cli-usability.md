@@ -103,6 +103,9 @@ vngcloud volume list-volume-types --zone-id <zone> --iops 3000 \
   --query "Items[].[ID,Name,MinSize,MaxSize]"
 ```
 
+In `HCM03-1A` this returns two types, both named "3000", at different
+prices (live). Pick one by `ID`, not by name.
+
 ## IDs for create-server
 
 A new CLI wiki page, `IDs-for-Create-Server.md`, lists each ID flag of
@@ -173,11 +176,12 @@ key out matches what the console sends.
 The CLI reads required fields from the `vngcloud:"required"` tag, which
 the create and the quote share. A new read option,
 `Optional(fields ...string)`, beside `NoFlag`, marks fields not required
-for one op: the CLI's required check skips them and `gen-docs` prints
-"no" in the Required column. The three quote commands set it to the
-"Required on the create only" column above. A test runs each quote command with
-only its required flags against a fake gateway and checks the body has no
-unpriced key, so the CLI list and the SDK rule cannot drift.
+for one op: the CLI's required check skips them and `gen-docs` leaves
+their Required cell empty, as it does for every optional flag. The three
+quote commands set it to the "Required on the create only" column above.
+A test runs each quote command with only its required flags against a
+fake gateway and checks the body has no unpriced key, so the CLI list and
+the SDK rule cannot drift.
 
 ```sh
 vngcloud compute quote-create-server --zone-id <zone> \
@@ -257,13 +261,17 @@ design was written).
   `CreateVolume` guards send the priced-only body.
 - CLI: golden output for `list-flavors --zone-id`, the quote body test
   above, the list-shape guard, and generated wiki pages.
-- Live, free: `list-flavors --zone-id` and `list-volume-types --zone-id`
-  in `hcm-3`, and a `quote-create-server` with only priced flags that must
-  quote 347,800 VND for `s2-general-1x2`, Ubuntu 24.04, 20 GB SSD root
-  ([prices](vserver-paid-writes-api.md#prices)). The run also records
-  whether `ListFlavors` rows carry `flavorZoneId` and whether
-  `volume_type_zones` honors `zoneId`. Fixtures follow
+- Live, free, for U1: `list-flavors --zone-id` and
+  `list-volume-types --zone-id` in `hcm-3`. The run also records whether
+  `ListFlavors` rows carry `flavorZoneId` and whether `volume_type_zones`
+  honors `zoneId`. Fixtures follow
   [live data](../../instructions/live-data.md).
+- Live, free, for U2, done: quotes with only priced flags price the same
+  as the full create bodies
+  ([prices](vserver-paid-writes-api.md#prices)): 347,800 VND for
+  `s2-general-1x2` with Ubuntu 24.04 and a 20 GB SSD root; 951,600 VND
+  for `s2-general-2x4` with a 40 GB root and an 80 GB data disk; 32,000
+  VND for a 10 GB volume; 400,000 VND for `ALB_Small`.
 
 ## Releases
 
@@ -306,5 +314,3 @@ All six are approved as recommended.
   came from `text` or `table` output.
 - Whether live `ListFlavors` rows carry `flavorZoneId`, and whether
   `volume_type_zones` filters by `zoneId`. The design works either way.
-- Whether the gateway prices the priced-only server body the same as the
-  full one. The U2 live quote checks it before the tag.
