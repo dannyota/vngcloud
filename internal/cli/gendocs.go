@@ -234,6 +234,7 @@ func runGenDocs(dir string) error {
 		buildDocService("tagging", taggingOps),
 		buildDocService("storage", storageOps),
 		buildDocService("vks", vksOps),
+		buildDocService("backup", backupOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 

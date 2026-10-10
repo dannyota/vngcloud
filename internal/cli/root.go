@@ -91,6 +91,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newTaggingCmd(e))
 	root.AddCommand(newStorageCmd(e))
 	root.AddCommand(newVKSCmd(e))
+	root.AddCommand(newBackupCmd(e))
 
 	return root
 }
