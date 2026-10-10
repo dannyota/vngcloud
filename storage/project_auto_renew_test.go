@@ -224,6 +224,36 @@ func TestProjectAutoRenewNoRenewalInProgress(t *testing.T) {
 	}
 }
 
+func TestProjectAutoRenewAccountIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		accepted   bool
+	}{
+		{"account only", testutil.FixtureBody(t, "../testdata/billing/ResourceUserInfo.json"), true},
+		{"user only", testutil.FixtureBody(t, "../testdata/billing/ResourceUserInfoIAM.json"), true},
+		{"both equal", `{"code":200,"data":{"accountId":12345,"userId":12345.0}}`, true},
+		{"both different", `{"code":200,"data":{"accountId":12345,"userId":54321}}`, false},
+		{"neither", `{"code":200,"data":{}}`, false},
+		{"null account with user", `{"code":200,"data":{"accountId":null,"userId":12345}}`, false},
+		{"account with invalid user", `{"code":200,"data":{"accountId":12345,"userId":1.5}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &autoRenewServer{overrides: map[string]string{"/gateway/api/v1/home/user-info": tc.body}}
+			out, err := autoRenewClient(t, s).PutProjectAutoRenew(context.Background(), &PutProjectAutoRenewInput{ProjectID: "new-1", Enabled: vngcloud.Ptr(true), MaxPrice: 30000})
+			if tc.accepted {
+				if err != nil || !out.Changed || s.puts != 1 || s.accounts != 1 {
+					t.Fatalf("valid identity refused: %v, PUTs %d, account reads %d", err, s.puts, s.accounts)
+				}
+				return
+			}
+			var api *core.APIError
+			if !errors.As(err, &api) || api.Operation != "billingresources.GetAccount" || api.Code != "InvalidResponse" || api.Message != "billing response had invalid structure" || s.puts != 0 || s.accounts != 1 {
+				t.Fatalf("invalid identity accepted: %v, PUTs %d, account reads %d", err, s.puts, s.accounts)
+			}
+		})
+	}
+}
+
 func TestProjectAutoRenewGuards(t *testing.T) {
 	baseResource := `{"code":200,"data":{"data":[{"artifactId":"new-1","artifactType":"object-storage","product":"vstorage","renewType":"MANUAL","billingType":"PREPAID","channel":0,"isRenewing":false,"endBillingTime":1890000000000,"renewPeriod":null}]}}`
 	for _, tc := range []struct {

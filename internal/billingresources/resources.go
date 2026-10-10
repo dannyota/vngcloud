@@ -131,19 +131,41 @@ func Account(ctx context.Context, c *core.Client) (string, error) {
 	}
 	var wire struct {
 		AccountID json.RawMessage `json:"accountId"`
+		UserID    json.RawMessage `json:"userId"`
 	}
-	if json.Unmarshal(data, &wire) != nil || len(wire.AccountID) == 0 || len(wire.AccountID) > 128 {
+	if json.Unmarshal(data, &wire) != nil {
 		return "", responseError(AccountOperation, status)
+	}
+	var account string
+	for _, raw := range []json.RawMessage{wire.AccountID, wire.UserID} {
+		if len(raw) == 0 {
+			continue
+		}
+		id, ok := positiveAccountID(raw)
+		if !ok || (account != "" && account != id) {
+			return "", responseError(AccountOperation, status)
+		}
+		account = id
+	}
+	if account == "" {
+		return "", responseError(AccountOperation, status)
+	}
+	return account, nil
+}
+
+func positiveAccountID(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || len(raw) > 128 {
+		return "", false
 	}
 	var number json.Number
-	if json.Unmarshal(wire.AccountID, &number) != nil || bytes.TrimSpace(wire.AccountID)[0] == '"' {
-		return "", responseError(AccountOperation, status)
+	if json.Unmarshal(raw, &number) != nil || bytes.TrimSpace(raw)[0] == '"' {
+		return "", false
 	}
 	account, ok := new(big.Rat).SetString(number.String())
 	if !ok || !account.IsInt() || !account.Num().IsInt64() || account.Sign() <= 0 {
-		return "", responseError(AccountOperation, status)
+		return "", false
 	}
-	return strconv.FormatInt(account.Num().Int64(), 10), nil
+	return strconv.FormatInt(account.Num().Int64(), 10), true
 }
 
 type Setting struct {

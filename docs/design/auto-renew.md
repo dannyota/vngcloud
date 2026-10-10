@@ -287,8 +287,11 @@ new deliberate setting if needed. Never automatically roll back or resend.
 
 ## Account identity and privacy
 
-Resolve `data.accountId` from the authenticated Billing user-info route
-immediately before each actual PUT. Require a positive integral int64 and
+Resolve identity from authenticated Billing user-info immediately before
+each actual PUT: the SDK login carries `data.userId`, which equals the
+caller identity's account ID, and the console session carries
+`data.accountId`; prefer `accountId` when present and require both fields
+to agree when both are present. Require a positive integral int64 and
 serialize it in decimal as `portal-user-id`. Do not accept the value from
 Input, flags, config, environment, tags, a project user ID, or a browser
 cache. IAM GetCallerIdentity.AccountID identifies the same account concept,

@@ -11,19 +11,21 @@ import (
 )
 
 func TestAccountStrict(t *testing.T) {
-	for _, tc := range []struct{ value, want string }{{"12345", "12345"}, {"12345.0", "12345"}, {"9223372036854775807", "9223372036854775807"}, {"0", ""}, {"-1", ""}, {"1.5", ""}, {"null", ""}, {`"12345"`, ""}, {"9223372036854775808", ""}} {
-		t.Run(tc.value, func(t *testing.T) {
-			c := testutil.NewCoreClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/gateway/api/v1/home/user-info" || r.Header.Get("portal-user-id") != "" {
-					t.Error("account request")
+	for _, field := range []string{"accountId", "userId"} {
+		for _, tc := range []struct{ value, want string }{{"12345", "12345"}, {"12345.0", "12345"}, {"9223372036854775807", "9223372036854775807"}, {"0", ""}, {"-1", ""}, {"1.5", ""}, {"null", ""}, {`"12345"`, ""}, {"9223372036854775808", ""}} {
+			t.Run(field+"/"+tc.value, func(t *testing.T) {
+				c := testutil.NewCoreClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/gateway/api/v1/home/user-info" || r.Header.Get("portal-user-id") != "" {
+						t.Error("account request")
+					}
+					_, _ = w.Write([]byte(`{"code":200,"data":{"` + field + `":` + tc.value + `}}`))
+				}))
+				got, err := Account(context.Background(), c)
+				if got != tc.want || (err == nil) != (tc.want != "") {
+					t.Fatalf("account value %q error %v", got, err)
 				}
-				_, _ = w.Write([]byte(`{"code":200,"data":{"accountId":` + tc.value + `}}`))
-			}))
-			got, err := Account(context.Background(), c)
-			if got != tc.want || (err == nil) != (tc.want != "") {
-				t.Fatalf("account value %q error %v", got, err)
-			}
-		})
+			})
+		}
 	}
 }
 

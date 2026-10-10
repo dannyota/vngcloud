@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "userId": 12345,
+    "uid": "<id>",
+    "email": "<account>",
+    "gender": "synthetic",
+    "phoneNumber": "<account>",
+    "paymentMethod": 0,
+    "isEndUser": true,
+    "isDisplayCostExplorer": false,
+    "address": null,
+    "dateOfBirth": null,
+    "firstName": null,
+    "lastName": null,
+    "trial": null
+  }
+}
