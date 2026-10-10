@@ -1,11 +1,13 @@
-# Snapshot Policy Read API
+# Server Service Read APIs
 
-Status: Accepted (2026-10-10). Policy reads, page traversal, and cookie-free IAM
-bearer authentication are verified.
+Status: Accepted (2026-10-10) for snapshot policy reads and (2026-10-11) for
+console log reads. Policy reads, page traversal, and cookie-free IAM bearer
+authentication are verified.
 
 This companion records the wire evidence for
 [server service reads](server-services.md). It contains no live account
-values. The source is a read-only HCM-03 console capture on 2026-10-10.
+values. Snapshot evidence comes from a read-only HCM-03 console capture on
+2026-10-10. Console log sources are named in their section.
 
 ## Request and envelope
 
@@ -203,3 +205,166 @@ for this design. Public searches found no GreenNode policy schema that fills
 the gaps above; similar APIs from other vendors are not evidence.
 
 [snapshot-source]: https://github.com/vngcloud/vngcloud-go-sdk/blob/main/vngcloud/services/volume/v2/snapshot.go
+
+## Server console log
+
+Read boot and serial output when SSH is unavailable. The route is:
+
+```text
+GET <configured vServer gateway>/v2/{projectId}/servers/{serverId}/console-log
+```
+
+HTTP 200 carries an object with `data` as one string. The supplied read-only
+evidence from 2026-10-10 reports systemd and cloud-init output.
+No account values or log content are retained here. The official Terraform
+provider confirms the route and string envelope. Its generated method takes
+only project and server IDs and sends an empty query. No length or line-count
+parameter is confirmed; expose neither and send no query parameters. This
+does not claim that the service has no undocumented parameters.
+
+First-party source checked on 2026-10-11: [Terraform provider][console-source]
+at commit `230bd7d346853b2aba33a9ec06f8c544b06fa8a2`, under `client/vserver/`:
+
+- `api_server_rest_controller_v2.go:847`: `GetConsoleLogUsingGET`; path at
+  line 857, empty query at 862, passed unchanged at 882.
+- `model_data_responsestring.go:12`: `Data string` with JSON key `data`.
+- `docs/ServerRestControllerV2Api.md:255`: generated method documentation.
+
+These sources establish no stopped-server or unknown-ID behavior. Do not
+infer anonymous access from the generated documentation's auth annotation;
+use the existing compute bearer authentication and configured region/project.
+Never call `console-url`, including as a fallback or redirect target. Its
+credential-bearing noVNC URL is outside this operation.
+
+### SDK and transport
+
+The public method is `(*compute.Client).GetServerConsoleLog(ctx, in)`, with
+the usual `context.Context`, pointer input, pointer output, and error:
+
+```go
+type GetServerConsoleLogInput struct {
+    ServerID string `vngcloud:"required"`
+}
+
+type GetServerConsoleLogOutput struct {
+    Log vngcloud.Secret
+}
+```
+
+Input and Output have no JSON tags. Reject nil input, empty ServerID, and
+invalid path IDs with `ErrInvalidInput` before authentication or project
+discovery, as `compute.GetServer` does. Use its gateway routing and project
+resolution. Root `vngcloud` gains no service types or methods. No server-state
+pre-read, polling, boot action, or streaming/follow mode is needed.
+
+Console output can contain passwords and keys. `Log` uses the existing
+`vngcloud.Secret` to suppress ordinary formatting, JSON encoding, and slog
+output; SDK callers obtain the text explicitly with `Log.Reveal()`. This is
+not content redaction or protection against reflection and explicit casts.
+
+Set `Sensitive: true`, `NoRedirect: true`, `OK: []int{200}`, and
+`MaxBody: 8 << 20` on every attempt. The 8 MiB cap covers the entire JSON body
+read by the transport, including JSON escaping and HTTP decompression. It
+bounds allocations while allowing a substantial boot log; it is a client
+resource limit, not an observed service maximum. Read at most cap plus one
+byte, fail on overflow, and never return a truncated log. No cap override.
+Normal compute GET retries and cancellation apply; body overflow is not
+retried. Refusing all redirects prevents a redirect to `console-url`.
+
+`Sensitive` suppresses captures and decode details, but not HTTP error text.
+Also set `WithholdMessage` to `console log request failed; body withheld`.
+Use `ClassifyError` to replace every upstream code with
+`core.ResolvedCode(status, "")`, or `RequestFailed` when that is empty. Never
+classify by upstream text. Preserve status, retryability, and shared status
+sentinels. No response body, message, code, or nested decode error is copied
+into errors. `--debug` shows the usual method, URL path without query, status
+when available, and duration per attempt, plus existing IAM login events.
+The path includes resource IDs. Debug shows no bodies, headers, or credentials.
+
+Disable routine example/live-suite calls and all raw or decoded captures for
+this operation. Fixtures are synthetic only, including secret-like markers;
+never sanitize a real console log into a fixture. This is a scoped exception
+to the capture/fixture workflow in [live data][console-live-data]. An explicit
+live check may assert status and shape in memory, but cannot print or persist
+the log. Routine diagnostics must not call `Reveal()`.
+
+### Results and errors
+
+Only an object containing string `data` is success. Decode with presence and
+type checks; ignore extra fields. Return nil output on every failure.
+
+| Response or condition | Result |
+|-|-|
+| `200`, `data: ""` | Success with an empty Log |
+| Missing/null/non-string `data`, malformed JSON, empty body | Decode failure |
+| Non-object envelope, including JSON null | Decode failure |
+| Stopped server | Send the same GET; return its string or mapped error |
+| Unknown ID returning 404 | `APIError`, `NotFound`, `ErrNotFound` |
+| Unknown ID returning another response | Apply the same shape/status rules |
+| Body over 8 MiB, on any status | `APIError`, `ResponseTooLarge` |
+
+Decode failures use `*vngcloud.APIError` with operation
+`compute.GetServerConsoleLog`, code `RequestFailed`, message
+`console log response invalid; body withheld`, status 200, and Retryable false.
+Do not retain the underlying decode error. Wrap the internal
+`transport.ErrBodyTooLarge` as a public `APIError` with code
+`ResponseTooLarge`, message `console log response exceeds 8 MiB`, status 0,
+and Retryable false; `DoJSONStatus` does not preserve status on overflow.
+Add no public sentinel. Oversize errors take precedence over status mapping.
+
+Other failures retain compute read semantics: 401 maps to `ErrAuth`, 403 to
+`ErrPermission`, 404 to `ErrNotFound`, and 429 to `ErrRateLimited`. Use the
+shared status-derived codes, including `Conflict` for 409 and `ServerError`
+for 5xx. Stopped and unknown-ID service responses remain unverified; do not
+invent `ErrUnexpectedStatus` or treat an empty string as not found.
+
+### CLI and approval
+
+Register `vngcloud compute get-server-console-log --server-id <id>` as a
+`Read` using only the public SDK. It works in read-only profiles, accepts
+`--cli-input-json`, and needs no `--yes`. Keep the usual output default
+(profile setting, otherwise JSON). The operation explicitly reveals Log only
+for requested stdout output; help and wiki text must say logs can hold secrets.
+
+- `--output text` without a query writes the decoded Log with no label,
+  quotes, or added newline. When stdout is not a terminal (a pipe or file),
+  the bytes are verbatim, including control characters, so the log pipes
+  unchanged. When stdout is a terminal, control characters other than
+  newline and tab are escaped as the existing text renderer escapes them, so
+  a log cannot drive the terminal. An empty log writes zero bytes.
+- JSON uses the object `{"Log":"..."}` with normal JSON escaping; an empty
+  log is `{"Log":""}`. Table output has one Log column and one row, with
+  controls escaped by the existing renderer; an empty log is an empty cell.
+- `--query` operates on that revealed object. A text query returning a string
+  writes that string verbatim; other results use normal rendering. Keep query
+  syntax checks before the call. The terminal rule above applies to a
+  string written this way. Runtime query failures use `QueryFailed`
+  with fixed text `console log query failed; result withheld`, without the
+  underlying query error, which may quote the log. No log goes to stderr.
+- Keep existing exits: success 0; usage/config 2; credentials/login/401 3;
+  not found 4; permission, throttle, decode, size, query-runtime, network,
+  cancellation, and other request failures 1. Errors remain JSON on stderr.
+
+The owner approved on 2026-10-11 Secret-typed SDK output, the 8 MiB cap,
+synthetic-only fixtures, and explicit secret-bearing stdout, verbatim only
+when stdout is not a terminal. The stdout and raw-control rules are scoped
+exceptions to [CLI reads][console-reads] "No command prints a credential"
+and [CLI][console-cli] secret-file and text escaping rules. No other command
+changes. Ship SDK and CLI together in one additive release, with no existing
+API break.
+
+Required checks use synthetic responses: exact GET/path/no query, validation
+before auth, empty and invalid shapes, stopped/unknown-ID status handling,
+cap and cap-plus-one bodies (also errors and decompressed bodies), no partial
+output, status sentinels/exits, retries/cancellation, and refused redirects.
+Assert no captures or secret markers in errors, debug, query failures, or
+ordinary SDK formatting. Check raw text bytes with and without a final
+newline, terminal escaping, JSON/table escaping, queries, input JSON, and
+read-only mode. Update SDK and CLI wiki pages and run `make check` before
+release.
+
+[console-source]:
+  https://github.com/vngcloud/terraform-provider-vngcloud/tree/230bd7d
+[console-live-data]: ../../instructions/live-data.md
+[console-reads]: cli-reads.md
+[console-cli]: cli.md
