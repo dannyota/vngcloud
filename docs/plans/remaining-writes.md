@@ -25,6 +25,18 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 - vCDN C1 needs one real Web Accelerator to confirm the `cdn/*` body shape (the documented `webacc/*` routes answer 404): the owner creates one in the vCDN Portal, or clears the cost check and C2 creates one.
 - The budget `vngcloud-live-cap` (1,000,000 VND a month, alert at 50%) stays on the account for later paid runs.
 
+## CLI usability (from the first external agent run, 2026-10-10)
+
+An agent set up the CLI read-only and quoted servers end to end. Its findings, in order of value:
+
+1. ID discovery for a quote takes five calls (zones, flavor zones, flavors, volume type zones, volume types) with same-named flavor zones that return no flavors. Wanted: `compute list-flavors --zone-id <zone> [--name <flavor>]` fanning out over the zone's flavor zones client side, `volume list-volume-types --zone-id <zone> [--iops N]`, and a wiki page listing the IDs `create-server` needs and where each comes from. Architect decides the shape.
+2. `quote-create-server` requires `--vpc-id`, `--subnet-id`, `--security-group-id`, `--ssh-key-id`, `--name` although the gateway ignores them for pricing; placeholders work. Architect decides: optional on the quote command, or a documented placeholder.
+3. Output shapes differ: `list-flavors` and `list-volume-types` wrap in `{"Items": [...]}`, `list-flavor-zones` and `list-os-images` return a bare array, so a `--query` for one returns null on the other. Architect decides the single shape; cli applies it.
+4. Quote output shows the root disk's type ID where its size belongs (gateway text); the CLI could render the size from its own input. Low.
+5. `portal list-zones` reports `HCM03-1A` `IsEnabled=false`, "Contact to enable", yet quotes and creates work there: a wiki note.
+6. Setup recipe for a read-only agent profile in the Configuration wiki page (`configure set read_only 1`, the credential keys, `VNGCLOUD_REGION` has no default), and `configure list` should print the file path when values are empty.
+7. `--version` should work beside `vngcloud version`.
+
 ## Verification state
 
 Local `make check` passed on master on 2026-10-09 with Go 1.27.2. No release is approved solely by local tests.
