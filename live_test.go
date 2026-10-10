@@ -1011,6 +1011,32 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 		})
 	}
 
+	t.Run("volume-types-by-zone", func(t *testing.T) {
+		if cfg.Region() != "hcm-3" {
+			t.Skip("zone lookups run only in hcm-3")
+		}
+		byZone, err := client.ListVolumeTypes(ctx, &volume.ListVolumeTypesInput{ZoneID: liveLookupZoneID})
+		if err != nil {
+			t.Fatalf("ListVolumeTypes(ZoneID): %v", err)
+		}
+		t.Logf("volume types in %s: %d", liveLookupZoneID, len(byZone.Items))
+		for _, vt := range byZone.Items {
+			if vt.VolumeTypeZoneID == "" || vt.ZoneID == "" {
+				t.Fatal("ListVolumeTypes(ZoneID) row missing VolumeTypeZoneID or ZoneID")
+			}
+		}
+		byIOPS, err := client.ListVolumeTypes(ctx, &volume.ListVolumeTypesInput{ZoneID: liveLookupZoneID, IOPS: 3000})
+		if err != nil {
+			t.Fatalf("ListVolumeTypes(ZoneID, IOPS): %v", err)
+		}
+		t.Logf("volume types in %s with 3000 IOPS: %d", liveLookupZoneID, len(byIOPS.Items))
+		for _, vt := range byIOPS.Items {
+			if vt.IOPS != 3000 {
+				t.Fatalf("IOPS filter kept a type with IOPS %d", vt.IOPS)
+			}
+		}
+	})
+
 	t.Run("encryption-types", func(t *testing.T) {
 		res, err := client.ListEncryptionTypes(ctx, nil)
 		if err != nil {
@@ -1054,6 +1080,47 @@ func testLiveVolume(ctx context.Context, t *testing.T, cfg vngcloud.Config, volu
 		}
 		t.Logf("snapshots: %d of %d", len(res.Items), res.TotalItem)
 	})
+}
+
+// liveLookupZoneID is the hcm-3 zone the zone-lookup checks query.
+const liveLookupZoneID = "HCM03-1A"
+
+// testLiveFlavorsByZone lists flavors by network zone and by exact name. It
+// logs counts only.
+func testLiveFlavorsByZone(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	if cfg.Region() != "hcm-3" {
+		t.Skip("zone lookups run only in hcm-3")
+	}
+	client := compute.New(cfg)
+
+	zones, err := client.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: liveLookupZoneID})
+	if err != nil {
+		t.Fatalf("ListFlavorZones(ZoneID): %v", err)
+	}
+	flavors, err := client.ListFlavors(ctx, &compute.ListFlavorsInput{ZoneID: liveLookupZoneID})
+	if err != nil {
+		t.Fatalf("ListFlavors(ZoneID): %v", err)
+	}
+	t.Logf("flavor zones in %s: %d, flavors: %d", liveLookupZoneID, len(zones.Items), len(flavors.Items))
+	for _, f := range flavors.Items {
+		if f.FlavorZoneID == "" || f.ZoneID == "" {
+			t.Fatal("ListFlavors(ZoneID) row missing FlavorZoneID or ZoneID")
+		}
+	}
+
+	named, err := client.ListFlavors(ctx, &compute.ListFlavorsInput{ZoneID: liveLookupZoneID, Name: "s2-general-2x4"})
+	if err != nil {
+		t.Fatalf("ListFlavors(ZoneID, Name): %v", err)
+	}
+	t.Logf("flavors named s2-general-2x4 in %s: %d", liveLookupZoneID, len(named.Items))
+	if len(named.Items) == 0 {
+		t.Fatal("no flavor named s2-general-2x4")
+	}
+	for _, f := range named.Items {
+		if f.Name != "s2-general-2x4" {
+			t.Fatal("Name filter kept a different flavor")
+		}
+	}
 }
 
 // testLiveVServerPaidWritesP1 runs the vServer paid writes design's P1 free
@@ -1277,6 +1344,7 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		volumes = res.Items
 	})
 	t.Run("volume", func(t *testing.T) { testLiveVolume(ctx, t, cfg, volumes) })
+	t.Run("flavors-by-zone", func(t *testing.T) { testLiveFlavorsByZone(ctx, t, cfg) })
 	t.Run("vserver-paid-writes-p1", func(t *testing.T) { testLiveVServerPaidWritesP1(ctx, t, cfg) })
 	t.Run("vpcs", func(t *testing.T) {
 		res, err := network.New(cfg).ListVPCs(ctx, &network.ListVPCsInput{Page: 1, Size: 5})

@@ -91,7 +91,7 @@ computeClient.ListOSImages(ctx, in)             // ZoneID
 computeClient.ListGPUImages(ctx, nil)
 computeClient.ListUserImages(ctx, in)           // Page, Size
 computeClient.ListFlavorZones(ctx, in)          // ZoneID
-computeClient.ListFlavors(ctx, in)              // FlavorZoneID (required)
+computeClient.ListFlavors(ctx, in)              // FlavorZoneID or ZoneID, Name
 computeClient.QuoteCreateServer(ctx, in)        // *compute.CreateServerInput
 ```
 
@@ -119,7 +119,7 @@ volumeClient.GetVolume(ctx, in)            // VolumeID (required)
 volumeClient.GetUnderlyingVolume(ctx, in)  // VolumeID (required)
 volumeClient.ListVolumesByServer(ctx, in)  // ServerID (required)
 volumeClient.ListVolumeTypeZones(ctx, in)  // ZoneID
-volumeClient.ListVolumeTypes(ctx, in)      // VolumeTypeZoneID
+volumeClient.ListVolumeTypes(ctx, in)      // VolumeTypeZoneID or ZoneID, IOPS
 volumeClient.GetVolumeType(ctx, in)        // VolumeTypeID (required)
 volumeClient.GetDefaultVolumeType(ctx, in) // ZoneID
 volumeClient.ListEncryptionTypes(ctx, nil)

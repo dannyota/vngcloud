@@ -41,6 +41,34 @@ func main() {
 The rest of this page assumes `cfg` and `ctx` from this setup, plus
 `client := volume.New(cfg)`.
 
+## Listing volume types
+
+```go
+types, err := client.ListVolumeTypes(ctx, &volume.ListVolumeTypesInput{
+	ZoneID: "<zone-id>",
+	IOPS:   3000,
+})
+if err != nil {
+	log.Fatal(err)
+}
+for _, t := range types.Items {
+	log.Println(t.ID, t.Name, t.MinSize, t.MaxSize)
+}
+```
+
+`ListVolumeTypesInput` takes at most one of `VolumeTypeZoneID` and `ZoneID`;
+both fails with `vngcloud.ErrInvalidInput`. With neither, the call lists the
+project's volume types. With `ZoneID`, the SDK lists the volume type zones,
+keeps those whose zone is `ZoneID`, then lists each one's types one at a
+time: `1 + M` requests for `M` volume type zones. Rows follow the volume
+type zone order, then the API's order inside each zone, and carry their
+`VolumeTypeZoneID` (the SDK fills it when the API leaves it empty). A
+zone with no types adds no rows. The first failing request ends the call
+with its error and no rows.
+
+`IOPS` keeps only types whose `IOPS` equals it, in every mode. 0 means no
+filter, and a negative value fails with `vngcloud.ErrInvalidInput`.
+
 ## Creating and deleting volumes
 
 Creating a volume charges the account: a prepaid account pays one month's

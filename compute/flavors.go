@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -57,18 +58,65 @@ func (c *Client) ListFlavorZones(ctx context.Context, in *ListFlavorZonesInput) 
 }
 
 type ListFlavorsInput struct {
-	FlavorZoneID string `vngcloud:"required"`
+	// FlavorZoneID lists the flavors of one flavor zone. Set exactly one of
+	// FlavorZoneID and ZoneID.
+	FlavorZoneID string
+	// ZoneID lists the flavors of every flavor zone in this network zone:
+	// one request for the flavor zones, then one per flavor zone.
+	ZoneID string
+	// Name keeps only flavors whose Name equals it exactly.
+	Name string
 }
 
 type ListFlavorsOutput = core.List[Flavor]
 
-// ListFlavors lists the flavors in one flavor zone.
+// ListFlavors lists the flavors in one flavor zone, or in every flavor zone
+// of one network zone. Rows follow the order of the flavor zone list, then
+// the API's order inside each flavor zone, and each carries its
+// FlavorZoneID. The first failing request ends the call with no partial
+// result.
 func (c *Client) ListFlavors(ctx context.Context, in *ListFlavorsInput) (*ListFlavorsOutput, error) {
 	const op = "compute.ListFlavors"
-	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
+	if in == nil || (in.FlavorZoneID == "") == (in.ZoneID == "") {
+		return nil, fmt.Errorf("%w: %s requires exactly one of FlavorZoneID and ZoneID", core.ErrInvalidInput, op)
 	}
-	if err := core.CheckPathID(op, "FlavorZoneID", in.FlavorZoneID); err != nil {
+	var flavorZoneIDs []string
+	if in.FlavorZoneID != "" {
+		flavorZoneIDs = []string{in.FlavorZoneID}
+	} else {
+		zones, err := c.ListFlavorZones(ctx, &ListFlavorZonesInput{ZoneID: in.ZoneID})
+		if err != nil {
+			return nil, err
+		}
+		for _, zone := range zones.Items {
+			flavorZoneIDs = append(flavorZoneIDs, zone.ID)
+		}
+	}
+	items := []Flavor{}
+	for _, id := range flavorZoneIDs {
+		flavors, err := c.listFlavorsInZone(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range flavors {
+			if in.Name != "" && f.Name != in.Name {
+				continue
+			}
+			if f.FlavorZoneID == "" {
+				f.FlavorZoneID = id
+			}
+			if f.ZoneID == "" {
+				f.ZoneID = in.ZoneID
+			}
+			items = append(items, f)
+		}
+	}
+	return &ListFlavorsOutput{Items: items}, nil
+}
+
+func (c *Client) listFlavorsInZone(ctx context.Context, flavorZoneID string) ([]Flavor, error) {
+	const op = "compute.ListFlavors"
+	if err := core.CheckPathID(op, "FlavorZoneID", flavorZoneID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -81,10 +129,10 @@ func (c *Client) ListFlavors(ctx context.Context, in *ListFlavorsInput) (*ListFl
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: op,
 		Method:    "GET",
-		URL:       c.computeURL("v1", []string{projectID, in.FlavorZoneID, "flavors"}, nil),
+		URL:       c.computeURL("v1", []string{projectID, flavorZoneID, "flavors"}, nil),
 		OK:        []int{200},
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &ListFlavorsOutput{Items: resp.Flavors}, nil
+	return resp.Flavors, nil
 }

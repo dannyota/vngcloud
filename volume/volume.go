@@ -179,67 +179,6 @@ func (c *Client) ListVolumesByServer(ctx context.Context, in *ListVolumesByServe
 	return &ListVolumesByServerOutput{Items: resp.Items}, nil
 }
 
-type ListVolumeTypeZonesInput struct {
-	ZoneID string
-}
-
-type ListVolumeTypeZonesOutput = core.List[VolumeTypeZone]
-
-func (c *Client) ListVolumeTypeZones(ctx context.Context, in *ListVolumeTypeZonesInput) (*ListVolumeTypeZonesOutput, error) {
-	projectID, err := c.c.RequireProjectID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	q := url.Values{}
-	if in != nil && in.ZoneID != "" {
-		q.Set("zoneId", in.ZoneID)
-	}
-
-	var resp struct {
-		VolumeTypeZones []VolumeTypeZone `json:"volumeTypeZones"`
-	}
-	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "volume.ListVolumeTypeZones",
-		Method:    "GET",
-		URL:       c.volumeURL("v1", []string{projectID, "volume_type_zones"}, q),
-		OK:        []int{200},
-	}, &resp); err != nil {
-		return nil, err
-	}
-	return &ListVolumeTypeZonesOutput{Items: resp.VolumeTypeZones}, nil
-}
-
-type ListVolumeTypesInput struct {
-	VolumeTypeZoneID string
-}
-
-type ListVolumeTypesOutput = core.List[VolumeType]
-
-func (c *Client) ListVolumeTypes(ctx context.Context, in *ListVolumeTypesInput) (*ListVolumeTypesOutput, error) {
-	projectID, err := c.c.RequireProjectID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	parts := []string{projectID, "volume_types"}
-	if in != nil && in.VolumeTypeZoneID != "" {
-		parts = []string{projectID, in.VolumeTypeZoneID, "volume_types"}
-	}
-
-	var resp struct {
-		VolumeTypes []VolumeType `json:"volumeTypes"`
-	}
-	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "volume.ListVolumeTypes",
-		Method:    "GET",
-		URL:       c.volumeURL("v1", parts, nil),
-		OK:        []int{200},
-	}, &resp); err != nil {
-		return nil, err
-	}
-	return &ListVolumeTypesOutput{Items: resp.VolumeTypes}, nil
-}
-
 type GetVolumeTypeInput struct {
 	VolumeTypeID string `vngcloud:"required"`
 }
