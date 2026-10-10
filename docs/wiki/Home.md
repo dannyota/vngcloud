@@ -60,9 +60,9 @@ rename; the module keeps the `vngcloud` name.
 - [CLI: Billing](CLI-Billing.md), [CLI: Pricing](CLI-Pricing.md),
   [CLI: Compute](CLI-Compute.md), [CLI: IAM](CLI-IAM.md),
   [CLI: Network](CLI-Network.md), [CLI: DNS](CLI-DNS.md),
-  [CLI: CDN](CLI-CDN.md), [CLI: Monitor](CLI-Monitor.md), and
-  [CLI: Storage](CLI-Storage.md): every operation, its flags, and an
-  example.
+  [CLI: CDN](CLI-CDN.md), [CLI: Monitor](CLI-Monitor.md),
+  [CLI: Storage](CLI-Storage.md), and [CLI: VKS](CLI-VKS.md): every operation,
+  its flags, and an example.
 
 ## Source
 

@@ -90,6 +90,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newGlobalLoadBalancerCmd(e))
 	root.AddCommand(newTaggingCmd(e))
 	root.AddCommand(newStorageCmd(e))
+	root.AddCommand(newVKSCmd(e))
 
 	return root
 }

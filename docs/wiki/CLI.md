@@ -21,6 +21,7 @@
 - [Project](CLI-Project.md)
 - [Storage](CLI-Storage.md)
 - [Tagging](CLI-Tagging.md)
+- [VKS](CLI-VKS.md)
 - [Volume](CLI-Volume.md)
 
 To find the IDs `compute create-server` and `compute quote-create-server` take, see [IDs for Create Server](IDs-for-Create-Server.md).

@@ -233,6 +233,7 @@ func runGenDocs(dir string) error {
 		buildDocService("globalloadbalancer", globalLoadBalancerOps),
 		buildDocService("tagging", taggingOps),
 		buildDocService("storage", storageOps),
+		buildDocService("vks", vksOps),
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
@@ -299,7 +300,7 @@ func readableGoType(t reflect.Type) string {
 }
 
 // serviceTitle capitalizes a service's command name for its page title and
-// file name: "billing" becomes "Billing", but the DNS, CDN, and IAM
+// file name: "billing" becomes "Billing", but the DNS, CDN, IAM, and VKS
 // initialisms stay upper case, and the three compound service names read as
 // separate words (the CLI reads design's "Service names and pages").
 // "project", "portal", and "volume" need no case here: the default rule
@@ -312,6 +313,8 @@ func serviceTitle(name string) string {
 		return "CDN"
 	case "iam":
 		return "IAM"
+	case "vks":
+		return "VKS"
 	case "loadbalancer":
 		return "LoadBalancer"
 	case "globalloadbalancer":

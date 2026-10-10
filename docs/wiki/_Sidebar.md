@@ -52,3 +52,4 @@
 - [CLI: GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
 - [CLI: Tagging](CLI-Tagging.md)
 - [CLI: Storage](CLI-Storage.md)
+- [CLI: VKS](CLI-VKS.md)
