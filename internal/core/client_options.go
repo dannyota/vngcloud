@@ -58,7 +58,7 @@ type clientConfig struct {
 	profile         string
 	configFile      string
 	credentialsFile string
-	cdnAPIKey       cdnKey
+	cdnAPIKey       *cdnKey
 }
 
 type ResponseCapture struct {

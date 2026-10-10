@@ -157,7 +157,9 @@ func TestCDNAPIKeyNeverFormats(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := ClientOf(cfg)
-	out := []string{fmt.Sprintf("%v %+v %#v", cfg, cfg, cfg), fmt.Sprintf("%v %+v %#v", c, c, c), fmt.Sprintf("%+v %#v", c.cdnAPIKey, c.cdnAPIKey)}
+	var settings clientConfig
+	WithCDNAPIKey(keyOption).apply(&settings)
+	out := []string{fmt.Sprintf("%v %+v %#v", settings, settings, settings), fmt.Sprintf("%v %+v %#v", &settings, &settings, &settings), fmt.Sprintf("%v %+v %#v", cfg, cfg, cfg), fmt.Sprintf("%v %+v %#v", c, c, c), fmt.Sprintf("%+v %#v", c.cdnAPIKey, c.cdnAPIKey)}
 	b, err := json.Marshal(struct{ K *cdnKey }{c.cdnAPIKey})
 	if err != nil {
 		t.Fatal(err)

@@ -16,7 +16,9 @@ const (
 )
 
 // cdnKey is the vCDN API key. Every formatting and encoding path gives
-// "[redacted]", so a Client or clientConfig printed whole never shows it.
+// "[redacted]". A Client and a clientConfig hold it by pointer, so fmt
+// prints an address, not the key, when it formats either whole: fmt cannot
+// call a Format method on an unexported field.
 // The root package's Secret type cannot be used here, since it imports this
 // package.
 type cdnKey string
@@ -36,7 +38,8 @@ func (k cdnKey) reveal() string             { return string(k) }
 // profile's credentials file section.
 func WithCDNAPIKey(key string) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
-		cfg.cdnAPIKey = cdnKey(key)
+		k := cdnKey(key)
+		cfg.cdnAPIKey = &k
 	})
 }
 
@@ -70,14 +73,16 @@ func validateCDNAPIKey(source string, key cdnKey) error {
 // the profile's credentials section. No key anywhere is not an error.
 func resolveCDNAPIKey(settings *clientConfig, explicitProfile bool, profile string, credsSection map[string]string) error {
 	switch {
-	case settings.cdnAPIKey != "":
-		return validateCDNAPIKey("WithCDNAPIKey", settings.cdnAPIKey)
+	case settings.cdnAPIKey != nil && *settings.cdnAPIKey != "":
+		return validateCDNAPIKey("WithCDNAPIKey", *settings.cdnAPIKey)
 	case !explicitProfile && os.Getenv(envCDNAPIKey) != "":
-		settings.cdnAPIKey = cdnKey(os.Getenv(envCDNAPIKey))
-		return validateCDNAPIKey("the environment variable "+envCDNAPIKey, settings.cdnAPIKey)
+		k := cdnKey(os.Getenv(envCDNAPIKey))
+		settings.cdnAPIKey = &k
+		return validateCDNAPIKey("the environment variable "+envCDNAPIKey, k)
 	case credsSection["vcdn_api_key"] != "":
-		settings.cdnAPIKey = cdnKey(credsSection["vcdn_api_key"])
-		return validateCDNAPIKey(fmt.Sprintf("vcdn_api_key in profile %q of the credentials file", profile), settings.cdnAPIKey)
+		k := cdnKey(credsSection["vcdn_api_key"])
+		settings.cdnAPIKey = &k
+		return validateCDNAPIKey(fmt.Sprintf("vcdn_api_key in profile %q of the credentials file", profile), k)
 	}
 	return nil
 }

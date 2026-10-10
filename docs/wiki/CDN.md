@@ -184,8 +184,11 @@ Every failure is a `*vngcloud.APIError` with the operation.
   reason`.
 - A detail read of an unknown ID arrives the same way, with empty `data`. The
   SDK maps it to `NotFound`.
-- A server message that holds `@` is replaced whole, so no account email
-  reaches an error. Every message is cut to 256 bytes with control characters
-  removed.
+- A server message that holds `@`, the fullwidth at sign (U+FF20), or the small
+  at sign (U+FE6B) is replaced whole, so no account
+  email reaches an error. Every message is cut to 256 bytes with control
+  characters removed.
 - The API key is added to the request's redaction list, so a server that
-  echoes it in a message shows `[redacted]` instead.
+  echoes it in a message shows `[redacted]` instead. This holds for a failed
+  HTTP status and for a 200 with `success: false`, in both the message and
+  the code.

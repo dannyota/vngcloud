@@ -64,8 +64,8 @@ func newClient(opts ...Option) (*Client, error) {
 	for _, opt := range opts {
 		opt.apply(&settings)
 	}
-	if settings.cdnAPIKey != "" {
-		if err := validateCDNAPIKey("WithCDNAPIKey", settings.cdnAPIKey); err != nil {
+	if settings.cdnAPIKey != nil && *settings.cdnAPIKey != "" {
+		if err := validateCDNAPIKey("WithCDNAPIKey", *settings.cdnAPIKey); err != nil {
 			return nil, err
 		}
 	}
@@ -149,7 +149,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	c := &Client{
 		region:    settings.region,
 		projectID: settings.projectID,
-		cdnAPIKey: &settings.cdnAPIKey,
+		cdnAPIKey: settings.cdnAPIKey,
 		endpoints: resolvedEndpoints,
 		transport: tc,
 		logger:    logger,

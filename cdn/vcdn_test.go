@@ -156,6 +156,9 @@ func TestVCDNErrorTable(t *testing.T) {
 		{"envelope 500 null message", 200, "application/json", `{"success":false,"code":500,"message":null,"data":""}`, 200, "500", noReason, nil, false},
 		{"envelope 500 empty message", 200, "application/json", `{"success":false,"code":500,"message":"","data":""}`, 200, "500", noReason, nil, false},
 		{"envelope 500 text", 200, "application/json", `{"success":false,"code":500,"message":"Domain already exists","data":null}`, 200, "500", "Domain already exists", nil, false},
+		{"envelope message with fullwidth at", 200, "application/json", `{"success":false,"code":500,"message":"User a＠b.test is not the owner","data":""}`, 200, "500", withheld, nil, false},
+		{"envelope message with small at", 200, "application/json", `{"success":false,"code":500,"message":"User a﹫b.test is not the owner","data":""}`, 200, "500", withheld, nil, false},
+		{"400 message with fullwidth at", 400, "application/json", `{"message":"user a＠b.test"}`, 400, "BadRequest", withheld, vngcloud.ErrInvalidInput, false},
 		{"envelope message with @", 200, "application/json", `{"success":false,"code":500,"message":"User a@b.test is not the owner","data":""}`, 200, "500", withheld, nil, false},
 		{"envelope code 400", 200, "application/json", `{"success":false,"code":400,"message":"bad domain","data":""}`, 200, "400", "bad domain", vngcloud.ErrInvalidInput, false},
 		{"envelope code 401", 200, "application/json", `{"success":false,"code":401,"message":"x","data":""}`, 200, "401", rejectedKeyMessage, vngcloud.ErrAuth, false},
@@ -188,7 +191,7 @@ func TestVCDNErrorTable(t *testing.T) {
 			if tc.wantRetries != (h.requests.Load() > 1) {
 				t.Errorf("requests = %d, retries wanted = %v", h.requests.Load(), tc.wantRetries)
 			}
-			if strings.Contains(err.Error(), "@") {
+			if strings.ContainsAny(err.Error(), "@\uff20\ufe6b") {
 				t.Errorf("error holds an account name: %q", err)
 			}
 		})
@@ -265,6 +268,21 @@ func TestVCDNKeyEchoedByServerNeverSurfaces(t *testing.T) {
 	}
 	if !strings.Contains(apiErr.Message, "cannot parse") {
 		t.Errorf("message = %q, want the rest kept", apiErr.Message)
+	}
+}
+
+func TestVCDNKeyEchoedInEnvelopeNeverSurfaces(t *testing.T) {
+	body := `{"success":false,"code":"` + testKey + `","message":"invalid token ` + testKey + `"}`
+	h := newVCDN(t, testKey, reply(200, "application/json", body))
+	_, err := h.ListAPIKeys(context.Background(), nil)
+	apiErr := apiError(t, err)
+	for name, text := range map[string]string{"error": err.Error(), "message": apiErr.Message, "code": apiErr.Code, "log": h.logs.String(), "format": fmt.Sprintf("%v %+v %#v", err, apiErr, apiErr)} {
+		if strings.Contains(text, testKey) {
+			t.Errorf("%s holds the key: %q", name, text)
+		}
+	}
+	if apiErr.Code != "[redacted]" || !strings.Contains(apiErr.Message, "[redacted]") {
+		t.Errorf("code = %q, message = %q, want [redacted] in both", apiErr.Code, apiErr.Message)
 	}
 }
 

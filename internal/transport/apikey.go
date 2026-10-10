@@ -41,3 +41,10 @@ func (r Request) redactBody(body []byte) []byte {
 	}
 	return []byte(redact(string(body), r.redactValues()))
 }
+
+// RedactValues returns s with every occurrence of each secret in values
+// replaced by "[redacted]". Callers that build an error from a 2xx body use
+// it, since the transport redacts only the bodies of failed responses.
+func RedactValues(s string, values ...string) string {
+	return redact(s, values)
+}

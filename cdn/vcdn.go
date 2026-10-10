@@ -100,7 +100,7 @@ func (c *Client) do(ctx context.Context, r call) (json.RawMessage, error) {
 	if *env.Success {
 		return env.Data, nil
 	}
-	return nil, r.envelopeError(status, env)
+	return nil, r.envelopeError(status, env, key)
 }
 
 func (r call) unexpected(status int) error {
@@ -115,8 +115,9 @@ func (r call) unexpected(status int) error {
 // envelopeError builds the error for a 2xx answer with success false: the
 // envelope code is the Code, and a code of 400, 401, 403, or 404 also
 // matches that status's sentinel. The HTTP status stays 2xx, so the call is
-// never retried.
-func (r call) envelopeError(status int, env envelope) error {
+// never retried. The code and message have the API key redacted, since the
+// transport redacts only the bodies of failed responses.
+func (r call) envelopeError(status int, env envelope, key string) error {
 	code := codeText(env.Code)
 	effective, _ := strconv.Atoi(code)
 	if r.notFound != "" && emptyData(env.Data) {
@@ -138,8 +139,8 @@ func (r call) envelopeError(status int, env envelope) error {
 	return &core.APIError{
 		Operation:  r.op,
 		StatusCode: status,
-		Code:       code,
-		Message:    r.message(effective, msg, true),
+		Code:       transport.RedactValues(code, key),
+		Message:    transport.RedactValues(r.message(effective, msg, true), key),
 		Err:        sentinelFor(effective),
 	}
 }
@@ -161,6 +162,10 @@ func (r call) cleanError(err error) error {
 	return &cleaned
 }
 
+// accountMarks are the at signs that mark an account email in a server
+// message: ASCII, fullwidth (U+FF20), and small (U+FE6B).
+const accountMarks = "@\uff20\ufe6b"
+
 // message returns the text an error carries for server message msg and
 // effective status. An empty msg becomes the no-reason text when
 // noReason is set; a transport message is never empty.
@@ -170,7 +175,7 @@ func (r call) message(status int, msg string, noReason bool) string {
 		return rejectedKeyMessage
 	case status == http.StatusForbidden:
 		return forbiddenKeyMessage
-	case strings.Contains(msg, "@"):
+	case strings.ContainsAny(msg, accountMarks):
 		return "vCDN " + r.shortOp() + " refused: the server message named an account user and was withheld; check that every domain is a CDN of this account"
 	case strings.TrimSpace(msg) == "" && noReason:
 		return "vCDN " + r.shortOp() + " failed; the server gave no reason"
