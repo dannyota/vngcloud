@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.66.0 - vStorage Bucket Encryption
+
+### Highlights
+
+- `storage create-bucket --encryption` creates a bucket, turns on default
+  encryption, and reads it back; it succeeds only when encryption reads as
+  on. If enabling fails after the bucket exists, it returns
+  `BucketEncryptionIncomplete` naming the bucket and never deletes it.
+- `storage get-bucket-encryption` and `storage put-bucket-encryption
+  --enabled=true|false` read and set it; `--enabled` is required, so an
+  omitted value cannot turn encryption off. SDK: `GetBucketEncryption`,
+  `PutBucketEncryption`, and `CreateBucketInput.Encryption`.
+- Verified live on 2026-10-10 in `HCM04`: encryption is SSE-S3 (`AES256`)
+  and applies to uploads only; objects stored before enabling stay
+  unencrypted and encrypted objects stay encrypted after disabling.
+  Conditional `PutObject` (`If-None-Match: *` gives 412 on an existing
+  key), multipart uploads, and `DeleteObjects` work on an encrypted bucket.
+  S3 copy of an encrypted object fails with 501 `NotImplemented`.
+- The wiki records HCM04 S3 compatibility notes (conditional requests,
+  `KeyCount`, OpenTofu state locking).
+
 ## v0.65.0 - vStorage Project Purchase and Delete
 
 ### Highlights
