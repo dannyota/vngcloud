@@ -23,7 +23,7 @@ func (e *APIError) Error() string {
 		return e.Message
 	}
 	if e.Err != nil {
-		return e.Err.Error()
+		return NetworkFailureCause(e.Err)
 	}
 	return fmt.Sprintf("request failed with status %d", e.StatusCode)
 }

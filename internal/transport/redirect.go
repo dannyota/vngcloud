@@ -6,29 +6,43 @@ import (
 	"net/http"
 )
 
-// rawClient returns a copy of c.httpClient with Jar cleared, so a request
-// sent through it carries no cookie even when the configured client has a
-// cookie jar. The copy's CheckRedirect enforces the SDK's same-host, at
-// most 10 hops rule first, then calls the original client's own
-// CheckRedirect, if it had one: a caller-supplied client that never set
-// CheckRedirect at all otherwise follows a redirect to any host, which
-// DoRaw must never do.
-func (c *Client) rawClient() *http.Client {
-	cp := *c.httpClient
-	cp.Jar = nil
-	inner := c.httpClient.CheckRedirect
+// redirectClient copies base so SDK rules run before the caller's hook.
+func redirectClient(base *http.Client) *http.Client {
+	cp := *base
+	inner := base.CheckRedirect
 	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
+			return errRedirectLimit
 		}
 		if req.URL.Host != via[0].URL.Host {
-			return fmt.Errorf("redirected from %q to %q: cross-host redirect refused", via[0].URL.Host, req.URL.Host)
+			return &redirectError{from: via[0].URL.Host, to: req.URL.Host}
+		}
+		if req.URL.Scheme != via[0].URL.Scheme {
+			return errRedirectScheme
 		}
 		if inner != nil {
 			return inner(req, via)
 		}
 		return nil
 	}
+	return &cp
+}
+
+var (
+	errRedirectLimit  = errors.New("stopped after 10 redirects")
+	errRedirectScheme = errors.New("redirect scheme change refused")
+)
+
+type redirectError struct{ from, to string }
+
+func (e *redirectError) Error() string {
+	return fmt.Sprintf("redirected from %q to %q: cross-host redirect refused", e.from, e.to)
+}
+
+// rawClient clears the jar without changing the configured client's cookies.
+func (c *Client) rawClient() *http.Client {
+	cp := *c.httpClient
+	cp.Jar = nil
 	return &cp
 }
 

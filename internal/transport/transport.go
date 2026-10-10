@@ -204,12 +204,13 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 		req.OK = []int{http.StatusOK}
 	}
 
-	statusCode, _, body, err := c.doAuthenticated(ctx, req, c.httpClient)
+	statusCode, _, body, credential, err := c.doAuthenticated(ctx, req, c.httpClient)
 	if err != nil {
 		return 0, err
 	}
 
 	if !containsStatus(req.OK, statusCode) {
+		req.Redact = append(append([]string(nil), req.Redact...), credential)
 		return statusCode, decodeError(req, statusCode, body)
 	}
 	if out != nil && len(body) > 0 {
@@ -229,37 +230,38 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 // DoRaw sends req and returns the response's status, its Content-Type
 // header, and the raw body, without decoding JSON and without treating any
 // status as an error. It never rides a cookie: it sends req through a copy
-// of the underlying *http.Client with Jar cleared (see rawClient), so a
-// caller-configured cookie jar never reaches the request, and it enforces
-// the SDK's same-host redirect rule even when the underlying client is one
+// of the underlying *http.Client with Jar cleared, so a caller-configured
+// cookie jar never reaches the request. The shared send path enforces
+// the SDK's same-scheme, same-host redirect rule even when the client is one
 // the caller supplied. It otherwise applies the same retry policy and, when
 // req.SkipAuth is not set, the same token handling as DoJSONStatus.
 func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, error) {
 	if req.Method == "" {
 		req.Method = http.MethodGet
 	}
-	return c.doAuthenticated(ctx, req, c.rawClient())
+	status, contentType, body, _, err := c.doAuthenticated(ctx, req, c.rawClient())
+	return status, contentType, body, err
 }
 
 // doAuthenticated attaches a token to req (unless req.SkipAuth is set),
 // sends it through client with send's retry policy, and retries once more
 // with a refreshed token after a 401 that req did not opt out of
 // authentication for. It returns the final status, Content-Type header, and
-// raw body.
-func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, error) {
+// raw body, and the access token sent on the final attempt.
+func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, string, error) {
 	if err := req.checkAPIKey(); err != nil {
-		return 0, "", nil, err
+		return 0, "", nil, "", err
 	}
 	if req.usesToken() {
 		if err := c.EnsureToken(ctx); err != nil {
-			return 0, "", nil, err
+			return 0, "", nil, "", err
 		}
 		// A nil tokenSource means this Client was built without any
 		// authentication at all (test wiring); it sends unauthenticated
 		// requests on purpose. A configured source that yields an empty
 		// token, in contrast, must never let the request go out.
 		if c.tokenSource != nil && c.currentToken().AccessToken == "" {
-			return 0, "", nil, &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+			return 0, "", nil, "", &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
 		}
 	}
 
@@ -267,7 +269,7 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 	if err != nil {
 		// statusCode carries a real value only for ErrBodyTooLarge (see its
 		// doc comment); every other error path in send leaves it 0.
-		return statusCode, "", nil, err
+		return statusCode, "", nil, sent, err
 	}
 	if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {
 		if req.Once {
@@ -275,17 +277,17 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 			// resend. The caller gets this 401 back; a later call, Once or
 			// not, fetches a fresh token instead of reusing the rejected one.
 			c.invalidateOnce(sent)
-			return statusCode, contentType, body, nil
+			return statusCode, contentType, body, sent, nil
 		}
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
-			return 0, "", nil, err
+			return 0, "", nil, "", err
 		}
-		statusCode, contentType, body, _, err = c.send(ctx, req, client)
+		statusCode, contentType, body, sent, err = c.send(ctx, req, client)
 		if err != nil {
-			return statusCode, "", nil, err
+			return statusCode, "", nil, sent, err
 		}
 	}
-	return statusCode, contentType, body, nil
+	return statusCode, contentType, body, sent, nil
 }
 
 // errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
@@ -367,14 +369,14 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 	// it must return whatever it has. Once forces it to 0: exactly one
 	// attempt, whatever the response, per ADR 0003 rule 3.
 	maxAttempts := c.retryCount
-	sendClient := client
+	sendClient := redirectClient(client)
 	if req.Once {
 		maxAttempts = 0
 		// net/http resends a redirected PUT's method and body at the
 		// Location it names, which would send the toggle a second time.
 		// http.ErrUseLastResponse stops it from following any redirect at
 		// all, so the caller sees the 3xx itself instead.
-		sendClient = refuseRedirects(client)
+		sendClient = refuseRedirects(sendClient)
 	}
 
 	var lastErr error
@@ -433,7 +435,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 				}
 				continue
 			}
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: err}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: safeNetworkError{err}}
 		}
 		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration)
 
@@ -460,7 +462,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			continue
 		}
-		c.captureResponse(req, resp.StatusCode, respBody)
+		captureReq := req
+		captureReq.Redact = append(append([]string(nil), req.Redact...), sentToken)
+		c.captureResponse(captureReq, resp.StatusCode, respBody)
 		return resp.StatusCode, resp.Header.Get("Content-Type"), respBody, sentToken, nil
 	}
 

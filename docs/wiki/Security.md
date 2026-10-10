@@ -6,8 +6,9 @@ turned off.
 ## Network
 
 - TLS verification is always on.
-- The SDK refuses a redirect to another host, so a moved endpoint cannot
-  receive your token.
+- The SDK refuses redirects to another scheme, host, or port, including with a
+  caller-supplied HTTP client. It allows at most 10 redirect hops and checks
+  these rules before the caller's redirect hook.
 - Public pages, such as the CDN IP range FAQ, are fetched with no token and
   no cookies.
 
@@ -16,6 +17,9 @@ turned off.
 - Errors and logs never include passwords, TOTP secrets, tokens, cookies, or
   the root email. `--debug` logs only each request's method, path, status,
   and timing.
+- Errors and captured response bodies replace echoed access tokens and vCDN
+  API keys with `[redacted]`. Each attempt uses the credential sent on that
+  attempt for redaction.
 - A credentials file that group or others can read is refused.
 - Credentials files are written with mode 0600, and the token cache with mode
   0600 files in a 0700 directory.

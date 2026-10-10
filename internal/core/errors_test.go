@@ -2,6 +2,9 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"net"
 	"net/url"
@@ -106,9 +109,9 @@ func TestAPIErrorNamesNetworkFailureCause(t *testing.T) {
 			"compute.ListServers: request failed: dial: connect: connection refused",
 		},
 		{
-			"url.Error wrapping another error",
-			&url.Error{Op: "Post", URL: "http://host/path?token=secret", Err: errors.New("tls: unknown authority")},
-			"compute.ListServers: request failed: tls: unknown authority",
+			"url.Error wrapping certificate verification error",
+			&url.Error{Op: "Post", URL: "http://host/path?token=secret", Err: &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}},
+			"compute.ListServers: request failed: TLS certificate verification failed: unknown authority",
 		},
 		{
 			"bare context.Canceled",
@@ -172,5 +175,48 @@ func TestLoginErrorMessageAndUnwrap(t *testing.T) {
 	captcha := &LoginError{Status: 200, Reason: "the sign-in form was rejected", CaptchaSuspected: true, Err: ErrAuth}
 	if got := captcha.Error(); got != "the sign-in form was rejected (status 200); a captcha may be required" {
 		t.Fatalf("Error() = %q", got)
+	}
+}
+
+func TestNetworkCauseRejectsArbitraryText(t *testing.T) {
+	const secret = "synthetic-secret"
+	for _, cause := range []error{
+		errors.New("http://host/path?projectId=" + secret),
+		&net.OpError{Op: "dial", Err: errors.New("http://host/path?projectId=" + secret)},
+		&net.OpError{Op: secret, Err: errors.New("failure")},
+	} {
+		err := &APIError{Err: cause}
+		if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "http://") {
+			t.Fatal("network cause leaked")
+		}
+		if !errors.Is(err, cause) {
+			t.Fatal("cause matching lost")
+		}
+	}
+}
+
+func TestCertificateFailureDescriptions(t *testing.T) {
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "synthetic-subject-secret"}}
+	for _, tc := range []struct {
+		cause error
+		want  string
+	}{
+		{x509.UnknownAuthorityError{Cert: cert}, "TLS certificate verification failed: unknown authority"},
+		{&x509.UnknownAuthorityError{Cert: cert}, "TLS certificate verification failed: unknown authority"},
+		{x509.HostnameError{Certificate: cert, Host: "synthetic-host-secret"}, "TLS certificate verification failed: hostname mismatch"},
+		{&x509.HostnameError{Certificate: cert, Host: "synthetic-host-secret"}, "TLS certificate verification failed: hostname mismatch"},
+		{x509.CertificateInvalidError{Cert: cert, Reason: x509.Expired, Detail: "synthetic-detail-secret"}, "TLS certificate verification failed: invalid certificate"},
+		{&x509.CertificateInvalidError{Cert: cert, Reason: x509.Expired, Detail: "synthetic-detail-secret"}, "TLS certificate verification failed: invalid certificate"},
+		{&tls.CertificateVerificationError{Err: errors.New("http://host/path?token=synthetic-query-secret")}, "TLS certificate verification failed"},
+	} {
+		for _, cause := range []error{tc.cause, &tls.CertificateVerificationError{Err: tc.cause}, &net.OpError{Op: "dial", Err: tc.cause}, &url.Error{URL: "http://host/path?token=synthetic-query-secret", Err: tc.cause}} {
+			err := &APIError{Err: cause}
+			if got := err.Error(); got != "request failed: "+tc.want {
+				t.Errorf("error = %q, want class %q", got, tc.want)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatal("cause matching lost")
+			}
+		}
 	}
 }

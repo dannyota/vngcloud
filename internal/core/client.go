@@ -357,6 +357,9 @@ func buildHTTPClient(cfg clientConfig) *http.Client {
 			if req.URL.Host != via[0].URL.Host {
 				return fmt.Errorf("redirected from %q to %q: API endpoints have moved, update the endpoint configuration", via[0].URL.Host, req.URL.Host)
 			}
+			if req.URL.Scheme != via[0].URL.Scheme {
+				return errors.New("redirect scheme change refused")
+			}
 			return nil
 		},
 	}

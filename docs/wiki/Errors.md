@@ -37,7 +37,8 @@ wrapper `{"errors":[{"code","message"}]}`. In the wrapper, the first object
 entry gives `Code` and the messages of all object entries are joined with
 `; `. An empty list or a list with only `null` or non-object entries leaves the
 status text as `Message` and the status-derived `Code`. No other body field
-reaches the error.
+reaches the error. Echoed access tokens and vCDN API keys are replaced with
+`[redacted]` in `Code` and `Message`.
 
 `Err` wraps a sentinel matching the failure, so `errors.Is` works without
 inspecting `Code` or `StatusCode` directly:
@@ -62,6 +63,16 @@ vngcloud.ErrorCode(err)     // APIError.Code, or "" for a non-APIError
 A service can map its own error shape onto `NotFound`; see the billing
 wiki page for an example. That mapping always wins over the status-derived
 fallback above.
+
+Network failure messages use fixed descriptions, such as `canceled`,
+`timed out`, or the network operation that failed. Unknown causes use
+`network request failed`. Certificate failures name the class: unknown
+authority, hostname mismatch, or invalid certificate. Other TLS certificate
+verification failures use `TLS certificate verification failed`. Certificate
+subjects and details are withheld. Errors never include request URLs,
+redirect paths, or query values. Cross-host redirect errors name only the
+source and target hosts. Cancellation and deadlines still match their context
+sentinels with `errors.Is`.
 
 ## LoginError
 

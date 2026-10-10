@@ -32,11 +32,9 @@ func (r Request) redactValues() []string {
 	return append(append([]string(nil), r.Redact...), r.APIKey)
 }
 
-// redactBody returns a copy of body for the capture hook. An APIKey request
-// has the key scrubbed from it, since a server may echo the key in an error
-// body.
+// redactBody copies the body and scrubs credentials and explicit secrets.
 func (r Request) redactBody(body []byte) []byte {
-	if r.APIKey == "" {
+	if len(r.redactValues()) == 0 {
 		return append([]byte(nil), body...)
 	}
 	return []byte(redact(string(body), r.redactValues()))
@@ -44,7 +42,7 @@ func (r Request) redactBody(body []byte) []byte {
 
 // RedactValues returns s with every occurrence of each secret in values
 // replaced by "[redacted]". Callers that build an error from a 2xx body use
-// it, since the transport redacts only the bodies of failed responses.
+// it because successful response decoding leaves the body unchanged.
 func RedactValues(s string, values ...string) string {
 	return redact(s, values)
 }

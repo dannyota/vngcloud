@@ -1,13 +1,12 @@
 package core
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
+
+	"danny.vn/vngcloud/internal/transport"
 )
 
 var (
@@ -71,36 +70,8 @@ func (e *APIError) Error() string {
 	return msg
 }
 
-// networkFailureCause names why a call failed before it ever got an HTTP
-// response, without the request URL or query string that err (typically a
-// *url.Error from the standard HTTP client) may embed: a *net.OpError
-// contributes only its Op and inner error, never its address; a *url.Error
-// contributes only its inner error, never its URL; and a canceled or expired
-// context, bare or wrapped in either of those, is named directly. Anything
-// else falls back to its own Error() text, which by this point can no
-// longer be a *url.Error carrying a URL.
 func networkFailureCause(err error) string {
-	if err == nil {
-		return ""
-	}
-	switch {
-	case errors.Is(err, context.Canceled):
-		return "canceled"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "timed out"
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return fmt.Sprintf("%s: %s", opErr.Op, opErr.Err)
-	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		if urlErr.Err == nil {
-			return ""
-		}
-		return urlErr.Err.Error()
-	}
-	return err.Error()
+	return transport.NetworkFailureCause(err)
 }
 
 func (e *APIError) Unwrap() error {
