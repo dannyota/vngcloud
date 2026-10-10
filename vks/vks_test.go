@@ -265,29 +265,57 @@ func TestNetworkAndCancellation(t *testing.T) {
 }
 
 func TestUnknownSecretFieldsDropped(t *testing.T) {
-	bodies := []string{`{"items":[{"id":"cls-1","token":"fake-secret","config":{"privateKey":"fake-secret"}}],"total":1,"page":0,"pageSize":10,"kubeconfig":"fake-secret"}`, `[{"version":"v","enable":false,"stage":"s","certificate":"fake-secret"}]`, `{"maxClusters":0,"numClusters":0,"maxNodeGroupsPerCluster":0,"maxNodesPerNodeGroup":0,"token":"fake-secret"}`}
-	for i, body := range bodies {
-		c := testClient(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) })
-		var out any
-		var err error
-		switch i {
-		case 0:
-			out, err = c.ListClusters(context.Background(), nil)
-		case 1:
-			out, err = c.ListClusterVersions(context.Background(), nil)
-		case 2:
-			out, err = c.GetQuota(context.Background(), nil)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		b, err := json.Marshal(out)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(b), "fake-secret") {
-			t.Fatal("model leaked")
-		}
+	const marker = "vks-model-credential-marker"
+	const fields = `"kubeconfig":"` + marker + `","token":"` + marker + `","accessToken":"` + marker + `","clientSecret":"` + marker + `","privateKey":"` + marker + `","certificate":"` + marker + `","caCert":"` + marker + `","password":"` + marker + `"`
+	bodies := []struct {
+		name string
+		body string
+	}{
+		{"cluster", `{"items":[{"id":"cls-1",` + fields + `,"config":{` + fields + `}}],"total":1,"page":0,"pageSize":10,` + fields + `}`},
+		{"version", `[{"version":"v","enable":false,"stage":"s",` + fields + `,"config":{` + fields + `}}]`},
+		{"quota", `{"maxClusters":0,"numClusters":0,"maxNodeGroupsPerCluster":0,"maxNodesPerNodeGroup":0,` + fields + `,"config":{` + fields + `}}`},
+	}
+	for i, tc := range bodies {
+		t.Run(tc.name, func(t *testing.T) {
+			c := testClient(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, tc.body) })
+			var model any
+			switch i {
+			case 0:
+				out, err := c.ListClusters(context.Background(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(out.Items) != 1 || out.Items[0].ID != "cls-1" {
+					t.Fatal("expected one decoded cluster")
+				}
+				model = out.Items[0]
+			case 1:
+				out, err := c.ListClusterVersions(context.Background(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(out.Items) != 1 || out.Items[0].Version != "v" {
+					t.Fatal("expected one decoded version")
+				}
+				model = out.Items[0]
+			case 2:
+				out, err := c.GetQuota(context.Background(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				model = out.Quota
+			}
+			if strings.Contains(fmt.Sprintf("%+v", model), marker) {
+				t.Fatal("formatted model leaked credential marker")
+			}
+			b, err := json.Marshal(model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), marker) {
+				t.Fatal("JSON model leaked credential marker")
+			}
+		})
 	}
 }
 

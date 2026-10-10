@@ -176,25 +176,119 @@ func TestVKSValidationBeforeRequest(t *testing.T) {
 	}
 }
 
-func TestVKSErrorBodyWithheld(t *testing.T) {
+func TestVKSUnknownSecretFieldsDropped(t *testing.T) {
+	const marker = "vks-cli-credential-marker"
 	for _, tc := range vksReadCases {
-		t.Run(tc.command, func(t *testing.T) {
-			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-				"/vks-api/v1/" + tc.route: jsonHandler(http.StatusForbidden, `{"error":{"message":"fake-secret-body"}}`),
+		body := vksBodyWithCredentials(t, tc.body, marker)
+		wholeItemQuery := "Items"
+		if tc.command == "get-quota" {
+			wholeItemQuery = "Quota"
+		}
+		for _, output := range []string{"json", "table", "text"} {
+			for _, query := range []string{"", wholeItemQuery} {
+				for _, debug := range []bool{false, true} {
+					name := tc.command + "/" + output + "/full"
+					if query != "" {
+						name = tc.command + "/" + output + "/" + query
+					}
+					if debug {
+						name += "/debug"
+					}
+					t.Run(name, func(t *testing.T) {
+						path := "/vks-api/v1/" + tc.route
+						fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){path: jsonHandler(http.StatusOK, body)})
+						root, stdout, stderr := newVKSRoot(t, fixture, false)
+						args := []string{"--region", "hcm-3", "--output", output, "vks", tc.command}
+						if query != "" {
+							args = append(args, "--query", query)
+						}
+						if debug {
+							args = append(args, "--debug")
+						}
+						root.SetArgs(args)
+						if err := root.ExecuteContext(context.Background()); err != nil {
+							t.Fatalf("execute: %v", err)
+						}
+						if fixture.requestCount() != 1 {
+							t.Fatalf("requests = %d, want 1", fixture.requestCount())
+						}
+						if stdout.Len() == 0 {
+							t.Fatal("missing inventory output")
+						}
+						if strings.Contains(stdout.String(), marker) || strings.Contains(stderr.String(), marker) {
+							t.Fatal("output leaked credential marker")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func vksBodyWithCredentials(t *testing.T, body, marker string) string {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal([]byte(body), &value); err != nil {
+		t.Fatal(err)
+	}
+	var item map[string]any
+	switch value := value.(type) {
+	case []any:
+		item = value[0].(map[string]any)
+	case map[string]any:
+		item = value
+		if items, ok := value["items"].([]any); ok {
+			item = items[0].(map[string]any)
+		}
+	default:
+		t.Fatal("expected inventory object or array")
+	}
+	nested := make(map[string]any)
+	for _, field := range []string{"kubeconfig", "token", "accessToken", "clientSecret", "privateKey", "certificate", "caCert", "password"} {
+		item[field] = marker
+		nested[field] = marker
+	}
+	item["config"] = nested
+	b, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestVKSErrorBodyWithheld(t *testing.T) {
+	const marker = "vks-error-credential-marker"
+	for _, tc := range vksReadCases {
+		for _, debug := range []bool{false, true} {
+			name := tc.command
+			if debug {
+				name += "/debug"
+			}
+			t.Run(name, func(t *testing.T) {
+				fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+					"/vks-api/v1/" + tc.route: jsonHandler(http.StatusForbidden, `{"error":{"message":"`+marker+`","code":"`+marker+`"},"message":"`+marker+`","code":"`+marker+`","body":"`+marker+`"}`),
+				})
+				root, stdout, stderr := newVKSRoot(t, fixture, false)
+				args := []string{"--region", "hcm-3", "vks", tc.command}
+				if debug {
+					args = append(args, "--debug")
+				}
+				root.SetArgs(args)
+				err := root.ExecuteContext(context.Background())
+				if err == nil || exitCode(err) != 1 {
+					t.Fatalf("error = %v, exit=%d, want exit 1", err, exitCode(err))
+				}
+				printError(stderr, err)
+				if fixture.requestCount() != 1 {
+					t.Fatalf("requests = %d, want 1", fixture.requestCount())
+				}
+				if stdout.Len() != 0 || strings.Contains(stdout.String(), marker) || strings.Contains(stderr.String()+err.Error(), marker) {
+					t.Fatal("error output leaked credential marker or success output")
+				}
+				if !strings.Contains(stderr.String(), "withheld") {
+					t.Fatalf("stderr = %s, want withholding message", stderr)
+				}
 			})
-			root, stdout, stderr := newVKSRoot(t, fixture, false)
-			root.SetArgs([]string{"--region", "hcm-3", "--debug", "vks", tc.command})
-			err := root.ExecuteContext(context.Background())
-			if err == nil || exitCode(err) != 1 {
-				t.Fatalf("error = %v, exit=%d, want exit 1", err, exitCode(err))
-			}
-			printError(stderr, err)
-			if stdout.Len() != 0 || strings.Contains(stderr.String()+err.Error(), "fake-secret-body") {
-				t.Fatalf("upstream body or success output exposed: stdout=%s stderr=%s", stdout, stderr)
-			}
-			if !strings.Contains(stderr.String(), "withheld") {
-				t.Fatalf("stderr = %s, want withholding message", stderr)
-			}
-		})
+		}
 	}
 }
