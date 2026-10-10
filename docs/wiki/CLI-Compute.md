@@ -130,6 +130,33 @@ Kind: Read.
 vngcloud compute get-server --server-id <server-id> --query Server
 ```
 
+## get-server-console-log
+
+Kind: Read.
+
+Logs can hold passwords and keys. This read works in read-only profiles and
+needs no `--yes`. Output defaults to the profile's setting, otherwise JSON.
+
+JSON prints a `Log` string; table output has one Log column. `--output text`
+without a query writes the log with no label, quotes, or added newline. Pipes
+and files receive the bytes unchanged, including control characters. On a
+terminal, controls other than newline and tab are escaped. An empty log
+writes zero text bytes.
+
+`--query` runs on the revealed `{"Log":"..."}` object. A text query returning
+a string follows the same byte and terminal rules; other results use normal
+rendering. Runtime query failures exit 1 with `QueryFailed` and the message
+`console log query failed; result withheld`. Logs never reach stderr, errors,
+or debug output.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--server-id` | `string` | yes |
+
+```sh
+vngcloud compute get-server-console-log --server-id <server-id>
+```
+
 ## get-server-group
 
 Kind: Read.

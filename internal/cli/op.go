@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"io"
 	"reflect"
 	"runtime"
 	"strings"
@@ -36,6 +37,8 @@ const (
 // rejects an Op built from another client type's method.
 type Op[C any] struct {
 	name        string
+	short       string
+	render      func(io.Writer, string, string, any) error
 	methodName  string
 	kind        opKind
 	destructive bool
@@ -368,8 +371,9 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 	specs = withoutNoFlag(specs, op.noFlag)
 
 	cmd := &cobra.Command{
-		Use:  op.name,
-		Args: noArgs,
+		Use:   op.name,
+		Short: op.short,
+		Args:  noArgs,
 	}
 	bound := registerFlags(cmd, specs)
 	cmd.Flags().String("cli-input-json", "", "a JSON object ('<json>' or file://path) supplying Input fields by their Go name")
@@ -512,6 +516,9 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr
+	}
+	if op.render != nil {
+		return op.render(e.stdout, format, e.flags.query, out)
 	}
 	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)
 }

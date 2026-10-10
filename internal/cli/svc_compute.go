@@ -33,6 +33,7 @@ const secretFileCleanupDeleteTimeout = 10 * time.Second
 // other CreateServerInput field, SecurityGroupIDs (a repeatable
 // --security-group-id) included, gets its usual flag.
 var computeOps = []Op[compute.Client]{
+	serverConsoleLogOp(),
 	Read[compute.Client, compute.ListServersInput, compute.ListServersOutput](
 		kebab("ListServers"), (*compute.Client).ListServers),
 	Read[compute.Client, compute.GetServerInput, compute.GetServerOutput](

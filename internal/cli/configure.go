@@ -416,12 +416,10 @@ func promptSecret(e *env, label string, hasCurrent bool) (string, error) {
 // test force isTerminal's result without a real terminal or pseudo-terminal,
 // which the test environment may not have. It is always nil in the built
 // binary.
-var isTerminalOverride func(io.Reader) bool
+var isTerminalOverride func(any) bool
 
-// isTerminal reports whether r is an interactive terminal. Only an *os.File
-// can be: e.stdin is always os.Stdin in the built binary, but a test's
-// strings.Reader or bytes.Buffer is correctly never one.
-func isTerminal(r io.Reader) bool {
+// isTerminal checks a reader or writer. Only an *os.File can be a terminal.
+func isTerminal(r any) bool {
 	if isTerminalOverride != nil {
 		return isTerminalOverride(r)
 	}

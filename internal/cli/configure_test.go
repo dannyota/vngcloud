@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -284,7 +283,7 @@ func TestConfigureSetDashFromAPipe(t *testing.T) {
 func TestConfigureSetDashFromATerminalRefused(t *testing.T) {
 	withCleanEnv(t)
 	prev := isTerminalOverride
-	isTerminalOverride = func(io.Reader) bool { return true }
+	isTerminalOverride = func(any) bool { return true }
 	t.Cleanup(func() { isTerminalOverride = prev })
 
 	_, err := runConfigure(t, "", []string{"configure", "set", "password", "-"})
@@ -313,7 +312,7 @@ func TestConfigureInteractiveNoTerminalExitsWithZeroWrites(t *testing.T) {
 func TestConfigureInteractiveWithTerminalPromptsAndMasksSecrets(t *testing.T) {
 	withCleanEnv(t)
 	prevTerm, prevSecret := isTerminalOverride, readSecretOverride
-	isTerminalOverride = func(io.Reader) bool { return true }
+	isTerminalOverride = func(any) bool { return true }
 	secretCalls := 0
 	readSecretOverride = func(*env) (string, error) {
 		secretCalls++

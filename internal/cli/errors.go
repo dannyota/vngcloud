@@ -46,11 +46,15 @@ func (e readOnlyError) Error() string {
 // itself succeeded. writeSucceeded marks a write, so the message tells the
 // caller not to retry it.
 type queryFailedError struct {
-	err            error
-	writeSucceeded bool
+	withheldMessage string
+	err             error
+	writeSucceeded  bool
 }
 
 func (e *queryFailedError) Error() string {
+	if e.withheldMessage != "" {
+		return e.withheldMessage
+	}
 	if e.writeSucceeded {
 		return fmt.Sprintf("query failed after the write succeeded: %s", e.err)
 	}
