@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.56.2 - IAM Timestamp Decode Fix
+
+### Highlights
+
+- IAM reads accept timestamps as a number, a numeric string, a Mongo
+  `$numberLong` object, or an RFC 3339 string with or without fractional
+  seconds and an offset; the accounts API now sends `createdAt` as an RFC
+  3339 string on some service account rows, which failed
+  `iam.ListServiceAccounts` until this fix. Exported fields stay `int64`
+  epoch milliseconds.
+
 ## v0.56.1 - CLI Usability Fixes
 
 ### Highlights
