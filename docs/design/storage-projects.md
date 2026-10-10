@@ -5,9 +5,10 @@ Status: Accepted (2026-10-10). The paid check passed on 2026-10-10; see
 
 Add regional project prices, a create quote, a guarded purchase, and an
 empty-project delete to `storage` and the CLI. The owner's approval replaces
-[storage decision 3](storage-decisions.md#owner-decisions). Resizing,
-renewing, restoring, purging, pay as you go, trials, proof-of-concept orders,
-and automatic growth remain out of scope. Auto-renew is always off.
+[storage decision 3](storage-decisions.md#owner-decisions). Resizing, manual
+renewal orders, restoring, purging, pay as you go, trials, proof-of-concept
+orders, and automatic growth remain out of scope. Creation sets auto-renew
+off; settings for existing projects follow [auto-renew](auto-renew.md).
 
 [API evidence](storage-projects-api.md) owns the exact routes, query keys,
 wire fields, configuration values, and price probes. The manager supplied

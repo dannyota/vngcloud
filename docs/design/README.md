@@ -19,6 +19,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [vStorage projects](storage-projects.md) | Accepted |
+| [Prepaid resource auto-renew](auto-renew.md) | Accepted (2026-10-10) |
 | [CLI reads](cli-reads.md) | Accepted |
 | [vServer free writes](vserver-writes.md) | Accepted |
 | [Free writes survey](free-writes-survey.md) | Accepted |
