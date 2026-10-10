@@ -1,6 +1,6 @@
 name = "cli"
 description = "Implements the vngcloud command-line tool: commands in cmd/vngcloud/ and internal/cli/, and CLI wiki pages. Use for a briefed CLI file set."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

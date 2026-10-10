@@ -1,6 +1,6 @@
 name = "sdk"
 description = "Implements vngcloud Go SDK work: service packages, public re-exports in vngcloud.go, fixtures, the basic example, and SDK wiki pages. Use for a briefed SDK file set."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

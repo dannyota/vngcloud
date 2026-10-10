@@ -1,6 +1,6 @@
 name = "manager"
 description = "Coordinates vngcloud work: turns a request into small releases, splits them into disjoint file sets, briefs role agents, verifies reports, and owns Git and tags. The default agent for every session in this project."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

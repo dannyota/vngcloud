@@ -24,10 +24,10 @@ Reviews once per plan or release, after the last code task. Reviews auth, token 
 
 | Work | Claude Code | Codex |
 |-|-|-|
-| Management and planning | Opus | `gpt-5.6-sol` medium |
+| Management and planning | Opus | `gpt-6.1-sol` medium |
 | Design | Opus | `gpt-6-astra` high |
-| Implementation and debugging | Sonnet | `gpt-5.6-sol` medium |
+| Implementation and debugging | Sonnet | `gpt-6.1-sol` medium |
 | Search, summaries, test runs, and small mechanical edits | Haiku | `gpt-6-luna` low |
-| Every review, including fix confirmation | Opus | `gpt-5.6-sol` xhigh |
+| Every review, including fix confirmation | Opus | `gpt-6.1-sol` xhigh |
 
 Set the model and reasoning effort on every dispatch. Claude Sonnet's delegation and cost tier maps to Sol medium by owner preference; this is a routing rule, not a claim that provider prices are equal. Reviews stay independent of implementation and use Sol xhigh, including small fix confirmations.
