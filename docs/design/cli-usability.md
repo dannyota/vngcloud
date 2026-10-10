@@ -279,23 +279,25 @@ review that write paths get, limited to the guard and the quote body.
 
 ## Owner decisions
 
+All six are approved as recommended.
+
 1. Where the lookups live. Options: SDK Input fields on `ListFlavors` and
-   `ListVolumeTypes`; CLI-only hand-built ops. Recommended: SDK, for the
+   `ListVolumeTypes`; CLI-only hand-built ops. Approved: SDK, for the
    reasons in [where the lookups live](#where-the-lookups-live).
-2. Flavor name filter. Options: exact match; substring. Recommended:
+2. Flavor name filter. Options: exact match; substring. Approved:
    exact, since an ID lookup wants one flavor, and `--query` with
    `contains()` covers partial matches.
 3. Quote unpriced fields. Options: optional and left out of the body; a
-   documented placeholder; keep them required. Recommended: optional and
+   documented placeholder; keep them required. Approved: optional and
    left out, as the console does.
 4. Price guard body. Options: the paid creates' guards quote the same
    priced-only body; they keep quoting the full create body.
-   Recommended: the same body, so the quote command and the guard always
+   Approved: the same body, so the quote command and the guard always
    price the same request.
 5. List shape. Options: the `Items` rule with a guard test and no output
-   change; also unwrap or re-wrap anything. Recommended: the rule and the
+   change; also unwrap or re-wrap anything. Approved: the rule and the
    guard test, since every list already follows it.
-6. Release split. Options: U1 then U2; one release. Recommended: U1 then
+6. Release split. Options: U1 then U2; one release. Approved: U1 then
    U2, one feature per tag.
 
 ## Open items
