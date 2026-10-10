@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.70.0 - Public NAT List
+
+### Highlights
+
+- `network list-nat-instances` lists Public NAT gateways in `hcm-3` and
+  `han-1`, with `--zone-id`, `--page`, and `--size`. SDK:
+  `network.ListNATInstances`. Each item has the NAT name, status, gateway and
+  public IPs, package, and VPC; the account ID and the zero price the API
+  returns are left out. Other regions are refused before any request.
+- Live tests moved from the repository root into `livetest/`; run them with
+  `go test -tags live ./livetest/` (see `make live`).
+- Verified live on 2026-10-11 through the SDK login in both regions, including
+  a populated Hanoi list in PROVISIONING and ACTIVE states.
+
 ## v0.69.0 - CDN Path Purge
 
 ### Highlights
