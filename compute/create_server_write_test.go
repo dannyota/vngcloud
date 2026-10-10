@@ -232,12 +232,8 @@ func TestCreateServerUserDataNeverCaptured(t *testing.T) {
 	}
 }
 
-// TestCreateServerUserDataRedaction checks that a rejection whose message
-// quotes the plain user data, its base64 form, or an escaped rendering of
-// either never leaks any of them into the returned error, --debug output,
-// or a fmt/slog/json rendering of the Input: the message is withheld
-// outright (createServerWithheldMessage), so nothing the body said
-// survives.
+// TestCreateServerUserDataRedaction checks that response codes and message
+// fields cannot expose user data through errors, debug logs, or Input renderings.
 func TestCreateServerUserDataRedaction(t *testing.T) {
 	const userData = "#!/bin/sh\necho supersecret"
 	encoded := base64.StdEncoding.EncodeToString([]byte(userData))
@@ -256,66 +252,74 @@ func TestCreateServerUserDataRedaction(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
 
-	for name, message := range rejections {
-		t.Run(name, func(t *testing.T) {
-			logBuf.Reset()
-			body, marshalErr := json.Marshal(map[string]string{"message": message})
-			if marshalErr != nil {
-				t.Fatal(marshalErr)
-			}
-			cfg := testutil.NewConfigWithLogger(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch {
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers":
-					_, _ = w.Write([]byte(emptyListServersPage))
-				case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
-					_, _ = w.Write([]byte(quoteServerFixture))
-				case r.Method == http.MethodPost && r.URL.Path == "/v2/project-1/servers":
-					w.WriteHeader(http.StatusBadRequest)
-					_, _ = w.Write(body)
+	for _, field := range []string{"code", "message", "error", "detail", "title"} {
+		for name, message := range rejections {
+			t.Run(field+"/"+name, func(t *testing.T) {
+				logBuf.Reset()
+				body, marshalErr := json.Marshal(map[string]string{field: message})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
 				}
-			}), logger)
-			c := New(cfg)
+				cfg := testutil.NewConfigWithLogger(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers":
+						_, _ = w.Write([]byte(emptyListServersPage))
+					case r.Method == http.MethodPost && r.URL.Path == "/v1/price":
+						_, _ = w.Write([]byte(quoteServerFixture))
+					case r.Method == http.MethodPost && r.URL.Path == "/v2/project-1/servers":
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write(body)
+					}
+				}), logger)
+				c := New(cfg)
 
-			in := validCreateServerInput()
-			in.MaxPrice = 347800
-			in.SSHKeyID = ""
-			in.UserData = vngcloud.Secret(userData)
-			_, callErr := c.CreateServer(context.Background(), in)
-			if callErr == nil {
-				t.Fatal("CreateServer() error = nil, want the server's rejection")
-			}
-			var apiErr *vngcloud.APIError
-			if !errors.As(callErr, &apiErr) {
-				t.Fatalf("callErr = %v, want *vngcloud.APIError", callErr)
-			}
-			if apiErr.Message != createServerWithheldMessage {
-				t.Fatalf("Message = %q, want the withheld message %q", apiErr.Message, createServerWithheldMessage)
-			}
-			for _, secret := range []string{userData, encoded, escaped} {
-				if strings.Contains(callErr.Error(), secret) {
-					t.Fatalf("error leaks user data: %v", callErr)
+				in := validCreateServerInput()
+				in.MaxPrice = 347800
+				in.SSHKeyID = ""
+				in.UserData = vngcloud.Secret(userData)
+				_, callErr := c.CreateServer(context.Background(), in)
+				if callErr == nil {
+					t.Fatal("CreateServer() error = nil, want the server's rejection")
 				}
-			}
-			if strings.Contains(logBuf.String(), userData) || strings.Contains(logBuf.String(), encoded) {
-				t.Fatalf("debug log leaks user data: %s", logBuf.String())
-			}
+				var apiErr *vngcloud.APIError
+				if !errors.As(callErr, &apiErr) {
+					t.Fatalf("callErr = %v, want *vngcloud.APIError", callErr)
+				}
+				if apiErr.Message != createServerWithheldMessage {
+					t.Fatalf("Message = %q, want the withheld message %q", apiErr.Message, createServerWithheldMessage)
+				}
+				for field, value := range map[string]string{
+					"APIError.Code":    apiErr.Code,
+					"APIError.Message": apiErr.Message,
+					"err.Error()":      callErr.Error(),
+				} {
+					for _, secret := range []string{userData, encoded, escaped} {
+						if strings.Contains(value, secret) {
+							t.Errorf("%s leaks user data: %q", field, value)
+						}
+					}
+				}
+				if strings.Contains(logBuf.String(), userData) || strings.Contains(logBuf.String(), encoded) {
+					t.Fatalf("debug log leaks user data: %s", logBuf.String())
+				}
 
-			forms := []string{
-				fmt.Sprintf("%v", in),
-				fmt.Sprintf("%+v", in),
-				fmt.Sprintf("%#v", in),
-			}
-			data, jsonErr := json.Marshal(in) //nolint:gosec // G117: UserData is vngcloud.Secret; MarshalJSON redacts it, verified below
-			if jsonErr != nil {
-				t.Fatalf("json.Marshal(in) error = %v", jsonErr)
-			}
-			forms = append(forms, string(data))
-			for _, form := range forms {
-				if strings.Contains(form, userData) {
-					t.Fatalf("Input rendering leaks user data: %s", form)
+				forms := []string{
+					fmt.Sprintf("%v", in),
+					fmt.Sprintf("%+v", in),
+					fmt.Sprintf("%#v", in),
 				}
-			}
-		})
+				data, jsonErr := json.Marshal(in) //nolint:gosec // G117: UserData is vngcloud.Secret; MarshalJSON redacts it, verified below
+				if jsonErr != nil {
+					t.Fatalf("json.Marshal(in) error = %v", jsonErr)
+				}
+				forms = append(forms, string(data))
+				for _, form := range forms {
+					if strings.Contains(form, userData) {
+						t.Fatalf("Input rendering leaks user data: %s", form)
+					}
+				}
+			})
+		}
 	}
 }
 

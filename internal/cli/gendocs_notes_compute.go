@@ -25,11 +25,11 @@ const computeQuoteCreateServerNote = "Never orders anything: prices the server C
 	"create-server. --ssh-key-id is optional here; create-server needs exactly one of\n" +
 	"--ssh-key-id or --user-data-file. The CLI does not send them or any other\n" +
 	"unpriced field to the billing gateway, but still checks the shape of each one\n" +
-	"that is set, so a bad ID fails here as it will at the create. Ignores UserData,\n" +
-	"MaxPrice, and NoWait even when an inline --cli-input-json value sets them:\n" +
-	"UserData is never sent to the quote, since it can hold secrets, and MaxPrice and\n" +
-	"NoWait govern only an actual create. The gateway's ROOT DISK text shows the\n" +
-	"volume type ID where the size belongs; the size is the --root-disk-size value.\n" +
+	"that is set, so a bad ID fails here as it will at the create. Refuses\n" +
+	"--cli-input-json that sets UserData, since it can hold secrets. Ignores MaxPrice\n" +
+	"and NoWait, which govern only an actual create. The gateway's ROOT DISK text\n" +
+	"shows the volume type ID where the size belongs; the size is the\n" +
+	"--root-disk-size value.\n" +
 	"\n" +
 	serverEncryptionNote + "\n\n" + idsForCreateServerLink
 
@@ -41,9 +41,10 @@ const computeQuoteCreateServerNote = "Never orders anything: prices the server C
 const computeCreateServerNote = "Orders nothing above --max-price, default 0: a bare create-server refuses with\n" +
 	"error code PriceAboveMax until --max-price is raised to at least the quoted\n" +
 	"price. A quote of 0 is refused as Unpriced whatever --max-price says. Refuses,\n" +
-	"before any request, a server already named --name exactly. Needs at least one\n" +
-	"--security-group-id; the SDK picks no default, so the project's own default\n" +
-	"group (open to the world on several ports) is only used when named explicitly.\n" +
+	"before any quote or order request, a server already named --name exactly. Needs\n" +
+	"at least one --security-group-id; the SDK picks no default, so the project's\n" +
+	"own default group (open to the world on several ports) is only used when named\n" +
+	"explicitly.\n" +
 	"Set exactly one of --ssh-key-id or --user-data-file. GreenNode refuses both\n" +
 	"together. With user data, the cloud-config must install authorized keys, for\n" +
 	"example with ssh_authorized_keys. Cloud-init user data comes only from\n" +

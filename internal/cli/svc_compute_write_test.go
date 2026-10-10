@@ -339,6 +339,12 @@ func TestComputeCreateServerUserDataFileNeverPrinted(t *testing.T) {
 	if strings.Contains(stderr.String(), "super-secret-token") {
 		t.Fatalf("stderr = %s, want no user data content, including in --debug output", stderr.String())
 	}
+	if strings.Contains(stdout.String(), encoded) {
+		t.Fatalf("stdout = %s, want no base64 user data content", stdout.String())
+	}
+	if strings.Contains(stderr.String(), encoded) {
+		t.Fatalf("stderr = %s, want no base64 user data content, including in --debug output", stderr.String())
+	}
 }
 
 // TestComputeCreateServerUserDataFileOversizedRefused checks that a
