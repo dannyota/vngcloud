@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get analytic data successful.",
+  "data": [
+    {
+      "data": {
+        "1791504000000": 0.0,
+        "1791590400000": 0.0
+      },
+      "domainName": "<domain>",
+      "cdnDomain": "<cdn-domain>",
+      "trafficType": "Domestic",
+      "groupType": "Standard"
+    }
+  ]
+}

@@ -1,10 +1,21 @@
-// Package cdn reads GreenNode vCDN. ListIPRanges reads the CDN IP ranges a
+// Package cdn manages GreenNode vCDN. ListIPRanges reads the CDN IP ranges a
 // vCDN origin must allow from GreenNode's public FAQ page; it needs no
-// credential. ListCertificates, GetCertificate, and ListAPIKeys call the
-// vCDN API, which takes a vCDN API key instead of an IAM token: set it with
-// vngcloud.WithCDNAPIKey, VNGCLOUD_VCDN_API_KEY, or vcdn_api_key in the
-// credentials file. A call with no key returns ErrNoAPIKey before any
-// request. The API ignores the region and takes no project ID.
+// credential.
+//
+// Every other call uses the vCDN API, which takes a vCDN API key instead of
+// an IAM token: set it with vngcloud.WithCDNAPIKey, VNGCLOUD_VCDN_API_KEY,
+// or vcdn_api_key in the credentials file. A call with no key returns
+// ErrNoAPIKey before any request. The API ignores the region and takes no
+// project ID. The calls are:
+//
+//   - certificates and API keys: ListCertificates, GetCertificate, ListAPIKeys;
+//   - Web Accelerator CDNs: ListWebAccelerators, GetWebAccelerator,
+//     UpdateWebAccelerator, DeleteWebAccelerator, EnableWebAccelerator, and
+//     DisableWebAccelerator;
+//   - analytics: GetTraffic, GetRequestRate, GetCacheStatus, GetHTTPCodes,
+//     and GetTrafficReport.
+//
+// The API cannot create a Web Accelerator: create one in the vCDN Portal.
 package cdn
 
 import (
@@ -13,6 +24,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -39,6 +51,10 @@ const headingNeedle = "CDN IP range"
 // Client is the cdn service client.
 type Client struct {
 	c *core.Client
+	// sleep and now are the settle wait's clock; tests replace them. Nil
+	// means the real ones.
+	sleep func(ctx context.Context, d time.Duration) error
+	now   func() time.Time
 }
 
 // New builds a Client from cfg. A Client built from the same Config as

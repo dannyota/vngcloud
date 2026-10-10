@@ -39,6 +39,15 @@ const (
 
 	// codeEmptyResponse marks a 2xx that is not the expected envelope.
 	codeEmptyResponse = "EmptyResponse"
+
+	// busyMessage is in the message of a write the server refuses while the
+	// CDN changes status; the envelope code varies.
+	busyMessage = "is not allow to update or delete"
+	// notFoundMessage starts the message of a write on a CDN that is gone.
+	notFoundMessage = "Not found cdn"
+	// codeInputRefused is the envelope code the server uses for an input it
+	// refuses.
+	codeInputRefused = 202
 )
 
 // envelope is the body of every vCDN 2xx answer, success or not.
@@ -60,6 +69,14 @@ type call struct {
 	// notFound, when set, marks a detail read: an envelope with success false
 	// and no data is ErrNotFound with this message.
 	notFound string
+	// body is the JSON request body, nil for none.
+	body any
+	// once sends the request at most once, for a write whose resend would
+	// meet a busy or not-found refusal and hide the first success.
+	once bool
+	// idempotent marks a POST that only reads, so the transport keeps its
+	// retries.
+	idempotent bool
 }
 
 // shortOp is the operation without its package prefix, for messages.
@@ -77,12 +94,15 @@ func (c *Client) do(ctx context.Context, r call) (json.RawMessage, error) {
 	}
 	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
-		Operation: r.op,
-		Method:    r.method,
-		URL:       c.c.RouteURL(routes.Route{Product: routes.ProductCDN, Version: "v1", Parts: r.parts}),
-		OK:        []int{http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent},
-		APIKey:    key,
-		Sensitive: r.sensitive,
+		Operation:  r.op,
+		Method:     r.method,
+		URL:        c.c.RouteURL(routes.Route{Product: routes.ProductCDN, Version: "v1", Parts: r.parts}),
+		OK:         []int{http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent},
+		APIKey:     key,
+		Sensitive:  r.sensitive,
+		Body:       r.body,
+		Once:       r.once,
+		Idempotent: r.idempotent,
 	}, &raw)
 	if err != nil {
 		if status >= 200 && status < 300 {
@@ -136,12 +156,21 @@ func (r call) envelopeError(status int, env envelope, key string) error {
 	if env.Message != nil {
 		msg = *env.Message
 	}
+	sentinel := sentinelFor(effective)
+	switch {
+	case strings.Contains(msg, busyMessage):
+		sentinel = ErrBusy
+	case strings.HasPrefix(msg, notFoundMessage):
+		code, sentinel = "NotFound", core.ErrNotFound
+	case effective == codeInputRefused:
+		sentinel = core.ErrInvalidInput
+	}
 	return &core.APIError{
 		Operation:  r.op,
 		StatusCode: status,
 		Code:       transport.RedactValues(code, key),
 		Message:    transport.RedactValues(r.message(effective, msg, true), key),
-		Err:        sentinelFor(effective),
+		Err:        sentinel,
 	}
 }
 

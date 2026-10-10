@@ -1,0 +1,120 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get CDN data successful.",
+  "data": {
+    "cdnId": "<cdn-id>",
+    "userUuid": "<user-id>",
+    "type": "webacc",
+    "cdnDomain": "<cdn-domain>",
+    "domainName": "<domain>",
+    "sslId": "default",
+    "status": 1,
+    "lbType": "rr",
+    "originHostHeader": "",
+    "failOverErrorCode": [
+      "500",
+      "502",
+      "503",
+      "504"
+    ],
+    "upstreams": [
+      {
+        "cdnUpstreamId": "upstream-1",
+        "priority": 10,
+        "ipaddress": "<ip>",
+        "status": 1
+      }
+    ],
+    "defaultRuleAction": [
+      {
+        "id": "action-1",
+        "actionName": "developmentMode",
+        "value": "off",
+        "order": 0
+      },
+      {
+        "id": "action-2",
+        "actionName": "nosniff",
+        "value": "on",
+        "order": 0
+      },
+      {
+        "id": "action-3",
+        "actionName": "brotliResponse",
+        "value": "off",
+        "order": 0
+      },
+      {
+        "id": "action-4",
+        "actionName": "serverCache",
+        "value": "2w",
+        "order": 0
+      },
+      {
+        "id": "action-5",
+        "actionName": "rewriteHttps",
+        "value": "off",
+        "order": 0
+      },
+      {
+        "id": "action-6",
+        "actionName": "minimumTls",
+        "value": "TLS 1.2",
+        "order": 0
+      },
+      {
+        "id": "action-7",
+        "actionName": "hsts",
+        "value": "{\"hsts\":\"off\",\"preload\":\"off\",\"includeSubDomains\":\"off\",\"maxAge\":\"0m\"}",
+        "order": 0
+      },
+      {
+        "id": "action-8",
+        "actionName": "imgOptimize",
+        "value": "off",
+        "order": 0
+      },
+      {
+        "id": "action-9",
+        "actionName": "minify",
+        "value": "[\"js\",\"css\",\"html\"]",
+        "order": 0
+      },
+      {
+        "id": "action-10",
+        "actionName": "cacheLevel",
+        "value": "2",
+        "order": 0
+      },
+      {
+        "id": "action-11",
+        "actionName": "browserCache",
+        "value": "1M",
+        "order": 0
+      },
+      {
+        "id": "action-12",
+        "actionName": "alwaysHttps",
+        "value": "off",
+        "order": 0
+      }
+    ],
+    "childrenRule": [],
+    "cName": [],
+    "useSsl": false,
+    "useSmallFile": false,
+    "enableGzip": false,
+    "childrenAdvanceRule": {
+      "id": "",
+      "name": "Default Rule",
+      "children": [],
+      "behaviors": [],
+      "criteria": [],
+      "criteriaMustSatisfy": "all",
+      "options": {},
+      "variables": [],
+      "comments": "This is default rule. You can not remove"
+    }
+  }
+}

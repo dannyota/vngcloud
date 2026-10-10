@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "code": 400,
+  "message": "Current cdn status is not allow to update or delete",
+  "data": ""
+}

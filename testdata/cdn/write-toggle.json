@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Update CDN successful, your CDN domain will effect after 5 minutes.",
+  "data": ""
+}

@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get analytic data successful.",
+  "data": {
+    "1791511200000": {
+      "cached": 0.0,
+      "uncached": 0.0
+    },
+    "1791597599999": {
+      "cached": 0.0,
+      "uncached": 0.0
+    }
+  }
+}

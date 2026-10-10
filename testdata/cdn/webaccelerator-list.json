@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "Get CDN data successful.",
+  "data": [
+    {
+      "cdnId": "<cdn-id>",
+      "customerId": null,
+      "type": null,
+      "serviceType": null,
+      "segmentSize": null,
+      "userUuid": "<user-id>",
+      "cName": [],
+      "domainName": "<domain>",
+      "cdnDomain": "<cdn-domain>",
+      "lbType": null,
+      "failOverErrorCode": null,
+      "sslCertificateId": null,
+      "status": 1,
+      "flushCacheTtl": null,
+      "lastFlushCacheTime": null,
+      "originHostHeader": null,
+      "rules": null,
+      "updatedTime": null,
+      "upstreams": null,
+      "userEmail": null,
+      "liveCdnPropertiesDto": null,
+      "limitBw": 0,
+      "drmAppId": null,
+      "merchantId": null,
+      "drmSecretKey": null,
+      "useSmallFile": false,
+      "useLogDelivery": false,
+      "trafficType": null,
+      "groupType": null,
+      "createdAt": null,
+      "useLogDeliveryNew": false,
+      "unescapeUri": false,
+      "enableGzip": false
+    }
+  ]
+}

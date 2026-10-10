@@ -6,11 +6,13 @@
 - `cdn.ListIPRanges` reads GreenNode's public FAQ page listing the CDN IP
   ranges an origin must allow, and parses the current list out of it. It
   needs no credential.
-- The [vCDN API](#vcdn-api) reads: `ListCertificates`, `GetCertificate`, and
-  `ListAPIKeys`. They take a vCDN API key.
+- The [vCDN API](#vcdn-api) calls: certificate and API key reads, the
+  [Web Accelerator](#web-accelerators) reads and writes, and
+  [traffic analytics](#analytics). They take a vCDN API key.
 
 A person creates the API key in the vCDN Portal, which accepts only root
-login, so this SDK cannot make one. The SDK has no write calls for vCDN yet.
+login, so this SDK cannot make one. The API cannot create a CDN either: see
+[Create](#create).
 
 ## Setup
 
@@ -140,6 +142,8 @@ for _, k := range keys.Items {
 | `ListCertificates` | none | `Items []Certificate` |
 | `GetCertificate` | `CertificateID` | `Certificate` |
 | `ListAPIKeys` | none | `Items []APIKey` |
+| `ListWebAccelerators` | none | `Items []WebAcceleratorSummary` |
+| `GetWebAccelerator` | `CDNID` | `WebAccelerator` |
 
 - `Certificate` holds the ID, common name, issuer, dates as the server's
   strings, `Status` (1 active, 0 inactive), and `CDNUsing`, the number of
@@ -192,3 +196,181 @@ Every failure is a `*vngcloud.APIError` with the operation.
   echoes it in a message shows `[redacted]` instead. This holds for a failed
   HTTP status and for a 200 with `success: false`, in both the message and
   the code.
+
+## Web Accelerators
+
+A Web Accelerator is one CDN for a customer domain. `CDNDomain` is the name
+GreenNode generates, such as `<random>web.vcdn.cloud`; point the customer's
+DNS at it with a CNAME.
+
+```go
+list, err := client.ListWebAccelerators(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+for _, item := range list.Items {
+	log.Println(item.DomainName, item.StatusName)
+}
+got, err := client.GetWebAccelerator(ctx, &cdn.GetWebAcceleratorInput{
+	CDNID: list.Items[0].CDNID,
+})
+```
+
+- `WebAcceleratorSummary` holds `CDNID`, `DomainName`, `CDNDomain`, `CNames`,
+  `Status`, and `StatusName`. The list fills nothing else.
+- `WebAccelerator` adds `Type` (`webacc`), `CertificateID` (`default` for the
+  shared certificate), `LBType`, `OriginHostHeader`, `FailOverErrorCodes`,
+  `UseSSL`, `UseSmallFile`, `EnableGzip`, `Upstreams`, `DefaultRuleActions`,
+  `PageRules`, and `AdvancedRule`. `PageRules` and `AdvancedRule` stay the
+  server's JSON (`json.RawMessage`); no call writes them.
+- `Upstream` holds `ID`, `Priority`, `IPAddress`, and `Status`.
+- `RuleAction` holds `ID`, `Name`, `Value`, and `Order`. `Value` is the
+  server's string. For `hsts` it is JSON object text, such as
+  `{"hsts":"off","preload":"off","includeSubDomains":"off","maxAge":"0m"}`,
+  and for `minify` JSON array text, such as `["js","css","html"]`; the SDK
+  does not parse either.
+- IDs are strings. The decoder accepts a JSON string or integer.
+- The models have no field for the account fields the server sends.
+- An unknown or malformed `CDNID` matches `vngcloud.ErrNotFound`.
+
+### Status
+
+| Constant | Value | `StatusName` |
+|-|-|-|
+| `StatusDisabled` | 0 | `DISABLED` |
+| `StatusActive` | 1 | `ACTIVE` |
+| `StatusDeploying` | 3 | `DEPLOYING` |
+| `StatusDeleting` | 4 | `DELETING` |
+| `StatusDisabling` | 5 | `DISABLING` |
+
+Any other value is `UNKNOWN(<n>)`, and every write refuses it with
+`cdn.ErrUnexpectedStatus`. A CDN goes from 3 to 1 in about 3 minutes after a
+create, 1 to 5 to 0 in about 4 minutes after a disable, 0 to 3 to 1 in about
+5 minutes after an enable, and 1 to 3 to 1 in about 5 minutes after an update.
+A delete of an `ACTIVE` CDN leaves it `DELETING` for about 5 minutes before it
+disappears.
+
+## Analytics
+
+```go
+out, err := client.GetTraffic(ctx, &cdn.GetTrafficInput{
+	CDNDomains: []string{got.WebAccelerator.CDNDomain},
+	Period:     "24h",
+})
+```
+
+| Method | Output |
+|-|-|
+| `GetTraffic` | `Points []CacheSample` |
+| `GetRequestRate` | `Points []CacheSample` |
+| `GetCacheStatus` | `Counts map[string]float64` |
+| `GetHTTPCodes` | `Counts map[string]float64` |
+| `GetTrafficReport` | `Items []DomainTraffic` |
+
+- `CDNDomains` holds generated names (`WebAccelerator.CDNDomain`), not
+  customer domain names, and needs at least one entry. A domain that is not a
+  CDN of the account fails with a message that withholds the account user.
+- The four series calls take `Period` or the pair `From` and `To`, never
+  both. `Period` is one of `30m`, `1h`, `3h`, `6h`, `12h`, `24h`, `3d`, `7d`,
+  `14d`, `30d`, `90d`, `180d`, or `360d`. `From` and `To` are `YYYY-MM-DD`
+  dates read in UTC+7, from 00:00 on `From` to the end of `To`; the SDK sends
+  them as `dd/mm/yyyy`. A time of day, another format, or `To` before `From`
+  is `vngcloud.ErrInvalidInput`, with no request.
+- `GetTrafficReport` takes `From` and `To` only, and buckets by day at UTC
+  midnight. Its `DomainTraffic` holds `DomainName`, `CDNDomain`,
+  `TrafficType`, `GroupType`, and `Points []Sample` of `Time` and `Value`.
+- `CacheSample` holds `Time` (UTC), `Cached`, and `Uncached`, sorted by time.
+  The points are not evenly spaced: with no traffic only the two edges of the
+  window appear.
+- With no data, `GetCacheStatus` and `GetHTTPCodes` give an empty `Counts`.
+- Every value seen so far was zero, so this page names no unit. All five are
+  reads that use `POST`, so the SDK retries them like any read.
+
+## Writes
+
+`UpdateWebAccelerator`, `DeleteWebAccelerator`, `EnableWebAccelerator`, and
+`DisableWebAccelerator` change a CDN. Each reads the CDN first and checks its
+status, so a call the server would refuse sends nothing:
+
+| Status | Update | Delete | Enable | Disable |
+|-|-|-|-|-|
+| 1 `ACTIVE` | sends | sends | `Changed: false` | sends |
+| 0 `DISABLED` | `ErrInvalidInput` | sends | sends | `Changed: false` |
+| 3 `DEPLOYING`, 4 `DELETING`, 5 `DISABLING` | `ErrBusy` | `ErrBusy` | `ErrBusy` | `ErrBusy` |
+| Any other | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` | `ErrUnexpectedStatus` |
+
+- `cdn.ErrBusy` means nothing changed: run the same call again after the CDN
+  settles. The server's own refusal during a change, `Current cdn status is
+  not allow to update or delete`, also matches it.
+- Update, delete, enable, and disable are sent once and never retried, even
+  after a failed connection. After a server error or a network failure the
+  write may have landed; read the CDN before running it again.
+- Enable and disable return the CDN and `Changed`. A call on a CDN already at
+  its target sends nothing and returns `Changed: false`.
+- Update, enable, and disable wait for the CDN to settle: they read it every 10
+  seconds for up to 6 minutes. `NoWait` returns after one read instead. When
+  the bound passes, the call returns the last good read and an error that
+  matches `cdn.ErrNotSettled`; the server accepted the write, so do not repeat
+  it. Another status during the wait ends it with `cdn.ErrUnexpectedStatus` and
+  the read. A deleted CDN ends it with `vngcloud.ErrNotFound`. An enable or
+  disable that no read confirms returns `cdn.ErrStatusUnconfirmed`: read the CDN
+  before doing anything else.
+- The server answers an enable or disable of a CDN that no longer exists with
+  a 401 and an empty body, like a rejected key. The SDK reads the CDN again
+  after such a 401 and returns `vngcloud.ErrNotFound` when it is gone.
+- Delete takes an `ACTIVE` or `DISABLED` CDN and does not wait. The CDN loses
+  its generated `CDNDomain`, which the customer's DNS points at. An `ACTIVE`
+  CDN stays `DELETING` for about 5 minutes, and reads of it work until it
+  disappears; then they match `vngcloud.ErrNotFound`.
+- Package limits arrive as a failure whose message names the limit, such as
+  `Current user package is not allow to use feature developmentMode, please
+  upgrade your package`. They match no sentinel.
+- A refusal with code 202 matches `vngcloud.ErrInvalidInput`. A message that
+  starts `Not found cdn` matches `vngcloud.ErrNotFound`. A failure with a null
+  code has the code `EnvelopeError`.
+
+### Update
+
+The update call takes the whole CDN and deletes every rule action it leaves
+out. `UpdateWebAccelerator` therefore reads the CDN, merges your changes by
+action name, and sends the whole object back, with every field the SDK does
+not model unchanged. You never handle an action ID.
+
+```go
+out, err := client.UpdateWebAccelerator(ctx, &cdn.UpdateWebAcceleratorInput{
+	CDNID: id,
+	SetRuleActions: []cdn.RuleActionInput{
+		{Name: "browserCache", Value: "1d"},
+	},
+	RemoveRuleActions: []string{"imgOptimize"},
+	CNames:            []string{}, // clears the alternative names
+})
+```
+
+- At least one change is required; an Input with only `CDNID` and `NoWait` is
+  `vngcloud.ErrInvalidInput`. A merge that changes nothing sends nothing and
+  returns the read.
+- `SetRuleActions` changes the value of the action with that name, or adds the
+  action. `RemoveRuleActions` drops an action by name; a name the CDN does not
+  have is ignored. A name may appear once across both lists.
+- Scalar fields (`LBType`, `CertificateID`, `OriginHostHeader`) are pointers;
+  nil keeps the value. `CNames` and `FailOverErrorCodes` keep the value when
+  nil and replace it when set, so an empty non-nil list clears it.
+- **No call removes an origin.** `Upstreams` sends only the origins you give,
+  and the server keeps the others. An entry with an `ID` edits that origin in
+  place, replacing all its fields; an entry without one adds an origin. To
+  change an origin, edit it in place. A package that allows one origin refuses
+  an add.
+- The server gives `alwaysHttps` a new ID on every update. Other action IDs are
+  kept.
+- The CDN must be `ACTIVE`. The update answer lacks some actions and repeats an
+  origin, so the Output always comes from a read of the CDN.
+- A package may refuse an action: the test account's package refuses
+  `developmentMode`.
+
+### Create
+
+The API cannot create a Web Accelerator. `POST cdn/create` checks its body and
+then answers `Create CDN failed.` for every valid body, so the SDK has no
+`CreateWebAccelerator`. Create each CDN in the vCDN Portal, then manage it
+with the calls above.
