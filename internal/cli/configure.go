@@ -265,6 +265,7 @@ func runConfigureList(e *env) error {
 	if err := validateProfileName(profile); err != nil {
 		return err
 	}
+	var region string
 	for _, key := range configureListOrder {
 		meta := configureKeys[key]
 		envVar, defaultName := fileFor(key)
@@ -272,11 +273,34 @@ func runConfigureList(e *env) error {
 		if err != nil {
 			return err
 		}
+		if key == "region" {
+			region = value
+		}
 		if _, err := fmt.Fprintf(e.stdout, "%s = %s\n", key, maskIfSecret(meta, value)); err != nil {
 			return err
 		}
 	}
+	if region == "" && os.Getenv("VNGCLOUD_REGION") == "" {
+		return writeEmptyRegionHint(e.stderr)
+	}
 	return nil
+}
+
+// writeEmptyRegionHint tells a caller whose list shows no region which files
+// configure list read, since a missing file and an empty one print the same
+// lines. The region has no default, so every command needs one.
+func writeEmptyRegionHint(w io.Writer) error {
+	cfg, _, err := resolveConfigureFilePath(envConfigFileVar, defaultConfigName)
+	if err != nil {
+		return err
+	}
+	creds, _, err := resolveConfigureFilePath(envCredsFileVar, defaultCredsName)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "hint: no region is set; read %s and %s. "+
+		"Set VNGCLOUD_REGION or run: vngcloud configure set region <region>\n", cfg, creds)
+	return err
 }
 
 func maskIfSecret(meta configureKey, value string) string {

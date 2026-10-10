@@ -907,3 +907,30 @@ func TestGenDocsCommandRuns(t *testing.T) {
 		t.Fatalf("CLI.md was not written: %v", err)
 	}
 }
+
+// TestGenDocsNotesCoverZoneEnabledFlagAndRootDiskText checks the two notes
+// that explain gateway output the CLI prints verbatim.
+func TestGenDocsNotesCoverZoneEnabledFlagAndRootDiskText(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatalf("runGenDocs: %v", err)
+	}
+	for file, checks := range map[string]struct {
+		op   string
+		want []string
+	}{
+		"CLI-Portal.md":  {"list-zones", []string{"IsEnabled", "Contact to enable", "HCM03-1A"}},
+		"CLI-Compute.md": {"quote-create-server", []string{"ROOT DISK", "--root-disk-size"}},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", file, err)
+		}
+		section := genDocsSection(t, string(data), checks.op)
+		for _, want := range checks.want {
+			if !strings.Contains(section, want) {
+				t.Errorf("%s section is missing %q:\n%s", checks.op, want, section)
+			}
+		}
+	}
+}

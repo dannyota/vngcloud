@@ -129,7 +129,8 @@ const computeQuoteCreateServerNote = "Never orders anything: prices the server C
 	"Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is " +
 	"never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. " +
 	"The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, " +
-	"or a public IP: changing them does not change the quoted price."
+	"or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the " +
+	"volume type ID where the size belongs; the size is the --root-disk-size value."
 
 // volumeQuoteCreateVolumeNote documents quote-create-volume's own price
 // guard exemptions and unit, matching computeQuoteCreateServerNote's shape
@@ -154,6 +155,12 @@ const volumeGetDefaultVolumeTypeNote = "Without --zone-id, the API looks up the 
 const portalMapRedactionNote = "Values under a key that looks like a secret " +
 	"(password, token, credential, and similar, matched after lower-casing and " +
 	"stripping punctuation) print as `<redacted>`, at any depth."
+
+// portalListZonesNote documents that a zone's IsEnabled flag does not gate
+// pricing or creates, which the output alone gives no hint of.
+const portalListZonesNote = "A zone can report `IsEnabled` false with \"Contact to enable\" " +
+	"(seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.\n\n" +
+	portalMapRedactionNote
 
 // portalUserInfoNote documents get-user-info's own account-data risk beyond
 // the shared map redaction rule: this command prints the caller's own
@@ -458,7 +465,7 @@ var docOpNotes = map[string]string{
 	"monitor create-check":                    monitorCheckNotificationsNote,
 	"monitor update-check":                    monitorCheckNotificationsNote,
 	"portal get-user-info":                    portalUserInfoNote,
-	"portal list-zones":                       portalMapRedactionNote,
+	"portal list-zones":                       portalListZonesNote,
 	"portal list-quota-used":                  portalMapRedactionNote,
 	"portal get-quota":                        portalMapRedactionNote,
 	"portal get-tag-quota":                    portalMapRedactionNote,

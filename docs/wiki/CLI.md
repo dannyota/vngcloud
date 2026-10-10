@@ -2,7 +2,7 @@
 
 # CLI
 
-`vngcloud <service> <operation> [flags]` calls one SDK operation, listed below by service. `vngcloud configure` prompts for a profile's region and credentials, `vngcloud configure set|get|list` scripts the same, and `vngcloud version` prints the version.
+`vngcloud <service> <operation> [flags]` calls one SDK operation, listed below by service. `vngcloud configure` prompts for a profile's region and credentials, `vngcloud configure set|get|list` scripts the same, and `vngcloud version` (or `--version`, `-v`) prints the version.
 
 ## Services
 

@@ -58,6 +58,8 @@ vngcloud portal list-quota-used
 
 Kind: Read.
 
+A zone can report `IsEnabled` false with "Contact to enable" (seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.
+
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
 No fields.

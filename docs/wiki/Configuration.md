@@ -142,6 +142,40 @@ separately: that check runs at the first call that needs a token
 (`Authenticate` or any request), not from `LoadConfig` itself, and its
 error does not match `vngcloud.ErrInvalidConfig`.
 
+## Read-only agent profile
+
+A profile for an agent that may read but never write. Pick a profile name,
+here `agent`, and pass `--profile agent` to every command. Set the read-only
+key last: once it is on, `configure set` refuses to run for that profile.
+
+```sh
+vngcloud --profile agent configure set region hcm-3
+vngcloud --profile agent configure set root_email <root-email>
+vngcloud --profile agent configure set username <iam-username>
+printf '%s' "$PASSWORD" | vngcloud --profile agent configure set password -
+printf '%s' "$TOTP_SECRET" | vngcloud --profile agent configure set totp_secret -
+vngcloud --profile agent configure set read_only 1
+```
+
+- `region` has no default. Use `hcm-3` for HCM03. Without it, or without
+  `VNGCLOUD_REGION`, commands fail with a missing-region error.
+- `password` and `totp_secret` are read from stdin only. `totp_secret` is
+  optional and applies to accounts with TOTP on.
+- `project_id` is optional. Set it when the IAM user sees more than one
+  project.
+- `read_only 1` makes every write command exit with code 2 before any request.
+  Only editing the config file by hand turns it off.
+
+Check the profile with a read, which also proves the credentials work:
+
+```sh
+vngcloud --profile agent portal get-user-info
+vngcloud --profile agent portal list-zones
+```
+
+`vngcloud --profile agent configure list` shows what the profile holds, with
+secrets masked.
+
 ## Region
 
 `Config.Region` selects the region, for example `hcm-3` or `han-1`. A client

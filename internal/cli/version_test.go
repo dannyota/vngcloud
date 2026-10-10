@@ -34,3 +34,24 @@ func TestVersionCommandRejectsArgs(t *testing.T) {
 		t.Fatalf("exit code = %d, want 2; stderr=%q", code, stderr.String())
 	}
 }
+
+func TestVersionFlagsPrintTheVersionCommandLine(t *testing.T) {
+	withCleanEnv(t)
+	var want, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{"version"}, strings.NewReader(""), &want, &stderr); code != 0 {
+		t.Fatalf("version exit code = %d; stderr=%q", code, stderr.String())
+	}
+	for _, flag := range []string{"--version", "-v"} {
+		var stdout, errOut bytes.Buffer
+		code := Main(context.Background(), []string{flag}, strings.NewReader(""), &stdout, &errOut)
+		if code != 0 {
+			t.Fatalf("%s: exit code = %d, want 0; stderr=%q", flag, code, errOut.String())
+		}
+		if errOut.Len() != 0 {
+			t.Fatalf("%s: stderr = %q, want empty", flag, errOut.String())
+		}
+		if stdout.String() != want.String() {
+			t.Fatalf("%s: stdout = %q, want %q", flag, stdout.String(), want.String())
+		}
+	}
+}

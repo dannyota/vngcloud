@@ -549,3 +549,65 @@ func TestConfigureEditKeepsExistingBOM(t *testing.T) {
 		t.Fatalf("old line was not replaced: %q", got)
 	}
 }
+
+// runConfigureBoth is runConfigure that also returns stderr.
+func runConfigureBoth(t *testing.T, args []string) (stdout, stderr string, err error) {
+	t.Helper()
+	var out, errOut strings.Builder
+	root := newRootCmd(strings.NewReader(""), &out, &errOut)
+	root.SetArgs(args)
+	err = root.ExecuteContext(context.Background())
+	return out.String(), errOut.String(), err
+}
+
+func TestConfigureListHintsWhenRegionIsEmpty(t *testing.T) {
+	home := withCleanEnv(t)
+	out, errOut, err := runConfigureBoth(t, []string{"configure", "list"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "region = \n") {
+		t.Fatalf("stdout = %q, want the usual empty region line", out)
+	}
+	if strings.Count(errOut, "\n") != 1 {
+		t.Fatalf("stderr = %q, want exactly one line", errOut)
+	}
+	for _, want := range []string{configPath(home), credentialsPath(home), "VNGCLOUD_REGION", "configure set region"} {
+		if !strings.Contains(errOut, want) {
+			t.Fatalf("stderr = %q, want it to contain %q", errOut, want)
+		}
+	}
+}
+
+func TestConfigureListHintNamesEnvOverridePaths(t *testing.T) {
+	withCleanEnv(t)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "my-config")
+	creds := filepath.Join(dir, "my-creds")
+	t.Setenv("VNGCLOUD_CONFIG_FILE", cfg)
+	t.Setenv("VNGCLOUD_SHARED_CREDENTIALS_FILE", creds)
+	_, errOut, err := runConfigureBoth(t, []string{"configure", "list"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(errOut, cfg) || !strings.Contains(errOut, creds) {
+		t.Fatalf("stderr = %q, want both override paths", errOut)
+	}
+}
+
+func TestConfigureListNoHintWhenRegionIsSet(t *testing.T) {
+	withCleanEnv(t)
+	if _, err := runConfigure(t, "", []string{"configure", "set", "region", "hcm-3"}); err != nil {
+		t.Fatalf("set region: %v", err)
+	}
+	out, errOut, err := runConfigureBoth(t, []string{"configure", "list"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "region = hcm-3\n") {
+		t.Fatalf("stdout = %q, want region = hcm-3", out)
+	}
+	if errOut != "" {
+		t.Fatalf("stderr = %q, want empty", errOut)
+	}
+}

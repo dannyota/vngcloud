@@ -303,7 +303,7 @@ vngcloud compute list-user-images
 
 Kind: Read.
 
-Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, or a public IP: changing them does not change the quoted price.
+Never orders anything: prices the server CreateServerInput describes without sending a create. OptimumPrice and every other price are VND a month, one prepaid period. Ignores UserData, MaxPrice, and NoWait even when an inline --cli-input-json value sets them: UserData is never sent to the quote, since it can hold secrets, and MaxPrice and NoWait govern only an actual create. The billing gateway also ignores every key it does not price, such as Name, SecurityGroupIDs, SubnetID, or a public IP: changing them does not change the quoted price. The gateway's ROOT DISK text shows the volume type ID where the size belongs; the size is the --root-disk-size value.
 
 | Flag | Type | Required |
 |-|-|-|

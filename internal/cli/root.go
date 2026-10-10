@@ -53,7 +53,9 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 		SilenceUsage:  true,
 		Args:          parentArgs,
 		RunE:          unknownCommandRunE,
+		Version:       versionString(),
 	}
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetIn(stdin)

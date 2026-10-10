@@ -324,7 +324,7 @@ func renderCLIPage(services []docService) string {
 	b.WriteString(genDocsMarker + "\n\n# CLI\n\n")
 	b.WriteString("`vngcloud <service> <operation> [flags]` calls one SDK operation, listed below by " +
 		"service. `vngcloud configure` prompts for a profile's region and credentials, `vngcloud configure " +
-		"set|get|list` scripts the same, and `vngcloud version` prints the version.\n\n")
+		"set|get|list` scripts the same, and `vngcloud version` (or `--version`, `-v`) prints the version.\n\n")
 
 	b.WriteString("## Services\n\n")
 	for _, svc := range services {
