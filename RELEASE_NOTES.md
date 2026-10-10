@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.59.0 - Encrypted Volumes
+
+### Highlights
+
+- `volume create-volume --encryption-type-id <id>` and `compute
+  create-server --root-disk-encryption-type-id <id>
+  [--data-disk-encryption-type-id <id>]` create encrypted volumes; the
+  quote commands take the same flags. Ids come from `volume
+  list-encryption-types` (`aes-xts-plain64_128`, `aes-xts-plain64_256`),
+  whose decoding is fixed for the API's `key`/`displayKey` objects.
+- Pricing, live in `HCM03-1C`: a server with an encrypted root disk quotes
+  +85,140 VND a month on `s2-general-1x2` (432,940 against 347,800); an
+  encrypted volume costs the same as a plain one (32,000 VND for 10 GB).
+  The quote and the create's price guard send one body, so the guard
+  prices encryption too.
+- Verified live on 2026-10-10: an encrypted 10 GB volume created, read
+  back with its type, and deleted with the refund posted; a server with
+  encrypted root and data disks created, a separately created encrypted
+  volume attached and detached, everything deleted and refunded. Read the
+  type back with `volume get-volume` (`get-underlying-volume` does not
+  carry it).
+
 ## v0.58.0 - Priced-Only Quotes
 
 ### Highlights
@@ -382,66 +404,5 @@ after the deletes refunded the unused value.
   (`volume.ErrServerRunning`); `detach-volume` needs `--yes`.
 - Verified live on 2026-10-09: attach settled in 8 s and detach in 6 s on
   an `s2-general-1x2` server; every guard refused as designed.
-
-## v0.43.0 - Server Writes
-
-### Highlights
-
-- New `compute.CreateServer`, `DeleteServer`, `StartServer`, `StopServer`,
-  `RebootServer`, and `RenameServer`, with `vngcloud compute create-server`,
-  `delete-server`, `start-server`, `stop-server`, `reboot-server`, and
-  `rename-server`. A create quotes first and orders only at or under
-  `MaxPrice` (`--max-price`); the order and each action are sent once. User
-  data comes from `--user-data-file`, never argv, and never reaches the
-  quote, logs, or errors.
-- Waits: create to `ACTIVE`, stop to `STOPPED`, start and reboot to
-  `ACTIVE`, delete to gone; `ERROR` is `compute.ErrFailed`, a timeout
-  `compute.ErrNotSettled`, a status the action cannot start from
-  `compute.ErrUnexpectedStatus`.
-- `DeleteServer` always removes the boot volume with the server;
-  `DeleteVolumes` (`--delete-volumes`) governs only attached data volumes,
-  and `KeptVolumeIDs` lists the ones left behind. `delete-server`,
-  `stop-server`, and `reboot-server` need `--yes`.
-- Verified live on 2026-10-09: an `s2-general-1x2` server (347,800 VND a
-  month) created in 42 s, stopped in 25 s, started in 15 s, rebooted in
-  20 s, deleted in 20 s with a refund of the unused value.
-
-## v0.42.0 - Volume Writes
-
-### Highlights
-
-- New `volume.CreateVolume`, `DeleteVolume`, and `QuoteResizeVolume`, with
-  `vngcloud volume create-volume`, `delete-volume`, and
-  `quote-resize-volume`. A create quotes first and orders only when the
-  quote is at or under `MaxPrice` (`--max-price`, default 0, so a bare
-  command orders nothing); the order is sent once and never retried.
-- Waits: a create polls to `AVAILABLE` and a delete to gone; `ERROR` is
-  `volume.ErrFailed`, a timeout `volume.ErrNotSettled` (do not repeat the
-  write blind).
-- `DeleteVolume` refuses an attached volume with `volume.ErrVolumeInUse`
-  before any request; `delete-volume` needs `--yes`.
-- New `vngcloud.ErrUnpriced`, CLI code `Unpriced`: a paid order whose quote
-  is 0 is refused, since nothing in vServer is free.
-- Verified live on 2026-10-09: a 10 GB SSD volume (32,000 VND a month)
-  created in 15 s, deleted in 12 s, and the delete refunded the unused
-  value to the wallet.
-
-## v0.41.0 - vStorage Reads
-
-### Highlights
-
-- New `storage` package: `ListRegions`, `ListProjects`, `ListBuckets`, and
-  `GetBucket`, with `vngcloud storage list-regions`, `list-projects`,
-  `list-buckets`, and `get-bucket`. Reads only; buckets and keys come in
-  later releases. `Region` names a vStorage region such as `HCM04`; left
-  empty, `hcm-3` maps to `HCM04` and `han-1` to `HAN02`.
-- The bucket commands take the vStorage project from the global
-  `--project-id` flag only, never from the environment or profile, which
-  hold the vServer project. A missing one exits 2 before any request.
-- New `vngcloud.ErrUnpriced`, for a paid write whose quote is 0; no shipped
-  write returns it yet.
-- New [Storage](https://github.com/dannyota/vngcloud/wiki/Storage) and
-  [CLI: Storage](https://github.com/dannyota/vngcloud/wiki/CLI-Storage)
-  wiki pages.
 
 Older releases are in [docs/release-notes-archive.md](docs/release-notes-archive.md).
