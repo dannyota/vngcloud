@@ -50,8 +50,9 @@ Missing, null, malformed, or non-finite prices return `*vngcloud.APIError`.
 
 ## Project purchase and delete
 
-Purchase and delete are pending the paid live check in
-[vStorage projects][project-design].
+Purchase and delete were verified live on 2026-10-10 in `HCM04`: one order
+charged the quoted price, the project was active at once, and delete
+refunded the full amount. See [vStorage projects][project-design].
 
 Set `Name` and `MaxPrice` on `CreateProjectInput`, then pass the input to
 `CreateProject`. Use the exact catalog type and integer GB quota. Create checks

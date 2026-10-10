@@ -1,7 +1,7 @@
 # vStorage projects
 
-Status: Accepted (2026-10-10) for project pricing; purchase and cleanup
-accepted, gated on the paid check
+Status: Accepted (2026-10-10). The paid check passed on 2026-10-10; see
+[paid check record](storage-projects-api.md#paid-check-record).
 
 Add regional project prices, a create quote, a guarded purchase, and an
 empty-project delete to `storage` and the CLI. The owner's approval replaces
@@ -318,8 +318,9 @@ through debug, public fixtures, or routine output.
 
 ## Discovery
 
-Only the one paid check resolves these questions. It uses `auto`; do not
-send another order merely to learn the manual branch.
+The paid check on 2026-10-10 answered question 1 with acceptance and
+question 3 with an immediately active project; see the
+[paid check record](storage-projects-api.md#paid-check-record).
 
 1. **Does IAM `auto` debit balance with `enable_iam_checkout: "true"`?**
    If it accepts and provisions the paid project, confirm by reads and

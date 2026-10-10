@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.65.0 - vStorage Project Purchase and Delete
+
+### Highlights
+
+- `storage create-project --region hcm-3 --name <name> --type Gold
+  --quota-gb 30 --max-price 30000` buys a one-month vStorage project and
+  charges the account balance at once. It quotes first and refuses when the
+  quote is missing, zero, or above `--max-price` (default 0 buys nothing),
+  sends one order with auto-renew off, never retries, and confirms the new
+  project by reads. SDK: `storage.CreateProject`.
+- `storage delete-project --project-id <id> --yes` deletes an empty project;
+  a project with buckets is refused. SDK: `storage.DeleteProject`.
+- Uncertain outcomes return `NotSettled` with the steps to check before any
+  retry; a checkout-only answer returns `PaymentRequired`.
+- Verified live on 2026-10-10 in `HCM04`: one order for Gold 30 GB charged
+  exactly 30,000 VND, the project was active at once, and delete refunded
+  the full amount (0 VND net).
+
 ## v0.64.0 - vStorage Project Prices
 
 ### Highlights

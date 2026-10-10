@@ -18,7 +18,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
-| [vStorage projects](storage-projects.md) | Accepted for pricing; purchase gated on the paid check |
+| [vStorage projects](storage-projects.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |
 | [vServer free writes](vserver-writes.md) | Accepted |
 | [Free writes survey](free-writes-survey.md) | Accepted |

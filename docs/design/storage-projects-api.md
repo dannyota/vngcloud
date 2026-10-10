@@ -1,7 +1,7 @@
 # vStorage projects: API evidence
 
-Status: Accepted (2026-10-10) for project pricing; purchase and cleanup
-accepted, gated on the paid check
+Status: Accepted (2026-10-10). The paid check passed on 2026-10-10; see
+[Paid check record](#paid-check-record).
 
 Evidence for [vStorage projects](storage-projects.md). The manager supplied
 read-only discovery from an IAM console session on 2026-10-10, including
@@ -399,21 +399,26 @@ website billing pages were read separately and are dated observations.
   [ADR 0003](../adr/0003-toggle-writes.md): quote classification, input
   sharing, destructive consent, and no resend with `Once`.
 
-## Paid check record to complete
+## Paid check record
 
-The SDK live test sends the first and only approved auto order. Record its
-acceptance or refusal with IAM checkout enabled, exact `data` fields,
-redirect meaning, readiness timing, and any refused/unpaid leftovers.
-Manual data is recorded only if exposed by that same attempt; otherwise
-it remains outside the supported auto path. No second order or checkout
-payment is allowed to complete discovery. See
-[Discovery](storage-projects.md#discovery) for each response branch.
+`TestLiveWriteStorageProject` ran once on 2026-10-10 in `HCM04` with IAM
+checkout enabled, on an account with no projects. One `auto` order for Gold
+30 GB was accepted and charged the cash balance at once:
 
-The same test reads back the project, deletes it, and reconciles its refund.
-Store raw and decoded output privately per
-[live-data](../../instructions/live-data.md). Public fixtures replace
-account IDs, order IDs, project names, checkout URLs, balances, cookies,
-and tokens. Retain field types, error codes, and state transitions only.
+- An empty region's project list is `{"code":200,"success":true}`, with no
+  list key; the SDK reads that as a complete empty list.
+- The order answered HTTP 200 `success: true` with `data.created: true`,
+  `data.project` (the new `projectId` and `projectName`, `status: 1`,
+  `enableAutoRenew: false`, most other fields null), `data.redirectUrl`
+  pointing to the vStorage console page, and `data.transactionId`. The
+  project was active at once; no wait was needed.
+- The cash balance fell by exactly the quoted 30,000 VND.
+- Delete answered HTTP 200 `{"code":200,"data":true,"success":true}`. The
+  project left the active list at once, and the full 30,000 VND came back
+  within the refund wait; the run cost 0 VND net.
+
+Manual checkout stays untested and out of scope. Raw captures stay private
+under `examples/basic/output/raw/storage/`.
 
 [project-guide]: https://docs.greennode.ai/vstorage/object-storage/object-storage-hcm04/cac-tinh-nang-cua-object-storage/lam-viec-voi-project.md
 [getting-started]: https://docs.greennode.ai/vstorage/object-storage/object-storage-hcm04/bat-dau-voi-object-storage/buoc-1-khoi-tao-project.md
