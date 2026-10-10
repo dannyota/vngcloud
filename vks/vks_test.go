@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -90,11 +91,23 @@ func TestRoutesAndDefaults(t *testing.T) {
 
 func TestInvalidInputBeforeRequest(t *testing.T) {
 	c := testClient(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") })
-	for _, in := range []*ListClustersInput{{Page: -1}, {Size: -1}, {Page: math.MaxInt32 + 1}, {Size: math.MaxInt32 + 1}} {
+	for _, in := range []*ListClustersInput{{Page: -1}, {Size: -1}} {
 		if _, err := c.ListClusters(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("error %v", err)
 		}
 	}
+	t.Run("above int32", func(t *testing.T) {
+		// A 32-bit int cannot represent an input above MaxInt32.
+		if strconv.IntSize == 32 {
+			t.Skip("int cannot exceed MaxInt32")
+		}
+		aboveInt32 := int64(math.MaxInt32) + 1
+		for _, in := range []*ListClustersInput{{Page: int(aboveInt32)}, {Size: int(aboveInt32)}} {
+			if _, err := c.ListClusters(context.Background(), in); !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("error %v", err)
+			}
+		}
+	})
 }
 
 func TestRegionAndZeroConfig(t *testing.T) {
@@ -362,16 +375,30 @@ func TestRequiredFieldTypes(t *testing.T) {
 }
 
 func TestTotalPagesWithoutOverflow(t *testing.T) {
-	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"items":[],"total":9223372036854775807,"page":0,"pageSize":2}`)
+	for _, total := range []int{math.MaxInt - 1, math.MaxInt} {
+		t.Run(strconv.Itoa(total), func(t *testing.T) {
+			c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"items":[],"total":%d,"page":0,"pageSize":2}`, total)
+			})
+			out, err := c.ListClusters(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.TotalItem != total || out.TotalPage != total/2+total%2 {
+				t.Fatalf("metadata %+v", out)
+			}
+		})
+	}
+	t.Run("above int", func(t *testing.T) {
+		c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"items":[],"total":%d,"page":0,"pageSize":2}`, uint64(math.MaxInt)+1)
+		})
+		_, err := c.ListClusters(context.Background(), nil)
+		if err == nil || !strings.Contains(err.Error(), "malformed response") {
+			t.Fatalf("error %v", err)
+		}
+		assertSafe(t, err)
 	})
-	out, err := c.ListClusters(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.TotalItem != math.MaxInt64 || out.TotalPage != math.MaxInt64/2+1 {
-		t.Fatalf("metadata %+v", out)
-	}
 }
 
 func TestRetryAndSuccess(t *testing.T) {
