@@ -42,10 +42,10 @@ semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI r
 	@semgrep ci --code --supply-chain --secrets --no-suppress-errors
 
 live: ## Run live smoke tests against the real API (reads .env)
-	@go test -tags live -count=1 -v -run TestLive .
+	@go test -tags live -count=1 -v -run TestLive ./livetest/
 
 live-write: ## Run the gated live billing write test; needs owner approval per run and VNGCLOUD_LIVE_WRITE=1
-	@go test -tags livewrite -count=1 -timeout 60m -v -run TestLiveWrite .
+	@go test -tags livewrite -count=1 -timeout 60m -v -run TestLiveWrite ./livetest/
 
 gen-docs: ## Regenerate the CLI reference pages in docs/wiki/ from the operation tables
 	@go run ./cmd/vngcloud gen-docs docs/wiki

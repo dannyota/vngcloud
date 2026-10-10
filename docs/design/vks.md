@@ -309,11 +309,11 @@ reads.
 |-|-|
 | SDK | `vks/vks.go`, `vks/clusters.go`, `vks/models.go`, `vks/types.go`, matching `vks/*_test.go`; first-release models only |
 | SDK | `internal/endpoints/endpoints.go`, `internal/endpoints/endpoints_test.go`, `internal/routes/routes.go`, `internal/routes/routes_test.go`, `internal/core/config.go`, `internal/core/client.go`, `internal/core/client_test.go` |
-| SDK | First-release `testdata/vks/*.json`, `examples/basic/vks.go`, `examples/basic/main.go`, `live_vks_test.go`, `docs/wiki/VKS.md`, `docs/wiki/Services.md` |
-| CLI | `internal/cli/svc_vks.go`, `internal/cli/svc_vks_test.go`, `internal/cli/root.go`, `internal/cli/gendocs.go`, `docs/wiki/CLI-VKS.md`, generated `docs/wiki/CLI.md`, `live_cli_vks_test.go` |
+| SDK | First-release `testdata/vks/*.json`, `examples/basic/vks.go`, `examples/basic/main.go`, `livetest/live_vks_test.go`, `docs/wiki/VKS.md`, `docs/wiki/Services.md` |
+| CLI | `internal/cli/svc_vks.go`, `internal/cli/svc_vks_test.go`, `internal/cli/root.go`, `internal/cli/gendocs.go`, `docs/wiki/CLI-VKS.md`, generated `docs/wiki/CLI.md`, `livetest/live_cli_vks_test.go` |
 | Manager | `docs/wiki/_Sidebar.md`, `README.md`, release notes if needed |
 
-`live_cli_vks_test.go` belongs to the CLI brief despite being at the root.
+`livetest/live_cli_vks_test.go` belongs to the CLI brief inside `livetest/`.
 The SDK owner updates the exhaustive service index in `Services.md`.
 The CLI owner generates `CLI-VKS.md` and `CLI.md` from its operation table.
 No root service type re-export or module change is expected.

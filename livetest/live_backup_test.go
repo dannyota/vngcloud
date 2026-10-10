@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -55,7 +55,7 @@ func (c *backupLiveCapture) RoundTrip(req *http.Request) (*http.Response, error)
 	if err != nil {
 		c.t.Fatal("capture encode failed")
 	}
-	dir := "examples/basic/output/raw/backup"
+	dir := repoPath("examples/basic/output/raw/backup")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		c.t.Fatal("capture directory failed")
 	}

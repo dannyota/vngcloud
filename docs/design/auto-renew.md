@@ -387,7 +387,8 @@ authorize a new paid run or a change to any existing production project.
 The manager buys and deletes one empty project solely for this check.
 Use a dedicated `TestLiveWriteStorageAutoRenew`, gated by
 `VNGCLOUD_LIVE_WRITE=1` and `VNGCLOUD_LIVE_STORAGE_AUTO_RENEW=1`, with
-`-tags livewrite -count=1 -timeout 60m` and an exact test-name filter.
+`go test -tags livewrite -count=1 -timeout 60m` with an exact test-name
+filter and `./livetest/` as the package.
 Run no concurrent storage live test or probe against that project.
 
 1. Record its ID and baseline balance/transactions privately. Confirm

@@ -6,7 +6,7 @@
 go get danny.vn/vngcloud
 ```
 
-The module needs Go 1.27.1 or later.
+The module needs Go 1.27.2 or later.
 
 ## Create a client
 
@@ -121,6 +121,19 @@ vngcloud billing delete-budget --budget-uuid <uuid> --yes
   refuses every write command. Give an AI agent a read-only profile.
 
 [CLI](CLI.md) lists every command and flag.
+
+## Repository checks
+
+Run `make check` for unit tests, vet, lint, and file-length checks. Live tests
+and their helpers live in `livetest/`. Compile both tags without API calls:
+
+```bash
+go test -tags live -run '^$' ./livetest/
+go test -tags livewrite -run '^$' ./livetest/
+```
+
+`make live` runs the live read tests using the repository root's `.env`.
+`make live-write` runs gated write tests and needs approval for the run.
 
 ## Next steps
 

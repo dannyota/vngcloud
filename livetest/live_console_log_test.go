@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func TestLiveConsoleLog(t *testing.T) {
 	if serverID == "" {
 		t.Skip("VNGCLOUD_LIVE_CONSOLE_LOG_SERVER_ID is unset")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatal("fail: environment config load")
 	}
 	region := os.Getenv("VNGCLOUD_LIVE_CONSOLE_LOG_REGION")

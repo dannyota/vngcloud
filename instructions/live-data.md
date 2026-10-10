@@ -4,11 +4,12 @@ Rules for anything that touches the real GreenNode API or its output. Everyone w
 
 - Treat IP addresses, hostnames, project IDs, resource IDs, account names, emails, internal URLs, tokens, cookies, and certificates from live runs as sensitive.
 - Never read `.env` or `examples/basic/config.*.json` values into the conversation. Never print live output in chat, and never paste it into web searches or external tools.
+- Live tests live in `livetest/`; their path helper finds the module root for `.env`, captures, and fixtures.
 - Live output stays under `examples/basic/output/`, which is git-ignored: `raw/<service>/<resource>.json` holds the unmodified response body under a `body` field, and `sdk/<service>/<resource>.json` holds the decoded SDK model.
 - Browser captures (Playwright MCP) stay under ignored paths and are deleted when the discovery work ends.
 - To sign the Playwright MCP browser in, run `make browser-creds` in the background, then `browser_run_code_unsafe` with `filename: scripts/browser-login.js`. The helper serves the `.env` values once over 127.0.0.1 and exits, and the script clears the form and returns only the origin, so credentials stay out of tool output. Page snapshots after login still show account data; treat them as live output. Add `.playwright-mcp/` to `.git/info/exclude` in each clone.
 - Live write calls need owner approval per run, naming the account, region, and resources, unless the owner gave standing approval for free, cleanable writes on the test account. Paid or uncleanable writes always need approval. Clean up what the run created.
-- Run one live write test with `VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_<TEST>=1 go test -tags livewrite -count=1 -timeout 60m -run '^TestLiveWrite<Name>$' .`; each test names its own gate variable. Only one test that creates a VPC runs at a time.
+- Run one live write test with `VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_<TEST>=1 go test -tags livewrite -count=1 -timeout 60m -run '^TestLiveWrite<Name>$' ./livetest/`; each test names its own gate variable. Only one test that creates a VPC runs at a time.
 - A live test creates its own parent resources, deletes children before parents, and stops with a message naming the leftovers rather than delete a parent a child still holds.
 - Throwaway live programs go under a git-ignored path and are deleted after use.
 

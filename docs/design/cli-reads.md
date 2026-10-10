@@ -263,8 +263,8 @@ checks that no value appears.
 ## Live checks
 
 Before a release ships, `make live` must pass with these additions, which
-the sdk role writes in `live_test.go` and `live_cli_test.go`. Each logs
-counts and field presence only, never values.
+the sdk role writes in `livetest/live_test.go` and `livetest/live_cli_test.go`.
+Each logs counts and field presence only, never values.
 
 | Service | SDK check | CLI check |
 |-|-|-|
@@ -327,9 +327,9 @@ parallel: each adds only `internal/cli/svc_<name>.go`, its test, its
 generated wiki page, and its live checks. The shared edits are one
 `root.AddCommand` line in `root.go`, one `buildDocService` line in
 `gendocs.go`, one line in `docs/wiki/_Sidebar.md`, the generated
-`docs/wiki/CLI.md` index, and a subtest each in `live_test.go` and
-`live_cli_test.go`. Those are one-line merges; rerun `make gen-docs` after
-each merge rather than merging `CLI.md` by hand. At most three workers run
+`docs/wiki/CLI.md` index, and a subtest each in `livetest/live_test.go` and
+`livetest/live_cli_test.go`. Those are one-line merges; rerun `make gen-docs`
+after each merge rather than merging `CLI.md` by hand. At most three workers run
 at once, so R2 to R4 run first and R5 after.
 
 No release needs an SDK change except R5's `list-users` and the optional

@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -109,7 +109,7 @@ func compareSnapshotCapture(t *testing.T, body []byte, items any, policies bool)
 
 func saveSnapshotCapture(t *testing.T, body []byte, resource string) {
 	t.Helper()
-	dir := "examples/basic/output/raw/volume"
+	dir := repoPath("examples/basic/output/raw/volume")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal("capture directory failed")
 	}

@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"

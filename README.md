@@ -167,7 +167,9 @@ guards.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks. Report security
-problems privately through [SECURITY.md](SECURITY.md).
+problems privately through [SECURITY.md](SECURITY.md). Live tests and their
+helpers live in [`livetest/`](livetest/); see the compile-only commands in
+[CONTRIBUTING.md](CONTRIBUTING.md#live-api-data).
 
 Licensed under [Apache 2.0](LICENSE).
 

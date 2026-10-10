@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 // with none it logs that they were skipped. It logs counts and statuses
 // only, never a domain, ID, or key.
 func TestLiveCDNWebAccelerators(t *testing.T) {
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	key := os.Getenv("VNGCLOUD_VCDN_API_KEY")

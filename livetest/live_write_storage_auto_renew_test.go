@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -33,7 +33,7 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 	if projectID == "" {
 		t.Fatal("fail: throwaway project is required")
 	}
-	if envfile.Load(".env") != nil {
+	if envfile.Load(repoPath(".env")) != nil {
 		t.Fatal("fail: credentials unavailable")
 	}
 	dir := filepath.Join(storageProjectCaptureDir, "auto-renew")

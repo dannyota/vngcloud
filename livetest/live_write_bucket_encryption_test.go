@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -127,7 +127,7 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	if err != nil {
 		t.Fatal("generate name failed")
 	}
-	dir := "examples/basic/output/raw/storage"
+	dir := repoPath("examples/basic/output/raw/storage")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal("create report directory failed")
 	}

@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -66,7 +66,7 @@ func (c *liveVKSCapture) compare(t *testing.T, region, resource string, decoded 
 	if err != nil {
 		t.Fatal("VKS capture encoding failed")
 	}
-	dir := filepath.Join("examples", "basic", "output", "raw", "vks")
+	dir := repoPath("examples", "basic", "output", "raw", "vks")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal("VKS capture directory failed")
 	}

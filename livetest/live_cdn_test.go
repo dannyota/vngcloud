@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -33,7 +33,7 @@ func TestLiveWriteCDN(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" || os.Getenv("VNGCLOUD_LIVE_CDN") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_CDN=1 to run the live vCDN write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	key := os.Getenv("VNGCLOUD_VCDN_API_KEY")
@@ -300,8 +300,8 @@ func saveLiveCDNPurge(t *testing.T, captured *vngcloud.ResponseCapture, out *cdn
 	if captured == nil || !json.Valid(captured.Body) {
 		t.Fatal("PurgePaths did not capture a JSON response")
 	}
-	rawDir := filepath.Join("examples", "basic", "output", "raw", "cdn")
-	sdkDir := filepath.Join("examples", "basic", "output", "sdk", "cdn")
+	rawDir := repoPath("examples", "basic", "output", "raw", "cdn")
+	sdkDir := repoPath("examples", "basic", "output", "sdk", "cdn")
 	for _, dir := range []string{rawDir, sdkDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("create purge output directory: %v", err)

@@ -18,4 +18,6 @@ Code rules and the checks each change needs. Implementers, the reviewer, and the
 | Dependency or Go version change | `make vuln` |
 | Release | Green GitHub CI on the exact commit |
 
+Live tests and their helpers live in `livetest/`, separate from root unit tests. Compile them without API calls with `go test -tags live -run '^$' ./livetest/` and `go test -tags livewrite -run '^$' ./livetest/`. Vet both tags with `go vet -tags live ./...` and `go vet -tags livewrite ./...`.
+
 `make live` runs against the real API and needs `.env`. Run it only when a brief asks for live verification. Live write tests follow [live-data](live-data.md).

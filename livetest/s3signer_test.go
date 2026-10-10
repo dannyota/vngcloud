@@ -1,4 +1,4 @@
-package vngcloud_test
+package livetest_test
 
 import (
 	"crypto/hmac"

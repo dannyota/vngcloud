@@ -28,6 +28,13 @@ same change.
 
 ## Live API data
 
+Live tests and their helpers live in `livetest/`. Compile them without API calls:
+
+```bash
+go test -tags live -run '^$' ./livetest/
+go test -tags livewrite -run '^$' ./livetest/
+```
+
 `make live` and `go run ./examples/basic` call the real API with your
 credentials. Their output is git-ignored because it holds account data. Before a
 response becomes a test fixture, replace IDs, names, emails, hostnames, IP

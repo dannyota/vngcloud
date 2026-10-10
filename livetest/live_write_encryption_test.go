@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -104,7 +104,7 @@ func logLiveRefund(ctx context.Context, t *testing.T, client *billing.Client, la
 
 func liveWriteConfig(ctx context.Context, t *testing.T, opts ...vngcloud.LoadOption) vngcloud.Config {
 	t.Helper()
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	cfg, err := vngcloud.LoadConfig(ctx, append([]vngcloud.LoadOption{
@@ -499,7 +499,7 @@ func (c *liveRawCapture) save(t *testing.T, service, resource string) []byte {
 	if err != nil {
 		t.Fatalf("encode capture: %v", err)
 	}
-	dir := filepath.Join("examples", "basic", "output", "raw", service)
+	dir := repoPath("examples", "basic", "output", "raw", service)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("create capture directory: %v", err)
 	}

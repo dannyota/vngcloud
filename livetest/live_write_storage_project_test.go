@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -30,7 +30,8 @@ import (
 	"danny.vn/vngcloud/storage"
 )
 
-const storageProjectCaptureDir = "examples/basic/output/raw/storage"
+var storageProjectCaptureDir = repoPath("examples/basic/output/raw/storage")
+
 const storageProjectLeftover = "Leftover name pattern: vngcloud-live-<8 hex> in HCM04. Inspect the private storage-project-report.json, pending orders, and billing in the console before any retry."
 
 // TestLiveWriteStorageProject consumes one paid order attempt. Gates must be
@@ -41,7 +42,7 @@ func TestLiveWriteStorageProject(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" || os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT") != "1" {
 		t.Skip("set both storage project live-write gates for the approved paid check")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatal("could not load live credentials")
 	}
 	if err := os.MkdirAll(storageProjectCaptureDir, 0o700); err != nil {
@@ -381,7 +382,7 @@ func TestStorageProjectCompleteLists(t *testing.T) {
 		name, raw string
 		valid     bool
 	}{
-		{"absent", testutil.FixtureBody(t, "testdata/storage/project_list_empty.json"), true},
+		{"absent", testutil.FixtureBody(t, repoPath("testdata/storage/project_list_empty.json")), true},
 		{"datas empty", `{"success":true,"datas":[],"isNext":false}`, true},
 		{"data empty", `{"success":true,"data":[]}`, true},
 		{"datas null", `{"success":true,"datas":null}`, false},
@@ -521,15 +522,15 @@ func TestStorageProjectAttemptCleansValidationFailures(t *testing.T) {
 				var body string
 				switch r.URL.Path {
 				case "/internal/v1/regions":
-					body = testutil.FixtureBody(t, "testdata/storage/list_regions.json")
+					body = testutil.FixtureBody(t, repoPath("testdata/storage/list_regions.json"))
 				case "/internal/v1/billing/project_types":
-					body = testutil.FixtureBody(t, "testdata/storage/project_types.json")
+					body = testutil.FixtureBody(t, repoPath("testdata/storage/project_types.json"))
 				case "/internal/v1/billing/purchase_types":
-					body = testutil.FixtureBody(t, "testdata/storage/project_purchase_types.json")
+					body = testutil.FixtureBody(t, repoPath("testdata/storage/project_purchase_types.json"))
 				case "/billing-api/v1/configurations":
-					body = testutil.FixtureBody(t, "testdata/storage/project_configuration_"+r.URL.Query().Get("keys")+".json")
+					body = testutil.FixtureBody(t, repoPath("testdata/storage/project_configuration_"+r.URL.Query().Get("keys")+".json"))
 				case "/billing-api/v2/price":
-					body = testutil.FixtureBody(t, "testdata/storage/project_quote_gold.json")
+					body = testutil.FixtureBody(t, repoPath("testdata/storage/project_quote_gold.json"))
 				case "/internal/v1/projects":
 					body = `{"success":true,"datas":[]}`
 					if orders > 0 && deletes == 0 {
@@ -599,7 +600,7 @@ func TestStorageProjectAttemptCleansValidationFailures(t *testing.T) {
 }
 
 func TestStorageProjectPublicLog(t *testing.T) {
-	source, err := os.ReadFile("live_write_storage_project_test.go")
+	source, err := os.ReadFile(repoPath("livetest", "live_write_storage_project_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +636,7 @@ func storageProjectAttempt(save func() error, order func() (*storage.CreateProje
 }
 
 func storageProjectCheckPublicLog(source []byte) error {
-	f, err := parser.ParseFile(token.NewFileSet(), "live_write_storage_project_test.go", source, 0)
+	f, err := parser.ParseFile(token.NewFileSet(), "livetest/live_write_storage_project_test.go", source, 0)
 	if err != nil {
 		return err
 	}

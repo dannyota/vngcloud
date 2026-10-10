@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -35,8 +35,8 @@ import (
 
 // liveHome is one temp directory, created once per test binary run, that
 // every live-tagged test in this package may use as HOME. TestLiveCLI (in
-// live_cli_test.go) points HOME at it so the CLI's fixed ~/.vngcloud/cache
-// path resolves to the same directory as cacheDir below: TestLive and
+// livetest/live_cli_test.go) points HOME at it so the CLI's fixed
+// ~/.vngcloud/cache path resolves to cacheDir below: TestLive and
 // TestLiveCLI then share one cached token for the same credentials instead
 // of each performing its own IAM login inside one 30-second TOTP window.
 var liveHome string
@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestLive(t *testing.T) {
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 

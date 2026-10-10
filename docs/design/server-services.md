@@ -333,8 +333,8 @@ activation.
 
 SDK ownership covers `compute/scheduled_tasks*.go`,
 `compute/scheduled_task_executions*.go`, matching tests,
-`testdata/compute/`, `examples/basic/`, `live_test.go`, and the compute SDK
-wiki pages. The SDK worker owns any necessary shared route or endpoint
+`testdata/compute/`, `examples/basic/`, `livetest/live_test.go`, and the
+compute SDK wiki pages. The SDK worker owns any necessary shared route or endpoint
 changes, including their tests, through an explicit manager brief.
 
 CLI ownership covers the compute operation table, CLI tests, generated

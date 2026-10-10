@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -19,13 +19,13 @@ import (
 // TestLiveCLI runs one read command per service through internal/cli.Main,
 // in-process against the real API, and checks that each exits 0 and prints
 // valid JSON. It points HOME (and USERPROFILE, for a Windows run) at
-// liveHome, the same directory TestLive (live_test.go) builds its token
-// cache dir under, so the CLI's fixed ~/.vngcloud/cache resolves to the
+// liveHome, the directory TestLive (livetest/live_test.go) uses for its
+// token cache, so the CLI's fixed ~/.vngcloud/cache resolves to the
 // identical directory: whichever of the two tests logs in first, the other
 // reuses its cached token instead of logging in again inside one 30-second
 // TOTP window.
 func TestLiveCLI(t *testing.T) {
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	if os.Getenv("VNGCLOUD_ACCESS_TOKEN") == "" &&

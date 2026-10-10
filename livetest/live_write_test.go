@@ -1,6 +1,6 @@
 //go:build livewrite
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"bytes"
@@ -58,7 +58,7 @@ import (
 
 // liveWriteCaptureDir holds one raw response capture file per operation.
 // examples/basic/output/ is git-ignored; nothing under it is published.
-const liveWriteCaptureDir = "examples/basic/output/raw/billing/live-write"
+var liveWriteCaptureDir = repoPath("examples/basic/output/raw/billing/live-write")
 
 // TestLiveWrite exercises budget and threshold writes against the real
 // account named in .env. It creates one PAUSED budget with a limit high
@@ -69,7 +69,7 @@ func TestLiveWrite(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live budget write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -531,7 +531,7 @@ func TestLiveWriteMonitor(t *testing.T) {
 	if quotaRaw == "" || quotaErr != nil || quota <= 0 {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_QUOTA to the account's check quota (a positive integer) named in this run's approval to run the live monitor write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -757,7 +757,7 @@ func TestLiveWriteDNS(t *testing.T) {
 	if vpcID == "" {
 		t.Skip("set VNGCLOUD_LIVE_DNS_VPC_ID to a VPC with Private DNS ENABLED to run the live DNS write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -1173,7 +1173,7 @@ func TestLiveWriteMonitorChannel(t *testing.T) {
 	if webhookURL == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL to the approved webhook URL to run the live monitor channel write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -1416,7 +1416,7 @@ func TestLiveWriteMonitorCheckNotifications(t *testing.T) {
 	if quotaRaw == "" || quotaErr != nil || quota <= 0 {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_QUOTA to the account's check quota (a positive integer) named in this run's approval to run the live monitor check notifications write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -1796,7 +1796,7 @@ func TestLiveWriteMonitorChannelOTP(t *testing.T) {
 	if otpFile == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_OTP_FILE to a path to poll for the emailed OTP to run the live monitor channel OTP write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -2193,7 +2193,7 @@ func TestLiveWriteMonitorLogProject(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_LOG_PROJECT=1 to run the live log project write test; " +
 			"the Basic class allows only 3 orders or recoveries a month, and this test orders, deletes, and purges one")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -2442,7 +2442,7 @@ func TestLiveWriteNetworkSecurityGroup(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_SECGROUP") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_SECGROUP=1 to run the live network security group write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -2919,7 +2919,7 @@ func TestLiveWriteSSHKey(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_SSH_KEY=1 to run the live ssh key write test; " +
 			"the create step has GreenNode generate and see a private key")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -3202,7 +3202,7 @@ func TestLiveWriteServerGroup(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_SERVER_GROUP") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_SERVER_GROUP=1 to run the live server group write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -3959,7 +3959,7 @@ func TestLiveWriteNetworkVPC(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_VPC=1 to run the live network VPC write test")
 	}
 	privateDNS := os.Getenv("VNGCLOUD_LIVE_NETWORK_PRIVATE_DNS") == "1"
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -4361,7 +4361,7 @@ func TestLiveWriteNetworkRouteTable(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_ROUTE_TABLE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_ROUTE_TABLE=1 to run the live network route table write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -4870,7 +4870,7 @@ func TestLiveWriteNetworkACL(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_ACL") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_ACL=1 to run the live network ACL write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -5438,7 +5438,7 @@ func TestLiveWriteNetworkDHCPOptions(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_DHCP") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_DHCP=1 to run the live network DHCP options write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -5840,7 +5840,7 @@ func TestLiveWriteNetworkVirtualIP(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_NETWORK_VIP") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_NETWORK_VIP=1 to run the live network virtual IP write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -6253,7 +6253,7 @@ func TestLiveWriteLBCertificate(t *testing.T) {
 		t.Skip("set VNGCLOUD_LIVE_LB_CERTIFICATE=1 to run the live vLB certificate write test; " +
 			"the import step sends a private key to GreenNode")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -6680,7 +6680,7 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -6895,7 +6895,7 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -7209,7 +7209,7 @@ func TestLiveWriteIAMServiceAccount(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_IAM_SERVICE_ACCOUNT") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_IAM_SERVICE_ACCOUNT=1 to run the live iam service account write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -7469,7 +7469,7 @@ func TestLiveWriteIAMPolicy(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_IAM_POLICY") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_IAM_POLICY=1 to run the live iam policy write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -7804,7 +7804,7 @@ func TestLiveWriteIAMGroup(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_IAM_GROUP") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_IAM_GROUP=1 to run the live iam group write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -8371,7 +8371,7 @@ func TestLiveWriteLoadBalancer(t *testing.T) {
 	if !ok {
 		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer create test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -8529,7 +8529,7 @@ func TestLiveWriteLoadBalancerResize(t *testing.T) {
 	if !ok {
 		t.Skip("set VNGCLOUD_LIVE_MAX_VND to this run's approved budget, in VND, to run the live load balancer resize test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -8631,7 +8631,7 @@ func TestLiveWriteLoadBalancerPools(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POOLS") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POOLS=1 to run the live pool and member write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -8750,7 +8750,7 @@ func TestLiveWriteLoadBalancerListeners(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_LISTENERS") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_PAID_LB_LISTENERS=1 to run the live listener write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -8884,7 +8884,7 @@ func TestLiveWriteLoadBalancerPolicies(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_POLICIES") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_PAID_LB_POLICIES=1 to run the live policy write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -9043,7 +9043,7 @@ func TestLiveWriteLoadBalancerTeardown(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_PAID_LB_TEARDOWN") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_PAID_LB_TEARDOWN=1 to delete the kept load balancer and its VPC")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -9413,7 +9413,7 @@ func TestLiveWriteTagging(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_TAGGING") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_TAGGING=1 to run the live tagging write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -9623,7 +9623,7 @@ func TestLiveWritePaidVolume(t *testing.T) {
 			"it orders a real, billed volume and needs the owner's approval and credit on the test account")
 	}
 	budgetCap := liveMonitorMaxVND(t)
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -9919,7 +9919,7 @@ func TestLiveWritePaidServer(t *testing.T) {
 			"it orders a real, billed server and needs the owner's approval and credit on the test account")
 	}
 	budgetCap := liveMonitorMaxVND(t)
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -10164,7 +10164,7 @@ func TestLiveWritePaidAttach(t *testing.T) {
 			"it orders a real, billed server and volume and needs the owner's approval and credit on the test account")
 	}
 	budgetCap := liveMonitorMaxVND(t)
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -10403,7 +10403,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 			"it orders and resizes a real, billed server and volume and needs the owner's approval and credit on the test account")
 	}
 	budgetCap := liveMonitorMaxVND(t)
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 
@@ -10796,7 +10796,7 @@ func TestLiveWriteMonitorLogAlarm(t *testing.T) {
 	if webhookURL == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL to the approved webhook URL to run the live monitor log alarm write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	region := "hcm-3"
@@ -11029,7 +11029,7 @@ func TestLiveWriteStorageBucket(t *testing.T) {
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	region := "hcm-3"
@@ -11236,7 +11236,7 @@ func TestLiveWriteStorageS3Key(t *testing.T) {
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage S3 key write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -11341,7 +11341,7 @@ const liveStorageServiceAccount = "vngcloud-live-storage"
 // liveStorageCaptureDir holds raw storage responses when
 // VNGCLOUD_LIVE_STORAGE_CAPTURE=1. It is git-ignored; sanitize before any
 // copy into testdata/.
-const liveStorageCaptureDir = "examples/basic/output/raw/storage/live-write"
+var liveStorageCaptureDir = repoPath("examples/basic/output/raw/storage/live-write")
 
 // liveStorageCapture appends each storage response to a file named for its
 // operation. Key and service account creates are sensitive, so the hook never
@@ -11421,7 +11421,7 @@ func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage service account key write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -11740,7 +11740,7 @@ func TestLiveWriteStorageBucketPolicy(t *testing.T) {
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket policy write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -12119,7 +12119,7 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket settings write test")
 	}
-	if err := envfile.Load(".env"); err != nil {
+	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

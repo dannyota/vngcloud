@@ -1,6 +1,6 @@
 //go:build live
 
-package vngcloud_test
+package livetest_test
 
 import (
 	"context"
@@ -164,7 +164,7 @@ func writeStoragePricingOutput(t *testing.T, kind, name string, value any) {
 	if err != nil {
 		t.Fatal("pricing output encode failed")
 	}
-	dir := filepath.Join("examples/basic/output", kind, "storage")
+	dir := repoPath("examples/basic/output", kind, "storage")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal("pricing output directory failed")
 	}
