@@ -1,12 +1,38 @@
 # Compute Servers
 
-Server writes for `danny.vn/vngcloud/compute`: creating, starting,
-stopping, rebooting, renaming, resizing, and deleting servers. See
+Server console logs and writes for `danny.vn/vngcloud/compute`: creating,
+starting, stopping, rebooting, renaming, resizing, and deleting servers. See
 [Compute](Compute.md) for reads, server groups, and SSH keys.
 
 This page assumes `cfg`, `ctx`, and `client := compute.New(cfg)` from
 [Compute's Setup](Compute.md#setup). [IDs for Create
 Server](IDs-for-Create-Server.md) shows how to find each ID below.
+
+## Server console logs
+
+`GetServerConsoleLog` reads boot and serial output without checking the
+server's state first. It requires `ServerID` and sends no query parameters.
+An empty log is a successful result.
+
+```go
+out, err := client.GetServerConsoleLog(ctx, &compute.GetServerConsoleLogInput{
+    ServerID: "<server-id>",
+})
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+Logs can hold secrets, including passwords and keys. `out.Log` is a
+`vngcloud.Secret`: formatting, JSON encoding, and slog redact the value.
+`out.Log.Reveal()` returns the text explicitly. The SDK suppresses response
+captures and withholds response bodies and upstream messages from errors.
+
+The entire JSON response has an 8 MiB limit, including JSON escaping and
+HTTP decompression. A larger body returns `*vngcloud.APIError` with code
+`ResponseTooLarge` and no partial output. Invalid response shapes return
+`RequestFailed`. The SDK refuses redirects and uses normal GET retries and
+cancellation. See [Errors](Errors.md) for status errors.
 
 ## Creating, starting, stopping, rebooting, and deleting servers
 
