@@ -22,9 +22,9 @@ real API.
   `resourceInfo`, plus `period` 1 and `isPoc` false, and never `userData`;
   `action` is `create` or `resize`; an empty
   `pricing.GetQuoteInput.Action` sends `create`. The drift test builds the
-  quote and the write bodies from one Input with every field set and
-  checks every quote key except `period` and `isPoc` appears in the write
-  body with an equal value.
+  quote and the write bodies from one Input with every field set, then
+  clears `SSHKeyID` for user data and checks every quote key except
+  `period` and `isPoc` appears in the write body with an equal value.
 - The price guard, per paid write: `MaxPrice` 0 with a quote of 347800
   sends no write and wraps `vngcloud.ErrPriceAboveMax`, naming both
   amounts; a quote equal to `MaxPrice` sends the write; NaN, `+Inf`,
@@ -56,7 +56,8 @@ real API.
 - Statuses 200, 202, 204, 400, 404, 409, and 5xx for every write; a
   create `2xx` without `data.uuid` fails and names the list.
 - Path ID rejection for `..`, `.`, `/`, `?`, and empty on every ID, in a
-  path or a body, before the quote.
+  path or a body, before the quote. An empty `SSHKeyID` is allowed when
+  `UserData` installs keys; both login fields or neither send no request.
 - User data: the create is `Sensitive`; `--debug`, stdout, stderr, the
   error, and the quote body never hold the fixture's user data; the CLI
   refuses `UserData` in `--cli-input-json` and a file over 64 KiB.

@@ -176,6 +176,7 @@ func TestCreateServerUserDataIsSensitive(t *testing.T) {
 
 	in := validCreateServerInput()
 	in.MaxPrice = 347800
+	in.SSHKeyID = ""
 	in.UserData = "#!/bin/sh\necho supersecret"
 	_, err := c.CreateServer(context.Background(), in)
 	if err == nil {
@@ -215,6 +216,7 @@ func TestCreateServerUserDataNeverCaptured(t *testing.T) {
 
 	in := validCreateServerInput()
 	in.MaxPrice = 347800
+	in.SSHKeyID = ""
 	in.UserData = userData
 	if _, err := c.CreateServer(context.Background(), in); err != nil {
 		t.Fatalf("CreateServer() error = %v", err)
@@ -276,6 +278,7 @@ func TestCreateServerUserDataRedaction(t *testing.T) {
 
 			in := validCreateServerInput()
 			in.MaxPrice = 347800
+			in.SSHKeyID = ""
 			in.UserData = vngcloud.Secret(userData)
 			_, callErr := c.CreateServer(context.Background(), in)
 			if callErr == nil {

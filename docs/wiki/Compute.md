@@ -180,9 +180,9 @@ private key never leaves your machine. Use `CreateSSHKey` only when you
 need GreenNode to generate the key pair itself; in that case GreenNode has
 generated and seen the private key.
 
-The server accepts RSA public keys only: an ED25519 key (`ssh-ed25519`,
-such as from `ssh-keygen -t ed25519`) is rejected with a 400 "Invalid
-public key".
+The server accepts RSA public keys (`ssh-rsa`) only. ed25519
+(`ssh-ed25519`) and ECDSA (`ecdsa-sha2-nistp256`) keys are refused with
+400 "Invalid public key".
 
 ```go
 imported, err := client.ImportSSHKey(ctx, &compute.ImportSSHKeyInput{

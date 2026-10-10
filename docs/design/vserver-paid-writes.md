@@ -144,7 +144,7 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 | `FlavorID` (r), `ImageID` (r) | Path-safe IDs; the server checks they match |
 | `VPCID` (r), `SubnetID` (r) | Sent as `networkId` and `subnetId` |
 | `SecurityGroupIDs` (r) | At least one; no default |
-| `SSHKeyID` (r) | The only login the SDK sets up |
+| `SSHKeyID` | Exactly one of `SSHKeyID` or `UserData` that installs keys |
 | `RootDiskSize` (r), `RootDiskTypeID` (r) | GB and a volume type ID |
 | `DataDiskSize`, `DataDiskTypeID`, `DataDiskName` | One optional data disk; size and type together or neither |
 | `ServerGroupID` | Optional |
@@ -398,8 +398,9 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
    `monitor` reuses; one sentinel per package. Recommend one root value.
 4. `MaxPrice` unit. Options: VND a month from `OptimumPrice`, default 0;
    a total for the whole run. Recommend VND a month, as vMonitor does.
-5. Login. Options: `SSHKeyID` required; optional, letting GreenNode
-   create a password. Recommend required.
+5. Login. Require `SSHKeyID` or `UserData` that installs keys, never both.
+   GreenNode: "User data don't allow input username, password and ssh key."
+   Verified 2026-10-11. Put login keys in cloud-config for user data.
 6. Public IP on create. Options: never; an `AttachFloatingIP` flag.
    Recommend never in this design: it costs 120,000 VND a month and opens
    the server to the internet.

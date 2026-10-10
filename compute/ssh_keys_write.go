@@ -77,9 +77,9 @@ type importSSHKeyBody struct {
 // must be one line after trimming leading and trailing whitespace, and must
 // not contain the text "PRIVATE KEY"; both checks run before any request,
 // and neither error ever quotes PublicKey's value. The server accepts RSA
-// public keys ("ssh-rsa") only; an ED25519 key ("ssh-ed25519") is rejected
-// with a 400 "Invalid public key". Key type and size are otherwise not
-// checked here; the server decides.
+// public keys ("ssh-rsa") only; ed25519 ("ssh-ed25519") and ECDSA
+// ("ecdsa-sha2-nistp256") keys are refused with 400 "Invalid public key".
+// Key type and size are otherwise not checked here; the server decides.
 type ImportSSHKeyInput struct {
 	Name      string `vngcloud:"required"`
 	PublicKey string `vngcloud:"required"`

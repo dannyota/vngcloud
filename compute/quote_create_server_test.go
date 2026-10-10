@@ -198,6 +198,7 @@ func TestCreateServerGuardQuotesSamePricedBodyAsQuote(t *testing.T) {
 	in.DataDiskName = "data"
 	in.ServerGroupID = "group-1"
 	in.AutoRenew = true
+	in.SSHKeyID = ""
 	in.UserData = "#!/bin/sh\necho supersecret"
 	in.MaxPrice = 347800
 
@@ -238,8 +239,8 @@ func TestCreateServerCreateBodyKeepsUnpricedFields(t *testing.T) {
 }
 
 // TestServerQuoteBodyKeysMatchCreateBody builds the quote and the create
-// from one fully populated Input and checks that every priced key the quote
-// sends reaches the create with the same value. A priced field added only
+// from an Input with every priced field set and checks that every quote
+// key reaches the create with the same value. A priced field added only
 // to the create body would let the quote understate the bill.
 func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 	in := &CreateServerInput{
@@ -270,6 +271,7 @@ func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	in.SSHKeyID = ""
 	body, err := buildCreateServerBody("op", in)
 	if err != nil {
 		t.Fatal(err)

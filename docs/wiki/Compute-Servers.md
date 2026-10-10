@@ -81,8 +81,23 @@ refuses, also with `vngcloud.ErrInvalidInput`, when one already exists with
 every server), so a rerun after an unclear failure never risks ordering a
 second server under the same name.
 
-`CreateServerInput` requires `SSHKeyID`: this SDK sets up key login only,
-never a password. `SecurityGroupIDs` must hold at least one id, and the SDK
+`CreateServerInput` requires exactly one of `SSHKeyID` or `UserData` that
+installs authorized keys. Both set or neither set returns
+`vngcloud.ErrInvalidInput` before any request. GreenNode refuses user data
+with an SSH key, username, or password. For user data, leave `SSHKeyID`
+empty and put the public key in cloud-config:
+
+```yaml
+#cloud-config
+ssh_authorized_keys:
+  - <public-key>
+```
+
+`ssh_authorized_keys` installs the key for the image's default user. The
+SDK base64-encodes the cloud-config and sends `userDataBase64Encoded: true`;
+pass plain text as `UserData`. The SDK never sets up password login.
+
+`SecurityGroupIDs` must hold at least one id, and the SDK
 never picks a default; the project's default security group opens SSH,
 RDP, HTTP, HTTPS, and ICMP from anywhere, so naming it is the caller's own
 choice, not the SDK's. The SDK never sends `attachFloating`: a public IP
@@ -91,16 +106,19 @@ part of this design. `AutoRenew` defaults to false, so nothing renews from
 credit without a later command. `UserData`, when set, makes the create
 `transport.Request.Sensitive`, so a decode failure never quotes the
 response body; it is never sent to a quote, logged, or
-echoed in any error, and the SDK base64-encodes it itself.
+echoed in any error.
 
 `QuoteCreateServer` requires and sends only the fields that change the
 price: `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID`,
-the data disk pair when set, and `encryptionVolume` when a disk is encrypted. `Name`, `VPCID`, `SubnetID`,
-`SecurityGroupIDs`, and `SSHKeyID` are optional on a quote. A quote still
+the data disk pair when set, and `encryptionVolume` when a disk is encrypted.
+`Name`, `VPCID`, `SubnetID`,
+`SecurityGroupIDs`, and both login fields are optional on a quote. Neither
+`SSHKeyID` nor `UserData` reaches the quote body. A quote still
 checks the shape of any of these IDs that is set, so a bad ID fails there as
-it will at the create. `Name` has no shape rule and is simply not sent. `CreateServer` quotes the same priced-only body before
-it orders, so the quote you read and the guard it checks price one request.
-The create itself still requires every field above. The
+it will at the create. `Name` has no shape rule and is simply not sent.
+`CreateServer` quotes the same priced-only body before it orders, so the
+quote you read and the guard it checks price one request.
+The create requires its network fields and exactly one login choice. The
 order is a `POST` and is never retried after a failure that may have
 already reached the server: after any error that is not a 4xx
 `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the server may exist,

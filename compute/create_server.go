@@ -38,8 +38,9 @@ type CreateServerInput struct {
 	SubnetID string `vngcloud:"required"`
 	// SecurityGroupIDs must hold at least one ID; the SDK picks no default.
 	SecurityGroupIDs []string `vngcloud:"required"`
-	// SSHKeyID is the only login the SDK sets up.
-	SSHKeyID       string `vngcloud:"required"`
+	// SSHKeyID sets up key login. CreateServer requires exactly one of
+	// SSHKeyID or UserData that installs authorized keys.
+	SSHKeyID       string
 	RootDiskSize   int    `vngcloud:"required"`
 	RootDiskTypeID string `vngcloud:"required"`
 	// RootDiskEncryptionTypeID, optional, is an ID from
@@ -58,8 +59,10 @@ type CreateServerInput struct {
 
 	ServerGroupID string
 
-	// UserData is cloud-init text, which can hold secrets such as a
-	// bootstrap token. The SDK base64-encodes it and sends
+	// UserData is cloud-init text that must install authorized keys when
+	// used for login. Leave SSHKeyID empty: GreenNode refuses both together.
+	// UserData can hold secrets such as a bootstrap token. The SDK
+	// base64-encodes it and sends
 	// userDataBase64Encoded true. It is never sent to QuoteCreateServer's
 	// quote. When it is set, CreateServer's own create request is
 	// transport.Request.Sensitive and carries both this value and its
@@ -92,7 +95,7 @@ type createServerBody struct {
 	NetworkID             string   `json:"networkId"`
 	SubnetID              string   `json:"subnetId"`
 	SecurityGroup         []string `json:"securityGroup"`
-	SSHKeyID              string   `json:"sshKeyId"`
+	SSHKeyID              string   `json:"sshKeyId,omitempty"`
 	RootDiskSize          int      `json:"rootDiskSize"`
 	RootDiskTypeID        string   `json:"rootDiskTypeId"`
 	EncryptionVolume      bool     `json:"encryptionVolume"`
@@ -211,6 +214,12 @@ func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, err
 func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, error) {
 	if err := core.CheckRequired(op, in); err != nil {
 		return createServerBody{}, err
+	}
+	if in.SSHKeyID == "" && in.UserData.Reveal() == "" {
+		return createServerBody{}, fmt.Errorf("%w: %s: login is required: an SSH key, or user data that installs keys", core.ErrInvalidInput, op)
+	}
+	if in.SSHKeyID != "" && in.UserData.Reveal() != "" {
+		return createServerBody{}, fmt.Errorf("%w: %s: GreenNode refuses user data together with an SSH key; put the key in the cloud-config", core.ErrInvalidInput, op)
 	}
 	if len(in.SecurityGroupIDs) == 0 {
 		return createServerBody{}, fmt.Errorf("%w: %s requires at least one SecurityGroupIDs entry", core.ErrInvalidInput, op)
