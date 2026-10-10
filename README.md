@@ -7,71 +7,188 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/dannyota/vngcloud)](go.mod)
 [![License](https://img.shields.io/github/license/dannyota/vngcloud)](LICENSE)
 
-A Go SDK and command-line tool for [GreenNode](https://greennode.ai), built to
-become what the AWS SDK and AWS CLI are for AWS: one way for people and AI
-agents to inspect, price, and change cloud resources.
+A Go SDK and AWS-style command-line tool for
+[GreenNode](https://greennode.ai), formerly VNG Cloud. Inspect resources, get
+price quotes, and manage infrastructure from Go, a terminal, or scripts.
 
-GreenNode was called VNG Cloud until its rename. This project started before
-the rename and keeps the `vngcloud` name.
+This is a personal, unofficial project, not affiliated with or endorsed by
+GreenNode or VNG. Expect breaking changes until `v1.0.0`.
 
-## What it does
+## CLI quick start
 
-- **Cap spend:** create, pause, and delete budgets and alert thresholds; read
-  cost and balances.
-- **Price before you buy:** get a quote for a resource; a quote never orders.
-- **Read your infrastructure:** servers, volumes, networks, load balancers,
-  DNS, container registries, quotas, and CDN settings and analytics.
-- **Manage CDN sites:** update, enable, disable, and delete Web Accelerators.
-- **Change a few free resources:** private DNS zones and records, security
-  groups and rules, and SSH keys.
-- **Watch uptime:** create, update, pause, and delete vMonitor checks; manage
-  notification channels; order log projects and read alarms.
-- **Use it from a terminal:** `vngcloud <service> <operation>` for every
-  service above, with JSON output, `--query`, stable exit codes, and
-  read-only profiles for AI agents.
-
-Expect breaking changes until `v1.0.0`.
-
-## Quick start
+Install with the Go version required by [go.mod](go.mod) or later:
 
 ```bash
-go get danny.vn/vngcloud@latest                        # SDK
-go install danny.vn/vngcloud/cmd/vngcloud@latest       # command
+go install danny.vn/vngcloud/cmd/vngcloud@latest
+```
 
+Add Go's binary directory to your `PATH` if your shell cannot find
+`vngcloud`. Then configure your region and IAM User credentials:
+
+```bash
 vngcloud configure
 vngcloud billing list-budgets
 ```
 
-```go
-cfg, err := vngcloud.LoadConfig(ctx)
-budgets, err := billing.New(cfg).ListBudgets(ctx, nil)
+Configuration prompts for the root account email, IAM username, password,
+and optional two-factor authentication secret. Passwords and secrets are
+not echoed. The IAM User needs permission for the operations you call.
+
+Commands follow `vngcloud <service> <operation> [flags]`:
+
+```bash
+# Show servers as a table.
+vngcloud compute list-servers --output table
+
+# Print only server names.
+vngcloud compute list-servers --query 'Items[].Name' --output text
+
+# Use a named profile in another region.
+vngcloud compute list-servers --profile production --region han-1
+
+# Discover operations and their flags.
+vngcloud --help
+vngcloud compute list-servers --help
 ```
+
+Create a named profile with `vngcloud configure --profile production`.
+Set `--project-id` when more than one project matches the region. See the
+[CLI reference][cli] for all commands, flags, and exit codes.
+
+## Go SDK quick start
+
+Add the module to your Go project:
+
+```bash
+go get danny.vn/vngcloud@latest
+```
+
+The SDK uses the same profiles and environment variables as the CLI. After
+`vngcloud configure`, this program lists your budgets:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/billing"
+)
+
+func main() {
+	ctx := context.Background()
+
+	cfg, err := vngcloud.LoadConfig(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	budgets, err := billing.New(cfg).ListBudgets(ctx, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Budgets: %d\n", len(budgets.Items))
+}
+```
+
+Each service has its own package and `New(cfg)` client. Clients built from
+the same configuration share authentication and project discovery. The SDK
+packages use only the Go standard library.
+
+For credentials supplied through environment variables, static tokens, or a
+custom credentials provider, see [Authentication][auth] and
+[Configuration][config]. The [basic example](examples/basic/README.md)
+shows multiple service clients in one program.
+
+## Service coverage
+
+The SDK and CLI cover the services below. Coverage varies by service;
+the linked guides explain supported operations and lead to detailed references.
+
+| Service | Supported resources and operations |
+| --- | --- |
+| [Billing and pricing][billing] | Budgets, alerts, costs, balances, quotes |
+| [Compute][compute] | Servers, images, flavors, SSH keys, placement groups |
+| [Volumes][volume] | Create, attach, resize; read snapshots and disk types |
+| [Network][network] | VPCs, subnets, IPs, security groups, routes, ACLs |
+| [Load balancers][lb] | Create, resize, pools, listeners, policies, TLS certs |
+| [DNS][dns] | Create, update, and delete private zones and records |
+| [Container registry][registry] | Repositories and repository users |
+| [Storage][storage] | Projects, buckets, S3 keys, policies, bucket settings |
+| [CDN][cdn] | Web Accelerator updates, enable/disable, analytics, IP ranges |
+| [Monitoring][monitor] | Uptime checks, channels, log projects, alarms |
+| [IAM][iam] | Users, service accounts, policies, groups, access guards |
+| [Tagging][tagging] | Read, add, and remove resource tags |
+| [Kubernetes][vks] | Read clusters, versions, and quota |
+| [Backup][backup] | Read backends and policies |
+
+Project discovery, account quotas, and global load balancer reads are also
+available. See the [service reference][services] for the full SDK surface.
+Use an S3 client to upload and download vStorage objects.
+
+## Scripts and AI agents
+
+- **Structured output:** JSON by default, with table and text formats.
+  Filter results with JMESPath expressions through `--query`.
+- **Predictable failures:** errors go to stderr as JSON with stable exit
+  codes. Commands never prompt without a terminal.
+- **Read-only access:** `--read-only` refuses every CLI write before any
+  request. Set `read_only = true` in a profile to keep the guard enabled.
+- **Explicit writes:** destructive commands require `--yes`. Paid creates
+  and resizes use `--max-price` to cap the quoted price. Quote commands
+  place no orders.
+
+```bash
+vngcloud configure --profile agent
+vngcloud configure set read_only true --profile agent
+vngcloud compute list-servers --profile agent --output json
+```
+
+The read-only guard applies to the CLI. Use IAM policies to restrict the
+credentials themselves.
+See [Security][security] for credential storage, token caching, and write
+guards.
 
 ## Documentation
 
-- [Getting Started](https://github.com/dannyota/vngcloud/wiki/Getting-Started):
-  a full SDK example and the command line.
-- [Authentication](https://github.com/dannyota/vngcloud/wiki/Authentication)
-  and [Configuration](https://github.com/dannyota/vngcloud/wiki/Configuration):
-  IAM User login, profiles, environment variables, and the token cache.
-- [CLI reference](https://github.com/dannyota/vngcloud/wiki/CLI): every
-  command and flag.
-- [Security](https://github.com/dannyota/vngcloud/wiki/Security): what is safe
-  by default.
-- [Release notes](RELEASE_NOTES.md).
+- [Getting started][getting-started]: installation and client setup.
+- [CLI reference][cli]: commands, flags, queries, and exit codes.
+- [Service reference][services]: SDK methods and service-specific behavior.
+- [Configuration][config]: profiles, environment variables, regions, projects.
+- [Authentication][auth]: IAM User login, two-factor codes, and tokens.
+- [Known limitations][limitations]: API quirks and recovery guidance.
+- [Release notes](RELEASE_NOTES.md): changes by version.
+- [Go reference](https://pkg.go.dev/danny.vn/vngcloud): package documentation.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as
-described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks. Report security
+problems privately through [SECURITY.md](SECURITY.md).
 
-## About
+Licensed under [Apache 2.0](LICENSE).
 
-I built it because I wanted what the AWS CLI gives me on AWS: one tool that I
-and AI coding agents can use to inspect and change cloud resources from a
-terminal or a script.
-
-This is a personal project. I don't work for GreenNode (formerly VNG Cloud)
-or VNG, and the project is not affiliated with or endorsed by them. It is
-free to use, change, and redistribute under the
-[Apache 2.0 license](LICENSE).
+[getting-started]: https://github.com/dannyota/vngcloud/wiki/Getting-Started
+[cli]: https://github.com/dannyota/vngcloud/wiki/CLI
+[services]: https://github.com/dannyota/vngcloud/wiki/Services
+[config]: https://github.com/dannyota/vngcloud/wiki/Configuration
+[auth]: https://github.com/dannyota/vngcloud/wiki/Authentication
+[security]: https://github.com/dannyota/vngcloud/wiki/Security
+[limitations]: https://github.com/dannyota/vngcloud/wiki/Limitations
+[billing]: https://github.com/dannyota/vngcloud/wiki/Billing-and-Pricing
+[compute]: https://github.com/dannyota/vngcloud/wiki/Compute
+[volume]: https://github.com/dannyota/vngcloud/wiki/Volume
+[network]: https://github.com/dannyota/vngcloud/wiki/Network
+[lb]: https://github.com/dannyota/vngcloud/wiki/LoadBalancer
+[dns]: https://github.com/dannyota/vngcloud/wiki/DNS
+[registry]: https://github.com/dannyota/vngcloud/wiki/Container-Registry
+[storage]: https://github.com/dannyota/vngcloud/wiki/Storage
+[cdn]: https://github.com/dannyota/vngcloud/wiki/CDN
+[monitor]: https://github.com/dannyota/vngcloud/wiki/Monitor
+[iam]: https://github.com/dannyota/vngcloud/wiki/IAM
+[tagging]: https://github.com/dannyota/vngcloud/wiki/Tagging
+[vks]: https://github.com/dannyota/vngcloud/wiki/VKS
+[backup]: https://github.com/dannyota/vngcloud/wiki/Backup
