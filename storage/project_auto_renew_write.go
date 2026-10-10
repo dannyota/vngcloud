@@ -98,7 +98,7 @@ func (c *Client) PutProjectAutoRenew(ctx context.Context, in *PutProjectAutoRene
 			return out, err
 		}
 		// Reconciliation can attach observed state but cannot erase a failed reply.
-		_ = c.pollProject(ctx, autoRenewConfirmBound, func(readCtx context.Context) (bool, error) {
+		reconcileErr := c.pollProject(ctx, autoRenewConfirmBound, func(readCtx context.Context) (bool, error) {
 			observed, readErr := c.readAutoRenew(readCtx, op, in.Region, in.ProjectID)
 			if readErr == nil {
 				copyAutoRenewPrices(observed.state, o.state)
@@ -107,13 +107,16 @@ func (c *Client) PutProjectAutoRenew(ctx context.Context, in *PutProjectAutoRene
 			return true, readErr
 		}, func() error { return projectResponseError(op, "auto-renew reconciliation timed out") })
 		var api *core.APIError
-		if errors.As(err, &api) && api.Code == "AutoRenewRejected" && !autoRenewTarget(out.State, *in.Enabled, months) {
+		if reconcileErr == nil && errors.As(err, &api) && api.Code == "AutoRenewRejected" && !autoRenewTarget(out.State, *in.Enabled, months) {
 			return out, err
 		}
-		return out, projectUnsettled(op, err, autoRenewRecovery)
+		return out, projectUnsettled(op, errors.Join(err, reconcileErr), autoRenewRecovery)
 	}
 	err = c.pollProject(ctx, autoRenewConfirmBound, func(readCtx context.Context) (bool, error) {
 		observed, readErr := c.readAutoRenew(readCtx, op, in.Region, in.ProjectID)
+		if errors.Is(readErr, errAutoRenewDisagreement) {
+			return false, nil
+		}
 		if readErr != nil {
 			return true, readErr
 		}

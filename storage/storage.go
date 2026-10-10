@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"danny.vn/vngcloud"
@@ -48,7 +47,7 @@ type Client struct {
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: core.StorageClock(cfg)}
 }
 
 // route builds a URL under the Storage endpoint's console API prefix.

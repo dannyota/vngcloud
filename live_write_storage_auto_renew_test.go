@@ -51,6 +51,10 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 	money := billing.New(cfg)
 	report := map[string]any{"projectId": projectID, "region": "HCM04", "transactionReadAvailable": false}
 	save := func() bool {
+		if capture.captureFailure() != nil {
+			t.Error("fail: private response capture")
+			return false
+		}
 		raw, encodeErr := json.MarshalIndent(report, "", "  ")
 		if encodeErr != nil || os.WriteFile(filepath.Join(dir, "report.json"), raw, 0o600) != nil {
 			t.Error("fail: private report write")
@@ -71,44 +75,33 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 		return
 	}
 	capture.authorize()
-	disableAttempted := false
 	toggle := func(callCtx context.Context, label string, enabled bool, period *int, capValue float64) (*storage.PutProjectAutoRenewOutput, error) {
-		before, cashErr := storageProjectCash(callCtx, money)
-		if cashErr != nil {
-			return nil, errors.New("baseline cash unavailable")
-		}
-		record := map[string]any{"beforeCash": before}
+		record := map[string]any{}
 		report[label] = record
-		if !save() {
-			return nil, errors.New("private report unavailable")
-		}
-		if !enabled {
-			disableAttempted = true
-		}
-		out, writeErr := client.PutProjectAutoRenew(callCtx, &storage.PutProjectAutoRenewInput{Region: "HCM04", ProjectID: projectID, Enabled: vngcloud.Ptr(enabled), PeriodMonths: period, MaxPrice: capValue})
-		record["result"] = out
-		record["acceptedAndConfirmed"] = writeErr == nil
-		record["errorCode"] = vngcloud.ErrorCode(writeErr)
-		record["unsettled"] = errors.Is(writeErr, storage.ErrNotSettled)
-		after, afterErr := storageProjectCash(callCtx, money)
-		if afterErr == nil {
-			record["afterCash"] = after
-			record["cashUnchanged"] = before == after
-		}
-		if !save() {
-			return out, errors.New("private report unavailable")
-		}
-		if writeErr != nil {
-			return out, writeErr
-		}
-		if afterErr != nil || before != after {
-			return out, errors.New("cash reconciliation failed")
+		cleanup := label == "cleanupDisable"
+		out, toggleErr := autoRenewToggle(cleanup, record, func() (float64, error) {
+			cashCtx, cashCancel := context.WithTimeout(callCtx, 5*time.Second)
+			defer cashCancel()
+			return storageProjectCash(cashCtx, money)
+		}, save, func() (*storage.PutProjectAutoRenewOutput, error) {
+			writeCtx := callCtx
+			if cleanup {
+				// Accounting cannot consume the guarded disable's request deadline.
+				var writeCancel context.CancelFunc
+				writeCtx, writeCancel = context.WithTimeout(context.Background(), 60*time.Second)
+				defer writeCancel()
+			}
+			return client.PutProjectAutoRenew(writeCtx, &storage.PutProjectAutoRenewInput{Region: "HCM04", ProjectID: projectID, Enabled: vngcloud.Ptr(enabled), PeriodMonths: period, MaxPrice: capValue})
+		})
+		if toggleErr != nil {
+			return out, toggleErr
 		}
 		if out == nil || out.State == nil || out.State.EndBillingTime != baseline.State.EndBillingTime {
 			return out, errors.New("term changed or state missing")
 		}
 		return out, nil
 	}
+
 	// Cleanup reads first and sends at most one disable, on the approved ID.
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -120,10 +113,14 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 			t.Error("fail: cleanup state unconfirmed")
 			return
 		}
-		cleanupErr := autoRenewCleanup(state.State, disableAttempted, func() error {
+		cleanupErr := autoRenewCleanup(state.State, capture.disableSent(), func() error {
 			out, disableErr := toggle(cleanupCtx, "cleanupDisable", false, nil, 0)
 			if disableErr != nil {
-				return disableErr
+				t.Error("fail: cleanup accounting or setting")
+				record := report["cleanupDisable"].(map[string]any)
+				if record["acceptedAndConfirmed"] != true {
+					return disableErr
+				}
 			}
 			if out == nil || out.State == nil || out.State.Enabled == nil || *out.State.Enabled {
 				return errors.New("cleanup state unconfirmed")
@@ -138,6 +135,9 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 		}
 
 		report["cleanupDisabled"] = true
+		if capture.captureFailure() != nil {
+			t.Error("fail: private response capture")
+		}
 		if save() {
 			t.Log("pass: cleanup disabled")
 		}
@@ -164,6 +164,8 @@ func TestLiveWriteStorageAutoRenew(t *testing.T) {
 }
 
 type autoRenewLiveTransport struct {
+	sentDisable            bool
+	captureErr             error
 	base                   http.RoundTripper
 	dir, projectID         string
 	mu                     sync.Mutex
@@ -180,6 +182,7 @@ func (c *autoRenewLiveTransport) emptyBuckets() bool {
 
 func (c *autoRenewLiveTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	path := req.URL.Path
+	disable := false
 	if req.Method == http.MethodDelete || (req.Method == http.MethodPost && path == "/internal/v2/orders") {
 		return nil, errors.New("unapproved project mutation")
 	}
@@ -202,16 +205,25 @@ func (c *autoRenewLiveTransport) RoundTrip(req *http.Request) (*http.Response, e
 			Product      string `json:"product"`
 			ArtifactType string `json:"artifactType"`
 			ArtifactID   string `json:"artifactId"`
+			Info         struct {
+				Enabled *bool `json:"isEnable"`
+			} `json:"autoRenewInfo"`
 		}
 		if json.Unmarshal(raw, &rows) != nil || len(rows) != 1 || rows[0].Product != "vstorage" || rows[0].ArtifactType != "object-storage" || rows[0].ArtifactID != c.projectID {
 			return nil, errors.New("setting named unapproved resource")
 		}
+		disable = rows[0].Info.Enabled != nil && !*rows[0].Info.Enabled
+	}
+	if disable {
+		c.mu.Lock()
+		c.sentDisable = true
+		c.mu.Unlock()
 	}
 	resp, err := c.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
-	capture := path == "/gateway/api/v1/resources" || path == "/gateway/api/v1/resources/autoRenew" || path == "/gateway/api/v1/home/user-info" || path == "/navbar/balances/v1" || strings.HasPrefix(path, "/internal/v1/") || strings.HasPrefix(path, "/billing-api/")
+	capture := path == "/gateway/api/v1/resources" || path == "/gateway/api/v1/resources/autoRenew" || path == "/navbar/balances/v1" || strings.HasPrefix(path, "/internal/v1/") || strings.HasPrefix(path, "/billing-api/")
 	if !capture {
 		return resp, nil
 	}
@@ -253,12 +265,17 @@ func (c *autoRenewLiveTransport) RoundTrip(req *http.Request) (*http.Response, e
 		return nil, errors.New("private project list incomplete")
 	}
 	record := map[string]any{"path": path, "status": resp.StatusCode, "body": json.RawMessage(raw)}
+	// A setting reply can reflect the identity header or sent bearer token.
+	if path == "/gateway/api/v1/resources/autoRenew" {
+		delete(record, "body")
+		record["bodyWithheld"] = true
+	}
 	data, encodeErr := json.MarshalIndent(record, "", "  ")
 	if encodeErr != nil {
 		data, encodeErr = json.Marshal(map[string]any{"path": path, "status": resp.StatusCode, "bodyText": string(raw)})
 	}
 	if encodeErr != nil || os.WriteFile(filepath.Join(c.dir, autoRenewCaptureName(c.count)), data, 0o600) != nil {
-		return nil, errors.New("private capture write failed")
+		c.captureErr = errors.New("private capture write failed")
 	}
 	return resp, nil
 }
@@ -325,4 +342,52 @@ func autoRenewCleanup(state *storage.ProjectAutoRenew, disableAttempted bool, di
 		return errors.New("disable already attempted; reconcile before another setting")
 	}
 	return disable()
+}
+
+func (c *autoRenewLiveTransport) disableSent() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sentDisable
+}
+func (c *autoRenewLiveTransport) captureFailure() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.captureErr
+}
+
+// Cleanup performs the setting even when accounting or reporting fails.
+func autoRenewToggle(cleanup bool, record map[string]any, cash func() (float64, error), save func() bool, write func() (*storage.PutProjectAutoRenewOutput, error)) (*storage.PutProjectAutoRenewOutput, error) {
+	before, beforeErr := cash()
+	record["beforeCashAvailable"] = beforeErr == nil
+	if beforeErr == nil {
+		record["beforeCash"] = before
+	}
+	var reportErr error
+	if !save() {
+		reportErr = errors.New("private report unavailable")
+	}
+	if !cleanup && (beforeErr != nil || reportErr != nil) {
+		return nil, errors.Join(beforeErr, reportErr)
+	}
+	out, writeErr := write()
+	record["result"] = out
+	record["acceptedAndConfirmed"] = writeErr == nil
+	record["errorCode"] = vngcloud.ErrorCode(writeErr)
+	record["unsettled"] = errors.Is(writeErr, storage.ErrNotSettled)
+	after, afterErr := cash()
+	record["afterCashAvailable"] = afterErr == nil
+	if afterErr == nil {
+		record["afterCash"] = after
+	}
+	var cashErr error
+	if beforeErr == nil && afterErr == nil {
+		record["cashUnchanged"] = before == after
+		if before != after {
+			cashErr = errors.New("cash reconciliation failed")
+		}
+	}
+	if !save() {
+		reportErr = errors.New("private report unavailable")
+	}
+	return out, errors.Join(writeErr, beforeErr, afterErr, reportErr, cashErr)
 }

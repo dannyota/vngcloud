@@ -40,6 +40,8 @@ type Client struct {
 	projectMu     sync.Mutex
 	projectID     string
 	projectUserID int
+
+	storageTestClock func() time.Time
 }
 
 // ProfileSetting returns key's value in the resolved profile's config
@@ -147,12 +149,13 @@ func buildClient(settings clientConfig) (*Client, error) {
 	})
 
 	c := &Client{
-		region:    settings.region,
-		projectID: settings.projectID,
-		cdnAPIKey: settings.cdnAPIKey,
-		endpoints: resolvedEndpoints,
-		transport: tc,
-		logger:    logger,
+		storageTestClock: settings.storageTestClock,
+		region:           settings.region,
+		projectID:        settings.projectID,
+		cdnAPIKey:        settings.cdnAPIKey,
+		endpoints:        resolvedEndpoints,
+		transport:        tc,
+		logger:           logger,
 	}
 	return c, nil
 }

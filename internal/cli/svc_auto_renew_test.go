@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/storage"
 )
 
@@ -71,7 +73,7 @@ func autoRenewArgs(command string, flags ...string) []string {
 
 func TestCLIAutoRenewEnabledPresence(t *testing.T) {
 	for _, flags := range [][]string{nil, {"--cli-input-json", `{}`}, {"--cli-input-json", `{"Enabled":null}`}, {"--enabled", "false"}} {
-		r := runStorage(t, map[string]func(http.ResponseWriter, *http.Request){}, autoRenewArgs("put-project-auto-renew", flags...)...)
+		r := runAutoRenew(t, map[string]func(http.ResponseWriter, *http.Request){}, autoRenewArgs("put-project-auto-renew", flags...)...)
 		if r.err == nil || exitCode(r.err) != 2 || r.fixture.requestCount() != 0 {
 			t.Fatalf("flags %q: error %v requests %d", flags, r.err, r.fixture.requestCount())
 		}
@@ -98,7 +100,7 @@ func TestCLIAutoRenewEnabledPresence(t *testing.T) {
 				if enabled {
 					flags = append(flags, "--max-price", "90000", "--period-months", "3")
 				}
-				r := runStorage(t, s.routes(t), autoRenewArgs("put-project-auto-renew", flags...)...)
+				r := runAutoRenew(t, s.routes(t), autoRenewArgs("put-project-auto-renew", flags...)...)
 				if r.err != nil || s.puts != 1 || s.enabled != enabled || !strings.Contains(r.stdout, `"Changed": true`) {
 					t.Fatalf("error %v puts %d output %s", r.err, s.puts, r.stdout)
 				}
@@ -136,7 +138,7 @@ func TestCLIAutoRenewPriceCapAndRejection(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &cliAutoRenewServer{rejection: tc.reject}
-			r := runStorage(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=true", "--period-months", "3", "--max-price", tc.cap)...)
+			r := runAutoRenew(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=true", "--period-months", "3", "--max-price", tc.cap)...)
 			wantPuts := 0
 			if tc.reject {
 				wantPuts = 1
@@ -156,7 +158,7 @@ func TestCLIAutoRenewReadFormats(t *testing.T) {
 			if unavailable {
 				routes["/billing-api/v2/price"] = jsonHandler(200, `{"success":true,"data":{"optimumPrice":0}}`)
 			}
-			r := runStorage(t, routes, autoRenewArgs("get-project-auto-renew", "--output", format)...)
+			r := runAutoRenew(t, routes, autoRenewArgs("get-project-auto-renew", "--output", format)...)
 			if r.err != nil || s.puts != 0 {
 				t.Fatalf("error %v", r.err)
 			}
@@ -176,7 +178,7 @@ func TestCLIAutoRenewReadFormats(t *testing.T) {
 		}
 	}
 	s := &cliAutoRenewServer{enabled: true, months: 3}
-	r := runStorage(t, s.routes(t), autoRenewArgs("get-project-auto-renew", "--period-months", "6", "--output", "json", "--query", "State.{Preview:QuotedRenewalCharge,Next:NextCharge}")...)
+	r := runAutoRenew(t, s.routes(t), autoRenewArgs("get-project-auto-renew", "--period-months", "6", "--output", "json", "--query", "State.{Preview:QuotedRenewalCharge,Next:NextCharge}")...)
 	if r.err != nil || !strings.Contains(r.stdout, `"Preview": 180000`) || !strings.Contains(r.stdout, `"Next": 90000`) {
 		t.Fatalf("query: %v %s", r.err, r.stdout)
 	}
@@ -185,7 +187,7 @@ func TestCLIAutoRenewReadFormats(t *testing.T) {
 func TestCLIBillingResourcesTable(t *testing.T) {
 	for _, format := range []string{"json", "table", "text"} {
 		s := &cliAutoRenewServer{}
-		r := runStorage(t, s.routes(t), "billing", "list-resources", "--output", format)
+		r := runAutoRenew(t, s.routes(t), "billing", "list-resources", "--output", format)
 		if r.err != nil || s.prices != 0 {
 			t.Fatalf("error %v prices %d", r.err, s.prices)
 		}
@@ -200,7 +202,7 @@ func TestCLIBillingResourcesTable(t *testing.T) {
 
 func TestCLIAutoRenewHelp(t *testing.T) {
 	for _, command := range []string{"get-project-auto-renew", "put-project-auto-renew"} {
-		r := runStorage(t, map[string]func(http.ResponseWriter, *http.Request){}, "storage", command, "--help")
+		r := runAutoRenew(t, map[string]func(http.ResponseWriter, *http.Request){}, "storage", command, "--help")
 		if r.err != nil || r.fixture.requestCount() != 0 {
 			t.Fatalf("help: %v", r.err)
 		}
@@ -255,7 +257,7 @@ func TestCLIAutoRenewOperationErrors(t *testing.T) {
 			} else {
 				routes[tc.path] = jsonHandler(200, tc.body)
 			}
-			r := runStorage(t, routes, autoRenewArgs("put-project-auto-renew", "--enabled=true", "--max-price", "30000")...)
+			r := runAutoRenew(t, routes, autoRenewArgs("put-project-auto-renew", "--enabled=true", "--max-price", "30000")...)
 			if r.err == nil || exitCode(r.err) != tc.exit || classify(r.err).Code != tc.code || s.puts != tc.puts {
 				t.Fatalf("error %v class %s puts %d", r.err, classify(r.err).Code, s.puts)
 			}
@@ -268,7 +270,7 @@ func TestCLIAutoRenewOperationErrors(t *testing.T) {
 
 func TestCLIAutoRenewPeriodChangeCap(t *testing.T) {
 	s := &cliAutoRenewServer{enabled: true, months: 1}
-	r := runStorage(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=true", "--period-months", "3", "--max-price", "89999")...)
+	r := runAutoRenew(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=true", "--period-months", "3", "--max-price", "89999")...)
 	if r.err == nil || classify(r.err).Code != "PriceAboveMax" || exitCode(r.err) != 1 || s.puts != 0 {
 		t.Fatalf("period cap: %v puts %d", r.err, s.puts)
 	}
@@ -276,7 +278,7 @@ func TestCLIAutoRenewPeriodChangeCap(t *testing.T) {
 
 func TestCLIAutoRenewDisableTable(t *testing.T) {
 	s := &cliAutoRenewServer{enabled: true, months: 1}
-	r := runStorage(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=false", "--output", "table")...)
+	r := runAutoRenew(t, s.routes(t), autoRenewArgs("put-project-auto-renew", "--enabled=false", "--output", "table")...)
 	if r.err != nil || s.prices != 0 || !strings.Contains(r.stdout, "none scheduled") || !strings.Contains(r.stdout, "unavailable") || !strings.Contains(r.stdout, "Changed") {
 		t.Fatalf("disable table: %v %s", r.err, r.stdout)
 	}
@@ -286,7 +288,7 @@ func TestCLIAutoRenewEnabledUnavailableTable(t *testing.T) {
 	s := &cliAutoRenewServer{enabled: true, months: 3}
 	routes := s.routes(t)
 	routes["/billing-api/v2/price"] = jsonHandler(200, `{"success":true,"data":{"optimumPrice":0}}`)
-	r := runStorage(t, routes, autoRenewArgs("get-project-auto-renew", "--output", "table")...)
+	r := runAutoRenew(t, routes, autoRenewArgs("get-project-auto-renew", "--output", "table")...)
 	if r.err != nil || strings.Count(r.stdout, "unavailable") != 2 || strings.Contains(r.stdout, "none scheduled") {
 		t.Fatalf("enabled unavailable: %v %s", r.err, r.stdout)
 	}
@@ -306,5 +308,32 @@ func TestCLIAutoRenewProfileTable(t *testing.T) {
 	err := root.ExecuteContext(context.Background())
 	if err != nil || !strings.Contains(stdout.String(), "none scheduled") {
 		t.Fatalf("profile table: %v %s", err, stdout.String())
+	}
+}
+
+func runAutoRenew(t *testing.T, routes map[string]func(http.ResponseWriter, *http.Request), args ...string) storageRun {
+	t.Helper()
+	routes["/internal/v1/regions"] = jsonHandler(http.StatusOK, storageRegionsBody)
+	fixture := newSvcFixture(routes)
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	testOptions = append(testOptions, core.WithStorageTestClock(func() time.Time { return time.Date(2019, time.January, 1, 0, 0, 0, 0, time.UTC) }))
+	root.SetArgs(append([]string{"--region", "hcm-3"}, args...))
+	err := root.ExecuteContext(context.Background())
+	return storageRun{fixture: fixture, stdout: stdout.String(), stderr: stderr.String(), err: err}
+}
+
+func TestCLIAutoRenewFixedClock(t *testing.T) {
+	s := &cliAutoRenewServer{}
+	routes := s.routes(t)
+	original := routes["/gateway/api/v1/resources"]
+	routes["/gateway/api/v1/resources"] = func(w http.ResponseWriter, r *http.Request) {
+		recorder := httptest.NewRecorder()
+		original(recorder, r)
+		// The term is past on a real clock and future on the injected clock.
+		jsonHandler(200, strings.ReplaceAll(recorder.Body.String(), "1890000000000", "1577836800000"))(w, r)
+	}
+	r := runAutoRenew(t, routes, autoRenewArgs("put-project-auto-renew", "--enabled=true", "--max-price", "30000")...)
+	if r.err != nil || s.puts != 1 {
+		t.Fatal("enable used the calendar instead of the injected clock")
 	}
 }

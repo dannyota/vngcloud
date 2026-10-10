@@ -59,6 +59,8 @@ type clientConfig struct {
 	configFile      string
 	credentialsFile string
 	cdnAPIKey       *cdnKey
+
+	storageTestClock func() time.Time
 }
 
 type ResponseCapture struct {

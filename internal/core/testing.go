@@ -2,6 +2,7 @@ package core
 
 import (
 	"log/slog"
+	"time"
 
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/transport"
@@ -31,4 +32,16 @@ func NewTestConfigWithCDNAPIKey(region, projectID string, endpointSet endpoints.
 	k := cdnKey(key)
 	c.cdnAPIKey = &k
 	return Config{client: c}
+}
+
+// WithStorageTestClock injects a per-config clock without a public SDK option.
+func WithStorageTestClock(now func() time.Time) ClientOption {
+	return clientOptionFunc(func(cfg *clientConfig) { cfg.storageTestClock = now })
+}
+
+func StorageClock(cfg Config) func() time.Time {
+	if now := ClientOf(cfg).storageTestClock; now != nil {
+		return now
+	}
+	return time.Now
 }

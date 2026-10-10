@@ -62,6 +62,12 @@ type autoRenewObservation struct {
 	resource billingresources.Resource
 }
 
+var errAutoRenewDisagreement = errors.New("storage: renewal reads disagree")
+
+func autoRenewDisagreement(op, message string) error {
+	return &core.APIError{Operation: op, StatusCode: 200, Message: message, Err: errAutoRenewDisagreement}
+}
+
 func validRenewalPeriod(months int) bool {
 	return months == 1 || months == 3 || months == 6 || months == 12
 }
@@ -202,12 +208,12 @@ func (c *Client) readAutoRenew(ctx context.Context, op, region, projectID string
 	switch resource.RenewType {
 	case "MANUAL":
 		if *p.EnableAutoRenew || resource.RenewPeriod != nil || (p.AutoRenewPeriod != nil && *p.AutoRenewPeriod != 0) {
-			return nil, projectResponseError(op, "manual renewal reads conflict")
+			return nil, autoRenewDisagreement(op, "manual renewal reads conflict")
 		}
 		state.Enabled = vngcloud.Ptr(false)
 	case "AUTO-RENEW":
 		if !*p.EnableAutoRenew || resource.RenewPeriod == nil || *resource.RenewPeriod <= 0 || p.AutoRenewPeriod == nil || *p.AutoRenewPeriod <= 0 || int64(*p.AutoRenewPeriod) != *resource.RenewPeriod {
-			return nil, projectResponseError(op, "enabled renewal reads conflict")
+			return nil, autoRenewDisagreement(op, "enabled renewal reads conflict")
 		}
 		state.Enabled = vngcloud.Ptr(true)
 		months := *p.AutoRenewPeriod
