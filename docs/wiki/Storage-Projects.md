@@ -72,13 +72,13 @@ reads, unconfirmed projects, and lost or malformed responses return
 `storage.ErrNotSettled`. Unknown order data always returns `ErrNotSettled`, even
 if a later read could find a matching project. Inspect pending orders and
 billing before retrying. Neither refusal nor absence proves that no money moved.
-An HTTP 200 or 4xx refusal with `success: false` and a code retains plain
-`*vngcloud.APIError` and its sentinel. Other 4xx and all 5xx order responses
-return `ErrNotSettled` with the `*vngcloud.APIError` in the error chain.
-`ErrFailed` is reserved for proven terminal failures; no terminal status is
-assumed. `NoWait` skips readiness polling only. Renewal true always fails. Each
-confirmation read uses the remaining deadline; late reads cannot confirm
-success.
+An HTTP 200 or 4xx refusal with `success: false` and a numeric code from 400 to
+499, 112, or 114 retains plain `*vngcloud.APIError` and its sentinel. Other
+codes, unclassified 4xx, and all 5xx order responses return `ErrNotSettled` with
+the `*vngcloud.APIError` in the error chain. `ErrFailed` is reserved for proven
+terminal failures; no terminal status is assumed. `NoWait` skips readiness
+polling only. Renewal true always fails. Each confirmation read uses the
+remaining deadline; late reads cannot confirm success.
 
 `DeleteProject` takes `Region`, `ProjectID`, and `NoWait`. It requires the ID
 in a complete list, or returns `vngcloud.ErrNotFound`. Any bucket returns

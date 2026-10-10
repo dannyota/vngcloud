@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +26,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/internal/envfile"
+	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/storage"
 )
 
@@ -106,12 +111,11 @@ func TestLiveWriteStorageProject(t *testing.T) {
 	var after float64
 	afterErr := errors.New("post-order cash not read")
 	deleted := false
-	cleanupAllowed := false
 	cleanup := func() {
-		if owned == nil || deleted || !cleanupAllowed {
+		if owned == nil || deleted {
 			return
 		}
-		// Delete only after complete reconciliation confirms ownership and debit.
+		// Complete reconciliation proves ownership even when validation fails.
 		deleted = true
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 7*time.Minute)
 		defer cleanupCancel()
@@ -174,44 +178,42 @@ func TestLiveWriteStorageProject(t *testing.T) {
 		}
 	}
 	t.Cleanup(cleanup)
-	var created *storage.CreateProjectOutput
-	var createErr error
-	if err := storageProjectBeforeOrder(saveReport, func() {
-		created, createErr = client.CreateProject(ctx, input)
-	}); err != nil {
-		t.Fatal("private report failed before order. " + storageProjectLeftover)
+	err = storageProjectAttempt(saveReport, func() (*storage.CreateProjectOutput, error) {
+		return client.CreateProject(ctx, input)
+	}, func(created *storage.CreateProjectOutput, createErr error) (*storage.Project, error) {
+		after, afterErr = storageProjectCash(ctx, money)
+		if afterErr == nil {
+			report["afterOrderCash"] = after
+			report["debit"] = before - after
+		}
+		report["orderConfirmed"] = createErr == nil
+		if created != nil {
+			report["sdkResult"] = created
+		}
+		// Reconcile ownership after every order outcome before any cleanup.
+		projects, listErr := client.ListProjects(ctx, &storage.ListProjectsInput{Region: "HCM04"})
+		if listErr == nil {
+			owned = storageProjectOwned(projects.Items, baselineIDs, input.Name)
+			report["projectsAfterOrder"] = projects.Items
+		}
+		report["projectUniquelyIdentified"] = owned != nil
+		if err := saveReport(); err != nil {
+			return owned, err
+		}
+		if afterErr != nil || listErr != nil || t.Failed() {
+			return owned, errors.New("reconciliation failed")
+		}
+		return owned, nil
+	}, func(created *storage.CreateProjectOutput, createErr error, owned *storage.Project) error {
+		if err := storageProjectValidate(created, createErr, owned, before, after, quote.TotalPrice); err != nil {
+			return err
+		}
+		t.Logf("project status: %d", owned.Status)
+		return nil
+	}, func(project *storage.Project) { owned = project; cleanup() })
+	if err != nil {
+		t.Fatal("paid project check failed. " + storageProjectLeftover)
 	}
-	after, afterErr = storageProjectCash(ctx, money)
-	if afterErr == nil {
-		report["afterOrderCash"] = after
-		report["debit"] = before - after
-	}
-	report["orderConfirmed"] = createErr == nil
-	if created != nil {
-		report["sdkResult"] = created
-	}
-	// Read-only reconciliation also runs after a refused or uncertain attempt.
-	projects, listErr := client.ListProjects(ctx, &storage.ListProjectsInput{Region: "HCM04"})
-	if listErr == nil {
-		owned = storageProjectOwned(projects.Items, baselineIDs, input.Name)
-		report["projectsAfterOrder"] = projects.Items
-	}
-	report["projectUniquelyIdentified"] = owned != nil
-	if err := saveReport(); err != nil {
-		t.Fatal("private reconciliation report failed. " + storageProjectLeftover)
-	}
-	if createErr != nil || afterErr != nil || listErr != nil || owned == nil || t.Failed() {
-		t.Fatal("order outcome needs manual reconciliation. " + storageProjectLeftover)
-	}
-	if !storageProjectDebitConfirmed(before, after, quote.TotalPrice) {
-		t.Fatal("debit differs from quoted total. " + storageProjectLeftover)
-	}
-	if created == nil || created.Project == nil || created.Project.ID != owned.ID || owned.Status != 1 || owned.ProjectTypeName != "Gold" || owned.EnableAutoRenew == nil || *owned.EnableAutoRenew {
-		t.Fatal("project readback did not confirm the requested state. " + storageProjectLeftover)
-	}
-	t.Logf("project status: %d", owned.Status)
-	cleanupAllowed = true
-	cleanup()
 }
 
 func storageProjectCash(ctx context.Context, c *billing.Client) (float64, error) {
@@ -480,4 +482,218 @@ func TestStorageProjectOwnership(t *testing.T) {
 	if storageProjectOwned([]storage.Project{p}, nil, p.Name) == nil {
 		t.Fatal("new exact project rejected")
 	}
+}
+
+func TestStorageProjectAttemptCleansValidationFailures(t *testing.T) {
+	for _, problem := range []string{"uncertain response", "debit mismatch", "renewal true"} {
+		t.Run(problem, func(t *testing.T) {
+			orders, deletes, bucketReads := 0, 0, 0
+			renewal := problem == "renewal true"
+			p := storage.Project{ID: "synthetic-new", Name: "vngcloud-live-12345678", RegionID: "<region-id-2>", RegionName: "HCM04", ProjectType: 1, ProjectTypeName: "Gold", PurchaseTypeID: 4, TotalQuota: 30, Status: 1, EnableAutoRenew: &renewal}
+			projectJSON, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			list := []byte(`{"success":true,"datas":[` + string(projectJSON) + `]}`)
+			client := storage.New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body string
+				switch r.URL.Path {
+				case "/internal/v1/regions":
+					body = testutil.FixtureBody(t, "testdata/storage/list_regions.json")
+				case "/internal/v1/billing/project_types":
+					body = testutil.FixtureBody(t, "testdata/storage/project_types.json")
+				case "/internal/v1/billing/purchase_types":
+					body = testutil.FixtureBody(t, "testdata/storage/project_purchase_types.json")
+				case "/billing-api/v1/configurations":
+					body = testutil.FixtureBody(t, "testdata/storage/project_configuration_"+r.URL.Query().Get("keys")+".json")
+				case "/billing-api/v2/price":
+					body = testutil.FixtureBody(t, "testdata/storage/project_quote_gold.json")
+				case "/internal/v1/projects":
+					body = `{"success":true,"datas":[]}`
+					if orders > 0 && deletes == 0 {
+						body = string(list)
+					}
+				case "/internal/v2/orders":
+					orders++
+					if problem == "uncertain response" {
+						w.WriteHeader(503)
+						body = `{"success":false,"code":503}`
+					} else {
+						body = `{"success":true,"data":{"redirectUrl":"https://checkout.example/synthetic"}}`
+					}
+				case "/internal/v1/ceph/projects/synthetic-new":
+					bucketReads++
+					body = `{"success":true,"datas":[]}`
+				case "/internal/v1/projects/synthetic-new":
+					if r.Method != http.MethodDelete || bucketReads != 1 {
+						t.Error("delete bypassed bucket guard")
+					}
+					var got map[string]any
+					if json.NewDecoder(r.Body).Decode(&got) != nil || got == nil || len(got) != 0 {
+						t.Error("delete body was not empty object")
+					}
+					deletes++
+					body = `{"success":true,"data":{}}`
+				default:
+					t.Errorf("unexpected mock route %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(body))
+			})))
+			baseline, err := client.ListProjects(context.Background(), &storage.ListProjectsInput{Region: "HCM04"})
+			if err != nil || len(baseline.Items) != 0 {
+				t.Fatal("mock baseline failed")
+			}
+			before, after := 913579.0, 883579.0
+			if problem == "debit mismatch" {
+				after -= 20
+			}
+			err = storageProjectAttempt(func() error { return nil }, func() (*storage.CreateProjectOutput, error) {
+				return client.CreateProject(context.Background(), &storage.CreateProjectInput{Region: "HCM04", Name: p.Name, Type: "Gold", QuotaGB: 30, MaxPrice: 30000})
+			}, func(*storage.CreateProjectOutput, error) (*storage.Project, error) {
+				if !storageProjectListComplete(list) {
+					t.Fatal("mock reconciliation was incomplete")
+				}
+				projects, err := client.ListProjects(context.Background(), &storage.ListProjectsInput{Region: "HCM04"})
+				if err != nil {
+					return nil, err
+				}
+				return storageProjectOwned(projects.Items, map[string]bool{}, p.Name), nil
+			}, func(out *storage.CreateProjectOutput, orderErr error, owned *storage.Project) error {
+				return storageProjectValidate(out, orderErr, owned, before, after, 30000)
+			}, func(owned *storage.Project) {
+				if owned == nil || owned.ID != p.ID {
+					t.Fatal("delete lacked ownership")
+				}
+				_, err := client.DeleteProject(context.Background(), &storage.DeleteProjectInput{Region: "HCM04", ProjectID: owned.ID})
+				if err != nil {
+					t.Fatal("guarded cleanup failed")
+				}
+			})
+			if err == nil || orders != 1 || deletes != 1 || bucketReads != 1 {
+				t.Fatalf("orders %d deletes %d bucket reads %d error %v", orders, deletes, bucketReads, err)
+			}
+		})
+	}
+}
+
+func TestStorageProjectPublicLog(t *testing.T) {
+	source, err := os.ReadFile("live_write_storage_project_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storageProjectCheckPublicLog(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{
+		`package example; func TestLiveWriteStorageProject(t T){t.Logf("cash: %f", before)}`,
+		`package example; func TestLiveWriteStorageProject(t T){t.Logf("delta: %f", final-after)}`,
+		`package example; func TestLiveWriteStorageProject(t T){t.Log(report["debit"])}`,
+	} {
+		if storageProjectCheckPublicLog([]byte(source)) == nil {
+			t.Fatal("financial public log accepted")
+		}
+	}
+}
+
+// Cleanup depends on reconciled ownership, not acceptance or money validation.
+func storageProjectAttempt(save func() error, order func() (*storage.CreateProjectOutput, error), reconcile func(*storage.CreateProjectOutput, error) (*storage.Project, error), validate func(*storage.CreateProjectOutput, error, *storage.Project) error, cleanup func(*storage.Project)) error {
+	var created *storage.CreateProjectOutput
+	var createErr error
+	if err := storageProjectBeforeOrder(save, func() { created, createErr = order() }); err != nil {
+		return err
+	}
+	owned, err := reconcile(created, createErr)
+	if owned != nil {
+		defer cleanup(owned)
+	}
+	if err != nil {
+		return err
+	}
+	return validate(created, createErr, owned)
+}
+
+func storageProjectCheckPublicLog(source []byte) error {
+	f, err := parser.ParseFile(token.NewFileSet(), "live_write_storage_project_test.go", source, 0)
+	if err != nil {
+		return err
+	}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "TestLiveWriteStorageProject" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch selector.Sel.Name {
+			case "Log", "Logf", "Error", "Errorf", "Fatal", "Fatalf":
+			default:
+				return true
+			}
+			for _, arg := range call.Args {
+				if !storageProjectPublicLogArg(arg) {
+					err = errors.New("public log contains a value outside counts, statuses, and fixed messages")
+				}
+			}
+			return true
+		})
+	}
+	return err
+}
+
+func storageProjectPublicLogArg(expr ast.Expr) bool {
+	switch value := expr.(type) {
+	case *ast.BasicLit:
+		if value.Kind != token.STRING {
+			return false
+		}
+		text, err := strconv.Unquote(value.Value)
+		if err != nil || strings.Contains(text, "VND") {
+			return false
+		}
+		for _, r := range text {
+			if r >= '0' && r <= '9' {
+				return false
+			}
+		}
+		return true
+	case *ast.Ident:
+		return value.Name == "storageProjectLeftover"
+	case *ast.BinaryExpr:
+		return value.Op == token.ADD && storageProjectPublicLogArg(value.X) && storageProjectPublicLogArg(value.Y)
+	case *ast.SelectorExpr:
+		owner, ok := value.X.(*ast.Ident)
+		return ok && owner.Name == "owned" && value.Sel.Name == "Status"
+	case *ast.CallExpr:
+		name, ok := value.Fun.(*ast.Ident)
+		if !ok || name.Name != "len" || len(value.Args) != 1 {
+			return false
+		}
+		field, ok := value.Args[0].(*ast.SelectorExpr)
+		if !ok || field.Sel.Name != "Items" {
+			return false
+		}
+		owner, ok := field.X.(*ast.Ident)
+		return ok && (owner.Name == "baseline" || owner.Name == "remaining")
+	}
+	return false
+}
+
+func storageProjectValidate(created *storage.CreateProjectOutput, createErr error, owned *storage.Project, before, after, quote float64) error {
+	if createErr != nil || owned == nil {
+		return errors.New("order outcome is unconfirmed")
+	}
+	if !storageProjectDebitConfirmed(before, after, quote) {
+		return errors.New("debit differs from quoted total")
+	}
+	if created == nil || created.Project == nil || created.Project.ID != owned.ID || owned.Status != 1 || owned.ProjectTypeName != "Gold" || owned.EnableAutoRenew == nil || *owned.EnableAutoRenew {
+		return errors.New("project state is unconfirmed")
+	}
+	return nil
 }

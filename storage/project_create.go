@@ -151,7 +151,7 @@ func projectUnsettled(op string, err error, recovery string) error {
 
 func projectWriteError(op string, err error, recovery string) error {
 	var api *core.APIError
-	if errors.As(err, &api) && errors.Is(err, errProjectWriteRefused) {
+	if errors.As(err, &api) && errors.Is(err, errProjectWriteRefused) && projectRefusalCode(api.Code) && (api.StatusCode == http.StatusOK || api.StatusCode/100 == 4) {
 		return err
 	}
 	return projectUnsettled(op, err, recovery)
@@ -202,10 +202,11 @@ func (c *Client) exchangeProjectWrite(ctx context.Context, k call, redact ...str
 		err = c.envelopeError(k.op, status, &env, credential)
 		var api *core.APIError
 		if errors.As(err, &api) {
-			api.Message = "server refused project write; response withheld"
+			api.Message = "project write response withheld"
 			api.Code = safeProjectErrorCode(status, api.Code)
 			// A refusal is distinct from an unreadable HTTP 200 response.
-			if valid && strings.TrimSpace(code) != "" && (status == http.StatusOK || status/100 == 4) {
+			if valid && projectRefusalCode(code) && (status == http.StatusOK || status/100 == 4) {
+				api.Message = "server refused project write; response withheld"
 				api.Err = errors.Join(api.Err, errProjectWriteRefused)
 			}
 		}
@@ -226,4 +227,9 @@ func safeProjectErrorCode(status int, code string) string {
 		}
 	}
 	return code
+}
+
+func projectRefusalCode(code string) bool {
+	n, err := strconv.Atoi(code)
+	return err == nil && ((n >= 400 && n < 500) || n == 112 || n == 114)
 }

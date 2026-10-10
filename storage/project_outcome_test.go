@@ -32,6 +32,13 @@ func TestProjectOrderRefusalClassification(t *testing.T) {
 		{400, `{"success":false}`, true},
 		{400, `{"success":false,"code":403}`, false},
 		{200, `{"success":false,"code":403}`, false},
+		{200, `{"success":false,"code":503}`, true},
+		{200, `{"success":false,"code":"ServerError"}`, true},
+		{400, `{"success":false,"code":503}`, true},
+		{200, `{"success":false,"code":112}`, false},
+		{200, `{"success":false,"code":114}`, false},
+		{200, `{"success":false,"code":399}`, true},
+		{200, `{"success":false,"code":500}`, true},
 		{200, `{"success":false}`, true},
 	} {
 		s := &projectWriteServer{status: tc.status, order: tc.body}
