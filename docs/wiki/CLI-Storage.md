@@ -23,13 +23,14 @@ vngcloud storage attach-s3-key --project-id <project-id> --user-key-id <user-key
 
 Kind: Write.
 
-`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Sends the console body for a bucket without object lock, then reads the bucket back and prints it. A name must be lowercase letters, digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way that may have reached the server, the message says the bucket may exist: check with get-bucket before running it again.
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Sends the console body for a bucket without object lock, then reads the bucket back and prints it. A name must be lowercase letters, digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way that may have reached the server, the message says the bucket may exist: check with get-bucket before running it again. `--encryption` enables server-managed default encryption before success, also on an existing bucket. Omission or `--encryption=false` does not disable encryption. Create and enable are not atomic; delay uploads until success. `BucketEncryptionIncomplete` (exit 1) means the bucket exists but setup failed: run get-bucket-encryption, then put-bucket-encryption --enabled=true if needed after fixing the cause. Do not upload backups until a read confirms true.
 
 | Flag | Type | Required |
 |-|-|-|
 | `Region` (via `--cli-input-json` only) | `string` |  |
 | `--project-id` | `string` | yes |
 | `--bucket` | `string` | yes |
+| `--encryption` | `bool` |  |
 
 ```sh
 vngcloud storage create-bucket --project-id <project-id> --bucket <bucket>
@@ -216,6 +217,23 @@ Kind: Read.
 vngcloud storage get-bucket-cors --project-id <project-id> --bucket <bucket> --query Rules
 ```
 
+## get-bucket-encryption
+
+Kind: Read.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Reads server-managed default encryption and prints `Enabled`. `--bucket` names the bucket; JSON uses `BucketName`.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `BucketName` (via `--cli-input-json` only) | `string` |  |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage get-bucket-encryption --project-id <project-id> --bucket <bucket>
+```
+
 ## get-bucket-policy
 
 Kind: Read.
@@ -333,6 +351,24 @@ Kind: Write.
 
 ```sh
 vngcloud storage put-bucket-cors --project-id <project-id> --bucket <bucket> --cli-input-json '{"Rules":[{"AllowedOrigins":["<origin>"],"AllowedMethods":["GET"]}]}'
+```
+
+## put-bucket-encryption
+
+Kind: Write.
+
+`--project-id` is the global flag and takes a vStorage project ID from list-projects, not the account's vServer project: the environment variable and the profile setting do not fill it, and the command exits 2 without the flag. `Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Sets server-managed default encryption. Needs `--enabled=true` or `--enabled=false`; omitted or null JSON `Enabled` exits 2 before any request. `--bucket` names the bucket; JSON uses `BucketName`. Disabling changes the default for future uploads; effects on existing objects remain unverified. Confirms the state with one read. On `NotSettled` (exit 1), read get-bucket-encryption before writing again. Needs no `--yes` or prompt. A read-only profile refuses the write before any request.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--project-id` | `string` | yes |
+| `BucketName` (via `--cli-input-json` only) | `string` | yes |
+| `--enabled` | `*bool` | yes |
+| `--bucket` | `string` | yes |
+
+```sh
+vngcloud storage put-bucket-encryption --project-id <project-id> --bucket <bucket> --enabled=true
 ```
 
 ## put-bucket-policy

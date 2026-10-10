@@ -14,6 +14,8 @@ import (
 // flag; NoFlag keeps it settable through --cli-input-json. ProjectID is a
 // vStorage project ID, which the global --project-id flag supplies.
 var storageOps = []Op[storage.Client]{
+	getBucketEncryptionOp(),
+	putBucketEncryptionOp(),
 	Read[storage.Client, storage.ListRegionsInput, storage.ListRegionsOutput](
 		kebab("ListRegions"), (*storage.Client).ListRegions),
 	Read[storage.Client, storage.ListProjectsInput, storage.ListProjectsOutput](
@@ -89,5 +91,64 @@ func createStorageProjectOp() Op[storage.Client] {
 }
 
 func newStorageCmd(e *env) *cobra.Command {
-	return Service(e, "storage", "vStorage regions, projects, and buckets", storage.New, storageOps...)
+	cmd := Service(e, "storage", "vStorage regions, projects, and buckets", storage.New, storageOps...)
+	for _, child := range cmd.Commands() {
+		switch child.Name() {
+		case "get-bucket-encryption", "put-bucket-encryption", "create-bucket":
+			child.Long = docOpNotesStorage["storage "+child.Name()]
+		}
+	}
+	return cmd
+}
+
+func encryptionBucketFlag(cmd *cobra.Command) {
+	cmd.Flags().String("bucket", "", "bucket name; JSON field BucketName (required)")
+}
+
+func encryptionBucketName(cmd *cobra.Command, name string) string {
+	if cmd.Flags().Changed("bucket") {
+		name, _ = cmd.Flags().GetString("bucket")
+	}
+	return name
+}
+
+func getBucketEncryptionOp() Op[storage.Client] {
+	op := Read[storage.Client, storage.GetBucketEncryptionInput, storage.GetBucketEncryptionOutput](
+		"get-bucket-encryption", (*storage.Client).GetBucketEncryption,
+		NoFlag("Region", "BucketName"), Optional("BucketName"), GlobalProjectID("ProjectID"))
+	op.extraFlags = encryptionBucketFlag
+	op.call = func(cmd *cobra.Command, c *storage.Client, ctx context.Context, input any) (any, error) {
+		in := input.(*storage.GetBucketEncryptionInput)
+		in.BucketName = encryptionBucketName(cmd, in.BucketName)
+		return c.GetBucketEncryption(ctx, in)
+	}
+	return op
+}
+
+// A pointer preserves omission and null until the CLI has checked presence.
+type storagePutBucketEncryptionInput struct {
+	Region     string
+	ProjectID  string `vngcloud:"required"`
+	BucketName string `vngcloud:"required"`
+	Enabled    *bool  `vngcloud:"required"`
+}
+
+func putBucketEncryptionOp() Op[storage.Client] {
+	op := Write[storage.Client, storagePutBucketEncryptionInput, storage.PutBucketEncryptionOutput](
+		"put-bucket-encryption", func(c *storage.Client, ctx context.Context, in *storagePutBucketEncryptionInput) (*storage.PutBucketEncryptionOutput, error) {
+			return c.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{
+				Region: in.Region, ProjectID: in.ProjectID, BucketName: in.BucketName, Enabled: *in.Enabled,
+			})
+		}, WriteNoFlag("Region", "BucketName"), WriteGlobalProjectID("ProjectID"),
+		Guard(func(cmd *cobra.Command, input any) error {
+			in := input.(*storagePutBucketEncryptionInput)
+			in.BucketName = encryptionBucketName(cmd, in.BucketName)
+			if in.Enabled == nil {
+				return newUsageError("--enabled=true or --enabled=false is required; JSON Enabled must be non-null")
+			}
+			return nil
+		}))
+	op.methodName = "PutBucketEncryption"
+	op.extraFlags = encryptionBucketFlag
+	return op
 }

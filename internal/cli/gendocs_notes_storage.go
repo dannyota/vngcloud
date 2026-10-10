@@ -52,7 +52,11 @@ const storageCreateBucketNote = storageProjectIDNote + storageRegionNote + " Sen
 	"bucket without object lock, then reads the bucket back and prints it. A name must be lowercase letters, " +
 	"digits, and hyphens; anything else the server refuses with error code 112. If the create fails in a way " +
 	"that may have reached the server, the message says the bucket may exist: check with get-bucket before " +
-	"running it again."
+	"running it again. `--encryption` enables server-managed default encryption before success, also on an " +
+	"existing bucket. Omission or `--encryption=false` does not disable encryption. Create and enable are " +
+	"not atomic; delay uploads until success. `BucketEncryptionIncomplete` (exit 1) means the bucket exists " +
+	"but setup failed: run get-bucket-encryption, then put-bucket-encryption --enabled=true if needed after " +
+	"fixing the cause. Do not upload backups until a read confirms true."
 
 const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`: a deleted " +
 	"bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code " +
@@ -167,6 +171,16 @@ const storagePutBucketVersioningNote = storageProjectIDNote + storageRegionNote 
 	"bucket. It needs no `--yes`, since another put reverses it. The change shows on the next " +
 	"get-bucket-versioning."
 
+const storageGetBucketEncryptionNote = storageProjectIDNote + storageRegionNote + " Reads server-managed " +
+	"default encryption and prints `Enabled`. `--bucket` names the bucket; JSON uses `BucketName`."
+
+const storagePutBucketEncryptionNote = storageProjectIDNote + storageRegionNote + " Sets server-managed " +
+	"default encryption. Needs `--enabled=true` or `--enabled=false`; omitted or null JSON `Enabled` exits " +
+	"2 before any request. `--bucket` names the bucket; JSON uses `BucketName`. Disabling changes the default " +
+	"for future uploads; effects on existing objects remain unverified. Confirms the state with one read. " +
+	"On `NotSettled` (exit 1), read get-bucket-encryption before writing again. Needs no `--yes` or prompt. " +
+	"A read-only profile refuses the write before any request."
+
 const storageCORSRulesNote = "Each rule has `AllowedOrigins` and `AllowedMethods` (`GET`, `PUT`, `POST`, " +
 	"`DELETE`, `HEAD`), and optionally `AllowedHeaders` and `MaxAgeSeconds`. `ExposedHeaders` is read-only: " +
 	"the SDK never sends it, so rules put through the CLI read back with it empty."
@@ -208,6 +222,8 @@ var docOpNotesStorage = map[string]string{
 	"storage get-bucket-policy":                storageGetBucketPolicyNote,
 	"storage put-bucket-policy":                storagePutBucketPolicyNote,
 	"storage delete-bucket-policy":             storageDeleteBucketPolicyNote,
+	"storage get-bucket-encryption":            storageGetBucketEncryptionNote,
+	"storage put-bucket-encryption":            storagePutBucketEncryptionNote,
 	"storage get-bucket-versioning":            storageGetBucketVersioningNote,
 	"storage put-bucket-versioning":            storagePutBucketVersioningNote,
 	"storage get-bucket-cors":                  storageGetBucketCORSNote,
@@ -216,6 +232,8 @@ var docOpNotesStorage = map[string]string{
 }
 
 func init() {
+	docExampleOverride["storage get-bucket-encryption"] = "vngcloud storage get-bucket-encryption --project-id <project-id> --bucket <bucket>"
+	docExampleOverride["storage put-bucket-encryption"] = "vngcloud storage put-bucket-encryption --project-id <project-id> --bucket <bucket> --enabled=true"
 	docExampleOverride["storage create-project"] = "vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000"
 	for k, v := range docOpNotesStorage {
 		docOpNotes[k] = v

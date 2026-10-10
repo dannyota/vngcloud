@@ -57,7 +57,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"list-projects":        {},
 		"list-buckets":         {},
 		"get-bucket":           {"bucket"},
-		"create-bucket":        {"bucket"},
+		"create-bucket":        {"bucket", "encryption"},
 		"delete-bucket":        {"bucket", "no-wait"},
 		"list-s3-keys":         {},
 		"create-s3-key":        {"secret-file", "service-account-id"},
@@ -69,6 +69,8 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		"get-bucket-policy":                {"bucket"},
 		"put-bucket-policy":                {"bucket", "policy"},
 		"delete-bucket-policy":             {"bucket"},
+		"get-bucket-encryption":            {"bucket"},
+		"put-bucket-encryption":            {"enabled", "bucket"},
 		"get-bucket-versioning":            {"bucket"},
 		"put-bucket-versioning":            {"bucket", "enabled"},
 		"get-bucket-cors":                  {"bucket"},
@@ -89,7 +91,7 @@ func TestStorageCommandsMatchDesignTable(t *testing.T) {
 		case "create-project", "delete-project", "create-bucket", "delete-bucket", "create-s3-key", "delete-s3-key",
 			"attach-s3-key", "detach-s3-key", "ensure-service-account-principal",
 			"put-bucket-policy", "delete-bucket-policy", "put-bucket-versioning",
-			"put-bucket-cors", "delete-bucket-cors":
+			"put-bucket-encryption", "put-bucket-cors", "delete-bucket-cors":
 			wantKind = kindWrite
 		}
 		if op.kind != wantKind {
@@ -256,8 +258,8 @@ func TestStoragePermissionDeniedMapsToItsCode(t *testing.T) {
 
 func TestStorageGetBucketExampleSelectsNoWrapperKey(t *testing.T) {
 	for _, op := range buildDocService("storage", storageOps).ops {
-		// get-bucket-cors wraps its rule list, which --query Rules selects.
-		if op.queryField != "" && op.name != "get-bucket-cors" {
+		// CORS wraps Rules; encryption has one Enabled field that --query selects.
+		if op.queryField != "" && op.name != "get-bucket-cors" && op.name != "get-bucket-encryption" {
 			t.Errorf("%s: queryField = %q, want none (the output is flat)", op.name, op.queryField)
 		}
 	}
