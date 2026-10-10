@@ -44,11 +44,15 @@ func TestEnvelopeRedactsBearerToken(t *testing.T) {
 
 func TestEnvelopeRedactionPreservesNotFound(t *testing.T) {
 	for _, status := range []int{200, 400} {
-		for _, message := range []string{"Budget not found", "Threshold not found"} {
+		for _, message := range []string{
+			"Budget not found", "Threshold not found",
+			" Budget not found", "Budget not found ",
+			" Threshold not found", "Threshold not found ",
+		} {
 			t.Run(fmt.Sprintf("%d/%s", status, message), func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(status)
-					_, _ = fmt.Fprintf(w, `{"code":404,"message":%q}`, message)
+					_, _ = fmt.Fprintf(w, `{"code":400,"message":%q}`, message)
 				}))
 				defer server.Close()
 				cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("found"), vngcloud.WithHTTPClient(server.Client()), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: server.URL}))

@@ -222,6 +222,7 @@ func mapNotFound(err error) error {
 }
 
 func isNotFoundMessage(status int, message string) bool {
+	message = strings.TrimSpace(message)
 	return (status == http.StatusBadRequest || status/100 == 2) &&
 		(strings.HasPrefix(message, "Budget not found") || strings.HasPrefix(message, "Threshold not found"))
 }
