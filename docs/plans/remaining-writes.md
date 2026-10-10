@@ -15,7 +15,7 @@ On 2026-10-09: DHCP options sets (v0.38.0), private virtual IPs (v0.39.0), resou
 
 | Branch | State | Remaining work | Release gate |
 |-|-|-|-|
-| vCDN | Design revised from live probes | A `cdn` package on the documented vCDN API (`https://vcdn-api.vngcloud.vn/vcdn-api`, `Authorization: Bearer <API key>` from `VNGCLOUD_VCDN_API_KEY`): web accelerator domains, origins, certificates, purge, statistics | One real Web Accelerator on the account for the C1 reads; the owner's cost check before C2 |
+| vCDN | C1 pushed (v0.56.0 on green CI); C1b to C4 next | A `cdn` package on the documented vCDN API (`https://vcdn-api.vngcloud.vn/vcdn-api`, `Authorization: Bearer <API key>` from `VNGCLOUD_VCDN_API_KEY`): web accelerator domains, origins, certificates, purge, statistics | One real Web Accelerator on the account for the C1 reads; the owner's cost check before C2 |
 
 ## Open on the account
 
