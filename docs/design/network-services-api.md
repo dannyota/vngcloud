@@ -1,47 +1,40 @@
 # vNetwork NAT and VPN API Evidence
 
-Status: Discovery incomplete (2026-10-10). These observations support the
-[read design](network-services.md); they do not approve implementation.
+Status: Populated list evidence verified (2026-10-11). These observations
+support the [read design](network-services.md); they do not approve it.
 
-The authenticated GreenNode console returned HTTP 200 for regions, NAT
-list, and VPN list. Both resource inventories were empty. The observations
-below contain route templates and field types, with no account values or
-capture bodies that contain resource data.
+Root-console paid probes establish Public NAT V2 with high availability
+(HA) and site-to-site VPN list shapes. The schemas below contain field
+names and types only. A null-only field has no proven non-null type.
 
 ## Verified requests
 
-The observed console origin is
-`https://hcm-3-vnetwork.console.greennode.ai`. The gateway prefix is
-`/vnetwork-gateway/`. Paths below include that prefix.
+The regional console origins are:
 
-| Operation | Method | Path |
-|---|---|---|
-| Regions | GET | `/vnetwork-gateway/vnetwork/v1/regions` |
-| NAT list | GET | See NAT path below |
-| VPN list | GET | See VPN path below |
+- HCM: `https://hcm-3-vnetwork.console.greennode.ai`
+- HAN: `https://han-1-vnetwork.console.greennode.ai`
 
-NAT list path:
+HAN uses the same route templates. All paths include the gateway prefix.
 
 ```text
-/vnetwork-gateway/vnetwork/v1/{zoneId}/{projectId}/nats
+GET    /vnetwork-gateway/vnetwork/v1/regions
+GET    /vnetwork-gateway/vnetwork/v1/{zoneId}/{projectId}/nats
+DELETE /vnetwork-gateway/vnetwork/v1/{zoneId}/{projectId}/nats/{natId}
+GET    /vnetwork-gateway/vnetwork/v1/{projectId}/vpns
+DELETE /vnetwork-gateway/vnetwork/v1/{projectId}/vpns/{vpnId}
 ```
 
-VPN list path:
+VPN paths have no zone segment. List and delete requests returned HTTP
+200. VPN delete returned `{success}`; NAT delete returned
+`{message, code, success}`. Delete evidence does not authorize SDK writes.
 
-```text
-/vnetwork-gateway/vnetwork/v1/{projectId}/vpns
-```
+On 2026-10-10, the HCM empty lists also returned HTTP 200 in a fresh browser
+context with only an IAM bearer Authorization header and no cookies.
+No portal, project, or region headers were needed. The 2026-10-11 populated
+probes used the root console. They do not establish SDK login-provider
+behavior, service-account auth, or cookie-free HAN replay.
 
-The VPN path has no zone segment. The browser included an Authorization
-header on the resource requests. No portal, project, or region headers
-were observed on those requests. In a fresh isolated browser context with
-no cookies, the same list URLs returned HTTP 200 using only the captured
-IAM bearer Authorization header, with no extra headers. Both returned the
-same empty envelope below. This proves cookie-free IAM bearer reads for
-these HCM list calls. A live check through the SDK login provider, other
-auth modes, and other regions remain unverified.
-
-Both list calls use a `params` query parameter containing JSON. NAT sends:
+Both lists use a JSON `params` query. NAT sends:
 
 ```json
 {"search":[],"sort":{},"page":1,"size":10}
@@ -53,66 +46,215 @@ VPN sends:
 {"search":[{"field":"any","value":""}],"sort":{},"page":1,"size":10}
 ```
 
-The empty `any` filter is verified; nonempty search terms and other filters
-are not. A successful request with size 10 establishes one accepted value,
-not the server's default or maximum. No nonempty pages were available to
-verify page advancement.
+The empty `any` filter is verified. Nonempty search, other filters, sort
+orders, page advancement, and a size cap remain unverified. Page 1 and size
+10 are accepted values, not evidence of omitted-query server defaults.
 
-## Verified response shapes
+## Envelopes and regions
 
-Regions returns `success` as a boolean and `data` as an array. Each observed
-region entry contains these string fields:
+Regions returns boolean `success` and array `data`. Region entries have
+string fields `uuid`, `name`, `gatewayUrl`, `vnetworkDashboard`, `code`,
+and `vserverEndpoint`. Their presence alone does not establish the NAT
+zone mapping or a trusted credential destination.
+
+Populated NAT and VPN lists have this shape:
 
 ```text
-uuid
-name
-gatewayUrl
-vnetworkDashboard
-code
-vserverEndpoint
+success: boolean
+data: object[]
+page: integer
+size: integer
+totalPage: integer
+total: integer
 ```
 
-The presence of routing URLs does not establish which value determines the
-NAT zone, project namespace, or trusted destination. Verify that mapping
-before reusing the existing loose region matcher or endpoint selector.
-
-Both list responses contain exactly this successful empty envelope:
+The verified empty NAT and VPN lists omit `data`:
 
 ```json
 {"success":true,"page":1,"size":10,"totalPage":0,"total":0}
 ```
 
-`data` is omitted. Accept this verified zero-total shape as an empty list;
-do not reject it solely because the list array is absent. Decode presence
-as well as value so `{}`, missing totals, or a missing success flag cannot
-become a successful empty list. The main design defines the malformed
-response rules and SDK field mappings.
+An empty endpoints list also omits `data`. Missing `data` is an empty
+result only for a verified route and envelope. It is not a general rule
+for all service lists. The read design specifies presence-aware decoding.
 
-The empty envelopes establish no NAT or VPN record fields. They do not
-prove a populated list's array location, nullable fields, detail routes,
-child routes, secret fields, or service error shapes. No NAT or VPN
-resource was created or activated to collect these observations.
+## Public NAT row
 
-## Remaining gates
+These types cover provisioning, failed HCM, and active HAN responses:
 
-Before a list release, verify:
+```text
+uuid, natName, status: string
+portalUserId, visible, message: null
+natGatewayIp, publicIp: string | null
+natPackage: NATPackage object
+vpc: VPC object
+subnet: null
+createdAt, updatedAt: string
+deletedAt, billingStatus: string | null
+projectUuid, zoneUuid: string
+```
 
-1. A read through the SDK login provider using the established IAM bearer
-   request contract, plus safe IAM-denial behavior.
-2. Region-to-zone mapping for NAT, the project namespace for each list,
-   and trusted gateway selection for supported regions. VPN still has no
-   zone segment even when its gateway is regional.
-3. Any nonempty search term or additional filter the SDK will expose.
-4. A populated raw record or published typed response schema tied to the
-   exact operation, including list array placement and field nullability.
-5. Accepted pagination inputs and any size cap that the SDK will claim.
-   Keep defaults at the observed page 1 and size 10 until stronger evidence
-   exists; do not claim multi-page live verification on empty inventories.
-6. VPN secret field exclusions and safe treatment of error bodies and
-   capture hooks, using the main design's adversarial test requirements.
+`uuid` has the `nat-` prefix. `subnet` remains null even when ACTIVE.
 
-Detail and child methods need their own route and schema evidence. A
-list-only release may proceed once every list gate is met; missing detail
-schemas do not justify inventing list record types. Preserve the
-[live-data rules](../../instructions/live-data.md) while closing these
-gaps, including secret sanitization before any VPN response is persisted.
+`NATPackage`:
+
+```text
+id, uuid, name, createdAt, packageId: string
+isDefault, resourceServiceId, billingSku, serviceName: null
+price, currencyUnit, description, status: null
+natServiceId, natVersion, billingUuid, checksum, lastSyncTime: null
+monthlyPrice: integer
+default: boolean
+image: object
+  id, uuid, imageType, imageVersion, licence: string
+  flavorZoneIds: string[]
+  packageLimit: object
+    cpu, memory, diskSize: integer
+  licenseKey: null
+```
+
+`monthlyPrice` is 0 and is not a package price. The units of the package
+limit numbers are not established by these field names.
+
+### VPC object
+
+NAT `vpc` and VPN `vpcDetailModel` share this observed shape:
+
+```text
+uuid, name, cidr, status: string
+regionId, projectId, lastSyncTime, dnsStatus: string
+elasticIps: empty array; element type unverified
+subnets, createdAt, updatedAt, regionUuid, projectUuid: null
+secGroups, project, region, zones: null
+```
+
+## VPN row
+
+Provisioning and active responses establish:
+
+```text
+subnetDetailModel: Subnet object
+vpcDetailModel: VPC object
+projectDetailModel: Project object
+packageModel: VPNPackage object
+packageUuid, vpnName, localNetworkCidr, createdAt, status, uuid: string
+remoteGatewayIp, remoteNetworkCidr, ipSecConfig: null
+localGatewayIp, vpnGatewayIp: string | null
+vpnSites: VPNSite[]
+billingStatus, zoneUuid: string
+```
+
+`Subnet`:
+
+```text
+uuid, name, status, cidr, subnetType: string
+updatedAt, lastSyncTime, zoneId: string
+vpcUuid, routeTableUuid, interfaceAclPolicyUuid: null
+interfaceAclPolicyName, createdAt, vpc, zone: null
+```
+
+`Project`:
+
+```text
+id, backendProjectId, vserverProjectId: string
+portalUserId: integer
+```
+
+`portalUserId` identifies the account and must be omitted from SDK models.
+
+`VPNPackage`:
+
+```text
+uuid, name, packageId: string
+monthlyPrice, tunnelLimit: integer
+default: boolean
+id, createdAt, resourceServiceId, billingSku, serviceName: null
+description, currencyUnit, price: null
+```
+
+`monthlyPrice` is 0 and is not a package price.
+
+`VPNSite`:
+
+```text
+remoteGatewayIp, preShareKey, uuid, status, siteName, createdAt: string
+phase1IkeLifeTime, phase1Status: null
+phase1Configs: object[]
+  id: null
+  phase1Algorithm, phase1Hash, phase1DhGroup: string
+  phase1IkeLifeTime: string
+tunnels: VPNTunnel[]
+```
+
+`VPNTunnel`:
+
+```text
+siteUuid, tunnelName, remoteNetworkCidr, uuid, status, createdAt: string
+phase2IkeLifeTime, phase2DhGroup, phase2Status: null
+phase2Configs: object[]
+  id: null
+  phase2Algorithm, phase2Hash, phase2DhGroup: string
+  phase2IkeLifeTime: string
+```
+
+Sites, tunnels, and phase configuration arrays arrive inline in the VPN
+list. Inventory needs no child route. Lifetime values inside configurations
+are strings; the same-named outer fields are null. Phase status fields are
+null in both provisioning and active records.
+
+### VPN response security
+
+Each `vpnSites[].preShareKey` is returned in plaintext. Every SDK VPN read
+must set `transport.Request.Sensitive`. Never model, capture, log, or return
+the key. Omit `projectDetailModel.portalUserId` as well. Use synthetic VPN
+fixtures only, built from field names and types with invented values.
+Do not persist or reuse a live secret-bearing body as a fixture source.
+Sensitive requests and the read design's fixed-error rules must cover
+successes, malformed bodies, and server errors.
+
+## Status, billing, and cleanup observations
+
+VPN connections, sites, and tunnels changed from `PROVISIONING` to `ACTIVE`
+after about 3.5 minutes, even with an unreachable peer. `billingStatus`
+remained `provisioning`; `phase1Status` and `phase2Status` were null.
+`ACTIVE` therefore does not establish tunnel connectivity.
+
+HAN NAT changed from `PROVISIONING` to `ACTIVE` after about 6 minutes.
+Its gateway and public IP fields became strings and `billingStatus` became
+`active`. HCM NAT changed from `PROVISIONING` to `ERROR` after about 5
+minutes in a VPC with a stuck network ACL. Its `billingStatus` was null.
+The observation does not establish the cause of the failure.
+
+Creating a NAT adds a default route to the VPC route table; every VM in
+that VPC then egresses through the NAT. Immediately after NAT deletion,
+VPC deletion returned HTTP 400 with "currently being used by a vNetwork"
+for under a minute.
+
+Published package prices shown in the console on 2026-10-11:
+
+| Service | Package | VND/month | Tunnel limit |
+|---|---|---|---|
+| VPN | Standard | 545,700 | 4 |
+| VPN | Medium | 1,691,400 | 10 |
+| Public NAT V2 HA | Standard | 712,400 | Not applicable |
+
+Standard is the only NAT package. VPN checkout defaults auto-renew on.
+VPN deletion refunded the full price within minutes. The failed NAT order
+was automatically refunded in full; deleting ACTIVE NAT refunded its full
+price at once. These are observed outcomes, not a refund guarantee.
+
+## Evidence still needed
+
+- SDK login-provider reads and safe IAM-denial behavior.
+- NAT region-to-zone mapping, selected-project namespace, and trusted
+  gateway selection for HCM and HAN; cookie-free HAN authorization.
+- Multi-page behavior, additional search or sort inputs, and any size cap
+  before those capabilities are claimed as verified.
+- Non-null shapes for null-only fields and elements of empty arrays before
+  exposing them in public models.
+- Detail and NAT rule routes and schemas before adding those reads.
+
+Populated inventory models no longer need another paid probe. No verified
+child route is needed to expose inline VPN sites and tunnels. Follow the
+[live-data rules](../../instructions/live-data.md) for account data and the
+stricter VPN response rules above for secret-bearing bodies.

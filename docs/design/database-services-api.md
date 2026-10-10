@@ -1,6 +1,6 @@
 # Database API contracts
 
-Status: Draft (2026-10-10).
+Status: Draft (2026-10-11).
 
 This companion to [database inventory](database-services.md) separates
 verified IAM console list contracts from published resource schemas and
@@ -10,8 +10,9 @@ model or detail route has live evidence.
 The first releases are list-only. Each detail route below is a published
 candidate held for a separate later release. Before that release, verify
 the exact console route, bearer-only IAM replay without cookies, success
-envelope, list-to-detail ID mapping, and safe error behavior. Owner acceptance
-of published resource-field evidence cannot waive any of those gates.
+envelope, list-to-detail ID mapping, and safe error behavior. All four
+families remain blocked on populated evidence; published resource schemas
+do not satisfy that gate.
 
 ## Sources
 
@@ -78,6 +79,38 @@ OpenSearch uses the project ID in its path.
 Only the HCM/current-region session was verified. Empty lists do not prove
 cross-region scope, resource fields, detail routes, or complete pagination.
 No live account identifiers or raw captures belong in this document.
+
+## Console availability and prices
+
+Root-console forms on 2026-10-11 establish availability and displayed
+prices, not populated resource schemas. No populated vDB record was
+captured. The observations do not verify detail routes or regional list
+scope.
+
+| Region | Configuration | Displayed price (VND) |
+|---|---|---|
+| HCM | Redis single node, 2 vCPU / 4 GB | 1,008,000/month |
+| HCM | Kafka, 3 brokers, 2 vCPU / 4 GB, 20 GB | 2,819,964 |
+| HCM | PostgreSQL, 2 vCPU / 4 GB, 20 GB | 3,393,420 |
+| HAN | Redis Cluster Mode | 6,459,942/month |
+
+The Kafka configuration is the offered minimum. The HCM PostgreSQL form
+showed the same total for single node and the 2-node cluster. Which
+configuration the total covers remains unverified; do not infer a per-node
+price or a reliable cluster quote.
+
+The HAN console at `https://vdb-han-1.console.greennode.ai` offers no
+single-node Redis packages. Its form availability does not prove that
+HCM list routes or bearer-only authorization work on the HAN origin.
+
+HCM create forms offer only VPCs the vDB service accepts. A VPC with a
+stuck network ACL was not offered. The observation does not establish a
+complete VPC eligibility rule. The observed account has a VPC quota of 2
+per region; this is not evidence of a universal service quota.
+
+These constraints limit the available evidence. They do not authorize a
+purchase or creation of replacement VPCs. Kafka, relational, MemoryStore,
+and OpenSearch still need populated list evidence before implementation.
 
 ## Kafka
 
@@ -357,4 +390,5 @@ Follow-up findings per family:
    writes, credential resets, or excessive failing requests to obtain one.
 
 The design remains a draft. Verified empty-list contracts establish the
-IAM console entry points; unresolved probes remain release prerequisites.
+HCM IAM console entry points. All four families remain blocked on
+populated evidence and their other unresolved read-contract checks.

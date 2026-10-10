@@ -1,323 +1,293 @@
 # vNetwork NAT and VPN Reads
 
-Status: Draft (2026-10-10), awaiting owner review. Resolve the discovery
-gates for each release before implementation starts.
+Status: Draft (2026-10-11), pending owner approval.
 
 Extend `network.Client` with read-only Public NAT and site-to-site VPN
-inventory. Ship NAT inventory first, then VPN inventory. Add child reads in
-separate releases when their response contracts are verified. Each release
-includes SDK methods, CLI commands, fixtures, and wiki documentation.
+inventory. Ship NAT list first, then VPN list with inline sites and tunnels.
+The populated list schemas are verified. SDK authorization and routing
+checks below remain release prerequisites.
 
-The owner uses the CLI and SDK to inspect services available from the main
-GreenNode dashboard. Existing VPC, subnet, route, security group, network
-ACL, DHCP option, private virtual IP, peering, interconnect, endpoint, and
-WAN address coverage stays in `network`. A dashboard menu does not prove
-that every operation behind that menu is already covered.
-
-This design follows [SDK and CLI](sdk-and-cli.md), [CLI](cli.md), and the
-existing network designs. It introduces no new authentication method,
-dependency, write API, or root-package service re-export.
+This design follows [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md).
+It adds no authentication method, dependency, write API, or root-package
+service re-export. Existing network operations keep their contracts.
 
 ## Scope and evidence
 
-The published [NAT guide][nat-create] describes a paid Public NAT instance
-with a VPC and subnet. The [NAT rule guide][nat-rules] identifies inbound
-rules and detail fields for the gateway and public IP. These pages establish
-product concepts, not HTTP routes or JSON schemas.
+[API evidence](network-services-api.md) records the 2026-10-11 paid
+root-console probes, including populated rows, nullability, statuses,
+regional origins, package prices, and delete behavior. HCM and HAN use the
+same route templates. Earlier HCM empty-list reads establish cookie-free
+IAM bearer authorization, but do not prove SDK login-provider behavior.
 
-The published [VPN creation guide][vpn-create] identifies a VPN connection,
-sites for phase 1, and tunnels for phase 2. One site can contain multiple
-tunnels. It allows a caller-supplied or service-generated pre-shared key.
-Creation proceeds through checkout. The [VPN overview][vpn-overview]
-describes an IPsec site-to-site service; it does not define separate public
-gateway or policy API resources.
-
-The [public API index][api-index] has no vNetwork entry. The linked
-[vServer reference][vserver-api] has no NAT or VPN section. No NAT or VPN
-HTTP route, response schema, pagination cap, or service-specific error code
-has been verified from these public references. The public API index
-describes service-account authentication; that does not establish the
-authentication contract of the console's vNetwork gateway.
-
-Authenticated console reads establish the NAT and VPN list routes and
-their successful empty envelopes. [API evidence](network-services-api.md)
-records the verified shapes and remaining gaps. Neither list contained a
-resource, so neither response establishes a resource model.
-
-| Surface | Current evidence | Design decision |
+| Surface | Evidence | Decision |
 |---|---|---|
-| NAT inventory | List route and empty envelope | Verify records first |
-| NAT rules | Product detail section | Separate verified child read |
-| VPN inventory | List route and empty envelope | Verify records first |
-| VPN sites and tunnels | Product concepts | Verify child routes first |
-| VPN policy metadata | Product creation fields | Model only verified data |
-| Endpoint and peering | Existing SDK reads | Audit parity separately |
-| Cross Connect | Existing interconnect reads | Audit parity separately |
+| NAT inventory | Populated list, including ACTIVE and ERROR | Typed list |
+| NAT rules | No verified response schema | Defer |
+| VPN inventory | Populated list, including ACTIVE | Typed sensitive list |
+| VPN sites and tunnels | Embedded in list rows | Typed inline children |
+| VPN phase configuration | Embedded configuration arrays | Safe typed fields |
+| Detail reads | No verified response schema | Defer |
 
-Exclude resource creation, deletion, rename, bandwidth changes, route
-changes, NAT rule changes, VPN secret retrieval, key rotation, configuration
-downloads, and connectivity tests. Existing resources may be read without
-creating a paid NAT or VPN to obtain sample data.
+Exclude creation, deletion, rename, bandwidth changes, route changes,
+NAT rule changes, VPN secret retrieval, key rotation, configuration
+downloads, and connectivity tests. Delete routes are evidence for a future
+write design, not additions to this read surface. A provisioning status
+must not be presented as proof of traffic flow or tunnel health.
 
-## Approach
+## Public surface
 
-Add methods to the existing `network` package and operation table. This
-keeps one client for related resources and reuses shared configuration,
-project discovery, transport, and CLI output. A separate `vnetwork` package
-would split existing endpoint and region methods from their peers. A generic
-raw-JSON command would expose unreviewed fields and make later typed models
-harder to introduce.
+Add these operations to the existing `network` package and CLI operation
+table. Each release includes SDK methods, CLI commands, fixtures, example
+calls, and wiki documentation.
 
-The following names express the proposed SDK surface. They are not claims
-that corresponding HTTP routes exist. Include a method only after its
-operation contract is recorded under [Discovery](#discovery).
-
-| SDK method | CLI command | Model |
+| SDK method | CLI command | Item model |
 |---|---|---|
 | `ListNATInstances` | `network list-nat-instances` | `NATInstance` |
-| `GetNATInstance` | `network get-nat-instance` | `NATInstanceDetail` |
-| `ListNATRules` | `network list-nat-rules` | `NATRule` |
 | `ListVPNConnections` | `network list-vpn-connections` | `VPNConnection` |
-| `GetVPNConnection` | `network get-vpn-connection` | `VPNConnectionDetail` |
-| `ListVPNSites` | `network list-vpn-sites` | `VPNSite` |
-| `ListVPNTunnels` | `network list-vpn-tunnels` | `VPNTunnel` |
 
-Do not add a `Get` method that scans a list, or split an embedded array into
-a pretend child API. If detail includes rules, sites, or tunnels and no
-separate read exists, expose the verified typed children on the detail
-model. A list-only release is valid when its request, envelope, and typed
-record schema are proven. An empty response alone does not meet that gate.
+Each uses `Method(ctx, *Input) (*Output, error)`. Both list inputs accept nil.
+`ListNATInstancesInput` has `ZoneID string`, `Page int`, and `Size int`.
+`ListVPNConnectionsInput` has only `Page int` and `Size int`. Inputs have
+no JSON tags. Both outputs use `core.PagedList[T]` with the matching item
+model. No list scans masquerade as Get operations. Inline VPN arrays do
+not create `ListVPNSites` or `ListVPNTunnels` methods.
 
-### SDK contract
+An explicit NAT `ZoneID` passes `core.CheckPathID` before project discovery
+or HTTP. An omitted zone requires a unique verified mapping for the selected
+region. Selected project IDs also pass path validation. Invalid IDs,
+negative Page, or negative Size fail before any discovery or resource call.
+Zero Page or Size uses the SDK defaults, page 1 and size 10.
 
-Every method uses `Method(ctx, *Input) (*Output, error)`. A list input may be
-nil when it has no required parent. List outputs use `core.PagedList[T]`
-only when the API supplies page metadata, otherwise `core.List[T]`. Detail
-outputs have a named resource field, `NATInstance` or `VPNConnection`.
+Resource JSON tags retain wire names. Go fields use standard initialisms:
+`UUID`, `ID`, `CIDR`, `IP`, `DNS`, and `CPU`. Use `Phase1IKELifetime` and
+`Phase2IKELifetime` for the configuration lifetime fields. All verified
+status and timestamp fields remain raw strings. Preserve unknown status
+values; do not introduce status enums or infer operational health.
 
-Inputs have no JSON tags. Required parent or resource IDs carry
-`vngcloud:"required"` and pass `core.CheckPathID` before any request. Use
-`NATInstanceID`, `VPNConnectionID`, and `VPNSiteID` for proven relationships.
-Add `ZoneID`, `Page`, `Size`, and filters only when the operation accepts
-them. Keep API names in resource JSON tags and Go names in CLI output.
+### Model allowlists
 
-Models are typed structs built from sanitized raw responses or an
-independently verified published typed schema. Frontend request builders
-prove request construction; field references alone do not prove response
-field types or nullability. Preserve verified nullable, numeric, timestamp,
-enum, nested-array, and identifier types. List and detail models may differ.
-Candidate metadata includes name, ID, status, VPC, subnet, gateway addresses,
-package, and timestamps; none of
-these has a verified NAT or VPN JSON spelling yet. No exported `map[string]any`,
-raw JSON, secret field, or catch-all attributes field is permitted.
+The wire-key lists below define the exported fields. Unless a type is
+stated, an allowed scalar is a Go `string`. Nested objects use the named
+public types, arrays use typed slices, and verified string-or-null fields
+use `*string`. Keep null distinct from an empty string. Do not export
+`any`, `map[string]any`, `json.RawMessage`, or a catch-all field.
 
-Preserve unknown status strings for forward compatibility. Do not infer
-health from provisioning status, invent defaults for omitted fields, or
-convert a denied or unsupported API into a successful empty inventory.
+A null-only observation does not prove a non-null type. Omit those fields
+and arrays with no proven element type until evidence establishes a typed
+contract. Unknown fields are discarded. Tests retain synthetic excluded
+keys to prove they cannot reach public output.
 
-### Routing and pagination
+`NATInstance` exposes:
 
-The existing vNetwork gateway starts at
-`https://{region}.console.greennode.ai/vserver/vnetwork-gateway/`.
-`ListVNetworkRegions` also tries the regional console gateway at
-`https://{region}-vnetwork.console.greennode.ai/vnetwork-gateway/`.
-The existing endpoint methods use `vnetwork/v1` with a discovered zone UUID
-and project ID. The verified NAT list also uses a zone and project in its
-path. The verified VPN list uses the project alone. Do not add a zone path
-segment or require zone discovery for VPN list calls. See the exact
-[request templates](network-services-api.md#verified-requests).
+- `uuid`, `natName`, `status`, `createdAt`, `updatedAt`, `projectUuid`,
+  and `zoneUuid`.
+- `natGatewayIp`, `publicIp`, `deletedAt`, and `billingStatus` as `*string`.
+- `natPackage` as `NATPackage` and `vpc` as `NATVPC`.
 
-Reuse `core.Client`, `transport.Request`, and the route builder. Prove the
-remaining region-selection, project-namespace, authentication, and header
-requirements for each operation. Both observed list requests also succeeded
-with the captured IAM bearer token in a fresh context without cookies or
-extra headers. That proves those list requests accept the IAM bearer;
-verification with the SDK login provider remains open. Do not substitute
-a region label for a required zone UUID when discovery fails. Return the
-discovery error, or `ErrInvalidConfig` when no unique region match exists.
-Do not borrow an account-wide project or silently pick another region.
+`NATPackage` exposes `id`, `uuid`, `name`, `createdAt`, `packageId`,
+`default` as `bool`, and `image` as `NATImage`. `NATImage` exposes `id`,
+`uuid`, `imageType`, `imageVersion`, `licence`, `flavorZoneIds` as
+`[]string`, and `packageLimit` as `NATPackageLimit`. The limit type exposes
+`cpu`, `memory`, and `diskSize` as `int`, with no invented units.
 
-Keep `Endpoints.VNetwork` overrides authoritative. Discovery must not
-replace an explicit override or send a test token to a production fallback.
-Use a narrowly scoped helper for new operations if the current endpoint
-helper cannot preserve those rules. Any shared-helper change must have
-regression tests for existing endpoint operations and a reviewed scope.
+`NATVPC` and `VPNVPC` each expose `uuid`, `name`, `cidr`, `status`,
+`regionId`, `projectId`, `lastSyncTime`, and `dnsStatus`. Keep separate
+public types so future NAT changes do not alter VPN's contract.
 
-Accept only HTTPS production destinations from verified routing metadata.
-An untrusted region response must not redirect credentials to another host.
-Keep TLS verification and the transport's cross-host redirect refusal.
-Record allowed gateway hosts from evidence before adding host validation.
-Explicit test endpoint overrides retain their current local-test behavior.
+NAT omits `portalUserId`, `visible`, `message`, `subnet`, and every
+null-only package, image, or VPC field. In particular, never model
+`image.licenseKey`. Omit `elasticIps`, whose element type is unverified.
+Omit `monthlyPrice`: the API's zero is not a usable package price.
 
-Use one request page per SDK list call. If the API uses a JSON `params`
-query, encode its object with `encoding/json` and the query with
-`url.Values`; never concatenate user input. Record accepted page and size
-values, sorting, filters, and envelope field mappings before coding. Do not
-claim an unverified size cap.
-The console sends page 1 and size 10 for both lists. Use those proven values
-as the proposed SDK defaults; do not assume the shared default size of
-10000 is supported. A maximum size and multi-page behavior remain
-unverified. Map `page`, `size`, `totalPage`, and `total` to `Page`,
-`PageSize`, `TotalPage`, and `TotalItem`. Return the server's totals without
-inventing a total from the length of one page.
+`VPNConnection` exposes:
 
-### Errors and secrets
+- `uuid`, `vpnName`, `packageUuid`, `localNetworkCidr`, `createdAt`,
+  `status`, `billingStatus`, and `zoneUuid`.
+- `localGatewayIp` and `vpnGatewayIp` as `*string`.
+- `subnetDetailModel` as `VPNSubnet`, `vpcDetailModel` as `VPNVPC`,
+  `projectDetailModel` as `VPNProject`, and `packageModel` as `VPNPackage`.
+- `vpnSites` as `[]VPNSite`.
 
-NAT reads use existing `APIError` and sentinel behavior. Tests cover 401,
-403, 404, 429, and server failures as transport behavior; those statuses
-are not asserted to be the service's documented error inventory. Record
-actual endpoint errors separately. Preserve context cancellation and the
-shared read retry policy. Reject malformed success envelopes, including
-HTML login pages, instead of returning no rows. NAT and VPN omit `data`
-for the verified empty result. Accept that omission only when `success` is
-explicitly true, `total` and `totalPage` are explicitly zero, and `page` and
-`size` are present positive integers. Return an empty `Items` slice with
-the supplied page metadata. Missing `data` with nonzero or missing totals,
-missing success, wrong types, or invalid page metadata is malformed. Do
-not treat `data: null` as equivalent to omission without evidence. Test
-these distinctions with presence-aware decoding; Go zero values alone
-cannot distinguish an omitted total from an explicit zero.
+`VPNSubnet` exposes `uuid`, `name`, `status`, `cidr`, `subnetType`,
+`updatedAt`, `lastSyncTime`, and `zoneId`. `VPNProject` exposes `id`,
+`backendProjectId`, and `vserverProjectId`. It omits `portalUserId`.
+`VPNPackage` exposes `uuid`, `name`, `packageId`, `tunnelLimit` as `int`,
+and `default` as `bool`. Omit `monthlyPrice` and null-only package fields.
 
-VPN reads are sensitive even when the public model omits secret fields.
-Successful responses may contain pre-shared keys. Certificates, private
-keys, passwords, authentication material, and downloaded configurations
-must not reach capture hooks, SDK output, CLI output, logs, or errors.
+`VPNSite` exposes `remoteGatewayIp`, `uuid`, `status`, `siteName`,
+`createdAt`, `phase1Configs` as `[]VPNPhase1Config`, and `tunnels` as
+`[]VPNTunnel`. `VPNPhase1Config` exposes `phase1Algorithm`, `phase1Hash`,
+`phase1DhGroup`, and `phase1IkeLifeTime`, all strings.
 
-- Set `transport.Request.Sensitive` on every VPN resource request so the
-  raw response never reaches the configured capture hook and a decoding
-  error withholds its cause.
-- Withhold server error messages. The current `WithholdMessage` option
-  leaves the server's `Code` intact; therefore it is insufficient alone.
-- Before returning a VPN `APIError`, replace server-derived `Message` and
-  `Code` with fixed operation text and `core.ResolvedCode(status, "")`.
-  Preserve operation, status, retryability, and safe shared sentinels. Do
-  not retain the original error through `Unwrap` or an extra field.
-- Apply the same rule to failures inside HTTP 200 envelopes. Never expose
-  an unchecked envelope message or code.
-- Decode only approved metadata into exported models. Omit secret fields
-  entirely, including `vngcloud.Secret` fields and reveal operations.
-- Test fabricated secrets in success, error, nested, unknown, and malformed
-  fields. Inspect formatted errors, error fields, capture callbacks, logs,
-  and all CLI output modes.
+`VPNTunnel` exposes `siteUuid`, `tunnelName`, `remoteNetworkCidr`, `uuid`,
+`status`, `createdAt`, and `phase2Configs` as `[]VPNPhase2Config`.
+`VPNPhase2Config` exposes `phase2Algorithm`, `phase2Hash`, `phase2DhGroup`,
+and `phase2IkeLifeTime`, all strings.
 
-Secret-safe errors trade service-provided diagnostics for predictable
-metadata reads. VPN documentation must state that server message bodies and
-codes are withheld. NAT and unrelated services keep their current behavior.
+VPN omits `preShareKey` entirely, including from private wire models.
+It also omits null-only outer `phase1IkeLifeTime`, `phase2IkeLifeTime`,
+`phase2DhGroup`, `phase1Status`, and `phase2Status`. Omit all other
+null-only fields and `elasticIps`. The null phase statuses do not justify
+inventing a phase-health field. Lifetime strings in configuration arrays
+must not be converted to numbers.
 
-### CLI
+## Routing and pagination
 
-Register each operation through `Read` in the network operation table. The
-CLI imports only public SDK packages and derives flags from Input structs.
-The new commands work with read-only profiles and the existing project,
-region, output, query, and debug settings. No new credential file
-or setup flow is needed.
+Support HCM (`hcm-3`) and HAN (`han-1`) through their verified regional
+vNetwork origins in the API evidence. Reuse `core.Client`,
+`transport.Request`, and route construction. NAT needs zone and project
+path segments; VPN needs only project. VPN must not perform zone discovery.
 
-Generate `CLI-Network.md` from the operation table. Add SDK pages
-`Network-NAT.md` and `Network-VPN.md`, linked from `Network.md`. Describe
-verified region support and pagination limits, and make the distinction
-between inventory and operational tunnel health explicit.
+Use the selected project through the existing project mechanism. Prove the
+project namespace against these routes before release. Do not borrow an
+account-wide project or silently select another region. For NAT, use an
+explicit validated ZoneID or resolve a unique verified region-to-zone
+mapping. Return discovery errors; return `ErrInvalidConfig` for no unique
+match. Never substitute a region label for a zone UUID.
 
-## Discovery
+Keep `Endpoints.VNetwork` overrides authoritative for discovery and
+resource requests. No production fallback may replace an override or
+receive its test token. Add a narrow helper for these new operations if
+the existing endpoint helper cannot meet that contract. Shared-helper
+changes require regression tests for existing endpoint reads.
 
-The manager captures only requests made by list and detail views on the
-authorized console. Return sanitized schemas and counts, never live values.
-Public frontend source can establish request construction. A published
-typed response declaration can establish modeled field types when its
-operation mapping is verified; incidental field reads cannot. Neither
-source proves successful IAM authorization. Keep evidence for request
-construction, response schemas, and authorization separate.
+For production, allow only the verified HCM and HAN HTTPS origins. A
+region response cannot supply an arbitrary credential destination. Keep
+TLS verification and cross-host redirect refusal. Explicit test overrides
+retain their current local-test behavior. Do not probe another region or
+host after an authorization failure.
 
-For each proposed operation, record:
+Each SDK call requests one page. Encode the `params` object with
+`encoding/json`, then encode the query with `url.Values`. NAT sends empty
+`search` and `sort`; VPN sends the verified empty `any` search and empty
+`sort`. The API evidence contains exact query shapes. Do not expose search
+or sort flags in these releases.
 
-1. HTTP method, gateway origin, path template, API version, project and
-   zone placement, query encoding, and accepted success status.
-2. Auth mode and required header names. Never record tokens or cookies.
-3. Sanitized raw success body with a nonempty record, or a published typed
-   schema that independently establishes every modeled field. An empty
-   list proves its envelope only.
-4. Pagination and filter evidence. Exercise two small pages when existing
-   records allow it; record when they do not.
-5. Safe error outcomes and envelope shapes. A synthetic missing ID may be
-   used only after the exact read route is established. Do not induce load
-   to obtain a 429 or deliberately invalidate account credentials.
-6. For VPN, the relationship between connection, site, and tunnel, whether
-   children are embedded, and a list of excluded secret field paths.
-7. Region and project behavior with an explicit zone and discovery, plus
-   endpoint override behavior in deterministic tests.
+Default to page 1 and size 10, the values accepted by both lists. Positive
+Page and Size values are sent as supplied; no verified server cap exists.
+Do not claim live multi-page verification or silently auto-page. Map `page`,
+`size`, `totalPage`, and `total` to `Page`, `PageSize`, `TotalPage`, and
+`TotalItem`. Preserve server totals rather than deriving them from one page.
 
-NAT list, VPN list, and the regions request have successful console-read
-evidence in [API evidence](network-services-api.md). Further probes close
-only the listed gaps. Detail probes use an existing resource ID from a
-list. Do not create a NAT, VPN, site, tunnel, or bandwidth package to fill a
-fixture gap. A missing nonempty schema keeps that method unimplemented.
+## Envelopes and errors
 
-Keep account captures under the ignored example output paths required by
-[live-data rules](../../instructions/live-data.md). VPN discovery must
-sanitize secrets before persisting response bodies. A VPN fixture preserves
-the raw envelope and metadata structure with sensitive values replaced;
-it is not a serialization of the SDK model. Retain no original secret-bearing
-capture. The ordinary example's raw capture remains suppressed for VPN.
+A successful list requires HTTP 200, boolean `success: true`, positive
+integer `page` and `size`, nonnegative integer `totalPage` and `total`,
+and an array `data`. Require a nonempty string `uuid` on each row. Wrong
+types, HTML, invalid JSON, missing required metadata, or an invalid row ID
+return `InvalidResponse`, not an empty inventory.
 
-## Verification and ownership
+NAT and VPN have verified empty envelopes without `data`. Accept omission
+only when success is explicitly true, both totals are explicitly zero,
+and positive page metadata is present. Return an empty `Items` slice with
+that metadata. Use presence-aware decoding; zero values cannot distinguish
+missing totals from explicit zero. Reject `data: null`, whose empty-list
+meaning is unverified. Apply no global missing-data rule to other lists.
+
+NAT uses existing `APIError` and sentinel behavior. Test 401, 403, 404, 429,
+and server failures as shared transport behavior, not a documented endpoint
+error inventory. A false success envelope is a failure. Preserve context
+cancellation and the shared GET retry policy.
+
+### VPN secrets and errors
+
+VPN list responses contain plaintext `vpnSites[].preShareKey`. Every VPN
+resource request is Sensitive even though its public model excludes keys.
+Never capture, log, model, or return the key, or add a reveal operation.
+
+- Set `transport.Request.Sensitive` on every VPN request. Raw success
+  bodies must not reach capture hooks; decode errors withhold their cause.
+- Withhold server error messages and codes. `WithholdMessage` alone leaves
+  the server's Code intact and cannot enforce this boundary.
+- Return a fresh `APIError` with fixed operation text and
+  `core.ResolvedCode(status, "")`. Preserve operation, status, retryability,
+  and safe shared sentinels. Never retain the original response-bearing
+  error in an extra field or unwrap chain.
+- Withhold message and code fields in HTTP 200 failure envelopes as well.
+  Use fixed `InvalidResponse` for invalid success bodies.
+- Decode only the field allowlists. Drop `portalUserId`, all secret fields,
+  and unknown fields. Do not use `vngcloud.Secret` as a substitute for
+  omitting a credential field.
+- Test invented secrets in success, nested, unknown, error, and malformed
+  fields. Inspect error fields, causes, formatted errors, capture callbacks,
+  debug logs, and all CLI output modes.
+
+VPN documentation states that server messages and codes are withheld.
+NAT and unrelated services keep their current error behavior.
+
+## CLI and compatibility
+
+Register both operations through `Read` in the network operation table.
+The CLI uses only public SDK methods and derives flags from Input structs.
+Both commands support read-only profiles and existing project, region,
+output, query, and debug settings. No credential or setup changes are needed.
+
+Generate `CLI-Network.md` from the table. Add `Network-NAT.md` and
+`Network-VPN.md`, linked from `Network.md`. Describe HCM and HAN routing,
+pagination evidence limits, omitted fields, and the distinction between
+provisioning state and working VPN connectivity. New types and operations
+are additive; existing callers and endpoint operations retain behavior.
+
+## Fixtures and verification
+
+NAT fixtures may use fully synthetic responses matching the observed wire
+schema. VPN fixtures must be fully synthetic, assembled from field names
+and types with invented values. Never copy or sanitize a live VPN body into
+a fixture. Include synthetic excluded fields and secret canaries to test
+the boundary. Do not serialize SDK output to construct a wire fixture.
+
+The ordinary example's VPN raw capture stays suppressed. Live VPN checks
+report only safe metadata, counts, and field presence; they never persist
+the raw response or key. Existing redacted discovery files establish schema
+only and do not become fixture sources. No paid resource is needed to
+establish the list model again.
 
 SDK work owns new `network/nat.go`, `network/nat_types.go`,
 `network/nat_test.go`, `network/vpn.go`, `network/vpn_types.go`, and
-`network/vpn_test.go`, plus a small shared routing helper if needed. SDK
-work also owns fixtures under `testdata/network/`, example calls in
-`examples/basic/network.go` or split network example files, live read
-assertions, and the SDK wiki pages. Keep related models out of the already
-large shared `network/models.go`.
+`network/vpn_test.go`. It also owns a narrow routing helper if needed,
+`testdata/network/` fixtures, dedicated example calls, live read assertions,
+and SDK wiki pages. Keep these models out of shared `network/models.go`.
 
-CLI work owns `internal/cli/svc_network.go`, new NAT and VPN command tests,
-any required generated-doc notes, CLI golden files, and `CLI-Network.md`.
-SDK signatures must settle before CLI integration starts. The manager owns
-documentation index changes, release notes, Git, and release checks.
+CLI work owns registration in `internal/cli/svc_network.go`, command tests,
+golden files, and `CLI-Network.md`. SDK signatures settle before CLI
+integration. The manager owns indexes, release notes, Git, and releases.
 
-The SDK implementer writes fixture and request tests first. Verify exact
-path, headers, query encoding, nil inputs, required IDs, cancellation,
-pagination, safe errors, region resolution, and endpoint override isolation.
-Reject path traversal IDs before project discovery or HTTP calls. Exercise
-empty lists, nulls permitted by the real contract, malformed bodies, and
-nonempty fixtures with every approved field asserted.
+Write fixture and request tests first. Check paths, headers, query encoding,
+nil inputs, invalid IDs before discovery, pagination, errors, cancellation,
+region resolution, and endpoint overrides. Assert every allowed nested
+field and nullable field. Cover provisioning, ACTIVE, ERROR, future status
+strings, omitted data, null data, malformed envelopes, and omitted secrets.
 
-CLI tests verify flags, JSON input precedence, read-only acceptance, query
-results, JSON/table/text output, and no secret leakage under `--debug`.
-Tests use `httptest` and synthetic data. Both implementers run `make check`.
-An independent review covers the final diff; VPN error and capture paths
-receive adversarial review because they handle credential-bearing responses.
+CLI tests cover flags, JSON input precedence, read-only acceptance, query,
+JSON/table/text output, and no secret leakage under `--debug`. Use
+`httptest` and synthetic data only. Run `make check` for implementation.
+VPN error and capture paths require independent adversarial inspection.
 
-Live verification is read-only. Compare NAT raw and decoded output locally.
-For VPN, compare an explicitly sanitized raw shape with decoded metadata
-through the approved discovery path; do not turn raw capture back on.
-Report resource counts and checks performed, with no account values. Empty
-inventory is a successful list check, not proof of detail or child models.
-Run `make check` before commits and require green CI on each tagged commit.
+Before release, verify SDK login-provider reads, IAM-denial behavior,
+selected-project mapping, and NAT region-to-zone mapping. Verify both
+supported regional origins and cookie-free HAN authorization. These are
+execution checks, not evidence gaps in the populated row schemas. A safe
+empty SDK result can verify routing without proving detail reads.
 
-## Release order and later writes
+Multi-page behavior remains unverified until existing inventory permits
+it. Do not buy resources for a page test. Record that limit in the wiki and
+use deterministic tests for request and metadata handling.
 
-1. NAT list and any independently verified detail read, with SDK and CLI.
-2. VPN list and any independently verified safe detail read, with SDK and
-   CLI. This release does not wait for NAT child reads.
-3. NAT rule reads when a separate endpoint or embedded schema is proven.
-4. VPN site and tunnel reads when their routes and secret handling are
-   proven. Split sites and tunnels if their evidence arrives separately.
-5. Audit new-console endpoint, peering, and Cross Connect parity against
-   existing methods, then design each actual gap separately.
+## Release order and owner decisions
 
-Each item is an independently releasable feature. Do not choose tag numbers
-until the manager integrates the release. A blocked read contract does not
-block another verified read feature.
+1. NAT list, including nested package and VPC metadata, with SDK and CLI.
+2. VPN list with inline sites, tunnels, and safe phase configuration, with
+   SDK and CLI.
+3. Detail or NAT rule reads only after their routes and schemas are proven.
+4. Audit endpoint, peering, and Cross Connect parity separately.
 
-Paid NAT or VPN creation, bandwidth changes, and orders need separate
-designs for quotes, cost bounds, retry safety, cleanup, and per-run owner
-approval. NAT rules and VPN site or tunnel changes also need a separate
-write design and adversarial review, even if a later price check finds them
-free. Those operations can redirect traffic or change exposure. Use
-[ADR 0002](../adr/0002-write-api-conventions.md) for their public contracts.
+The owner must approve this draft's list surface, field allowlists, and
+release order before implementation. No child-route decision blocks VPN
+inventory. No further public-model decision is open for these two lists;
+unverified null-only fields stay excluded under the stated rule.
 
-[nat-create]: https://docs.vngcloud.vn/vng-cloud-document/vnetwork/public-nat-instance/create-nat
-[nat-rules]: https://docs.greennode.ai/vnetwork/public-nat-instance/add-remove-nat-port
-[vpn-create]: https://docs.greennode.ai/vnetwork/vpn-virtual-private-network-site-to-site/create-vpn-site-to-site
-[vpn-overview]: https://docs.greennode.ai/vnetwork/vpn-virtual-private-network-site-to-site
-[api-index]: https://docs.api.greennode.ai/
-[vserver-api]: https://docs.api.greennode.ai/service-docs/vserver.html
+Writes require separate designs for cost bounds, retry safety, cleanup,
+and per-run paid-operation approval. NAT creation changes VPC routing;
+VPN writes change connectivity and exposure. Observed refunds do not imply
+safe retry or guaranteed refunds. Follow
+[ADR 0002](../adr/0002-write-api-conventions.md) for future write contracts.

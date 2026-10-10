@@ -1,6 +1,6 @@
 # Database inventory
 
-Status: Draft (2026-10-10).
+Status: Draft (2026-10-11), pending owner approval.
 
 Add read-only vDB inventory to the SDK and CLI, one engine family per
 release. Start with Kafka, whose published list contract has no pagination.
@@ -25,6 +25,24 @@ Exclude creation, purchases, resize, restart, deletion, backups, restore,
 renewal, access changes, credential resets, password reveals, certificate
 downloads, users, topics, query execution, and database data-plane access.
 Do not add generic HTTP commands or expose raw response objects.
+
+## Availability and evidence limits
+
+The 2026-10-11 root-console forms add
+[price and availability evidence][availability]
+for HCM Redis, Kafka, PostgreSQL, and HAN Redis Cluster Mode. No populated
+vDB record was captured. All four families remain blocked on populated
+list evidence; form fields and prices cannot validate resource models.
+
+HAN offers no single-node Redis package. HCM PostgreSQL displays the same
+total for single node and the 2-node cluster, so the quoted configuration
+remains uncertain. Do not use these observations to add pricing fields or
+purchase commands to the inventory surface.
+
+HCM forms filter VPC choices to those the vDB service accepts. A VPC with
+a stuck network ACL was absent. The observed account's VPC quota is 2 per
+region. Neither fact defines a universal eligibility or quota rule, and
+neither authorizes paid creation to obtain evidence.
 
 ## Public surface
 
@@ -108,7 +126,8 @@ Do not parse token claims or choose the first project silently.
 The observed Kafka, relational, and MemoryStore list requests contain no
 project or region selector. That proves their request shape, not the full
 scope of returned resources. OpenSearch embeds a project ID. The probes
-cover only the HCM/current-region session; cross-region behavior and
+cover only the HCM/current-region session. HAN form availability proves
+neither list scope nor authorization; cross-region behavior and
 completeness remain unverified. Do not invent regional paths or claim that
 the global `--region` or `--project-id` filters an unscoped list.
 
@@ -158,7 +177,7 @@ Ordinary capture remains disabled for vDB. The manager may save a private
 discovery response under ignored `examples/basic/output/raw/database/`
 with the original body under `body`, following the live-data rules. The
 sanitizer reads that file locally, replaces sensitive values, and writes a
-fixture for review. No live content enters chat, CI, or Git.
+fixture for inspection. No live content enters chat, CI, or Git.
 
 Replace IDs, names, project and account fields, addresses, hostnames, URLs,
 and secret values. Keep unknown and omitted fields in sanitized fixtures
@@ -179,18 +198,17 @@ logging it. Check each family separately and record which operations have
 live data.
 
 An empty list can validate an endpoint and envelope but cannot validate
-populated resource fields or a Get. The owner may accept published schema
-evidence for resource fields only. That acceptance cannot waive verification
-of an exact route, bearer-only IAM replay without cookies, success envelope,
-ID mapping, scope, or safe error handling. The wiki must say which resource
-fields lack live evidence. A 401, 403, HTML response, or unknown scope does
-not satisfy even the empty-list gate.
+populated resource fields or a Get. Published schemas remain proposals;
+all four families need populated list evidence before implementation.
+Verify each exact route, bearer-only IAM replay without cookies, success
+envelope, ID mapping, scope, and safe error handling. A 401, 403, HTML
+response, or unknown scope does not satisfy even the empty-list gate.
 
 Hold each Get until its exact console route, bearer-only IAM auth, success
 envelope, list-to-detail ID mapping, and safe error behavior are verified.
-Its resource fields need live evidence or the explicit field-only acceptance
-above. A source-backed suffix combined with a verified list prefix does not
-verify a detail route. Release each Get separately after those gates pass.
+Its resource fields also need populated live evidence. A source-backed
+suffix combined with a verified list prefix does not verify a detail route.
+Release each Get separately after those gates pass.
 
 ## Test matrix
 
@@ -217,7 +235,7 @@ behavior. No unit test calls a real API.
 
 Run `make check` for each implementation and before every commit. Update
 the matching SDK wiki page and generated CLI reference in the same release.
-An independent review checks the service contract and the response-secret
+An independent inspection checks the service contract and the response-secret
 boundary. The exact release commit needs green GitHub CI.
 
 ## Ownership and release order
@@ -228,7 +246,7 @@ At most three workers run at once, with disjoint files.
 
 The SDK worker owns `database/`, `testdata/database/`, the matching SDK wiki
 page, and dedicated database example and live-test files. The first SDK
-brief also owns the needed endpoint, route, and core endpoint-dispatch
+worker also owns the needed endpoint, route, and core endpoint-dispatch
 edits. No root re-export is needed for service models.
 
 The CLI worker owns `internal/cli/svc_database*.go`, its tests, and
@@ -264,7 +282,9 @@ write operations.
 IAM console list routes, bearer-only auth, and empty envelopes are verified.
 Populated resource fields and every Get remain source-backed proposals.
 Paging semantics and scope beyond the HCM/current-region session still need
-evidence as detailed in the API companion. The design remains a draft;
-implementation has not started. The owner must approve the design and any
-source-only resource-field exception before code starts. Such an exception
-never waives the detail route, auth, envelope, ID, or error gates.
+evidence as detailed in the API companion. HAN form availability does not
+close those gates. The owner must approve this draft's public surface and
+release order before code starts. All four families remain blocked on
+populated evidence; no source-only field exception is proposed.
+
+[availability]: database-services-api.md#console-availability-and-prices
