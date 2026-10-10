@@ -228,6 +228,20 @@ Kind: Read.
 vngcloud storage list-buckets --project-id <project-id>
 ```
 
+## list-project-types
+
+Kind: Read.
+
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Buying a project is not available yet. Shows each type's monthly price at the region's minimum quota, plus the minimum and maximum quota in GB.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+
+```sh
+vngcloud storage list-project-types
+```
+
 ## list-projects
 
 Kind: Read.
@@ -318,5 +332,24 @@ Kind: Write.
 
 ```sh
 vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true
+```
+
+## quote-create-project
+
+Kind: Read.
+
+`Region` is a vStorage region name such as `HCM04`, set only through `--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`. Prices are VND per month for one month. Buying a project is not available yet. `quote-create-project --type Gold --quota-gb 30` prices a package without ordering. The quota must be within the region's limits. The type is the catalog `Name`, such as `Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase and are ignored in JSON input. Example: `vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `Name` (via `--cli-input-json` only) | `string` |  |
+| `--type` | `string` | yes |
+| `--quota-gb` | `int64` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud storage quote-create-project --type <type> --quota-gb <quota-gb>
 ```
 

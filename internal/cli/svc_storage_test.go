@@ -49,15 +49,17 @@ func TestGoldenStorageGetBucket(t *testing.T) {
 
 func TestStorageCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
-		"list-regions":  {},
-		"list-projects": {},
-		"list-buckets":  {},
-		"get-bucket":    {"bucket"},
-		"create-bucket": {"bucket"},
-		"delete-bucket": {"bucket", "no-wait"},
-		"list-s3-keys":  {},
-		"create-s3-key": {"secret-file", "service-account-id"},
-		"delete-s3-key": {"user-key-id"},
+		"list-project-types":   {},
+		"quote-create-project": {"type", "quota-gb"},
+		"list-regions":         {},
+		"list-projects":        {},
+		"list-buckets":         {},
+		"get-bucket":           {"bucket"},
+		"create-bucket":        {"bucket"},
+		"delete-bucket":        {"bucket", "no-wait"},
+		"list-s3-keys":         {},
+		"create-s3-key":        {"secret-file", "service-account-id"},
+		"delete-s3-key":        {"user-key-id"},
 
 		"attach-s3-key":                    {"user-key-id", "service-account-id"},
 		"detach-s3-key":                    {"user-key-id"},

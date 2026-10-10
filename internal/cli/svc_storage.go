@@ -16,6 +16,11 @@ var storageOps = []Op[storage.Client]{
 		kebab("ListRegions"), (*storage.Client).ListRegions),
 	Read[storage.Client, storage.ListProjectsInput, storage.ListProjectsOutput](
 		kebab("ListProjects"), (*storage.Client).ListProjects, NoFlag("Region")),
+	Read[storage.Client, storage.ListProjectTypesInput, storage.ListProjectTypesOutput](
+		kebab("ListProjectTypes"), (*storage.Client).ListProjectTypes, NoFlag("Region")),
+	Read[storage.Client, storage.CreateProjectInput, storage.QuoteCreateProjectOutput](
+		kebab("QuoteCreateProject"), (*storage.Client).QuoteCreateProject,
+		NoFlag("Region", "Name", "MaxPrice", "NoWait"), Optional("Name")),
 	Read[storage.Client, storage.ListBucketsInput, storage.ListBucketsOutput](
 		kebab("ListBuckets"), (*storage.Client).ListBuckets, NoFlag("Region"), GlobalProjectID("ProjectID")),
 	Read[storage.Client, storage.GetBucketInput, storage.GetBucketOutput](

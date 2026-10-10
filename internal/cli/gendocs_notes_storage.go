@@ -10,6 +10,19 @@ const storageListProjectsNote = storageRegionNote + " A vStorage project is a pa
 	"list is empty until one is bought in the console. Its `ID` is the value for `--project-id` in the " +
 	"bucket commands."
 
+const storageProjectPricingNote = storageRegionNote + " Prices are VND per month for one month. " +
+	"Buying a project is not available yet."
+
+const storageListProjectTypesNote = storageProjectPricingNote + " Shows each type's monthly price " +
+	"at the region's minimum quota, plus the minimum and maximum quota in GB."
+
+const storageQuoteCreateProjectNote = storageProjectPricingNote + " " +
+	"`quote-create-project --type Gold --quota-gb 30` prices a package without ordering. " +
+	"The quota must be within the region's limits. The type is the catalog `Name`, such as " +
+	"`Gold` or `Instant-Archive-2`. `Name`, `MaxPrice`, and `NoWait` apply only to purchase " +
+	"and are ignored in JSON input. Example: " +
+	"`vngcloud storage quote-create-project --region hcm-3 --type Gold --quota-gb 30`."
+
 const storageProjectIDNote = "`--project-id` is the global flag and takes a vStorage project ID from " +
 	"list-projects, not the account's vServer project: the environment variable and the profile " +
 	"setting do not fill it, and the command exits 2 without the flag. "
@@ -164,6 +177,8 @@ const storageDeleteBucketCORSNote = storageProjectIDNote + storageRegionNote + "
 var docOpNotesStorage = map[string]string{
 	"storage list-regions":                     storageListRegionsNote,
 	"storage list-projects":                    storageListProjectsNote,
+	"storage list-project-types":               storageListProjectTypesNote,
+	"storage quote-create-project":             storageQuoteCreateProjectNote,
 	"storage list-buckets":                     storageListBucketsNote,
 	"storage get-bucket":                       storageGetBucketNote,
 	"storage create-bucket":                    storageCreateBucketNote,
