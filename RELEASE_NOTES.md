@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.63.0 - Backup Center Backends and Policies
+
+### Highlights
+
+- New `backup` package and CLI group: `backup list-backends` and `backup
+  list-policies` read Backup Center in `hcm-3`. Other regions are refused
+  before login.
+- `list-policies` reads one page, page 1 and size 200 by default. Policies
+  carry the daily schedule and the enable flag of every cadence; hourly,
+  weekly, and monthly details are not included.
+- `--project-id` does not scope these reads. Backup Center is separate from
+  the `volume` snapshot policies, and its backend IDs are its own.
+- Verified live on 2026-10-10 in `hcm-3` through the SDK login.
+
 ## v0.62.0 - Snapshot Policies
 
 ### Highlights
