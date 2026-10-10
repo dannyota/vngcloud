@@ -1,6 +1,9 @@
 package transport
 
-import "errors"
+import (
+	"bytes"
+	"errors"
+)
 
 // errAPIKeyWithSkipAuth is the programming error for a request that asks for
 // no credential and an API key at once. It never holds the key.
@@ -34,13 +37,21 @@ func (r Request) redactValues() []string {
 
 // redactBody copies the body and scrubs credentials and explicit secrets.
 func (r Request) redactBody(body []byte) []byte {
-	if len(r.redactValues()) == 0 {
+	values := r.redactValues()
+	hasSecret := false
+	for _, value := range values {
+		hasSecret = hasSecret || value != ""
+	}
+	if !hasSecret {
 		return append([]byte(nil), body...)
 	}
-	if cleaned, ok := redactJSONCapture(body, r.redactValues()); ok {
+	if cleaned, ok := redactJSONCapture(body, values); ok {
 		return cleaned
 	}
-	return []byte(redact(string(body), r.redactValues()))
+	if bytes.Contains(body, []byte(`\u`)) {
+		return []byte(redactedText)
+	}
+	return []byte(redact(string(body), values))
 }
 
 // RedactValues returns s with every occurrence of each secret in values

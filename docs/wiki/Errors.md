@@ -15,8 +15,10 @@ type APIError struct {
 }
 ```
 
-`Code` is the API's own error code when the response carries one. When it
-does not, including a null code or one that is just the HTTP status repeated,
+`Code` accepts only JSON strings and numbers. Other code types use the
+status-derived fallback. `Code` is the API's own error code when the response
+carries one. When it does not, including a null code or one that is just the
+HTTP status repeated,
 `Code` falls back to a status-derived value, so it is never empty for a
 4xx or 5xx response:
 
@@ -39,7 +41,9 @@ entry gives `Code` and the messages of all object entries are joined with
 status text as `Message` and the status-derived `Code`. No other body field
 reaches the error. Echoed access tokens and vCDN API keys are replaced with
 `[redacted]` in `Code` and `Message`, including errors carried in HTTP 2xx
-envelopes. Redirect refusal messages also redact credentials in host names.
+envelopes. Envelope errors redact the final sent credential even when another
+request refreshes the shared token. Redirect refusal messages redact raw host
+names before quoting them.
 
 `Err` wraps a sentinel matching the failure, so `errors.Is` works without
 inspecting `Code` or `StatusCode` directly:
@@ -124,8 +128,8 @@ if errors.As(err, &loginErr) {
 the SDK; without it, nothing is logged. With it, at Debug level:
 
 - Every HTTP attempt logs one `request` record with `method`, `path` (the
-  URL path, with no query string), `status` (omitted when no response was
-  received), and `duration`.
+  URL path, with no query string and with credentials and explicit secrets
+  redacted), `status` (omitted when no response was received), and `duration`.
 - An IAM User login logs `login started` before the attempt and
   `login finished` with `ok` (`true` or `false`) after. Login's own HTTP
   requests are not logged as `request` records.

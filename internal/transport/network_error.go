@@ -41,8 +41,13 @@ func sanitizeNetworkError(err error, values []string) error {
 			sentinels = append(sentinels, fixed)
 		}
 	}
+	message := NetworkFailureCause(err)
+	var redirect *redirectError
+	if errors.As(err, &redirect) {
+		message = redirect.redactedText(values)
+	}
 	return &safeNetworkError{
-		message: redact(NetworkFailureCause(err), values),
+		message: redact(message, values),
 		timeout: errors.Is(err, context.DeadlineExceeded) || hasTimeout(err),
 		cause:   errors.Join(sentinels...),
 	}

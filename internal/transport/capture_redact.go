@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-// redactJSONCapture preserves the raw body unless a decoded string or key
+// redactJSONCapture preserves the raw body unless a decoded string, key, or number
 // needs redaction. UseNumber keeps numeric text intact when JSON is rebuilt.
 func redactJSONCapture(body []byte, values []string) ([]byte, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -31,8 +31,11 @@ func redactJSONCapture(body []byte, values []string) ([]byte, bool) {
 		if err != nil {
 			return nil, false
 		}
-		if text, ok := token.(string); ok && redact(text, values) != text {
-			matched = true
+		switch text := token.(type) {
+		case string:
+			matched = matched || redact(text, values) != text
+		case json.Number:
+			matched = matched || redact(text.String(), values) != text.String()
 		}
 	}
 	cleaned, changed := redactJSONValue(value, values)
@@ -51,6 +54,12 @@ func redactJSONValue(value any, values []string) (any, bool) {
 	case string:
 		cleaned := redact(v, values)
 		return cleaned, cleaned != v
+	case json.Number:
+		text := v.String()
+		if cleaned := redact(text, values); cleaned != text {
+			return cleaned, true
+		}
+		return v, false
 	case []any:
 		changed := false
 		for i, item := range v {

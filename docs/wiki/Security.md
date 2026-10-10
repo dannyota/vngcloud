@@ -19,11 +19,14 @@ turned off.
 
 - Errors and logs never include passwords, TOTP secrets, tokens, cookies, or
   the root email. `--debug` logs only each request's method, path, status,
-  and timing.
+  and timing. Logged paths redact the sent credential and explicit secrets.
 - Errors and captured response bodies replace echoed access tokens and vCDN
   API keys with `[redacted]`. Each attempt uses the credential sent on that
-  attempt for redaction. JSON captures check decoded strings and object keys,
-  including Unicode escapes. Captures with no match keep the exact body.
+  attempt for redaction, including HTTP 2xx error envelopes after a concurrent
+  token refresh. JSON captures check decoded strings, object keys, and number
+  text, including Unicode escapes. Captures with no match keep the exact body.
+  An invalid JSON body containing `\u` escapes is withheld when secrets need
+  redaction.
 - A credentials file that group or others can read is refused.
 - Credentials files are written with mode 0600, and the token cache with mode
   0600 files in a 0700 directory.

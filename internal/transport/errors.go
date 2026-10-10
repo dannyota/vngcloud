@@ -102,18 +102,8 @@ func unwrapEntries(raw json.RawMessage) errorBody {
 // value gives "", a JSON string gives its value, and a JSON number is
 // already decimal text, so it is returned as is.
 func codeString(raw json.RawMessage) string {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return ""
-	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(trimmed, &s); err == nil {
-			return s
-		}
-		return ""
-	}
-	return string(trimmed)
+	code, _ := ParseErrorCode(raw)
+	return code
 }
 
 func decodeError(req Request, status int, body []byte) error {

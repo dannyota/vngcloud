@@ -85,7 +85,12 @@ func envelopeSuccess(code string) bool {
 // otherwise decodes Data into out.
 func (c *Client) finishEnvelope(req transport.Request, status int, env envelope, out any) error {
 	code := envelopeCode(env.Code)
-	if !envelopeSuccess(code) {
+	_, validCode := transport.ParseErrorCode(env.Code)
+	unsupportedCode := len(bytes.TrimSpace(env.Code)) > 0 && !isJSONNull(env.Code) && !validCode
+	if unsupportedCode {
+		code = core.ResolvedCode(status, "")
+	}
+	if !envelopeSuccess(code) || unsupportedCode {
 		err := mapNotFound(&core.APIError{
 			Operation:  req.Operation,
 			StatusCode: status,
@@ -114,7 +119,10 @@ func (c *Client) finishEnvelope(req transport.Request, status int, env envelope,
 // unenveloped body means the response does not match what the caller asked
 // for.
 func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, error) {
+	var credential string
+	req.SentCredential = &credential
 	raw, status, err := c.doRaw(ctx, req)
+	req.Redact = append(append([]string(nil), req.Redact...), credential)
 	if err != nil {
 		return status, mapNotFound(err)
 	}
@@ -141,7 +149,10 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, e
 // endpoint is enveloped today but was not always, and this is a defense
 // against it reverting; no other operation gets this fallback.
 func (c *Client) doBalances(ctx context.Context, req transport.Request, out any) error {
+	var credential string
+	req.SentCredential = &credential
 	raw, status, err := c.doRaw(ctx, req)
+	req.Redact = append(append([]string(nil), req.Redact...), credential)
 	if err != nil {
 		return mapNotFound(err)
 	}
@@ -168,18 +179,8 @@ func (c *Client) doBalances(ctx context.Context, req transport.Request, out any)
 // or null code gives "", a JSON string gives its value, and a JSON number is
 // already decimal text.
 func envelopeCode(raw json.RawMessage) string {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return ""
-	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(trimmed, &s); err == nil {
-			return s
-		}
-		return ""
-	}
-	return string(trimmed)
+	code, _ := transport.ParseErrorCode(raw)
+	return code
 }
 
 func isJSONNull(raw json.RawMessage) bool {

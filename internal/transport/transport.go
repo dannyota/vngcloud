@@ -160,6 +160,10 @@ type Request struct {
 	// APIKey, when set, is sent as the bearer credential in place of the
 	// IAM token; see apikey.go.
 	APIKey string
+
+	// SentCredential receives the final attempt's credential for envelope
+	// redaction. The pointer belongs to one call and must not be shared.
+	SentCredential *string
 }
 
 // idempotent reports whether req may be retried after an ambiguous failure.
@@ -204,7 +208,16 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 		req.OK = []int{http.StatusOK}
 	}
 
+	if req.SentCredential != nil {
+		*req.SentCredential = ""
+	}
 	statusCode, _, body, credential, err := c.doAuthenticated(ctx, req, c.httpClient)
+	if req.SentCredential != nil {
+		*req.SentCredential = credential
+		if req.APIKey != "" {
+			*req.SentCredential = req.APIKey
+		}
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -420,7 +433,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		resp, err := sendClient.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
-			c.logRequest(ctx, httpReq, 0, false, duration)
+			c.logRequest(ctx, httpReq, 0, false, duration, attemptReq.redactValues())
 			lastErr = err
 			if req.Once {
 				// A failed dial never reached the server, so rerunning the
@@ -439,7 +452,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(err, attemptReq.redactValues())}
 		}
-		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration)
+		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration, attemptReq.redactValues())
 
 		respBody, readErr := readBody(resp.Body, req.MaxBody)
 		closeErr := resp.Body.Close()
@@ -526,11 +539,11 @@ func (c *Client) captureResponse(req Request, statusCode int, body []byte) {
 // when hasStatus is false, for an attempt that never got a response), and
 // duration. Nothing else about the attempt, such as its headers, query
 // string, or body, is ever logged. A nil logger logs nothing.
-func (c *Client) logRequest(ctx context.Context, httpReq *http.Request, status int, hasStatus bool, duration time.Duration) {
+func (c *Client) logRequest(ctx context.Context, httpReq *http.Request, status int, hasStatus bool, duration time.Duration, values []string) {
 	if c.logger == nil {
 		return
 	}
-	attrs := []any{"method", httpReq.Method, "path", httpReq.URL.Path}
+	attrs := []any{"method", httpReq.Method, "path", redact(httpReq.URL.Path, values)}
 	if hasStatus {
 		attrs = append(attrs, "status", status)
 	}
@@ -665,9 +678,4 @@ func containsStatus(statuses []int, status int) bool {
 		}
 	}
 	return false
-}
-
-// RedactCurrentToken scrubs the current token without exposing its value.
-func (c *Client) RedactCurrentToken(text string) string {
-	return redact(text, []string{c.currentToken().AccessToken})
 }

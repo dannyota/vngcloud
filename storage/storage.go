@@ -98,8 +98,10 @@ func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope
 // 2xx with an empty or non-JSON body, with no success key, or with success
 // false, is an *APIError.
 func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
+	var credential string
 	req := transport.Request{
-		Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
+		SentCredential: &credential,
+		Operation:      k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
 		Sensitive: k.sensitive, Once: k.once,
 	}
 	if k.regionID != "" {
@@ -128,7 +130,7 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		return nil, c.envelopeError(k.op, status, &env)
+		return nil, c.envelopeError(k.op, status, &env, credential)
 	}
 	return &env, nil
 }
@@ -151,9 +153,12 @@ func emptyResponse(k call, status int) error {
 // envelopeError turns a success:false envelope into an *APIError. A code
 // from 400 to 599 also matches that status's sentinel, and code 112, the
 // server's input check, matches ErrInvalidInput.
-func (c *Client) envelopeError(op string, status int, env *envelope) error {
+func (c *Client) envelopeError(op string, status int, env *envelope, credentials ...string) error {
 	code := codeText(env.Code)
-	message, cleanCode := c.c.RedactError(env.ErrMsg, code)
+	if _, valid := transport.ParseErrorCode(env.Code); !valid {
+		code = core.ResolvedCode(status, "")
+	}
+	message, cleanCode := c.c.RedactError(env.ErrMsg, code, credentials...)
 	apiErr := &core.APIError{Operation: op, StatusCode: status, Code: cleanCode, Message: cut(message, maxEnvelopeMessage)}
 	if n, err := strconv.Atoi(code); err == nil && n == codeInvalidInput {
 		apiErr.Err = core.ErrInvalidInput
@@ -173,15 +178,8 @@ func (c *Client) envelopeError(op string, status int, env *envelope) error {
 }
 
 func codeText(raw json.RawMessage) string {
-	s := strings.TrimSpace(string(raw))
-	if s == "" || s == "null" {
-		return ""
-	}
-	var str string
-	if json.Unmarshal(raw, &str) == nil {
-		return str
-	}
-	return s
+	code, _ := transport.ParseErrorCode(raw)
+	return code
 }
 
 // cut returns s limited to max bytes without splitting a UTF-8 rune.

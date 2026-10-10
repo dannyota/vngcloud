@@ -153,7 +153,11 @@ func (r call) envelopeError(client *core.Client, status int, env envelope, key s
 		}
 	}
 	if code == "" {
-		code = "EnvelopeError"
+		if _, valid := transport.ParseErrorCode(env.Code); valid || len(env.Code) == 0 || strings.TrimSpace(string(env.Code)) == "null" {
+			code = "EnvelopeError"
+		} else {
+			code = core.ResolvedCode(status, "")
+		}
 	}
 	msg := ""
 	if env.Message != nil {
@@ -263,18 +267,8 @@ func sentinelFor(status int) error {
 
 // codeText renders an envelope code, a JSON number or string, as text.
 func codeText(raw json.RawMessage) string {
-	s := strings.TrimSpace(string(raw))
-	if s == "" || s == "null" {
-		return ""
-	}
-	if s[0] == '"' {
-		var text string
-		if json.Unmarshal(raw, &text) != nil {
-			return ""
-		}
-		return text
-	}
-	return s
+	code, _ := transport.ParseErrorCode(raw)
+	return code
 }
 
 // emptyData reports whether data is absent, null, or an empty string.

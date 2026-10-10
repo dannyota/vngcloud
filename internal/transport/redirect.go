@@ -39,6 +39,11 @@ func (e *redirectError) Error() string {
 	return fmt.Sprintf("redirected from %q to %q: cross-host redirect refused", e.from, e.to)
 }
 
+// redactedText scrubs raw hosts before quoting can escape credential characters.
+func (e *redirectError) redactedText(values []string) string {
+	return (&redirectError{from: redact(e.from, values), to: redact(e.to, values)}).Error()
+}
+
 // rawClient clears the jar without changing the configured client's cookies.
 func (c *Client) rawClient() *http.Client {
 	cp := *c.httpClient
