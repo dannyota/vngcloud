@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.56.0 - vCDN API Key, Certificates, and API Key Reads
+
+### Highlights
+
+- New `cdn` package calls on the documented vCDN API: `ListCertificates`,
+  `GetCertificate`, and `ListAPIKeys`, with `vngcloud cdn
+  list-certificates`, `get-certificate`, and `list-api-keys`. The vCDN
+  API key comes from `vngcloud.WithCDNAPIKey`, `VNGCLOUD_VCDN_API_KEY`,
+  or `vcdn_api_key` in the credentials file (`vngcloud configure set
+  vcdn_api_key -` reads it from stdin); it is never a flag and never
+  printed. The key is created once in the vCDN Portal by the root
+  account.
+- The API returns every certificate's private key and every API key's
+  token to any valid key. The SDK marks these reads sensitive, drops the
+  private keys, tokens, and the account email from its models, and the
+  capture hook never sees their responses. `APIKey.Current` marks the key
+  in use.
+- Error handling for the vCDN API: an empty 401 becomes a fixed message,
+  HTTP 200 envelopes with `success: false` become errors with the envelope
+  code, problem+json bodies are read, and any message carrying an email
+  address is replaced.
+- Web Accelerator reads and analytics follow once the live body shape is
+  confirmed on a real CDN: the documented `webacc/*` routes do not exist
+  on the server; the live prefix is `cdn/*`.
+
 ## v0.55.0 - vStorage Bucket Policy, Versioning, and CORS
 
 ### Highlights
