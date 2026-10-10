@@ -434,24 +434,22 @@ func TestCreateHostedZoneCancelDuringFirstSettleRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	gotFirstGet := make(chan struct{})
+	var gets atomic.Int32
 	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			testutil.WriteFixture(t, w, "../testdata/dns/create_hosted_zone.json")
 		case http.MethodGet:
-			close(gotFirstGet)
-			<-ctx.Done() // released by the goroutine below, once it cancels ctx
-			w.WriteHeader(http.StatusNotFound)
+			gets.Add(1)
+			cancel()
+			// Answer nothing until the client drops the connection. Waiting
+			// on the test's ctx instead would let this reply race the
+			// client's own cancel check and sometimes surface as a 404.
+			<-r.Context().Done()
 		default:
 			t.Fatalf("unexpected method %s", r.Method)
 		}
 	})))
-
-	go func() {
-		<-gotFirstGet
-		cancel()
-	}()
 
 	out, err := client.CreateHostedZone(ctx, &CreateHostedZoneInput{
 		DomainName: "example.internal",
@@ -465,6 +463,9 @@ func TestCreateHostedZoneCancelDuringFirstSettleRead(t *testing.T) {
 	}
 	if out == nil || out.HostedZone.ID != "zone-1" {
 		t.Fatalf("out = %+v, want a non-nil Output carrying the zone id from the create response", out)
+	}
+	if n := gets.Load(); n != 1 {
+		t.Fatalf("settle reads = %d, want 1: a canceled read must send no further request", n)
 	}
 }
 
