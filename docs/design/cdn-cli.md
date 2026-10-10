@@ -102,9 +102,10 @@ Unit tests use `httptest`, with fixtures in `testdata/cdn/`:
   empty body (fixed message), a 403 (fixed message), 400, 404, and 405
   problem+json (`detail`, then `title`), a 500, a 200 envelope with
   `success: false` and `code` 500 and each of a null, empty, and text
-  `message`, a text message holding `@` (withheld, no email in the
-  output), a detail read with empty `data` (`ErrNotFound`), and a
-  non-JSON 200.
+  `message`, a text message holding each at sign, `@`, U+FF20, and
+  U+FE6B (withheld, no email in the output), an envelope message and code
+  echoing the key (redacted), a detail read with empty `data`
+  (`ErrNotFound`), and a non-JSON 200.
 - Decode tests for every read, from live shapes sanitized per
   [live data](../../instructions/live-data.md), or from the reference
   examples until a live shape exists. The certificate fixture holds a fake
@@ -220,8 +221,8 @@ if aboutme needs purge sooner.
 
 ## Owner decisions
 
-1 to 27 are approved; 17 is a gate the owner clears in the portal before
-any create. 28 is Recommended and waits for the owner.
+1 to 29 are approved; 17 is a gate the owner clears in the portal before any
+create.
 
 1. Approved: the API key resolves on its own, from `WithCDNAPIKey`,
    `VNGCLOUD_VCDN_API_KEY`, or `vcdn_api_key` in the credentials file, with
@@ -288,6 +289,11 @@ any create. 28 is Recommended and waits for the owner.
 28. Approved: C1 ships the reads that need no CDN, and C1b holds
     the Web Accelerator and analytics reads, so a release never waits on
     an owner-side step it does not need.
+29. Approved: the at-sign rule in decision 24 also matches the
+    fullwidth (U+FF20) and small (U+FE6B) at signs, a cheap superset of
+    the ASCII byte. Other spellings, such as `user at example.com`, are
+    out of scope, since the server's messages seen so far are ASCII. The
+    alternative keeps the ASCII byte only and states that assumption.
 
 ## Open items
 

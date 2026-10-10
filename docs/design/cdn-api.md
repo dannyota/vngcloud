@@ -106,8 +106,10 @@ uses:
 - `LoadConfig` refuses, with `ErrInvalidConfig`, a key that holds
   whitespace or a control character or is longer than 4 KiB. The error
   names the source and never the value.
-- The shared session keeps the key as a `vngcloud.Secret`. `Config` has no
-  getter for it; `cdn.New` reads it through `internal/core`.
+- The shared session keeps the key in a redacting type internal to
+  `internal/core`: `fmt`, JSON, text marshaling, and `slog` all show
+  `[redacted]`. `Config` has no getter for it; `cdn.New` reads it through
+  `internal/core`.
 - A vCDN call with no key returns `cdn.ErrNoAPIKey`, which wraps
   `vngcloud.ErrNoCredentials`, before any request. The CLI exits 3.
   `ListIPRanges` needs no key.
@@ -169,7 +171,9 @@ other service's message unless a body holds `title` and none of
 
 The envelope rule: a 2xx with `success: false` is an `*APIError` with the
 HTTP status, `Code` set to the envelope `code` as text (such as `500`),
-and `Message` set to `message`.
+and `Message` set to `message`. Both are redacted with the request's
+secrets, the API key among them, before they reach the error, as the
+transport does for a non-2xx body.
 
 - Most failures arrive this way, with `code` 500 and `message` null, `""`,
   or text. A null or empty message becomes `vCDN <operation> failed; the
@@ -183,10 +187,12 @@ and `Message` set to `message`.
   gave that answer on both detail routes, and no other cause of it is
   known.
 - Analytics on a domain the account does not own answers `User <email>
-  is not the owner of all the request CDN.` Any message that holds `@`
-  becomes `vCDN <operation> refused: the server message named an account
-  user and was withheld; check that every domain is a CDN of this
-  account`, so no account email reaches an error.
+  is not the owner of all the request CDN.` Any message that holds an
+  at sign (`@`, fullwidth U+FF20, or small U+FE6B) becomes `vCDN
+  <operation> refused: the server message named an account user and was
+  withheld; check that every domain is a CDN of this account`, so no
+  account email reaches an error. Other spellings of an
+  address are out of scope; see [decision 29](cdn-cli.md#owner-decisions).
 
 Every message is cut to 256 bytes with control characters removed.
 
@@ -434,8 +440,8 @@ the token in its body, looks the token up by ID inside the SDK.
   account's whole vCDN access; the wiki says so and advises the shortest
   expiry that works. `allowOriginHeader` limits browsers only, not a
   stolen key used from a script.
-- 401 and 403 messages are fixed text, and any message that holds `@` is
-  withheld, so no account user or email reaches a log.
+- 401 and 403 messages are fixed text, and any message that holds an at
+  sign is withheld, so no account user or email reaches a log.
 - `ListAPIKeys` drops each token and the account email before it returns.
 - Certificate reads and imports are `Sensitive`; the model has no key
   field.
