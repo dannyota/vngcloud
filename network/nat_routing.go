@@ -35,10 +35,7 @@ func (c *Client) natEndpoint() (string, error) {
 
 // NAT discovery never updates the shared endpoint cache or follows a supplied host.
 func (c *Client) natZoneID(ctx context.Context, base string) (string, error) {
-	var resp struct {
-		Success *bool           `json:"success"`
-		Data    json.RawMessage `json:"data"`
-	}
+	var resp natRegionsResponse
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &resp)
 	if err != nil {
 		if status == http.StatusOK {
