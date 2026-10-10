@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 )
 
@@ -164,7 +166,17 @@ func projectResponseError(op, message string) error {
 }
 
 func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projectCatalog, error) {
-	env, err := c.do(ctx, op, c.route([]string{"billing", "project_types"}, nil), id)
+	k := call{
+		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		url: c.route([]string{"billing", "project_types"}, nil),
+		validate: func(raw json.RawMessage) error {
+			if jsonresponse.Validate(raw) != nil {
+				return projectResponseError(op, "malformed catalog data")
+			}
+			return nil
+		},
+	}
+	env, err := c.exchange(ctx, k)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +193,8 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 		}
 		types[i].StoragePolicy = class.StoragePolicy
 	}
-	env, err = c.do(ctx, op, c.route([]string{"billing", "purchase_types"}, nil), id)
+	k.url = c.route([]string{"billing", "purchase_types"}, nil)
+	env, err = c.exchange(ctx, k)
 	if err != nil {
 		return nil, err
 	}

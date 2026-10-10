@@ -234,7 +234,8 @@ outage. A later disable does not cancel a charge already in progress.
 
 ## Read, send once, and confirm
 
-Duplicate JSON keys in any decoded response fail closed.
+Duplicate JSON keys in billing resource, user-info, and PUT replies, the
+vStorage project list, the project catalog, and the price quote fail closed.
 
 1. Refuse read-only CLI profiles before authentication or any request,
    including requests for a no-op. Validate input shape locally.

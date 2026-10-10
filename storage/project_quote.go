@@ -10,6 +10,7 @@ import (
 	"net/url"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -120,6 +121,12 @@ func projectPriceRequest(spec projectPurchaseSpec) projectPriceBody {
 
 func (c *Client) sendProjectQuote(ctx context.Context, op, id string, spec projectPurchaseSpec) (*QuoteCreateProjectOutput, error) {
 	k := call{op: op, method: http.MethodPost, url: c.projectBillingRoute("v2", []string{"price"}, url.Values{"region_id": {id}}), regionID: id, body: projectPriceRequest(spec), ok: []int{http.StatusOK}}
+	k.validate = func(raw json.RawMessage) error {
+		if jsonresponse.Validate(raw) != nil {
+			return projectResponseError(op, "quote response had no valid price")
+		}
+		return nil
+	}
 	env, err := c.exchangeProjectPrice(ctx, k)
 	if err != nil {
 		return nil, err
@@ -151,6 +158,11 @@ func (c *Client) exchangeProjectPrice(ctx context.Context, k call) (*envelope, e
 			return nil, emptyResponse(k, status)
 		}
 		return nil, err
+	}
+	if k.validate != nil {
+		if err := k.validate(raw); err != nil {
+			return nil, err
+		}
 	}
 	var env envelope
 	if json.Unmarshal(raw, &env) != nil || env.Success == nil {
