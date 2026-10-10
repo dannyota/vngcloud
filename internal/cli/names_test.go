@@ -35,6 +35,9 @@ func TestFlagNameForUsesRenameTable(t *testing.T) {
 	if got := flagNameFor("VPCID"); got != "vpc-id" {
 		t.Fatalf("flagNameFor(VPCID) = %q, want vpc-id", got)
 	}
+	if got := flagNameFor("CDNID"); got != "cdn-id" {
+		t.Fatalf("flagNameFor(CDNID) = %q, want cdn-id", got)
+	}
 	if got := flagNameFor("Query"); got != "search" {
 		t.Fatalf("flagNameFor(Query) = %q, want search", got)
 	}

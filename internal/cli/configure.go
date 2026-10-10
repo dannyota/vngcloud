@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -30,6 +31,9 @@ var configureKeys = map[string]configureKey{
 	"username":    {inCredentials: true},
 	"password":    {inCredentials: true, secret: true},
 	"totp_secret": {inCredentials: true, secret: true},
+	// vcdn_api_key is set only from stdin and is not in the interactive
+	// prompt order, so the prompts stay as they were.
+	"vcdn_api_key": {inCredentials: true, secret: true},
 }
 
 // configureKeyOrder is the fixed prompt and listing order for configure and
@@ -38,6 +42,10 @@ var configureKeyOrder = []string{
 	"region", "project_id", "output", "read_only",
 	"root_email", "username", "password", "totp_secret",
 }
+
+// configureListOrder is configureKeyOrder plus the keys that only
+// configure set reads from stdin.
+var configureListOrder = append(append([]string{}, configureKeyOrder...), "vcdn_api_key")
 
 var configureLabels = map[string]string{
 	"region": "Region", "project_id": "Project ID", "output": "Output format",
@@ -48,6 +56,9 @@ var configureLabels = map[string]string{
 // maxConfigureStdinValue caps configure set <key> -'s stdin read, so a
 // mistakenly huge input cannot exhaust memory.
 const maxConfigureStdinValue = 4096
+
+// maxVCDNKeyLen is the longest vCDN API key the SDK accepts.
+const maxVCDNKeyLen = 4096
 
 func fileFor(key string) (envVar, defaultName string) {
 	if configureKeys[key].inCredentials {
@@ -121,7 +132,7 @@ func exactArgs(n int) func(*cobra.Command, []string) error {
 	}
 }
 
-// validateConfigureValue checks the two keys with a fixed set of accepted
+// validateConfigureValue checks the keys with a fixed set of accepted
 // values; every other key accepts anything, since its own consumer (the SDK,
 // or the CLI's flags) validates it, and configure only needs to keep the
 // file well-formed.
@@ -134,6 +145,16 @@ func validateConfigureValue(key, value string) error {
 	case "output":
 		if value != "" && !validOutputFormats[value] {
 			return newUsageError("output must be json, table, or text, got %q", value)
+		}
+	case "vcdn_api_key":
+		// LoadConfig refuses such a key for every command, so a bad one
+		// stored here would break the whole profile. The message never
+		// holds the value.
+		if len(value) > maxVCDNKeyLen {
+			return newUsageError("vcdn_api_key is longer than %d bytes", maxVCDNKeyLen)
+		}
+		if strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+			return newUsageError("vcdn_api_key must not hold whitespace or a control character")
 		}
 	}
 	return nil
@@ -244,7 +265,7 @@ func runConfigureList(e *env) error {
 	if err := validateProfileName(profile); err != nil {
 		return err
 	}
-	for _, key := range configureKeyOrder {
+	for _, key := range configureListOrder {
 		meta := configureKeys[key]
 		envVar, defaultName := fileFor(key)
 		value, err := currentConfigureValue(envVar, defaultName, sectionFor(key, profile), key)

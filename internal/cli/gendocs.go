@@ -522,16 +522,16 @@ func renderConfigureSection() string {
 		"`configure get <key>`, and `configure list` script the same file edits and reads.\n\n")
 
 	b.WriteString("| Key | File |\n|-|-|\n")
-	for _, key := range configureKeyOrder {
+	for _, key := range configureListOrder {
 		_, defaultName := fileFor(key)
 		fmt.Fprintf(&b, "| `%s` | %s |\n", key, defaultName)
 	}
 	b.WriteString("\n")
 
 	b.WriteString("`configure set <key> -` reads the value from stdin instead of argv, so it never appears " +
-		"in `ps` output or shell history. `password` and `totp_secret` can only be set this way; a literal " +
-		"value for either is refused with exit code 2. `configure get` and `configure list` mask both as " +
-		"`****`.\n\n")
+		"in `ps` output or shell history. `password`, `totp_secret`, and `vcdn_api_key` can only be set this " +
+		"way; a literal value for any of them is refused with exit code 2. `configure get` and `configure " +
+		"list` mask all three as `****`. The interactive `configure` does not prompt for `vcdn_api_key`.\n\n")
 
 	b.WriteString("`configure` and `configure set` refuse to run, with exit code 2, while read-only is on, " +
 		"so an agent cannot clear a profile's `read_only` through the CLI; `configure get` and `configure " +

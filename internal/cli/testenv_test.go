@@ -101,6 +101,7 @@ func newFakeServer(t *testing.T, handler http.Handler) []vngcloud.LoadOption {
 		Token:             base + "accounts-api/v1/auth/token",
 		Billing:           base,
 		CDNDocs:           base + "faq/vcdn",
+		CDN:               base,
 		Monitor:           base,
 		IAM:               base,
 		Storage:           base,

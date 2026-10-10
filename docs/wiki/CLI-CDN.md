@@ -2,6 +2,48 @@
 
 # CLI: CDN
 
+`list-ip-ranges` needs no credential. The other commands call the vCDN API with a vCDN API key, which is separate from the IAM login. Only the root user can make the key, in the vCDN Portal, with an expiry of up to one year. Store it with `vngcloud configure set vcdn_api_key -` (the key on stdin) or set `VNGCLOUD_VCDN_API_KEY`; there is no flag for it. Without a key a command exits 3 with error code `NoCredentials` and sends nothing.
+
+Any key can read every key and certificate of the account, so keep its expiry short. The SDK sends no `Origin` header, so a key's `AllowOriginHeader` does not apply. A 401 (error code `Unauthorized`, exit 3) means the key is wrong or expired.
+
+## get-certificate
+
+Kind: Read.
+
+Prints the certificate and CA chain as PEM text. The server also returns the private key; the CLI never prints it.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--certificate-id` | `string` | yes |
+
+```sh
+vngcloud cdn get-certificate --certificate-id <certificate-id> --query Certificate
+```
+
+## list-api-keys
+
+Kind: Read.
+
+`Current` marks the key this command sent, so its `ExpiresAt` is the expiry of the key in use. The server also returns every key's token and the account email; the CLI never prints them.
+
+No fields.
+
+```sh
+vngcloud cdn list-api-keys
+```
+
+## list-certificates
+
+Kind: Read.
+
+Lists every certificate of the account without its PEM text. The server also returns each private key; the CLI never prints it.
+
+No fields.
+
+```sh
+vngcloud cdn list-certificates
+```
+
 ## list-ip-ranges
 
 Kind: Read.

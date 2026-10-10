@@ -16,6 +16,7 @@ const iamServiceIntroNote = "The guards documented below stop mistakes, not a ca
 // operations, keyed by service name, for a fact that holds across the whole
 // service rather than one operation.
 var docServiceIntro = map[string]string{
+	"cdn":     cdnServiceIntroNote,
 	"iam":     iamServiceIntroNote,
 	"tagging": taggingServiceIntroNote,
 }

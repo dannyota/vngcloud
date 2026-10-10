@@ -78,8 +78,9 @@ Read-only refuses every write command before any request. Any of these turns it 
 | `username` | credentials |
 | `password` | credentials |
 | `totp_secret` | credentials |
+| `vcdn_api_key` | credentials |
 
-`configure set <key> -` reads the value from stdin instead of argv, so it never appears in `ps` output or shell history. `password` and `totp_secret` can only be set this way; a literal value for either is refused with exit code 2. `configure get` and `configure list` mask both as `****`.
+`configure set <key> -` reads the value from stdin instead of argv, so it never appears in `ps` output or shell history. `password`, `totp_secret`, and `vcdn_api_key` can only be set this way; a literal value for any of them is refused with exit code 2. `configure get` and `configure list` mask all three as `****`. The interactive `configure` does not prompt for `vcdn_api_key`.
 
 `configure` and `configure set` refuse to run, with exit code 2, while read-only is on, so an agent cannot clear a profile's `read_only` through the CLI; `configure get` and `configure list` still work. `configure set read_only` refuses, with exit code 2, to turn `read_only` off for a profile that already has it on; clearing it means editing the file by hand.
 
@@ -90,6 +91,7 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | Name | CLI form |
 |-|-|
 | `AttachS3Key` | `attach-s3-key` |
+| `CDNID` | `cdn-id` |
 | `ClearVPCDHCPOptions` | `clear-vpc-dhcp-options` |
 | `CreateS3Key` | `create-s3-key` |
 | `DeleteS3Key` | `delete-s3-key` |

@@ -158,3 +158,34 @@ const storagePutBucketCORSNote = storageProjectIDNote + storageRegionNote + " `R
 const storageDeleteBucketCORSNote = storageProjectIDNote + storageRegionNote + " Removes every CORS rule; " +
 	"a bucket with none also succeeds, so a repeat delete succeeds. It needs no `--yes`, since " +
 	"put-bucket-cors restores rules. A browser's next preflight is refused."
+
+// docOpNotesStorage holds storage's entries of docOpNotes, merged into it at init so
+// gendocs_notes.go stays under the length limit.
+var docOpNotesStorage = map[string]string{
+	"storage list-regions":                     storageListRegionsNote,
+	"storage list-projects":                    storageListProjectsNote,
+	"storage list-buckets":                     storageListBucketsNote,
+	"storage get-bucket":                       storageGetBucketNote,
+	"storage create-bucket":                    storageCreateBucketNote,
+	"storage delete-bucket":                    storageDeleteBucketNote,
+	"storage list-s3-keys":                     storageListS3KeysNote,
+	"storage create-s3-key":                    storageCreateS3KeyNote,
+	"storage delete-s3-key":                    storageDeleteS3KeyNote,
+	"storage attach-s3-key":                    storageAttachS3KeyNote,
+	"storage detach-s3-key":                    storageDetachS3KeyNote,
+	"storage ensure-service-account-principal": storageEnsurePrincipalNote,
+	"storage get-bucket-policy":                storageGetBucketPolicyNote,
+	"storage put-bucket-policy":                storagePutBucketPolicyNote,
+	"storage delete-bucket-policy":             storageDeleteBucketPolicyNote,
+	"storage get-bucket-versioning":            storageGetBucketVersioningNote,
+	"storage put-bucket-versioning":            storagePutBucketVersioningNote,
+	"storage get-bucket-cors":                  storageGetBucketCORSNote,
+	"storage put-bucket-cors":                  storagePutBucketCORSNote,
+	"storage delete-bucket-cors":               storageDeleteBucketCORSNote,
+}
+
+func init() {
+	for k, v := range docOpNotesStorage {
+		docOpNotes[k] = v
+	}
+}

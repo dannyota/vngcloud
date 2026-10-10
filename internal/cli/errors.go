@@ -68,6 +68,11 @@ type errorEnvelope struct {
 	Operation string `json:"operation,omitempty"`
 }
 
+// noCDNAPIKeyMessage replaces cdn.ErrNoAPIKey's SDK-oriented text with the
+// two ways a CLI user sets the vCDN API key.
+const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set vcdn_api_key -` " +
+	"or set VNGCLOUD_VCDN_API_KEY"
+
 // classify turns err into the stderr JSON shape. NotFound is checked before
 // the generic *APIError branch below, and always wins over whatever Code an
 // embedded *APIError itself carries: vngcloud.IsNotFound(err) is true both
@@ -415,6 +420,9 @@ func classify(err error) errorEnvelope {
 	var queryErr *queryFailedError
 	if errors.As(err, &queryErr) {
 		return errorEnvelope{Code: "QueryFailed", Message: err.Error()}
+	}
+	if errors.Is(err, cdn.ErrNoAPIKey) {
+		return errorEnvelope{Code: "NoCredentials", Message: noCDNAPIKeyMessage}
 	}
 	if errors.Is(err, vngcloud.ErrNoCredentials) || errors.Is(err, vngcloud.ErrCredentialsFile) {
 		return errorEnvelope{Code: "NoCredentials", Message: err.Error()}
