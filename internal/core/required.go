@@ -39,6 +39,20 @@ func CheckPathID(op, field, value string) error {
 		ErrInvalidInput, op, field, pathIDPattern.String(), truncateForError(value))
 }
 
+var typeIDPattern = regexp.MustCompile("^[A-Za-z0-9_-]+$")
+
+// CheckTypeID is CheckPathID for a body ID whose live values hold an
+// underscore, such as the encryption type "aes-xts-plain64_256". It matches
+// ^[A-Za-z0-9_-]+$, which still refuses ".", "..", "/", "?", and control
+// characters.
+func CheckTypeID(op, field, value string) error {
+	if typeIDPattern.MatchString(value) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s requires %s to match %s, got %q",
+		ErrInvalidInput, op, field, typeIDPattern.String(), truncateForError(value))
+}
+
 // CheckDate returns an error wrapping ErrInvalidInput when value is not a
 // valid YYYY-MM-DD date, the only format the API's date fields take.
 func CheckDate(op, field, value string) error {

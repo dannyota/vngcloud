@@ -256,11 +256,14 @@ func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 		DataDiskSize:     80,
 		DataDiskTypeID:   "voltype-2",
 		DataDiskName:     "data",
-		ServerGroupID:    "group-1",
-		AutoRenew:        true,
-		UserData:         "#!/bin/sh\necho hi",
-		MaxPrice:         1,
-		NoWait:           true,
+
+		RootDiskEncryptionTypeID: "aes-xts-plain64_256",
+		DataDiskEncryptionTypeID: "aes-xts-plain64_128",
+		ServerGroupID:            "group-1",
+		AutoRenew:                true,
+		UserData:                 "#!/bin/sh\necho hi",
+		MaxPrice:                 1,
+		NoWait:                   true,
 	}
 	testutil.RequireAllFieldsSet(t, in)
 	info, err := buildServerQuoteInfo("op", in)
@@ -270,6 +273,9 @@ func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 	body, err := buildCreateServerBody("op", in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if info["encryptionVolume"] != true {
+		t.Fatalf("quote encryptionVolume = %v, want true", info["encryptionVolume"])
 	}
 	testutil.RequireQuoteKeysInCreate(t, info, body, "period", "isPoc")
 }

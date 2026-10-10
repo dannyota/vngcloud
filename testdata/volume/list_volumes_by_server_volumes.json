@@ -1,0 +1,30 @@
+{
+  "errorCode": 0,
+  "errorMsg": null,
+  "extra": null,
+  "success": true,
+  "volumes": [
+    {
+      "uuid": "volume-boot",
+      "name": "<name>",
+      "status": "IN-USE",
+      "size": 20,
+      "bootable": true,
+      "bootIndex": 0,
+      "serverId": "<server-id>",
+      "serverIdList": ["<server-id>"],
+      "encryptionType": null
+    },
+    {
+      "uuid": "volume-data",
+      "name": "<name>",
+      "status": "IN-USE",
+      "size": 10,
+      "bootable": false,
+      "bootIndex": 1,
+      "serverId": "<server-id>",
+      "serverIdList": ["<server-id>"],
+      "encryptionType": null
+    }
+  ]
+}

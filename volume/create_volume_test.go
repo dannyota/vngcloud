@@ -165,6 +165,8 @@ func TestVolumeQuoteBodyKeysMatchCreateBody(t *testing.T) {
 		AutoRenew:    true,
 		MaxPrice:     1,
 		NoWait:       true,
+
+		EncryptionTypeID: "aes-xts-plain64_256",
 	}
 	testutil.RequireAllFieldsSet(t, in)
 	info, err := buildVolumeQuoteInfo("op", in)

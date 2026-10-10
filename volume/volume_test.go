@@ -287,6 +287,44 @@ func TestVolumeListEncryptionTypes(t *testing.T) {
 	}
 }
 
+// TestVolumeListEncryptionTypesKeyObjects decodes the live body: an array of
+// objects holding key and displayKey. The type string must reach ID, the
+// value CreateVolume and CreateServer send.
+func TestVolumeListEncryptionTypesKeyObjects(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/volume/list_encryption_types_keys.json")
+	}))
+	out, err := c.ListEncryptionTypes(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListEncryptionTypes() error = %v", err)
+	}
+	want := []string{"aes-xts-plain64_128", "aes-xts-plain64_256"}
+	if len(out.Items) != len(want) {
+		t.Fatalf("items = %+v, want %d", out.Items, len(want))
+	}
+	for i, w := range want {
+		got := out.Items[i]
+		if got.ID != w || got.Name != w || got.Value != w {
+			t.Fatalf("item %d = %+v, want ID, Name, and Value %q", i, got, w)
+		}
+	}
+}
+
+// TestVolumeListEncryptionTypesKeyBeatsID checks that key, not id, becomes ID
+// when a body carries both.
+func TestVolumeListEncryptionTypesKeyBeatsID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"row-7","key":"aes-xts-plain64_256","displayKey":"AES 256"}]`))
+	}))
+	out, err := c.ListEncryptionTypes(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListEncryptionTypes() error = %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].ID != "aes-xts-plain64_256" {
+		t.Fatalf("items = %+v, want ID aes-xts-plain64_256", out.Items)
+	}
+}
+
 func TestVolumeListEncryptionTypesArrayResponse(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/project-1/volumes/encryption_types" {

@@ -14,14 +14,19 @@ import (
 // CreateVolumeInput creates a volume. QuoteCreateVolume takes the same
 // Input and prices it, per the SDK's paid-write convention that a quote is
 // built from the create's own code. A quote requires only ZoneID, Size, and
-// VolumeTypeID: Name and AutoRenew do not change the price and never reach
-// the billing gateway.
+// VolumeTypeID, and sends EncryptionTypeID when set: Name and AutoRenew do
+// not change the price and never reach the billing gateway.
 type CreateVolumeInput struct {
 	// Name must not match an existing volume's name exactly.
 	Name         string `vngcloud:"required"`
 	ZoneID       string `vngcloud:"required"`
 	Size         int    `vngcloud:"required"`
 	VolumeTypeID string `vngcloud:"required"`
+
+	// EncryptionTypeID, optional, is an ID from ListEncryptionTypes. It is
+	// sent as encryptionType on the create and on the quote, which prices
+	// it. Empty sends no encryption key.
+	EncryptionTypeID string
 
 	// AutoRenew is sent as isEnableAutoRenew; false by default, so nothing
 	// renews from credit without a command.
@@ -42,6 +47,7 @@ type createVolumeBody struct {
 	Size              int    `json:"size"`
 	VolumeTypeID      string `json:"volumeTypeId"`
 	ZoneID            string `json:"zoneId"`
+	EncryptionType    string `json:"encryptionType,omitempty"`
 	IsEnableAutoRenew bool   `json:"isEnableAutoRenew"`
 }
 
@@ -53,7 +59,12 @@ func checkVolumeShape(op string, in *CreateVolumeInput) error {
 		return fmt.Errorf("%w: %s: Size must be greater than 0, got %d", core.ErrInvalidInput, op, in.Size)
 	}
 	if in.VolumeTypeID != "" {
-		return core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID)
+		if err := core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID); err != nil {
+			return err
+		}
+	}
+	if in.EncryptionTypeID != "" {
+		return core.CheckTypeID(op, "EncryptionTypeID", in.EncryptionTypeID)
 	}
 	return nil
 }
@@ -62,9 +73,10 @@ func checkVolumeShape(op string, in *CreateVolumeInput) error {
 // billing gateway prices. QuoteCreateVolume and CreateVolume's price guard
 // both build it with buildVolumeQuoteInfo.
 type volumeQuoteBody struct {
-	Size         int    `json:"size"`
-	VolumeTypeID string `json:"volumeTypeId"`
-	ZoneID       string `json:"zoneId"`
+	Size           int    `json:"size"`
+	VolumeTypeID   string `json:"volumeTypeId"`
+	ZoneID         string `json:"zoneId"`
+	EncryptionType string `json:"encryptionType,omitempty"`
 }
 
 // buildVolumeQuoteInfo validates the priced fields of in and builds the
@@ -79,9 +91,10 @@ func buildVolumeQuoteInfo(op string, in *CreateVolumeInput) (map[string]any, err
 		return nil, err
 	}
 	return core.QuoteResourceInfo(volumeQuoteBody{
-		Size:         in.Size,
-		VolumeTypeID: in.VolumeTypeID,
-		ZoneID:       in.ZoneID,
+		Size:           in.Size,
+		VolumeTypeID:   in.VolumeTypeID,
+		ZoneID:         in.ZoneID,
+		EncryptionType: in.EncryptionTypeID,
 	})
 }
 
@@ -99,6 +112,7 @@ func buildCreateVolumeBody(op string, in *CreateVolumeInput) (createVolumeBody, 
 		Size:              in.Size,
 		VolumeTypeID:      in.VolumeTypeID,
 		ZoneID:            in.ZoneID,
+		EncryptionType:    in.EncryptionTypeID,
 		IsEnableAutoRenew: in.AutoRenew,
 	}, nil
 }

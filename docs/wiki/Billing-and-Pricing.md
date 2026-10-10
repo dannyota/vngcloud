@@ -235,6 +235,15 @@ A quote checks the shape of the IDs and of `Scheme` when they are set, so
 a bad value fails there as it will at the create. It does not check `Name`
 or `Type`, which it never sends.
 
+Encryption prices differently for the two resources. The server quote does not
+send the disk encryption type IDs, only `encryptionVolume`; the volume quote
+sends `EncryptionTypeID` when set. A server with an encrypted disk adds a `CES`
+line of 30% of the flavor price (85,140 VND on `s2-general-1x2`), so the quote
+and the guard price it through `encryptionVolume`. An encrypted volume costs the
+same as a plain one (32,000 VND for 10 GB). See
+[Compute-Servers](Compute-Servers.md#encrypted-disks) and
+[Volume](Volume.md#encrypted-volumes).
+
 The create still requires every field. The create's price guard quotes the
 same priced-only body, so a quote and the guard price one request. Both
 ignore the Input's `MaxPrice` and `NoWait` fields, which govern only the

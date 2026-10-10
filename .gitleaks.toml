@@ -4,3 +4,12 @@
 
 [extend]
 useDefault = true
+
+# generic-api-key matches the vStorage volume encryption type names
+# ("key": "aes-xts-plain64_128"), which are public enum values the API
+# returns, not credentials.
+[[allowlists]]
+description = "volume encryption type names are public enum values"
+regexTarget = "match"
+regexes = ['''aes-xts-plain64_(128|256)''']
+paths = ['''testdata/volume/list_encryption_types_keys\.json''', '''volume/volume_test\.go''']

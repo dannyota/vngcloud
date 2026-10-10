@@ -3,6 +3,7 @@
 package volume
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -153,8 +154,9 @@ type ListVolumesByServerInput struct {
 type ListVolumesByServerOutput = core.List[Volume]
 
 // ListVolumesByServer lists the volumes attached to one server, including
-// its boot volume. The response envelope is not confirmed live, so this
-// decodes a bare array or one wrapped under "data" or "listData".
+// its boot volume. The documented envelope puts the rows under "volumes"
+// (pending a live read); the decoder also accepts a bare array or one
+// wrapped under "data" or "listData".
 func (c *Client) ListVolumesByServer(ctx context.Context, in *ListVolumesByServerInput) (*ListVolumesByServerOutput, error) {
 	const op = "volume.ListVolumesByServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -273,7 +275,7 @@ func (c *Client) ListEncryptionTypes(ctx context.Context, _ *ListEncryptionTypes
 	}
 	var items []EncryptionType
 	if err := json.Unmarshal(raw, &items); err == nil {
-		return &ListEncryptionTypesOutput{Items: items}, nil
+		return &ListEncryptionTypesOutput{Items: fillEncryptionTypeIDs(items)}, nil
 	}
 	var resp listEncryptionTypesResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -356,8 +358,8 @@ type listEncryptionTypesResponse struct {
 }
 
 // listVolumesByServerResponse decodes ListVolumesByServer's response, whose
-// envelope is not confirmed live: a bare array, or one wrapped under "data"
-// or "listData".
+// envelope is documented as "volumes" but not yet read live: a bare array,
+// or one wrapped under "volumes", "data" or "listData".
 type listVolumesByServerResponse struct {
 	Items []Volume
 }
@@ -369,15 +371,19 @@ func (r *listVolumesByServerResponse) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	var wrapped struct {
+		Volumes  []Volume `json:"volumes"`
 		Data     []Volume `json:"data"`
 		ListData []Volume `json:"listData"`
 	}
 	if err := json.Unmarshal(data, &wrapped); err != nil {
 		return err
 	}
-	if wrapped.Data != nil {
+	switch {
+	case wrapped.Volumes != nil:
+		r.Items = wrapped.Volumes
+	case wrapped.Data != nil:
 		r.Items = wrapped.Data
-	} else {
+	default:
 		r.Items = wrapped.ListData
 	}
 	return nil
@@ -421,13 +427,29 @@ func (r *listEncryptionTypesResponse) UnmarshalJSON(data []byte) error {
 func decodeEncryptionTypes(data []byte) ([]EncryptionType, error) {
 	var typed []EncryptionType
 	if err := json.Unmarshal(data, &typed); err == nil {
-		return typed, nil
+		return fillEncryptionTypeIDs(typed), nil
 	}
 	var stringsOnly []string
 	if err := json.Unmarshal(data, &stringsOnly); err != nil {
 		return nil, err
 	}
 	return encryptionTypesFromStrings(stringsOnly), nil
+}
+
+// fillEncryptionTypeIDs sets ID, Name, and Value on each item from the type
+// string the body carries under key, displayKey, value, or name, so ID is
+// the string CreateVolume and CreateServer send whichever shape the body
+// has.
+func fillEncryptionTypeIDs(items []EncryptionType) []EncryptionType {
+	for i := range items {
+		it := &items[i]
+		// key is the type string the API accepts; id, when present, is a row id.
+		id := cmp.Or(it.Key, it.ID, it.Value, it.DisplayKey, it.Name)
+		it.ID = id
+		it.Name = cmp.Or(it.Name, it.DisplayKey, id)
+		it.Value = cmp.Or(it.Value, id)
+	}
+	return items
 }
 
 func encryptionTypesFromStrings(values []string) []EncryptionType {

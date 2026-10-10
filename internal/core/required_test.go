@@ -68,6 +68,23 @@ func TestCheckPathID(t *testing.T) {
 	}
 }
 
+func TestCheckTypeID(t *testing.T) {
+	for _, ok := range []string{"aes-xts-plain64_256", "abc-123", "A_b"} {
+		if err := CheckTypeID("volume.CreateVolume", "EncryptionTypeID", ok); err != nil {
+			t.Fatalf("%q: err = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", " ", ".", "..", "a/b", "a?b", "a b", "a\nb", "a\n", "a\t", "a%2F"} {
+		err := CheckTypeID("volume.CreateVolume", "EncryptionTypeID", bad)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("%q: err = %v, want ErrInvalidInput", bad, err)
+		}
+		if !strings.Contains(err.Error(), "volume.CreateVolume") || !strings.Contains(err.Error(), "EncryptionTypeID") {
+			t.Fatalf("%q: err = %v, missing op or field", bad, err)
+		}
+	}
+}
+
 func TestCheckDate(t *testing.T) {
 	cases := []struct {
 		name  string

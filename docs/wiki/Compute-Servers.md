@@ -66,7 +66,7 @@ echoed in any error, and the SDK base64-encodes it itself.
 
 `QuoteCreateServer` requires and sends only the fields that change the
 price: `ZoneID`, `FlavorID`, `ImageID`, `RootDiskSize`, `RootDiskTypeID`,
-and the data disk pair when set. `Name`, `VPCID`, `SubnetID`,
+the data disk pair when set, and `encryptionVolume` when a disk is encrypted. `Name`, `VPCID`, `SubnetID`,
 `SecurityGroupIDs`, and `SSHKeyID` are optional on a quote. A quote still
 checks the shape of any of these IDs that is set, so a bad ID fails there as
 it will at the create. `Name` has no shape rule and is simply not sent. `CreateServer` quotes the same priced-only body before
@@ -146,6 +146,37 @@ the server to be gone; `ERROR` wraps
 `compute.ErrFailed`, and the bound running out wraps
 `compute.ErrNotSettled`. A rerun is always safe, since `DeleteServer`
 always reads first.
+
+## Encrypted disks
+
+`RootDiskEncryptionTypeID` and `DataDiskEncryptionTypeID` encrypt the root and
+data disks. Both are optional IDs from `volume.ListEncryptionTypes`
+(`aes-xts-plain64_128` or `aes-xts-plain64_256`). The SDK sends them as
+`rootDiskEncryptionType` and `dataDiskEncryptionType`, and sets
+`encryptionVolume` true when either is set. A data disk type without
+`DataDiskSize` and `DataDiskTypeID` is `vngcloud.ErrInvalidInput`, and an ID
+outside `^[A-Za-z0-9_-]+$` is too, before any request. The server refuses an
+unknown type.
+
+```go
+in := &compute.CreateServerInput{
+	// ... the fields above ...
+	RootDiskSize: 20, RootDiskTypeID: diskType,
+	RootDiskEncryptionTypeID: "aes-xts-plain64_256",
+	DataDiskSize: 20, DataDiskTypeID: diskType,
+	DataDiskEncryptionTypeID: "aes-xts-plain64_128",
+}
+```
+
+The quote sends only `encryptionVolume` true, as the console's price request
+does; the type IDs do not change the price. Encryption adds a `CES` line of
+30% of the flavor price: `s2-general-1x2` with a 20 GB root quotes 347,800
+VND without it and 432,940 VND with it, and the data disk adds its own disk
+price on top. Encrypting only the data disk, which needs a data disk, still
+sets `encryptionVolume` and adds the same `CES` line. A server created with
+both disks encrypted shows an `encryptionType` on the boot volume and on the
+data volume in `volume.ListVolumes`. A separately created encrypted volume
+attaches to such a server.
 
 ## Resizing a server
 

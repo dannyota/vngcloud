@@ -22,8 +22,9 @@ const createServerWithheldMessage = "server message withheld: it may quote user 
 // Input and prices it, per the SDK's paid-write convention that a quote is
 // built from the create's own code. A quote requires only ZoneID, FlavorID,
 // ImageID, RootDiskSize, and RootDiskTypeID, plus the data disk pair when
-// set: the other fields do not change the price and never reach the billing
-// gateway. A quote still checks the shape of every field that is set. Every
+// set, and sends encryptionVolume true when either encryption type is set,
+// as the console's price request does: the other fields do not change the
+// price and never reach the billing gateway. A quote still checks the shape of every field that is set. Every
 // ID below, in a path or a body, is checked with core.CheckPathID before
 // any request, including the quote.
 type CreateServerInput struct {
@@ -41,12 +42,19 @@ type CreateServerInput struct {
 	SSHKeyID       string `vngcloud:"required"`
 	RootDiskSize   int    `vngcloud:"required"`
 	RootDiskTypeID string `vngcloud:"required"`
+	// RootDiskEncryptionTypeID, optional, is an ID from
+	// volume.ListEncryptionTypes. It encrypts the root disk, sends
+	// rootDiskEncryptionType, and sets encryptionVolume.
+	RootDiskEncryptionTypeID string
 
 	// DataDiskSize and DataDiskTypeID together add one optional data disk;
 	// set both or neither.
 	DataDiskSize   int
 	DataDiskTypeID string
 	DataDiskName   string
+	// DataDiskEncryptionTypeID, optional, encrypts the data disk like
+	// RootDiskEncryptionTypeID. It needs the data disk.
+	DataDiskEncryptionTypeID string
 
 	ServerGroupID string
 
@@ -91,6 +99,8 @@ type createServerBody struct {
 	DataDiskName          string   `json:"dataDiskName,omitempty"`
 	DataDiskSize          int      `json:"dataDiskSize,omitempty"`
 	DataDiskTypeID        string   `json:"dataDiskTypeId,omitempty"`
+	RootDiskEncryption    string   `json:"rootDiskEncryptionType,omitempty"`
+	DataDiskEncryption    string   `json:"dataDiskEncryptionType,omitempty"`
 	ServerGroupID         string   `json:"serverGroupId,omitempty"`
 	UserData              string   `json:"userData,omitempty"`
 	UserDataBase64Encoded bool     `json:"userDataBase64Encoded,omitempty"`
@@ -125,6 +135,9 @@ func checkServerShape(op string, in *CreateServerInput) error {
 	if (in.DataDiskSize > 0) != (in.DataDiskTypeID != "") {
 		return fmt.Errorf("%w: %s requires DataDiskSize and DataDiskTypeID together or neither", core.ErrInvalidInput, op)
 	}
+	if in.DataDiskEncryptionTypeID != "" && in.DataDiskSize == 0 {
+		return fmt.Errorf("%w: %s: DataDiskEncryptionTypeID needs DataDiskSize and DataDiskTypeID", core.ErrInvalidInput, op)
+	}
 	for _, id := range [...]struct{ field, value string }{
 		{"FlavorID", in.FlavorID},
 		{"ImageID", in.ImageID},
@@ -142,12 +155,29 @@ func checkServerShape(op string, in *CreateServerInput) error {
 			return err
 		}
 	}
+	for _, id := range [...]struct{ field, value string }{
+		{"RootDiskEncryptionTypeID", in.RootDiskEncryptionTypeID},
+		{"DataDiskEncryptionTypeID", in.DataDiskEncryptionTypeID},
+	} {
+		if id.value == "" {
+			continue
+		}
+		if err := core.CheckTypeID(op, id.field, id.value); err != nil {
+			return err
+		}
+	}
 	for i, sgID := range in.SecurityGroupIDs {
 		if err := core.CheckPathID(op, fmt.Sprintf("SecurityGroupIDs[%d]", i), sgID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// encryptsAnyDisk reports whether in asks for an encrypted disk, which sets
+// encryptionVolume on the quote and the create.
+func encryptsAnyDisk(in *CreateServerInput) bool {
+	return in.RootDiskEncryptionTypeID != "" || in.DataDiskEncryptionTypeID != ""
 }
 
 // buildServerQuoteInfo validates the priced fields of in and builds the
@@ -168,7 +198,7 @@ func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, err
 		ImageID:          in.ImageID,
 		RootDiskSize:     in.RootDiskSize,
 		RootDiskTypeID:   in.RootDiskTypeID,
-		EncryptionVolume: false,
+		EncryptionVolume: encryptsAnyDisk(in),
 		DataDiskSize:     in.DataDiskSize,
 		DataDiskTypeID:   in.DataDiskTypeID,
 	})
@@ -190,22 +220,24 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 	}
 
 	body := createServerBody{
-		Name:              in.Name,
-		ZoneID:            in.ZoneID,
-		FlavorID:          in.FlavorID,
-		ImageID:           in.ImageID,
-		NetworkID:         in.VPCID,
-		SubnetID:          in.SubnetID,
-		SecurityGroup:     in.SecurityGroupIDs,
-		SSHKeyID:          in.SSHKeyID,
-		RootDiskSize:      in.RootDiskSize,
-		RootDiskTypeID:    in.RootDiskTypeID,
-		EncryptionVolume:  false,
-		DataDiskName:      in.DataDiskName,
-		DataDiskSize:      in.DataDiskSize,
-		DataDiskTypeID:    in.DataDiskTypeID,
-		ServerGroupID:     in.ServerGroupID,
-		IsEnableAutoRenew: in.AutoRenew,
+		Name:               in.Name,
+		ZoneID:             in.ZoneID,
+		FlavorID:           in.FlavorID,
+		ImageID:            in.ImageID,
+		NetworkID:          in.VPCID,
+		SubnetID:           in.SubnetID,
+		SecurityGroup:      in.SecurityGroupIDs,
+		SSHKeyID:           in.SSHKeyID,
+		RootDiskSize:       in.RootDiskSize,
+		RootDiskTypeID:     in.RootDiskTypeID,
+		EncryptionVolume:   encryptsAnyDisk(in),
+		DataDiskName:       in.DataDiskName,
+		DataDiskSize:       in.DataDiskSize,
+		DataDiskTypeID:     in.DataDiskTypeID,
+		RootDiskEncryption: in.RootDiskEncryptionTypeID,
+		DataDiskEncryption: in.DataDiskEncryptionTypeID,
+		ServerGroupID:      in.ServerGroupID,
+		IsEnableAutoRenew:  in.AutoRenew,
 	}
 	if in.UserData.Reveal() != "" {
 		body.UserData = base64.StdEncoding.EncodeToString([]byte(in.UserData.Reveal()))

@@ -46,3 +46,20 @@ func TestListVolumesByServerRejectsBadServerID(t *testing.T) {
 		}
 	}
 }
+
+// TestListVolumesByServerDecodesVolumesEnvelope checks the envelope the
+// vServer API documents for this call: the rows sit under "volumes". The
+// fixture has the documented shape, not a live capture.
+func TestListVolumesByServerDecodesVolumesEnvelope(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/volume/list_volumes_by_server_volumes.json")
+	}))
+
+	out, err := c.ListVolumesByServer(context.Background(), &ListVolumesByServerInput{ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("ListVolumesByServer() error = %v", err)
+	}
+	if len(out.Items) != 2 || out.Items[0].UUID != "volume-boot" || out.Items[1].UUID != "volume-data" {
+		t.Fatalf("unexpected volumes: %+v", out.Items)
+	}
+}

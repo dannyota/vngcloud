@@ -1259,6 +1259,87 @@ func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud
 		}
 	})
 
+	encryptionTypes, err := volumeClient.ListEncryptionTypes(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListEncryptionTypes: %v", err)
+	}
+	t.Logf("encryption types: %d", len(encryptionTypes.Items))
+	for i, et := range encryptionTypes.Items {
+		if et.ID == "" {
+			t.Fatalf("encryption type %d has no ID", i)
+		}
+	}
+	if len(encryptionTypes.Items) == 0 {
+		t.Fatal("no encryption types listed")
+	}
+
+	t.Run("quote-create-volume-encrypted", func(t *testing.T) {
+		plain, err := volumeClient.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
+			ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID,
+		})
+		if err != nil {
+			t.Fatalf("QuoteCreateVolume(plain): %v", err)
+		}
+		for i, et := range encryptionTypes.Items {
+			quote, err := volumeClient.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
+				ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID, EncryptionTypeID: et.ID,
+			})
+			if err != nil {
+				t.Fatalf("QuoteCreateVolume(encryption type %d): %v", i, err)
+			}
+			t.Logf("encryption type %d: optimumPrice=%.0f plain=%.0f equal=%v lines=%d",
+				i, quote.OptimumPrice, plain.OptimumPrice, quote.OptimumPrice == plain.OptimumPrice, len(quote.Properties))
+			if quote.OptimumPrice <= 0 {
+				t.Fatal("expected a positive price")
+			}
+		}
+	})
+
+	t.Run("quote-create-server-encrypted", func(t *testing.T) {
+		base := compute.CreateServerInput{
+			ZoneID: zoneID, FlavorID: flavorID, ImageID: imageID,
+			RootDiskSize: 20, RootDiskTypeID: volType.VolumeType.ID,
+		}
+		plain, err := computeClient.QuoteCreateServer(ctx, &base)
+		if err != nil {
+			t.Fatalf("QuoteCreateServer(plain): %v", err)
+		}
+		for i, et := range encryptionTypes.Items {
+			root := base
+			root.RootDiskEncryptionTypeID = et.ID
+			quote, err := computeClient.QuoteCreateServer(ctx, &root)
+			if err != nil {
+				t.Fatalf("QuoteCreateServer(root, encryption type %d): %v", i, err)
+			}
+			var ces bool
+			for _, p := range quote.Properties {
+				ces = ces || p.Name == "CES"
+			}
+			t.Logf("root encrypted, type %d: optimumPrice=%.0f plain=%.0f ces=%v", i, quote.OptimumPrice, plain.OptimumPrice, ces)
+			if !ces || quote.OptimumPrice <= plain.OptimumPrice {
+				t.Fatalf("root encrypted quote has no CES line or no price rise: %+v", quote.Properties)
+			}
+		}
+
+		withData := base
+		withData.DataDiskSize, withData.DataDiskTypeID = 10, volType.VolumeType.ID
+		dataPlain, err := computeClient.QuoteCreateServer(ctx, &withData)
+		if err != nil {
+			t.Fatalf("QuoteCreateServer(data disk): %v", err)
+		}
+		dataOnly := withData
+		dataOnly.DataDiskEncryptionTypeID = encryptionTypes.Items[0].ID
+		quote, err := computeClient.QuoteCreateServer(ctx, &dataOnly)
+		if err != nil {
+			t.Fatalf("QuoteCreateServer(data disk encrypted): %v", err)
+		}
+		var ces bool
+		for _, p := range quote.Properties {
+			ces = ces || p.Name == "CES"
+		}
+		t.Logf("data encrypted only: optimumPrice=%.0f plain=%.0f ces=%v", quote.OptimumPrice, dataPlain.OptimumPrice, ces)
+	})
+
 	t.Run("list-volumes-by-server-malformed", func(t *testing.T) {
 		_, err := volumeClient.ListVolumesByServer(ctx, &volume.ListVolumesByServerInput{ServerID: "../etc"})
 		if !errors.Is(err, vngcloud.ErrInvalidInput) {

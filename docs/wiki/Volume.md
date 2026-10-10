@@ -161,6 +161,38 @@ showing `Status` `DELETED`; `ERROR` wraps `volume.ErrFailed`, and the bound
 running out, or a read or a sleep failing, wraps `volume.ErrNotSettled`. A
 rerun after either is always safe, since `DeleteVolume` reads first.
 
+## Encrypted volumes
+
+`CreateVolumeInput.EncryptionTypeID` creates an encrypted volume. It is
+optional; empty sends no encryption key. Take the ID from
+`ListEncryptionTypes`, which returns `aes-xts-plain64_128` and
+`aes-xts-plain64_256` on the test account. The SDK sends the ID as
+`encryptionType` on the create and on the quote, and refuses an ID outside
+`^[A-Za-z0-9_-]+$` with `vngcloud.ErrInvalidInput` before any request. It
+does not check the ID against the list: the server refuses an unknown type.
+
+```go
+types, err := client.ListEncryptionTypes(ctx, nil)
+if err != nil {
+	log.Fatal(err)
+}
+input := &volume.CreateVolumeInput{
+	Name: "data-1", ZoneID: zone, Size: 10, VolumeTypeID: typeID,
+	EncryptionTypeID: types.Items[0].ID,
+}
+quote, err := client.QuoteCreateVolume(ctx, input)
+```
+
+Encryption does not change a volume's price: a 10 GB SSD volume quotes and
+bills 32,000 VND a month with either type, as without one. `GetVolume`
+returns `EncryptionType`; `GetUnderlyingVolume` does not carry it, so read
+the type back with `GetVolume`. A delete refunds the price, but the refund
+can post a few minutes after the delete settles.
+
+An encrypted volume attaches to a server created with encrypted disks (see
+[Compute-Servers](Compute-Servers.md#encrypted-disks)). Attaching one to
+other servers is untested.
+
 ## Attaching and detaching
 
 ```go
@@ -208,6 +240,11 @@ role the CLI command plays (see [CLI-Volume](CLI-Volume.md)). The `PUT`
 keeps the transport's normal retries. Unless `NoWait` is set, it then
 waits up to 5 minutes, polling every 2 seconds, for the volume to read
 `AVAILABLE`.
+
+`ListVolumesByServer` lists a server's volumes, boot volume included
+(`GET /v2/{project}/volumes/servers/{serverId}`). The API documents the rows
+under `volumes`; the decoder reads that envelope, a bare array, or `data` or
+`listData`. This read has not been confirmed on a live server yet.
 
 ## Resizing
 
