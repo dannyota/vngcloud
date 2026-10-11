@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "key": "vos_billing_normal_max_quota",
+      "value": "2000000"
+    }
+  ]
+}

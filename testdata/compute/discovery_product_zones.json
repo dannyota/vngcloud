@@ -1,0 +1,422 @@
+{
+  "errorMsg": null,
+  "errorCode": null,
+  "success": true,
+  "extra": {},
+  "flavorZones": [
+    {
+      "id": "fz-1",
+      "name": "Flavor zone 1",
+      "description": "Flavor zone 1 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-2",
+      "name": "Flavor zone 2",
+      "description": "Flavor zone 2 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-3",
+      "name": "Flavor zone 3",
+      "description": "Flavor zone 3 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-4",
+      "name": "Flavor zone 4",
+      "description": null,
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-5",
+      "name": "Flavor zone 5",
+      "description": "Flavor zone 5 description",
+      "zoneId": "HCM03-1C"
+    },
+    {
+      "id": "fz-6",
+      "name": "Flavor zone 6",
+      "description": null,
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-7",
+      "name": "Flavor zone 7",
+      "description": "Flavor zone 7 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-8",
+      "name": "Flavor zone 8",
+      "description": "Flavor zone 8 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-9",
+      "name": "Flavor zone 9",
+      "description": null,
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-10",
+      "name": "Flavor zone 10",
+      "description": "Flavor zone 10 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-11",
+      "name": "Flavor zone 11",
+      "description": "Flavor zone 11 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-12",
+      "name": "Flavor zone 12",
+      "description": "Flavor zone 12 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-13",
+      "name": "Flavor zone 13",
+      "description": "Flavor zone 13 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-14",
+      "name": "Flavor zone 14",
+      "description": "Flavor zone 14 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-15",
+      "name": "Flavor zone 15",
+      "description": "Flavor zone 15 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-16",
+      "name": "Flavor zone 16",
+      "description": "Flavor zone 16 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-17",
+      "name": "Flavor zone 17",
+      "description": "Flavor zone 17 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-18",
+      "name": "Flavor zone 18",
+      "description": "Flavor zone 18 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-19",
+      "name": "Flavor zone 19",
+      "description": "Flavor zone 19 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-20",
+      "name": "Flavor zone 20",
+      "description": "Flavor zone 20 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-21",
+      "name": "Flavor zone 21",
+      "description": "Flavor zone 21 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-22",
+      "name": "Flavor zone 22",
+      "description": "Flavor zone 22 description",
+      "zoneId": "HCM03-BKK-01"
+    },
+    {
+      "id": "fz-23",
+      "name": "Flavor zone 23",
+      "description": "Flavor zone 23 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-24",
+      "name": "Flavor zone 24",
+      "description": "Flavor zone 24 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-25",
+      "name": "Flavor zone 25",
+      "description": "Flavor zone 25 description",
+      "zoneId": "HCM03-1C"
+    },
+    {
+      "id": "fz-26",
+      "name": "Flavor zone 26",
+      "description": "Flavor zone 26 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-27",
+      "name": "Flavor zone 27",
+      "description": "Flavor zone 27 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-28",
+      "name": "Flavor zone 28",
+      "description": "Flavor zone 28 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-29",
+      "name": "Flavor zone 29",
+      "description": "Flavor zone 29 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-30",
+      "name": "Flavor zone 30",
+      "description": "Flavor zone 30 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-31",
+      "name": "Flavor zone 31",
+      "description": "Flavor zone 31 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-32",
+      "name": "Flavor zone 32",
+      "description": "Flavor zone 32 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-33",
+      "name": "Flavor zone 33",
+      "description": "Flavor zone 33 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-34",
+      "name": "Flavor zone 34",
+      "description": "Flavor zone 34 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-35",
+      "name": "Flavor zone 35",
+      "description": "Flavor zone 35 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-36",
+      "name": "Flavor zone 36",
+      "description": "Flavor zone 36 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-37",
+      "name": "Flavor zone 37",
+      "description": "Flavor zone 37 description",
+      "zoneId": "HCM03-1C"
+    },
+    {
+      "id": "fz-38",
+      "name": "Flavor zone 38",
+      "description": "Flavor zone 38 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-39",
+      "name": "Flavor zone 39",
+      "description": "Flavor zone 39 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-40",
+      "name": "Flavor zone 40",
+      "description": "Flavor zone 40 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-41",
+      "name": "Flavor zone 41",
+      "description": "Flavor zone 41 description",
+      "zoneId": "HCM03-1C"
+    },
+    {
+      "id": "fz-42",
+      "name": "Flavor zone 42",
+      "description": "Flavor zone 42 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-43",
+      "name": "Flavor zone 43",
+      "description": "Flavor zone 43 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-44",
+      "name": "Flavor zone 44",
+      "description": "Flavor zone 44 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-45",
+      "name": "Flavor zone 45",
+      "description": "Flavor zone 45 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-46",
+      "name": "Flavor zone 46",
+      "description": "Flavor zone 46 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-47",
+      "name": "Flavor zone 47",
+      "description": "Flavor zone 47 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-48",
+      "name": "Flavor zone 48",
+      "description": "Flavor zone 48 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-49",
+      "name": "Flavor zone 49",
+      "description": "Flavor zone 49 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-50",
+      "name": "Flavor zone 50",
+      "description": "Flavor zone 50 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-51",
+      "name": "Flavor zone 51",
+      "description": "Flavor zone 51 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-52",
+      "name": "Flavor zone 52",
+      "description": "Flavor zone 52 description",
+      "zoneId": "HCM03-1C"
+    },
+    {
+      "id": "fz-53",
+      "name": "Flavor zone 53",
+      "description": "Flavor zone 53 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-54",
+      "name": "Flavor zone 54",
+      "description": "Flavor zone 54 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-55",
+      "name": "Flavor zone 55",
+      "description": "Flavor zone 55 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-56",
+      "name": "Flavor zone 56",
+      "description": "Flavor zone 56 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-57",
+      "name": "Flavor zone 57",
+      "description": "Flavor zone 57 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-58",
+      "name": "Flavor zone 58",
+      "description": "Flavor zone 58 description",
+      "zoneId": "HCM03-1B"
+    },
+    {
+      "id": "fz-59",
+      "name": "Flavor zone 59",
+      "description": "Flavor zone 59 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-60",
+      "name": "Flavor zone 60",
+      "description": "Flavor zone 60 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-61",
+      "name": "Flavor zone 61",
+      "description": "Flavor zone 61 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-62",
+      "name": "Flavor zone 62",
+      "description": "Flavor zone 62 description",
+      "zoneId": "HCM03-BKK-01"
+    },
+    {
+      "id": "fz-63",
+      "name": "Flavor zone 63",
+      "description": "Flavor zone 63 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-64",
+      "name": "Flavor zone 64",
+      "description": "Flavor zone 64 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-65",
+      "name": "Flavor zone 65",
+      "description": "Flavor zone 65 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-66",
+      "name": "Flavor zone 66",
+      "description": "Flavor zone 66 description",
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-67",
+      "name": "Flavor zone 67",
+      "description": null,
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-68",
+      "name": "Flavor zone 68",
+      "description": null,
+      "zoneId": "HCM03-1A"
+    },
+    {
+      "id": "fz-69",
+      "name": "Flavor zone 69",
+      "description": "Flavor zone 69 description",
+      "zoneId": "HCM03-1A"
+    }
+  ]
+}

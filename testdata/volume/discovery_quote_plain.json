@@ -1,0 +1,17 @@
+{
+  "optimumPrice": 3200,
+  "discountPercent": 0.0,
+  "originalPrice": 3200,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 3200,
+      "monthlyPrice": 3200,
+      "currentPrice": null,
+      "discountPercent": 0.0,
+      "name": "Volume",
+      "description": "1 GB SSD-IOPS3000"
+    }
+  ],
+  "artifactPrices": null
+}

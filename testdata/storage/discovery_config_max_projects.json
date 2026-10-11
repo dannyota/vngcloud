@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "key": "max_project_per_user_per_region",
+      "value": "20"
+    }
+  ]
+}

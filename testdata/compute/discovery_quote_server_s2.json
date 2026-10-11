@@ -1,0 +1,25 @@
+{
+  "optimumPrice": 347800,
+  "discountPercent": 0.0,
+  "originalPrice": 347800,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 283800,
+      "monthlyPrice": 283800,
+      "currentPrice": null,
+      "discountPercent": 0.0,
+      "name": "INSTANCE TYPE",
+      "description": "s2-general-1x2"
+    },
+    {
+      "optimumPrice": 64000,
+      "monthlyPrice": 64000,
+      "currentPrice": null,
+      "discountPercent": 0.0,
+      "name": "ROOT DISK",
+      "description": "vtype-1 GB SSD-IOPS3000"
+    }
+  ],
+  "artifactPrices": null
+}

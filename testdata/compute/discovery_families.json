@@ -1,0 +1,70 @@
+[
+  {
+    "types": [
+      {
+        "condition": {
+          "shared": null,
+          "aggregateInstanceExtraSpecsCpuNcore": "normal",
+          "aggregateInstanceExtraSpecsMemory": "normal"
+        },
+        "value": "Standard",
+        "key": "standard"
+      },
+      {
+        "condition": {
+          "shared": true,
+          "aggregateInstanceExtraSpecsCpuNcore": "normal",
+          "aggregateInstanceExtraSpecsMemory": "normal"
+        },
+        "value": "General",
+        "key": "general"
+      },
+      {
+        "condition": {
+          "shared": null,
+          "aggregateInstanceExtraSpecsCpuNcore": "high",
+          "aggregateInstanceExtraSpecsMemory": "normal"
+        },
+        "value": "High CPU",
+        "key": "high-cpu"
+      },
+      {
+        "condition": {
+          "shared": null,
+          "aggregateInstanceExtraSpecsCpuNcore": "normal",
+          "aggregateInstanceExtraSpecsMemory": "high"
+        },
+        "value": "High Memory",
+        "key": "high-memory"
+      }
+    ],
+    "condition": {
+      "codes": [
+        "code-s2",
+        "code-s",
+        "code-a"
+      ]
+    },
+    "description": "Adapted to a variety of diverse workloads such as web servers, application servers, microservices",
+    "value": "General Purpose",
+    "key": "general-purpose"
+  },
+  {
+    "types": null,
+    "condition": {
+      "codes": [
+        "code-g",
+        "code-a40",
+        "code-rtx4090",
+        "code-l40s",
+        "code-h100",
+        "code-h200",
+        "code-rtx5090",
+        "code-rtx6000"
+      ]
+    },
+    "description": "Adapted to the needs of machine learning and deep learning",
+    "value": "GPU",
+    "key": "gpu"
+  }
+]

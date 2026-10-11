@@ -1,0 +1,25 @@
+{
+  "optimumPrice": 2970624,
+  "discountPercent": 0.0,
+  "originalPrice": 2970624,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 2906624,
+      "monthlyPrice": 2906624,
+      "currentPrice": null,
+      "discountPercent": 0.0,
+      "name": "INSTANCE TYPE",
+      "description": "s1-standard-8x24"
+    },
+    {
+      "optimumPrice": 64000,
+      "monthlyPrice": 64000,
+      "currentPrice": null,
+      "discountPercent": 0.0,
+      "name": "ROOT DISK",
+      "description": "vtype-1 GB SSD-IOPS3000"
+    }
+  ],
+  "artifactPrices": null
+}

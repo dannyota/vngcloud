@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "optimumPrice": 30000,
+    "discountPercent": 0.0,
+    "originalPrice": 30000,
+    "discountPrice": 0,
+    "propertiesPrice": [
+      {
+        "optimumPrice": 30000,
+        "monthlyPrice": 30000,
+        "discountPercent": 0.0,
+        "name": "vStorage-Gold",
+        "description": null
+      }
+    ]
+  }
+}

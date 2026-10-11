@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "success": true,
+  "datas": [
+    {
+      "id": 4,
+      "name": "Normal",
+      "title": "Pay monthly",
+      "status": 1,
+      "descriptionEn": "Best for businesses with stable and long-term workloads with savings through upfront payment.",
+      "descriptionVi": "Phù hợp nhất cho các doanh nghiệp có khối lượng công việc ổn định và dài hạn với khả năng tiết kiệm thông qua thanh toán trước.",
+      "order": 1,
+      "isDefault": true
+    }
+  ]
+}

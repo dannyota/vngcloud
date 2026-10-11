@@ -1,0 +1,62 @@
+[
+  {
+    "description": "N/A",
+    "value": "Code E",
+    "key": "code-e"
+  },
+  {
+    "description": "Powered by 5th Gen Intel",
+    "value": "Code S2",
+    "key": "code-s2"
+  },
+  {
+    "description": "Powered by Intel Broadwell and Cascade Lake CPU platforms",
+    "value": "Code S",
+    "key": "code-s"
+  },
+  {
+    "description": "Powered by RTX 2080 Ti GPU",
+    "value": "Code 2080Ti",
+    "key": "code-g"
+  },
+  {
+    "description": "Powered by AMD EPYC Milan CPU platforms",
+    "value": "Code A",
+    "key": "code-a"
+  },
+  {
+    "description": "Powered by AMD EPYC Milan CPU platforms with GPU A40",
+    "value": "Code A40",
+    "key": "code-a40"
+  },
+  {
+    "description": "Powered by GPU RTX4090",
+    "value": "Code RTX4090",
+    "key": "code-rtx4090"
+  },
+  {
+    "description": "Powered by GPU L40s",
+    "value": "Code L40s",
+    "key": "code-l40s"
+  },
+  {
+    "description": "Powered by GPU DGX H100",
+    "value": "Code DGX H100",
+    "key": "code-h100"
+  },
+  {
+    "description": "Powered by GPU DGX H200",
+    "value": "Code DGX H200",
+    "key": "code-h200"
+  },
+  {
+    "description": "Powered by GPU RTX5090",
+    "value": "Code RTX5090",
+    "key": "code-rtx5090"
+  },
+  {
+    "description": "Powered by GPU PRO RTX6000 Blackwell",
+    "value": "Code RTX6000",
+    "key": "code-rtx6000"
+  }
+]

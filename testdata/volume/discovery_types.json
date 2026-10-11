@@ -1,0 +1,44 @@
+{
+  "errorMsg": null,
+  "errorCode": null,
+  "success": true,
+  "extra": {},
+  "volumeTypes": [
+    {
+      "iops": 3000,
+      "name": "3000",
+      "throughPut": 209715200,
+      "id": "vtype-1",
+      "minSize": 1,
+      "maxSize": 5000,
+      "zoneId": "fz-82"
+    },
+    {
+      "iops": 3200,
+      "name": "3200",
+      "throughPut": 209715200,
+      "id": "vtype-2",
+      "minSize": 1,
+      "maxSize": 5000,
+      "zoneId": "fz-82"
+    },
+    {
+      "iops": 6400,
+      "name": "6400",
+      "throughPut": 419430400,
+      "id": "vtype-3",
+      "minSize": 1,
+      "maxSize": 5000,
+      "zoneId": "fz-82"
+    },
+    {
+      "iops": 10000,
+      "name": "10000",
+      "throughPut": 419430400,
+      "id": "vtype-4",
+      "minSize": 1,
+      "maxSize": 5000,
+      "zoneId": "fz-82"
+    }
+  ]
+}
