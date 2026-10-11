@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.76.1 - IAM Guard Fix for Hyphenated Products
+
+### Fixes
+
+- `iam attach-service-account-policy` and the other IAM policy guards no
+  longer refuse read-only policies whose product name has a hyphen, such as
+  GreenNode's managed `vStorageReadOnlyAccess` (`vstorage-hcm03:List*`).
+  Hyphens are allowed only between letter and digit runs in the product
+  part; patterns that can match an IAM write action and every other unusual
+  shape are still refused.
+
 ## v0.76.0 - Public IP Price Discovery
 
 ### Highlights
