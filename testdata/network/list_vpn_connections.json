@@ -1,0 +1,393 @@
+{
+  "success": true,
+  "data": [
+    {
+      "uuid": "vpn-example",
+      "vpnName": "vpn-example",
+      "packageUuid": "package-example",
+      "localNetworkCidr": "192.0.2.0/24",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "status": "ACTIVE",
+      "billingStatus": "active",
+      "zoneUuid": "zone-example",
+      "localGatewayIp": "192.0.2.10",
+      "vpnGatewayIp": "198.51.100.10",
+      "subnetDetailModel": {
+        "uuid": "subnet-example",
+        "name": "subnet-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "subnetType": "example",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "zoneId": "zone-example",
+        "vpcUuid": null
+      },
+      "vpcDetailModel": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": []
+      },
+      "projectDetailModel": {
+        "id": "project-1",
+        "backendProjectId": "backend-example",
+        "vserverProjectId": "vserver-example",
+        "portalUserId": 123
+      },
+      "packageModel": {
+        "uuid": "package-example",
+        "name": "package-example",
+        "packageId": "vpn-package-example",
+        "tunnelLimit": 3,
+        "default": true,
+        "monthlyPrice": 0
+      },
+      "vpnSites": [
+        {
+          "remoteGatewayIp": "203.0.113.10",
+          "uuid": "site-example",
+          "status": "ACTIVE",
+          "siteName": "site-example",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "preShareKey": "synthetic-vpn-secret-canary",
+          "phase1Status": null,
+          "phase1IkeLifeTime": null,
+          "phase1Configs": [
+            {
+              "id": null,
+              "phase1Algorithm": "algorithm-example",
+              "phase1Hash": "hash-example",
+              "phase1DhGroup": "group-example",
+              "phase1IkeLifeTime": "12345"
+            }
+          ],
+          "tunnels": [
+            {
+              "siteUuid": "site-example",
+              "tunnelName": "tunnel-example",
+              "remoteNetworkCidr": "203.0.113.0/24",
+              "uuid": "tunnel-example",
+              "status": "ACTIVE",
+              "createdAt": "2026-01-01T00:00:00Z",
+              "phase2IkeLifeTime": null,
+              "phase2DhGroup": null,
+              "phase2Status": null,
+              "phase2Configs": [
+                {
+                  "id": null,
+                  "phase2Algorithm": "algorithm-example",
+                  "phase2Hash": "hash-example",
+                  "phase2DhGroup": "group-example",
+                  "phase2IkeLifeTime": "67890"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unknown": {
+        "secret": "synthetic-vpn-secret-canary"
+      },
+      "ipSecConfig": null,
+      "excluded": "excluded-canary"
+    },
+    {
+      "uuid": "vpn-provisioning",
+      "vpnName": "vpn-example",
+      "packageUuid": "package-example",
+      "localNetworkCidr": "192.0.2.0/24",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "status": "PROVISIONING",
+      "billingStatus": "active",
+      "zoneUuid": "zone-example",
+      "localGatewayIp": null,
+      "vpnGatewayIp": null,
+      "subnetDetailModel": {
+        "uuid": "subnet-example",
+        "name": "subnet-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "subnetType": "example",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "zoneId": "zone-example",
+        "vpcUuid": null
+      },
+      "vpcDetailModel": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": []
+      },
+      "projectDetailModel": {
+        "id": "project-1",
+        "backendProjectId": "backend-example",
+        "vserverProjectId": "vserver-example",
+        "portalUserId": 123
+      },
+      "packageModel": {
+        "uuid": "package-example",
+        "name": "package-example",
+        "packageId": "vpn-package-example",
+        "tunnelLimit": 3,
+        "default": true,
+        "monthlyPrice": 0
+      },
+      "vpnSites": [
+        {
+          "remoteGatewayIp": "203.0.113.10",
+          "uuid": "site-example",
+          "status": "ACTIVE",
+          "siteName": "site-example",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "preShareKey": "synthetic-vpn-secret-canary",
+          "phase1Status": null,
+          "phase1IkeLifeTime": null,
+          "phase1Configs": [
+            {
+              "id": null,
+              "phase1Algorithm": "algorithm-example",
+              "phase1Hash": "hash-example",
+              "phase1DhGroup": "group-example",
+              "phase1IkeLifeTime": "12345"
+            }
+          ],
+          "tunnels": [
+            {
+              "siteUuid": "site-example",
+              "tunnelName": "tunnel-example",
+              "remoteNetworkCidr": "203.0.113.0/24",
+              "uuid": "tunnel-example",
+              "status": "ACTIVE",
+              "createdAt": "2026-01-01T00:00:00Z",
+              "phase2IkeLifeTime": null,
+              "phase2DhGroup": null,
+              "phase2Status": null,
+              "phase2Configs": [
+                {
+                  "id": null,
+                  "phase2Algorithm": "algorithm-example",
+                  "phase2Hash": "hash-example",
+                  "phase2DhGroup": "group-example",
+                  "phase2IkeLifeTime": "67890"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unknown": {
+        "secret": "synthetic-vpn-secret-canary"
+      },
+      "ipSecConfig": null,
+      "excluded": "excluded-canary"
+    },
+    {
+      "uuid": "vpn-error",
+      "vpnName": "vpn-example",
+      "packageUuid": "package-example",
+      "localNetworkCidr": "192.0.2.0/24",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "status": "ERROR",
+      "billingStatus": "active",
+      "zoneUuid": "zone-example",
+      "localGatewayIp": null,
+      "vpnGatewayIp": null,
+      "subnetDetailModel": {
+        "uuid": "subnet-example",
+        "name": "subnet-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "subnetType": "example",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "zoneId": "zone-example",
+        "vpcUuid": null
+      },
+      "vpcDetailModel": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": []
+      },
+      "projectDetailModel": {
+        "id": "project-1",
+        "backendProjectId": "backend-example",
+        "vserverProjectId": "vserver-example",
+        "portalUserId": 123
+      },
+      "packageModel": {
+        "uuid": "package-example",
+        "name": "package-example",
+        "packageId": "vpn-package-example",
+        "tunnelLimit": 3,
+        "default": true,
+        "monthlyPrice": 0
+      },
+      "vpnSites": [
+        {
+          "remoteGatewayIp": "203.0.113.10",
+          "uuid": "site-example",
+          "status": "ACTIVE",
+          "siteName": "site-example",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "preShareKey": "synthetic-vpn-secret-canary",
+          "phase1Status": null,
+          "phase1IkeLifeTime": null,
+          "phase1Configs": [
+            {
+              "id": null,
+              "phase1Algorithm": "algorithm-example",
+              "phase1Hash": "hash-example",
+              "phase1DhGroup": "group-example",
+              "phase1IkeLifeTime": "12345"
+            }
+          ],
+          "tunnels": [
+            {
+              "siteUuid": "site-example",
+              "tunnelName": "tunnel-example",
+              "remoteNetworkCidr": "203.0.113.0/24",
+              "uuid": "tunnel-example",
+              "status": "ACTIVE",
+              "createdAt": "2026-01-01T00:00:00Z",
+              "phase2IkeLifeTime": null,
+              "phase2DhGroup": null,
+              "phase2Status": null,
+              "phase2Configs": [
+                {
+                  "id": null,
+                  "phase2Algorithm": "algorithm-example",
+                  "phase2Hash": "hash-example",
+                  "phase2DhGroup": "group-example",
+                  "phase2IkeLifeTime": "67890"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unknown": {
+        "secret": "synthetic-vpn-secret-canary"
+      },
+      "ipSecConfig": null,
+      "excluded": "excluded-canary"
+    },
+    {
+      "uuid": "vpn-future_status",
+      "vpnName": "vpn-example",
+      "packageUuid": "package-example",
+      "localNetworkCidr": "192.0.2.0/24",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "status": "FUTURE_STATUS",
+      "billingStatus": "active",
+      "zoneUuid": "zone-example",
+      "localGatewayIp": "",
+      "vpnGatewayIp": null,
+      "subnetDetailModel": {
+        "uuid": "subnet-example",
+        "name": "subnet-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "subnetType": "example",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "zoneId": "zone-example",
+        "vpcUuid": null
+      },
+      "vpcDetailModel": {
+        "uuid": "vpc-example",
+        "name": "vpc-example",
+        "status": "ACTIVE",
+        "cidr": "192.0.2.0/24",
+        "regionId": "region-example",
+        "projectId": "project-1",
+        "lastSyncTime": "2026-01-02T00:00:00Z",
+        "dnsStatus": "ENABLED",
+        "elasticIps": []
+      },
+      "projectDetailModel": {
+        "id": "project-1",
+        "backendProjectId": "backend-example",
+        "vserverProjectId": "vserver-example",
+        "portalUserId": 123
+      },
+      "packageModel": {
+        "uuid": "package-example",
+        "name": "package-example",
+        "packageId": "vpn-package-example",
+        "tunnelLimit": 3,
+        "default": true,
+        "monthlyPrice": 0
+      },
+      "vpnSites": [
+        {
+          "remoteGatewayIp": "203.0.113.10",
+          "uuid": "site-example",
+          "status": "ACTIVE",
+          "siteName": "site-example",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "preShareKey": "synthetic-vpn-secret-canary",
+          "phase1Status": null,
+          "phase1IkeLifeTime": null,
+          "phase1Configs": [
+            {
+              "id": null,
+              "phase1Algorithm": "algorithm-example",
+              "phase1Hash": "hash-example",
+              "phase1DhGroup": "group-example",
+              "phase1IkeLifeTime": "12345"
+            }
+          ],
+          "tunnels": [
+            {
+              "siteUuid": "site-example",
+              "tunnelName": "tunnel-example",
+              "remoteNetworkCidr": "203.0.113.0/24",
+              "uuid": "tunnel-example",
+              "status": "ACTIVE",
+              "createdAt": "2026-01-01T00:00:00Z",
+              "phase2IkeLifeTime": null,
+              "phase2DhGroup": null,
+              "phase2Status": null,
+              "phase2Configs": [
+                {
+                  "id": null,
+                  "phase2Algorithm": "algorithm-example",
+                  "phase2Hash": "hash-example",
+                  "phase2DhGroup": "group-example",
+                  "phase2IkeLifeTime": "67890"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unknown": {
+        "secret": "synthetic-vpn-secret-canary"
+      },
+      "ipSecConfig": null,
+      "excluded": "excluded-canary"
+    }
+  ],
+  "page": 1,
+  "size": 10,
+  "totalPage": 7,
+  "total": 63
+}
