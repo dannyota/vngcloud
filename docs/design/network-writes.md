@@ -1,6 +1,6 @@
 # Public NAT and Site-to-Site VPN Writes
 
-Status: Draft, pending owner approval.
+Status: Accepted (2026-10-11). Each create release waits on its probes.
 
 Add paid create and delete to `network.Client` and the CLI. Public NAT
 ships first, with its quote and delete in the same release. VPN follows
@@ -335,7 +335,7 @@ Apply the write security checks required by ADR 0002 before release.
 
 ## Owner decisions
 
-Approval of this draft must explicitly cover these choices:
+The owner approved these choices on 2026-10-11:
 
 1. Public methods, names, inputs, outputs, and first-release scope above,
    including one default VPN site and tunnel and explicit phase choices.
@@ -355,7 +355,8 @@ Approval of this draft must explicitly cover these choices:
    secret input, omitted response keys, and fixed VPN/order errors.
 9. NAT before VPN, HAN first, and a separate paid run for each additional
    region. Auto failure defers create rather than enabling checkout.
-10. Each refundable paid run needs separate approval naming the private
-    account, region, disposable VPC, package, cap, one-order limit, and
-    cleanup. Refund amount and timing remain uncertain. A payment fallback
-    probe additionally needs approval for its exact payment action.
+10. Refundable paid runs have standing owner approval in a disposable
+    Hanoi VPC: one order at a time, cap 1,000,000 VND per order, auto-renew
+    off, delete right away, and report the net cost. Refund amount and
+    timing remain uncertain. A payment fallback probe additionally needs
+    approval for its exact payment action.
