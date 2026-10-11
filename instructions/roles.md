@@ -1,33 +1,23 @@
 # Roles and models
 
-Role details for the table in [AGENTS.md](../AGENTS.md#roles). The manager reads this file; other roles read their own section.
+See [routing](../AGENTS.md#ai-agent-definitions-and-routing) and [workflow](workflow.md).
 
 ## manager
 
-The manager turns the owner's request into small releases, splits each into disjoint file sets, briefs one role per set, and keeps planning, verification, Git, tags, and the final answer. It asks the owner only for decisions the owner must make, one question at a time, with options and a recommendation. It verifies a report by reading the diff and running `make check`, not by trusting the report.
+See [duties](workflow.md#duties), [briefs and reports](workflow.md#briefs-and-reports), [Git](workflow.md#git), and [landing](workflow.md#landing-a-slice).
 
 ## architect
 
-The architect writes design docs in `docs/design/` and ADRs in `docs/adr/`. A design covers the public SDK or CLI surface, errors, compatibility with existing callers, security, and the release order. The owner approves a design before code starts. The architect answers contract questions during the build but does not implement it.
+See [designer duties](workflow.md#duties), [design and implementation](workflow.md#design-and-implementation), and [documentation](documentation.md).
 
 ## sdk and cli
 
-Implementers. Each writes the failing test first inside its owned paths, runs `make check`, and reports. A change that needs a file another role owns is reported, not made. The cli role uses only the public `danny.vn/vngcloud` package: if the CLI needs something the SDK lacks, it reports the missing SDK method.
-
-Each implementer updates the `docs/wiki/` pages for the surface it changed, in the same change.
+See [implementer duties](workflow.md#duties), [Go boundaries](go.md#toolchain-and-package-boundaries), [testing](testing.md), and [wiki updates](documentation.md#public-surface-and-wiki).
 
 ## reviewer
 
-Reviews once per plan or release, after the last code task. Reviews auth, token handling, credential storage, and every write API adversarially. It names each invariant it confirmed, ranks findings by severity with a failure scenario and `path:line`, and confirms fixes. It never reviews its own work.
+See [reviews](workflow.md#reviews) and [adversarial review](security.md#adversarial-review).
 
 ## Models
 
-| Work | Claude Code | Codex |
-|-|-|-|
-| Management and planning | Opus | `gpt-6.1-sol` medium |
-| Design | Opus | `gpt-6-astra` high |
-| Implementation and debugging | Sonnet | `gpt-6.1-sol` medium |
-| Search, summaries, test runs, and small mechanical edits | Haiku | `gpt-6-luna` low |
-| Every review, including fix confirmation | Opus | `gpt-6.1-sol` xhigh |
-
-Set the model and reasoning effort on every dispatch. Claude Sonnet's delegation and cost tier maps to Sol medium by owner preference; this is a routing rule, not a claim that provider prices are equal. Reviews stay independent of implementation and use Sol xhigh, including small fix confirmations.
+See [model routing](../AGENTS.md#ai-agent-definitions-and-routing).

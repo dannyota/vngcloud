@@ -20,9 +20,10 @@ make hooks-install
 2. Make the smallest change that passes it.
 3. Update the matching page in [`docs/wiki/`](docs/wiki/Home.md). The wiki is
    published from that folder.
-4. Run `make check` (tests, vet, lint, and file-length limits).
+4. Run `make check` (tests, vet, lint, and file-length limits), following the
+   [testing instructions](instructions/testing.md).
 
-Design choices live in [`docs/design/`](docs/README.md) and
+Design choices live in [`docs/design/`](docs/design/README.md) and
 [`docs/adr/`](docs/adr/README.md). If code and docs disagree, fix both in the
 same change.
 
@@ -42,6 +43,26 @@ addresses, and tokens with placeholders such as `<project-id>` and `<ip>`.
 
 ## Commits
 
-Use [Conventional Commits](https://www.conventionalcommits.org). By
-contributing, you agree that your contribution is licensed under
-[Apache 2.0](LICENSE).
+Use a plain imperative subject and a body explaining why, following the
+[Git workflow](instructions/workflow.md#git). Do not use Conventional Commit
+prefixes. By contributing, you agree that your contribution is licensed
+under [Apache 2.0](LICENSE).
+
+## Developer Certificate of Origin
+
+Every commit must carry a `Signed-off-by` line certifying the
+[Developer Certificate of Origin 1.1](DCO). Add the sign-off with:
+
+```bash
+git commit -s
+```
+
+The sign-off must use your real name and email and match the commit author:
+
+```text
+Signed-off-by: Your Name <you@example.com>
+```
+
+Commits without a sign-off are not merged. The SSH signature required by the
+[Git workflow](instructions/workflow.md#git) is a separate requirement;
+`git commit -s` does not replace that signature.

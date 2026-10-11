@@ -1,24 +1,17 @@
 # Dashboard service coverage
 
-Add read coverage for main-dashboard services the SDK and CLI lack. Models follow `instructions/roles.md`; implementation and reviews run on Codex. CDN path purge stays deferred in `feat/cdn-purge-v061` (see its own plan there).
+Completed dashboard reads stay checked below. [Short-term work](../../TODO.md) owns the remaining evidence and prerequisite actions. Follow [model routing](../../AGENTS.md#ai-agent-definitions-and-routing), [workflow duties](../../instructions/workflow.md#duties), and the linked domain contracts.
 
-## Shipped (2026-10-10)
+## Completed work
 
-- v0.60.1: transport and login hardening, found by the reviews of the three reads below. Every request path enforces same-scheme, same-host redirects (also after a caller hook); login posts the TOTP code only to the sign-in origin; the credential a request sent is redacted from errors, envelope errors, debug paths, redirect hosts, and captures; transport errors expose fixed text and safe sentinels only. Four adversarial rounds; the last left only a crafted-encoding case (a credential inside nested JSON escape text in a string), accepted as low under the threat model that the server already holds the credential.
-- v0.61.0: VKS cluster list, versions, and quota in `hcm-3` and `han-1`.
-- v0.62.0: `volume` snapshot backends and policies in `hcm-3`.
-- v0.63.0: `backup` Backup Center backends and policies in `hcm-3`.
+- [x] Harden transport and login against credential leaks and foreign-origin redirects under the [security rules and redaction limitation](../../instructions/security.md#secure-defaults).
+- [x] Add VKS cluster lists, versions, and quota under the [VKS contract](../design/vks.md).
+- [x] Add snapshot backends and policies under the [server service contract](../design/server-services.md#snapshot-policy-reads).
+- [x] Add Backup Center backends and policies under the [backup contract](../design/backup-services.md).
+- [x] Add safe server console-log reads under the [server API contract](../design/server-services-api.md).
+- [x] Add public NAT and site-to-site VPN lists under the [network read contract](../design/network-services.md).
+- [x] Add CDN path purge under the [CDN write contract](../design/cdn-writes.md#purge).
 
-Each was checked live through the SDK login, reviewed, and tagged on green CI.
+Held VKS, snapshot history, scheduled operation, Backup Center, and network parity reads retain their domain evidence gates. [Database inventory](../design/database-services.md) also requires populated models and owner-provided prerequisites. Existing list implementations do not qualify held detail or rule reads.
 
-## Remaining
-
-| Design | State | Next |
-|-|-|-|
-| `docs/design/vks.md` | First release shipped | Held reads (cluster detail, node groups, nodes, events) need a populated cluster; kubeconfig needs its own design |
-| `docs/design/server-services.md` | Snapshot policy reads shipped | Snapshot history and scheduled operations need populated evidence |
-| `docs/design/backup-services.md` | First release shipped | Policy detail, server and destination inventory, points, and history need their evidence checks |
-| `docs/design/network-services.md` | Draft | NAT and VPN models need populated evidence |
-| `docs/design/database-services.md` | Draft | vDB models need populated evidence |
-
-Read discovery never authorizes activation, purchase, or resource creation. A held read that needs a paid resource for evidence needs the owner's approval first. The discovery captures were deleted after the three first releases took their fixtures.
+Read discovery never authorizes activation, purchase, or resource creation. Evidence work that needs a paid resource requires scoped owner approval under the [live-data rules](../../instructions/live-data.md). The manager alone performs authorized live verification under the [testing rules](../../instructions/testing.md#live-verification). [Release notes](../../RELEASE_NOTES.md) retain versioned facts; these checkboxes do not assert a new live check or release approval.
