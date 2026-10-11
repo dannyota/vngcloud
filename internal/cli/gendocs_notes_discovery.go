@@ -18,3 +18,15 @@ const storageDiscoveryNote = discoveryOutputNote + " QuotaGB 0 uses the monthly 
 	"Type is an exact catalog name. Region is a JSON-only storage region override; the global " +
 	"--region still configures vServer. The default for hcm-3 is HCM04. PAYG, egress, and request " +
 	"charges are excluded. Published egress rules conflict, so those costs remain unknown."
+
+const computeDiscoveryNote = discoveryOutputNote + " Family, platform, and name are exact matches. " +
+	"RAM bounds compare raw catalog memory with unknown units. Use --sort-by ram for raw RAM " +
+	"or unit-price for the raw RAM rate. GiB values remain unknown. Each quote reports only " +
+	"the INSTANCE TYPE component of its recorded supported unlicensed Ubuntu reference and " +
+	"3000 IOPS root configuration. Root disks, data disks, CES, licensing, IPs, bandwidth, " +
+	"traffic, snapshots, backups, and NAT are excluded. Disabled zones remain inapplicable; " +
+	"sold-out flavors remain visible unless --available-only. Missing reference support " +
+	"leaves unknown prices. A refused reference fails without fallback. Non-public populated " +
+	"custom and GPU branches remain fixture-gated."
+
+func init() { docOpNotes["compute list-flavor-prices"] = computeDiscoveryNote }

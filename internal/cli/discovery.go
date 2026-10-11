@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/volume"
@@ -24,7 +25,11 @@ func discoveryRead[C, In, Out any](name string, method func(*C, context.Context,
 		return method(client, ctx, in.(*In))
 	}
 	op.extraFlags = func(cmd *cobra.Command) {
-		cmd.Flags().String("sort-by", "", "sort by name, monthly-price, or unit-price")
+		sortHelp := "sort by name, monthly-price, or unit-price"
+		if name == "list-flavor-prices" {
+			sortHelp = "sort by name, ram, monthly-price, or unit-price"
+		}
+		cmd.Flags().String("sort-by", "", sortHelp)
 		cmd.Flags().Bool("descending", false, "sort known values in descending order")
 	}
 	return op
@@ -32,6 +37,9 @@ func discoveryRead[C, In, Out any](name string, method func(*C, context.Context,
 
 func validateDiscoverySort(cmd *cobra.Command) error {
 	key, _ := cmd.Flags().GetString("sort-by")
+	if key == "ram" && cmd.Parent().Name() == "compute" {
+		return nil
+	}
 	if key != "" && key != "name" && key != "monthly-price" && key != "unit-price" {
 		return newUsageError("--sort-by must be name, monthly-price, or unit-price")
 	}
@@ -69,8 +77,33 @@ func storageDiscoveryCompare(a, b storage.StoragePrice) int {
 	return cmp.Or(cmp.Compare(a.Region, b.Region), cmp.Compare(a.Type, b.Type), cmp.Compare(a.TypeID, b.TypeID), cmp.Compare(a.PurchaseTypeID, b.PurchaseTypeID))
 }
 
+func computeDiscoveryCompare(a, b compute.FlavorPrice) int {
+	return cmp.Or(cmp.Compare(a.ZoneID, b.ZoneID), cmp.Compare(a.Family, b.Family), cmp.Compare(a.Platform, b.Platform), cmp.Compare(a.Flavor.Memory, b.Flavor.Memory), cmp.Compare(a.Flavor.CPU, b.Flavor.CPU), cmp.Compare(a.Flavor.FlavorID, b.Flavor.FlavorID))
+}
+
 func sortDiscovery(out any, key string, descending bool) {
 	switch out := out.(type) {
+	case *compute.ListFlavorPricesOutput:
+		slices.SortStableFunc(out.Items, func(a, b compute.FlavorPrice) int {
+			result := 0
+			switch key {
+			case "name":
+				result = cmp.Compare(a.Flavor.Name, b.Flavor.Name)
+				if descending {
+					result = -result
+				}
+			case "ram":
+				result = cmp.Compare(a.Flavor.Memory, b.Flavor.Memory)
+				if descending {
+					result = -result
+				}
+			case "monthly-price":
+				result = numericDiscoveryCompare(a.Price.MonthlyPrice, b.Price.MonthlyPrice, descending)
+			case "unit-price":
+				result = numericDiscoveryCompare(a.PricePerRAMUnit, b.PricePerRAMUnit, descending)
+			}
+			return cmp.Or(result, computeDiscoveryCompare(a, b))
+		})
 	case *volume.ListVolumePricesOutput:
 		slices.SortStableFunc(out.Items, func(a, b volume.VolumePrice) int {
 			result := 0
@@ -129,6 +162,20 @@ func renderDiscovery(stdout, stderr io.Writer, format, query string, out any) er
 	var metadata pricing.DiscoveryMetadata
 	rows := []any{}
 	switch out := out.(type) {
+	case *compute.ListFlavorPricesOutput:
+		metadata = out.Metadata
+		for _, row := range out.Items {
+			imageID, imageType, imageVersion, diskID, diskSize := "unknown", "unknown", "unknown", "unknown", "unknown"
+			if row.Reference != nil {
+				imageID = row.Reference.ImageID
+				imageType = row.Reference.ImageType
+				imageVersion = row.Reference.ImageVersion
+				diskID = row.Reference.RootDiskTypeID
+				diskSize = strconv.Itoa(row.Reference.RootDiskSizeGB)
+			}
+			rows = append(rows, map[string]any{"Region": metadata.Region, "ZoneID": row.ZoneID, "ZoneName": row.ZoneName, "ZoneEnabled": discoveryEnabled(row.ZoneEnabled), "Family": row.Family, "FamilyName": row.FamilyName, "Platform": row.Platform, "Visibility": row.Visibility, "FlavorID": row.Flavor.FlavorID, "FlavorZoneID": row.Flavor.FlavorZoneID, "Name": row.Flavor.Name, "CPU": row.Flavor.CPU, "RAM": row.Flavor.Memory, "RAMUnit": discoveryText(row.RAMUnit), "RAMGiB": discoveryAmount(row.RAMGiB), "IsSoldOut": row.Flavor.IsSoldOut, "RemainingVMs": row.Flavor.RemainingVMs, "Status": row.Price.Status, "Source": row.Price.Source, "MonthlyPrice": discoveryAmount(row.Price.MonthlyPrice), "PricePerRAMUnit": discoveryAmount(row.PricePerRAMUnit), "PricePerGiB": discoveryAmount(row.PricePerGiB), "Currency": discoveryText(row.Price.Currency), "Tax": discoveryText(row.Price.Tax), "ImageID": imageID, "ImageType": imageType, "ImageVersion": imageVersion, "RootDiskTypeID": diskID, "RootDiskSizeGB": diskSize})
+		}
+
 	case *volume.ListVolumePricesOutput:
 		metadata = out.Metadata
 		for _, row := range out.Items {

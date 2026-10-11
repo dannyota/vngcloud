@@ -224,6 +224,31 @@ keys are accepted: ed25519 and ECDSA keys are refused by the server with 400
 vngcloud compute import-ssh-key --name <name> --public-key <public-key>
 ```
 
+## list-flavor-prices
+
+Kind: Read.
+
+Returns Items and Metadata for account-scoped monthly quotes. Unknown costs remain null in JSON and print unknown in table/text. Price per GB is the effective rate at the quoted size, not a marginal tariff. Table/text notes print on stderr. With --allow-partial, incomplete output prints before the error and exits 1, even with --query. Sort before queries with --sort-by name, monthly-price, or unit-price and --descending. Unknown numeric values sort last in either direction. Default MaxRequests is 500 (range 1..2000). Catalog reads and quotes run serially with a ten-minute child deadline and at least 500 ms between request starts. Quotes reserve no future price or capacity. Family, platform, and name are exact matches. RAM bounds compare raw catalog memory with unknown units. Use --sort-by ram for raw RAM or unit-price for the raw RAM rate. GiB values remain unknown. Each quote reports only the INSTANCE TYPE component of its recorded supported unlicensed Ubuntu reference and 3000 IOPS root configuration. Root disks, data disks, CES, licensing, IPs, bandwidth, traffic, snapshots, backups, and NAT are excluded. Disabled zones remain inapplicable; sold-out flavors remain visible unless --available-only. Missing reference support leaves unknown prices. A refused reference fails without fallback. Non-public populated custom and GPU branches remain fixture-gated.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--zone-id` | `string` |  |
+| `--family` | `string` |  |
+| `--platform` | `string` |  |
+| `--name` | `string` |  |
+| `--min-ram` | `int64` |  |
+| `--max-ram` | `int64` |  |
+| `--include-non-public` | `bool` |  |
+| `--available-only` | `bool` |  |
+| `--max-requests` | `int` |  |
+| `--allow-partial` | `bool` |  |
+| `--descending` | `bool` |  |
+| `--sort-by` | `string` |  |
+
+```sh
+vngcloud compute list-flavor-prices
+```
+
 ## list-flavor-zones
 
 Kind: Read.

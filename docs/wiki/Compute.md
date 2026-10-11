@@ -93,6 +93,80 @@ flavor zones stays two rows, and sold-out flavors stay in the list with
 `IsSoldOut` true. The first failing request ends the call with its error
 and no rows.
 
+## Monthly flavor prices
+
+`ListFlavorPrices` compares the instance component of a reference server:
+
+```go
+prices, err := client.ListFlavorPrices(ctx, &compute.ListFlavorPricesInput{
+ Family:      "general-purpose",
+ Platform:    "code-s2",
+ Name:        "s2-general-1x2",
+ MaxRequests: 100,
+})
+```
+
+Nil input uses defaults. `ZoneID` selects one returned zone; empty selects all
+zones in the configured region. `Family`, `Platform`, and `Name` match exactly,
+with case preserved. Unknown filters return an empty complete list. An unknown
+explicit zone fails with `vngcloud.ErrInvalidInput`. `MinRAM` and `MaxRAM` bound
+raw integer memory; zero means unbounded. Negative or conflicting bounds fail
+before requests. RAM's byte unit is unverified: `RAMUnit` is `unknown`, and
+`RAMGiB` and `PricePerGiB` remain nil.
+
+Each `FlavorPrice` preserves the catalog `Flavor`, family, platform, zone, and
+visibility. Family types do not establish a flavor-to-type join. Disabled zones
+remain `inapplicable` without quotes. Sold-out rows remain visible unless
+`AvailableOnly` requests rows that are not sold out and have positive remaining
+VMs. Catalog visibility and remaining VMs promise no sale eligibility or future
+capacity. `IncludeNonPublic` reads product and custom catalogs; populated custom
+and GPU branches remain gated on matching fixtures. Conflicting legacy zone IDs
+fail rather than being reassigned. `ExcludedGroups` remains nil when the product
+catalog was not read.
+
+`Reference` records a supported unlicensed Ubuntu image and a bounded 3000 IOPS
+root disk. Image support must match the flavor's metadata exactly. Missing or
+unusable support, licence, or package limits cannot justify a reference. Eligible
+pairs sort by root size, then bytewise image version, image ID, and disk type ID.
+Image-zone metadata does not prove compatibility; the quote validates the pair.
+No candidate leaves `Status=unknown` and nil reference. A refused reference fails
+without trying another candidate. Discovery never returns image licence keys.
+
+`MonthlyPrice` comes only from the matching positive `INSTANCE TYPE` line, with
+`Basis=instance-type-line`, VND, and tax as returned. Root totals, data disks,
+CES, licensing, IPs, bandwidth, traffic, snapshots, backups, and NAT are excluded.
+`PricePerRAMUnit` divides that component by positive raw memory. Original and
+discount totals stay nil; a present instance-line discount percentage is kept.
+Use [server quotes](Compute-Servers.md#creating-starting-stopping-rebooting-and-deleting-servers) for a full server.
+
+Output contains `Items` and account-scoped `Metadata`. SDK rows sort by zone,
+family, platform, raw RAM, CPU, and flavor ID. `QuotedAt` is UTC completion time.
+The default `MaxRequests` is 500, with range 1..2000. Catalog reads count too;
+preflight refuses the entire quote phase when distinct bodies cannot fit.
+Requests run serially at least 500 ms apart with a ten-minute child deadline.
+Shared authentication or project waits may outlast the deadline; cancellation
+stops work after the wait ends. Catalogs and successful quotes are reused only
+within one invocation.
+
+Without `AllowPartial`, a failure returns nil output and the original error.
+With `AllowPartial`, independently validated rows survive and the error matches
+`pricing.ErrDiscoveryIncomplete`. Failures before any usable row still return
+nil and the cause. Authentication failure, exhausted throttling, and cancellation
+stop scheduling. `errors.As` retains the underlying `*vngcloud.APIError`.
+
+```sh
+vngcloud --region hcm-3 --read-only compute list-flavor-prices \
+  --family general-purpose --platform code-s2 --name s2-general-1x2 \
+  --max-requests 100 --sort-by unit-price
+```
+
+The command supports `--sort-by name`, `ram`, `monthly-price`, and `unit-price`,
+plus `--descending`. Unit-price sorts use raw RAM rates; unknown numeric values
+sort last in either direction. Sorting runs before `--query`. JSON preserves
+`Items`, `Metadata`, and nulls. Table/text show reference inputs and unknown GiB
+rates; notes print on stderr. Incomplete partial output prints before the error
+and exits 1 even when a query hides metadata. Complete discovery exits 0.
+
 ## Creating, updating, and deleting server groups
 
 ```go

@@ -10,6 +10,9 @@ import (
 func showCompute(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	computeClient := compute.New(cfg)
 
+	flavorPrices, err := computeClient.ListFlavorPrices(ctx, &compute.ListFlavorPricesInput{Family: "general-purpose", Platform: "code-s2", Name: "s2-general-1x2", MaxRequests: 100})
+	recordOne(outputs, cfg, "server/flavor_prices", "flavor prices", flavorPrices, err)
+
 	servers, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]compute.Server, int, error) {
 		out, err := computeClient.ListServers(ctx, &compute.ListServersInput{Page: page, Size: size})
 		if err != nil {

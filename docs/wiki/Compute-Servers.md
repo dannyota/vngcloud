@@ -34,6 +34,13 @@ HTTP decompression. A larger body returns `*vngcloud.APIError` with code
 `RequestFailed`. The SDK refuses redirects and uses normal GET retries and
 cancellation. See [Errors](Errors.md) for status errors.
 
+`ListFlavorPrices` compares only the instance component of a supported Ubuntu
+reference server. It excludes the root disk and all other server costs. See
+[monthly flavor prices](Compute.md#monthly-flavor-prices) for discovery inputs,
+reference selection, unknown RAM units, and partial output. `QuoteCreateServer`
+prices the actual configuration; discovery does not replace the paid create's
+fresh price guard.
+
 ## Creating, starting, stopping, rebooting, and deleting servers
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see

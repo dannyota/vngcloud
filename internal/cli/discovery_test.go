@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/volume"
@@ -117,3 +118,49 @@ func TestDiscoverySortBeforeQueryAndRenderFailure(t *testing.T) {
 type discoveryFailWriter struct{}
 
 func (discoveryFailWriter) Write([]byte) (int, error) { return 0, errors.New("writer failed") }
+
+func TestComputeDiscoverySortUnknownLastAndUnrounded(t *testing.T) {
+	for _, descending := range []bool{false, true} {
+		low, high := 1.001, 1.002
+		out := &compute.ListFlavorPricesOutput{Items: []compute.FlavorPrice{{Flavor: compute.Flavor{Name: "unknown"}}, {Flavor: compute.Flavor{Name: "high"}, PricePerRAMUnit: &high}, {Flavor: compute.Flavor{Name: "low"}, PricePerRAMUnit: &low}}}
+		sortDiscovery(out, "unit-price", descending)
+		want := "low"
+		if descending {
+			want = "high"
+		}
+		if out.Items[0].Flavor.Name != want || out.Items[2].Flavor.Name != "unknown" {
+			t.Fatalf("rows %+v", out.Items)
+		}
+		var stdout, stderr bytes.Buffer
+		if err := renderDiscovery(&stdout, &stderr, "json", "Items[0].Flavor.Name", out); err != nil || !strings.Contains(stdout.String(), want) {
+			t.Fatalf("output %s error %v", &stdout, err)
+		}
+	}
+}
+
+func TestGoldenComputeDiscovery(t *testing.T) {
+	amount, rate := 283800.0, 141900.0
+	out := &compute.ListFlavorPricesOutput{Items: []compute.FlavorPrice{{Flavor: compute.Flavor{FlavorID: "flavor-1", FlavorZoneID: "fz-1", Name: "small", CPU: 1, Memory: 2, RemainingVMs: 1}, ZoneID: "zone-1", ZoneName: "Zone", ZoneEnabled: vngcloud.Ptr(true), Family: "general-purpose", FamilyName: "General Purpose", Platform: "code-s2", Visibility: "console-family", RAMUnit: "unknown", Reference: &compute.FlavorPriceReference{ImageID: "image-1", ImageType: "Ubuntu", ImageVersion: "22.04", RootDiskTypeID: "disk-1", RootDiskSizeGB: 20}, PricePerRAMUnit: &rate, Price: pricing.DiscoveryPrice{Status: "quoted", Basis: "instance-type-line", Currency: "VND", Tax: "as-returned", Source: "pricing.GetQuote", MonthlyPrice: &amount}}}, Metadata: pricing.DiscoveryMetadata{Region: "hcm-3", Complete: true, Requests: 8, QuotedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Failures: []pricing.DiscoveryFailure{}, Notes: []pricing.PricingNote{}}}
+	for _, format := range []string{"json", "table", "text"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if err := renderDiscovery(&stdout, &stderr, format, "", out); err != nil {
+				t.Fatal(err)
+			}
+			path := goldenPath("compute-list-flavor-prices." + format + ".golden")
+			if *updateGolden {
+				if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(stdout.Bytes(), want) {
+				t.Fatalf("golden mismatch %s: %s", path, &stdout)
+			}
+		})
+	}
+}

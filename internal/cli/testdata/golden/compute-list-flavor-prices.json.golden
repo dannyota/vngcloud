@@ -1,0 +1,60 @@
+{
+  "Items": [
+    {
+      "Flavor": {
+        "Bandwidth": 0,
+        "BandwidthUnit": "",
+        "CPU": 1,
+        "CPUPlatformDescription": "",
+        "FlavorID": "flavor-1",
+        "FlavorZoneID": "fz-1",
+        "GPU": 0,
+        "Group": "",
+        "IsSoldOut": false,
+        "Memory": 2,
+        "Metadata": "",
+        "Name": "small",
+        "RemainingVMs": 1,
+        "ZoneID": ""
+      },
+      "ZoneID": "zone-1",
+      "ZoneName": "Zone",
+      "Family": "general-purpose",
+      "FamilyName": "General Purpose",
+      "Platform": "code-s2",
+      "Visibility": "console-family",
+      "RAMUnit": "unknown",
+      "ZoneEnabled": true,
+      "RAMGiB": null,
+      "PricePerGiB": null,
+      "PricePerRAMUnit": 141900,
+      "Reference": {
+        "ImageID": "image-1",
+        "ImageType": "Ubuntu",
+        "ImageVersion": "22.04",
+        "RootDiskTypeID": "disk-1",
+        "RootDiskSizeGB": 20
+      },
+      "Price": {
+        "Status": "quoted",
+        "Basis": "instance-type-line",
+        "Currency": "VND",
+        "Tax": "as-returned",
+        "Source": "pricing.GetQuote",
+        "MonthlyPrice": 283800,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      }
+    }
+  ],
+  "Metadata": {
+    "Region": "hcm-3",
+    "Complete": true,
+    "Requests": 8,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [],
+    "ExcludedGroups": null
+  }
+}

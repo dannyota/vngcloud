@@ -33,6 +33,7 @@ const secretFileCleanupDeleteTimeout = 10 * time.Second
 // other CreateServerInput field, SecurityGroupIDs (a repeatable
 // --security-group-id) included, gets its usual flag.
 var computeOps = []Op[compute.Client]{
+	discoveryRead("list-flavor-prices", (*compute.Client).ListFlavorPrices),
 	serverConsoleLogOp(),
 	Read[compute.Client, compute.ListServersInput, compute.ListServersOutput](
 		kebab("ListServers"), (*compute.Client).ListServers),
@@ -103,7 +104,7 @@ func newComputeCmd(e *env) *cobra.Command {
 	cmd := Service(e, "compute", "Servers, images, and SSH keys", compute.New, computeOps...)
 	for _, child := range cmd.Commands() {
 		switch child.Name() {
-		case "create-server", "quote-create-server", "import-ssh-key":
+		case "create-server", "quote-create-server", "import-ssh-key", "list-flavor-prices":
 			child.Long = docOpNotes["compute "+child.Name()]
 		}
 	}
