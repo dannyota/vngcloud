@@ -2,7 +2,8 @@
 
 ## APIError
 
-Every failed call to the API returns `*vngcloud.APIError`:
+Product API failures return `*vngcloud.APIError`. Login failures use the
+login error types below:
 
 ```go
 type APIError struct {
@@ -126,6 +127,37 @@ if errors.As(err, &loginErr) {
 }
 ```
 
+## ServiceAccountLoginError
+
+Service-account exchange failures return `*vngcloud.ServiceAccountLoginError`:
+
+```go
+type ServiceAccountLoginError struct {
+    Status int
+    Reason string
+    Err    error
+}
+```
+
+`errors.As` identifies the type. `Status` records the HTTP status, or zero
+when no response exists. `Reason` uses only these fixed strings:
+
+- `token request failed`
+- `token endpoint redirected request`
+- `token endpoint rejected request`
+- `invalid token response`
+
+`Err` holds only `vngcloud.ErrAuth`, or the caller's context error when the
+caller cancels or reaches its deadline. An internal HTTP timeout still
+matches `ErrAuth`. No body, server code or message, header, URL, transport
+cause, or decoder cause enters the error or its unwrap chain. Invalid
+selected credentials fail before requests with `ErrInvalidConfig`.
+
+`vngcloud.ErrTokenCache` has the fixed text `vngcloud: token cache unavailable`.
+It identifies service-account cache availability failures and matches
+neither `ErrAuth` nor `ErrInvalidConfig`. Cache support is separate from
+memory token reuse.
+
 ## Logging
 
 `vngcloud.WithLogger(logger *slog.Logger)` is the only way to get logs from
@@ -137,6 +169,8 @@ the SDK; without it, nothing is logged. With it, at Debug level:
 - An IAM User login logs `login started` before the attempt and
   `login finished` with `ok` (`true` or `false`) after. Login's own HTTP
   requests are not logged as `request` records.
+- A service-account exchange logs `exchange started` and `exchange finished`
+  with `ok`. Its HTTP request never enters logs or response capture.
 
 Nothing else is logged: no body, header, cookie, token, root email,
 authorization code, or credential.

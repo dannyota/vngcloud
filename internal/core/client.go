@@ -86,7 +86,11 @@ func buildClient(settings clientConfig) (*Client, error) {
 		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
 	}
 	if settings.credentials == nil && settings.staticToken == "" {
-		if err := settings.iamUser.validate(); err != nil {
+		if settings.serviceAccount != nil {
+			if err := settings.serviceAccount.validate(); err != nil {
+				return nil, err
+			}
+		} else if err := settings.iamUser.validate(); err != nil {
 			return nil, err
 		}
 	}
@@ -105,6 +109,8 @@ func buildClient(settings clientConfig) (*Client, error) {
 		ts = settings.credentials
 	case settings.staticToken != "":
 		ts = staticTokenSource(settings.staticToken)
+	case settings.serviceAccount != nil:
+		ts = newServiceAccountTokenSource(settings.serviceAccount, settings.timeout, logger, settings.serviceAccountTransport, settings.serviceAccountClock)
 	default:
 		source := &iamTokenSource{auth: settings.iamUser, logger: logger, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
@@ -151,7 +157,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	})
 
 	c := &Client{
-		iamUserLogin:     settings.credentials == nil && settings.staticToken == "",
+		iamUserLogin:     settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount == nil,
 		storageTestClock: settings.storageTestClock,
 		region:           settings.region,
 		vnetworkOverride: settings.endpoints.VNetwork != "",

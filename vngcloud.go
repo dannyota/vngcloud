@@ -25,6 +25,7 @@ type ResponseCaptureFunc = core.ResponseCaptureFunc
 
 type APIError = core.APIError
 type LoginError = core.LoginError
+type ServiceAccountLoginError = core.ServiceAccountLoginError
 
 const (
 	DefaultPage     = core.DefaultPage
@@ -33,6 +34,7 @@ const (
 
 var (
 	ErrAuth             = core.ErrAuth
+	ErrTokenCache       = core.ErrTokenCache
 	ErrNotFound         = core.ErrNotFound
 	ErrPermission       = core.ErrPermission
 	ErrRateLimited      = core.ErrRateLimited

@@ -5,9 +5,10 @@ import (
 	"fmt"
 )
 
-// Config is a resolved configuration built by NewConfig. Every service client
-// built from one Config shares its token and project discovery, so a program
-// logs in once; two logins inside one TOTP window would fail.
+// Config is a resolved configuration built by NewConfig. Services built
+// from one Config share token and project discovery state. Separate
+// service-account configs keep separate memory tokens, even when built
+// from the same option.
 type Config struct {
 	client *Client
 }

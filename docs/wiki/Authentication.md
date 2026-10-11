@@ -1,8 +1,8 @@
 # Authentication
 
-The SDK logs in as an IAM User, uses a static bearer token, or takes tokens
-from a custom `CredentialsProvider`. It does not support root-account or
-service-account login.
+The SDK logs in as an IAM User or service account, uses a static bearer
+token, or takes tokens from a custom `CredentialsProvider`. It does not
+support root-account login.
 
 ## IAM User
 
@@ -35,13 +35,73 @@ token cause at most one new login; the rest reuse it once it is ready.
 
 A request that needs authentication, including the retry after a 401, is
 never sent without a token: if the token source (an `IAMUserAuth`, a static
-token, or a `CredentialsProvider`) has none to give, the call fails with
+token, a service account, or a `CredentialsProvider`) has none to give, the
+call fails with
 `vngcloud.ErrAuth` before anything goes out.
 
 A failed IAM User login itself, from `cfg.Authenticate(ctx)` or the first
 call that needs a token, returns `*vngcloud.LoginError` rather than a bare
 `vngcloud.ErrAuth`; see [Errors](Errors.md#loginerror) for its fields and
 what it never exposes.
+
+## Service account
+
+Pass machine credentials to `NewConfig`:
+
+```go
+cfg, err := vngcloud.NewConfig(
+    vngcloud.WithRegion("hcm-3"),
+    vngcloud.WithProjectID("<project-id>"),
+    vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{
+        ClientID: "<client-id>",
+        ClientSecret: vngcloud.Secret("<client-secret>"),
+    }),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := cfg.Authenticate(ctx); err != nil {
+    log.Fatal(err)
+}
+```
+
+`NewConfig` stays offline. Login occurs on the first authenticated request,
+unless `Authenticate` runs it first. The option copies both fields when you
+build it. Changing the input struct later does not change the identity.
+Nil is unset; a non-nil value requires both fields. Values must contain no
+whitespace or control characters and must fit within 4096 bytes. A client
+ID cannot contain a colon. The SDK does not trim values or require UUIDs.
+Only the selected method is validated; login failures never select another
+method.
+
+Services built from one config share memory tokens. Separate configs keep
+separate memory tokens, even when they reuse the same option. The SDK uses
+the returned token lifespan, measured from request start, with a 30-second
+refresh margin. Service-account tokens follow the same exact-token,
+30-second rejection rule as IAM-user tokens. A future obtain time also
+permits invalidation. A 403 never triggers a refresh. Requests marked to
+send once never resend after a 401.
+
+The token exchange uses a fixed HTTPS endpoint with Basic auth and a JSON
+client-credentials grant. It sends once, follows no redirects, keeps TLS
+verification enabled, and uses no cookie jar or response capture. Public
+HTTP clients, transports, retries, and endpoint overrides affect product
+requests but never receive service-account secrets. A positive
+`WithTimeout` applies; otherwise the exchange uses 120 seconds. Caller
+cancellation and deadlines bound the exchange. A canceled caller waiting
+for a shared refresh lock may wait for the active exchange to finish,
+then fails without sending or changing token state.
+
+Failed exchanges return
+[`ServiceAccountLoginError`](Errors.md#serviceaccountloginerror).
+`Secret` redacts normal formatting and encoding; its documented `%p`, gob,
+reflection, and explicit-conversion limits still apply. Authentication
+never grants policies or changes product permission checks. NAT
+create/delete still require IAM-user login in Hanoi.
+
+Rotate credentials by rebuilding configs and restarting consumers. Issued
+tokens may remain usable until expiry; replacing a secret does not promise
+immediate revocation or automatic removal of old tokens.
 
 ## Two-factor codes (TOTP)
 
@@ -119,11 +179,13 @@ cfg, err := vngcloud.NewConfig(
 ```
 
 A `CredentialsProvider` wins over `WithStaticToken`, which wins over
-`WithIAMUser`. Setting more than one is not an error; only the
+`WithServiceAccount`, which wins over `WithIAMUser`. Setting more than one
+is not an error; only the
 highest-precedence one is used.
 
 ## Permissions
 
-The SDK can do only what the IAM User's policies allow. For full access, grant
+The SDK can do only what the selected identity's policies allow. For full
+access, grant
 the IAM User broad policies in the console instead of using the root account.
 The root sign-in page requires a Google reCAPTCHA, so it cannot be automated.

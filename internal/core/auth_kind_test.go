@@ -10,6 +10,7 @@ func TestIAMUserLoginProvenance(t *testing.T) {
 		want bool
 	}{
 		{"IAM", []Option{WithIAMUser(auth)}, true},
+		{"service account overrides IAM", []Option{WithIAMUser(auth), WithServiceAccountCredentials("client", "secret", true)}, false},
 		{"static overrides IAM", []Option{WithIAMUser(auth), WithStaticToken("synthetic-token")}, false},
 		{"custom overrides IAM", []Option{WithIAMUser(auth), WithCredentialsProvider(&fakeCredentialsProvider{})}, false},
 	} {

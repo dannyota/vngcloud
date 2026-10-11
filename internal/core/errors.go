@@ -10,6 +10,8 @@ import (
 )
 
 var (
+	// ErrTokenCache reports service-account cache availability failures without paths or causes.
+	ErrTokenCache       = errors.New("vngcloud: token cache unavailable")
 	ErrAuth             = errors.New("vngcloud: authentication failed")
 	ErrNotFound         = errors.New("vngcloud: resource not found")
 	ErrPermission       = errors.New("vngcloud: permission denied")
@@ -175,3 +177,21 @@ func (e *LoginError) Error() string {
 }
 
 func (e *LoginError) Unwrap() error { return e.Err }
+
+// ServiceAccountLoginError describes a failed private token exchange. Reason
+// contains fixed text; Err holds only ErrAuth or the caller's context error.
+// No peer body, header, URL, transport error, or decode error is retained.
+type ServiceAccountLoginError struct {
+	Status int
+	Reason string
+	Err    error
+}
+
+func (e *ServiceAccountLoginError) Error() string {
+	if e.Status > 0 {
+		return fmt.Sprintf("%s (status %d)", e.Reason, e.Status)
+	}
+	return e.Reason
+}
+
+func (e *ServiceAccountLoginError) Unwrap() error { return e.Err }

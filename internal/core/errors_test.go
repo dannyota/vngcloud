@@ -220,3 +220,22 @@ func TestCertificateFailureDescriptions(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceAccountLoginErrorMessageAndUnwrap(t *testing.T) {
+	for _, cause := range []error{ErrAuth, context.Canceled, context.DeadlineExceeded} {
+		login := &ServiceAccountLoginError{Status: 401, Reason: "token endpoint rejected request", Err: cause}
+		if !errors.Is(login, cause) || login.Error() != "token endpoint rejected request (status 401)" {
+			t.Fatalf("error identity/text: %v", login)
+		}
+		var found *ServiceAccountLoginError
+		if !errors.As(login, &found) || found != login {
+			t.Fatal("error type lost")
+		}
+	}
+	if got := (&ServiceAccountLoginError{Reason: "token request failed", Err: ErrAuth}).Error(); got != "token request failed" {
+		t.Fatal(got)
+	}
+	if ErrTokenCache.Error() != "vngcloud: token cache unavailable" || errors.Is(ErrTokenCache, ErrAuth) || errors.Is(ErrTokenCache, ErrInvalidConfig) || errors.Unwrap(ErrTokenCache) != nil {
+		t.Fatal("cache error exposes another cause")
+	}
+}

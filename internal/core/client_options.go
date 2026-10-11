@@ -53,6 +53,7 @@ type clientConfig struct {
 	region          string
 	projectID       string
 	iamUser         *IAMUserAuth
+	serviceAccount  *serviceAccountCredentials
 	credentials     CredentialsProvider
 	tokenCacheDir   string
 	profile         string
@@ -60,7 +61,9 @@ type clientConfig struct {
 	credentialsFile string
 	cdnAPIKey       *cdnKey
 
-	storageTestClock func() time.Time
+	storageTestClock        func() time.Time
+	serviceAccountTransport http.RoundTripper
+	serviceAccountClock     func() time.Time
 }
 
 type ResponseCapture struct {
@@ -157,8 +160,8 @@ func WithProjectID(projectID string) Option {
 	})
 }
 
-// WithIAMUser sets the IAM User credentials used to log in. Not required when
-// WithStaticToken or WithCredentialsProvider is set.
+// WithIAMUser sets the IAM User credentials used to log in. Not required
+// when a provider, static token, or service account is selected.
 func WithIAMUser(auth *IAMUserAuth) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.iamUser = auth
@@ -166,8 +169,8 @@ func WithIAMUser(auth *IAMUserAuth) Option {
 }
 
 // WithCredentialsProvider sets a custom source of access tokens. It wins
-// over WithStaticToken, which wins over WithIAMUser; setting more than one
-// is not an error, only the highest-precedence one is used.
+// over static tokens, service accounts, and IAM users, in that order.
+// Setting more than one is legal; only the selected method is used.
 func WithCredentialsProvider(p CredentialsProvider) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.credentials = p
