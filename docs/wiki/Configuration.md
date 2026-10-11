@@ -101,6 +101,56 @@ that appears in neither file is an error naming it. The
 credentials file has no access token key: a static token comes only from
 `WithStaticToken` or `VNGCLOUD_ACCESS_TOKEN`.
 
+### Service-account profile
+
+Create the account with a trusted IAM-user provisioner and a new private
+secret-file path:
+
+```sh
+vngcloud --profile provisioner iam create-service-account \
+  --name <name> --secret-file /private/new-secret
+```
+
+The create response supplies the ID and secret. The confirm read supplies
+`ServiceAccount.ClientID`. If confirmation fails, the CLI keeps the account
+and writes the returned secret; recover ClientID with
+`iam get-service-account --service-account-id <id>`. Do not create again.
+If no secret was returned, use the existing reset command. Secret files
+use exclusive mode 0600 creation and refuse existing paths and symlinks.
+Keep the existing command's recovery instructions if file writing fails.
+
+Use a fresh profile to avoid leftover IAM credentials:
+
+```sh
+vngcloud --profile machine configure set region hcm-3
+vngcloud --profile machine configure set project_id <project-id>
+vngcloud --profile machine configure set client_id <client-id>
+vngcloud --profile machine configure set client_secret - < /private/new-secret
+vngcloud --profile machine configure set read_only 1
+```
+
+`client_secret` accepts piped stdin only, never argv or `--cli-input-json`.
+Stdin has a 4096-byte bound and drops one trailing LF or CRLF. A terminal
+on stdin is refused. `configure get` and `configure list` mask the secret;
+client ID may print but remains account data. Interactive `configure`
+keeps its IAM-user prompt order and does not ask for these two keys.
+
+Set `read_only` last. The profile latch refuses later configure writes,
+including rotation. A trusted editor or provisioner must replace the
+protected credentials after the trusted IAM-user provisioner runs:
+
+```sh
+vngcloud --profile provisioner iam reset-service-account-secret \
+  --service-account-id <id> --yes --secret-file /private/replacement-secret
+```
+
+Rebuild SDK configs and restart consumers after replacing credentials.
+Old processes can keep issued tokens and old cache entries, then fail when
+they need to exchange the old secret. The new secret selects a fresh cache
+entry. Rotation does not purge entries or promise immediate revocation of
+issued tokens. See [Authentication](Authentication.md#disk-cache-and-rotation)
+and [IAM commands](CLI-IAM.md#create-service-account).
+
 ### vCDN API key
 
 The `cdn` package's vCDN calls take an API key, not an IAM token. The key
@@ -259,8 +309,10 @@ retryable.
 ## Token cache
 
 `vngcloud.WithTokenCache(dir)` turns on an on-disk token cache shared across
-processes, so a program run repeatedly, or several programs sharing one
-profile, log in only once per token lifetime instead of once per process:
+processes. The CLI enables ~/.vngcloud/cache by default when a home
+directory exists; the SDK enables disk caching only with this option. A
+program run repeatedly, or several programs sharing one
+profile, can reuse a token instead of logging in once per process:
 
 ```go
 cfg, err := vngcloud.NewConfig(
@@ -299,9 +351,10 @@ at least 30 seconds ago, and writes the result back, so two processes
 sharing one profile never log in with the same TOTP code. The lock is tried
 without blocking, then retried with backoff until the call's context ends;
 a lock file is never deleted, and a failed cache write after a successful
-IAM login still returns the fresh token. Service-account cache access and
-persistence failures return `vngcloud.ErrTokenCache`, without falling back
-to an uncached exchange. On Linux, macOS, and the BSDs the lock
+IAM login still returns the fresh token. Service-account cache directory,
+read, and lock failures return `vngcloud.ErrTokenCache`, without falling
+back to an uncached exchange. A cache write failure after a successful
+exchange still returns the fresh token. On Linux, macOS, and the BSDs the lock
 uses `flock`; on Windows it opens the lock file with an exclusive share
 mode. A platform with neither locks within the process only, which still
 avoids duplicate logins from one process but not from several.

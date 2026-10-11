@@ -464,6 +464,13 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, vngcloud.ErrNoCredentials) || errors.Is(err, vngcloud.ErrCredentialsFile) {
 		return errorEnvelope{Code: "NoCredentials", Message: err.Error()}
 	}
+	if errors.Is(err, vngcloud.ErrTokenCache) {
+		return errorEnvelope{Code: "TokenCacheFailed", Message: vngcloud.ErrTokenCache.Error()}
+	}
+	var serviceAccountErr *vngcloud.ServiceAccountLoginError
+	if errors.As(err, &serviceAccountErr) {
+		return errorEnvelope{Code: "ServiceAccountLoginFailed", Message: serviceAccountErr.Error()}
+	}
 	var loginErr *vngcloud.LoginError
 	if errors.As(err, &loginErr) {
 		return errorEnvelope{Code: "LoginFailed", Message: err.Error()}

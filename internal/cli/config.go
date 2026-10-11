@@ -10,13 +10,14 @@ import (
 	"runtime"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 // loadConfig resolves a vngcloud.Config for one operation command, per the
 // CLI design's "Building the Config": --profile, --region, and --project-id
 // are passed only when given, the token cache always points at
-// ~/.vngcloud/cache (or is skipped entirely when the home directory or that
-// directory's permissions are not safe), and a logger is attached only under
+// ~/.vngcloud/cache (or is skipped entirely when the home directory
+// cannot be found), and a logger is attached only under
 // --debug. testOptions, set only from a test, are appended last so a test's
 // endpoint overrides and transport always take effect.
 func loadConfig(ctx context.Context, e *env, logger *slog.Logger) (vngcloud.Config, error) {
@@ -31,10 +32,7 @@ func loadConfig(ctx context.Context, e *env, logger *slog.Logger) (vngcloud.Conf
 		opts = append(opts, vngcloud.WithProjectID(e.flags.projectID))
 	}
 
-	cacheDir, err := tokenCacheDir()
-	if err != nil {
-		return vngcloud.Config{}, err
-	}
+	cacheDir := tokenCachePath()
 	if cacheDir != "" {
 		opts = append(opts, vngcloud.WithTokenCache(cacheDir))
 	}
@@ -45,7 +43,20 @@ func loadConfig(ctx context.Context, e *env, logger *slog.Logger) (vngcloud.Conf
 
 	opts = append(opts, testOptions...)
 
-	return vngcloud.LoadConfig(ctx, opts...)
+	cfg, err := vngcloud.LoadConfig(ctx, opts...)
+	if err != nil {
+		return vngcloud.Config{}, err
+	}
+	if _, err := tokenCacheDir(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return vngcloud.Config{}, ctxErr
+		}
+		if core.UsesServiceAccountLogin(cfg) {
+			return vngcloud.Config{}, vngcloud.ErrTokenCache
+		}
+		return vngcloud.Config{}, err
+	}
+	return cfg, nil
 }
 
 // debugLogger returns a slog.Logger writing Debug-level text records to
@@ -71,19 +82,23 @@ func resolveOutput(flags *globalFlags, cfg vngcloud.Config) string {
 	return "json"
 }
 
-// tokenCacheDir resolves the token cache directory the CLI passes to
-// WithTokenCache: "" (with a nil error) when the home directory cannot be
-// found, so the CLI simply passes no cache, per the CLI design. When the
-// directory already exists, its permissions are checked here, before
-// LoadConfig runs, so an unsafe directory is refused as a config error (exit
-// 2) rather than surfacing later as a plain, unclassified error from deep
-// inside the token cache package.
-func tokenCacheDir() (string, error) {
+// tokenCachePath resolves the default directory without checking or writing
+// it. Auth selection must precede permission checks; no home means no cache.
+func tokenCachePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return "", nil //nolint:nilerr // no home directory means the CLI passes no cache, per the CLI design; not an error
+		return ""
 	}
-	dir := filepath.Join(home, ".vngcloud", "cache")
+	return filepath.Join(home, ".vngcloud", "cache")
+}
+
+// tokenCacheDir retains the existing preflight for all auth kinds. The
+// caller maps a service-account refusal to the fixed cache error boundary.
+func tokenCacheDir() (string, error) {
+	dir := tokenCachePath()
+	if dir == "" {
+		return "", nil
+	}
 
 	info, err := os.Stat(dir)
 	switch {

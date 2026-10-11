@@ -389,7 +389,7 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("```json\n{\"error\":{\"code\":\"NotFound\",\"message\":\"server not found\",\"status\":404,\"operation\":\"compute.GetServer\"}}\n```\n\n")
 	b.WriteString("`status` and `operation` appear only for an API error, whose `code` is the API's own " +
 		"code, or a status-derived fallback code when the API gives none. Every other error names one class: " +
-		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `RequestFailed`, " +
+		"`InvalidUsage`, `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`, `ServiceAccountLoginFailed`, `TokenCacheFailed`, `RequestFailed`, " +
 		"`QueryFailed`, `PageFormat` (a public page, such as the CDN IP range FAQ, no longer matches the " +
 		"shape its parser expects; see [CDN](CDN.md)), `UnexpectedStatus` (a vMonitor check has a status " +
 		"the SDK does not know, so nothing was sent, a network enable-vpc-private-dns read a VPC " +
@@ -532,8 +532,8 @@ func renderCLIPage(services []docService) string {
 func renderConfigureSection() string {
 	var b strings.Builder
 	b.WriteString("## configure\n\n")
-	b.WriteString("`vngcloud configure` prompts for each value below; `configure set <key> <value>`, " +
-		"`configure get <key>`, and `configure list` script the same file edits and reads.\n\n")
+	b.WriteString("`vngcloud configure` keeps its IAM-user prompt order; the table also includes noninteractive keys. `configure set <key> <value>`, " +
+		" `configure get <key>`, and `configure list` script the same file edits and reads.\n\n")
 
 	b.WriteString("| Key | File |\n|-|-|\n")
 	for _, key := range configureListOrder {
@@ -543,15 +543,25 @@ func renderConfigureSection() string {
 	b.WriteString("\n")
 
 	b.WriteString("`configure set <key> -` reads the value from stdin instead of argv, so it never appears " +
-		"in `ps` output or shell history. `password`, `totp_secret`, and `vcdn_api_key` can only be set this " +
+		"in `ps` output or shell history. `password`, `totp_secret`, `vcdn_api_key`, and `client_secret` can only be set this " +
 		"way; a literal value for any of them is refused with exit code 2. `configure get` and `configure " +
-		"list` mask all three as `****`. The interactive `configure` does not prompt for `vcdn_api_key`.\n\n")
+		"list` mask secrets as `****`. Stdin is limited to 4096 bytes and drops one trailing LF or CRLF. The interactive `configure` does not prompt for `vcdn_api_key`, `client_id`, or `client_secret`.\n\n")
 
 	b.WriteString("`configure` and `configure set` refuse to run, with exit code 2, while read-only is on, " +
 		"so an agent cannot clear a profile's `read_only` through the CLI; `configure get` and `configure " +
 		"list` still work. `configure set read_only` refuses, with exit code 2, to turn `read_only` off for " +
 		"a profile that already has it on; clearing it means editing the file by hand.\n\n")
 
+	b.WriteString("Use a fresh service-account profile; configure `client_id` and pipe `client_secret` to stdin. " +
+		"Never pass the secret in argv or --cli-input-json. Set `read_only` last; later rotation needs a trusted " +
+		"editor or provisioner. See [Configuration](Configuration.md#service-account-profile) for provisioning, " +
+		"recovery, and rotation.\n\n")
+	b.WriteString("Service-account exchange failures use `ServiceAccountLoginFailed`, exit 3, or exit 1 for " +
+		"caller cancellation/deadline. Service-account cache failures use `TokenCacheFailed`, exit 1; bare cache " +
+		"context errors use `RequestFailed`, exit 1. Partial LoadConfig credentials and refused credentials files " +
+		"use `NoCredentials`, exit 3; shape and misplaced config keys use `InvalidConfig`, exit 2. SDK disk caching " +
+		"is opt-in; CLI caching uses ~/.vngcloud/cache by default when a home directory exists. Static tokens and " +
+		"custom providers never enter that disk cache. See [Authentication](Authentication.md#service-account).\n\n")
 	return b.String()
 }
 

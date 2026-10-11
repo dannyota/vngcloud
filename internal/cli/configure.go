@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"danny.vn/vngcloud"
 )
 
 // configureKey describes one configure key: which file it lives in and
@@ -33,7 +35,9 @@ var configureKeys = map[string]configureKey{
 	"totp_secret": {inCredentials: true, secret: true},
 	// vcdn_api_key is set only from stdin and is not in the interactive
 	// prompt order, so the prompts stay as they were.
-	"vcdn_api_key": {inCredentials: true, secret: true},
+	"vcdn_api_key":  {inCredentials: true, secret: true},
+	"client_id":     {inCredentials: true},
+	"client_secret": {inCredentials: true, secret: true},
 }
 
 // configureKeyOrder is the fixed prompt and listing order for configure and
@@ -44,8 +48,8 @@ var configureKeyOrder = []string{
 }
 
 // configureListOrder is configureKeyOrder plus the keys that only
-// configure set reads from stdin.
-var configureListOrder = append(append([]string{}, configureKeyOrder...), "vcdn_api_key")
+// configure set accepts without adding interactive prompts.
+var configureListOrder = append(append([]string{}, configureKeyOrder...), "vcdn_api_key", "client_id", "client_secret")
 
 var configureLabels = map[string]string{
 	"region": "Region", "project_id": "Project ID", "output": "Output format",
@@ -199,6 +203,9 @@ func runConfigureSet(e *env, key, value string) error {
 	} else if on {
 		return readOnlyError{source: source}
 	}
+	if err := refuseConfigureProfileWrite(e.flags); err != nil {
+		return err
+	}
 
 	meta, ok := configureKeys[key]
 	if !ok {
@@ -338,6 +345,10 @@ func runConfigureInteractive(e *env) error {
 	} else if on {
 		return readOnlyError{source: source}
 	}
+	if err := refuseConfigureProfileWrite(e.flags); err != nil {
+		return err
+	}
+
 	if !isTerminal(e.stdin) {
 		return newUsageError("configure needs a terminal on stdin; use configure set instead")
 	}
@@ -452,4 +463,25 @@ func readSecret(e *env) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// refuseConfigureProfileWrite keeps the profile latch on for every edit,
+// including credential rotation. Get and list remain available.
+func refuseConfigureProfileWrite(flags *globalFlags) error {
+	profile := resolvedProfileName(flags)
+	if err := validateProfileName(profile); err != nil {
+		return err
+	}
+	value, err := currentConfigureValue(envConfigFileVar, defaultConfigName, configSectionName(profile), "read_only")
+	if err != nil {
+		return err
+	}
+	on, valid := parseOnOff(value)
+	if !valid {
+		return fmt.Errorf("%w: read_only in profile %q must be 1, true, 0, false, or empty", vngcloud.ErrInvalidConfig, profile)
+	}
+	if on {
+		return readOnlyError{source: fmt.Sprintf("read_only in profile %q", profile)}
+	}
+	return nil
 }

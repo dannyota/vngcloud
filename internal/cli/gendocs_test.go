@@ -1001,3 +1001,18 @@ func TestGenDocsComputeLogin(t *testing.T) {
 		}
 	}
 }
+
+func TestGenDocsServiceAccountAuth(t *testing.T) {
+	page := renderCLIPage(nil)
+	for _, text := range []string{"`client_id`", "`client_secret`", "ServiceAccountLoginFailed", "TokenCacheFailed", "4096", "read_only"} {
+		if !strings.Contains(page, text) {
+			t.Errorf("CLI page lacks %s", text)
+		}
+	}
+	if !strings.Contains(iamCreateServiceAccountNote, "get-service-account") {
+		t.Error("create recovery lacks client-ID lookup")
+	}
+	if !strings.Contains(iamResetServiceAccountSecretNote, "issued tokens") {
+		t.Error("reset note lacks token access window")
+	}
+}

@@ -247,3 +247,23 @@ func TestRedactMapsSkipsUnexportedFields(t *testing.T) {
 		t.Fatalf("unexported field was mutated despite being unreachable through the public API")
 	}
 }
+
+func TestServiceAccountMapRedactionVariants(t *testing.T) {
+	for _, format := range []string{outputJSON, outputTable, outputText} {
+		for _, query := range []string{"", "Items"} {
+			out := struct{ Items []map[string]any }{Items: []map[string]any{{"ClientID": "printable-client", "nested": []any{map[string]any{
+				"ClientSecret": "marker-one", "CLIENT_SECRET": "marker-two", "client.secret": "marker-three", "Client Secret": "marker-four", "client__secret": "marker-five", "client-se-cret": "marker-six",
+			}}}}}
+			var buf bytes.Buffer
+			if err := renderOutput(&buf, format, query, &out, false); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(buf.String(), "marker-") {
+				t.Fatal("nested service-account secret leaked")
+			}
+			if !strings.Contains(buf.String(), "printable-client") {
+				t.Fatal("client ID unexpectedly hidden")
+			}
+		}
+	}
+}

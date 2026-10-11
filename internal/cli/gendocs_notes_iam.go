@@ -48,21 +48,26 @@ const iamCreateServiceAccountNote = "Needs --secret-file <path>: the client secr
 	"SecretFileFailed; if that delete also fails, the message names the service account only by its ID. Never " +
 	"retried after a failure that may have already reached the server: list service accounts by --name before " +
 	"creating it again rather than repeating this command; a service account found that way has already lost " +
-	"its client secret and needs reset-service-account-secret."
+	"its client secret and needs reset-service-account-secret. A failed confirm read preserves the ID and " +
+	"secret but may omit ClientID: recover it with get-service-account --service-account-id <id>, never " +
+	"another create. Configure a fresh profile using client_id and stdin-only client_secret, then set " +
+	"read_only last; see [Configuration](Configuration.md#service-account-profile)."
 
 // iamResetServiceAccountSecretNote documents reset-service-account-secret's
 // --secret-file requirement, its own guard, its no-secret case, and its
 // retry advice: the flag table shows no --secret-file at all, since it
 // backs no Input field, and gives no hint that the old secret stops working
-// immediately.
+// for further exchanges. Issued tokens can remain usable.
 const iamResetServiceAccountSecretNote = "Needs --secret-file <path>, checked the same way as " +
 	"create-service-account: must not already exist, symlink included, checked before any request. The " +
-	"previous secret stops working the moment the reset request lands; if the response then holds no client " +
+	"previous secret stops working for new exchanges when the reset request lands; if the response then holds no client " +
 	"secret at all, or if writing --secret-file fails, there is no way to get it back, so the command exits 1 " +
 	"with error code SecretFileFailed naming the service account and telling the caller to run " +
 	"reset-service-account-secret again, rather than deleting anything. Never retried after a failure that may " +
 	"have already reached the server: no read shows whether the secret changed, so treat the previous secret as " +
-	"revoked and reset again if it still works.\n\n" +
+	"replaced. Replace the protected credentials, rebuild configs, and restart consumers. Old issued tokens " +
+	"and cache entries may survive; reset does not promise immediate token revocation or automatic cache " +
+	"purging. A read_only profile needs a trusted editor or provisioner for rotation.\n\n" +
 	iamServiceAccountGuardNote
 
 // iamUpdateServiceAccountNote and iamDeleteServiceAccountNote document

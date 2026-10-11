@@ -28,3 +28,28 @@ func TestIAMUserLoginProvenance(t *testing.T) {
 		t.Fatal("zero client has auth provenance")
 	}
 }
+
+func TestServiceAccountInternalProvenance(t *testing.T) {
+	option := WithServiceAccountCredentials("id", "secret", true)
+	for _, tc := range []struct {
+		opts []Option
+		want bool
+	}{
+		{[]Option{option}, true},
+		{[]Option{option, WithStaticToken("token")}, false},
+		{[]Option{WithStaticToken("token"), option}, false},
+		{[]Option{option, WithCredentialsProvider(&fakeCredentialsProvider{})}, false},
+		{[]Option{WithIAMUser(&IAMUserAuth{RootEmail: "root", Username: "user", Password: "password"})}, false},
+	} {
+		cfg, err := NewConfig(append([]Option{WithRegion("hcm-3")}, tc.opts...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if UsesServiceAccountLogin(cfg) != tc.want {
+			t.Fatal("incorrect service-account provenance")
+		}
+	}
+	if UsesServiceAccountLogin(Config{}) {
+		t.Fatal("zero config has auth provenance")
+	}
+}

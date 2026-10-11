@@ -162,6 +162,24 @@ returns `ctx.Err()` directly. Missing or malformed cache content is a miss;
 a post-exchange write failure does not turn successful login into an error.
 Other authentication methods retain their existing cache errors.
 
+### CLI codes and exits
+
+| Failure | CLI code | Exit |
+|-|-|-|
+| Service-account exchange | `ServiceAccountLoginFailed` | 3 |
+| Exchange wrapping caller cancellation or deadline | `ServiceAccountLoginFailed` | 1 |
+| Service-account cache directory, read, or lock failure | `TokenCacheFailed` | 1 |
+| Bare context error at the cache boundary | `RequestFailed` | 1 |
+| Partial `LoadConfig` credentials or refused credentials file | `NoCredentials` | 3 |
+| Partial `NewConfig` credentials, invalid shape, or misplaced config key | `InvalidConfig` | 2 |
+| Product 401 after recovery | Existing API code | 3 |
+| Product 403 | Existing API code | 1 |
+
+Cache preflight follows SDK auth selection and sends no request. Other
+auth kinds retain their existing cache preflight errors. Fixed exchange
+errors never contain server text. Generic product errors with
+service-account secret-key variants withhold the affected text.
+
 ## Logging
 
 `vngcloud.WithLogger(logger *slog.Logger)` is the only way to get logs from

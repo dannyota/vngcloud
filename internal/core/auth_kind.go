@@ -6,3 +6,10 @@ package core
 func (c *Client) UsesIAMUserLogin() bool {
 	return c.iamUserLogin
 }
+
+// UsesServiceAccountLogin identifies the selected SDK-owned auth kind for
+// internal CLI cache preflight. It performs no authentication or token reads.
+// The public SDK does not expose this helper.
+func UsesServiceAccountLogin(cfg Config) bool {
+	return ClientOf(cfg).serviceAccountLogin
+}

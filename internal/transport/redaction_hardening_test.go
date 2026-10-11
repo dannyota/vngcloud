@@ -121,3 +121,14 @@ func TestJSONDecodeFailureHasFixedDescription(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCredentialKeyVariants(t *testing.T) {
+	for _, key := range []string{"client_secret", "ClientSecret", "CLIENT-SECRET", "client.secret", "Client Secret", "client__secret"} {
+		message := `{"nested":[{"` + key + `":"synthetic-credential-marker"}]}`
+		body, _ := json.Marshal(map[string]any{"code": "BadRequest", "message": message})
+		err := decodeError(Request{}, 400, body)
+		if strings.Contains(err.Error(), "synthetic-credential-marker") {
+			t.Fatalf("credential key %q leaked", key)
+		}
+	}
+}

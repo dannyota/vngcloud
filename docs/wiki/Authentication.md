@@ -65,6 +65,12 @@ if err := cfg.Authenticate(ctx); err != nil {
 }
 ```
 
+`LoadConfig` also accepts `VNGCLOUD_CLIENT_ID`/`VNGCLOUD_CLIENT_SECRET`, or
+`client_id`/`client_secret` in the protected credentials file. Whole-source
+and method selection follow [Configuration](Configuration.md#precedence).
+The CLI's stdin-only setup and rotation steps are on
+[Service-account profile](Configuration.md#service-account-profile).
+
 `NewConfig` stays offline. Login occurs on the first authenticated request,
 unless `Authenticate` runs it first. The option copies both fields when you
 build it. Changing the input struct later does not change the identity.
@@ -86,7 +92,8 @@ The token exchange uses a fixed HTTPS endpoint with Basic auth and a JSON
 client-credentials grant. It sends once, follows no redirects, keeps TLS
 verification enabled, and uses no cookie jar or response capture. Public
 HTTP clients, transports, retries, and endpoint overrides affect product
-requests but never receive service-account secrets. A positive
+requests but never receive service-account secrets. The exchange exposes
+no public token endpoint, scope option, token getter, or test hook. A positive
 `WithTimeout` applies; otherwise the exchange uses 120 seconds. Caller
 cancellation and deadlines bound the exchange. A canceled caller waiting
 for a shared refresh lock may wait for the active exchange to finish,
@@ -101,7 +108,9 @@ create/delete still require IAM-user login in Hanoi.
 
 ### Disk cache and rotation
 
-SDK disk caching is opt-in through `WithTokenCache(dir)`. Service-account
+SDK disk caching is opt-in through `WithTokenCache(dir)`. The CLI enables
+its default cache when a home directory exists. Static tokens and custom
+providers remain outside the disk cache. Service-account
 entries live under `service-account-v1/`, separate from IAM-user entries.
 Each key binds the auth kind, profile, client ID, fixed token endpoint, and
 client secret. Changing the secret forces a fresh exchange in a rebuilt

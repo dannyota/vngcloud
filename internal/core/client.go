@@ -18,12 +18,13 @@ import (
 const defaultUserAgent = "danny.vn/vngcloud"
 
 type Client struct {
-	iamUserLogin     bool
-	region           string
-	vnetworkOverride bool
-	endpoints        endpoints.Set
-	transport        *transport.Client
-	logger           *slog.Logger
+	iamUserLogin        bool
+	serviceAccountLogin bool
+	region              string
+	vnetworkOverride    bool
+	endpoints           endpoints.Set
+	transport           *transport.Client
+	logger              *slog.Logger
 
 	// profileSettings is the resolved profile's config section, set by
 	// LoadConfig only; a Client built by NewConfig or a direct option leaves
@@ -162,15 +163,16 @@ func buildClient(settings clientConfig) (*Client, error) {
 	})
 
 	c := &Client{
-		iamUserLogin:     settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount == nil,
-		storageTestClock: settings.storageTestClock,
-		region:           settings.region,
-		vnetworkOverride: settings.endpoints.VNetwork != "",
-		projectID:        settings.projectID,
-		cdnAPIKey:        settings.cdnAPIKey,
-		endpoints:        resolvedEndpoints,
-		transport:        tc,
-		logger:           logger,
+		serviceAccountLogin: settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount != nil,
+		iamUserLogin:        settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount == nil,
+		storageTestClock:    settings.storageTestClock,
+		region:              settings.region,
+		vnetworkOverride:    settings.endpoints.VNetwork != "",
+		projectID:           settings.projectID,
+		cdnAPIKey:           settings.cdnAPIKey,
+		endpoints:           resolvedEndpoints,
+		transport:           tc,
+		logger:              logger,
 	}
 	return c, nil
 }

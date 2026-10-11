@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
 )
 
 type APIError struct {
@@ -136,8 +137,8 @@ func decodeError(req Request, status int, body []byte) error {
 	apiErr := &APIError{
 		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       redact(code, req.redactValues()),
-		Message:    redact(strings.TrimSpace(msg), req.redactValues()),
+		Code:       redactCredentialKeys(redact(code, req.redactValues())),
+		Message:    redactCredentialKeys(redact(strings.TrimSpace(msg), req.redactValues())),
 		Retryable:  req.retryable(status),
 	}
 	if req.WithholdMessage != "" {
@@ -222,4 +223,20 @@ func jsonEscapedForm(v string) string {
 		return ""
 	}
 	return string(encoded[1 : len(encoded)-1])
+}
+
+// redactCredentialKeys withholds server text containing a service-account
+// secret key. Normalizing punctuation and case also covers nested JSON text;
+// withholding the whole string avoids guessing where an untrusted value ends.
+func redactCredentialKeys(text string) string {
+	var key strings.Builder
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			key.WriteRune(unicode.ToLower(r))
+		}
+	}
+	if strings.Contains(key.String(), "clientsecret") {
+		return redactedText
+	}
+	return text
 }

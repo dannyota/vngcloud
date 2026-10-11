@@ -4,7 +4,7 @@ Each GreenNode product is its own package, for example
 `danny.vn/vngcloud/compute`. Every package has `New(cfg vngcloud.Config)
 *Client`, built from the same `Config` other services use, and read methods
 shaped `Method(ctx, *MethodInput) (*MethodOutput, error)`. Most methods are
-reads. A method can still return a permission error when the IAM User
+reads. A method can still return a permission error when the selected principal
 lacks access to that product or region. A required Input field is marked
 "required"; passing it empty, or passing a nil Input when a field is
 required, returns `vngcloud.ErrInvalidInput` before any request.
@@ -34,6 +34,27 @@ updated, deleted, and have members added or removed. Every write is
 guarded against changing the caller's own access or a principal that
 already holds an IAM write right. See [IAM](#iam) below. `tagging` writes
 tags on any resource type. See [Tagging](Tagging.md).
+
+## Service-account coverage
+
+The recorded product checks used service-account tokens in `hcm-3`:
+
+| Operation | Observed result |
+|-|-|
+| `network.GetSecurityGroup` for the narrowly allowed group | 200 |
+| Read of the excluded group | Non-disclosing 403 |
+| `network.UpdateSecurityGroup` under the read-only action policy | 403; description unchanged |
+| `project.ListProjects` and group read with project discovery | 200; matching project and group |
+| `iam.GetCallerIdentity` | 200; service-account principal |
+
+These product checks used a supplied static token. SDK-owned exchange and
+cache handling have deterministic tests; other services, regions, and
+universal permission coverage are not live-verified. Server enumeration,
+expiry-wait behavior, and deletion/activation revocation remain unverified.
+Explicit project selection is recommended; discovery denial remains a
+permission error and never switches identities or grants policies. NAT
+create/delete still require SDK IAM-user login in Hanoi. See
+[Authentication](Authentication.md#service-account) for auth and rotation.
 
 ## Coverage
 
@@ -223,7 +244,8 @@ lbClient.QuoteCreateLoadBalancer(ctx, in)   // *loadbalancer.CreateLoadBalancerI
 lbClient.QuoteResizeLoadBalancer(ctx, in)   // *loadbalancer.ResizeLoadBalancerInput
 ```
 
-`QuoteCreateLoadBalancer` prices a load balancer `loadbalancer.CreateLoadBalancerInput`
+`QuoteCreateLoadBalancer` prices a load balancer that
+`loadbalancer.CreateLoadBalancerInput`
 would create, and `QuoteResizeLoadBalancer` prices a package change
 `loadbalancer.ResizeLoadBalancerInput` describes, neither ordering anything;
 see [Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
