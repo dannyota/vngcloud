@@ -1,0 +1,39 @@
+{
+  "Items": [
+    {
+      "Region": "HCM04",
+      "Type": "Gold",
+      "PurchaseType": "Pay monthly",
+      "PriceKey": "",
+      "TypeID": 1,
+      "PurchaseTypeID": 4,
+      "QuotaGB": 30,
+      "MinQuotaGB": 30,
+      "MaxQuotaGB": 10000,
+      "AllowPeriod": [
+        1
+      ],
+      "PricePerGB": null,
+      "Price": {
+        "Status": "unknown",
+        "Basis": "",
+        "Currency": "",
+        "Tax": "",
+        "Source": "storage.QuoteCreateProject",
+        "MonthlyPrice": null,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      }
+    }
+  ],
+  "Metadata": {
+    "Region": "hcm-3",
+    "Complete": true,
+    "Requests": 5,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [],
+    "ExcludedGroups": null
+  }
+}

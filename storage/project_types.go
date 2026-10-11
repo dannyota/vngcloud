@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 )
@@ -165,9 +166,14 @@ func projectResponseError(op, message string) error {
 	return &core.APIError{Operation: op, StatusCode: 200, Message: message}
 }
 
-func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projectCatalog, error) {
+func (c *Client) readProjectCatalog(ctx context.Context, op, id string, sessions ...*discovery.Session) (*projectCatalog, error) {
+	var session *discovery.Session
+	if len(sessions) > 0 {
+		session = sessions[0]
+	}
 	k := call{
-		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		session: session,
+		op:      op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
 		url: c.route([]string{"billing", "project_types"}, nil),
 		validate: func(raw json.RawMessage) error {
 			if jsonresponse.Validate(raw) != nil {
@@ -214,7 +220,7 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 		{"vos_billing_normal_max_quota", &catalog.maxQuota},
 		{"max_project_per_user_per_region", &catalog.maxProjects},
 	} {
-		value, err := c.projectConfiguration(ctx, op, id, item.key)
+		value, err := c.projectConfiguration(ctx, op, id, item.key, session)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +239,7 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 	if catalog.minQuota > catalog.maxQuota {
 		return nil, projectResponseError(op, "inconsistent quota limits")
 	}
-	value, err := c.projectConfiguration(ctx, op, id, "enable_iam_checkout")
+	value, err := c.projectConfiguration(ctx, op, id, "enable_iam_checkout", session)
 	if err != nil {
 		return nil, err
 	}
@@ -247,10 +253,15 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string) (*projec
 	return catalog, nil
 }
 
-func (c *Client) projectConfiguration(ctx context.Context, op, id, key string) (string, error) {
+func (c *Client) projectConfiguration(ctx context.Context, op, id, key string, sessions ...*discovery.Session) (string, error) {
+	var session *discovery.Session
+	if len(sessions) > 0 {
+		session = sessions[0]
+	}
 	q := url.Values{"keys": {key}, "region_id": {id}}
 	env, err := c.exchange(ctx, call{
-		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		session: session,
+		op:      op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
 		url: c.projectBillingRoute("v1", []string{"configurations"}, q),
 		validate: func(raw json.RawMessage) error {
 			if jsonresponse.Validate(raw) != nil {

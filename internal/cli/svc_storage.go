@@ -17,6 +17,7 @@ import (
 // flag; NoFlag keeps it settable through --cli-input-json. ProjectID is a
 // vStorage project ID, which the global --project-id flag supplies.
 var storageOps = []Op[storage.Client]{
+	discoveryRead("list-storage-prices", (*storage.Client).ListStoragePrices, NoFlag("Region")),
 	Read[storage.Client, storage.GetProjectAutoRenewInput, storage.GetProjectAutoRenewOutput](
 		"get-project-auto-renew", (*storage.Client).GetProjectAutoRenew, NoFlag("Region"), GlobalProjectID("ProjectID")),
 	Write[storage.Client, storage.PutProjectAutoRenewInput, storage.PutProjectAutoRenewOutput](

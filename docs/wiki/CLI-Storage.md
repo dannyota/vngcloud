@@ -352,6 +352,26 @@ Kind: Read.
 vngcloud storage list-s3-keys --project-id <project-id>
 ```
 
+## list-storage-prices
+
+Kind: Read.
+
+Returns Items and Metadata for account-scoped monthly quotes. Unknown costs remain null in JSON and print unknown in table/text. Price per GB is the effective rate at the quoted size, not a marginal tariff. Table/text notes print on stderr. With --allow-partial, incomplete output prints before the error and exits 1, even with --query. Sort before queries with --sort-by name, monthly-price, or unit-price and --descending. Unknown numeric values sort last in either direction. Default MaxRequests is 500 (range 1..2000). Catalog reads and quotes run serially with a ten-minute child deadline and at least 500 ms between request starts. Quotes reserve no future price or capacity. QuotaGB 0 uses the monthly package minimum. Type is an exact catalog name. Region is a JSON-only storage region override; the global --region still configures vServer. The default for hcm-3 is HCM04. PAYG, egress, and request charges are excluded. Published egress rules conflict, so those costs remain unknown.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Region` (via `--cli-input-json` only) | `string` |  |
+| `--type` | `string` |  |
+| `--quota-gb` | `int64` |  |
+| `--max-requests` | `int` |  |
+| `--allow-partial` | `bool` |  |
+| `--descending` | `bool` |  |
+| `--sort-by` | `string` |  |
+
+```sh
+vngcloud storage list-storage-prices
+```
+
 ## put-bucket-cors
 
 Kind: Write.

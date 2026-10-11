@@ -9,6 +9,8 @@ import (
 
 func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	volumeClient := volume.New(cfg)
+	prices, priceErr := volumeClient.ListVolumePrices(ctx, &volume.ListVolumePricesInput{MaxRequests: 100, AllowPartial: true})
+	recordOne(outputs, cfg, "volume/discovery", "volume prices", prices, priceErr)
 	showSnapshotPolicies(ctx, cfg, outputs)
 
 	volumes, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]volume.Volume, int, error) {

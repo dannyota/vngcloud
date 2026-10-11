@@ -49,6 +49,7 @@ func TestGoldenStorageGetBucket(t *testing.T) {
 
 func TestStorageCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
+		"list-storage-prices":    {"type", "quota-gb", "max-requests", "allow-partial", "descending", "sort-by"},
 		"create-project":         {"name", "type", "quota-gb", "max-price", "no-wait"},
 		"delete-project":         {"no-wait"},
 		"list-project-types":     {},

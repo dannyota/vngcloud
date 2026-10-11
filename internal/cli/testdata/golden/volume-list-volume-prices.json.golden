@@ -1,0 +1,43 @@
+{
+  "Items": [
+    {
+      "VolumeType": {
+        "ID": "type-1",
+        "VolumeTypeID": "",
+        "Name": "SSD",
+        "IOPS": 3000,
+        "MaxSize": 5000,
+        "MinSize": 1,
+        "Throughput": 0,
+        "ZoneID": "",
+        "VolumeTypeZoneID": ""
+      },
+      "ZoneID": "zone-1",
+      "ZoneName": "Zone",
+      "EncryptionTypeID": "",
+      "ZoneEnabled": true,
+      "SizeGB": 1,
+      "PricePerGB": 3200,
+      "Price": {
+        "Status": "quoted",
+        "Basis": "monthly-total",
+        "Currency": "VND",
+        "Tax": "",
+        "Source": "pricing.GetQuote",
+        "MonthlyPrice": 3200,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      }
+    }
+  ],
+  "Metadata": {
+    "Region": "hcm-3",
+    "Complete": true,
+    "Requests": 5,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [],
+    "ExcludedGroups": null
+  }
+}

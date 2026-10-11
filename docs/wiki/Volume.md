@@ -41,6 +41,66 @@ func main() {
 The rest of this page assumes `cfg` and `ctx` from this setup, plus
 `client := volume.New(cfg)`.
 
+## Monthly price discovery
+
+`ListVolumePrices` compares catalog types with account-scoped monthly quotes.
+Nil input uses each type's minimum size and includes plain volumes and every
+returned encryption key. Filters match exact IDs, IOPS, and encryption keys.
+An unknown exact filter returns an empty complete list. An unknown explicit
+zone is invalid input.
+
+```go
+prices, err := client.ListVolumePrices(ctx, &volume.ListVolumePricesInput{
+    IOPS:         3000,
+    Encryption:   "none",
+    MaxRequests:  100,
+    AllowPartial: true,
+})
+```
+
+Each `VolumePrice` retains its `VolumeType`, zone name and enabled status,
+quoted `SizeGB`, encryption key, nullable `PricePerGB`, and `Price`.
+Discovery treats unfiltered type-zone catalogs as region-wide and ignores
+their zone metadata. Each enabled selected zone gets a quote for every
+filtered type and encryption choice. A quote refusal produces a failed row.
+It preserves both type IDs and quotes `VolumeTypeID`, falling back to `ID`.
+Disabled zones and sizes outside a type's bounds remain `inapplicable` rows
+without quotes. Row `ZoneID` names the selected zone; the composed
+`VolumeType` retains its catalog fields.
+
+`PricePerGB` is the effective monthly rate at the chosen provisioned GB, not
+a marginal tariff. Quotes exclude snapshots, backups, and server encryption
+service costs. Discovery does not reserve capacity or a future price.
+
+Outputs contain `Items` and `Metadata`. Metadata records the configured region,
+logical request count, UTC completion time, notes, and coverage. Default
+`MaxRequests` is 500, with a range of 1 through 2000. Discovery refuses the
+entire quote phase if the remaining budget cannot cover every distinct quote.
+Calls run serially, at least 500 ms apart, under a ten-minute child deadline.
+Catalog and quote caches last for one invocation. The logical request bound
+is `3 + T + A*V*E`, where T counts returned type-zone parents, A counts enabled
+selected zones, V counts filtered types, and E counts encryption choices.
+Uncached project resolution adds at most one request.
+
+Without `AllowPartial`, a failure returns nil and the original error. With
+partial results, independent branches continue and failed rows have nil
+prices. `errors.Is(err, pricing.ErrDiscoveryIncomplete)` reports incomplete
+coverage, and `errors.As` retains the original API error. A failure before any
+usable row still returns nil and the cause. Unknown costs do not make a
+finished discovery incomplete.
+
+```sh
+vngcloud --region hcm-3 --read-only volume list-volume-prices \
+  --iops 3000 --encryption none --sort-by unit-price
+```
+
+JSON preserves prices as numbers and unknown values as null. Table/text
+prints unknown values as `unknown` and sends notes to stderr. Sorting uses
+unrounded prices before `--query`; unknown numeric values sort last in either
+direction. `--allow-partial` prints incomplete output before the error and
+exits 1, including when a query hides metadata. See
+[Billing and Pricing](Billing-and-Pricing.md) for quote scope and exclusions.
+
 ## Listing volume types
 
 ```go

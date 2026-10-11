@@ -10,6 +10,8 @@ import (
 // Storage is account-wide, so main calls showStorage once per config.
 func showStorage(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	client := storage.New(cfg)
+	prices, priceErr := client.ListStoragePrices(ctx, &storage.ListStoragePricesInput{MaxRequests: 100, AllowPartial: true})
+	recordAccountOne(outputs, "storage/discovery", "storage prices", prices, priceErr)
 
 	regions, err := client.ListRegions(ctx, nil)
 	recordAccount(outputs, "storage/region", "storage regions", storageRegionItems(regions), err)

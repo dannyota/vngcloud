@@ -12,6 +12,7 @@ import (
 // so quote commands hide those fields. Snapshot backend and policy reads
 // use the SDK's region guard and remain available to read-only profiles.
 var volumeOps = []Op[volume.Client]{
+	discoveryRead("list-volume-prices", (*volume.Client).ListVolumePrices),
 	Read[volume.Client, volume.ListVolumesInput, volume.ListVolumesOutput](
 		kebab("ListVolumes"), (*volume.Client).ListVolumes),
 	Read[volume.Client, volume.GetVolumeInput, volume.GetVolumeOutput](

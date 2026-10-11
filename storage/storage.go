@@ -18,6 +18,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -67,6 +68,7 @@ type envelope struct {
 
 // call describes one console API request.
 type call struct {
+	session  *discovery.Session
 	op       string
 	method   string
 	url      string
@@ -98,6 +100,9 @@ func (c *Client) do(ctx context.Context, op, rawURL, regionID string) (*envelope
 // 2xx with an empty or non-JSON body, with no success key, or with success
 // false, is an *APIError.
 func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
+	if k.session != nil {
+		return c.exchangeDiscovery(k)
+	}
 	var credential string
 	req := transport.Request{
 		SentCredential: &credential,

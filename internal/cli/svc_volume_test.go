@@ -54,6 +54,7 @@ func TestGoldenVolumeGetVolume(t *testing.T) {
 // same way newOpCmd filters them for the real command.
 func TestVolumeCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
+		"list-volume-prices":      {"zone-id", "volume-type-id", "iops", "size", "encryption", "max-requests", "allow-partial"},
 		"list-volumes":            {"name", "page", "size"},
 		"get-volume":              {"volume-id"},
 		"get-underlying-volume":   {"volume-id"},

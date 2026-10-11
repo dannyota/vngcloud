@@ -18,6 +18,7 @@ import (
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
 	"danny.vn/vngcloud/volume"
@@ -36,6 +37,7 @@ const (
 // differing Input and Output types side by side, while the compiler still
 // rejects an Op built from another client type's method.
 type Op[C any] struct {
+	discovery   bool
 	name        string
 	short       string
 	render      func(io.Writer, string, string, any) error
@@ -398,6 +400,11 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return err
 	}
 	applyChangedFlags(cmd, input, bound)
+	if op.discovery {
+		if err := validateDiscoverySort(cmd); err != nil {
+			return err
+		}
+	}
 	if err := applyGlobalProjectID(e, op, input); err != nil {
 		return err
 	}
@@ -470,6 +477,15 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 
 	if op.kind == kindWrite && logger != nil {
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
+	}
+	if op.discovery && !isNilOutput(out) && (callErr == nil || errors.Is(callErr, pricing.ErrDiscoveryIncomplete)) {
+		key, _ := cmd.Flags().GetString("sort-by")
+		descending, _ := cmd.Flags().GetBool("descending")
+		sortDiscovery(out, key, descending)
+		if err := renderDiscovery(e.stdout, e.stderr, format, e.flags.query, out); err != nil {
+			return err
+		}
+		return callErr
 	}
 	if callErr != nil {
 		// A vDNS, network, compute, containerregistry, iam, or tagging write

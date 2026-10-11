@@ -2,6 +2,58 @@
 
 Use the [Storage client](Storage.md#setup) for these calls.
 
+## Monthly price discovery
+
+`ListStoragePrices` compares active monthly package offerings at their minimum
+quota or a requested `QuotaGB`. Nil input uses the minimum quota. `Type` is a
+case-sensitive exact catalog name. Unknown types return an empty complete list.
+A quota outside the offering's bounds produces an `inapplicable` row without
+a quote. PAYG and unknown purchase types remain excluded notes.
+
+```go
+prices, err := client.ListStoragePrices(ctx, &storage.ListStoragePricesInput{
+    QuotaGB:      31,
+    MaxRequests:  100,
+    AllowPartial: true,
+})
+```
+
+Each `StoragePrice` records the resolved storage region, type and purchase
+identities, price key, allowed periods, quota bounds, quoted quota, nullable
+`PricePerGB`, and `Price`. Discovery reads the catalog and configuration once
+and quotes each selected monthly offering once. Quotes omit period and
+order-only details. `PricePerGB` is the effective rate at the quoted quota,
+not a marginal tariff. Egress and request costs remain unknown; published
+egress rules conflict.
+
+The default storage region for `hcm-3` is `HCM04`; for `han-1`, it is `HAN02`.
+The SDK `Region` input overrides that mapping. The CLI keeps the storage region
+JSON-only, so the global `--region` continues to configure vServer.
+
+```sh
+vngcloud --region hcm-3 --read-only storage list-storage-prices \
+  --sort-by unit-price --descending
+```
+
+Outputs contain `Items` and `Metadata`, including region, logical request
+count, UTC completion time, notes, and coverage. Default `MaxRequests` is 500,
+with a range of 1 through 2000. Discovery refuses the whole quote phase when
+its budget cannot cover all selected offers. Calls run serially, at least
+500 ms apart, under a ten-minute child deadline. Prices and catalogs are
+cached only within an invocation; the client's region cache stays intact.
+
+Without `AllowPartial`, failures return nil and the original error. With
+partial results, failed rows retain nil prices and the error matches
+`pricing.ErrDiscoveryIncomplete`. `errors.As` retains the original API error.
+A failure before any usable row still returns nil and the cause.
+
+JSON retains `Items` and `Metadata`, with unknown prices as null. Table/text
+prints `unknown` and sends notes to stderr. Sorting uses unrounded prices
+before `--query`; unknown numeric values sort last in either direction.
+Incomplete output prints before the error with exit 1, even if a query hides
+metadata. Quotes reserve no capacity or future price. See
+[Billing and Pricing](Billing-and-Pricing.md) for account scope and exclusions.
+
 ## Project pricing
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see

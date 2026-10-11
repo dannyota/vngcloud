@@ -366,6 +366,8 @@ const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE,
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"volume list-volume-prices":               volumeDiscoveryNote,
+	"storage list-storage-prices":             storageDiscoveryNote,
 	"iam create-service-account":              iamCreateServiceAccountNote,
 	"iam update-service-account":              iamUpdateServiceAccountNote,
 	"iam reset-service-account-secret":        iamResetServiceAccountSecretNote,
