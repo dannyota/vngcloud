@@ -838,3 +838,46 @@ func TestServiceAccountNATFailureEnvelopeWithholdsCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceAccountOverlappingTokenKeyWithholdsCredentials(t *testing.T) {
+	const marker = "synthetic-product-secret-marker"
+	for _, token := range []string{"client_secret", "CLIENT-SECRET", "client.secret", "client_se_cret"} {
+		t.Run(token, func(t *testing.T) {
+			withCleanEnv(t)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, `{"success":false,"code":"%s=%s","message":"%s=%s"}`, token, marker, token, marker)
+			})
+			opts := newFakeServer(t, mux)
+			opts = append(opts, vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("proj-1"), vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "client", ClientSecret: vngcloud.Secret(marker)}),
+				core.WithServiceAccountTestTransport(saCLITransport(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"access_token":"%s","expires_in":1800}`, token)))}, nil
+				}), func() time.Time { return time.Unix(1700000000, 0) }))
+			cfg, err := vngcloud.NewConfig(opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = network.New(cfg).ListNATInstances(context.Background(), &network.ListNATInstancesInput{ZoneID: "zone-1"})
+			if err == nil {
+				t.Fatal("failure envelope accepted")
+			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected APIError: %v", err)
+			}
+			if strings.Contains(err.Error(), marker) || strings.Contains(apiErr.Code, marker) {
+				t.Error("SDK error leaked credential")
+			}
+			var stderr bytes.Buffer
+			printError(&stderr, err)
+			if strings.Contains(stderr.String(), marker) {
+				t.Error("CLI stderr leaked credential")
+			}
+			if apiErr.Message != "[redacted]" || apiErr.Code != "[redacted]" {
+				t.Fatal("credential fields not withheld")
+			}
+		})
+	}
+}

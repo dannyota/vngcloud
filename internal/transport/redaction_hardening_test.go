@@ -132,3 +132,27 @@ func TestErrorCredentialKeyVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCredentialKeysBeforeOverlappingTokenRedaction(t *testing.T) {
+	for _, token := range []string{"client_secret", "CLIENT-SECRET", "client.secret", "client_se_cret"} {
+		t.Run(token, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{
+				"code":    token + "=synthetic-credential-marker",
+				"message": token + "=synthetic-credential-marker",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var apiErr *APIError
+			if !errors.As(decodeError(Request{Redact: []string{token}}, 400, body), &apiErr) {
+				t.Fatal("expected APIError")
+			}
+			if apiErr.Code != redactedText || apiErr.Message != redactedText {
+				t.Error("overlapping token prevented credential-key withholding")
+			}
+		})
+	}
+	if got := RedactErrorText("failed for synthetic-token", "synthetic-token"); got != "failed for [redacted]" {
+		t.Error("ordinary known-value redaction changed")
+	}
+}

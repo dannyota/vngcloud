@@ -24,3 +24,18 @@ func TestRedactErrorWithholdsServiceAccountCredentialKeys(t *testing.T) {
 		t.Fatal("ordinary error changed")
 	}
 }
+
+func TestRedactErrorWithholdsOverlappingTokenCredentialKeys(t *testing.T) {
+	cfg, err := NewConfig(WithRegion("hcm-3"), WithServiceAccountCredentials("client", "synthetic-secret-marker", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"client_secret", "CLIENT-SECRET", "client.secret", "client_se_cret"} {
+		t.Run(token, func(t *testing.T) {
+			message, code := ClientOf(cfg).RedactError(token+"=synthetic-secret-marker", token+"=synthetic-secret-marker", token)
+			if message != "[redacted]" || code != "[redacted]" {
+				t.Error("overlapping token prevented credential-key withholding")
+			}
+		})
+	}
+}

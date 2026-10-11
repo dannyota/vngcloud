@@ -243,6 +243,7 @@ func redactCredentialKeys(text string) string {
 
 // RedactErrorText scrubs known credentials and withholds credential-key text
 // at the shared boundary for HTTP errors and successful failure envelopes.
+// Inspect keys first so a known token cannot erase a credential-key marker.
 func RedactErrorText(text string, values ...string) string {
-	return redactCredentialKeys(redact(text, values))
+	return redact(redactCredentialKeys(text), values)
 }
