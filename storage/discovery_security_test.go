@@ -46,7 +46,7 @@ func TestListStoragePricesReflectionEveryRoute(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					out, err := New(cfg).ListStoragePrices(context.Background(), &ListStoragePricesInput{Type: "Gold", AllowPartial: partial})
+					out, err := New(cfg).ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold", AllowPartial: partial})
 					var api *vngcloud.APIError
 					if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != status || attempts != 1 || captures != 0 {
 						t.Fatalf("error %v attempts %d captures %d", err, attempts, captures)
@@ -85,7 +85,7 @@ func TestListStoragePricesRegionCacheGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := New(cfg)
-	_, err = c.ListStoragePrices(context.Background(), nil)
+	_, err = c.ListStoragePrices(discoveryTestContext(), nil)
 	if err == nil || len(c.regionIDs) != 0 {
 		t.Fatal("reflection changed region cache")
 	}
@@ -115,7 +115,7 @@ func TestListStoragePricesBodyAndRowLimits(t *testing.T) {
 				body = b.String()
 			}
 			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-			out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{AllowPartial: true})
+			out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{AllowPartial: true})
 			if out != nil || err == nil || len(c.regionIDs) != 0 {
 				t.Fatalf("output %v error %v", out, err)
 			}

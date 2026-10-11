@@ -111,7 +111,8 @@ func TestDiscoveryProjectWaiterDeadline(t *testing.T) {
 	defer s.Close()
 	done := make(chan error, 1)
 	go func() { _, err := c.RequireDiscoveryProjectID(s); done <- err }()
-	<-ctx.Done()
+	// The parent closes Done before propagating cancellation to the session.
+	<-s.Context().Done()
 	c.projectMu.Unlock()
 	if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v", err)

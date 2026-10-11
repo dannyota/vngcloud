@@ -36,6 +36,18 @@ type cachedResponse struct {
 	raw    json.RawMessage
 }
 
+type testClockKey struct{}
+
+type testClock struct {
+	now   func() time.Time
+	sleep func(context.Context, time.Duration) error
+}
+
+// WithTestClock injects per-invocation time without a public SDK option.
+func WithTestClock(ctx context.Context, now func() time.Time, sleeper func(context.Context, time.Duration) error) context.Context {
+	return context.WithValue(ctx, testClockKey{}, testClock{now: now, sleep: sleeper})
+}
+
 type Exchanger interface {
 	WrapDiscoveryError(error) error
 	DoDiscoveryJSONStatus(context.Context, transport.Request, any, func(context.Context) error) (int, error)
@@ -49,7 +61,11 @@ func New(ctx context.Context, maxRequests int) (*Session, error) {
 		return nil, errors.New("MaxRequests must be between 1 and 2000")
 	}
 	child, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	return &Session{ctx: transport.NewDiscoveryContext(child), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}, nil
+	s := &Session{ctx: transport.NewDiscoveryContext(child), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}
+	if clock, ok := ctx.Value(testClockKey{}).(testClock); ok {
+		s.now, s.sleep = clock.now, clock.sleep
+	}
+	return s, nil
 }
 
 func (s *Session) Close()                   { s.cancel() }

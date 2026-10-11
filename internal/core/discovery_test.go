@@ -8,10 +8,22 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func discoveryTestContext() context.Context {
+	now := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	return discovery.WithTestClock(context.Background(), func() time.Time { return now }, func(ctx context.Context, d time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		now = now.Add(d)
+		return nil
+	})
+}
 
 func TestDiscoveryProjectFixtureAndGuard(t *testing.T) {
 	raw, err := os.ReadFile("../../testdata/project/list_projects.json")
@@ -35,7 +47,7 @@ func TestDiscoveryProjectFixtureAndGuard(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, err := discovery.New(context.Background(), 2)
+			s, err := discovery.New(discoveryTestContext(), 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +101,7 @@ func TestGuardedAuxiliaryFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, _ := discovery.New(context.Background(), 1)
+			s, _ := discovery.New(discoveryTestContext(), 1)
 			defer s.Close()
 			var out any
 			status, err := s.DoJSON(c, transport.Request{Operation: "test.Catalog", Method: "GET", URL: srv.URL + fixture.path}, &out)
@@ -125,7 +137,7 @@ func TestDiscoveryProjectSchemaAndErrors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, _ := discovery.New(context.Background(), 2)
+			s, _ := discovery.New(discoveryTestContext(), 2)
 			defer s.Close()
 			id, err := c.RequireDiscoveryProjectID(s)
 			if err == nil || id != "" || c.ProjectID() != "" {
@@ -155,7 +167,7 @@ func TestGuardedAuxiliaryDecodeErrorIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := discovery.New(context.Background(), 1)
+	s, _ := discovery.New(discoveryTestContext(), 1)
 	defer s.Close()
 	var out []string
 	_, err = s.DoJSON(c, transport.Request{Method: "GET", URL: srv.URL + "/v1/p-1/zones"}, &out)
@@ -182,7 +194,7 @@ func TestDiscoveryProjectContinuationNotCached(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, _ := discovery.New(context.Background(), 2)
+			s, _ := discovery.New(discoveryTestContext(), 2)
 			defer s.Close()
 			id, err := c.RequireDiscoveryProjectID(s)
 			var api *APIError

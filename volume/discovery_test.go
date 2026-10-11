@@ -8,16 +8,29 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
 
+func discoveryTestContext() context.Context {
+	now := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	return discovery.WithTestClock(context.Background(), func() time.Time { return now }, func(ctx context.Context, d time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		now = now.Add(d)
+		return nil
+	})
+}
+
 func TestListVolumePricesValidationBeforeReads(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
 	for _, in := range []ListVolumePricesInput{{Size: -1}, {IOPS: -1}, {ZoneID: ".."}, {VolumeTypeID: "bad/id"}, {Encryption: "bad/key"}, {MaxRequests: -1}, {MaxRequests: 2001}} {
-		if out, err := c.ListVolumePrices(context.Background(), &in); out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
+		if out, err := c.ListVolumePrices(discoveryTestContext(), &in); out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("input %+v: output %v error %v", in, out, err)
 		}
 	}
@@ -63,7 +76,7 @@ func TestListVolumePricesFixturesAndBodies(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	}))
-	out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{IOPS: 3000})
+	out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{IOPS: 3000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +140,7 @@ func TestListVolumePricesCatalogValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			c := newTestClient(t, volumeDiscoveryHandler(t, overrides, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
-			out, err := c.ListVolumePrices(context.Background(), nil)
+			out, err := c.ListVolumePrices(discoveryTestContext(), nil)
 			var api *vngcloud.APIError
 			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
 				t.Fatalf("output %v error %v", out, err)
@@ -155,7 +168,7 @@ func TestListVolumePricesDisabledBoundsAndExactFilters(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			c := newTestClient(t, volumeDiscoveryHandler(t, tc.overrides, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
-			out, err := c.ListVolumePrices(context.Background(), &tc.in)
+			out, err := c.ListVolumePrices(discoveryTestContext(), &tc.in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +190,7 @@ func TestListVolumePricesBudgetAndPartialErrors(t *testing.T) {
 			t.Parallel()
 			quotes := 0
 			c := newTestClient(t, volumeDiscoveryHandler(t, nil, func(http.ResponseWriter, *http.Request) { quotes++ }))
-			out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{IOPS: 3000, MaxRequests: 6, AllowPartial: partial})
+			out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{IOPS: 3000, MaxRequests: 6, AllowPartial: partial})
 			if err == nil || quotes != 0 {
 				t.Fatalf("error %v quotes %d", err, quotes)
 			}
@@ -203,7 +216,7 @@ func TestListVolumePricesQuoteStatusIdentity(t *testing.T) {
 					w.WriteHeader(status)
 					_, _ = w.Write([]byte(`{"code":"Failure","message":"refused"}`))
 				}))
-				out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", IOPS: 3000, Encryption: "none", AllowPartial: partial})
+				out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", IOPS: 3000, Encryption: "none", AllowPartial: partial})
 				var api *vngcloud.APIError
 				if !errors.As(err, &api) || api.StatusCode != status || attempts != 1 {
 					t.Fatalf("error %v attempts %d", err, attempts)
@@ -225,7 +238,7 @@ func TestListVolumePricesMalformedQuote(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
 			c := newTestClient(t, volumeDiscoveryHandler(t, nil, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-			_, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{Encryption: "none", IOPS: 3000})
+			_, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{Encryption: "none", IOPS: 3000})
 			var api *vngcloud.APIError
 			if !errors.As(err, &api) || api.Code != "InvalidResponse" {
 				t.Fatalf("error %v", err)
@@ -250,7 +263,7 @@ func TestListVolumePricesDefaultOrderAndPartialOrder(t *testing.T) {
 				}
 				testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
 			}))
-			out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", AllowPartial: partial})
+			out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", AllowPartial: partial})
 			if partial && !errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 				t.Fatal(err)
 			}
@@ -277,7 +290,7 @@ func TestListVolumePricesQuoteMemoizationAndFreshCalls(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"optimumPrice":%d}`, quotes)
 	}))
 	for i := 1; i <= 2; i++ {
-		out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", MaxRequests: 6})
+		out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", MaxRequests: 6})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -293,7 +306,7 @@ func TestListVolumePricesIndependentCatalogPartial(t *testing.T) {
 	c := newTestClient(t, volumeDiscoveryHandler(t, overrides, func(w http.ResponseWriter, _ *http.Request) {
 		testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
 	}))
-	out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", AllowPartial: true, Encryption: "none", IOPS: 3000})
+	out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", AllowPartial: true, Encryption: "none", IOPS: 3000})
 	if out == nil || len(out.Items) != 1 || out.Items[0].Price.Status != "quoted" || !errors.Is(err, pricing.ErrDiscoveryIncomplete) || out.Metadata.Failures[0].ItemKey != "bad" {
 		t.Fatalf("output %+v error %v", out, err)
 	}
@@ -340,7 +353,7 @@ func TestListVolumePricesRegionWideTypesAndBudget(t *testing.T) {
 				}
 				testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
 			}))
-			out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: tc.zone, Encryption: "none", MaxRequests: tc.budget, AllowPartial: tc.partial})
+			out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: tc.zone, Encryption: "none", MaxRequests: tc.budget, AllowPartial: tc.partial})
 			bound := 9
 			if tc.zone != "" {
 				bound = 7
@@ -411,7 +424,7 @@ func TestListVolumePricesFailedQuoteGroup(t *testing.T) {
 					}
 					testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
 				}))
-				out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", MaxRequests: budget, AllowPartial: partial})
+				out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", MaxRequests: budget, AllowPartial: partial})
 				var api *vngcloud.APIError
 				if !errors.As(err, &api) || api.StatusCode != 500 || quotes != 1 {
 					t.Fatalf("error %v quotes %d", err, quotes)
@@ -446,7 +459,7 @@ func TestListVolumePricesRejectsContinuation(t *testing.T) {
 			t.Parallel()
 			overrides := map[string]string{"/v1/project-1/fz-82/volume_types": `{"volumeTypes":[{"id":"t-1","name":"a","minSize":1,"maxSize":2}],"isNext":` + marker + `}`}
 			c := newTestClient(t, volumeDiscoveryHandler(t, overrides, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
-			out, err := c.ListVolumePrices(context.Background(), nil)
+			out, err := c.ListVolumePrices(discoveryTestContext(), nil)
 			var api *vngcloud.APIError
 			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
 				t.Fatalf("output %+v error %v", out, err)

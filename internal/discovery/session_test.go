@@ -13,6 +13,50 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+func TestSessionTestClock(t *testing.T) {
+	now := time.Date(2020, 1, 1, 0, 0, 0, 0, time.FixedZone("test", 7*60*60))
+	start := now
+	var waits []time.Duration
+	ctx, cancel := context.WithCancel(WithTestClock(context.Background(), func() time.Time { return now }, func(ctx context.Context, d time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		waits = append(waits, d)
+		now = now.Add(d)
+		return nil
+	}))
+	defer cancel()
+	s, err := New(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := s.CompletedAt(); got != start.UTC() {
+		t.Fatalf("CompletedAt = %v, want %v", got, start.UTC())
+	}
+	for range 2 {
+		if err := s.BeforeAttempt(s.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(waits) != 1 || waits[0] != 500*time.Millisecond || s.CompletedAt() != start.Add(500*time.Millisecond).UTC() {
+		t.Fatalf("waits = %v, CompletedAt = %v", waits, s.CompletedAt())
+	}
+	before := time.Now()
+	ordinary, err := New(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ordinary.Close()
+	if got := ordinary.CompletedAt(); got.Before(before) || got.After(time.Now()) {
+		t.Fatalf("test clock escaped its context: %v", got)
+	}
+	cancel()
+	if err := s.BeforeAttempt(s.Context()); !errors.Is(err, context.Canceled) || len(waits) != 1 {
+		t.Fatalf("canceled attempt error = %v, waits = %v", err, waits)
+	}
+}
+
 func TestSessionLimitsAndPacing(t *testing.T) {
 	for _, n := range []int{1, 2000} {
 		s, err := New(context.Background(), n)

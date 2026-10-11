@@ -46,7 +46,7 @@ func TestListVolumePricesReflectionEveryRoute(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					out, err := New(cfg).ListVolumePrices(context.Background(), &ListVolumePricesInput{IOPS: 3000, Encryption: "none", AllowPartial: partial})
+					out, err := New(cfg).ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{IOPS: 3000, Encryption: "none", AllowPartial: partial})
 					var api *vngcloud.APIError
 					if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != status || attempts != 1 || captures != 0 {
 						t.Fatalf("error %v attempts %d captures %d", err, attempts, captures)
@@ -79,7 +79,7 @@ func TestListVolumePricesRedirectRefusal(t *testing.T) {
 				calls++
 				http.Redirect(w, r, location, http.StatusTemporaryRedirect)
 			}))
-			out, err := c.ListVolumePrices(context.Background(), nil)
+			out, err := c.ListVolumePrices(discoveryTestContext(), nil)
 			if out != nil || err == nil || calls != 1 {
 				t.Fatalf("output %v error %v calls %d", out, err, calls)
 			}
@@ -104,7 +104,7 @@ func TestListVolumePricesBodyAndRowLimits(t *testing.T) {
 				body = b.String()
 			}
 			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-			out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{AllowPartial: true})
+			out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{AllowPartial: true})
 			if out != nil || err == nil {
 				t.Fatalf("output %v error %v", out, err)
 			}
@@ -226,7 +226,7 @@ func TestListVolumePricesProjectWaiterDeadline(t *testing.T) {
 	if projects.Load() != 1 {
 		t.Fatalf("project reads %d", projects.Load())
 	}
-	out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{IOPS: 3000, Encryption: "none"})
+	out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{IOPS: 3000, Encryption: "none"})
 	if err != nil || out.Metadata.Requests != 5 || projects.Load() != 1 {
 		t.Fatalf("output %+v error %v reads %d", out, err, projects.Load())
 	}

@@ -9,16 +9,29 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
 
+func discoveryTestContext() context.Context {
+	now := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	return discovery.WithTestClock(context.Background(), func() time.Time { return now }, func(ctx context.Context, d time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		now = now.Add(d)
+		return nil
+	})
+}
+
 func TestListStoragePricesValidationBeforeReads(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
 	for _, in := range []ListStoragePricesInput{{QuotaGB: -1}, {Region: "bad"}, {MaxRequests: -1}, {MaxRequests: 2001}} {
-		if out, err := c.ListStoragePrices(context.Background(), &in); out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
+		if out, err := c.ListStoragePrices(discoveryTestContext(), &in); out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("input %+v: output %v error %v", in, out, err)
 		}
 	}
@@ -67,7 +80,7 @@ func TestListStoragePricesFixturesAndBodies(t *testing.T) {
 		}
 		testutil.WriteFixture(t, w, fixtures+file)
 	}))
-	out, err := c.ListStoragePrices(context.Background(), nil)
+	out, err := c.ListStoragePrices(discoveryTestContext(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +101,11 @@ func TestListStoragePricesBudgetAndRegionCache(t *testing.T) {
 		quotes++
 		testutil.WriteFixture(t, w, fixtures+"discovery_quote_gold.json")
 	}))
-	out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{MaxRequests: 8, AllowPartial: true})
+	out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{MaxRequests: 8, AllowPartial: true})
 	if out == nil || !errors.Is(err, pricing.ErrDiscoveryIncomplete) || out.Metadata.Requests != 7 || quotes != 0 {
 		t.Fatalf("output %+v error %v quotes %d", out, err, quotes)
 	}
-	out, err = c.ListStoragePrices(context.Background(), &ListStoragePricesInput{MaxRequests: 8})
+	out, err = c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{MaxRequests: 8})
 	if err != nil || out.Metadata.Requests != 8 || quotes != 2 {
 		t.Fatalf("output %+v error %v quotes %d", out, err, quotes)
 	}
@@ -125,7 +138,7 @@ func TestListStoragePricesDefaultAndPartialOrder(t *testing.T) {
 				}
 				base.ServeHTTP(w, r)
 			}))
-			out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{AllowPartial: partial})
+			out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{AllowPartial: partial})
 			if partial && !errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 				t.Fatal(err)
 			}
@@ -144,7 +157,7 @@ func TestListStoragePricesExactFiltersAndQuotaBounds(t *testing.T) {
 		t.Run(fmt.Sprintf("%+v", in), func(t *testing.T) {
 			t.Parallel()
 			c := newTestClient(t, storageDiscoveryHandler(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
-			out, err := c.ListStoragePrices(context.Background(), &in)
+			out, err := c.ListStoragePrices(discoveryTestContext(), &in)
 			if err != nil || !out.Metadata.Complete {
 				t.Fatalf("output %+v error %v", out, err)
 			}
@@ -171,7 +184,7 @@ func TestListStoragePricesQuoteErrors(t *testing.T) {
 					w.WriteHeader(status)
 					_, _ = w.Write([]byte(`{"code":"Failure"}`))
 				}))
-				out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{Type: "Gold", AllowPartial: partial})
+				out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold", AllowPartial: partial})
 				var api *vngcloud.APIError
 				if !errors.As(err, &api) || api.StatusCode != status || attempts != 1 {
 					t.Fatalf("output %+v error %v attempts %d", out, err, attempts)
@@ -192,7 +205,7 @@ func TestListStoragePricesMalformedQuote(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
 			c := newTestClient(t, storageDiscoveryHandler(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-			_, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{Type: "Gold"})
+			_, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold"})
 			var api *vngcloud.APIError
 			if !errors.As(err, &api) || api.Code != "InvalidResponse" {
 				t.Fatalf("error %v", err)
@@ -213,7 +226,7 @@ func TestListStoragePricesCatalogValidation(t *testing.T) {
 				}
 				base.ServeHTTP(w, r)
 			}))
-			out, err := c.ListStoragePrices(context.Background(), nil)
+			out, err := c.ListStoragePrices(discoveryTestContext(), nil)
 			var api *vngcloud.APIError
 			if out != nil || !errors.As(err, &api) {
 				t.Fatalf("output %v error %v", out, err)
@@ -232,7 +245,7 @@ func TestListStoragePricesMissingCatalogStatus(t *testing.T) {
 		}
 		base.ServeHTTP(w, r)
 	}))
-	out, err := c.ListStoragePrices(context.Background(), nil)
+	out, err := c.ListStoragePrices(discoveryTestContext(), nil)
 	if out != nil || err == nil {
 		t.Fatalf("output %+v error %v", out, err)
 	}
@@ -252,7 +265,7 @@ func TestListStoragePricesRowLimitPartial(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "datas": types})
 	}))
-	out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{AllowPartial: true})
+	out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{AllowPartial: true})
 	if out == nil || len(out.Items) == 0 || !errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 		t.Fatalf("partial output missing; error %v", err)
 	}
@@ -276,7 +289,7 @@ func TestListStoragePricesIndependentOfferPartial(t *testing.T) {
 		env["datas"], _ = json.Marshal(types)
 		_ = json.NewEncoder(w).Encode(env)
 	}))
-	out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{AllowPartial: true})
+	out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{AllowPartial: true})
 	if out == nil || len(out.Items) != 1 || out.Items[0].Price.Status != "quoted" || !errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 		t.Fatalf("output %+v error %v", out, err)
 	}
