@@ -1,12 +1,14 @@
 # CLI Design
 
-Status: Approved (2026-09-25).
+Status: Approved.
 
 This design defines the `vngcloud` command-line tool: its dependencies,
 commands, flags, output, safety guards, `configure`, and exit codes. It builds
 on [SDK and CLI](sdk-and-cli.md), which owns the SDK surface, configuration
 precedence, the token cache, the error types, and the release order. Write
 commands follow [ADR 0002](../adr/0002-write-api-conventions.md).
+The accepted [service-account design](service-account-auth.md) extends these
+rules; its eight decisions are approved, implementation is pending.
 
 ## Layout
 
@@ -56,7 +58,11 @@ and files exactly as the SDK does. It passes:
 - `WithLogger` only when `--debug` is given (see [Debug](#debug)).
 
 `LoadConfig` sends no request. `configure`, `version`, and `gen-docs` do not
-call it.
+call it. Service-account selection uses the SDK's accepted
+[profile rules](service-account-auth.md#profiles-environment-and-cli), without
+an auth flag or login command. Cache preflight waits for auth selection so
+service accounts get the fixed cache error; other auth kinds keep their
+existing preflight behavior. See [errors][sa-errors].
 
 The CLI reads the profile's `output` and `read_only` keys through
 `Config.ProfileSetting(key)`, which returns that key's value in the resolved
@@ -174,8 +180,10 @@ names the setting that turned it on, for example
   but the SDK never acts on it.
 
 Read-only guards against an agent's mistakes, not against a process that can
-edit `~/.vngcloud`. Such a process can remove the key. `configure` is not a
-`cli.Write` command, so it still runs.
+edit `~/.vngcloud`. Such a process can remove the key. `configure` has its own
+[read-only rules](#configure-under-read-only). Server-enforced rights come
+from IAM policies, as [auth scope](service-account-auth.md#scope-and-evidence)
+defines.
 
 ## Debug
 
@@ -196,22 +204,29 @@ secret with `golang.org/x/term`, without echo. When stdin is not a terminal it
 exits with code 2 at once.
 
 `configure set <key> <value>` serves scripts, and `configure get <key>` prints
-a value; `get` and `list` mask `password` and `totp_secret`. Each key has one
-file:
+a value; `get` and `list` mask `password`, `totp_secret`, and `client_secret`
+in every format. Each key has one file:
 
 | Key | File |
 |-|-|
 | `region`, `project_id`, `output`, `read_only` | config |
 | `root_email`, `username`, `password`, `totp_secret` | credentials |
+| `client_id`, `client_secret` | credentials |
+
+Interactive IAM User prompts stay unchanged. Service-account setup uses
+explicit commands; client ID display, fresh profiles, read-only ordering,
+rotation, and create/reset secret recovery follow the accepted
+[CLI profile rules](service-account-auth.md#profiles-environment-and-cli).
 
 ### Secrets stay out of argv
 
 `configure set <key> -` reads the value from stdin, so it never appears in
-argv, `ps` output, or shell history. It reads all of stdin and drops one
-trailing newline (`\n` or `\r\n`). An empty value is refused with exit code 2.
+argv, `ps` output, or shell history. It bounds stdin to 4096 bytes and drops
+one trailing newline (`\n` or `\r\n`). Empty or oversized input is refused
+with exit code 2.
 
-`configure set password <value>` and `configure set totp_secret <value>` with
-a literal value are refused with exit code 2. The message names the
+`configure set` refuses literal values for `password`, `totp_secret`, and
+`client_secret` with exit code 2. The message names the
 `configure set <key> -` form and does not echo the value. Other keys accept a
 literal value or `-`.
 
@@ -249,6 +264,7 @@ For an `*APIError`, `code` is `APIError.Code`, which falls back to the
 status-derived code (see [Errors](sdk-and-cli.md#errors)). Other errors omit
 `status` and `operation`, and `code` names the class: `InvalidUsage`,
 `ReadOnly`, `InvalidConfig`, `NoCredentials`, `LoginFailed`,
+`ServiceAccountLoginFailed`, `TokenCacheFailed`,
 `RequestFailed`, `QueryFailed`, `PageFormat` (a public page such as the
 CDN IP range FAQ changed format; see [CDN](cdn.md)), `UnexpectedStatus` (a
 vMonitor check, or a vCDN CDN or certificate, has a status the SDK does
@@ -287,7 +303,7 @@ says the write succeeded, so an agent does not retry it.
 | 0 | Success |
 | 1 | API or network error, or a cancelled command |
 | 2 | Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a literal secret in `configure set`, a missing region, an ambiguous project, or an input the SDK or server refuses (`ErrInvalidInput`; a server refusal keeps its `APIError.Code`, such as `112`) |
-| 3 | `ErrNoCredentials` (including `cdn.ErrNoAPIKey`, which wraps it), `ErrCredentialsFile`, a `*LoginError`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
+| 3 | `ErrNoCredentials` (including `cdn.ErrNoAPIKey`, which wraps it), `ErrCredentialsFile`, a login error matching `ErrAuth`, or a 401 after the retry (a vMonitor toggle write never retries, so its first 401 exits 3) |
 | 4 | `NotFound` |
 
 `ErrNoCredentials` and `ErrCredentialsFile` also match `ErrInvalidConfig`, so
@@ -295,6 +311,10 @@ the CLI checks them first. A cancelled context anywhere in the error chain,
 including during login, is checked before all of them and exits 1. The
 exceptions are `StatusUnconfirmed` and `NotSettled`, checked before the
 cancelled context, because a write may have landed.
+
+Service-account validation, login, cache, and cancellation codes follow
+[the accepted mappings][sa-errors], including exit 1 for a canceled login
+and `TokenCacheFailed`. Product 401/403 mappings remain unchanged.
 
 ## Security
 
@@ -320,7 +340,9 @@ cancelled context, because a write may have landed.
 - `configure` tests use a temporary home directory and cover the 0700
   directory, 0600 files, a symlinked file staying a symlink, kept comments and
   other sections, `set <key> -` from stdin, and the refusal of a literal
-  `password` or `totp_secret`.
+  `password`, `totp_secret`, or `client_secret`. Service-account masking,
+  reserved config keys, source selection, and cache failures follow its
+  [deterministic checks](service-account-auth.md).
 - `make live` also runs one CLI read command per service.
 
 ## Docs
@@ -328,13 +350,17 @@ cancelled context, because a write may have landed.
 A hidden `vngcloud gen-docs <dir>` command writes one CLI reference page per
 service from the operation tables. `make gen-docs` writes them into
 `docs/wiki/`, and CI fails when the committed pages differ from the output.
+Service-account SDK, CLI, cache, and public docs ship together under the
+[release contract](service-account-auth.md#owner-decisions-and-release-order).
 
 ## Configure under read-only
 
-`configure` and `configure set` refuse to run, with exit code 2, while
-`VNGCLOUD_READ_ONLY` or `--read-only` is on, so an agent cannot clear a
-profile's `read_only` through the CLI. `configure get` and `configure list`
-still work. `configure set read_only` refuses, with exit code 2, to turn
-`read_only` off for a profile that has it on; clearing it means editing the
-file by hand. This guards against mistakes, not against a process that can
-edit `~/.vngcloud` directly.
+`configure` and `configure set` refuse writes with exit code 2 when the flag,
+variable, or selected profile enables read-only. `configure get` and
+`configure list` still work. Clearing the profile setting requires editing
+the file by hand; no flag or configure command bypasses the latch. Apply the
+accepted [rotation rules](service-account-auth.md#profiles-environment-and-cli).
+This guards against mistakes, not against a process that can edit
+`~/.vngcloud` directly.
+
+[sa-errors]: service-account-auth.md#errors-and-secret-handling

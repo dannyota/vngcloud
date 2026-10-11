@@ -1,12 +1,14 @@
 # SDK and CLI Design
 
-Status: Approved (2026-09-25).
+Status: Approved.
 
 This design restructures the Go SDK and adds the `vngcloud` command-line tool.
 It covers the SDK layout, configuration and credentials, the CLI, errors,
 testing, docs, and release order. Write APIs follow
 [ADR 0002](../adr/0002-write-api-conventions.md), and each service's writes
 get their own design; [billing](billing.md) has the first.
+[Service-account authentication](service-account-auth.md) owns the accepted
+extension below; its eight decisions are approved, implementation is pending.
 
 ## Goals
 
@@ -44,7 +46,6 @@ aboutme needs, from the CLI, most frequent first:
 - Root-account login. The root sign-in page requires a Google reCAPTCHA, so it
   cannot be automated. Users who need full access grant an IAM User broad
   policies.
-- Service-account login.
 - Prebuilt binaries and OS keyring storage. Each gets its own design when
   needed.
 - A generated API model format like AWS botocore.
@@ -53,7 +54,7 @@ aboutme needs, from the CLI, most frequent first:
 
 | Topic | Decision |
 |-|-|
-| Auth | IAM User login (password, optional TOTP) or a static bearer token |
+| Auth | Custom provider, static token, service-account login, or IAM User login |
 | Credential storage | AWS-style `~/.vngcloud/config` and `~/.vngcloud/credentials` files, plus environment variables |
 | SDK layout | One public package per service, like the AWS SDK for Go v2 |
 | Method shape | `Method(ctx, *Input) (*Output, error)` for every operation |
@@ -81,10 +82,11 @@ aboutme needs, from the CLI, most frequent first:
   options only, reading no environment variables or files.
 - `CredentialsProvider`: an interface with `Token(ctx)`, which returns a
   valid access token, and `Invalidate(token)`, which drops that token from
-  every cache. Built-in providers are IAM User login and static token. For a
-  custom provider, an empty token with a nil error is an error, and a zero
-  expiry makes the SDK call `Token` before every request.
-- `*APIError` and `*LoginError` (see [Errors](#errors)).
+  every cache. For a custom provider, an empty token with a nil error is an
+  error; zero expiry makes the SDK call `Token` before every request.
+- `ServiceAccountAuth` and `WithServiceAccount`: see the accepted
+  [surface and snapshot](service-account-auth.md#sdk-surface-and-selection).
+- Public error types and sentinels: see [Errors](#errors).
 
 `Config`, the credentials providers, and the shared session live in
 `internal/core`; the root package aliases them. The root package never imports
@@ -101,6 +103,8 @@ logs nothing. With it:
   duration. An attempt with no response has no status.
 - IAM User login logs only `login started` and `login finished` with the
   outcome, `ok` or `failed`. Its own HTTP requests are not logged.
+- Service-account exchange logging and capture exclusion follow its
+  [secret handling](service-account-auth.md#errors-and-secret-handling).
 
 Nothing else is logged: no body, header, cookie, token, root email,
 authorization code, or credential. Tests assert this for a full login and a
@@ -112,8 +116,12 @@ request with a query string.
 holds the credentials provider with its in-memory token and the discovered
 project ID. Every service client built from the same `Config` shares it, so a
 program with a compute and a network client logs in once and discovers the
-project once. Two logins inside one 30-second TOTP window would fail, because
-the server rejects a reused code.
+project once. IAM User logins cannot reuse a TOTP code within 30 seconds.
+Service-account configs have separate memory state; only the optional disk
+cache shares tokens between configs. `WithHTTPClient` and `WithTransport`
+affect product requests, never the private exchange. Endpoint overrides retain
+their product/IAM User meanings under
+[endpoint trust](service-account-auth.md#token-request-and-endpoint-trust).
 
 ### Service packages
 
@@ -207,7 +215,8 @@ Highest first:
 2. Environment variables.
 3. The selected profile in the files.
 
-An empty value from an option, a variable, or a file key counts as unset.
+Empty string values and nil auth/provider options are unset. A non-nil auth
+option reserves its source even when its fields are empty.
 An explicit profile (`--profile` or `WithProfile`) skips step 2 for
 credentials and the project ID, so a `.env` file for one account cannot send
 `--profile prod` calls to that account. Region names no account, so it may
@@ -221,28 +230,34 @@ credentials section, and none from options, is an error naming it.
 | `VNGCLOUD_REGION` | Region |
 | `VNGCLOUD_PROJECT_ID` | Project ID |
 | `VNGCLOUD_ROOT_EMAIL`, `VNGCLOUD_USERNAME`, `VNGCLOUD_PASSWORD`, `VNGCLOUD_TOTP_SECRET` | IAM User credentials |
-| `VNGCLOUD_ACCESS_TOKEN` | Static token; wins over password login |
+| `VNGCLOUD_ACCESS_TOKEN` | Static token; wins over built-in login methods |
+| `VNGCLOUD_CLIENT_ID`, `VNGCLOUD_CLIENT_SECRET` | Service-account credentials |
 | `VNGCLOUD_CONFIG_FILE` | Config file path |
 | `VNGCLOUD_SHARED_CREDENTIALS_FILE` | Credentials file path |
 
-Credentials resolve as a set: `LoadConfig` takes the credentials from the
-first source, in the order above, that sets any credential value, so a
-profile's password is never mixed with another source's username. Within one
-source, an access token wins over IAM User values. A credentials provider
-option wins over both. The credentials file has no access token key.
+Credentials resolve as a whole set: select options first, then the first
+eligible environment/profile source with any non-empty credential value.
+Never mix sources. Within the selected source, method precedence is custom
+provider, static token, service account, then IAM User, independent of option
+order. Validate only the winner; a partial set or login failure never falls
+back. The credentials file has no static-token key. Service-account keys,
+reserved config keys, and independent vCDN API-key resolution follow
+[profile rules](service-account-auth.md#profiles-environment-and-cli).
 
-`LoadConfig` errors match `ErrInvalidConfig` under `errors.Is`. Two also match
-their own sentinel: `ErrNoCredentials` when no source sets credentials, and
-`ErrCredentialsFile` when the credentials file is missing at an explicit path,
-unreadable, or refused. The CLI
-[exit codes](cli.md#errors-and-exit-codes) follow these sentinels.
+Configuration failures match `ErrInvalidConfig`; missing credentials and
+credentials-file refusals also match `ErrNoCredentials` and
+`ErrCredentialsFile`, respectively. Service-account partial sets and context
+errors follow [the rules](service-account-auth.md#errors-and-secret-handling).
+The CLI [exit codes](cli.md#errors-and-exit-codes) follow those identities.
 
 ### File safety
 
 - A missing file is an error only when an option, `VNGCLOUD_CONFIG_FILE`, or
   `VNGCLOUD_SHARED_CREDENTIALS_FILE` named its path. A path that cannot be read
-  or is not a regular file is an error. Unknown keys are ignored. Errors name
-  the file and the line or the fix, never a value.
+  or is not a regular file is an error. Unknown keys are ignored except
+  non-empty `client_id` or `client_secret` in the resolved config section:
+  refuse those before storing profile settings, under the linked rules.
+  Errors name the file and the line or the fix, never a value.
 - `LoadConfig` opens the credentials file, then checks the open file's mode,
   and refuses it when group or others can read it. The error names the file
   and the fix (`chmod 600`). On Windows the check is skipped.
@@ -251,33 +266,35 @@ unreadable, or refused. The CLI
 
 ### Token cache
 
-- Only `vngcloud.WithTokenCache(dir)` turns on caching, so library users get
-  no disk writes they did not ask for. The CLI passes `~/.vngcloud/cache/`.
-- The cache directory has mode 0700. Each credential set's token lives in
-  `<dir>/<hash>.json`, mode 0600. The hash is SHA-256 hex over the
-  length-prefixed profile name, root email, username, sign-in URL, and token
-  URL, so changed credentials or endpoints never reuse an old token. Static
-  tokens are never cached.
-- The file holds the access token, its expiry, and its login time. The SDK
-  uses a token until 30 seconds before expiry, then logs in again. An
-  unreadable or malformed cache file counts as a miss.
-- One locked operation on `<hash>.lock` reads the cache, applies any pending
-  invalidation, logs in if needed, and writes the result through a temp file
-  and rename. A second process then finds the fresh token, so two processes
-  never log in with the same TOTP code.
-- The lock is tried without blocking and retried with backoff until the
-  call's context ends, so a stuck process cannot hang another. Unix uses
-  `flock`; Windows opens the lock file with share mode 0 through
-  `syscall.CreateFile`. Either lock ends with its process. Lock files are kept.
-- A failed cache write after a successful login is not a call error: the SDK
-  returns the fresh token and removes its temp file.
-- After an HTTP 401, the transport invalidates exactly the token it sent:
-  memory and disk are cleared only while they still hold it. The request is
-  retried once with a new token. A token whose login time is under 30 seconds
-  old is not invalidated; the call returns `ErrAuth`. So a 401 that a new login
-  cannot fix never causes repeated logins or two logins in one TOTP window.
-  A request that needs auth is never sent without a token.
-- The refresh-token grant is unverified, so every renewal is a full login.
+`WithTokenCache(dir)` opts SDK callers into disk caching; the CLI enables it.
+Static tokens and custom providers never use this cache. Service accounts use
+only the new secret-bound namespace and failure rules in
+[cache and rotation](service-account-auth.md#cache-and-credential-rotation).
+The existing IAM User cache retains these rules:
+
+- The cache directory has mode 0700; `<dir>/<hash>.json` has mode 0600.
+  SHA-256 hex hashes length-prefixed profile, root email, username, sign-in URL,
+  and token URL. Password and TOTP are excluded, so changing either can reuse
+  an issued token. Preserve those five-field hashes unchanged.
+- The file holds the access token, expiry, and login time. Reuse ends 30
+  seconds before expiry. An unreadable or malformed token file is a miss.
+- One operation locks `<hash>.lock`, reads, applies pending invalidation,
+  logs in if needed, and writes through a temp file and rename. Another
+  process reuses the fresh token rather than the same TOTP code.
+- Nonblocking lock attempts use backoff until the context ends. Unix uses
+  `flock`; Windows opens with share mode 0 through `syscall.CreateFile`.
+  Locks end with their process; lock files remain.
+- A failed cache write after login returns the fresh token and removes its
+  temp file without failing the call.
+- A 401 invalidates only the exact sent token, only when at least 30 seconds
+  old or obtained in the future. Ordinary requests retry once, reusing a
+  younger token; another 401 returns `ErrAuth`. `Once` invalidates without
+  refresh or resend. A 403 never refreshes. Never send an empty bearer token.
+- The IAM refresh-token grant is unverified; renewal uses a full login.
+
+Shared waits retain post-lock context checks and token identity under the
+[cancellation rules](pricing-discovery.md#shared-waits-and-cancellation).
+Service-account rotation follows its cache contract above.
 
 ## CLI
 
@@ -303,7 +320,7 @@ back to the code for the status:
 | 5xx | `ServerError` |
 | Other 4xx | `ClientError` |
 
-Every login failure returns `*vngcloud.LoginError`. It wraps `ErrAuth`, so
+IAM User login failures return `*vngcloud.LoginError`, wrapping `ErrAuth`, so
 `errors.Is(err, vngcloud.ErrAuth)` is true, except when the context ended
 during login: then it wraps `ctx.Err()` instead. It holds the HTTP status of the
 failed step, when there is one, and `CaptchaSuspected`, which is true when the
@@ -311,6 +328,11 @@ sign-in page shows the form again after a submit. Its message is fixed text
 plus the status and, when suspected, a captcha hint. It never holds a
 password, TOTP secret or code, token, cookie, authorization code, root email,
 or username, and neither does any error it wraps.
+
+Service-account exchange failures use `*vngcloud.ServiceAccountLoginError`;
+cache availability failures use `vngcloud.ErrTokenCache`. Fixed messages,
+context precedence, unwrap identities, and CLI mappings belong to the
+[error contract](service-account-auth.md#errors-and-secret-handling).
 
 The CLI output and exit codes for these errors are in
 [CLI](cli.md#errors-and-exit-codes).
@@ -323,14 +345,15 @@ The CLI output and exit codes for these errors are in
   level, credential-set resolution, and the file permission check.
 - The INI parser has table tests, including malformed lines.
 - Token cache tests use a fake clock, injected into the login path, and cover
-  reuse, expiry, invalidation when credentials or endpoints change, a malformed
+  reuse, expiry, misses when IAM key fields change, a malformed
   cache file, two concurrent processes sharing one login, and a 401 retry that
   sends a new token.
 - A test builds two service clients from one `Config` and checks a single
   login.
 - Error tests cover each status-to-code fallback and a `*LoginError` that
   matches `ErrAuth`, with and without a suspected captcha.
-- CLI tests are in [CLI](cli.md#testing).
+- CLI tests are in [CLI](cli.md#testing); service-account tests follow its
+  [security obligations](service-account-auth.md).
 
 ## Docs
 
@@ -341,7 +364,9 @@ The CLI output and exit codes for these errors are in
 
 ## Releases
 
-Each release ships when CI is green on its commit.
+Each release ships when CI is green on its commit. Service-account SDK auth,
+configuration, cache, CLI support, tests, and public docs ship together under
+[release contract](service-account-auth.md#owner-decisions-and-release-order).
 
 | Version | Content |
 |-|-|
@@ -417,9 +442,9 @@ buckets, S3 keys, and service accounts.
 
 Releases planned in other designs get a version number only when they
 ship, so the table above reserves no rows for them. Not yet shipped:
-vMonitor Alerts M8 (log alarm writes) and vStorage S1 to S6.
+vMonitor log alarm writes and the vStorage releases listed above.
 
-Server groups, VPCs and subnets, route tables, and network ACLs ship as
-releases N1 to N4 in [vServer network writes](vserver-network-writes.md).
+Server groups, VPCs and subnets, route tables, and network ACLs follow
+[vServer network writes](vserver-network-writes.md).
 Other compute, volume, and network writes come later; OpenTofu covers them
 for aboutme.

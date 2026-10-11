@@ -19,7 +19,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [vStorage projects](storage-projects.md) | Accepted |
-| [Prepaid resource auto-renew](auto-renew.md) | Accepted (2026-10-10) |
+| [Prepaid resource auto-renew](auto-renew.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |
 | [vServer free writes](vserver-writes.md) | Accepted |
 | [Free writes survey](free-writes-survey.md) | Accepted |
@@ -39,4 +39,14 @@ code starts. Decisions with lasting trade-offs also get an
 | [Public NAT and VPN writes](network-writes.md) | Draft |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
-| [Service-account authentication](service-account-auth.md) | Accepted |
+| [Service-account authentication](service-account-auth.md) | Accepted; eight decisions approved; implementation pending |
+
+Service-account authentication covers SDK login, configuration, cache, CLI,
+and public docs in one release. [Recorded evidence][sa-evidence] establishes
+only the tested exchange and security-group scope, not server discovery.
+Implementation checks and manager repeats remain required; server scope,
+other regions/services, and revocation retain their [evidence gates][sa-gates].
+Approval grants no live-run or policy authority.
+
+[sa-evidence]: service-account-auth-api.md#recorded-live-results
+[sa-gates]: service-account-auth-api.md#open-evidence

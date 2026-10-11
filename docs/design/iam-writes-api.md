@@ -15,10 +15,16 @@ probes, and live checks are in [IAM writes: checks](iam-writes-checks.md).
 - The product pages "IAM Access Management" and "Service accounts" on
   `docs.greennode.ai`: a client secret is shown once and can be reset.
 - Read-only calls on the test account through this repository's
-  transport, on 2026-09-27. They logged only statuses, key names, types,
-  counts, and booleans.
+  transport. They logged only statuses, key names, types, counts, and
+  booleans.
 
-VNG Cloud's Go SDK and Terraform provider have no IAM code.
+VNG Cloud's Go SDK and Terraform provider contain service-account
+client-credentials authentication code. The pinned sources and their wire
+limits appear in [auth evidence](service-account-auth-api.md#token-exchange).
+That code establishes authentication coverage, not IAM management coverage;
+the management evidence here comes from the specs, console, and reads above.
+The accepted [service-account design](service-account-auth.md) owns SDK login
+and CLI profiles; it does not change [IAM guards](iam-writes.md#guards).
 
 ## Hosts
 
@@ -93,8 +99,8 @@ specs and the console until the [probes](iam-writes-checks.md#probes).
   `description`, `manager`, `scope`, `root`, `statements`, and `_id`.
   GreenNode-managed policies have `manager` `VNG CLOUD` and a null or
   missing `root`; a customer policy has `manager` `user` and its account
-  number in `root`, sent as a JSON number, confirmed live on 2026-09-27. The
-  SDK decodes `root` as a number, a string, or null or absent, and always
+  number in `root`, confirmed live as a JSON number. The SDK decodes `root`
+  as a number, a string, or null or absent, and always
   exposes it as a string; `Group.root` gets the same tolerant decode on the
   same key name, though no live read has confirmed its type.
 - `createdAt` arrives as an epoch-milliseconds number, as
@@ -264,7 +270,7 @@ section says.
   set `transport.Request.Once`: a resend after a 401 or a followed
   redirect would create a second account or policy, or rotate the secret a
   second time, so each is sent at most once, whatever the response.
-  Attaches and adds (I3, I4) are plain `POST` instead, retried only after a
+  Attaches and adds are plain `POST` instead, retried only after a
   429 or a failed dial (ADR 0002 rule 2), since a repeat is visible as a
   `Conflict`. After a 5xx or a network error from any of these, the error
   names the read that shows whether the write landed:
