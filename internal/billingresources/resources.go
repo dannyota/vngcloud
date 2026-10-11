@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
-	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -62,11 +61,15 @@ func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.
 	var credential string
 	req.SentCredential = &credential
 	req.NoRedirect = true
+	req.MaxBody = 4 << 20
 	// Account data and resource tags must not enter routine captures or errors.
 	req.Sensitive = true
 	req.WithholdMessage = "billing response withheld"
 	status, err := c.DoJSONStatus(ctx, req, &raw)
 	if err != nil {
+		if errors.Is(err, transport.ErrBodyTooLarge) {
+			return nil, status, responseError(req.Operation, status)
+		}
 		var api *core.APIError
 		if errors.As(err, &api) {
 			safe := *api
@@ -83,7 +86,7 @@ func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.
 		Code json.RawMessage `json:"code"`
 		Data json.RawMessage `json:"data"`
 	}
-	if status != http.StatusOK || !object(raw) || jsonresponse.Validate(raw) != nil || json.Unmarshal(raw, &env) != nil || !successCode(env.Code) || !object(env.Data) {
+	if status != http.StatusOK || !object(raw) || decodeExact(raw, &env) != nil || !successCode(env.Code) || !object(env.Data) {
 		return nil, status, responseError(req.Operation, status)
 	}
 	return env.Data, status, nil
@@ -98,7 +101,7 @@ func List(ctx context.Context, c *core.Client) (json.RawMessage, error) {
 	var wire struct {
 		Items []json.RawMessage `json:"data"`
 	}
-	if json.Unmarshal(data, &wire) != nil || wire.Items == nil {
+	if decodeExact(data, &wire) != nil || wire.Items == nil {
 		return nil, responseError(ListOperation, status)
 	}
 	var typed struct {
@@ -113,7 +116,7 @@ func List(ctx context.Context, c *core.Client) (json.RawMessage, error) {
 			AlarmThresholds   json.RawMessage `json:"alarmThresholds"`
 		} `json:"extra"`
 	}
-	if json.Unmarshal(data, &typed) != nil {
+	if decodeExact(data, &typed) != nil {
 		return nil, responseError(ListOperation, status)
 	}
 	for _, item := range wire.Items {
@@ -134,7 +137,7 @@ func Account(ctx context.Context, c *core.Client) (string, error) {
 		AccountID json.RawMessage `json:"accountId"`
 		UserID    json.RawMessage `json:"userId"`
 	}
-	if json.Unmarshal(data, &wire) != nil {
+	if decodeExact(data, &wire) != nil {
 		return "", responseError(AccountOperation, status)
 	}
 	var account string
@@ -192,7 +195,7 @@ func Put(ctx context.Context, c *core.Client, op, account string, setting Settin
 		SuccessAll *bool             `json:"successAll"`
 		Errors     []json.RawMessage `json:"errorAutoRenewResources"`
 	}
-	if json.Unmarshal(data, &wire) != nil || wire.SuccessAll == nil {
+	if decodeExact(data, &wire) != nil || wire.SuccessAll == nil {
 		return responseError(op, status)
 	}
 	if !*wire.SuccessAll || len(wire.Errors) > 0 {

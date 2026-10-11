@@ -64,3 +64,88 @@ type NATVPC struct {
 	LastSyncTime string `json:"lastSyncTime"`
 	DNSStatus    string `json:"dnsStatus"`
 }
+
+type ListNATZonesInput struct{ ZoneID string }
+type ListNATZonesOutput = core.List[NATAvailabilityZone]
+type ListNATPackagesInput struct {
+	ZoneID             string
+	AvailabilityZoneID string `vngcloud:"required"`
+}
+type ListNATPackagesOutput = core.List[NATPackageOffer]
+
+type NATAvailabilityZone struct {
+	UUID        string `json:"uuid"`
+	Name        string `json:"name"`
+	ZoneType    string `json:"zoneType"`
+	IsEnabled   bool   `json:"isEnabled"`
+	IsDefault   bool   `json:"isDefault"`
+	Description string `json:"description"`
+}
+
+type NATOfferPrice struct {
+	OptimumPrice    float64 `json:"optimumPrice"`
+	OriginalPrice   float64 `json:"originalPrice"`
+	DiscountPrice   float64 `json:"discountPrice"`
+	DiscountPercent float64 `json:"discountPercent"`
+}
+
+type NATPackageOffer struct {
+	UUID              string        `json:"uuid"`
+	Name              string        `json:"name"`
+	PackageID         string        `json:"packageId"`
+	ResourceServiceID string        `json:"resourceServiceId"`
+	BillingSKU        string        `json:"billingSku"`
+	ServiceName       string        `json:"serviceName"`
+	Description       *string       `json:"description"`
+	CurrencyUnit      string        `json:"currencyUnit"`
+	CreatedAt         string        `json:"createdAt"`
+	IsDefault         bool          `json:"isDefault"`
+	MonthlyPrice      float64       `json:"monthlyPrice"`
+	Price             NATOfferPrice `json:"price"`
+}
+
+type CreateNATInstanceInput struct {
+	Name               string `vngcloud:"required"`
+	ZoneID             string `vngcloud:"required"`
+	AvailabilityZoneID string `vngcloud:"required"`
+	PackageID          string `vngcloud:"required"`
+	VPCID              string `vngcloud:"required"`
+	MaxPrice           float64
+}
+
+type CreateNATInstanceOutput struct {
+	NATInstance  *NATInstance
+	OrderID      string
+	MonthlyPrice float64
+	TotalPrice   float64
+	Currency     string
+	AutoRenew    *bool
+}
+
+type DeleteNATInstanceInput struct {
+	ZoneID string `vngcloud:"required"`
+	VPCID  string `vngcloud:"required"`
+	NATID  string `vngcloud:"required"`
+	NoWait bool
+}
+type DeleteNATInstanceOutput struct{}
+
+type NetworkPriceProperty struct {
+	OptimumPrice    float64  `json:"optimumPrice"`
+	MonthlyPrice    float64  `json:"monthlyPrice"`
+	CurrentPrice    *float64 `json:"currentPrice"`
+	DiscountPercent *float64 `json:"discountPercent"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+}
+
+type NetworkQuoteOutput struct {
+	OptimumPrice    float64
+	OriginalPrice   float64
+	DiscountPrice   float64
+	DiscountPercent *float64
+	Properties      []NetworkPriceProperty
+	MonthlyPrice    float64
+	TotalPrice      float64
+	Currency        string
+}

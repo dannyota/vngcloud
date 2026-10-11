@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,13 +36,29 @@ func (c *Client) natEndpoint() (string, error) {
 
 // NAT discovery never updates the shared endpoint cache or follows a supplied host.
 func (c *Client) natZoneID(ctx context.Context, base string) (string, error) {
-	var resp natRegionsResponse
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &resp)
+	return c.natZoneIDWithPrivacy(ctx, base, true)
+}
+
+func (c *Client) natZoneIDWithPrivacy(ctx context.Context, base string, sensitive bool) (string, error) {
+	withhold := ""
+	if sensitive {
+		withhold = "NAT response withheld"
+	}
+	var raw json.RawMessage
+	var credential string
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredential: &credential, Sensitive: sensitive, NoRedirect: sensitive, WithholdMessage: withhold, Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &raw)
 	if err != nil {
+		if errors.Is(err, transport.ErrBodyTooLarge) {
+			return "", invalidNATResponse("oversized regions envelope")
+		}
 		if status == http.StatusOK {
 			return "", invalidNATResponse("invalid regions envelope")
 		}
 		return "", err
+	}
+	var resp natRegionsResponse
+	if natReflectsCredential(raw, credential) || json.Unmarshal(raw, &resp) != nil {
+		return "", invalidNATResponse("invalid regions envelope")
 	}
 	if resp.Success == nil || !*resp.Success || len(resp.Data) == 0 || string(resp.Data) == "null" {
 		return "", invalidNATResponse("invalid regions envelope")

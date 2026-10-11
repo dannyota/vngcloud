@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "page": 1,
+  "size": 1000,
+  "totalPage": 1,
+  "total": 1,
+  "data": [
+    {
+      "uuid": "nat-1",
+      "natName": "example",
+      "status": "ACTIVE",
+      "projectUuid": "pro-00000000-0000-0000-0000-000000000001",
+      "zoneUuid": "HAN01-1B",
+      "natPackage": {
+        "uuid": "package-1"
+      },
+      "vpc": {
+        "uuid": "vpc-1",
+        "projectId": "66b500000000000000000002",
+        "projectUuid": null,
+        "regionUuid": null,
+        "regionId": "66b500000000000000000001"
+      }
+    }
+  ]
+}

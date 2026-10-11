@@ -18,6 +18,7 @@ import (
 const defaultUserAgent = "danny.vn/vngcloud"
 
 type Client struct {
+	iamUserLogin     bool
 	region           string
 	vnetworkOverride bool
 	endpoints        endpoints.Set
@@ -150,6 +151,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	})
 
 	c := &Client{
+		iamUserLogin:     settings.credentials == nil && settings.staticToken == "",
 		storageTestClock: settings.storageTestClock,
 		region:           settings.region,
 		vnetworkOverride: settings.endpoints.VNetwork != "",

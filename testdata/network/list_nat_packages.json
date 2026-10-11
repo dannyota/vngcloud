@@ -1,0 +1,28 @@
+{
+  "code": 200,
+  "success": true,
+  "data": [
+    {
+      "uuid": "package-1",
+      "name": "Standard",
+      "packageId": "standard",
+      "resourceServiceId": "service-1",
+      "billingSku": "nat.s-standard",
+      "serviceName": "nat",
+      "description": null,
+      "currencyUnit": "VND",
+      "createdAt": "2026-01-01",
+      "isDefault": true,
+      "monthlyPrice": 100,
+      "price": {
+        "optimumPrice": 100,
+        "originalPrice": 100,
+        "discountPrice": 0,
+        "discountPercent": 0
+      },
+      "image": {
+        "licenseKey": "catalog-secret-canary"
+      }
+    }
+  ]
+}

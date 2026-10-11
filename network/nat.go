@@ -64,17 +64,24 @@ func (c *Client) ListNATInstances(ctx context.Context, in *ListNATInstancesInput
 		Size   int      `json:"size"`
 	}{Search: []string{}, Page: page, Size: size})
 	var sentCredential string
-	var resp natListResponse
+	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
-		Operation: listNATOperation, Method: http.MethodGet, SentCredential: &sentCredential,
+		Operation: listNATOperation, Method: http.MethodGet, SentCredential: &sentCredential, Sensitive: true, MaxBody: natMaxBody,
 		URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{zoneID, projectID, "nats"}, Query: url.Values{"params": {string(params)}}}), OK: []int{http.StatusOK},
-	}, &resp)
+	}, &raw)
 	if err != nil {
+		if errors.Is(err, transport.ErrBodyTooLarge) {
+			return nil, invalidNATResponse("oversized list envelope")
+		}
 		var apiErr *core.APIError
 		if status == http.StatusOK && errors.As(err, &apiErr) {
 			return nil, invalidNATResponse("invalid list envelope")
 		}
 		return nil, err
+	}
+	var resp natListResponse
+	if natReflectsCredential(raw, sentCredential) || json.Unmarshal(raw, &resp) != nil {
+		return nil, invalidNATResponse("invalid list envelope")
 	}
 	if resp.Success == nil {
 		return nil, invalidNATResponse("missing success")

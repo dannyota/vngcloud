@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "page": 1,
+  "size": 1000,
+  "totalPage": 1,
+  "total": 1,
+  "data": [
+    {
+      "uuid": "vpc-1",
+      "projectId": "66b500000000000000000002",
+      "regionId": "66b500000000000000000001",
+      "zones": [
+        {
+          "uuid": "HAN01-1B"
+        }
+      ],
+      "projectUuid": "pro-00000000-0000-0000-0000-000000000001",
+      "regionUuid": "66b500000000000000000001"
+    }
+  ]
+}

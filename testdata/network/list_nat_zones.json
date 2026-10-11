@@ -1,0 +1,14 @@
+{
+  "code": 200,
+  "success": true,
+  "data": [
+    {
+      "uuid": "az-1",
+      "name": "Example",
+      "zoneType": "AVAILABILITY",
+      "isEnabled": true,
+      "isDefault": false,
+      "description": "Example"
+    }
+  ]
+}
