@@ -2,7 +2,7 @@
 
 ## Claude routing and invocation
 
-Claude designs, researches, and coordinates only. Design runs on Fable high through `designer`; when unavailable, `gpt-6-astra` high designs through `codex exec`, never through a Claude subagent. No implementation, troubleshooting, or review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing), with explicit model and effort on every dispatch.
+Claude designs, researches, and coordinates only. Design runs on Fable high through `designer`, then `gpt-6-astra` high reviews and improves the same documents through `codex exec`; when Fable is unavailable, Astra high writes the design. Astra never runs through a Claude subagent. No implementation, troubleshooting, or review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing), with explicit model and effort on every dispatch.
 
 The Sonnet/Opus restriction applies only to workers and subagents. The owner chooses the main Claude Code session model without this restriction.
 
@@ -16,7 +16,7 @@ Implementation runs in its owned worktree:
 codex exec -C <owned-worktree> -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write -c "sandbox_workspace_write.writable_roots=[\"$HOME/.cache/go-build\",\"$HOME/.cache/golangci-lint\",\"/tmp\"]" -c 'sandbox_workspace_write.network_access=true' -o <scratchpad>/result.md - < <scratchpad>/brief.md
 ```
 
-Troubleshooting uses the same command with `-m gpt-6.1-sol -c model_reasoning_effort=xhigh` and the `troubleshooter` instructions. Astra design, and implementation under an owner exception that names Astra, use `-m gpt-6-astra -c model_reasoning_effort=high` with the same sandbox flags; design research may use the network only for the first-party sources the brief names.
+Troubleshooting uses the same command with `-m gpt-6.1-sol -c model_reasoning_effort=xhigh` and the `troubleshooter` instructions. Astra design uses `-m gpt-6-astra -c model_reasoning_effort=high` with the same sandbox flags; design research may use the network only for the first-party sources the brief names.
 
 Redirect each run's output to `<scratchpad>/logs/<task>.log`; its header prints `session id: <id>`. To answer a worker's question, resume from the same directory with the original run's sandbox. `codex exec resume` rejects `--sandbox`, `-C`, and `--color`, so set the sandbox with `-c`. A `workspace-write` run repeats its writable roots and network flags as below; a read-only review resumes with `-c 'sandbox_mode="read-only"'` and nothing else:
 
@@ -24,20 +24,20 @@ Redirect each run's output to `<scratchpad>/logs/<task>.log`; its header prints 
 codex exec resume <id> -m <model> -c model_reasoning_effort=<effort> -c 'sandbox_mode="workspace-write"' -c "sandbox_workspace_write.writable_roots=[\"$HOME/.cache/go-build\",\"$HOME/.cache/golangci-lint\",\"/tmp\"]" -c 'sandbox_workspace_write.network_access=true' -o <scratchpad>/result.md - < <scratchpad>/answer.md
 ```
 
-Astra design review uses Sol/xhigh/read-only in the source worktree:
+Design and plan review uses Sol xhigh read-only in the source worktree:
 
 ```sh
 codex exec -C <owned-worktree> -m gpt-6.1-sol -c model_reasoning_effort=xhigh --sandbox read-only -o <scratchpad>/review.md - < <scratchpad>/review-brief.md
 ```
 
-Use the other model at xhigh for Sol-authored documents under shared routing. A reviewer never fixes the reviewed source.
+Every review starts as a new `codex exec` process, never as a resumed author session. Fix confirmation may resume that reviewer's own session, since the reviewer did not write the fixes. A reviewer never fixes the reviewed source.
 
 ## Build-capable code review
 
 The manager prepares a disposable copy outside every Git working tree. Supply only tracked source and authorized new files. Exclude `.git`, `.env`, private configs, captures, and local agent state. Add `CHANGES.txt` with the base commit, complete tracked diff, and new-file inventory. Include the matching code-review role TOML instructions and shared authorities in the brief; do not rely on model selection to load them.
 
 ```sh
-codex exec -C <disposable-copy> --skip-git-repo-check -m gpt-6-astra -c model_reasoning_effort=xhigh --sandbox workspace-write -c "sandbox_workspace_write.writable_roots=[\"$HOME/.cache/go-build\",\"$HOME/.cache/golangci-lint\",\"/tmp\"]" -c 'sandbox_workspace_write.network_access=true' -o <scratchpad>/review.md - < <scratchpad>/review-brief.md
+codex exec -C <disposable-copy> --skip-git-repo-check -m gpt-6.1-sol -c model_reasoning_effort=xhigh --sandbox workspace-write -c "sandbox_workspace_write.writable_roots=[\"$HOME/.cache/go-build\",\"$HOME/.cache/golangci-lint\",\"/tmp\"]" -c 'sandbox_workspace_write.network_access=true' -o <scratchpad>/review.md - < <scratchpad>/review-brief.md
 ```
 
 The copy has no Git metadata, so `scripts/check-lengths.sh`, which enumerates files with `git ls-files`, passes there without checking anything; the manager runs it in the source worktree. If `go build` reports a VCS status error in the copy, add `-buildvcs=false`. The reviewer may write build output and probes in that copy, never source fixes. Cache and network setup remain manager-owned. The brief's ban on unrelated network calls and secret reads provides defense in depth for network access; path restrictions still apply. Design reviews stay read-only in the source worktree.
