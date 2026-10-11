@@ -1,6 +1,7 @@
 # Public NAT and Site-to-Site VPN Writes
 
-Status: Accepted (2026-10-11). Each create release waits on its probes.
+Status: Accepted (2026-10-11). The accepted
+[NAT contract](network-writes-nat.md) amends the NAT parts.
 
 Add paid create and delete to `network.Client` and the CLI. Public NAT
 ships first, with its quote and delete in the same release. VPN follows
@@ -13,13 +14,16 @@ transport in [ADR 0003](../adr/0003-toggle-writes.md),
 [vStorage projects](storage-projects.md). [API evidence](network-writes-api.md)
 separates observed requests from proposed fields. The
 [read design](network-services.md) owns inventory models and routing.
-All choices in this draft require the approvals listed at the end.
+Accepted choices remain in force except where the
+[NAT contract](network-writes-nat.md) replaces them.
 
 ## Scope and compatibility
 
 Support one-month prepaid purchases from credit, one resource per call.
-Exclude renewal changes, resize, rename, tags, NAT rules, extra VPN sites
-or tunnels, key rotation, configuration downloads, and connectivity tests.
+Exclude standalone renewal settings, resize, rename, tags, NAT rules,
+extra VPN sites or tunnels, key rotation, configuration downloads, and
+connectivity tests. NAT create includes one renewal-off write
+as described in the [NAT contract](network-writes-nat.md#renewal-off).
 Exclude trial, proof-of-concept, postpaid, and external payment methods.
 
 New methods and types live in `network`; no root service re-exports or
@@ -42,10 +46,13 @@ Operation names have the `network.` prefix.
 | `DeleteVPNConnection` | `DeleteVPNConnectionInput` | Empty output |
 
 Both create inputs have required `Name`, `ZoneID`, `PackageID`, and
-`VPCID` strings, `MaxPrice float64`, and `NoWait bool`. Region and project
-come from the configured selection. There is no implicit VPC, package,
-zone, period, or renewal choice. No `Period` or `AutoRenew` input is exposed
-in the first releases: one month and renewal off are fixed.
+`VPCID` strings and `MaxPrice float64`. VPN retains `NoWait bool`. The
+[NAT input amendment](network-writes-nat.md#inputs-and-discovery) adds
+required `AvailabilityZoneID` and removes create `NoWait`. `ZoneID` keeps the
+read design's region-level path meaning, distinct from an availability
+zone. Region and project come from the configured selection. There is no
+implicit VPC, package, or zone. No `Period` or `AutoRenew` input is exposed:
+one month and confirmed renewal off remain the intended result.
 
 VPN adds required `SubnetID`, `SiteName`, `RemoteGatewayIP`, `TunnelName`,
 and `RemoteNetworkCIDR` strings, plus `PreSharedKey vngcloud.Secret`.
@@ -72,6 +79,8 @@ Create outputs hold `NATInstance *NATInstance` or
 `TotalPrice`, `Currency`, and `AutoRenew *bool`. Nil resource or renewal
 state means unconfirmed. `OrderID` comes only from a verified response
 field, never a URL. Return safe partial output on post-order errors.
+NAT's direct response has no ID, so its `OrderID` stays empty. Populate
+`AutoRenew` only from a valid billing observation, never the order flag.
 Never return checkout URLs, payment metadata, or the VPN key.
 
 ## Validation and VPC consent
@@ -110,8 +119,8 @@ create share one resolved specification and the same price serializer.
 Separate order serialization adds only verified order fields. VPN keys
 never enter pricing. NAT initially uses the captured priced fields,
 including name and VPC, until omission probes establish a smaller body.
-Quotes ignore `MaxPrice` and `NoWait` and need no pre-shared key. VPN
-quote-only required fields depend on the verified price schema.
+Quotes ignore `MaxPrice` and VPN `NoWait` and need no pre-shared key.
+VPN quote-only required fields depend on the verified price schema.
 
 A create performs these steps in order:
 
@@ -123,14 +132,16 @@ A create performs these steps in order:
    zero refuses a purchase. Above-cap returns `ErrPriceAboveMax`, naming
    both amounts, before any order. Prices in the evidence are examples,
    never defaults or hard-coded caps.
-4. Submit one order with explicit renewal false and `paymentType: "auto"`
-   only after the service-specific probe proves that field works. NAT
-   sends `period: 1`; VPN's one-month wire fields remain unverified.
-5. Confirm payment, identity, and renewal off through verified reads, then
-   wait for readiness unless `NoWait` is set.
+4. Submit one order. NAT uses the verified direct collection POST with
+   explicit renewal false, no `period`, and no `paymentType`. VPN's direct
+   order has console-code evidence only and still requires a live probe.
+5. Confirm identity, payment, readiness, and renewal under the applicable
+   service contract. NAT waits for ACTIVE and billing before the
+   renewal-off write. VPN retains its readiness-only `NoWait` option.
 
-Every order and DELETE uses `transport.Request.Once`: no resend after
-401, 429, 5xx, failed dial, redirect, or lost response. The SDK and CLI
+Every order, renewal PUT, and DELETE uses `transport.Request.Once` and
+`NoRedirect`: no resend after 401, 429, 5xx, failed dial, redirect, or lost
+response. The SDK and CLI
 have no outer write retry. Reads retain their retry policy within the
 operation's context and time bound.
 
@@ -141,34 +152,25 @@ reconcile and clean up the identified resource without ordering again.
 
 ## Payment and auto-renew
 
-Direct credit payment through `paymentType: "auto"` is a hypothesis from
-vStorage, not a vNetwork capability. A successful order envelope, resource
-row, or checkout URL alone proves neither payment nor renewal policy.
-The [payment evidence](network-writes-api.md#payment) is browser-only.
+IAM-user SDK login in HAN verified direct NAT credit purchase through the
+resource collection, without checkout, cookies, `paymentType`, or `period`.
+The server ignores the order's renewal-off field. The
+[NAT amendment](network-writes-nat.md) defines the auth restrictions,
+billing confirmation, and the explicit second write that disables renewal.
+Root checkout is evidence only and stays outside the SDK contract.
 
-The first supported create path requires a proven direct credit purchase.
-No automatic fallback submits a second order, follows a redirect, opens a
-browser, or calls `payment-api`. If auto is cleanly refused, return the
-safe refusal and defer create. If reads prove checkout is required and no
-payment is in flight, return `network.ErrPaymentRequired` and defer create.
-An empty resource list alone does not prove that condition. Any unresolved
-order, debit, hold, or payment is `network.ErrNotSettled`.
+VPN direct purchase and renewal-off behavior remain unverified. Console
+AUTO routing is not proof of either. A successful envelope, resource row,
+or checkout URL alone proves neither paid status nor renewal policy.
+Do not silently correct VPN renewal with another write.
 
-A later payment fallback requires a design amendment and owner approval.
-First prove cookie-free IAM authorization, order-to-payment binding,
-renewal propagation, amount and term validation, and unpaid-order cleanup.
-Payment, if approved, must use the same order and send once. A refused
-auto attempt is never permission to try a manual order in the same call.
-Browser cleanup during a probe is separate from a supported SDK fallback.
-
-Always send the verified false renewal field explicitly. Confirm the
-result with a verified billing read tied to the new resource. The observed
-`MANUAL` billing setting is useful evidence, but the exact read route and
-mapping still need proof. Inventory `billingStatus` is not renewal state.
-Checkout's renewal choice can override the order field. No checkbox or
-order flag substitutes for confirmation. Missing or conflicting state
-returns `NotSettled`, including with `NoWait`. Do not silently correct
-renewal with another write or delete the resource automatically.
+No fallback submits a second order, follows a redirect, opens a browser,
+or calls `payment-api`. A proven clean refusal returns its safe error.
+If verified reads prove checkout is required and no payment is in flight,
+return `network.ErrPaymentRequired`. An empty list or redirect alone cannot
+prove that condition; unresolved payment returns `network.ErrNotSettled`.
+A payment extension requires a separate approved amendment proving IAM
+authorization, same-order binding, amount, term, renewal, and cleanup.
 
 Keep the selected vNetwork origin and `Endpoints.VNetwork` override
 rules from the read design. Never forward credentials to a redirect or
@@ -179,8 +181,10 @@ no new payment endpoint configuration in these releases.
 
 Prefer a resource ID from a proven response field. Otherwise require one
 new exact-name match absent from the baseline, with matching project,
-region, zone, VPC, package, and VPN subnet. Check the VPN site's and
-tunnel's safe configuration as well; never compare or return a read key.
+region, VPC, package, and the verified zone mapping; NAT uses its
+[identity rules](network-writes-nat.md#identity-and-payment). Match the
+VPN subnet too. Check the VPN site's and tunnel's safe configuration as
+well; never compare or return a read key.
 Do not adopt or delete an ambiguous match. A matching resource without
 confirmed payment and renewal is still unsettled.
 
@@ -190,8 +194,10 @@ confirmed payment and renewal is still unsettled.
 | VPN create | Matching `ACTIVE`, paid, renewal off | 5 s | 15 min |
 | Either delete | ID absent from complete scoped inventory | 5 s | 10 min |
 
-Bounds start after the single write attempt and include confirmation
-reads. Honor a shorter context deadline; use injected clocks in tests.
+Create bounds start after the order attempt; delete bounds start after
+the DELETE attempt. NAT billing confirmation uses the shorter poll and
+bound in the amendment, within the overall create bound. Honor a shorter
+context deadline; use injected clocks in tests.
 NAT's observed 5 to 6 minutes rules out a short generic create timeout.
 VPN `ACTIVE` establishes provisioning, not a working peer or tunnel.
 
@@ -203,24 +209,26 @@ payment returns `ErrNotSettled`. No resource on a list is not proof that
 an order failed. Proven rejection before a side effect returns a safe
 API error; contradictory payment evidence changes it to `NotSettled`.
 
-`NoWait` skips readiness polling only. It still requires confirmed paid
+VPN create `NoWait` skips readiness polling only. It still requires paid
 purchase, matched identity, and renewal off. Those confirmations can wait
 within the create bound. It never turns a redirect or ambiguous response
 into success. Delete `NoWait` returns only after validated acceptance;
 it does not claim absence or refund.
 
-Recovery text names `network list-nat-instances` or
-`network list-vpn-connections` in the same scope and directs the caller to
-pending orders and payment history. It says not to repeat create while
-payment or provisioning is unresolved. Keep known safe IDs in the partial
-output. Do not retain sensitive response-bearing errors as causes.
+NAT recovery follows the [NAT contract](network-writes-nat.md#recovery).
+VPN recovery names `network list-vpn-connections` in the same scope and
+directs the caller to pending orders and payment history. It says not to
+repeat create while payment or provisioning is unresolved. Keep known safe
+IDs in the partial output. Do not retain sensitive response-bearing errors
+as causes.
 
 ## Delete
 
 Require the CLI's `--yes` and writable profile before any request. The SDK
 has no interactive consent. Apply the VPC and identity guards, then send
 one DELETE using the observed routes in the API evidence. Require HTTP
-200 and explicit `success: true`; NAT also validates the observed code.
+200 and explicit `success: true`; NAT requires numeric `code: 0` and
+sends JSON `{}`. VPN delete sends no body.
 A bare 2xx, empty body, or malformed envelope is not acceptance.
 
 Confirmed absence before send returns `NotFound`, with no DELETE. After
@@ -232,9 +240,10 @@ repeats all guards; no call resends its DELETE to force settlement.
 NAT deletion can interrupt VPC egress. VPN deletion removes connectivity
 and its embedded site and tunnel configuration. There is no force or
 cascade flag. Success confirms removal from inventory, not refund or
-restoration of the previous route table. Route removal and a temporary
-VPC dependency after NAT delete need explicit live checks. The SDK does
-not rewrite routes to repair cleanup.
+restoration of the previous route table. The IAM NAT runs observed route
+table and billing row removal; one run deleted its empty VPC on the first
+attempt after NAT absence. Prior-route behavior and detach timing are not
+guaranteed. The SDK does not rewrite routes to repair cleanup.
 
 Observed full refunds are not a refund guarantee. Provisioning failure
 can refund automatically while leaving a resource to inspect. Ordinary
@@ -285,13 +294,15 @@ subnet, peer, and phase configuration, without an additional `--yes`.
 
 NAT create help must say: "Creates a 0.0.0.0/0 route in the named VPC.
 Every VM in that VPC uses this NAT for egress. Use a disposable VPC for
-testing; never test in a production VPC." Delete help warns that egress
-can stop and prior routes are not restored by the CLI. VPN help states
+testing; never test in a production VPC." NAT help must also explain the
+[renewal step and wait](network-writes-nat.md#cli). Delete help warns that
+egress can stop and prior routes are not restored by the CLI. VPN help states
 that `ACTIVE` does not prove tunnel connectivity and keys are never shown.
 
 | Condition | Error code | Exit |
 |---|---|---|
 | Invalid input, VPC mismatch, missing consent, read-only | `InvalidUsage` | 2 |
+| Unsupported NAT auth, region, or V3 mode | `InvalidConfig` | 2 |
 | Nonpositive quote | `Unpriced` | 1 |
 | Quote over cap | `PriceAboveMax` | 1 |
 | Confirmed missing target | `NotFound` | 4 |
@@ -307,10 +318,11 @@ fail stop before ordering; no error prints the input key or checkout URL.
 
 ## Evidence gates and release order
 
-The [probe list](network-writes-api.md#probes-before-implementation) is a
-prerequisite to implementation of each affected write contract. Record
-field names, types, and synthetic examples, then amend this draft for
-approval. Do not implement an inferred VPN body or a guessed payment read.
+The [probe list](network-writes-api.md#probes-before-implementation) records
+closed and open evidence gates. The IAM NAT lifecycle and renewal-off write
+are proven in HAN. Owner approval of the NAT amendment remains required;
+multi-page guard evidence remains a gate. Do not implement an inferred VPN
+body or a guessed payment read.
 
 1. Public NAT create, quote, delete, guards, waits, SDK and CLI docs.
    Depends on NAT inventory and proven direct credit payment. Start with
@@ -321,11 +333,12 @@ approval. Do not implement an inferred VPN body or a guessed payment read.
    service-specific payment and renewal evidence.
 
 Each feature gets a separate release with green CI on its exact commit.
-If auto is unsupported, defer that create release. A delete-only release
-is a separate owner decision; do not silently change this order.
+If direct purchase is unsupported, defer that create release. A delete-only
+release is a separate owner decision; do not silently change this order.
 
 Use `httptest`, synthetic VPN fixtures, and injected clocks. Cover quote
-and order field parity, explicit renewal false, all price failures,
+and order field parity, explicit renewal false, the NAT billing write,
+its confirmation and no-resend failures, all price failures,
 complete-list guards, VPC mismatches, scope routing, no resend on every
 failure class, payment ambiguity, partial outputs, waits, and secret
 withholding. Verify consent and read-only gates before any request.
@@ -335,7 +348,9 @@ Apply the write security checks required by ADR 0002 before release.
 
 ## Owner decisions
 
-The owner approved these choices on 2026-10-11:
+The owner approved the base choices below on 2026-10-11. The
+[NAT decisions](network-writes-nat.md#owner-decisions), approved the same
+day, replace them for NAT where they differ:
 
 1. Public methods, names, inputs, outputs, and first-release scope above,
    including one default VPN site and tunnel and explicit phase choices.

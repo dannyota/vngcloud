@@ -1,24 +1,92 @@
 # Public NAT and VPN Write Evidence
 
-Status: Draft, pending owner approval with
-[the write design](network-writes.md).
+Status: Verified evidence (2026-10-11) for the accepted
+[write design](network-writes.md) and [NAT contract](network-writes-nat.md).
 
-The observations below come from root-console calls verified on
-2026-10-11. They do not establish IAM user authorization for writes or
-payment. No account values appear here. The
-[read evidence](network-services-api.md) owns list schemas, regional
-origins, and resource state observations.
+Evidence comes from root-console captures, public HAN console code fetched
+without credentials, and two IAM-user NAT live runs on 2026-10-11. Each IAM
+run used SDK login, a bearer token without cookies, one order, and its own
+new disposable VPC. Console code proves request construction, not live
+service behavior. No account values appear here. The
+[read evidence](network-services-api.md) owns inventory schemas and origins;
+the newer IAM observations below close only the named write evidence gaps.
 
-## NAT price and order
+## Paths and payment flow
 
-Paths are relative to the selected vNetwork origin. Define the billing
-prefix as `/vnetwork-gateway/vnetwork/billing/v1/{zoneId}/{projectId}`.
-HAN captures establish these operations:
+Let `{vnet}` mean the selected trusted vNetwork origin plus
+`/vnetwork-gateway`. `{regionId}` is the region-level path identifier called
+`ZoneID` in the read SDK; it is not an availability-zone UUID. Let
+`{nat}` mean `{vnet}/vnetwork/v1/{regionId}/{projectId}/nats` and
+`{billing}` mean the configured central Billing origin.
 
-- Price: `POST {billing-prefix}/price`.
-- Order: `POST {billing-prefix}/create-order`.
+The public console price component selects:
 
-Captured price body:
+- Root: AUTO only for POSTPAID accounts; otherwise MANUAL.
+- Every non-root IAM user: AUTO.
+- AUTO: POST the order directly to the resource collection. NAT uses
+  `{nat}`; VPN uses `{vnet}/vnetwork/v1/{projectId}/vpns`. Send no `period`
+  or `paymentType` and retain `isBuyMorePoc`.
+- MANUAL: send a billing `create-order`, add `resourceInfo.period: 1`, and
+  drop `isBuyMorePoc`, then use payment-console checkout.
+
+AUTO is a console flow name, not a `paymentType: "auto"` field. The live
+IAM NAT calls below verify the direct path. Root POSTPAID direct purchase,
+service accounts, static bearer providers, custom providers, and VPN direct
+purchase are not live-verified. vStorage's `paymentType` precedent is not
+the vNetwork wire contract.
+
+## NAT discovery
+
+The console uses these paths beneath `{nat}`:
+
+```text
+GET /v3-whitelist
+GET /zones?params={"search":[],"sort":{},"page":1,"size":1000}
+GET /nat-package?params=<encoded-params>&zoneUuid=<availabilityZoneId>
+GET /vpcs?params=<encoded-params>
+```
+
+The params values are URL-encoded JSON. The whitelist response has
+`data: {enabledForAll: boolean, whitelistedPortalUserIds: [...]}`. The form
+omits and does not require subnetUuid for an eligible account; outside the
+V3 whitelist the form sends subnetUuid. Live IAM reads showed enabledForAll
+true. No portal-user values or membership logic are needed for the accepted
+V3-only SDK contract.
+
+Zone rows carry `uuid`, `name`, `zoneType`, `isEnabled`, `isDefault`, and
+`description`. UUIDs look like `HAN01-1B`. The form selects zoneType
+AVAILABILITY with isDefault. The full zones envelope, paging metadata, and
+scalar nullability were not supplied; the query is not proof of paging.
+NAT VPC-picker rows carry `zones: [{uuid: "<availabilityZoneId>", ...}]`.
+Its full envelope and multi-page behavior also need safe schema evidence.
+
+Live `nat-package` without zoneUuid returned a package for HAN01-1A, whose
+zone was disabled with "Contact to enable". With zoneUuid HAN01-1B, enabled
+and default, it returned the package used by the successful root purchase.
+The package UUID implies the order's availability zone; the order has no
+separate availability-zone field. The form selects the default package.
+
+The package response is an unpaged array envelope:
+
+```text
+message: "Successfully", code: 200, success: true, data: object[]
+row: uuid, name, packageId, resourceServiceId, billingSku, serviceName,
+     description, monthlyPrice, currencyUnit, price, image,
+     isDefault, createdAt
+price: optimumPrice, discountPercent, originalPrice, discountPrice
+```
+
+Observed values include name Standard, billingSku `nat.s-standard`,
+monthlyPrice 712400.0, currencyUnit VND, and isDefault true. The image is an
+object; its discovery fields are not established here. Do not reuse the
+inventory package schema blindly: inventory monthlyPrice is zero and its
+nullable fields differ. Raw scalar types and nullability not named above
+still need recording before finalizing a public discovery decoder.
+
+## NAT price and direct order
+
+Price is `POST {vnet}/vnetwork/billing/v1/{regionId}/{projectId}/price`.
+The IAM request used the captured fields with renewal false:
 
 ```json
 {
@@ -26,51 +94,129 @@ Captured price body:
   "action": "create",
   "resourceInfo": {
     "isPoc": false,
-    "isEnableAutoRenew": true,
+    "isEnableAutoRenew": false,
     "isBuyMorePoc": false,
     "natName": "<name>",
-    "packageUuid": "<uuid>",
-    "vpcUuid": "net-<uuid>",
-    "regionUuid": "<id>",
-    "projectUuid": "pro-<uuid>"
+    "packageUuid": "<packageId>",
+    "vpcUuid": "<vpcId>",
+    "regionUuid": "<regionId>",
+    "projectUuid": "<projectId>"
   }
 }
 ```
 
-The price envelope has `message`, `code: 0`, `success: true`, and `data`.
-Data contains numeric `optimumPrice`, `discountPercent`, `originalPrice`,
-and `discountPrice`, plus `propertiesPrice`. Each property has
-`optimumPrice`, `monthlyPrice`, `currentPrice`, `discountPercent`, `name`,
-and `description`. Nullability beyond the supplied observation remains
-unverified. The observed Standard quote is 712,400 VND/month.
+HTTP 200 returned the same envelope and numbers as the root price capture:
+`{message, code: 0, success: true, data}`. Data contains numeric
+`optimumPrice`, `discountPercent`, `originalPrice`, and `discountPrice`, plus
+`propertiesPrice`. Each property has `optimumPrice`, `monthlyPrice`,
+`currentPrice`, `discountPercent`, `name`, and `description`. Nullability
+beyond the observation remains unverified. Standard quoted 712,400
+VND/month. Price omission probes remain optional; preserve the priced fields.
 
-Captured order body:
+The live order is `POST {nat}` with exactly that resourceType, action, and
+resourceInfo, plus top-level `tagDetails: []`. There is no subnetUuid for
+the observed V3 account, no period, and no paymentType. Console code uses
+the same object but defaults isEnableAutoRenew to true.
+
+Both IAM creates returned HTTP 201:
+
+```json
+{"message":"Success","code":0,"success":true}
+```
+
+No data, order ID, or resource ID was returned. Cash available fell by
+exactly the quote at once, with no checkout or hold. The NAT was initially
+absent from inventory, became PROVISIONING within about a minute, and
+became ACTIVE about 5 minutes 45 seconds after ordering. The immediate debit
+and later matching billing row establish the observed paid purchase; a
+successful response or temporary list absence alone does not.
+
+## NAT billing and renewal
+
+The server ignored `isEnableAutoRenew: false` in both orders. The existing
+`billing list-resources` read uses
+`GET {billing}/gateway/api/v1/resources`. A matching row appeared only after
+ACTIVE, with none while PROVISIONING:
 
 ```json
 {
-  "resourceType": "nat",
-  "action": "create",
-  "resourceInfo": {
-    "isPoc": false,
-    "isEnableAutoRenew": true,
-    "natName": "<name>",
-    "packageUuid": "<uuid>",
-    "vpcUuid": "net-<uuid>",
-    "regionUuid": "<id>",
-    "projectUuid": "pro-<uuid>",
-    "period": 1
-  },
-  "tagDetails": []
+  "product": "vserver",
+  "artifactType": "nat",
+  "artifactId": "nat-<uuid>",
+  "renewType": "AUTO-RENEW",
+  "billingType": "PREPAID",
+  "renewPeriod": 1,
+  "channel": 1,
+  "status": "active",
+  "cost": 100,
+  "billingElements": [{"sku": "nat.s-standard", "quantity": 1}]
 }
 ```
 
-The order omits `isBuyMorePoc` and sends no `paymentType`. Its response is:
+This is a field excerpt, not the full billing envelope. Cost's meaning is
+unknown; it is not a price, charge, balance, or eligibility guard. Use the
+[billing read contract](auto-renew.md#billing-resource-read) for decoding.
+
+Run 2 sent one renewal write through the existing
+`internal/billingresources.Put` contract:
+
+```text
+PUT {billing}/gateway/api/v1/resources/autoRenew
+portal-user-id: <portalUserId>
+```
+
+```json
+[{
+  "product": "vserver",
+  "artifactType": "nat",
+  "artifactId": "nat-<uuid>",
+  "channel": 1,
+  "autoRenewInfo": {"isEnable": false, "period": 43200}
+}]
+```
+
+The helper succeeded. The next billing read, less than one second later,
+showed renewType MANUAL and renewPeriod null. Channel 1 is observed, not a
+caller default. Identity lookup, PUT success decoding, privacy, and the
+43200-minute disable field follow [auto-renew](auto-renew.md), the same
+transport used by `storage put-project-auto-renew`. This is NAT-specific
+live evidence for reuse; it does not authorize generic resource settings.
+
+## NAT delete and route effects
+
+The console and both live runs sent `DELETE {nat}/{natId}` with JSON `{}`.
+Live success was HTTP 200:
+
+```json
+{"message":"Success","code":0,"success":true}
+```
+
+The row showed DELETING for about 50 seconds, then disappeared from the
+list. The matching billing row disappeared too. Before create, the new VPC
+had no route tables. After ACTIVE, one `rt-<uuid>` belonged to that VPC with
+`0.0.0.0/0 -> <NAT private IP inside the VPC CIDR>`, routingType ip, status
+ACTIVE. After delete, the VPC again listed no route tables. Run 1 deleted
+the VPC on the first attempt after NAT inventory absence.
+
+Run 1 received the full refund immediately, with zero net cost. Run 2's
+net cost was 16 VND. Billing began at ACTIVE and deletion followed about a
+minute later; 16 VND is about a minute of the observed monthly price.
+Proration by use is an inference, not a guaranteed formula. Refund amount,
+timing, prior-route restoration, and immediate parent deletion are not
+promises. Earlier root evidence includes an ERROR NAT refunded in full
+and a short VPC dependency delay after delete. These observations can
+coexist with the successful empty-VPC IAM cleanup.
+
+## Root checkout evidence
+
+Root MANUAL NAT used
+`POST {vnet}/vnetwork/billing/v1/{regionId}/{projectId}/create-order`.
+Its body has renewal true, resourceInfo.period 1, no isBuyMorePoc, no
+paymentType, and tagDetails []. The response was:
 
 ```json
 {
-  "message": "Success",
-  "code": 0,
-  "success": true,
+  "message": "Success", "code": 0, "success": true,
   "data": {
     "id": null,
     "redirectUrl": "https://payment.console.vngcloud.vn/orders/<uuid>"
@@ -78,182 +224,146 @@ The order omits `isBuyMorePoc` and sends no `paymentType`. Its response is:
 }
 ```
 
-There is no usable resource or order ID in the observed `id` field.
-The draft's `paymentType: "auto"` at the top level and explicit
-`isEnableAutoRenew: false` in both serializers require probes. Do not
-copy the captured true renewal default into the proposed SDK.
-The supplied evidence does not record price/order HTTP success statuses;
-record those before fixing the transport's accepted-status sets.
-
-## Payment
-
-The browser checkout runs on `https://payment.console.greennode.ai`.
-It sends `POST /payment-api/v1/payments` with this NAT body:
+The browser checkout on `https://payment.console.greennode.ai` sent
+`POST /payment-api/v1/payments` with paymentMethod `pay-now-credit`:
 
 ```json
 {
   "paymentMethod": "pay-now-credit",
   "items": [{
-    "product": "vserver",
-    "resId": "nat-<uuid>",
-    "resName": "nat",
-    "action": "create",
-    "resType": "nat",
+    "product": "vserver", "resId": "nat-<uuid>",
+    "resName": "nat", "action": "create", "resType": "nat",
     "billingElements": [{
-      "sku": "nat.s-standard",
-      "quantity": 1,
-      "metaKey": "APP-LICENSE"
+      "sku": "nat.s-standard", "quantity": 1, "metaKey": "APP-LICENSE"
     }],
     "billingTime": {"type": "block", "duration": 43200},
-    "metadata": {
-      "paymentId": "<id>",
-      "callbackUrl": "<callback-url>"
-    }
+    "metadata": {"paymentId": "<id>", "callbackUrl": "<callback-url>"}
   }],
   "region": "hn-1"
 }
 ```
 
-The observed callback URL is
+The callback was
 `https://vnetwork-han01.vngcloud.vn/vnetwork-core/vnetwork/v1/payment/callback`.
-It is evidence, not an SDK credential destination. Checkout's `hn-1` must
-not be substituted for the SDK's `han-1` without a verified mapping.
-The source of `paymentId`, resource ID, and other payment fields is not
-captured. Do not construct a payment from guessed values or the order URL.
-The duration value is observed; its unit needs confirmation.
+It is evidence, not a credential destination. Do not substitute checkout's
+hn-1 for SDK han-1. Payment returned HTTP 204, followed by
+`DELETE /payment-api/v1/orders/<uuid>`, also 204. That DELETE does not prove
+unpaid cancellation or refund semantics. The source of paymentId and
+resource ID, duration units, and checkout renewal propagation remain open.
+Unticking renewal made no immediate request; later billing showed MANUAL.
 
-Payment returns HTTP 204. The browser then sends
-`DELETE /payment-api/v1/orders/<uuid>`, also returning 204. That sequence
-does not prove that this DELETE cancels an unpaid order or refunds a
-payment. The SDK must not use it as speculative cleanup.
+Root price/order HTTP statuses were not recorded. IAM statuses above do
+not fill that gap. Root checkout and unpaid-order probes are irrelevant to
+shipping the verified direct NAT path and remain outside SDK scope. No
+root cookie or payment-console fallback is allowed.
 
-Unticking auto-renew sends no request at that moment. Billing records the
-NAT as `MANUAL` despite the order's true renewal field. The mechanism
-carrying the checkout choice into payment remains unknown. A payment 204
-alone therefore cannot confirm the draft's renewal-off contract.
+## VPN console-code evidence
 
-vStorage's verified `paymentType: "auto"` precedent is described in
-[its evidence](storage-projects-api.md#paid-check-record). Neither that
-success nor this root-browser payment proves vNetwork auto payment or
-IAM user access to `payment-api`.
-
-## VPN and deletes
-
-The VPN create form requires name, zone, package, VPC, subnet, a default
-site (name, remote gateway IP, pre-shared key), and a default tunnel (name,
-remote CIDR), with IKE and IPsec algorithm choices. Its price route,
-create-order route, resource type, body, payment fields, and response are
-not captured. Do not derive a create body from the list model.
-
-Observed monthly VPN prices are 545,700 VND for Standard and 1,691,400 VND
-for Medium. These are reference prices, not the missing VPN quote contract.
-
-Resource deletes use these exact paths on the selected vNetwork origin:
+These fields come from public code only, not an IAM VPN live purchase.
+AUTO posts to `{vnet}/vnetwork/v1/{projectId}/vpns`. The order uses
+resourceType vpn, action create, tagDetails [], and resourceInfo with
+isPoc, isEnableAutoRenew, isBuyMorePoc plus:
 
 ```text
-DELETE /vnetwork-gateway/vnetwork/v1/{zoneId}/{projectId}/nats/{natId}
-DELETE /vnetwork-gateway/vnetwork/v1/{projectId}/vpns/{vpnId}
+vpnName, packageUuid, vpcUuid, subnetUuid, regionUuid, projectUuid
+tunnels: [{
+  siteName, tunnelName, remoteGatewayIp, remoteNetworkCidr,
+  customPsk: true, preShareKey,
+  phase1Configs: [{
+    phase1Algorithm, phase1Hash, phase1DhGroup, phase1IkeLifeTime
+  }],
+  phase1IkeLifeTime,
+  phase2Configs: [{
+    phase2Algorithm, phase2Hash, phase2DhGroup, phase2IkeLifeTime
+  }],
+  phase2IkeLifeTime, phase2DhGroup
+}]
 ```
 
-NAT returns HTTP 200 with `{message, code, success}`. VPN returns HTTP 200
-with `{success}`. Record the NAT success code value and whether either
-request needs a body; the supplied delete evidence does not establish
-those details. Never confuse resource DELETE with checkout-order DELETE.
+Algorithm lists use GET at the VPN collection's `/tunnels/phase1` and
+`/tunnels/phase2`. The code also has POST `/tunnels/generate-psk`; do not
+call it, since it returns a key. VPN delete sends no body to
+`{vnet}/vnetwork/v1/{projectId}/vpns/{vpnId}`. Earlier root delete returned
+HTTP 200 with `{success}` and refunded within minutes.
 
-NAT reaches `ACTIVE` about 5 to 6 minutes after payment. Creation adds
-0.0.0.0/0 to the VPC route table, changing every VM's egress. An `ERROR`
-NAT was automatically refunded in full. Deleting an active NAT refunded
-in full at once; VPN deletion refunded in full within minutes. Refunds
-are observations, not guaranteed amounts or timing. NAT route cleanup
-and dependency delay are covered by the read evidence and still need a
-before/after route comparison in a disposable VPC.
+The code locates the key in the create body. It does not prove key-free
+pricing, accepted phase values, lifetime units, required duplicate lifetime
+fields, response IDs, direct debit, or renewal behavior. VPN remains gated
+on its own live probe and approved body contract. Keep the existing
+Sensitive request, omitted-key, and synthetic-fixture boundaries.
 
 ## Probes before implementation
 
-These are evidence requirements, not authorization to call the API.
-Read-only discovery can share the preparation for a paid run. Each order
-attempt belongs to one separately approved refundable paid run below.
+These records are evidence requirements, not authorization for API calls.
+"Proven" means only the scope stated. Read-only discovery can close schema
+gaps without another purchase. Multi-page guards remain an implementation
+gate; do not buy resources solely to produce a multi-page inventory.
 
-| Missing evidence | Required result |
+| Evidence | State and remaining work |
 |---|---|
-| IAM user scope and auth | Cookie-free price, order, delete and confirm reads |
-| Regional mapping | Zone, region, project and VPC namespaces proven |
-| Package lookup | Verified selectable package IDs and one-month support |
-| NAT price | False renewal accepted; exact status and price field types |
-| NAT auto order | Top-level auto accepted; one debit; response ID fields |
-| Payment confirmation | Verified read binds order, debit and resource |
-| Renewal confirmation | Verified billing read and `MANUAL` meaning |
-| Delete details | Body requirements, NAT code, refusals, absence semantics |
-| Guard scans | Page advancement, total consistency and scope membership |
-| NAT route effects | Added route, removal, prior-route behavior, detach delay |
-| VPN quote and order | Exact routes, bodies, IDs, term and price semantics |
-| VPN phase inputs | Algorithms, lifetime units, required phase fields |
-| VPN key placement | Key only in create; pricing works without the key |
-| VPN settlement | Safe identity fields, failure states and renewal mapping |
-| Unpaid orders | Verified read, expiry/cancel path, holds and leftovers |
+| IAM NAT auth | Proven: HAN SDK IAM login, bearer only, no cookies |
+| Other auth | Unverified: root direct, service/static/custom providers |
+| HAN mapping | Direct lifecycle proven; preserve region/AZ distinction |
+| NAT discovery | Zone-filtered package and V3 true proven |
+| Catalog decoders | Record zones/VPC envelopes, scalar types, nullability |
+| NAT price | Proven: false renewal, HTTP 200, root price parity |
+| NAT direct order | Proven: HTTP 201, one debit, no ID, no checkout |
+| NAT payment | Proven: immediate debit and later matching PREPAID row |
+| NAT renewal | Proven: order flag ignored; one PUT then MANUAL/null |
+| NAT delete | Proven: body {}, code 0, DELETING then absence |
+| Billing cleanup | Proven: NAT billing row disappears after delete |
+| Guard scans | Open: multi-page advancement, totals, membership scans |
+| Empty-VPC routes | Proven: route table added then removed |
+| Existing routes | Open: prior-route behavior and detach timing bounds |
+| HCM writes | Open: successful lifecycle; root failure proves no support |
+| Unpaid orders | Not a direct-path gate; root checkout stays out of scope |
+| VPN body | Code only; live acceptance and required fields remain open |
+| VPN algorithms | Code routes found; values and lifetime units open |
+| VPN quote | Open: route, schema, key exclusion, amount and term |
+| VPN settlement | Open: IAM debit, IDs, states, renewal-off, cleanup |
+| SDK write release | Open: implementation lifecycle and adversarial review |
 
-The auto-order probe must establish whether auto is accepted, ignored,
-or refused. An ignored field can still create an unpaid order. Record
-response schemas with placeholders, payment and renewal evidence, and
-cleanup results even when create is deferred. Read success does not prove
-write authorization. HCM root failure does not prove supported HCM writes.
+No refused or ambiguous order authorizes a second attempt. Unexpected
+checkout on the direct path remains NotSettled unless reads establish a
+clean checkout requirement. Empty inventory alone cannot do so. A future
+payment extension needs its own approved contract and probes for IAM auth,
+same-order binding, amount, term, renewal, and unpaid-order cleanup.
 
-Only if auto cannot support create and the owner elects a payment
-extension, probe cookie-free IAM user `payment-api` access. Establish
-trusted host configuration, same-order binding, amount/term/renewal fields,
-204 semantics, failure ambiguity, and unpaid-order DELETE semantics.
-Do not reuse browser cookies or add a root-token fallback. Update the
-design before implementing this alternative.
+## Paid implementation checks
 
-## Refundable paid live runs
+The two IAM probe runs are complete evidence, not SDK implementation tests.
+The manager scopes each later run under the accepted owner decisions and
+[live-data](../../instructions/live-data.md), naming the private account,
+region, disposable VPC, package, cap, one order, renewal step, and cleanup.
+The NAT renewal-step amendment still needs owner approval. Do not run NAT
+in production or execute concurrent VPC-creating runs.
 
-Each run needs approval under [live-data](../../instructions/live-data.md),
-naming the private account, region, disposable VPC, package, cap, and one
-order attempt. Refundable describes the observed cleanup path, not a
-promise of zero net cost. Never test NAT in a production VPC. Each run
-creates its own parents, and only one VPC-creating run executes at a time.
+For HAN NAT, verify a fresh quote, one direct POST, uniquely identified
+ACTIVE NAT, one matching billing row, and the approved renewal-off step.
+Record route changes, one DELETE, inventory/billing absence, parent cleanup,
+and debit/refund reconciliation. A renewal PUT failure never permits resend
+or automatic rollback inside create. Test harness cleanup is separately
+scoped to the uniquely identified resource and never repairs shared routes.
 
-1. **NAT in HAN:** one Standard NAT, one month, explicit renewal false,
-   one proposed auto order. Quote afresh and stop above the approved cap.
-   Record auto acceptance or refusal, payment evidence, renewal state,
-   provisioning time, route changes, delete behavior, and refund.
-2. **VPN:** after body discovery, one Standard VPN with one site and
-   tunnel in a disposable VPC/subnet, an invented key, and an approved
-   test peer. Use one auto order. Check safe returned configuration,
-   payment, renewal, provisioning, delete, and refund. No connectivity
-   claim follows from `ACTIVE`; never persist the live key-bearing body.
-3. **Additional region:** one resource of the service being enabled,
-   repeating its full lifecycle before enabling writes in that region.
-   A successful HAN run cannot establish HCM payment or provisioning.
-4. **Conditional payment extension:** only under an approved amendment,
-   one order and one payment for that same order. Prove IAM access and
-   renewal-off behavior, then delete the resource and reconcile. Do not
-   use a failed earlier run as permission for this run or a second order.
+VPN needs its own body and key-free quote evidence before a paid lifecycle.
+Use an invented key and approved test peer; never persist a live key-bearing
+body. Each additional region needs its own successful service lifecycle.
+Root checkout remains excluded unless a separate amendment is approved.
 
-For every run, record baseline resource IDs, route state, balance, and
-transactions privately. Pause unrelated spending for reconciliation.
-Use a unique name, confirm no baseline match, and record only the safe
-schemas needed above. Discovery and later SDK verification are distinct
-paid attempts if both are needed; approval for one never covers the other.
+Record baseline IDs, routes, balance, and transactions privately. Pause
+unrelated spending for reconciliation. Use one unique name and one order.
+SDK verification is a distinct paid attempt from earlier discovery. A
+false success, debit above quote, unconfirmed renewal, or timeout fails the
+check even if cleanup succeeds. Never resend to repair uncertainty.
 
-After sending, only read to settle uncertainty. Register cleanup once a
-new resource is uniquely identified. Never resend to repair an error.
-A false success, debit above quote, unexpected renewal, refusal, or timeout
-fails the run even if cleanup succeeds. Inspect pending orders and holds
-when no resource appears. Cancel an unpaid order only through a proven
-path authorized for that run; otherwise report it as a leftover.
+Delete only a uniquely identified run resource. Confirm absence, compare
+routes, and wait for parent dependencies before deleting parents. Poll
+refund reconciliation for at most 10 minutes; never resend DELETE because
+credit has not returned. A prorated refund is allowed when the net cost is
+explained; full reimbursement is not the expected constant.
 
-Delete only the run's resource. Confirm inventory absence and, for NAT,
-compare routes and wait for the VPC dependency to clear. Delete children
-before parents, stopping if a child still holds a parent. Never repair a
-shared route or delete a guessed resource. Reconcile debit and refund
-from transactions, polling for at most 10 minutes after deletion. Do not
-assume a full refund or resend DELETE because credit has not returned.
-
-The private leftover record includes known IDs, attempted name and scope,
-last state, renewal, debit/hold/refund, pending order, and cleanup outcome.
-Uncertain expiry, missing credit, or remaining resources block release.
-Public records contain only schema, placeholders, durations, counts,
-statuses, and approved price evidence. SDK live verification repeats the
-applicable successful lifecycle with the same one-attempt and cleanup
-rules before release; CLI request mapping uses deterministic tests.
+Keep unresolved renewal, payment, or resources in a private leftover record
+with known IDs, last state, and cleanup outcome. Such leftovers block
+release. Public records contain only schemas, placeholders, durations,
+counts, statuses, and approved cost evidence. CLI mapping uses deterministic
+tests; the implementation also needs the required independent write review.
