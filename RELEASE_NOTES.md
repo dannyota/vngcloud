@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.75.0 - Service-Account Login
+
+### Highlights
+
+- The SDK and CLI can log in as a GreenNode service account, so a tool or
+  team can use its own machine identity whose policies GreenNode enforces.
+  SDK: `vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID,
+  ClientSecret})`. Environment: `VNGCLOUD_CLIENT_ID` and
+  `VNGCLOUD_CLIENT_SECRET`. Profiles: `client_id` and `client_secret` in
+  the credentials file, set with `vngcloud configure set client_secret -`
+  (stdin only; never printed).
+- Precedence is credentials provider, static token, service account, then
+  IAM user. A selected method that fails never falls back to another.
+- The token request goes only to the fixed GreenNode token host, is sent
+  once, follows no redirects, and is decoded strictly. Tokens are cached
+  under a key bound to the profile, client ID, and secret, so a replaced
+  secret never reuses an old token.
+- New CLI error codes `ServiceAccountLoginFailed` and `TokenCacheFailed`.
+- A secret reset rejects the old secret at once but does not revoke tokens
+  already issued (default lifetime 30 minutes): replace the secret and
+  restart the tools that use it.
+- Verified live on 2026-10-11 in hcm-3 with a disposable service account
+  and a resource-scoped read-only policy: the allowed security group read
+  succeeded, another group and a write were refused by GreenNode with 403,
+  and every resource was cleaned up. Paid NAT writes still require IAM-user
+  login.
+
+### Fixes
+
+- Error messages withhold text that follows a credential key such as
+  `client_secret`, including failure envelopes returned with HTTP 200.
+
 ## v0.74.0 - Compute Flavor Price Discovery
 
 ### Highlights
@@ -19,6 +51,7 @@
 - Verified live on 2026-10-11 in hcm-3: all 33 s2 general-purpose flavors
   quoted in the enabled zone, from about 103,000 VND per RAM unit per month
   (`s2-highmem` sizes).
+
 
 ## v0.73.0 - Volume and Storage Price Discovery
 

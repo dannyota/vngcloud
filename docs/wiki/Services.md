@@ -47,9 +47,11 @@ The recorded product checks used service-account tokens in `hcm-3`:
 | `project.ListProjects` and group read with project discovery | 200; matching project and group |
 | `iam.GetCallerIdentity` | 200; service-account principal |
 
-These product checks used a supplied static token. SDK-owned exchange and
-cache handling have deterministic tests; other services, regions, and
-universal permission coverage are not live-verified. Server enumeration,
+These checks first used a supplied static token, then repeated the allowed and
+excluded group reads through `vngcloud.WithServiceAccount` with the SDK's own
+token exchange. A secret reset produced a separate cache entry and a fresh
+exchange, and the old secret failed login with 401. Other services, regions,
+and universal permission coverage are not live-verified. Server enumeration,
 expiry-wait behavior, and deletion/activation revocation remain unverified.
 Explicit project selection is recommended; discovery denial remains a
 permission error and never switches identities or grants policies. NAT

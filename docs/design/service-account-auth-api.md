@@ -318,8 +318,8 @@ malformed/trailing JSON. Explicit `[]` is empty. Require no metadata. Follow
 8. Issue a fresh token after attachment. Use `WithStaticToken`, region, and
    explicit project with unchanged SDK endpoints. Call
    `network.GetSecurityGroup` for allowed and excluded groups, checking the
-   recorded outcomes. After implementation, repeat with
-   `WithServiceAccount` and `Authenticate`.
+   recorded outcomes. The implemented `WithServiceAccount` and
+   `Authenticate` path repeated both reads with the same outcomes.
 9. Reconfirm the allowed group is owned, non-system, and unattached. As
    manager, save its description, update to a synthetic value, confirm,
    restore, and confirm. Repeat `network.UpdateSecurityGroup` with the
@@ -338,8 +338,9 @@ malformed/trailing JSON. Explicit `[]` is empty. Require no metadata. Follow
     until returned expiry plus 30 seconds and attempts one old-token read.
 12. Retain a token, reset the secret, and exchange once with each new/old
     secret. Check the recorded outcomes and old/new-token reads; record the
-    interval. After implementation, rebuild the config and verify disk-cache
-    isolation from the old secret. Stop on unexpected old-secret success.
+    interval. The implemented disk cache kept the old and new secrets'
+    entries apart: the new secret made its own exchange, and the old secret
+    failed login with 401 before any product request.
 13. Detach/delete the policy, then delete the account. Try one exchange with
     deleted credentials and one retained-token group read. Policy detachment
     prevents any denial from proving revocation. Delete both groups and
@@ -360,8 +361,6 @@ schema metadata first. The manager report alone is not a raw JSON fixture.
 The fixed-host exchange and current SDK security-group read gates are met.
 Remaining checks must not be presented as verified:
 
-- `WithServiceAccount`/`Authenticate` and disk-cache isolation need the
-  implementation, deterministic tests, and manager repeats.
 - Token revocation on deletion, expiry-wait behavior, lifespan extrema/zero
   semantics, and changed-lifespan effects on issued tokens remain unknown.
 - Other regions and services, activation, issuance limits, failed-login
