@@ -1,6 +1,6 @@
 # Dashboard service coverage
 
-Add read coverage for main-dashboard services the SDK and CLI lack. Models follow `instructions/roles.md`; implementation and reviews run on Codex. CDN path purge stays deferred in `feat/cdn-purge-v061` (see its own plan there).
+Add read coverage for main-dashboard services the SDK and CLI lack. Models follow [routing](../../AGENTS.md#ai-agent-definitions-and-routing); implementation and reviews run on Codex. CDN path purge stays deferred in `feat/cdn-purge-v061` (see its own plan there).
 
 ## Shipped (2026-10-10)
 

@@ -1,23 +1,3 @@
 # Verification
 
-Code rules and the checks each change needs. Implementers, the reviewer, and the manager read this file.
-
-- `go.mod` requires the Go version `.tool-versions` pins; local work and CI use that version. Tool versions follow the rule in AGENTS.md "Security first". Follow Google Go style with `gofmt` and `goimports`.
-- Each service is a public package; root `vngcloud` holds only shared config, auth, errors, and helpers, and never imports a service package. Service types live in their package; `vngcloud.go` re-exports only shared config, auth, error, and helper names.
-- Tests are deterministic: inject clocks and randomness, and use `httptest` servers, never the real API. Never retry a flaky test into a pass.
-- `golangci-lint` stays at 0 issues. A justified `//nolint:<linter>` needs a reason on the same line.
-- Semgrep runs in CI; `make semgrep` is the offline version. Suppress a verified false positive with `// nosemgrep: <full-rule-id>` on the flagged line, using the full ID from `semgrep --json` (short IDs do not match), and put the reason in a comment beside it.
-- Write APIs need tests for the request body, the success response, and each documented error status.
-
-| Change | Check |
-|-|-|
-| Any Go change | `make check` (tests, vet, lint, lengths) |
-| Model or decoding change | A decode test on a sanitized raw fixture in `testdata/`, per [live-data](live-data.md) |
-| Public API change | The matching `docs/wiki/` page, and `RELEASE_NOTES.md` when it breaks callers |
-| Wiki page change | Links between pages use `Page-Name.md` so they work in the repo and the wiki |
-| Dependency or Go version change | `make vuln` |
-| Release | Green GitHub CI on the exact commit |
-
-Live tests and their helpers live in `livetest/`, separate from root unit tests. Compile them without API calls with `go test -tags live -run '^$' ./livetest/` and `go test -tags livewrite -run '^$' ./livetest/`. Vet both tags with `go vet -tags live ./...` and `go vet -tags livewrite ./...`.
-
-`make live` runs against the real API and needs `.env`. Run it only when a brief asks for live verification. Live write tests follow [live-data](live-data.md).
+See [Go toolchain and package boundaries](go.md#toolchain-and-package-boundaries), [formatting and lint](go.md#formatting-and-comments), [deterministic tests and fixtures](testing.md#test-design), [required checks](testing.md#required-checks), [live compile and vet commands and verification limits](testing.md#live-verification), [scanner suppressions](security.md#tools-and-scanners), [public API and wiki docs](documentation.md#public-surface-and-wiki), and [release gates](release.md#release-gates).

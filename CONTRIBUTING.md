@@ -20,7 +20,8 @@ make hooks-install
 2. Make the smallest change that passes it.
 3. Update the matching page in [`docs/wiki/`](docs/wiki/Home.md). The wiki is
    published from that folder.
-4. Run `make check` (tests, vet, lint, and file-length limits).
+4. Run `make check` (tests, vet, lint, and file-length limits), following the
+   [testing instructions](instructions/testing.md).
 
 Design choices live in [`docs/design/`](docs/README.md) and
 [`docs/adr/`](docs/adr/README.md). If code and docs disagree, fix both in the

@@ -5,7 +5,7 @@ Continue the accepted designs. Release one feature per tag. Do not run paid or u
 ## Authorities
 
 - [vStorage](../design/storage.md) owns the storage releases S2 to S6.
-- [Verification](../../instructions/verification.md) and [live data](../../instructions/live-data.md) govern checks and releases.
+- [Testing](../../instructions/testing.md), [release](../../instructions/release.md), and [live data](../../instructions/live-data.md) govern checks and releases.
 
 ## Shipped
 
