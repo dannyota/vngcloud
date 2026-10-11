@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.74.0 - Compute Flavor Price Discovery
+
+### Highlights
+
+- `compute list-flavor-prices` lists each flavor family, platform, and size
+  in every zone with the account's monthly compute price and the price per
+  unit of RAM. Filter with `--family`, `--platform`, `--name`, `--zone-id`,
+  `--min-ram`, `--max-ram`, or `--available-only`; sort with `--sort-by ram`
+  or `--sort-by unit-price`. SDK: `compute.ListFlavorPrices`.
+- GreenNode cannot quote a flavor alone, so each price is the instance line
+  of a quote for a fixed reference server: an unlicensed Ubuntu image the
+  flavor supports and the minimum 3000 IOPS root disk, whose cost is
+  excluded. Each row shows the reference it used. The command is read-only
+  and never orders anything.
+- RAM is shown in the API's own unit; GiB values stay unknown because the
+  API does not state whether its memory figure is GB or GiB.
+- Verified live on 2026-10-11 in hcm-3: all 33 s2 general-purpose flavors
+  quoted in the enabled zone, from about 103,000 VND per RAM unit per month
+  (`s2-highmem` sizes).
+
 ## v0.73.0 - Volume and Storage Price Discovery
 
 ### Highlights
