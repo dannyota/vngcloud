@@ -52,6 +52,7 @@ var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
 	networkNATListOp(),
+	networkVPNListOp(),
 	Read[network.Client, network.ListVPCsInput, network.ListVPCsOutput](
 		kebab("ListVPCs"), (*network.Client).ListVPCs),
 	Read[network.Client, network.ListWANIPsInput, network.ListWANIPsOutput](
@@ -181,6 +182,13 @@ func networkNATListOp() Op[network.Client] {
 	op := Read[network.Client, network.ListNATInstancesInput, network.ListNATInstancesOutput](
 		kebab("ListNATInstances"), (*network.Client).ListNATInstances)
 	op.short = "List one page of Public NAT instances in hcm-3 and han-1"
+	return op
+}
+
+func networkVPNListOp() Op[network.Client] {
+	op := Read[network.Client, network.ListVPNConnectionsInput, network.ListVPNConnectionsOutput](
+		kebab("ListVPNConnections"), (*network.Client).ListVPNConnections)
+	op.short = "List one page of VPN connections in hcm-3 and han-1"
 	return op
 }
 

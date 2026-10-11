@@ -12,6 +12,7 @@ subnets, and Private DNS, the network resources this SDK writes here. See
 volumes, and floating IPs stay read-only.
 
 See [Network NAT](Network-NAT.md) for Public NAT inventory.
+See [Network VPN](Network-VPN.md) for VPN inventory with sites and tunnels.
 
 If a VPC, subnet, route table, ACL, or security group is managed by
 OpenTofu or Terraform, a write made here drifts from that state; keep such

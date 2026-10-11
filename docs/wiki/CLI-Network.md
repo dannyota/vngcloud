@@ -751,6 +751,29 @@ Kind: Read.
 vngcloud network list-vpcs
 ```
 
+## list-vpn-connections
+
+Kind: Read.
+
+Reads one page in `hcm-3` or `han-1`. Read-only profiles can run this command.
+`--page` defaults to 1 and `--size` defaults to 10. No automatic paging occurs.
+Live multi-page behavior remains unverified. Sites and tunnels are inline.
+Table and text output use one row per VPN with compact JSON for nested fields.
+The example selects site and tunnel counts instead. Status describes
+provisioning, not working VPN connectivity. Pre-shared keys are omitted.
+Server error messages and codes are withheld. See [Network VPN](Network-VPN.md).
+
+| Flag | Type | Required |
+|-|-|-|
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+
+```sh
+vngcloud network list-vpn-connections --page 1 --size 10 \
+  --query "Items[].{ID:UUID,Name:VPNName,Sites:length(VPNSites),\
+Status:Status,Tunnels:length(VPNSites[].Tunnels[])}" --output table
+```
+
 ## list-wanips
 
 Kind: Read.
