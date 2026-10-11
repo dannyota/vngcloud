@@ -25,7 +25,22 @@ Every write API needs tests for its request body, success response, and each doc
 |Document move or rewrite|`git diff --check`, `bash scripts/check-lengths.sh`, source-to-destination coverage, and local link/anchor inspection|
 |Release|Green CI on the exact commit under [release](release.md#release-gates)|
 
-CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, vulnerability scans, and full-history gitleaks. Pushes that change code run connected Semgrep Pro Code, Supply Chain, and Secrets scans. Keep these gates. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required run does not pass.
+CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, vulnerability scans, and full-history gitleaks. Eligible PRs, master pushes, and manual runs execute connected Semgrep Pro Code, Supply Chain, and Secrets scans under the trigger rules below. Keep these gates. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required run does not pass.
+
+## Workflow triggers
+
+CI runs for every PR targeting master, every master push, and manual dispatch, including docs-only changes. It retains all existing checks and adds offline workflow regressions. `CI required` always evaluates the Go, lint, and security job results and their tested SHA; failed or skipped dependencies fail the aggregate. Every source-validation checkout selects the PR head or event SHA, disables persisted credentials, and asserts and records source identity.
+
+|Workflow|Master PR and push paths|Other events|
+|-|-|-|
+|CI|All paths|Manual|
+|Semgrep|Any change other than Markdown or root `LICENSE`|Manual always scans|
+|Tools|`.tool-versions`, `go.mod`, `go.sum`, workflows, `scripts/tools-outdated.sh`, `scripts/test-tools-outdated.py`, `scripts/check-workflow-pins.py`, `scripts/test-ci-workflows.py`|Weekly schedule and manual|
+|Wiki|`docs/wiki/**`, `scripts/wiki-sync.sh`, `scripts/test-wiki-publication.py`, `.github/workflows/wiki.yml`, `scripts/ci-evidence.py`, `scripts/test-ci-evidence.py`|Manual read-only preview|
+
+Wiki runs only read-only dry-runs for every event. CI also retains an unconditional Wiki preview. Publication is disabled while the validated-current-master publication gate is absent. No manual publishing fallback is allowed.
+
+Run `make ci-workflows-check` for offline regression tests and `actionlint .github/workflows/{ci,semgrep,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, fork token failures, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
 
 ## Live verification
 

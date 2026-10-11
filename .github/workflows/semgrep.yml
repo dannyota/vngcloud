@@ -1,14 +1,18 @@
 name: Semgrep
 
-# Docs-only pushes skip this scan; gitleaks in ci.yml still scans every push
+# Markdown-only changes skip this scan; CI still scans every change
 # for secrets. Most of the run time is Semgrep's own config fetch, rule
 # loading, and Pro scan.
 on:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - LICENSE
   push:
     branches: [master]
     paths-ignore:
       - "**.md"
-      - docs/**
       - LICENSE
   workflow_dispatch:
 
@@ -16,8 +20,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: semgrep-${{ github.ref }}
-  cancel-in-progress: true
+  group: semgrep-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
 
 jobs:
   # Connected Semgrep Pro scan: Code (Pro rules), Supply Chain, and Secrets.
@@ -31,7 +35,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
           fetch-depth: 0 # semgrep ci is diff-aware
-      - run: semgrep ci --code --supply-chain --secrets --no-suppress-errors
+      - name: Assert tested source identity
+        id: identity
         env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Require a trusted connected scan
+        env:
+          TRUSTED_SOURCE: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          if [ "$TRUSTED_SOURCE" != true ]; then
+            echo "Connected Semgrep requires a reviewed same-repository branch" >&2
+            exit 1
+          fi
+          if [ -z "$SEMGREP_APP_TOKEN" ]; then
+            echo "Connected Semgrep requires SEMGREP_APP_TOKEN" >&2
+            exit 1
+          fi
+          semgrep ci --code --supply-chain --secrets --no-suppress-errors

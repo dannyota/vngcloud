@@ -23,7 +23,7 @@ The SDK is standard-library only under [Go](go.md#toolchain-and-package-boundari
 
 Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.tool-versions) holds tool versions; `go.mod` and the Semgrep image tag in [semgrep.yml](../.github/workflows/semgrep.yml) mirror the relevant pins. Pin Actions by SHA with a version comment. The weekly Tools workflow runs `make tools-outdated` and fails when a pin is behind. Update the pins, the owner's laptop tools, and the Semgrep image digest in one commit that week.
 
-`govulncheck`, gitleaks, and Semgrep run in CI. Connected Semgrep Pro checks Code, Supply Chain, and Secrets on pushes that change code. `make semgrep` is the local offline scan command. Keep scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
+`govulncheck`, gitleaks, and Semgrep run in CI. Connected Semgrep Pro checks Code, Supply Chain, and Secrets for eligible PRs, master pushes, and manual runs under [workflow triggers](testing.md#workflow-triggers). `make semgrep` is the local offline scan command. Keep scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
 
 Suppress only a verified false positive. For Semgrep, put `// nosemgrep: <full-rule-id>` on the flagged line using the full ID from `semgrep --json`; short IDs do not match. Put the reason in an adjacent comment. [Go](go.md#formatting-and-comments) owns the zero-lint and same-line `nolint` reason rules.
 
@@ -38,3 +38,9 @@ Auth, token handling, credential storage, every write API, and release workflows
 - Concurrent or repeated paid writes, retry boundaries, price races, and cleanup authority.
 
 Name confirmed invariants, evidence limits, and untested paths. Neither a move nor an approval upgrades an inferred schema to live-verified evidence. Standing Git authority does not grant live-run approval.
+
+## Workflow credentials
+
+Validation workflows default to `contents: read`, disable persisted checkout credentials, assert the tested source SHA, and use no approval environment. Wiki has only read-only previews, no publisher, write permission, or publishing token. Manual Wiki publication is forbidden until the validated-current-master gate is enabled.
+
+Semgrep retains the existing repository token only in its scanner step. The step rejects fork PRs and missing tokens explicitly before scanning; the manager can inspect and promote a fork to a reviewed same-repository branch. A trusted branch writer can alter the token-bearing workflow. The token is not isolated from every PR author, and no Semgrep approval environment is used. All three connected scanners remain required when triggered; remote finding-policy enforcement requires separate connected evidence.

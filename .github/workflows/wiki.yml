@@ -1,27 +1,52 @@
 name: Wiki
 
-# Publishes docs/wiki/ to the GitHub wiki. See docs/adr/0001-wiki-from-docs.md.
+# Publication is disabled. Every event renders a read-only preview.
 on:
+  pull_request:
+    branches: [master]
+    paths:
+      - docs/wiki/**
+      - scripts/wiki-sync.sh
+      - scripts/test-wiki-publication.py
+      - .github/workflows/wiki.yml
+      - scripts/ci-evidence.py
+      - scripts/test-ci-evidence.py
   push:
     branches: [master]
     paths:
       - docs/wiki/**
       - scripts/wiki-sync.sh
+      - scripts/test-wiki-publication.py
       - .github/workflows/wiki.yml
+      - scripts/ci-evidence.py
+      - scripts/test-ci-evidence.py
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: wiki
+  group: wiki-${{ github.run_id }}-${{ github.run_attempt }}
   cancel-in-progress: false
 
 jobs:
-  sync:
+  preview:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: bash scripts/wiki-sync.sh
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert tested source identity
+        id: identity
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+      - run: bash scripts/wiki-sync.sh --dry-run

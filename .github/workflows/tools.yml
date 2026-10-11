@@ -3,6 +3,28 @@ name: Tools
 # Fails when Go, a pinned tool, or a GitHub Action has a newer release, so a
 # red run in Actions (and its email) says it is time to update the pins.
 on:
+  pull_request:
+    branches: [master]
+    paths:
+      - .tool-versions
+      - go.mod
+      - go.sum
+      - .github/workflows/**
+      - scripts/tools-outdated.sh
+      - scripts/test-tools-outdated.py
+      - scripts/check-workflow-pins.py
+      - scripts/test-ci-workflows.py
+  push:
+    branches: [master]
+    paths:
+      - .tool-versions
+      - go.mod
+      - go.sum
+      - .github/workflows/**
+      - scripts/tools-outdated.sh
+      - scripts/test-tools-outdated.py
+      - scripts/check-workflow-pins.py
+      - scripts/test-ci-workflows.py
   schedule:
     - cron: "0 1 * * 1"
   workflow_dispatch:
@@ -10,12 +32,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tools-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
 jobs:
   outdated:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert tested source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
       - run: bash scripts/tools-outdated.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

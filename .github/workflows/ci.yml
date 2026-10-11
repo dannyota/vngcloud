@@ -1,10 +1,11 @@
 name: CI
 
-# Three jobs run in parallel. Semgrep runs in semgrep.yml, which skips
-# docs-only pushes.
+# Mandatory jobs run in parallel. Semgrep has its own path-filtered workflow.
 # Tool versions come from .tool-versions; scripts/tools-outdated.sh and the
 # Tools workflow keep them current.
 on:
+  pull_request:
+    branches: [master]
   push:
     branches: [master]
   workflow_dispatch:
@@ -13,17 +14,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
 
 jobs:
   # Own cache: race builds differ from the lint and security jobs' builds,
   # which would otherwise win the shared setup-go cache key.
   go:
+    outputs:
+      tested_sha: ${{ steps.identity.outputs.tested_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert tested source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -35,6 +52,8 @@ jobs:
             ~/go/pkg/mod
           key: go-race-${{ hashFiles('go.mod', '**/*.go') }}
           restore-keys: go-race-
+      - name: Workflow policy regressions
+        run: python3 scripts/test-ci-workflows.py
       - run: go test -race ./...
       - if: ${{ !cancelled() }}
         run: go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...
@@ -60,10 +79,26 @@ jobs:
         run: bash scripts/wiki-sync.sh --dry-run
 
   lint:
+    outputs:
+      tested_sha: ${{ steps.identity.outputs.tested_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert tested source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -77,12 +112,27 @@ jobs:
   # go install verifies each tool against the Go checksum database. The built
   # binaries are cached per version, so most runs skip the build.
   security:
+    outputs:
+      tested_sha: ${{ steps.identity.outputs.tested_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
           fetch-depth: 0 # gitleaks scans full history
+      - name: Assert tested source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
+          printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -103,3 +153,33 @@ jobs:
       - run: ~/tools/gitleaks detect --redact --no-banner
       - if: ${{ !cancelled() }}
         run: ~/tools/govulncheck ./...
+
+  required:
+    name: CI required
+    if: ${{ always() }}
+    needs: [go, lint, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful jobs on the expected source
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          expected = {"go", "lint", "security"}
+          if set(needs) != expected:
+              sys.exit("Mandatory CI job set differs from the expected set")
+          for name in sorted(expected):
+              job = needs[name]
+              if job.get("result") != "success":
+                  sys.exit(f"Mandatory CI job {name} did not succeed")
+              if job.get("outputs", {}).get("tested_sha") != os.environ["EXPECTED_SHA"]:
+                  sys.exit(f"Mandatory CI job {name} tested the wrong SHA")
+          print("All mandatory CI jobs succeeded on the expected SHA")
+          PYTHON
