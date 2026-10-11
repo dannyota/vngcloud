@@ -115,7 +115,7 @@ Compute reads zones, platform codes, and each selected zone's family list,
 enumerating every pair from `condition.codes`. Treat family keys as open-ended;
 keep names as returned without a derived `Class` or parser. New readers stay
 private. [Catalog evidence](pricing-discovery-api.md#catalog-results) owns the
-observed family keys and flavor-name segments.
+family types, host-aggregate conditions, and absent flavor-to-type join.
 
 Default visibility is `console-family`: families with `key`, excluding
 `custom`, partner/custom, and legacy branches. It certifies no sale eligibility.
@@ -140,8 +140,8 @@ data disk, network, login, or order-only fields.
 
 Apply the
 [reference rule](pricing-discovery-api.md#deterministic-reference-selection).
-The quote validates the selected candidate. Read images once per enabled zone,
-reuse volume catalogs, and record the chosen inputs in `Reference`. Never
+Filter candidates by flavor image support before quoting under that rule. Read
+images once per enabled zone, reuse catalogs, and record `Reference`. Never
 escalate to other candidates, OS types, or disk tiers after a refused quote.
 
 No eligible pair produces `Status=unknown`, nil price and reference, and a
@@ -272,7 +272,7 @@ Discovery can wait behind another caller's in-flight project lookup or token
 refresh beyond its own deadline. No finite shared-wait bound is promised:
 HTTP timeouts bound individual requests, not queued operations or custom
 providers. Locks span network/token work at `internal/core/client.go:211`,
-`internal/core/project.go:68`, `internal/transport/transport.go:590` and `:620`,
+`internal/core/project.go:68`, `internal/transport/discovery.go:125` and `:164`,
 and `internal/core/auth.go:70`.
 
 After each acquisition, check context before cache changes, token invalidation,
@@ -380,10 +380,10 @@ fixtures. Implementation updates wiki and generated CLI pages. The manager runs
 2. Recommend all-zone catalogs with disabled-zone quotes skipped, console-family
    defaults, explicit non-public scope, and unchanged flavor names. No derived
    Class or claim of public purchase eligibility.
-3. Recommend deterministic Ubuntu/3000 IOPS reference quotes and only the
-   instance component as compute price. Exclude root-disk charges, disclose
-   reference inputs, and gate compute on sanitized selector fixtures. Keep GiB
-   and universal image-independence claims gated.
+3. Recommend deterministic flavor-supported Ubuntu/3000 IOPS references and
+   only the instance component as compute price. Exclude root-disk charges,
+   disclose reference inputs, and gate compute on sanitized selector fixtures.
+   Keep GiB and universal image-independence claims gated.
 4. Recommend monthly-only discovery without `Periods` or projections,
    minimum-size effective rates, all encryption choices, and a published
    account-scoped no-term-discount note. Defer bandwidth discovery and retain

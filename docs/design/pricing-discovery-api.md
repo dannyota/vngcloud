@@ -1,9 +1,7 @@
 # Pricing discovery: evidence and probes
 
-Evidence for [pricing discovery](pricing-discovery.md). Accepted contracts
-remain authoritative. Public console code establishes construction and UI
-meaning; manager-supplied IAM summaries establish account-scoped observations.
-Helpers remain unimplemented. This revision uses no network or raw captures.
+Evidence for [pricing discovery](pricing-discovery.md); accepted rules govern.
+Console code shows UI construction; manager IAM evidence is account-scoped.
 
 ## Existing contracts and code
 
@@ -17,11 +15,9 @@ Helpers remain unimplemented. This revision uses no network or raw captures.
 | [Storage API](storage-projects-api.md#price) | Monthly package quote, six allowed periods in metadata, ignored period 12 in one probe, order-only keys can yield zero |
 | [NAT API](network-writes-api.md#nat-price-and-direct-order) | Separate vNetwork price route and envelope; a regional billing server quote is not a NAT quote |
 
-Source checks cover compute/volume catalogs, storage catalog/quote composition,
-pricing, transport, endpoint resolution, and CLI output. Existing flavor and
-volume models have no price; `storage.ListProjectTypes` already quotes minimum
-monthly packages after six catalog/config reads and one region read. Tests in
-those packages establish code behavior, not live evidence.
+Catalog, quote, transport, endpoint, and CLI tests establish code, not live
+behavior. Flavor and volume models have no price; `storage.ListProjectTypes`
+quotes monthly minima after six catalog/config reads and one region read.
 
 ## Public console inspection
 
@@ -131,12 +127,9 @@ or term-savings schedule; Sales must confirm eligibility and negotiated rates.
 
 ## Manager read-only probes
 
-Evidence comes from the manager's private probe report and sanitized per-call
-summaries. Calls used IAM in hcm-3 and vStorage HCM: catalog GETs and price
-POSTs only. Private IDs, account fields, and raw bodies are not reproduced here.
-Summaries establish observations but are not raw fixtures; implementation still
-needs manager-sanitized raw responses decoded through the SDK under [live
-data](../../instructions/live-data.md).
+Manager IAM probes cover catalog GETs and price POSTs in hcm-3 and vStorage HCM.
+Summaries are not raw fixtures; SDK decoding needs sanitized raw responses
+under [live data](../../instructions/live-data.md).
 
 ### Catalog results
 
@@ -149,10 +142,14 @@ account can create resources there.
 `description`. The family array returns only `general-purpose` and `gpu`, with
 string `key`, `value`, `description` and `condition.codes` arrays.
 General-purpose declares code-s2, code-s, and code-a; GPU declares eight
-platforms. General, Standard, High CPU, and High Memory are name segments within
-general-purpose, with observed vCPU:memory ratios 1:2, 1:4, 1:1, and 1:8. Some
-names carry `-n10` without changing CPU or memory. No exact, tested general name
-parser exists in this design; preserve returned names.
+platforms. The manager reports general-purpose `types`: `standard`, `general`,
+`high-cpu`, `high-memory`, labelled Standard, General, High CPU, High Memory.
+Their host-aggregate `condition` keys are `shared`,
+`aggregateInstanceExtraSpecsCpuNcore`, and `aggregateInstanceExtraSpecsMemory`:
+General: shared true; high-cpu: CpuNcore high; high-memory: Memory high.
+GPU has empty `types`. Flavors have no row-to-type join; name segments are
+`standard`, `general`, `highcpu`, `highmem`. Some carry `-n10` without changing
+CPU or memory. No exact, tested name parser exists; preserve returned names.
 
 In HCM03-1C, family/platform reads return plain arrays: code-s2 has 33 flavors,
 code-s has 37, code-a and all GPU platforms are empty. Flavor fields include
@@ -162,7 +159,10 @@ numeric `cpu`, `memory`, `gpu`, `gpuMemory`, `bandwidth`, `remainingVms`; string
 the 33-row code-s2 sample, these are non-null and `zoneId` is null throughout.
 `bandwidthUnit` is `Gbps`. No price or memory-unit field exists. Derive zone
 scope from the request; reject a conflicting non-null zone. Integer memory does
-not establish GB or GiB.
+not establish GB or GiB. Each row in the committed
+[flavor fixture](../../testdata/compute/discovery_family_flavors.json) has
+JSON-string `metaData` with a nonempty string array `imageTypeSupport`,
+including `Ubuntu`; `Flavor.Metadata` retains the string.
 
 Both custom paths return empty arrays in every zone. The product envelope
 contains `errorCode`, `errorMsg`, `extra`, and 69 `flavorZones` entries with
@@ -220,9 +220,7 @@ HCM03-1A. For each named Ubuntu image, 12 of 15 `flavorZoneIds` are absent
 from the 69-row flavor-zone catalog; three identify HCM03-1A partner groups.
 None matches HCM03-1C, yet the full quotes there succeed. Neither image
 `zoneId` nor `flavorZoneIds` establishes quote compatibility; invent no alias.
-The working candidate rule is Ubuntu with explicit false licence, followed by
-validation through the selected quote. Manager reports include decoded SDK
-field checks; sanitized raw selector fixtures remain required evidence.
+Manager reports include SDK field checks; raw selector fixtures remain required.
 
 ### Volume catalog reconciliation and prices
 
@@ -290,34 +288,36 @@ can be parsed from a name.
 
 ### Deterministic reference selection
 
-This is a proposed selection rule, not an API promise. For each enabled zone,
-read OS images once and use the volume catalog path above. Select returned IDs
-only:
+This selection rule is not an API promise. Read images once per enabled zone
+and reuse the volume catalog path above. Select returned IDs only:
 
-1. Require `imageType` equal to `Ubuntu` ignoring ASCII case and explicit
-   `licence:false`. Ignore image `zoneId` and `flavorZoneIds` for eligibility,
-   per the image evidence above. Require present integer package limits:
+1. Parse the flavor's JSON-string `metaData` as an object. Require nonempty
+   `imageTypeSupport` as an array of nonempty strings. Missing, null, malformed,
+   wrong-type, or empty metadata/list/entries give unknown price, nil reference,
+   and a `reference-unavailable` note for unusable image support; do not quote
+   or guess. Require the candidate's `ImageType` to match an entry exactly,
+   case-sensitive as returned, without trimming or normalization. Also require
+   Ubuntu ignoring ASCII case and explicit `licence:false`. Ignore image
+   `zoneId` and `flavorZoneIds`. Require present integer package limits:
    nonnegative CPU/memory no greater than the flavor and positive disk size.
-   These select a candidate; only its quote validates the requested pair.
+   Only the quote validates the selected pair.
 2. Use a region-wide 3000 IOPS volume type with positive minimum and
    consistent maximum size. Root size is the greater of that minimum and
    `packageLimit.diskSize`; reject pairs exceeding the disk maximum.
-3. Sort eligible pairs by root size, image version, image ID, then disk type ID,
-   ascending with bytewise string order. Pick the first pair. Version order is a
-   stable tie-breaker, not a newest-image promise.
+3. Sort by root size, then bytewise image version, image ID, and disk type ID,
+   all ascending. Pick first; version order does not promise the newest image.
 
 No eligible pair means unknown price; a refused selected pair is a failed row.
-Never try another OS, licensed image, higher IOPS tier, guessed ID, or
-trial-quote sequence. Use private presence-aware catalog decoding; existing
-decoded zero values alone cannot prove eligibility.
+Never try another OS, licensed image, higher IOPS tier, guessed ID, or trial
+quotes. Eligibility needs private presence-aware decoding, not zero values.
 
 ### Remaining checks
 
-No further live run is authorized here. Compute remains gated until the
-manager supplies sanitized raw image/catalog and successful quote fixtures.
-Decode them through the SDK to verify selector fields, known working candidates,
-null-licence exclusion, and no dependency on image-zone metadata. The completed
-comparison above is bounded evidence, not a universal pricing rule.
+No live run is authorized. Compute needs SDK decoding of sanitized raw
+image/catalog and successful quote fixtures: verify selector fields, known
+candidates, null-licence exclusion, and independence from image-zone metadata.
+Test exact support matches; case mismatches, unsupported images, and unusable
+metadata/list shapes must yield unknown rows without quotes.
 
 Only three flavors have quote evidence. Remaining legacy branches, populated
 custom/GPU catalogs, reference selection outside the observed zone, and
@@ -353,8 +353,8 @@ output. Require this exchange support before releasing a helper.
 
 ## Security obligations
 
-These are constraints for independent review, not a review verdict. Proposed
-discovery paths are unimplemented.
+These are constraints for independent review, not a review verdict. Compute
+and network discovery helpers remain unimplemented.
 
 | Attacker and severity | Existing evidence | Required invariant and check |
 |-|-|-|
