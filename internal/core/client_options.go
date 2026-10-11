@@ -178,8 +178,9 @@ func WithCredentialsProvider(p CredentialsProvider) Option {
 }
 
 // WithTokenCache turns on an on-disk token cache shared across processes,
-// rooted at dir (created with mode 0700). Only IAM User credentials use it;
-// a static token or a custom CredentialsProvider is never written to disk.
+// rooted at dir (created with mode 0700). IAM User and service-account
+// credentials use it; service-account entries bind the client secret.
+// A static token or a custom CredentialsProvider is never written to disk.
 // Without this option, the SDK writes nothing to dir.
 func WithTokenCache(dir string) Option {
 	return clientOptionFunc(func(cfg *clientConfig) {

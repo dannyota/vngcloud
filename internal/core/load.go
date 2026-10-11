@@ -13,16 +13,18 @@ import (
 )
 
 const (
-	envProfile     = "VNGCLOUD_PROFILE"
-	envRegion      = "VNGCLOUD_REGION"
-	envProjectID   = "VNGCLOUD_PROJECT_ID"
-	envRootEmail   = "VNGCLOUD_ROOT_EMAIL"
-	envUsername    = "VNGCLOUD_USERNAME"
-	envPassword    = "VNGCLOUD_PASSWORD"
-	envTOTPSecret  = "VNGCLOUD_TOTP_SECRET"
-	envAccessToken = "VNGCLOUD_ACCESS_TOKEN"
-	envConfigFile  = "VNGCLOUD_CONFIG_FILE"
-	envCredsFile   = "VNGCLOUD_SHARED_CREDENTIALS_FILE"
+	envProfile      = "VNGCLOUD_PROFILE"
+	envRegion       = "VNGCLOUD_REGION"
+	envProjectID    = "VNGCLOUD_PROJECT_ID"
+	envRootEmail    = "VNGCLOUD_ROOT_EMAIL"
+	envUsername     = "VNGCLOUD_USERNAME"
+	envPassword     = "VNGCLOUD_PASSWORD"
+	envTOTPSecret   = "VNGCLOUD_TOTP_SECRET"
+	envAccessToken  = "VNGCLOUD_ACCESS_TOKEN"
+	envClientID     = "VNGCLOUD_CLIENT_ID"
+	envClientSecret = "VNGCLOUD_CLIENT_SECRET"
+	envConfigFile   = "VNGCLOUD_CONFIG_FILE"
+	envCredsFile    = "VNGCLOUD_SHARED_CREDENTIALS_FILE"
 
 	defaultProfile = "default"
 )
@@ -38,8 +40,10 @@ const (
 // account-specific, so it may still come from the environment even with an
 // explicit profile.
 //
-// An empty value from an option, an environment variable, or a file key
-// counts as unset. LoadConfig returns ctx.Err() directly, unwrapped, when
+// Nil auth/provider options and empty static tokens count as unset, as do
+// empty environment variables and file keys. A non-nil auth option selects
+// the options source even when its credential fields are empty. LoadConfig
+// returns ctx.Err() directly, unwrapped, when
 // ctx is already canceled or past its deadline. Every other error matches
 // ErrInvalidConfig via errors.Is; a missing or incomplete credential set
 // also matches ErrNoCredentials, and a credentials file problem also
@@ -84,6 +88,11 @@ func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 
 	configSection, _ := configFile.Section(configSectionName(profile))
 	credsSection, _ := credsFile.Section(profile)
+	for _, key := range []string{"client_id", "client_secret"} {
+		if configSection[key] != "" {
+			return Config{}, fmt.Errorf("%w: %s in the config section must be stored in the credentials file", ErrInvalidConfig, key)
+		}
+	}
 
 	region, err := resolveRegion(settings.region, configSection)
 	if err != nil {
@@ -269,21 +278,29 @@ func resolveProjectID(optionValue string, explicitProfile bool, configSection ma
 	return configSection["project_id"]
 }
 
-// resolveCredentials fills settings.staticToken or settings.iamUser (or
-// leaves settings.credentials as the caller set it) from the first source
-// that sets any credential value: options, then (only when the profile is
-// not explicit) the environment, then the profile's credentials section.
-// Within one source, an access token wins over IAM User values. A source
-// that sets some IAM User keys but not root_email, username, and password
-// (an access token needs nothing else) is an error naming the source and
-// the missing keys, never a value: it is treated the same as no credentials
-// at all, rather than falling through to mix in another source's values.
+// resolveCredentials selects a whole source: options, environment unless the
+// profile is explicit, then the profile's credentials section. Providers,
+// static tokens, service accounts, and IAM users win in that order within
+// options. Environment and file values never fill a selected partial set.
 func resolveCredentials(settings *clientConfig, explicitProfile bool, profile string, credsSection map[string]string) error {
-	if settings.credentials != nil || settings.staticToken != "" || settings.iamUser != nil {
+	if settings.credentials != nil || settings.staticToken != "" {
+		return nil
+	}
+	if settings.serviceAccount != nil {
+		return validateLoadedServiceAccount(settings.serviceAccount, "options", "ClientID", "ClientSecret")
+	}
+	if settings.iamUser != nil {
 		return nil
 	}
 
 	if !explicitProfile {
+		if os.Getenv(envAccessToken) == "" {
+			id, secret := os.Getenv(envClientID), os.Getenv(envClientSecret)
+			if id != "" || secret != "" {
+				WithServiceAccountCredentials(id, secret, true).apply(settings)
+				return validateLoadedServiceAccount(settings.serviceAccount, "environment variables", envClientID, envClientSecret)
+			}
+		}
 		iamUser, token, missing, ok := credentialsFromEnv()
 		if ok {
 			if len(missing) > 0 {
@@ -299,6 +316,10 @@ func resolveCredentials(settings *clientConfig, explicitProfile bool, profile st
 		}
 	}
 
+	if id, secret := credsSection["client_id"], credsSection["client_secret"]; id != "" || secret != "" {
+		WithServiceAccountCredentials(id, secret, true).apply(settings)
+		return validateLoadedServiceAccount(settings.serviceAccount, fmt.Sprintf("profile %q in the credentials file", profile), "client_id", "client_secret")
+	}
 	iamUser, missing, ok := credentialsFromSection(credsSection)
 	if ok {
 		if len(missing) > 0 {
@@ -313,6 +334,25 @@ func resolveCredentials(settings *clientConfig, explicitProfile bool, profile st
 		return fmt.Errorf("%w: profile %q has no credentials", ErrNoCredentials, profile)
 	}
 	return fmt.Errorf("%w: checked options, environment variables, and profile %q", ErrNoCredentials, profile)
+}
+
+// validateLoadedServiceAccount adds source labels without credential values.
+// Missing fields match ErrNoCredentials, which also wraps ErrInvalidConfig.
+func validateLoadedServiceAccount(auth *serviceAccountCredentials, source, idKey, secretKey string) error {
+	var missing []string
+	if auth.clientID == "" {
+		missing = append(missing, idKey)
+	}
+	if *auth.secret == "" {
+		missing = append(missing, secretKey)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: service-account credentials from %s require: %s", ErrNoCredentials, source, strings.Join(missing, ", "))
+	}
+	if err := auth.validate(); err != nil {
+		return fmt.Errorf("service-account credentials from %s: %w", source, err)
+	}
+	return nil
 }
 
 // missingIAMKeys names, from keys, each required IAM User key (root_email,

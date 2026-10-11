@@ -23,11 +23,17 @@ Highest first:
 2. Environment variables.
 3. The resolved profile's section in the config and credentials files.
 
-An empty value from an option, an environment variable, or a file key counts
-as unset. Credentials resolve as one set from the first source that sets any
-credential value, so a profile's password is never mixed with another
-source's username. Within one source, an access token wins over IAM User
-values.
+Nil auth/provider options and an empty static token count as unset. A
+non-nil auth/provider option selects the options source even when its fields
+are empty. Within options, `WithCredentialsProvider` wins over
+`WithStaticToken`, then `WithServiceAccount`, then `WithIAMUser`, regardless
+of option order.
+
+Only when no option selects credentials does the first environment or file
+source with a non-empty credential value win. Empty environment variables
+and file keys count as unset. Within that source, a static token wins over
+service-account keys, then IAM User fields. A selected partial or malformed
+set fails without falling back or taking fields from another source.
 
 `WithProfile(name)` selects a profile **explicitly**; `VNGCLOUD_PROFILE`
 never does. An explicit profile skips environment variables for credentials
@@ -45,7 +51,8 @@ fails with `vngcloud.ErrNoCredentials` naming the profile.
 | `VNGCLOUD_REGION` | Region |
 | `VNGCLOUD_PROJECT_ID` | Project ID |
 | `VNGCLOUD_ROOT_EMAIL`, `VNGCLOUD_USERNAME`, `VNGCLOUD_PASSWORD`, `VNGCLOUD_TOTP_SECRET` | IAM User credentials |
-| `VNGCLOUD_ACCESS_TOKEN` | Static token; wins over IAM User values |
+| `VNGCLOUD_CLIENT_ID`, `VNGCLOUD_CLIENT_SECRET` | Service-account credentials |
+| `VNGCLOUD_ACCESS_TOKEN` | Static token; wins over service-account and IAM User values |
 | `VNGCLOUD_VCDN_API_KEY` | vCDN API key; see [vCDN API key](#vcdn-api-key) |
 | `VNGCLOUD_CONFIG_FILE` | Config file path |
 | `VNGCLOUD_SHARED_CREDENTIALS_FILE` | Credentials file path |
@@ -79,11 +86,18 @@ totp_secret = <base32-secret>
 root_email = <root-email>
 username = <iam-username>
 password = <password>
+
+[service-agent]
+client_id = <client-id>
+client_secret = <client-secret>
 ```
 
 Config sections other than `default` use the `profile` prefix; credentials
-sections use the bare profile name either way. Unknown keys are ignored. A
-named profile that appears in neither file is an error naming it. The
+sections use the bare profile name either way. Store `client_id` and
+`client_secret` only in the credentials file. Either non-empty key in the
+resolved config section fails with `vngcloud.ErrInvalidConfig`, even when
+another auth method wins. Other unknown keys are ignored. A named profile
+that appears in neither file is an error naming it. The
 credentials file has no access token key: a static token comes only from
 `WithStaticToken` or `VNGCLOUD_ACCESS_TOKEN`.
 
@@ -95,8 +109,8 @@ resolves on its own, highest first: `WithCDNAPIKey(key)`, then
 credential), then `vcdn_api_key` in the profile's credentials section, which
 keeps the mode 0600 check. No flag carries it.
 
-The key does not count as an IAM credential: `LoadConfig` still fails with
-`vngcloud.ErrNoCredentials` when no IAM credential set resolves. A key that
+The key does not select token authentication: `LoadConfig` still fails with
+`vngcloud.ErrNoCredentials` when no token credential set resolves. A key that
 holds whitespace or a control character, or is over 4 KiB, fails with
 `vngcloud.ErrInvalidConfig` naming the source and never the value. The
 `Config` has no getter for the key, and no error, log, or formatted value
@@ -131,8 +145,14 @@ passed in is already canceled or past its deadline. Every other error from
 `LoadConfig` matches `vngcloud.ErrInvalidConfig` via `errors.Is`. A missing
 credential set, or one source setting some IAM User credentials but not
 all of root_email, username, and password, also matches
-`vngcloud.ErrNoCredentials`, naming the source and the missing keys. A
-credentials file problem (missing at an explicit path, unreadable, refused
+`vngcloud.ErrNoCredentials`. A selected service-account set missing
+`client_id` or `client_secret` matches both errors, naming the source and
+missing fields. Malformed service-account fields match only
+`vngcloud.ErrInvalidConfig`: each field must be at most 4096 bytes with no
+whitespace or control characters, and the client ID must contain no colon.
+Option and environment values are not trimmed. Files use the existing INI
+value parsing. A credentials file problem (missing at an explicit path,
+unreadable, refused
 for unsafe permissions, or malformed) also matches
 `vngcloud.ErrCredentialsFile`. No error from `LoadConfig` names a
 credential value.
@@ -250,7 +270,8 @@ cfg, err := vngcloud.NewConfig(
 )
 ```
 
-Only IAM User credentials use the cache. A static token or a custom
+IAM User and service-account credentials use the cache. A static token or
+a custom
 `CredentialsProvider` is never written to disk, and without
 `WithTokenCache` the SDK writes nothing.
 
@@ -259,10 +280,17 @@ different profiles sharing one cache directory never collide. Direct
 `NewConfig` callers usually do not need it; `LoadConfig` sets it from the
 resolved profile automatically.
 
-Each credential set gets one file, `<dir>/<hash>.json`, named by a SHA-256
-hash of the profile, root email, username, sign-in URL, and token URL, so
-changed credentials or endpoints never reuse another entry's token. The
-cache directory is created with mode 0700, and each token file with mode
+IAM User entries remain `<dir>/<hash>.json`. Their SHA-256 key includes the
+profile, root email, username, sign-in URL, and token URL. Password and TOTP
+changes do not change that key, so an existing token can still be reused.
+
+Service-account entries use `<dir>/service-account-v1/<hash>.json`. Their
+SHA-256 key binds the auth kind, profile, client ID, fixed token URL, and
+client secret. Changing the secret selects a different entry. The cache
+stores neither the client secret nor Basic authorization headers. Old
+entries and issued tokens can remain after rotation.
+
+The cache directory is created with mode 0700, and each token file with mode
 0600; a pre-existing directory that group or others can access is refused.
 
 One locked operation per credential set reads the cached token, logs in only
@@ -271,7 +299,9 @@ at least 30 seconds ago, and writes the result back, so two processes
 sharing one profile never log in with the same TOTP code. The lock is tried
 without blocking, then retried with backoff until the call's context ends;
 a lock file is never deleted, and a failed cache write after a successful
-login still returns the fresh token. On Linux, macOS, and the BSDs the lock
+IAM login still returns the fresh token. Service-account cache access and
+persistence failures return `vngcloud.ErrTokenCache`, without falling back
+to an uncached exchange. On Linux, macOS, and the BSDs the lock
 uses `flock`; on Windows it opens the lock file with an exclusive share
 mode. A platform with neither locks within the process only, which still
 avoids duplicate logins from one process but not from several.
