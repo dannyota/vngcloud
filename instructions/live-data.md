@@ -12,6 +12,7 @@ Rules for anything that touches the real GreenNode API or its output. Everyone w
 - Run one live write test with `VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_<TEST>=1 go test -tags livewrite -count=1 -timeout 60m -run '^TestLiveWrite<Name>$' ./livetest/`; each test names its own gate variable. Only one test that creates a VPC runs at a time.
 - A live test creates its own parent resources, deletes children before parents, and stops with a message naming the leftovers rather than delete a parent a child still holds.
 - Throwaway live programs go under a git-ignored path and are deleted after use.
+- Live tests and hand probes on the shared vStorage test project never run at the same time: each live write test sweeps leftover `vngcloud-live-` resources, so a concurrent run loses its buckets or keys. Hand probes name resources `vngcloud-probe-<8 hex>` and clean up after themselves.
 
 ## Adding or fixing an API
 
@@ -27,4 +28,3 @@ Test against raw fixtures, not SDK output: decoding drops unknown fields silentl
 Public documentation pages, such as the GreenNode CDN IP range FAQ, are not account data: their fixtures keep the published values and may be trimmed.
 
 Replace every sensitive value before a file enters `testdata/`: `<project-id>`, `<server-id>` or `<id>` for resource IDs, `<account>` for names and emails, `<hostname>`, `<internal-url>`, `<ip>`, and `<secret>` for tokens, keys, and certificates. Keep enum, status, and type strings only when a test needs them. Short synthetic IDs such as `vpc-1` are fine.
-- Live tests and hand probes on the shared vStorage test project never run at the same time: each live write test sweeps leftover `vngcloud-live-` resources, so a concurrent run loses its buckets or keys. Hand probes name resources `vngcloud-probe-<8 hex>` and clean up after themselves.

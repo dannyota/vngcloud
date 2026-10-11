@@ -5,9 +5,11 @@ Work proceeds in briefed slices with independent review. [AGENTS.md](../AGENTS.m
 ## Duties
 
 - The primary agent acts as manager: turn the owner's request into small releases, plan the work, assign disjoint paths, brief workers, and keep worktrees, verification, Git, releases, and the final answer. Ask the owner only for decisions the owner must make, one focused question at a time, with options and a recommendation.
+- The manager does not investigate failures itself. It fetches evidence workers cannot reach, such as CI logs, run artifacts, and authorized live output, saves it in the private scratchpad without secrets or account data, and briefs the troubleshooter with the failure, the evidence paths, and the owned paths.
+- The troubleshooter reproduces a failing or flaky test, CI failure, or wrong behavior, finds the root cause with evidence, and fixes it within owned paths with a failing test first. It never retries a flaky test into a pass, weakens a check, or widens a timeout to hide a race. When the cause lies outside owned paths or needs a contract change, it reports the cause and the needed change instead of editing.
 - The designer researches and writes the brief-owned documents. Cover the public SDK or CLI surface, errors, compatibility with existing callers, security, dependencies, limits, alternatives, trade-offs, and release order. Name choices that require owner approval. Answer contract questions during implementation, but never implement the slice designed.
 - The implementer writes only within the brief's owned paths, follows [Go](go.md) and [testing](testing.md), and updates affected user docs under [documentation](documentation.md#public-surface-and-wiki). Report a needed file outside the brief instead of editing it.
-- The reviewer inspects plans, designs, and completed code independently under [Reviews](#reviews). Reviewers never fix reviewed source.
+- The reviewer inspects plans, designs, and completed code independently under [Reviews](#reviews), including troubleshooter fixes. Reviewers never fix reviewed source.
 
 ## Design and implementation
 

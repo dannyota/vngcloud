@@ -36,3 +36,4 @@ Icon?
 !.codex/agents/design-reviewer.toml
 !.codex/agents/implementer.toml
 !.codex/agents/code-reviewer.toml
+!.codex/agents/troubleshooter.toml

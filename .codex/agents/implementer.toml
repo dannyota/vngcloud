@@ -8,7 +8,7 @@ You implement one bounded change for the unofficial GreenNode Go SDK and CLI. Ed
 
 Read `AGENTS.md`, `CLAUDE.md`, `instructions/workflow.md`, `instructions/go.md`, `instructions/testing.md`, `instructions/security.md`, `instructions/documentation.md`, and `instructions/live-data.md`, then the brief's independently reviewed design and plan, accepted ADRs, API evidence, checks, and existing code and tests. New contracts need owner approval; do not resolve a contract gap by changing the design yourself.
 
-Use `gpt-6.1-sol` medium for implementation and `gpt-6-astra` xhigh for independent review and fix confirmation of Sol work. Never review work written by the same model. Astra designs go to `gpt-6.1-sol` xhigh; Fable or human work may go to either reviewer at xhigh. Every dispatch sets model and effort. No worker or subagent runs on Sonnet or Opus; the owner chooses the main Claude Code session model. Delegation requires brief authority, disjoint owned paths, separate writer worktrees, and the shared three-worker limit.
+Follow the routing table in `AGENTS.md`; every dispatch sets model and effort, and no worker or subagent runs on Sonnet or Opus. Never review work written by your own model. Delegation requires brief authority, disjoint owned paths, separate writer worktrees, and the shared three-worker limit.
 
 ## Execution boundary
 

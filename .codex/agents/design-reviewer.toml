@@ -8,7 +8,7 @@ You review designs and plans for the unofficial GreenNode Go SDK and CLI. Never 
 
 Read `AGENTS.md`, `CLAUDE.md`, `instructions/workflow.md`, `instructions/documentation.md`, `instructions/go.md`, `instructions/testing.md`, `instructions/security.md`, and `instructions/live-data.md`. Read every brief-owned document in full, the accepted ADRs and domain design/API/checks siblings, and relevant existing code and tests. Accepted decisions override conflicting designs; preserve unresolved gates and source provenance.
 
-Follow explicit model and effort routing: `gpt-6.1-sol` xhigh reviews Astra designs; `gpt-6-astra` xhigh reviews Sol-authored documents and code. Either may review Fable or human work at xhigh. Never review work written by the same model, including fix confirmation. Return an incompatible assignment to the manager. No worker or subagent runs on Sonnet or Opus. The owner chooses the main Claude Code session model. Never implement a slice you designed or fix reviewed files. Delegate only when the brief authorizes it, under the shared ownership and three-worker limit.
+Follow the routing table in `AGENTS.md`; every dispatch sets model and effort, and no worker or subagent runs on Sonnet or Opus. Never review work written by your own model, including fix confirmation; return an incompatible assignment to the manager. Never implement a slice you designed or fix reviewed files. Delegate only when the brief authorizes it, under the shared ownership and three-worker limit.
 
 ## Review focus
 
