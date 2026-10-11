@@ -1,118 +1,95 @@
 # CLI Reads Design
 
-Status: Accepted (2026-09-26).
+Status: Accepted; typed Zone contract requires independent review.
 
-This design adds `vngcloud` read commands for the six SDK packages that have
-none: `project`, `portal`, `volume`, `loadbalancer`, `globalloadbalancer`,
-and `containerregistry`. It adds no SDK method and no write. Commands follow
-[CLI](cli.md): one operation table per service, flags reflected from the
-Input struct, and Go field names in the output. The SDK surface is in
-[SDK and CLI](sdk-and-cli.md#service-packages).
+Read commands cover `project`, `portal`, `volume`, `loadbalancer`,
+`globalloadbalancer`, and `containerregistry`. Portal types `Zone`; no new
+SDK method or write. Follow [CLI](cli.md): one operation table per service,
+Input flags, and Go output names; see [SDK](sdk-and-cli.md#service-packages).
 
 ## Goals
 
-- Every SDK read has a CLI command, so an agent never needs Go code to
-  inspect the account.
-- No command ships on a decode that nobody has checked. Each read is either
-  checked live, or its response shape is confirmed by a second source and
-  a live check covers it as soon as the account holds such a resource.
-- No command prints a credential.
+- Expose every SDK read in the CLI so account inspection needs no Go code.
+- Check every decode live, or confirm its shape with a second source and
+  check live when the account holds the resource.
+- Never print credentials.
 
 ## Non-goals
 
-- Writes for these services. OpenTofu covers volume and load balancer
-  writes for aboutme; each write set gets its own design under
+- Writes. OpenTofu covers volume and load balancer writes for aboutme;
+  each write set needs its own design under
   [ADR 0002](../adr/0002-write-api-conventions.md).
 - New SDK reads, such as volume attachments or registry tags.
-- A pagination helper. Lists keep `DefaultPageSize`.
+- Pagination helpers. Lists keep `DefaultPageSize`.
 
 ## Scope rules
 
-`LoadConfig` always needs a region, so every command needs one from the
-profile, `VNGCLOUD_REGION`, or `--region`. What the region and project do
-differs by service:
+`LoadConfig` requires a region from the profile, `VNGCLOUD_REGION`, or
+`--region` for every command. Scope determines how the command uses it:
 
-| Scope | Meaning for the CLI |
-|-|-|
-| Project | The call puts the project ID in its path. The SDK discovers it for the region; with more than one project it fails with exit 2 until `--project-id` is given |
-| Region | The host is regional; no project in the path |
-| Global | The host has no region; the configured region is required by `LoadConfig` but ignored, so every region gives the same answer |
+- Project: put the project ID in the path. The SDK discovers it by region;
+  multiple projects cause exit 2 until `--project-id` selects one.
+- Region: use the regional host without a project in the path.
+- Global: ignore the required configured region; all regions give the same
+  answer from a host without a region.
 
-`project list-projects` is the way to find the value for `--project-id`.
+Use `project list-projects` to find `--project-id`.
 
 ## Verification
 
-Each read has one of these states. The live check ran on 2026-09-26 against
-the test account in `hcm-3` and `han-1`, and compared the raw body with the
-decoded SDK model. This doc records shapes only, never values.
+Live evidence compares raw bodies with SDK models in `hcm-3` and `han-1`.
+This document records shapes, never account values. Read states mean:
 
-| State | Meaning |
-|-|-|
-| Live | A live response decoded with its fields filled |
-| Empty | The live call worked but returned no items, so the item model is unchecked |
-| Shape | No live row, because the test account has no such resource; the SDK's envelope (`data`-wrapped or bare) matches GreenNode's official Go SDK |
-| Broken | The live call fails or decodes wrong |
+- Live: a live response fills the decoded fields.
+- Empty: the live call returns no items; the item model remains unchecked.
+- Shape: no live row exists; the SDK envelope, bare or data-wrapped,
+  matches GreenNode's official Go SDK.
+- Broken: the live call fails or decodes wrong.
 
-The SDK fixtures for these packages were written by hand when the SDK
-started; none is a sanitized live capture. `network.GetVPC` and `GetSubnet`
-had `data`-wrapped fixtures while the live API returns bare objects, which
-is why fixtures alone count for nothing here. The official SDK has those
-two calls unwrapped, so it would have caught that bug; it is the second
-source for the Shape state.
+Hand-written fixtures do not prove live envelopes. See [portal](#portal)
+for Zone provenance. Live `network.GetVPC` and `GetSubnet` return bare
+objects, matching the official SDK, the second source for Shape reads.
 
-Findings:
-
-- No read decodes empty. Every call that returned a row decoded its fields.
-- `volume.GetDefaultVolumeType` is Broken: 404 `NotFound` in both regions,
-  body `{message}`. The official SDK calls the same path. Either the account
-  has no default type or the endpoint is gone; nothing tells which.
-- `volume.ListVolumeTypeZones` decodes. Its item model holds only the
-  fields a live item carries: `ID`, `Name`, `Description`, and `Zone`.
-- `containerregistry` lists are Empty, and their models are map-backed, so
-  every key the API returns reaches the output unchecked (see
-  [Secrets](#secrets)).
-- The test account holds no volume, load balancer, certificate, global load
-  balancer, or registry repository or user, so every Get and child list for
-  them is Shape.
+- Every read returning a row fills its decoded fields.
+- `volume.GetDefaultVolumeType` returns 404 `NotFound` with `{message}` in
+  both regions. The official SDK uses the same path. Whether the account
+  lacks a default type or the endpoint is gone remains unknown.
+- `volume.ListVolumeTypeZones` decodes only the live item fields: `ID`,
+  `Name`, `Description`, and `Zone`.
+- Registry lists are Empty and map-backed; unseen keys reach output under
+  [Secrets](#secrets).
+- No volume, load balancer, certificate, global load balancer, registry
+  repository, or registry user exists in the test account. Their Gets and
+  child lists are Shape.
 
 ## Commands
 
-Command names are the SDK method names in kebab case, and flags come from
-the Input fields, as [CLI](cli.md#operation-table) defines. "(r)" marks a
-required flag. No Input in this design has a field type flag reflection
-skips, so every field has a flag. One field collides with a global flag;
-see [project](#project).
-
-Every Get Output wraps one resource (`{LoadBalancer: {...}}`). In `table` and
-`text` it renders as one cell of compact JSON, as `compute get-server` does
-today. The wiki example for each Get uses `--query <Field>` so the fields
-become columns.
+SDK method names become kebab-case commands. Input fields supply flags
+under [CLI](cli.md#operation-table); none has a type reflection skips.
+"(r)" marks required flags. See [project](#project) for the global collision.
+Every Get wraps one resource, such as `{LoadBalancer: {...}}`, rendered as
+one compact JSON cell in table/text, as `compute get-server` does. Wiki Get
+examples use `--query <Field>` to turn resource fields into columns.
 
 ### project
 
 Short description: "Projects in the configured region".
+`list-projects`: no flags, Region scope, Live.
 
-| Command | Flags | Scope | State |
-|-|-|-|-|
-| `list-projects` | none | Region | Live |
-
-`ListProjectsInput.Region` would derive `--region`, which collides with the
-global flag, and `Service` panics on such a table. The field only filters
-the result; the global `--region` already picks the regional host, and the
-SDK filters by the configured region when the field is empty. The CLI
-therefore gives the field no flag:
+`ListProjectsInput.Region` collides with global `--region`; `Service` panics
+on that table. The field only filters results; the global flag picks the
+regional host, and an empty field filters by configured region. Suppress
+its flag while retaining JSON input:
 
 ```go
 Read[project.Client, project.ListProjectsInput, project.ListProjectsOutput](
-	kebab("ListProjects"), (*project.Client).ListProjects, NoFlag("Region")),
+    kebab("ListProjects"), (*project.Client).ListProjects, NoFlag("Region")),
 ```
 
-`NoFlag(field)` is a new read option: flag reflection skips that field,
-`--cli-input-json` still sets it, `validateOps` skips the collision check
-for it, and gen-docs lists it as JSON-only. `Read` gains variadic options
-the way `Write` has them; existing tables do not change. A rename-table
-entry is the alternative, but that table is shared by every service, and
-vStorage has its own `Region` field with another meaning.
+`Read` gains variadic options like `Write`, preserving existing tables.
+`NoFlag(field)` skips flag reflection and collision checks in `validateOps`;
+`--cli-input-json` still sets it, and gen-docs marks it JSON-only. A shared
+rename-table entry would also rename vStorage's unrelated `Region` field.
 
 ### portal
 
@@ -126,11 +103,136 @@ Short description: "Account info, zones, and quotas".
 | `get-quota` | `--name` (r) | Project | Live |
 | `get-tag-quota` | none | Project | Live |
 
-All four models are map-backed, so output keys are the API's own names, as
-[CLI output](cli.md#output) allows. `get-quota` matches `--name` against
-the quota's `quotaName` key, case-insensitive; the live rows carry that key.
+`UserInfo`, `Quota`, and `TagQuota` remain map-backed and print API keys.
+The zone fixtures provide no evidence for typing those models.
+`get-quota` matches `--name` against `quotaName`, case-insensitive.
 `get-user-info` prints account data (email, names, user ID, cash and billing
 status); see [Secrets](#secrets).
+
+#### Typed Zone contract
+
+The owner approves typing `portal.Zone`; the implementation is map-backed.
+[list_zones.json](../../testdata/portal/list_zones.json) is hand-written
+compatibility evidence for `id` and `name` in a `zones` envelope, with no
+capture provenance. [discovery_zones.json][zone-capture] is a sanitized raw
+capture documented in [discovery provenance][zone-provenance]: GET
+`/v1/{projectId}/zones`, status 200, in hcm-3. Its `data` rows contain the ten
+detailed fields below, without `id`. Neither fixture contains explicit nulls.
+Keep synthetic compatibility separate from observed API evidence. Neither
+establishes a published schema or behavior in every region.
+
+[zone-capture]: ../../testdata/portal/discovery_zones.json
+[zone-provenance]: ../../testdata/pricing/discovery-provenance.md#files
+
+`danny.vn/vngcloud/portal.Zone` is a struct with these fields in this order.
+The API key is the exact `json` tag, without `omitempty`; the Go field name
+is the CLI JSON key under `Items`, including for `--query` and table/text.
+
+| Go field / CLI key | Go type | API key / SDK JSON key |
+|-|-|-|
+| `ID` | `*string` | `id` |
+| `UUID` | `*string` | `uuid` |
+| `Name` | `string` | `name` |
+| `ZoneType` | `*string` | `zoneType` |
+| `IsDefault` | `*bool` | `isDefault` |
+| `Description` | `*string` | `description` |
+| `IsEnabled` | `*bool` | `isEnabled` |
+| `VolumeCount` | `*int` | `volumeCount` |
+| `ServerCount` | `*int` | `serverCount` |
+| `OpenStackZone` | `*string` | `openstackZone` |
+| `IPRanges` | `*[]string` | `ipRanges` |
+
+Only `Name` appears in every fixture row. Other fields use pointers because
+one fixture omits them. Absent or null pointers decode to nil and print as
+JSON null; present false, zero, empty string, and empty array remain distinct.
+`ID` and `UUID` stay separate: no evidence establishes an alias or fallback.
+`ZoneType` stays an open string. Counts use integers and ranges use strings;
+the fixtures establish neither maximum counts nor an address format rule.
+
+Ignore unknown fields during decoding; do not retain an extras map or print
+them. New fields require evidence and a reviewed contract. A wrong type in
+a known field fails decoding, returns no partial `ListZonesOutput`, and uses
+the existing transport `APIError` path. Keep `ListZonesInput{}`, nil input,
+`ListZonesOutput = core.List[Zone]`, the project-scoped GET, success 200,
+flexible envelopes, metadata, cancellation, retries, and CLI exit rules.
+Add no pagination, waits, dependencies, flags, or response validation rules.
+
+The struct breaks SDK map indexing, literals, iteration, and assertions;
+use fields and nil checks. CLI keys and queries change from `id` and
+`isEnabled` to `ID` and `IsEnabled`. Unknown keys disappear; absent pointers
+print null. SDK JSON retains API spellings with those same omission rules.
+Treat this as breaking: add migration examples to `RELEASE_NOTES.md`, and
+update wiki and generated docs with implementation. The owner selects the
+release version. No dual-key compatibility mode is defined.
+
+Pricing discovery retains `flavorDiscoveryZone` in
+`compute/discovery_decode.go` and `discoveryZone` in
+`volume/discovery_decode.go`, reading `uuid`, `name`, and `isEnabled` from
+`data` without portal. Preserve [discovery](pricing-discovery.md) ID,
+enabled-state, duplicate, budget, and disabled-zone quote rules.
+
+Required checks decode both fixtures through `portal.Client.ListZones`
+and assert every field, pointer presence, and both envelopes. Synthetic
+variants cover null, absent, zero, false, empty ranges, unknown secret keys,
+and wrong known-field types without partial output or body leaks. CLI
+goldens cover JSON, table, text, and queries with Go names and nulls; unknown
+keys must never reach output. Retain quota redaction tests and run compute
+and volume discovery regressions against the unchanged discovery fixture.
+
+#### Caller migration inventory
+
+- `portal/portal.go` defines the struct; `portal/portal_test.go` replaces
+  map indexing with nil-checked fields and covers both fixture sources.
+- `internal/cli/svc_portal.go` updates its map-backed comment.
+  `internal/cli/svc_portal_test.go` migrates the Zone literal and lowercase
+  output assertion in `TestGoldenPortalListZones` and
+  `TestPortalListZonesUsesTheProjectScopedPath`. Update
+  `internal/cli/testdata/golden/portal-list-zones.{json,table}.golden`.
+- `livetest/live_write_test.go` migrates `pickEnabledZoneID`: require
+  `IsEnabled != nil && *IsEnabled` and `UUID != nil && *UUID != ""` before
+  returning `*UUID`. Skip nil, false, or empty values; preserve the first
+  eligible row, list errors, and no-enabled-zone error. Never fall back to
+  `ID`. Its callers are `createLiveVPCAndSubnet`, `useLiveVPCAndSubnet`,
+  `TestLiveWriteNetworkVPC`, and `TestLiveWriteLoadBalancer` in that file.
+- `examples/basic/{resources,output}.go` retain `[]portal.Zone` recording
+  and the `portal/zone` operation map. `livetest/{live_test,live_cli_test}.go`
+  retain row counts and Items checks. `internal/core/list_shape_test.go`
+  keeps Items reflection. `livetest/live_write_encryption_test.go` uses
+  the VPC helper through `createLiveServerPrereqs`, without field access.
+- `docs/wiki/IDs-for-Create-Server.md` updates its ID table, map claims,
+  and lowercase query to `Items[].[UUID,Name]` for the captured shape;
+  explain nil UUIDs and the separate synthetic `ID`, without a fallback.
+  `docs/wiki/Services.md` updates its table and map-backed paragraph.
+- `internal/cli/gendocs_notes.go` removes `portalMapRedactionNote` from
+  `portalListZonesNote` and excludes Zone from its shared-map comment.
+  Describe typed keys and ignored unknown fields; retain the enabled-flag
+  hint. Regenerate `docs/wiki/CLI-Portal.md` with `make gen-docs`.
+- In `internal/cli/gendocs_test.go`, change
+  `TestGenDocsPortalOpsDocumentAccountDataAndRedaction` to require map
+  redaction only for the four remaining portal commands and assert the
+  typed zone note instead. Preserve
+  `TestGenDocsNotesCoverZoneEnabledFlagAndRootDiskText`.
+  `internal/cli/redact_maps_test.go` replaces its Zone map example comment;
+  keep map-redaction coverage using Quota or the existing synthetic maps.
+- Command-only references in `docs/wiki/{Configuration,Network}.md`,
+  `CLI-{Compute,Volume,Network}.md`, and
+  `internal/cli/gendocs_notes{,_vserver}.go` need no field migration.
+  Pricing discovery uses the private decoders above; other services' Zone
+  types are separate. Preserve versioned release facts; add the new break
+  to `RELEASE_NOTES.md` and remove the completed Zone item from `TODO.md`.
+
+Test the picker with nil, false, empty UUID, and valid rows. Require
+`make check`, generated-doc freshness, `go vet -tags live ./...`, and
+`go vet -tags livewrite ./...`. Both vet passes compile without live calls;
+they do not authorize running the live tests.
+
+Zone typing guards decoded output only. Unknown secret keys cannot reach
+stdout; raw capture hooks and known string values keep existing behavior.
+Malformed fields use `internal/transport/transport.go:247`; test sanitized
+errors and no partial output (`portal/portal.go:52`). Hostile oversized
+bodies remain a high-severity memory risk: portal sets no `MaxBody`
+(`internal/transport/transport.go:124`). Body limits need a separate scope.
+Auth, redirect, cache, paid-write, and cleanup paths do not change.
 
 ### volume
 
@@ -158,24 +260,25 @@ Short description: "Block volumes, volume types, and snapshots".
 ### loadbalancer
 
 Short description: "Regional load balancers, listeners, pools, and
-certificates".
+certificates". Project scope. ID flags are required except `--zone-id`;
+all other flags are optional.
 
-| Command | Flags | Scope | State |
-|-|-|-|-|
-| `list-load-balancers` | `--name`, `--page`, `--size` | Project | Empty |
-| `get-load-balancer` | `--load-balancer-id` (r) | Project | Shape |
-| `list-packages` | `--zone-id` | Project | Live |
-| `list-certificates` | `--name`, `--page`, `--size` | Project | Empty |
-| `get-certificate` | `--certificate-id` (r) | Project | Shape |
-| `list-listeners` | `--load-balancer-id` (r) | Project | Shape |
-| `get-listener` | `--load-balancer-id` (r), `--listener-id` (r) | Project | Shape |
-| `list-pools` | `--load-balancer-id` (r) | Project | Shape |
-| `get-pool` | `--load-balancer-id` (r), `--pool-id` (r) | Project | Shape |
-| `get-pool-health-monitor` | `--load-balancer-id` (r), `--pool-id` (r) | Project | Shape |
-| `list-pool-members` | `--load-balancer-id` (r), `--pool-id` (r) | Project | Shape |
-| `list-policies` | `--load-balancer-id` (r), `--listener-id` (r) | Project | Shape |
-| `get-policy` | `--load-balancer-id` (r), `--listener-id` (r), `--policy-id` (r) | Project | Shape |
-| `list-tags` | `--load-balancer-id` (r) | Project | Shape |
+|Command|Flags|State|
+|-|-|-|
+|`list-load-balancers`|`--name`, `--page`, `--size`|Empty|
+|`get-load-balancer`|`--load-balancer-id`|Shape|
+|`list-packages`|`--zone-id`|Live|
+|`list-certificates`|`--name`, `--page`, `--size`|Empty|
+|`get-certificate`|`--certificate-id`|Shape|
+|`list-listeners`|`--load-balancer-id`|Shape|
+|`get-listener`|`--load-balancer-id`, `--listener-id`|Shape|
+|`list-pools`|`--load-balancer-id`|Shape|
+|`get-pool`|`--load-balancer-id`, `--pool-id`|Shape|
+|`get-pool-health-monitor`|`--load-balancer-id`, `--pool-id`|Shape|
+|`list-pool-members`|`--load-balancer-id`, `--pool-id`|Shape|
+|`list-policies`|`--load-balancer-id`, `--listener-id`|Shape|
+|`get-policy`|`--load-balancer-id`, `--listener-id`, `--policy-id`|Shape|
+|`list-tags`|`--load-balancer-id`|Shape|
 
 - A `LoadBalancer` row has 24 columns in `table`. The wiki example uses
   `--query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'`.
@@ -187,19 +290,20 @@ certificates".
 ### globalloadbalancer
 
 Short description: "Global load balancers, pools, and listeners".
+Global scope; ID flags required, other flags optional.
 
-| Command | Flags | Scope | State |
-|-|-|-|-|
-| `list-packages` | none | Global | Live |
-| `list-regions` | none | Global | Live |
-| `list-load-balancers` | `--name`, `--offset`, `--limit` | Global | Empty |
-| `get-load-balancer` | `--load-balancer-id` (r) | Global | Shape |
-| `list-pools` | `--load-balancer-id` (r) | Global | Shape |
-| `list-listeners` | `--load-balancer-id` (r) | Global | Shape |
-| `get-listener` | `--load-balancer-id` (r), `--listener-id` (r) | Global | Shape |
-| `list-pool-members` | `--load-balancer-id` (r), `--pool-id` (r) | Global | Shape |
-| `get-pool-member` | `--load-balancer-id` (r), `--pool-id` (r), `--pool-member-id` (r) | Global | Shape |
-| `list-usage-histories` | `--load-balancer-id` (r), `--from`, `--to`, `--type` | Global | Shape |
+|Command|Flags|State|
+|-|-|-|
+|`list-packages`|none|Live|
+|`list-regions`|none|Live|
+|`list-load-balancers`|`--name`, `--offset`, `--limit`|Empty|
+|`get-load-balancer`|`--load-balancer-id`|Shape|
+|`list-pools`|`--load-balancer-id`|Shape|
+|`list-listeners`|`--load-balancer-id`|Shape|
+|`get-listener`|`--load-balancer-id`, `--listener-id`|Shape|
+|`list-pool-members`|`--load-balancer-id`, `--pool-id`|Shape|
+|`get-pool-member`|`--load-balancer-id`, `--pool-id`, `--pool-member-id`|Shape|
+|`list-usage-histories`|`--load-balancer-id`, `--from`, `--to`, `--type`|Shape|
 
 - `list-load-balancers` pages by `--offset` and `--limit`, not `--page` and
   `--size`, because the API does.
@@ -217,74 +321,69 @@ Short description: "Container registry repositories".
 | `list-repositories` | `--access-level` | Global | Empty |
 | `list-users` | `--name`, `--page`, `--size` | Global | Empty |
 
-`--access-level` defaults to `ALL` in the SDK; other values are unknown.
-Both models are map-backed and have no live row. See [Secrets](#secrets)
-for why `list-users` waits.
+`--access-level` defaults to `ALL`; other values are unknown. Both models
+are map-backed without live rows. [Secrets](#secrets) gates `list-users`.
 
 ## Service names and pages
 
-Group names are the package names, as [CLI](cli.md#commands) requires:
-`vngcloud globalloadbalancer list-load-balancers`. No alias is added; an
-alias would be a second name for one command.
-
-`serviceTitle` in gen-docs gains three cases so the wiki pages read well:
-`loadbalancer` becomes `LoadBalancer`, `globalloadbalancer` becomes
-`GlobalLoadBalancer`, and `containerregistry` becomes `ContainerRegistry`.
-The pages are `CLI-LoadBalancer.md` and so on. `project`, `portal`, and
-`volume` use the default rule.
+Use package group names without aliases under [CLI](cli.md#commands),
+such as `vngcloud globalloadbalancer list-load-balancers`. In gen-docs,
+`serviceTitle` maps `loadbalancer` to `LoadBalancer`, `globalloadbalancer`
+to `GlobalLoadBalancer`, and `containerregistry` to `ContainerRegistry`.
+Pages use `CLI-<Title>.md`; project, portal, and volume use the default rule.
 
 ## Secrets
 
-No typed Output in this design has a credential field, and typed models
-drop unknown response fields, so a typed read cannot print one. The risk is
-in map-backed models, which pass every key through:
+Typed Outputs omit credential and unknown fields. Map-backed models pass
+every key through, with these risks:
 
-| Read | Risk | CLI handling |
-|-|-|-|
-| `containerregistry list-users` | A registry user may carry a password or robot token; no live row exists to show the keys | Held until the SDK types `User` from a live capture with no secret field (see [decision 4](#owner-decisions)) |
-| `containerregistry list-repositories` | Repository rows are unlikely to hold secrets, but no live row exists | Ships with the key redaction below |
-| `portal get-user-info` | Account data: email, names, user ID, cash and billing status. Not a credential | Printed; it is the caller's own account. The wiki warns that agent transcripts keep it |
-| `portal` zones and quotas | None seen in live rows | Printed |
+- `containerregistry list-users`: a user may carry a password or robot
+  token; no live row identifies the keys. Hold until a live capture supports
+  a typed `User` with no secret field ([decision 4](#owner-decisions)).
+- `containerregistry list-repositories`: secrets are unlikely, but no live
+  row exists. Ship with key redaction.
+- `portal get-user-info`: print the caller's email, names, user ID, cash,
+  and billing status, which are account data, not credentials. The wiki
+  warns that agent transcripts retain them.
+- Portal quotas: no secrets seen in live rows; print with map redaction.
 
 No service here returns a kubeconfig; the SDK has no Kubernetes package.
 
-Key redaction for map-backed Outputs: before encoding, the CLI lowercases
-each key of a `map[string]any`, strips every character that is not a letter
-or digit, and replaces the value with `<redacted>` when the result contains
-`password`, `passwd`, `passphrase`, `secret`, `token`, `credential`,
-`privatekey`, `apikey`, `authorization`, `accesskey`, or `dockerconfig`,
-or equals `auth` or `auths`, at any depth. Typed fields,
-such as a monitor check's `map[string]string` headers, are left as they
-are. It applies to every map-backed Output, including portal. This is a guard for
-keys nobody has seen, not a substitute for a typed model. A test feeds a
-map with each such key through `json`, `table`, `text`, and `--query` and
-checks that no value appears.
+Before encoding any map-backed Output, lowercase each `map[string]any`
+key and remove nonletters and nondigits. At every depth, replace its value
+with `<redacted>` if the result contains `password`, `passwd`, `passphrase`,
+`secret`, `token`, `credential`, `privatekey`, `apikey`, `authorization`,
+`accesskey`, or `dockerconfig`, or equals `auth` or `auths`. Leave typed
+fields, such as monitor `map[string]string` headers, unchanged. This guards
+unseen keys without replacing typed models. Test every key through JSON,
+table, text, and queries; no secret value may appear.
 
 ## Live checks
 
-Before a release ships, `make live` must pass with these additions, which
-the sdk role writes in `livetest/live_test.go` and `livetest/live_cli_test.go`.
-Each logs counts and field presence only, never values.
+Before release, require `make live` checks in `livetest/live_test.go` and
+`livetest/live_cli_test.go`. Log only counts and field presence.
 
-| Service | SDK check | CLI check |
-|-|-|-|
-| project | Covered today | `project list-projects`, one item |
-| portal | `ListZones`, `ListQuotaUsed`, `GetQuota` on the first quota's name, `GetTagQuota`; `GetUserInfo` logs its key count only | `portal list-zones` |
-| volume | `ListVolumeTypeZones`, `ListVolumeTypes`, `GetVolumeType` on the first type, `ListEncryptionTypes`; with a volume, `GetVolume`, `GetUnderlyingVolume`, and `ListSnapshots` on it | `volume list-volume-types` |
-| loadbalancer | `ListPackages`, `ListCertificates`; with a load balancer, `GetLoadBalancer` and each child read on the first child found; with a certificate, `GetCertificate` | `loadbalancer list-packages` |
-| globalloadbalancer | `ListPackages`, `ListRegions`; with a load balancer, `GetLoadBalancer`, each child read, and `ListUsageHistories` | `globalloadbalancer list-regions` |
-| containerregistry | `ListRepositories` and `ListUsers`; with a row, the log gives its key count | `containerregistry list-repositories` |
+- Project: retain SDK coverage; CLI `project list-projects` returns an item.
+- Portal: SDK `ListZones`, `ListQuotaUsed`, `GetQuota` for the first quota's
+  name, `GetTagQuota`, and `GetUserInfo` key count; CLI `portal list-zones`.
+- Volume: SDK `ListVolumeTypeZones`, `ListVolumeTypes`, `GetVolumeType` for
+  the first type, and `ListEncryptionTypes`. With a volume, check
+  `GetVolume`, `GetUnderlyingVolume`, and `ListSnapshots` on it.
+  CLI: `volume list-volume-types`.
+- Load balancer: SDK `ListPackages`, `ListCertificates`; with a load
+  balancer, `GetLoadBalancer` and each child read on the first child;
+  with a certificate, `GetCertificate`. CLI: `loadbalancer list-packages`.
+- Global load balancer: SDK `ListPackages`, `ListRegions`; with a load
+  balancer, `GetLoadBalancer`, child reads on the first child, and
+  `ListUsageHistories`. CLI: `globalloadbalancer list-regions`.
+- Registry: SDK `ListRepositories`, `ListUsers`; log key counts for rows.
+  CLI: `containerregistry list-repositories`.
 
-Each Get check asserts the returned ID equals the ID the list gave, as the
-vMonitor check does, so a Get that decodes empty fails. A check whose
-resource is absent logs `skipped: none` and passes; its commands stay in
-the Shape state. When a later run finds a resource, the sdk role copies a
-sanitized raw capture to `testdata/` and replaces the hand-written fixture,
-per [live data](../../instructions/live-data.md).
-
-The existing `portal-user` live check logs the whole `UserInfo` with
-`%+v`, which puts account data in test output. It changes to a key count in
-the portal release.
+Gets must return the listed ID, as vMonitor checks, so empty decodes fail.
+Absent resources log `skipped: none` and pass while commands remain Shape.
+When resources exist, replace synthetic fixtures with sanitized raw captures
+in `testdata/` under [live data](../../instructions/live-data.md).
+The `portal-user` check logs only a key count, never `%+v` account data.
 
 ## Security
 
@@ -297,8 +396,7 @@ the portal release.
 
 ## Testing
 
-Per service, CLI tests run each command in-process against an `httptest`
-server that serves the existing fixtures, and check:
+Run each CLI command in-process against an `httptest` fixture server; check:
 
 - The command list matches the table in this doc, with the right flags.
 - Required flags stop before any request.
@@ -309,65 +407,44 @@ server that serves the existing fixtures, and check:
 
 ## Releases
 
-One release per service, except `project` and `portal`, which are small and
-share the account-level scope. Version numbers are assigned when each
-ships, as for the vMonitor Alerts and vStorage releases.
+Release each service separately except account-level project and portal.
+Assign versions when shipping, as for vMonitor Alerts and vStorage.
 
-| Release | Content |
-|-|-|
-| R1 | `project` and `portal` commands; the `NoFlag` read option; key redaction for map-backed Outputs; the `serviceTitle` cases for R3 to R5 |
-| R2 | `volume` commands, without `get-default-volume-type` |
-| R3 | `loadbalancer` commands |
-| R4 | `globalloadbalancer` commands |
-| R5 | `containerregistry list-repositories`; `list-users` joins when the SDK types `User` |
+- R1: project and portal commands, `NoFlag`, map redaction, and
+  `serviceTitle` cases for R3 to R5.
+- R2: volume commands without `get-default-volume-type`.
+- R3: loadbalancer commands.
+- R4: globalloadbalancer commands.
+- R5: `containerregistry list-repositories`; add `list-users` when the SDK
+  types `User`.
 
-R1 goes first, because it changes shared CLI code (`op.go`, `flags.go`,
-`encode.go`, `gendocs.go`). After R1 merges, R2 to R5 can be built in
-parallel: each adds only `internal/cli/svc_<name>.go`, its test, its
-generated wiki page, and its live checks. The shared edits are one
-`root.AddCommand` line in `root.go`, one `buildDocService` line in
-`gendocs.go`, one line in `docs/wiki/_Sidebar.md`, the generated
-`docs/wiki/CLI.md` index, and a subtest each in `livetest/live_test.go` and
-`livetest/live_cli_test.go`. Those are one-line merges; rerun `make gen-docs`
-after each merge rather than merging `CLI.md` by hand. At most three workers run
-at once, so R2 to R4 run first and R5 after.
-
-No release needs an SDK change except R5's `list-users` and the optional
-cleanup in [decision 5](#owner-decisions).
+R1 changes shared `op.go`, `flags.go`, `encode.go`, and `gendocs.go` first.
+After R1 merges, R2 to R5 add service files `internal/cli/svc_<name>.go`,
+tests, generated wiki pages, and live checks. Shared additions are
+`root.AddCommand` in `root.go`, `buildDocService` in `gendocs.go`, the wiki
+`_Sidebar.md` and generated `CLI.md` index, and subtests in
+`livetest/live_test.go` and `livetest/live_cli_test.go`. Rerun `make gen-docs`
+after merges instead of merging `CLI.md` by hand. Limit workers to three:
+R2 to R4 run in parallel, then R5. The typed [Zone](#typed-zone-contract),
+R5 User, and [decision 5](#owner-decisions) cleanup require SDK changes.
 
 ## Owner decisions
 
-The owner approved each recommendation on 2026-09-26.
+The owner approves these recommendations.
 
-1. **Ship Shape reads, or hold them.** Most Gets and child lists for
-   volume, load balancers, and global load balancers have no live row,
-   because the test account has none of those resources. Recommendation:
-   ship them. Their envelopes match GreenNode's official SDK, which was
-   right where our fixtures were wrong for `GetVPC`, and the live Get checks
-   start guarding them the day a resource exists. The wiki marks them
-   unverified. The alternative, creating a volume and a load balancer in the
-   test account for one live run, costs money and needs a paid-write
-   approval.
-2. **`NoFlag` for `project list-projects`.** Recommendation: add the
-   `NoFlag` read option. The alternative is a rename-table entry such as
-   `Region` to `--filter-region`, which would also rename vStorage's
-   `Region` field.
-3. **`get-default-volume-type`.** Recommendation: leave it out until a live
-   call returns 200. It fails with `NotFound` in both regions today, and a
-   command that always exits 4 misleads an agent.
-4. **Registry users.** Recommendation: hold `containerregistry list-users`
-   until the SDK types `User` from a live capture. That capture needs a
-   registry user in the test account, which is a write; if vCR is free for
-   that, approve one create and delete. Otherwise the command waits.
-5. **`VolumeTypeZone` cleanup.** Recommendation: in R2, let the sdk role
-   drop the seven envelope fields from `VolumeTypeZone`. That breaks SDK
-   callers who read them, which is allowed before `v1.0.0` and needs a
-   release note; the fields are always empty. The alternative keeps them
-   and prints empty columns.
-6. **Group names.** Recommendation: keep the package names
-   (`globalloadbalancer`, `containerregistry`) with no aliases, as
-   [CLI](cli.md#commands) requires. Short names such as `glb` and `vcr`
-   would be easier to type, but would break the one-name rule.
-7. **Key redaction.** Recommendation: add it in R1 for all map-backed
-   Outputs. It hides a value only when a key name looks secret, so it
-   costs nothing for today's rows.
+1. Ship Shape reads matching official SDK envelopes; mark them unverified
+   in the wiki and check Gets when resources exist. Creating volumes or
+   load balancers for checks costs money and needs paid-write approval.
+2. Use `NoFlag` for project `Region`. A shared `--filter-region` rename
+   would also affect vStorage's unrelated field.
+3. Hold `get-default-volume-type` until a live 200. It returns `NotFound`
+   in both regions; a command that always exits 4 misleads agents.
+4. Hold registry `list-users` until a live capture supports typed `User`.
+   Approve one user create/delete if free; otherwise wait.
+5. In R2, drop seven never-sent envelope fields from `VolumeTypeZone`.
+   This breaks SDK callers, permitted before `v1.0.0`, and needs a release
+   note. Keeping the fields would print empty columns.
+6. Keep package names without aliases under [CLI](cli.md#commands);
+   `glb` and `vcr` would break the one-name rule.
+7. Apply map key redaction to all map-backed Outputs in R1. It affects only
+   keys that look secret and costs nothing for the observed rows.
