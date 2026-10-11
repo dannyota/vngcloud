@@ -226,21 +226,22 @@ field checks; sanitized raw selector fixtures remain required evidence.
 
 ### Volume catalog reconciliation and prices
 
-The filtered `volume_type_zones?zoneId=<zone-id>` probe returns zero rows;
-the unfiltered read returns one type zone with `zone.uuid`. Its direct child
-`GET V/v1/{projectId}/{typeZoneId}/volume_types` returns four types. The cause
-of the filter behavior is unknown. `volume/volume_types.go:18` adds the query
-only with `ZoneID` set; line 75 uses that path for `ListVolumeTypes(ZoneID)`.
-The direct child path is at line 113. The basic example uses nil inputs for
-unfiltered parent and project-wide reads. Discovery uses unfiltered parents,
-local `zone.uuid` matching, then direct children. Never embed type-zone IDs or
-infer zone availability from the project-wide list.
+The filtered `volume_type_zones?zoneId=<zone-id>` probe returns zero rows.
+The unfiltered catalog smoke returns NVME and SSD; both report `zone.uuid`
+HCM03-1A, a disabled zone, and neither reports HCM03-1C. Their types quote
+successfully in enabled HCM03-1C. Parent `zone` metadata therefore cannot
+establish quote compatibility; treat returned type zones as region-wide.
+`volume/volume_types.go:75` uses filtered parents for `ListVolumeTypes(ZoneID)`;
+discovery instead reads unfiltered parents, then each direct child at
+`GET V/v1/{projectId}/{typeZoneId}/volume_types`. Never embed type-zone IDs.
+Quote each filtered type in each enabled selected zone; a refusal is a failed
+row. Required fixtures cover misleading parent zones and quote validation.
 
 The type envelope is `volumeTypes`; entries contain `id`, `name`, `iops`,
 `minSize`, `maxSize`, and `zoneId`, without `volumeTypeId`. Use `id` as the
-quote's type ID in this shape. All four types have minimum 1 and maximum 5000
-GB. `volumes/encryption_types` returns two entries with non-null string `key`
-and `displayKey`, not `id` and `name`; existing normalization in
+quote's type ID in this shape. The four quoted types allow 1 to 5000 GB.
+`volumes/encryption_types` returns two entries with non-null string `key` and
+`displayKey`, not `id` and `name`; existing normalization in
 `volume.ListEncryptionTypes` fills the SDK aliases from `key`.
 
 | IOPS | VND per GB-month at both 1 GB and 100 GB |
@@ -298,7 +299,7 @@ only:
    per the image evidence above. Require present integer package limits:
    nonnegative CPU/memory no greater than the flavor and positive disk size.
    These select a candidate; only its quote validates the requested pair.
-2. Use only a zone-matched 3000 IOPS volume type with positive minimum and
+2. Use a region-wide 3000 IOPS volume type with positive minimum and
    consistent maximum size. Root size is the greater of that minimum and
    `packageLimit.diskSize`; reject pairs exceeding the disk maximum.
 3. Sort eligible pairs by root size, image version, image ID, then disk type ID,

@@ -162,14 +162,14 @@ sanitized selector fixtures and their SDK decode tests.
 
 ### Volume, storage, and network
 
-Volume reads zones, unfiltered `ListVolumeTypeZones(nil)`, and child
-`ListVolumeTypes(VolumeTypeZoneID)` calls, matching parent `Zone.UUID` locally.
-Apply the
+Volume reads zones, unfiltered `ListVolumeTypeZones(nil)`, and one child
+`ListVolumeTypes(VolumeTypeZoneID)` call per returned type zone. Treat type
+zones as region-wide, ignoring their `zone` field; follow the
 [types](pricing-discovery-api.md#volume-catalog-reconciliation-and-prices).
-No guessed type-zone associations or IDs; missing matches get an unknown-scope
-note. Retain both type ID fields; quote `VolumeTypeID`, falling back to `ID`.
-Read encryption types once and quote each type/size/encryption choice once.
-Do not assume encrypted and plain prices remain equal.
+Retain both type ID fields; quote `VolumeTypeID`, falling back to `ID`. Read
+encryption types once. For each enabled selected zone, quote every filtered,
+valid-size type/encryption choice with that zone's ID. A refusal is a failed
+row. Row `ZoneID` names the selected zone, not the catalog's zone metadata.
 
 Storage reuses `ListProjectTypes`' private catalog and price helpers without
 changing its fail-fast contract. Read once and quote each selected monthly
@@ -227,21 +227,21 @@ presence without changing existing `GetQuoteOutput` fields.
 ## Bounds, errors, and cancellation
 
 Let Z be selected zones, A enabled selected zones, P family/platform pairs, F
-extra flavor zones, N unique eligible reference quote bodies, T locally matched
-volume type zones, V selected volume types in enabled zones, E encryption
+extra flavor zones, N unique eligible reference quote bodies, T returned
+region-wide volume type zones, V volume types after filters, E encryption
 choices including plain, and O active monthly storage offerings. These are
 logical calls before retry/authentication overhead:
 
 | Helper | Upper bound after catalogs are known |
 |-|-|
 | Compute | `3 + Z + P + A + T + N`; non-public adds `1 + 2*Z + F` |
-| Volume | `3 + T + V*E` |
+| Volume | `3 + T + A*V*E` |
 | Storage | `7 + O`: one region and six catalog/config reads, then quotes |
 | Network | `3`: three public-VIP quotes |
 
 Compute's base includes zones, platform codes, unfiltered volume type zones, and
 A image reads. Volume's base includes zones, unfiltered type zones, and
-encryption types. Both reuse each matched type-zone read once. Skip image and
+encryption types. Both reuse each type-zone read once. Skip image and
 quote reads for disabled zones. Unknown/inapplicable rows cost no quote.
 
 Add at most one `GET v1/projects` to compute, volume, and network when project
@@ -355,8 +355,8 @@ Require SDK decode tests with manager-sanitized raw fixtures and provenance;
 label synthetic variants. Test routes/bodies, no writes, IAM refusal,
 400/401/403/404, the retry cases above, malformed or oversized bodies,
 and cancellation. Cover catalog completeness, duplicate IDs, wrong/disabled
-zones, sold-out and empty catalogs, encryption choices, size bounds, units,
-prices, source conflicts, sorting, budgets, and invocation-only caching.
+zones, region-wide types in enabled zones, encryption, sizes, units, prices,
+conflicts, sorting, budgets, empty/sold-out rows, and invocation-only caching.
 Reference tests cover deterministic selection, nullable licence, missing or
 duplicate instance lines, and disk exclusion. Inject time for pacing, deadlines,
 and `QuotedAt`. CLI goldens cover formats, partial exits, query errors, flags,
