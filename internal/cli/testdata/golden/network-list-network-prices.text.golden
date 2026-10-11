@@ -1,0 +1,2 @@
+VND	public-vip	120000.00	Public Virtual IP (public)	hcm-3	hcm-3	pricing.GetQuote	quoted	as-returned	public	IP-month
+unknown	floating-ip	unknown	Floating IP	hcm-3	hcm-3	https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/floating-ip.md	unknown	unknown	unknown	IP-month

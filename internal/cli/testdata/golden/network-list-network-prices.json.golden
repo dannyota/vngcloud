@@ -1,0 +1,49 @@
+{
+  "Items": [
+    {
+      "Kind": "public-vip",
+      "Name": "Public Virtual IP (public)",
+      "Type": "public",
+      "Scope": "hcm-3",
+      "Unit": "IP-month",
+      "Price": {
+        "Status": "quoted",
+        "Basis": "monthly-total",
+        "Currency": "VND",
+        "Tax": "as-returned",
+        "Source": "pricing.GetQuote",
+        "MonthlyPrice": 120000,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      }
+    },
+    {
+      "Kind": "floating-ip",
+      "Name": "Floating IP",
+      "Type": "",
+      "Scope": "hcm-3",
+      "Unit": "IP-month",
+      "Price": {
+        "Status": "unknown",
+        "Basis": "",
+        "Currency": "",
+        "Tax": "",
+        "Source": "https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/floating-ip.md",
+        "MonthlyPrice": null,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      }
+    }
+  ],
+  "Metadata": {
+    "Region": "hcm-3",
+    "Complete": true,
+    "Requests": 3,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [],
+    "ExcludedGroups": null
+  }
+}

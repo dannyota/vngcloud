@@ -10,6 +10,8 @@ import (
 
 func showNetwork(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	networkClient := network.New(cfg)
+	prices, priceErr := networkClient.ListNetworkPrices(ctx, &network.ListNetworkPricesInput{MaxRequests: 4})
+	recordOne(outputs, cfg, "network/prices", "public-IP prices", prices, priceErr)
 	showNetworkNAT(ctx, cfg, outputs)
 	showNetworkVPN(ctx, cfg, outputs)
 

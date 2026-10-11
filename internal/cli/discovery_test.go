@@ -10,6 +10,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/volume"
@@ -148,6 +149,61 @@ func TestGoldenComputeDiscovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			path := goldenPath("compute-list-flavor-prices." + format + ".golden")
+			if *updateGolden {
+				if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(stdout.Bytes(), want) {
+				t.Fatalf("golden mismatch %s: %s", path, &stdout)
+			}
+		})
+	}
+}
+
+func TestNetworkDiscoverySortUnknownLastAndUnrounded(t *testing.T) {
+	for _, descending := range []bool{false, true} {
+		low, high := 1.001, 1.002
+		out := &network.ListNetworkPricesOutput{Items: []network.NetworkPrice{{Name: "unknown"}, {Name: "high", Price: pricing.DiscoveryPrice{MonthlyPrice: &high}}, {Name: "low", Price: pricing.DiscoveryPrice{MonthlyPrice: &low}}}}
+		sortDiscovery(out, "monthly-price", descending)
+		want := "low"
+		if descending {
+			want = "high"
+		}
+		if out.Items[0].Name != want || out.Items[2].Name != "unknown" {
+			t.Fatalf("rows %+v", out.Items)
+		}
+		var stdout, stderr bytes.Buffer
+		if err := renderDiscovery(&stdout, &stderr, "json", "Items[0].Name", out); err != nil || !strings.Contains(stdout.String(), want) {
+			t.Fatalf("output %s error %v", &stdout, err)
+		}
+	}
+	amount := 1.0
+	out := &network.ListNetworkPricesOutput{Items: []network.NetworkPrice{{Type: "public-vm", Price: pricing.DiscoveryPrice{MonthlyPrice: &amount}}, {Type: "public", Price: pricing.DiscoveryPrice{MonthlyPrice: &amount}}, {Type: "public-mkp", Price: pricing.DiscoveryPrice{MonthlyPrice: &amount}}}}
+	sortDiscovery(out, "monthly-price", true)
+	if out.Items[0].Type != "public" || out.Items[1].Type != "public-mkp" || out.Items[2].Type != "public-vm" {
+		t.Fatalf("ties %+v", out.Items)
+	}
+}
+
+func TestGoldenNetworkDiscovery(t *testing.T) {
+	amount := 120000.0
+	out := &network.ListNetworkPricesOutput{Items: []network.NetworkPrice{
+		{Kind: "public-vip", Name: "Public Virtual IP (public)", Type: "public", Scope: "hcm-3", Unit: "IP-month", Price: pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: "VND", Tax: "as-returned", Source: "pricing.GetQuote", MonthlyPrice: &amount}},
+		{Kind: "floating-ip", Name: "Floating IP", Scope: "hcm-3", Unit: "IP-month", Price: pricing.DiscoveryPrice{Status: "unknown", Source: "https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/floating-ip.md"}},
+	}, Metadata: pricing.DiscoveryMetadata{Region: "hcm-3", Complete: true, Requests: 3, QuotedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Failures: []pricing.DiscoveryFailure{}, Notes: []pricing.PricingNote{}}}
+	for _, format := range []string{"json", "table", "text"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if err := renderDiscovery(&stdout, &stderr, format, "", out); err != nil {
+				t.Fatal(err)
+			}
+			path := goldenPath("network-list-network-prices." + format + ".golden")
 			if *updateGolden {
 				if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
 					t.Fatal(err)

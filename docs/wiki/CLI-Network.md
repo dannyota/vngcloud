@@ -688,6 +688,23 @@ Kind: Read.
 vngcloud network list-network-interfaces
 ```
 
+## list-network-prices
+
+Kind: Read.
+
+Returns Items and Metadata for account-scoped public-IP quotes. Quotes public-vip types public, public-vm, and public-mkp separately without a period. Equal amounts do not establish interchangeable products. IP-month rows retain unknown Floating IP, external-interface, and reservation charges. Bandwidth tariffs and capacity units remain unverified and excluded. NAT costs are excluded; use list-nat-zones, list-nat-packages, and quote-create-nat-instance separately. Unknown costs are null in JSON and print unknown in table/text. Table/text notes print on stderr. With --allow-partial, incomplete output prints before the error and exits 1, even with --query. Sort before queries with --sort-by name or monthly-price and --descending; unknown numeric values sort last in either direction. MaxRequests defaults to 500 (range 1..2000). Three quotes plus an uncached project read must fit before quotes start. Requests run serially with a ten-minute child deadline and at least 500 ms between starts, including retries. Quotes reserve no future price or capacity.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--max-requests` | `int` |  |
+| `--allow-partial` | `bool` |  |
+| `--descending` | `bool` |  |
+| `--sort-by` | `string` |  |
+
+```sh
+vngcloud network list-network-prices
+```
+
 ## list-peerings
 
 Kind: Read.

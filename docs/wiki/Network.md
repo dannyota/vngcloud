@@ -8,8 +8,9 @@ subnets, and Private DNS, the network resources this SDK writes here. See
 [Network Route Tables](Network-RouteTables.md) for route tables and routes,
 [Network ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations,
 [Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets, and
-[Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs. Servers,
-volumes, and floating IPs stay read-only.
+[Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs and public-IP price
+discovery through `ListNetworkPrices`. Servers, volumes, and floating IPs
+stay read-only.
 
 See [Network NAT](Network-NAT.md) for Public NAT inventory.
 See [Network VPN](Network-VPN.md) for VPN inventory with sites and tunnels.

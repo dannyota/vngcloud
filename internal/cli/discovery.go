@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/volume"
@@ -26,6 +27,9 @@ func discoveryRead[C, In, Out any](name string, method func(*C, context.Context,
 	}
 	op.extraFlags = func(cmd *cobra.Command) {
 		sortHelp := "sort by name, monthly-price, or unit-price"
+		if name == "list-network-prices" {
+			sortHelp = "sort by name or monthly-price"
+		}
 		if name == "list-flavor-prices" {
 			sortHelp = "sort by name, ram, monthly-price, or unit-price"
 		}
@@ -37,6 +41,9 @@ func discoveryRead[C, In, Out any](name string, method func(*C, context.Context,
 
 func validateDiscoverySort(cmd *cobra.Command) error {
 	key, _ := cmd.Flags().GetString("sort-by")
+	if cmd.Name() == "list-network-prices" && key != "" && key != "name" && key != "monthly-price" {
+		return newUsageError("--sort-by must be name or monthly-price")
+	}
 	if key == "ram" && cmd.Parent().Name() == "compute" {
 		return nil
 	}
@@ -83,6 +90,20 @@ func computeDiscoveryCompare(a, b compute.FlavorPrice) int {
 
 func sortDiscovery(out any, key string, descending bool) {
 	switch out := out.(type) {
+	case *network.ListNetworkPricesOutput:
+		slices.SortStableFunc(out.Items, func(a, b network.NetworkPrice) int {
+			result := 0
+			switch key {
+			case "name":
+				result = cmp.Compare(a.Name, b.Name)
+				if descending {
+					result = -result
+				}
+			case "monthly-price":
+				result = numericDiscoveryCompare(a.Price.MonthlyPrice, b.Price.MonthlyPrice, descending)
+			}
+			return cmp.Or(result, cmp.Compare(a.Type, b.Type))
+		})
 	case *compute.ListFlavorPricesOutput:
 		slices.SortStableFunc(out.Items, func(a, b compute.FlavorPrice) int {
 			result := 0
@@ -162,6 +183,11 @@ func renderDiscovery(stdout, stderr io.Writer, format, query string, out any) er
 	var metadata pricing.DiscoveryMetadata
 	rows := []any{}
 	switch out := out.(type) {
+	case *network.ListNetworkPricesOutput:
+		metadata = out.Metadata
+		for _, row := range out.Items {
+			rows = append(rows, map[string]any{"Region": metadata.Region, "Kind": row.Kind, "Name": row.Name, "Type": discoveryText(row.Type), "Scope": row.Scope, "Unit": row.Unit, "Status": row.Price.Status, "Source": row.Price.Source, "MonthlyPrice": discoveryAmount(row.Price.MonthlyPrice), "Currency": discoveryText(row.Price.Currency), "Tax": discoveryText(row.Price.Tax)})
+		}
 	case *compute.ListFlavorPricesOutput:
 		metadata = out.Metadata
 		for _, row := range out.Items {

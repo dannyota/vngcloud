@@ -1,6 +1,6 @@
 # Network Virtual IPs
 
-Private virtual IP writes for `danny.vn/vngcloud/network`. See
+Public-IP price discovery and private virtual IP writes for `danny.vn/vngcloud/network`. See
 [Network](Network.md) for security groups, VPCs, subnets, and Private DNS,
 and [Services](Services.md#network) for the read-only virtual IP list and
 its address pairs.
@@ -9,6 +9,64 @@ This page assumes `cfg`, `ctx`, and `client := network.New(cfg)` from
 [Network's Setup](Network.md#setup), and a subnet's `subnetID` from
 [Creating, renaming, and deleting
 subnets](Network.md#creating-renaming-and-deleting-subnets).
+
+## Public-IP price discovery
+
+`ListNetworkPrices` returns three separate account-scoped `public-vip`
+quotes for `public`, `public-vm`, and `public-mkp`. Each row uses `IP-month`.
+Equal amounts do not establish interchangeable products or a price for every
+public IP. Floating IP, external-interface, and reservation charges remain
+unknown rows with nil prices. Bandwidth tariffs and capacity units remain
+unverified and excluded.
+
+```go
+prices, err := client.ListNetworkPrices(ctx, &network.ListNetworkPricesInput{
+    MaxRequests: 4,
+    AllowPartial: true,
+})
+```
+
+Nil input uses defaults. `MaxRequests` defaults to 500 and accepts 1..2000.
+Discovery needs three logical quotes plus one project read when resolution is
+uncached. The full quote phase must fit before any quote starts. Requests run
+serially with at least 500 ms between starts, including retries, and a
+ten-minute child deadline. Each response is bounded to 8 MiB. Shared project
+or authentication waits can exceed the deadline; cancellation stops work after
+acquisition. Catalogs and quotes are cached only within the call, while existing
+project and token caches remain shared.
+
+Each row has `Kind`, `Name`, `Type`, `Scope`, `Unit`, and `Price`. Quoted prices
+use the returned monthly total, VND, and tax as returned. Optional discounts
+retain field presence. Zero without explicit free-entry evidence is rejected.
+SDK rows follow stable type order, skipping absent fields. `Metadata` reports
+the configured region, logical request count, UTC completion time, coverage,
+failures, and sourced notes. Complete coverage can include unknown costs.
+Quotes reserve no price or capacity and place no order.
+
+Without `AllowPartial`, a failure returns nil output and the original error.
+With it, independent quotes continue and failed rows keep nil prices. Output
+returns with `*pricing.DiscoveryError`, which matches
+`pricing.ErrDiscoveryIncomplete` and retains API and context errors. A failure
+before any usable quote returns nil output and its cause. Authentication,
+exhausted throttling, and cancellation stop remaining quotes.
+
+```sh
+vngcloud --region hcm-3 --read-only network list-network-prices
+vngcloud --region hcm-3 --output json network list-network-prices --allow-partial
+vngcloud --region hcm-3 network list-network-prices --sort-by monthly-price --descending
+```
+
+JSON contains `Items` and `Metadata`. Table and tab-separated text print nil
+amounts as `unknown` and notes on stderr. `--sort-by` accepts `name` or
+`monthly-price`; unit-price sorting is invalid. Numeric sorts use unrounded
+values and put unknown prices last in either direction. Sorting precedes
+`--query`. Partial output prints before the error and exits 1, even when a
+query hides metadata. See [CLI Network](CLI-Network.md) for flags.
+
+NAT costs remain excluded. Use `network list-nat-zones`,
+`network list-nat-packages`, and `network quote-create-nat-instance` separately,
+as described in [Network NAT](Network-NAT.md). Source notes distinguish
+published rules from account quotes; discovery reads no websites at runtime.
 
 ## Creating, updating, and deleting virtual IPs
 
