@@ -14,8 +14,9 @@ import (
 // over a period and over a date range, and logs counts only.
 func liveCDNAnalytics(ctx context.Context, t *testing.T, client *cdn.Client, domain string) {
 	t.Helper()
-	utc7 := time.FixedZone("UTC+7", 7*60*60)
-	today := time.Now().In(utc7)
+	// The server refused a To date ahead of the current UTC date (seen at
+	// 01:48 UTC+7), so the window ends on today's UTC date.
+	today := time.Now().UTC()
 	from, to := today.AddDate(0, 0, -1).Format("2006-01-02"), today.Format("2006-01-02")
 	domains := []string{domain}
 
