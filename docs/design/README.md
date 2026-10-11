@@ -39,6 +39,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [Public NAT and VPN writes](network-writes.md) | Draft |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
+| [Setup cost estimate](cost-estimate.md) | Accepted |
 | [Service-account authentication](service-account-auth.md) | Accepted; eight decisions approved; implementation pending |
 
 Service-account authentication covers SDK login, configuration, cache, CLI,
