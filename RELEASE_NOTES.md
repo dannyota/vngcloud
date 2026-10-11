@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.76.0 - Public IP Price Discovery
+
+### Highlights
+
+- `network list-network-prices` quotes each public virtual IP type
+  (`public`, `public-vm`, `public-mkp`) for the account per month, and lists
+  Floating IP, External Interface, and reservation charges as unknown with
+  their documentation links. SDK: `network.ListNetworkPrices`.
+- Bandwidth and NAT costs are excluded and named in the notes; use the NAT
+  zone, package, and quote commands for NAT.
+- Verified live on 2026-10-11 in hcm-3: each public virtual IP type quoted
+  120,000 VND per month.
+
 ## v0.75.0 - Service-Account Login
 
 ### Highlights
