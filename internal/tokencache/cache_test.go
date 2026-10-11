@@ -552,3 +552,43 @@ func TestCacheReadOnlyDirAfterLoginStillReturnsToken(t *testing.T) {
 		}
 	}
 }
+
+func TestCanceledAcquisitionDoesNotWrite(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := filepath.Join(t.TempDir(), "cache")
+	cache := New(dir, func() time.Time { cancel(); return time.Now() })
+	key := Key{Profile: "cancel-test"}
+	_, err := cache.Get(ctx, key, "", func(context.Context) (Token, error) {
+		return Token{AccessToken: "synthetic-token", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Get error=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, key.Hash()+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cache stat=%v", err)
+	}
+}
+
+func TestCancellationDuringFreshCacheCheckStopsAcquisition(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := filepath.Join(t.TempDir(), "cache")
+	key := Key{Profile: "fresh-cancel-test"}
+	now := time.Now()
+	cache := New(dir, func() time.Time { cancel(); return now })
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(fileContent{AccessToken: "synthetic-token", ExpiresAt: now.Add(time.Hour), ObtainedAt: now}) //nolint:gosec // The cache fixture contains only a synthetic token.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, key.Hash()+".json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = cache.Get(ctx, key, "", func(context.Context) (Token, error) { t.Error("login after cancellation"); return Token{}, nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Get error=%v", err)
+	}
+}

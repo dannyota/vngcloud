@@ -90,6 +90,9 @@ func New(dir string, now func() time.Time) *Cache {
 // request. The lock is tried without blocking, then retried with backoff up
 // to 500ms until ctx ends, at which point Get returns ctx.Err().
 func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(context.Context) (Token, error)) (Token, error) {
+	if err := ctx.Err(); err != nil {
+		return Token{}, err
+	}
 	if err := prepareDir(c.dir); err != nil {
 		return Token{}, err
 	}
@@ -102,8 +105,15 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 		return Token{}, err
 	}
 	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return Token{}, err
+	}
 
-	if fc, ok := c.readFresh(tokenPath, rejected); ok {
+	fc, ok := c.readFresh(tokenPath, rejected)
+	if err := ctx.Err(); err != nil {
+		return Token{}, err
+	}
+	if ok {
 		return Token(fc), nil
 	}
 
@@ -112,6 +122,9 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 		return Token{}, err
 	}
 	obtainedAt := c.now()
+	if err := ctx.Err(); err != nil {
+		return Token{}, err
+	}
 	c.write(tokenPath, fileContent{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ObtainedAt: obtainedAt})
 	token.ObtainedAt = obtainedAt
 	return token, nil

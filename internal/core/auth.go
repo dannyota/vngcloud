@@ -69,6 +69,9 @@ func (a *IAMUserAuth) validate() error {
 func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
 
 	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
 		return a.cachedToken, a.expiresAt, nil
@@ -78,9 +81,13 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	obtainedAt := timeNow()
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
 	a.cachedToken = token
 	a.expiresAt = expiresAt
-	a.obtainedAt = timeNow()
+	a.obtainedAt = obtainedAt
 	return a.cachedToken, a.expiresAt, nil
 }
 
@@ -90,6 +97,9 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog
 // attempt and "login finished" with its outcome after; iamuser's own HTTP
 // requests are never logged.
 func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
 	debugLog(logger, ctx, "login started")
 	req := iamuser.LoginRequest{
 		RootEmail:     a.RootEmail,
@@ -105,6 +115,9 @@ func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *sl
 	if err != nil {
 		debugLog(logger, ctx, "login finished", "ok", false)
 		return "", time.Time{}, loginErrorFrom(ctx, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
 	}
 	debugLog(logger, ctx, "login finished", "ok", true)
 	return result.AccessToken, result.ExpiresAt, nil
@@ -167,32 +180,6 @@ func reasonForStep(step iamuser.FailureStep) string {
 	}
 }
 
-// cachedIfFresh returns the in-memory token when present and not within 30
-// seconds of expiry, without touching the network or disk.
-func (a *IAMUserAuth) cachedIfFresh() (string, time.Time, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
-		return a.cachedToken, a.expiresAt, true
-	}
-	return "", time.Time{}, false
-}
-
-// remember records token as the in-memory cache, for this process to reuse
-// without a disk read, after it came from the token cache (either reused
-// from disk or freshly logged in there). obtainedAt is the token cache's own
-// record of when the token was first obtained, not necessarily now: a fresh
-// process that reuses another process's still-valid disk token must keep
-// that token's true age, or Invalidate's 30-second rule could never fire for
-// it.
-func (a *IAMUserAuth) remember(token string, expiresAt, obtainedAt time.Time) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.cachedToken = token
-	a.expiresAt = expiresAt
-	a.obtainedAt = obtainedAt
-}
-
 // Invalidate drops the cached token when sent is still the cached one and it
 // has been held at least 30 seconds, or its obtain time is after now (the
 // clock moved backward, which must not be read as "just obtained"). A token
@@ -200,19 +187,27 @@ func (a *IAMUserAuth) remember(token string, expiresAt, obtainedAt time.Time) {
 // the server rejects it again, and the call ends in ErrAuth instead of a
 // second login inside the same 30-second TOTP window.
 func (a *IAMUserAuth) Invalidate(sent string) {
-	if sent == "" {
-		return
-	}
+	_ = a.invalidateContext(context.Background(), sent)
+}
+
+func (a *IAMUserAuth) invalidateContext(ctx context.Context, sent string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.cachedToken != sent {
-		return
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if sent == "" || a.cachedToken != sent {
+		return nil
 	}
 	age := timeNow().Sub(a.obtainedAt)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if age < 0 || age >= 30*time.Second {
 		a.cachedToken = ""
 		a.expiresAt = time.Time{}
 	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {
@@ -222,4 +217,28 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// cachedIfFresh checks context after acquiring the shared IAM lock.
+func (a *IAMUserAuth) cachedIfFresh(ctx context.Context) (string, time.Time, bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, false, err
+	}
+	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
+		return a.cachedToken, a.expiresAt, true, nil
+	}
+	return "", time.Time{}, false, nil
+}
+
+// remember retains the disk token's original obtain time for 401 recovery.
+func (a *IAMUserAuth) remember(ctx context.Context, token string, expiresAt, obtainedAt time.Time) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	a.cachedToken, a.expiresAt, a.obtainedAt = token, expiresAt, obtainedAt
+	return nil
 }

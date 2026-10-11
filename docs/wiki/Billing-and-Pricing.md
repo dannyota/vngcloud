@@ -185,8 +185,8 @@ if balances.Balances.Cash != nil {
 products. It takes no filters or pagination parameters and sends no region
 or project headers. `Items` contains resource rows; nullable counts and
 `Extra` preserve the server summaries and raw warning/alarm thresholds.
-Counts do not establish completeness. A row can outlive its resource: on
-2026-10-11, two deleted vMonitor log projects still listed as `active`.
+Counts do not establish completeness. A row can outlive its resource. Two
+deleted vMonitor log projects remained listed as `active` in the observed account.
 Confirm that a resource exists with its product's own read.
 
 ```go
@@ -350,3 +350,24 @@ consent, since it does not order anything; the CLI instead requires its
 If a server or volume is managed by OpenTofu or Terraform, a write made
 through the SDK drifts from that state; keep such a resource's writes in
 its own tool.
+
+## Discovery metadata
+
+`pricing.DiscoveryPrice` keeps unknown prices and discounts as nil. A quoted
+price belongs to the account and uses VND with tax as returned. Discovery
+metadata records the region, logical request count, completion coverage, safe
+failures, and pricing notes. `QuotedAt` is UTC completion time, not an atomic
+snapshot. Unread excluded catalogs have a nil `ExcludedGroups` count.
+
+`pricing.PricingNote` distinguishes published, observed, conflicting, and
+unverified evidence. `pricing.DiscoveryNotes()` returns reviewed source notes
+without fetching websites. Published programs do not establish account
+eligibility. Observed term comparisons do not promise universal discounts.
+Effective storage rates apply at the quoted size. Unknown RAM units, bandwidth,
+egress, and other excluded charges remain unknown.
+
+Partial discovery returns `*pricing.DiscoveryError` with the validated output.
+Use `errors.Is(err, pricing.ErrDiscoveryIncomplete)` to detect incomplete
+coverage. `errors.As` still finds the original `*vngcloud.APIError`, and
+cancellation remains visible through `errors.Is`. A failure before any usable
+row returns the original error without partial output.

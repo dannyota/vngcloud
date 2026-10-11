@@ -210,6 +210,9 @@ func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
 	}
 	c.projectMu.Lock()
 	defer c.projectMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if c.projectID != "" {
 		return c.projectID, nil
 	}
@@ -229,6 +232,9 @@ func (c *Client) RequireProject(ctx context.Context) (Project, error) {
 	}
 	c.projectMu.Lock()
 	defer c.projectMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Project{}, err
+	}
 	if c.projectID != "" {
 		for _, project := range projects {
 			if project.ID == c.projectID {
@@ -403,11 +409,19 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
 	}
 
-	if token, expiresAt, ok := s.auth.cachedIfFresh(); ok {
+	token, expiresAt, ok, err := s.auth.cachedIfFresh(ctx)
+	if err != nil {
+		return transport.Token{}, err
+	}
+	if ok {
 		return transport.Token{AccessToken: token, ExpiresAt: expiresAt}, nil
 	}
 
 	s.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return transport.Token{}, err
+	}
 	rejected := s.rejected
 	s.rejected = ""
 	s.mu.Unlock()
@@ -431,7 +445,9 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		}
 		return transport.Token{}, err
 	}
-	s.auth.remember(cached.AccessToken, cached.ExpiresAt, cached.ObtainedAt)
+	if err := s.auth.remember(ctx, cached.AccessToken, cached.ExpiresAt, cached.ObtainedAt); err != nil {
+		return transport.Token{}, err
+	}
 	return transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}, nil
 }
 
@@ -439,12 +455,24 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 // is configured, remembers sent so the next Token call passes it to
 // Cache.Get as the rejected token. It never records an empty string.
 func (s *iamTokenSource) Invalidate(sent string) {
-	s.auth.Invalidate(sent)
+	_ = s.InvalidateContext(context.Background(), sent)
+}
+
+// InvalidateContext is an internal transport extension, not a credential
+// provider requirement. It checks cancellation after shared IAM acquisition.
+func (s *iamTokenSource) InvalidateContext(ctx context.Context, sent string) error {
+	if err := s.auth.invalidateContext(ctx, sent); err != nil {
+		return err
+	}
 	if s.cache != nil && sent != "" {
 		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s.rejected = sent
-		s.mu.Unlock()
 	}
+	return nil
 }
 
 func mapStatusError(status int) error {

@@ -101,6 +101,9 @@ func New(cfg Config) *Client {
 }
 
 type Request struct {
+	discovery     bool
+	beforeAttempt func(context.Context) error
+
 	Operation string
 	Method    string
 	URL       string
@@ -208,6 +211,10 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 // on error, so a caller can build an error envelope that names the actual
 // status a 2xx response carried.
 func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, error) {
+	return c.doJSONStatus(ctx, req, out, c.httpClient)
+}
+
+func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client *http.Client) (int, error) {
 	if req.Method == "" {
 		req.Method = http.MethodGet
 	}
@@ -218,7 +225,7 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 	if req.SentCredential != nil {
 		*req.SentCredential = ""
 	}
-	statusCode, _, body, credential, err := c.doAuthenticated(ctx, req, c.httpClient)
+	statusCode, _, body, credential, err := c.doAuthenticated(ctx, req, client)
 	if req.SentCredential != nil {
 		*req.SentCredential = credential
 		if req.APIKey != "" {
@@ -226,6 +233,9 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 		}
 	}
 	if err != nil {
+		if req.discovery {
+			return statusCode, err
+		}
 		return 0, err
 	}
 
@@ -235,6 +245,9 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 	}
 	if out != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, out); err != nil {
+			if req.discovery {
+				return statusCode, &APIError{Operation: req.Operation, StatusCode: statusCode, Code: "InvalidResponse", Message: "response failed to decode; body withheld"}
+			}
 			if req.Sensitive {
 				// The underlying json error never quotes body content, but a
 				// Sensitive request withholds the body from its error on
@@ -296,7 +309,9 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 			// ADR 0003 rule 3: invalidate the sent token as usual, but never
 			// resend. The caller gets this 401 back; a later call, Once or
 			// not, fetches a fresh token instead of reusing the rejected one.
-			c.invalidateOnce(sent)
+			if err := c.invalidateOnceContext(ctx, sent); err != nil {
+				return 0, "", nil, sent, err
+			}
 			return statusCode, contentType, body, sent, nil
 		}
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
@@ -402,7 +417,6 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 	var lastRetryable bool
 	var sentToken string
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
-		start := time.Now()
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bytes.NewReader(body))
 		if err != nil {
 			return 0, "", nil, "", &APIError{Operation: req.Operation, Err: sanitizeNetworkError(err, req.redactValues())}
@@ -436,6 +450,10 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 
 		attemptReq := req
 		attemptReq.Redact = append(append([]string(nil), req.Redact...), sentToken)
+		if err := beforeDiscoveryAttempt(ctx, req); err != nil {
+			return 0, "", nil, sentToken, err
+		}
+		start := time.Now()
 		resp, err := sendClient.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
@@ -462,6 +480,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 
 		respBody, readErr := readBody(resp.Body, req.MaxBody)
 		closeErr := resp.Body.Close()
+		if err := guardDiscoveryResponse(req, httpReq, resp.StatusCode, respBody); err != nil {
+			return resp.StatusCode, "", nil, sentToken, err
+		}
 		if errors.Is(readErr, ErrBodyTooLarge) {
 			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
@@ -562,6 +583,9 @@ func (c *Client) logRequest(ctx context.Context, httpReq *http.Request, status i
 // layer) if the token source cannot produce a usable one. Safe for
 // concurrent use.
 func (c *Client) EnsureToken(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.tokenSource == nil {
 		return nil
 	}
@@ -580,61 +604,13 @@ func (c *Client) fetchToken(ctx context.Context) (Token, error) {
 	if err != nil {
 		return Token{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return Token{}, err
+	}
 	if token.AccessToken == "" {
 		return Token{}, &APIError{StatusCode: http.StatusUnauthorized, Err: errNoToken}
 	}
 	return token, nil
-}
-
-func (c *Client) refreshToken(ctx context.Context) error {
-	c.refreshMu.Lock()
-	defer c.refreshMu.Unlock()
-
-	if !c.currentToken().NeedsRefresh() {
-		return nil
-	}
-	token, err := c.fetchToken(ctx)
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.token = token
-	c.mu.Unlock()
-	return nil
-}
-
-// invalidateAndRefresh runs the 401 recovery for one request under
-// refreshMu: while the client's current token is still the one this request
-// sent, it asks the token source to invalidate it, then fetches a
-// replacement. It never clears the current token up front, only on success:
-// a concurrent goroutine reading currentToken while this call is mid-fetch
-// must never observe an empty token and send its own request unauthenticated
-// (do's own check refuses that regardless, but not clearing avoids the
-// window in the first place). A failed fetch leaves the already-rejected
-// token in place; the caller's retry then fails on the same rejection rather
-// than on a request sent with no token at all. If another call already
-// replaced the token, invalidation is skipped, since invalidating a token
-// this request never sent could drop a still-good token another goroutine is
-// relying on.
-func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
-	c.refreshMu.Lock()
-	defer c.refreshMu.Unlock()
-
-	stillCurrent := sent != "" && c.currentToken().AccessToken == sent
-	if !stillCurrent && !c.currentToken().NeedsRefresh() {
-		return nil
-	}
-	if stillCurrent {
-		c.tokenSource.Invalidate(sent)
-	}
-	token, err := c.fetchToken(ctx)
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.token = token
-	c.mu.Unlock()
-	return nil
 }
 
 // invalidateOnce drops sent from every cache the token source holds, the
@@ -652,16 +628,7 @@ func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 // current token, the same guard invalidateAndRefresh uses, so a token
 // another goroutine already replaced is left alone.
 func (c *Client) invalidateOnce(sent string) {
-	c.refreshMu.Lock()
-	defer c.refreshMu.Unlock()
-
-	if sent == "" || c.currentToken().AccessToken != sent {
-		return
-	}
-	c.tokenSource.Invalidate(sent)
-	c.mu.Lock()
-	c.token = Token{AccessToken: sent}
-	c.mu.Unlock()
+	_ = c.invalidateOnceContext(context.Background(), sent)
 }
 
 func (c *Client) currentToken() Token {

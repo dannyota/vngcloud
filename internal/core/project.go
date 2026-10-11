@@ -69,6 +69,9 @@ func (c *Client) discoverProjectLocked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch len(projects) {
 	case 0:
 		return fmt.Errorf("%w: %s", ErrProjectNotFound, c.region)
