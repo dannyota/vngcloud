@@ -39,3 +39,4 @@ code starts. Decisions with lasting trade-offs also get an
 | [Public NAT and VPN writes](network-writes.md) | Draft |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
+| [Service-account authentication](service-account-auth.md) | Accepted |
