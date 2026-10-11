@@ -166,7 +166,8 @@ func TestVPNHTTPFailures(t *testing.T) {
 				t.Fatalf("error = %+v", err)
 			}
 			want := map[int]error{401: vngcloud.ErrAuth, 403: vngcloud.ErrPermission, 404: vngcloud.ErrNotFound, 429: vngcloud.ErrRateLimited}[status]
-			if !errors.Is(apiErr.Err, want) || errors.Unwrap(apiErr.Err) != nil {
+			//nolint:errorlint // Exact identity also rejects a joined cause that could expose the server code.
+			if apiErr.Err != want {
 				t.Error("unsafe or missing cause")
 			}
 			assertVPNSafe(t, out, err, logs, *captures)
