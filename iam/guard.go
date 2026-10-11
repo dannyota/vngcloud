@@ -92,14 +92,12 @@ func alwaysPrivilegedActionPattern(pattern string) bool {
 	}
 }
 
-// validActionPattern matches the only shape the API's own action patterns
-// ever take: one or two groups of letters, digits, and "*", joined by a
-// single ":". No whitespace, punctuation, or other character is valid in a
-// real pattern such as "iam:*" or "vserver:List*", so matchesWriteAction
-// treats anything else, however it was produced, as privileged rather than
-// hand it to path.Match, which would simply report no match and let it
-// through as harmless.
-var validActionPattern = regexp.MustCompile(`^[A-Za-z0-9*]+(:[A-Za-z0-9*]+)?$`)
+// validActionPattern enforces the shape in docs/design/iam-writes.md:
+// letters, digits, and "*", with one optional ":". The product group may
+// contain single hyphens between such runs; the action group may not.
+// matchesWriteAction treats every other shape as privileged rather than
+// let an unrecognized pattern through just because path.Match finds no match.
+var validActionPattern = regexp.MustCompile(`^[A-Za-z0-9*]+(-[A-Za-z0-9*]+)*(:[A-Za-z0-9*]+)?$`)
 
 // matchesWriteAction reports whether pattern, a statement's action entry
 // such as "iam:*" or "iam:CreatePolicy", matches any name in

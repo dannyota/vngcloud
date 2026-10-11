@@ -77,12 +77,16 @@ call the API another way.
   `*` as a wildcard: `*`, `iam:*`, `iam:Attach*`, and `iam:CreatePolicy`
   all match. Resources and conditions are ignored, so a narrowed grant
   still counts. Managed examples: `IAMFullAccess` and the `AgentBase`
-  role policies. An action pattern that is not built only from letters,
-  digits, and `*`, with one optional `:` joining two such groups, such as
-  one with whitespace, a stray control character, or other punctuation,
-  counts as privileged rather than being matched as a wildcard: it never
-  matches a real action name, so treating it as unprivileged would let an
-  odd pattern through unnoticed.
+  role policies. An action pattern is valid only when built from letters,
+  digits, and `*`, with one optional `:` joining a product group and an
+  action group; the product group may also contain single hyphens between
+  such runs, as GreenNode product names such as `vstorage-hcm03` do. Any
+  other pattern, such as one with whitespace, a stray control character,
+  a hyphen in the action group, or other punctuation, counts as privileged
+  rather than being matched as a wildcard: it never matches a real action
+  name, so treating it as unprivileged would let an odd pattern through
+  unnoticed. A hyphenated product never equals `iam`, so it adds no match
+  against IAM write actions.
 - **Caller**: the principal from `GetCallerIdentity`: an IAM user or a
   service account. An unknown user type fails every guarded write. A guard
   compares the caller's own ID against a target's case-insensitively, since

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"testing"
 )
 
@@ -35,13 +36,143 @@ func TestMatchesWriteAction(t *testing.T) {
 	}
 }
 
-// TestMatchesWriteActionOddPatternsPrivileged checks that an action pattern
-// with whitespace, an internal space, a stray control character, a period,
-// or a literal backslash is treated as privileged rather than parsed as a
-// wildcard: none of these ever match, since they are not built only from
-// letters, digits, "*", and one optional ":", so a policy using one must
-// never be waved through as unprivileged just because path.Match happens to
-// find no match for it.
+func TestMatchesWriteActionProductHyphens(t *testing.T) {
+	writeActions := writeActionNames([]Action{{Action: "CreatePolicy", Label: "Write"}})
+	cases := []struct {
+		pattern    string
+		privileged bool
+	}{
+		{"vstorage-hcm03:List*", false},
+		{"vstorage-hcm03:Get*", false},
+		{"vstorage-hcm03:Search*", false},
+		{"vstorage-hcm03-1:List*", false},
+		{"vstorage:List*", false},
+		{"iam:*", true},
+		{"*", true},
+		{"*:*", true},
+		{"iam:Create*", true},
+		{"IAM:*", true},
+		{"i*:*", true},
+		{"*am:Create*", true},
+		{"*i*a*m*:Create*", true},
+		{"*-*:*", false},
+		{"iam-x:*", false},
+		{"-vstorage:List*", true},
+		{"vstorage-:List*", true},
+		{"vstorage--hcm03:List*", true},
+		{"vstorage-hcm03:List-*", true},
+		{"vstorage hcm03:List*", true},
+		{"vstorage-hcm03:List* ", true},
+		{"vstorage-hcm03:List*\t", true},
+		{"vstorage-hcm03:List?", true},
+		{"vstorage-hcm03:List*:Get*", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			if got := matchesWriteAction(tc.pattern, writeActions); got != tc.privileged {
+				t.Errorf("matchesWriteAction(%q) = %v, want %v", tc.pattern, got, tc.privileged)
+			}
+		})
+	}
+}
+
+func TestStorageReadOnlyPolicyAttachments(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		call   func(*Client) error
+	}{
+		{
+			name:   "attach service account",
+			method: http.MethodPost,
+			path:   "/policies-api/v1/policies/policy-1/service-accounts/sa-1",
+			call: func(c *Client) error {
+				_, err := c.AttachServiceAccountPolicy(context.Background(), &AttachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: "sa-1"})
+				return err
+			},
+		},
+		{
+			name:   "detach service account",
+			method: http.MethodDelete,
+			path:   "/policies-api/v1/policies/policy-1/service-accounts/sa-1",
+			call: func(c *Client) error {
+				_, err := c.DetachServiceAccountPolicy(context.Background(), &DetachServiceAccountPolicyInput{PolicyID: "policy-1", ServiceAccountID: "sa-1"})
+				return err
+			},
+		},
+		{
+			name:   "attach group",
+			method: http.MethodPost,
+			path:   "/policies-api/v1/policies/policy-1/groups/group-1",
+			call: func(c *Client) error {
+				_, err := c.AttachGroupPolicy(context.Background(), &AttachGroupPolicyInput{PolicyID: "policy-1", GroupID: "group-1"})
+				return err
+			},
+		},
+		{
+			name:   "detach group",
+			method: http.MethodDelete,
+			path:   "/policies-api/v1/policies/policy-1/groups/group-1",
+			call: func(c *Client) error {
+				_, err := c.DetachGroupPolicy(context.Background(), &DetachGroupPolicyInput{PolicyID: "policy-1", GroupID: "group-1"})
+				return err
+			},
+		},
+		{
+			name:   "attach user",
+			method: http.MethodPost,
+			path:   "/policies-api/v1/policies/policy-1/iam-users/user-x",
+			call: func(c *Client) error {
+				_, err := c.AttachUserPolicy(context.Background(), &AttachUserPolicyInput{PolicyID: "policy-1", UserID: "user-x"})
+				return err
+			},
+		},
+		{
+			name:   "detach user",
+			method: http.MethodDelete,
+			path:   "/policies-api/v1/policies/policy-1/iam-users/user-x",
+			call: func(c *Client) error {
+				_, err := c.DetachUserPolicy(context.Background(), &DetachUserPolicyInput{PolicyID: "policy-1", UserID: "user-x"})
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := unprivilegedGuardFixture()
+			g.groups = map[string]Group{"group-1": {ID: "group-1"}}
+			g.policies = map[string]Policy{
+				"policy-1": {
+					ID:      "policy-1",
+					Name:    "vStorageReadOnlyAccess",
+					Manager: "VNG CLOUD",
+					Statements: []Statement{
+						{Effect: "allow", Actions: []string{"vstorage-hcm03:List*", "vstorage-hcm03:Get*", "vstorage-hcm03:Search*"}, Resources: []string{"*"}},
+						{Effect: "allow", Actions: []string{"vstorage:List*", "vstorage:Get*", "vstorage:Search*"}, Resources: []string{"*"}},
+					},
+				},
+			}
+			var writes atomic.Int32
+			c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
+				mux.HandleFunc(tc.method+" "+tc.path, func(w http.ResponseWriter, r *http.Request) {
+					writes.Add(1)
+					w.WriteHeader(http.StatusNoContent)
+				})
+			})
+			if err := tc.call(c); err != nil {
+				t.Fatalf("%s error = %v; writes = %d", tc.name, err, writes.Load())
+			}
+			if writes.Load() != 1 {
+				t.Fatalf("writes = %d, want 1", writes.Load())
+			}
+		})
+	}
+}
+
+// TestMatchesWriteActionOddPatternsPrivileged checks that whitespace,
+// control characters, periods, and literal backslashes count as privileged,
+// even when path.Match would find no IAM write match.
 func TestMatchesWriteActionOddPatternsPrivileged(t *testing.T) {
 	writeActions := writeActionNames([]Action{{Action: "CreatePolicy", Label: "Write"}})
 	// zeroWidthSpace is built at runtime, rather than written as a literal
