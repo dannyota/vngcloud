@@ -6,7 +6,7 @@ Claude designs, researches, and coordinates only. Design runs on Fable high thro
 
 The Sonnet/Opus restriction applies only to workers and subagents. The owner chooses the main Claude Code session model without this restriction.
 
-Use `codex exec` directly, not a companion script. The installed `codex exec --help` supports `-C`, `-m`, `-c`, `--sandbox`, `--skip-git-repo-check`, `-o`, and `-` for a brief on standard input. Include the matching role TOML's instructions from `.codex/agents/` in the brief: `-m` selects a model and does not load a role file. Use [shared duties](instructions/workflow.md#duties) and routing when a wrapper still names a legacy role.
+Use `codex exec` directly, not a companion script. The installed `codex exec --help` supports `-C`, `-m`, `-c`, `--sandbox`, `--skip-git-repo-check`, `-o`, and `-` for a brief on standard input. Include the matching role TOML's instructions from `.codex/agents/` in the brief: `-m` selects a model and does not load a role file. Use [shared duties](instructions/workflow.md#duties) and routing for every role.
 
 Implementation and build-capable code review use `--sandbox danger-full-access`: the required checks need loopback sockets and tool caches outside the worktree. `workspace-write` allows `go build` here but blocks `make lint` and the race suite, so it cannot run `make check`. Follow the [brief restrictions](instructions/workflow.md#briefs-and-reports) and [credential-free worker worktree rule](instructions/workflow.md#worktrees-and-parallel-work).
 

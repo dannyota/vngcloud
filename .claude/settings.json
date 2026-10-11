@@ -1,5 +1,4 @@
 {
-  "agent": "manager",
   "permissions": {
     "deny": [
       "Bash(git stash *)",

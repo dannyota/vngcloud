@@ -7,6 +7,7 @@ Security comes before features and convenience. Pick safety when ease conflicts 
 - Keep TLS verification on and reject cross-host redirects. Provide no switch to weaken these protections.
 - Credentials files use mode 0600. Token caches use mode 0600 inside a mode 0700 directory.
 - Never print, log, or return in an error passwords, TOTP secrets, tokens, authorization codes, cookies, or the Authorization header. Tests check debug output and error messages for leaks.
+- A credential inside nested JSON escape text in a string can evade redaction. This crafted-encoding case is an accepted low-severity limitation under the threat assumption that the server already holds the credential.
 - Destructive CLI commands require `--yes`. Never prompt in a way that can hang an agent.
 - Never commit credentials, account data, live captures, or internal notes. Never read secret values into the conversation. Follow [live data](live-data.md) for private outputs, raw fixtures, browser helpers, write approvals, serialization, and cleanup.
 

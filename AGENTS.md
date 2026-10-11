@@ -20,7 +20,7 @@ Public NAT create, quote, delete, and zone and package reads are implemented for
 |Decisions and reasons|[Architecture decision records](docs/adr/README.md) and owner decisions in [designs](docs/design/README.md)|
 |Licenses and dependency reasons|[LICENSE](LICENSE), [CLI dependencies](docs/design/cli.md#dependencies), and the dependency's approved design|
 |Roadmap and dependency order|[Designs](docs/design/README.md) and [plans](docs/plans/)|
-|Short-term TODO work|Outstanding checkboxes in [plans](docs/plans/)|
+|Short-term TODO work|[TODO.md](TODO.md)|
 |Architecture and package boundaries|[SDK](docs/design/sdk-and-cli.md#sdk) and [CLI layout](docs/design/cli.md#layout)|
 |Domain rules, mechanism specifications, and API evidence|[Design index](docs/design/README.md) and its linked API and checks documents|
 |Implementation plans|[docs/plans/](docs/plans/)|
@@ -43,7 +43,7 @@ Direct user instructions and platform safety rules come first. Accepted decision
 
 ## AI agent definitions and routing
 
-Definitions live in [.claude/agents/](.claude/agents/) and [.codex/agents/](.codex/agents/). The installed wrappers are `manager`, `architect`, `sdk`, `cli`, and `reviewer`. Dispatch uses the routing below, with duties and brief-scoped ownership in [workflow](instructions/workflow.md#duties); wrapper defaults do not select the dispatch model.
+Definitions live in [.claude/agents/](.claude/agents/) and [.codex/agents/](.codex/agents/). The role definitions are `designer`, `design_reviewer`, `implementer`, and `code_reviewer`. Dispatch uses the routing below, with duties and brief-scoped ownership in [workflow](instructions/workflow.md#duties); role defaults do not select the dispatch model.
 
 |Work|Model and effort|
 |-|-|

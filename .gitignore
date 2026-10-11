@@ -1,9 +1,13 @@
 # Example credentials and live smoke output.
-.env
 *.json
 examples/basic/output/
 !examples/basic/config.example.json
 !testdata/**/*.json
+.env
+.env.*
+.env~
+.envrc
+!/.env.example
 
 # OS metadata.
 .DS_Store
@@ -22,7 +26,13 @@ Icon?
 !.claude/
 .claude/*
 !.claude/agents/
+.claude/agents/*
+!.claude/agents/designer.md
 !.claude/settings.json
 !.codex/
 .codex/*
 !.codex/agents/
+.codex/agents/*
+!.codex/agents/design-reviewer.toml
+!.codex/agents/implementer.toml
+!.codex/agents/code-reviewer.toml
