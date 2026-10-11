@@ -1,5 +1,39 @@
 # Release Notes
 
+## v0.72.0 - Public NAT Create and Delete
+
+### Highlights
+
+- `network create-nat-instance` buys one Public NAT for one month from
+  credit, in `han-1` with IAM-user login. It needs `--yes` and
+  `--max-price`, refuses a VPC that already has a NAT or a duplicate name,
+  waits for ACTIVE, then switches auto-renew off through billing and
+  confirms it. GreenNode turns auto-renew on for every IAM purchase
+  regardless of the order, so this second step is part of create. Creating
+  a NAT adds a `0.0.0.0/0` route to the whole VPC; use a disposable VPC to
+  test. SDK: `network.CreateNATInstance`.
+- `network quote-create-nat-instance` prices the same input without buying,
+  and `network delete-nat-instance --yes` deletes a NAT after checking it
+  belongs to the named VPC, then waits until it is gone (`--no-wait` returns
+  after acceptance). SDK: `network.QuoteCreateNATInstance`,
+  `network.DeleteNATInstance`.
+- `network list-nat-zones` and `network list-nat-packages
+  --availability-zone-id <az>` show the availability zones and per-zone
+  packages a purchase needs. SDK: `network.ListNATZones`,
+  `network.ListNATPackages`.
+- The order, the renewal write, and the delete are each sent once. A reply
+  that cannot be confirmed returns `NotSettled` with the known NAT ID and
+  recovery steps; a NAT that fails provisioning returns `WriteFailed`.
+- Verified live on 2026-10-11 in Hanoi: a disposable VPC, one NAT ACTIVE in
+  about 6 minutes, renewal confirmed MANUAL, deletion, and a full refund
+  (net cost 0 VND).
+
+### Fixes
+
+- Billing renewal reads and writes, shared with `storage
+  put-project-auto-renew`, now reject case-variant and duplicate response
+  keys and oversized replies.
+
 ## v0.71.0 - Site-to-Site VPN List
 
 ### Highlights
