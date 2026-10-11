@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.71.0 - Site-to-Site VPN List
+
+### Highlights
+
+- `network list-vpn-connections` lists site-to-site VPN connections in
+  `hcm-3` and `han-1`, with `--page` and `--size`. SDK:
+  `network.ListVPNConnections`. Each connection includes its package, VPC,
+  subnet, and inline sites and tunnels with their IKE and IPsec settings.
+- The API returns each site's pre-shared key in plain text; the SDK and CLI
+  never keep, print, log, or capture it, and the account ID is left out.
+- Verified live on 2026-10-11 through the SDK login and the CLI in both
+  regions (no VPN existed at release time); the populated shape comes from a
+  console capture of a real VPN, and the tests use synthetic fixtures.
+
 ## v0.70.0 - Public NAT List
 
 ### Highlights
