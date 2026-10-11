@@ -19,6 +19,9 @@ func TestServiceAccountExchangeRequest(t *testing.T) {
 	calls := 0
 	rt := serviceAccountRoundTripper(func(r *http.Request) (*http.Response, error) {
 		calls++
+		if r.GetBody != nil {
+			t.Fatal("token request is replayable")
+		}
 		if r.Method != "POST" || r.URL.String() != serviceAccountTokenURL {
 			t.Fatal("wrong method or endpoint")
 		}

@@ -52,10 +52,14 @@ func (s *serviceAccountTokenSource) exchange(ctx context.Context) (token transpo
 	if ctx.Err() != nil {
 		return transport.Token{}, serviceAccountLoginError(ctx, 0, "token request failed")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serviceAccountTokenURL, strings.NewReader(`{"grant_type":"client_credentials"}`))
+	// A non-replayable body forbids transport retries after HTTP/2 refusal or
+	// GOAWAY. Application retry limits alone cannot prevent those resends.
+	const requestBody = `{"grant_type":"client_credentials"}`
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serviceAccountTokenURL, io.NopCloser(strings.NewReader(requestBody)))
 	if err != nil {
 		return transport.Token{}, serviceAccountLoginError(ctx, 0, "token request failed")
 	}
+	request.ContentLength = int64(len(requestBody))
 	request.SetBasicAuth(s.credentials.clientID, string(*s.credentials.secret))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")

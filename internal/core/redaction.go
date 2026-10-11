@@ -8,7 +8,7 @@ func (c *Client) RedactError(message, code string, values ...string) (string, st
 	if c.cdnAPIKey != nil {
 		values = append(append([]string(nil), values...), c.cdnAPIKey.reveal())
 	}
-	message = transport.RedactValues(message, values...)
-	code = transport.RedactValues(code, values...)
+	message = transport.RedactErrorText(message, values...)
+	code = transport.RedactErrorText(code, values...)
 	return message, code
 }

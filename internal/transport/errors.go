@@ -137,8 +137,8 @@ func decodeError(req Request, status int, body []byte) error {
 	apiErr := &APIError{
 		Operation:  req.Operation,
 		StatusCode: status,
-		Code:       redactCredentialKeys(redact(code, req.redactValues())),
-		Message:    redactCredentialKeys(redact(strings.TrimSpace(msg), req.redactValues())),
+		Code:       RedactErrorText(code, req.redactValues()...),
+		Message:    RedactErrorText(strings.TrimSpace(msg), req.redactValues()...),
 		Retryable:  req.retryable(status),
 	}
 	if req.WithholdMessage != "" {
@@ -239,4 +239,10 @@ func redactCredentialKeys(text string) string {
 		return redactedText
 	}
 	return text
+}
+
+// RedactErrorText scrubs known credentials and withholds credential-key text
+// at the shared boundary for HTTP errors and successful failure envelopes.
+func RedactErrorText(text string, values ...string) string {
+	return redactCredentialKeys(redact(text, values))
 }
