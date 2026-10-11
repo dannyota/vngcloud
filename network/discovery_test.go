@@ -321,3 +321,52 @@ func TestListNetworkPricesCancellationStopsScheduling(t *testing.T) {
 		}
 	}
 }
+
+func TestListNetworkPricesCancellationDuringDecode(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(strconv.FormatBool(partial), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(networkDiscoveryContext())
+			defer cancel()
+			calls, decodes := 0, 0
+			c := New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				_, _ = fmt.Fprintf(w, `{"optimumPrice":%d,"originalPrice":%d,"discountPrice":0,"discountPercent":0}`, calls, calls)
+			})))
+			out, err := c.listNetworkPrices(ctx, &ListNetworkPricesInput{AllowPartial: partial}, func(op string, status int, raw json.RawMessage) (pricing.DiscoveryPrice, error) {
+				price, err := decodeNetworkDiscoveryPrice(op, status, raw)
+				decodes++
+				if decodes == 2 {
+					cancel()
+				}
+				return price, err
+			})
+			if !errors.Is(err, context.Canceled) || calls != 2 || decodes != 2 {
+				t.Fatalf("output %v error %v calls %d decodes %d", out, err, calls, decodes)
+			}
+			if !partial {
+				if out != nil {
+					t.Fatalf("fail-fast output %+v", out)
+				}
+				return
+			}
+			if out == nil || !errors.Is(err, pricing.ErrDiscoveryIncomplete) || out.Metadata.Complete || len(out.Metadata.Failures) != 1 || out.Metadata.Failures[0].ItemKey != "public-vm" {
+				t.Fatalf("output %+v error %v", out, err)
+			}
+			found := false
+			for _, row := range out.Items {
+				if row.Type == "public" && (row.Price.Status != "quoted" || row.Price.MonthlyPrice == nil || *row.Price.MonthlyPrice != 1) {
+					t.Fatalf("validated row %+v", row)
+				}
+				if row.Type == "public-vm" {
+					found = true
+					if row.Price.Status != "failed" || row.Price.MonthlyPrice != nil || row.Price.OriginalPrice != nil || row.Price.DiscountPrice != nil || row.Price.DiscountPercent != nil {
+						t.Fatalf("canceled row retained a price: %+v", row)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing failed quote row")
+			}
+		})
+	}
+}

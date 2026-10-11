@@ -41,6 +41,10 @@ type NetworkPrice struct {
 // ListNetworkPrices quotes three public-VIP types separately. Other IP charges
 // remain unknown. Quotes reserve no capacity or future price.
 func (c *Client) ListNetworkPrices(ctx context.Context, in *ListNetworkPricesInput) (*ListNetworkPricesOutput, error) {
+	return c.listNetworkPrices(ctx, in, decodeNetworkDiscoveryPrice)
+}
+
+func (c *Client) listNetworkPrices(ctx context.Context, in *ListNetworkPricesInput, decode func(string, int, json.RawMessage) (pricing.DiscoveryPrice, error)) (*ListNetworkPricesOutput, error) {
 	if in == nil {
 		in = &ListNetworkPricesInput{}
 	}
@@ -61,11 +65,10 @@ func (c *Client) ListNetworkPrices(ctx context.Context, in *ListNetworkPricesInp
 	for _, kind := range []string{"public", "public-vm", "public-mkp"} {
 		row := NetworkPrice{Kind: "public-vip", Name: "Public Virtual IP (" + kind + ")", Type: kind, Scope: c.c.Region(), Unit: "IP-month", Price: pricing.DiscoveryPrice{Status: "failed", Source: "pricing.GetQuote"}}
 		req := transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), OK: []int{200}, Body: map[string]any{"resourceType": "public-vip", "action": "create", "resourceInfo": map[string]any{"type": kind, "isBuyMorePo": false, "isPoc": false}}}
+		var price pricing.DiscoveryPrice
 		_, err = s.DoJSON(c.c, req, nil, func(status int, raw json.RawMessage) error {
-			price, e := decodeNetworkDiscoveryPrice(req.Operation, status, raw)
-			if e == nil {
-				row.Price = price
-			}
+			var e error
+			price, e = decode(req.Operation, status, raw)
 			return e
 		})
 		if err != nil {
@@ -85,6 +88,7 @@ func (c *Client) ListNetworkPrices(ctx context.Context, in *ListNetworkPricesInp
 			}
 			out.Metadata.Failures = append(out.Metadata.Failures, failure)
 		} else {
+			row.Price = price
 			usable = true
 		}
 		out.Items = append(out.Items, row)
