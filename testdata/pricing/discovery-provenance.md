@@ -59,6 +59,18 @@ bodies use the same synthetic IDs as the fixtures.
 |`network/discovery_quote_public_vm.json`|POST `{B}/v1/price`|`{"action":"create","resourceInfo":{"isBuyMorePo":false,"isPoc":false,"type":"public-vm"},"resourceType":"public-vip"}`|200|
 |`network/discovery_quote_public_mkp.json`|POST `{B}/v1/price`|`{"action":"create","resourceInfo":{"isBuyMorePo":false,"isPoc":false,"type":"public-mkp"},"resourceType":"public-vip"}`|200|
 
+Three more quotes were observed with the same response shapes as saved
+fixtures and are not saved separately:
+
+|Request|Synthetic request body|Status|Same shape as|
+|-|-|-|-|
+|POST `{B}/v1/price`|`{"action":"create","resourceInfo":{"encryptionType":"aes-xts-plain64_256","isPoc":false,"period":1,"size":1,"volumeTypeId":"vtype-1","zoneId":"HCM03-1C"},"resourceType":"volume"}`|200|`volume/discovery_quote_encrypted.json`, with the same amount as the plain and `_128` quotes|
+|POST `{Storage}/billing-api/v2/price`|`{"action":"create","resourceInfo":{"projectType":1,"purchaseTypeId":4,"quota":31},"resourceType":"object_storage"}`|200|`storage/discovery_quote_gold.json`, at 1000 VND per GB|
+|POST `{Storage}/billing-api/v2/price`|`{"action":"create","resourceInfo":{"projectType":7,"purchaseTypeId":4,"quota":31},"resourceType":"object_storage"}`|200|`storage/discovery_quote_archive.json`, at 530 VND per GB|
+
+Both returned encryption keys, `aes-xts-plain64_128` and
+`aes-xts-plain64_256`, therefore have an observed quote.
+
 Two shapes reuse existing sanitized fixtures because the probes did not
 capture them: the uncached project list uses
 [list_projects.json](../project/list_projects.json), and the unfiltered volume
