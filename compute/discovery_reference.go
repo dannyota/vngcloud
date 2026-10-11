@@ -2,6 +2,7 @@ package compute
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"slices"
 
@@ -55,15 +56,25 @@ func asciiUbuntu(value string) bool {
 	return true
 }
 
-func selectFlavorReference(flavor Flavor, images []flavorReferenceImage, types []volume.VolumeType) *FlavorPriceReference {
+func selectFlavorReference(ctx context.Context, flavor Flavor, images []flavorReferenceImage, types []volume.VolumeType) (*FlavorPriceReference, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	support := flavorImageSupport(flavor.Metadata)
-	candidates := []FlavorPriceReference{}
+	var best FlavorPriceReference
+	found := false
 	for _, image := range images {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		limits := image.PackageLimit
 		if !slices.Contains(support, image.ImageType) || !asciiUbuntu(image.ImageType) || image.Licence == nil || *image.Licence || limits.CPU == nil || limits.Memory == nil || limits.DiskSize == nil || *limits.CPU < 0 || *limits.Memory < 0 || *limits.CPU > flavor.CPU || *limits.Memory > flavor.Memory || *limits.DiskSize <= 0 {
 			continue
 		}
 		for _, disk := range types {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if disk.IOPS != 3000 || disk.MinSize <= 0 || disk.MaxSize < disk.MinSize {
 				continue
 			}
@@ -75,16 +86,23 @@ func selectFlavorReference(flavor Flavor, images []flavorReferenceImage, types [
 			if id == "" {
 				id = disk.ID
 			}
-			candidates = append(candidates, FlavorPriceReference{ImageID: image.ID, ImageType: image.ImageType, ImageVersion: image.ImageVersion, RootDiskTypeID: id, RootDiskSizeGB: size})
+			candidate := FlavorPriceReference{ImageID: image.ID, ImageType: image.ImageType, ImageVersion: image.ImageVersion, RootDiskTypeID: id, RootDiskSizeGB: size}
+			if !found || compareFlavorReferences(candidate, best) < 0 {
+				best, found = candidate, true
+			}
 		}
 	}
-	if len(candidates) == 0 {
-		return nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	slices.SortFunc(candidates, func(a, b FlavorPriceReference) int {
-		return cmp.Or(cmp.Compare(a.RootDiskSizeGB, b.RootDiskSizeGB), cmp.Compare(a.ImageVersion, b.ImageVersion), cmp.Compare(a.ImageID, b.ImageID), cmp.Compare(a.RootDiskTypeID, b.RootDiskTypeID))
-	})
-	return &candidates[0]
+	if !found {
+		return nil, nil
+	}
+	return &best, nil
+}
+
+func compareFlavorReferences(a, b FlavorPriceReference) int {
+	return cmp.Or(cmp.Compare(a.RootDiskSizeGB, b.RootDiskSizeGB), cmp.Compare(a.ImageVersion, b.ImageVersion), cmp.Compare(a.ImageID, b.ImageID), cmp.Compare(a.RootDiskTypeID, b.RootDiskTypeID))
 }
 
 func flavorDiscoveryBody(row FlavorPrice) (map[string]any, error) {

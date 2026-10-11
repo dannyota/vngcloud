@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -174,7 +175,7 @@ func TestListFlavorPricesDisabledAndExactFilters(t *testing.T) {
 		if name != "s2-general-1x2" {
 			want = 0
 		}
-		if err != nil || len(out.Items) != want || out.Metadata.Requests != 6 {
+		if err != nil || len(out.Items) != want || out.Metadata.Requests != 4 {
 			t.Fatalf("output %+v error %v", out, err)
 		}
 		if want == 1 && out.Items[0].Price.Status != "inapplicable" {
@@ -305,6 +306,46 @@ func TestListFlavorPricesMissingCatalogSpecifications(t *testing.T) {
 		out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2"})
 		if out != nil || err == nil {
 			t.Fatalf("output %+v error %v", out, err)
+		}
+	}
+}
+
+func TestListFlavorPricesSkipsUnusedReferenceReads(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		in             ListFlavorPricesInput
+		rows, requests int
+	}{
+		{name: "unmatched-family", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "unknown-family"}, requests: 3},
+		{name: "unmatched-platform", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "unknown-platform"}, requests: 3},
+		{name: "unmatched-name", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2", Name: "unknown-name"}, requests: 4},
+		{name: "unmatched-ram", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2", MinRAM: 1000000}, requests: 4},
+		{name: "disabled-only", in: ListFlavorPricesInput{ZoneID: "HCM03-1A", Family: "general-purpose", Platform: "code-s2", Name: "s2-general-1x2"}, rows: 1, requests: 4},
+	} {
+		for _, tightBudget := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", tc.name, tightBudget), func(t *testing.T) {
+				referenceReads := 0
+				base := flavorDiscoveryHandler(t, nil, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") })
+				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/v1/project-1/volume_type_zones" || r.URL.Path == "/v1/project-1/images/os" {
+						referenceReads++
+						w.WriteHeader(500)
+						return
+					}
+					base.ServeHTTP(w, r)
+				}))
+				in := tc.in
+				if tightBudget {
+					in.MaxRequests = tc.requests
+				}
+				out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &in)
+				if err != nil || out == nil || !out.Metadata.Complete || len(out.Items) != tc.rows || out.Metadata.Requests != tc.requests || referenceReads != 0 {
+					t.Fatalf("output %+v error %v reference reads %d", out, err, referenceReads)
+				}
+				if tc.rows > 0 && (out.Items[0].Price.Status != "inapplicable" || out.Items[0].Reference != nil) {
+					t.Fatalf("row %+v", out.Items[0])
+				}
+			})
 		}
 	}
 }

@@ -353,8 +353,8 @@ output. Require this exchange support before releasing a helper.
 
 ## Security obligations
 
-These are constraints for independent review, not a review verdict. Compute
-and network discovery helpers remain unimplemented.
+These are constraints for independent review, not a review verdict. The
+network discovery helper remains unimplemented.
 
 | Attacker and severity | Existing evidence | Required invariant and check |
 |-|-|-|

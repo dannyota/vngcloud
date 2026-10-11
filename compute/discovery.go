@@ -127,6 +127,9 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 	if len(d.out.Items) == 0 && len(d.errs) == 0 {
 		d.note("unmatched-scope", "compute", "No flavor matches the requested catalog scope and exact filters.")
 	}
+	if !slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.ZoneEnabled != nil && *row.ZoneEnabled }) {
+		return d.finish()
+	}
 	types, err := d.volumeCatalog(project)
 	if err != nil {
 		if !d.record("volume.ListVolumeTypes", "reference-disks", err) {
@@ -153,7 +156,13 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 			if row.ZoneID != zone.ID {
 				continue
 			}
-			row.Reference = selectFlavorReference(row.Flavor, images, types)
+			row.Reference, e = selectFlavorReference(s.Context(), row.Flavor, images, types)
+			if e != nil {
+				if !d.record("compute.ListFlavorPrices", flavorDiscoveryKey(*row), e) {
+					return nil, e
+				}
+				return d.finish()
+			}
 			if row.Reference == nil {
 				d.note("reference-unavailable", flavorDiscoveryKey(*row), "No supported unlicensed Ubuntu image and bounded 3000 IOPS root pair is available.")
 			}

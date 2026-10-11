@@ -57,6 +57,9 @@ type flavorDiscoveryFamily struct {
 }
 
 func decodeFlavorDiscoveryPrice(op string, status int, raw json.RawMessage) (pricing.DiscoveryPrice, error) {
+	if err := validateFlavorQuoteEnvelope(op, status, raw); err != nil {
+		return pricing.DiscoveryPrice{}, err
+	}
 	var value struct {
 		Properties []struct {
 			Name    string   `json:"name"`
@@ -124,4 +127,25 @@ func decodeDiscoveryFlavors(op string, status int, raw json.RawMessage, key stri
 		values = append(values, value)
 	}
 	return values, nil
+}
+
+func validateFlavorQuoteEnvelope(op string, status int, raw json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return invalidFlavorDiscovery(op, status)
+	}
+	for _, name := range []string{"page", "paging", "pagination", "pageSize", "totalPage", "totalPages", "totalItem", "next", "nextPage", "isNext", "hasMore", "continuationToken"} {
+		if _, ok := fields[name]; ok {
+			return invalidFlavorDiscovery(op, status)
+		}
+	}
+	if success, ok := fields["success"]; ok && string(success) != "true" {
+		return invalidFlavorDiscovery(op, status)
+	}
+	for _, name := range []string{"errorCode", "errorMsg"} {
+		if value, ok := fields[name]; ok && string(value) != "null" && string(value) != `""` {
+			return invalidFlavorDiscovery(op, status)
+		}
+	}
+	return nil
 }
