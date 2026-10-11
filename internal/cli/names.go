@@ -14,6 +14,7 @@ import (
 // (an SDK method name); any name absent from it uses kebab(name) unchanged.
 var renameTable = map[string]string{
 	"VPCID":        "vpc-id",
+	"NATID":        "nat-id",
 	"CDNID":        "cdn-id",
 	"NetworkACLID": "network-acl-id",
 	"Query":        "search",

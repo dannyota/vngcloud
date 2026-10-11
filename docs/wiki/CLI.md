@@ -105,6 +105,7 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | `DeleteS3Key` | `delete-s3-key` |
 | `DetachS3Key` | `detach-s3-key` |
 | `ListS3Keys` | `list-s3-keys` |
+| `NATID` | `nat-id` |
 | `NetworkACLID` | `network-acl-id` |
 | `Query` | `search` |
 | `SecurityGroupIDs` | `security-group-id` |
