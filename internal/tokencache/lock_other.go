@@ -4,6 +4,7 @@ package tokencache
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 )
@@ -45,4 +46,22 @@ func acquireLock(ctx context.Context, path string, minBackoff, maxBackoff time.D
 			backoff = maxBackoff
 		}
 	}
+}
+
+func acquireServiceAccountLock(ctx context.Context, path string, minBackoff, maxBackoff time.Duration) (func(), error) {
+	file, err := openServiceAccountFile(path, os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return nil, err
+	}
+	unlock, err := acquireLock(ctx, path, minBackoff, maxBackoff)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if err := validateServiceAccountFile(path, file); err != nil {
+		unlock()
+		_ = file.Close()
+		return nil, err
+	}
+	return func() { unlock(); _ = file.Close() }, nil
 }

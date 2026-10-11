@@ -100,16 +100,37 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 	tokenPath := filepath.Join(c.dir, hash+".json")
 	lockPath := filepath.Join(c.dir, hash+".lock")
 
-	unlock, err := acquireLock(ctx, lockPath, minBackoff, maxBackoff)
+	return c.getEntry(ctx, tokenPath, lockPath, rejected, login, false)
+}
+
+func (c *Cache) getEntry(ctx context.Context, tokenPath, lockPath, rejected string, login func(context.Context) (Token, error), strict bool) (Token, error) {
+	lock := acquireLock
+	if strict {
+		lock = acquireServiceAccountLock
+	}
+	unlock, err := lock(ctx, lockPath, minBackoff, maxBackoff)
 	if err != nil {
+		if strict {
+			return Token{}, cacheUnavailable(ctx)
+		}
 		return Token{}, err
 	}
+
 	defer unlock()
 	if err := ctx.Err(); err != nil {
 		return Token{}, err
 	}
 
-	fc, ok := c.readFresh(tokenPath, rejected)
+	var fc fileContent
+	var ok bool
+	if strict {
+		fc, ok, err = c.readServiceAccountFresh(tokenPath, rejected)
+		if err != nil {
+			return Token{}, cacheUnavailable(ctx)
+		}
+	} else {
+		fc, ok = c.readFresh(tokenPath, rejected)
+	}
 	if err := ctx.Err(); err != nil {
 		return Token{}, err
 	}
@@ -134,7 +155,7 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 // it exists, parses, is not within 30 seconds of expiry, and is not both
 // equal to rejected and old enough (see rejectable) to trust the rejection.
 func (c *Cache) readFresh(tokenPath, rejected string) (fileContent, bool) {
-	data, err := os.ReadFile(tokenPath)
+	data, err := os.ReadFile(tokenPath) //nolint:gosec // tokenPath joins the caller-selected cache directory and a hex SHA-256 digest.
 	if err != nil {
 		return fileContent{}, false
 	}
@@ -142,13 +163,20 @@ func (c *Cache) readFresh(tokenPath, rejected string) (fileContent, bool) {
 	if err := json.Unmarshal(data, &fc); err != nil || fc.AccessToken == "" {
 		return fileContent{}, false
 	}
+	return fc, c.fresh(fc, rejected)
+}
+
+func (c *Cache) fresh(fc fileContent, rejected string) bool {
+	if fc.AccessToken == "" {
+		return false
+	}
 	if fc.ExpiresAt.Sub(c.now()) <= freshWindow {
-		return fileContent{}, false
+		return false
 	}
 	if rejected != "" && fc.AccessToken == rejected && rejectable(c.now(), fc.ObtainedAt) {
-		return fileContent{}, false
+		return false
 	}
-	return fc, true
+	return true
 }
 
 // rejectable reports whether a token obtained at obtainedAt has been held
@@ -178,7 +206,7 @@ func (c *Cache) write(tokenPath string, fc fileContent) {
 	committed := false
 	defer func() {
 		if !committed {
-			_ = os.Remove(name)
+			_ = os.Remove(name) //nolint:gosec // name comes from os.CreateTemp in the caller-selected cache directory.
 		}
 	}()
 
@@ -198,10 +226,10 @@ func (c *Cache) write(tokenPath string, fc fileContent) {
 	if err := tmp.Close(); err != nil {
 		return
 	}
-	if err := os.Chmod(name, 0o600); err != nil {
+	if err := os.Chmod(name, 0o600); err != nil { //nolint:gosec // name comes from os.CreateTemp in the caller-selected cache directory.
 		return
 	}
-	if err := os.Rename(name, tokenPath); err != nil {
+	if err := os.Rename(name, tokenPath); err != nil { //nolint:gosec // The temp name and digest-named destination stay in the caller-selected cache directory.
 		return
 	}
 	committed = true

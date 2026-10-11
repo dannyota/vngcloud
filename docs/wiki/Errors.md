@@ -154,9 +154,13 @@ cause, or decoder cause enters the error or its unwrap chain. Invalid
 selected credentials fail before requests with `ErrInvalidConfig`.
 
 `vngcloud.ErrTokenCache` has the fixed text `vngcloud: token cache unavailable`.
-It identifies service-account cache availability failures and matches
-neither `ErrAuth` nor `ErrInvalidConfig`. Cache support is separate from
-memory token reuse.
+It identifies service-account cache directory, read, and lock failures and
+matches neither `ErrAuth` nor `ErrInvalidConfig`. The SDK returns the
+sentinel alone, without a path, hash, credential, or filesystem cause in
+its text or unwrap chain. An ended caller context takes precedence and
+returns `ctx.Err()` directly. Missing or malformed cache content is a miss;
+a post-exchange write failure does not turn successful login into an error.
+Other authentication methods retain their existing cache errors.
 
 ## Logging
 

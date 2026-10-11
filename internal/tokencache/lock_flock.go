@@ -16,15 +16,33 @@ import (
 // deleted, since removing it would let a second process create and lock a
 // different inode while a third still held the original one.
 func acquireLock(ctx context.Context, path string, minBackoff, maxBackoff time.Duration) (func(), error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path joins the caller-selected cache directory and a hex SHA-256 digest.
 	if err != nil {
 		return nil, err
 	}
 
+	return acquireFileLock(ctx, f, path, minBackoff, maxBackoff, false)
+}
+
+func acquireServiceAccountLock(ctx context.Context, path string, minBackoff, maxBackoff time.Duration) (func(), error) {
+	f, err := openServiceAccountFile(path, os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return nil, err
+	}
+	return acquireFileLock(ctx, f, path, minBackoff, maxBackoff, true)
+}
+
+func acquireFileLock(ctx context.Context, f *os.File, path string, minBackoff, maxBackoff time.Duration, strict bool) (func(), error) {
 	backoff := minBackoff
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
+			if strict {
+				if err := validateServiceAccountFile(path, f); err != nil {
+					_ = f.Close()
+					return nil, err
+				}
+			}
 			return func() { _ = f.Close() }, nil
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) {

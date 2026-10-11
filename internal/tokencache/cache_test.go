@@ -592,3 +592,18 @@ func TestCancellationDuringFreshCacheCheckStopsAcquisition(t *testing.T) {
 		t.Fatalf("Get error=%v", err)
 	}
 }
+
+func TestIAMCacheHashCompatibility(t *testing.T) {
+	for _, test := range []struct {
+		key  Key
+		hash string
+	}{
+		{testKey(), "13a435a0ce14b273175ab6f0e21598a323ddc71da573d1d1ce43598a744a8b38"},
+		{Key{}, "fabc833872435cea3f0863489221d2c8681ee3205369a021ae97d0e5b841cfb3"},
+		{Key{Profile: "ab", RootEmail: "c"}, "dc4112de5babe1d7b380b15821b49f3a14f2c104bf2d8bfdbd4019535b5be7c9"},
+	} {
+		if test.key.Hash() != test.hash {
+			t.Fatal("IAM cache hash changed")
+		}
+	}
+}

@@ -99,9 +99,39 @@ reflection, and explicit-conversion limits still apply. Authentication
 never grants policies or changes product permission checks. NAT
 create/delete still require IAM-user login in Hanoi.
 
-Rotate credentials by rebuilding configs and restarting consumers. Issued
-tokens may remain usable until expiry; replacing a secret does not promise
-immediate revocation or automatic removal of old tokens.
+### Disk cache and rotation
+
+SDK disk caching is opt-in through `WithTokenCache(dir)`. Service-account
+entries live under `service-account-v1/`, separate from IAM-user entries.
+Each key binds the auth kind, profile, client ID, fixed token endpoint, and
+client secret. Changing the secret forces a fresh exchange in a rebuilt
+config. IAM-user cache hashes keep their existing fields and exclude the
+password and TOTP secret. Static tokens and custom providers never use
+this disk cache.
+
+The SDK creates cache directories with mode 0700 and token and persistent
+lock files with mode 0600. Service-account reads refuse symlinks,
+nonregular files, mismatched opened inodes, and group/other access. Token
+reads stop at 64 KiB. Windows retains its mode-bit exception. Missing or
+malformed content triggers an exchange; unsafe entries or directory,
+read, and lock failures fail closed with
+[`ErrTokenCache`](Errors.md#serviceaccountloginerror). A successful exchange
+still succeeds if its subsequent cache write fails. Atomic writes clean up
+failed temporary files.
+
+Processes sharing the same key reuse the winning token under a disk lock.
+Platforms without an OS file lock retain process-local locking only. The
+cache trusts its parent directories; file modes do not protect against
+another process running as the same OS user. A canceled lock wait retains
+its pending rejected token for the next acquisition.
+
+Rotate credentials by replacing the protected credentials, rebuilding
+configs, and restarting consumers. Old processes and old cache entries can
+keep issued tokens until they expire, then fail when they exchange the old
+secret. A new secret selects a separate entry; the SDK never purges old
+entries or another profile's cache. Rotation does not promise immediate
+revocation of issued tokens. Deletion and activation are not verified
+emergency revocation mechanisms.
 
 ## Two-factor codes (TOTP)
 

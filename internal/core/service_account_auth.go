@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"danny.vn/vngcloud/internal/tokencache"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -89,6 +91,9 @@ type serviceAccountTokenSource struct {
 	mu          sync.Mutex
 	cached      transport.Token
 	obtainedAt  time.Time
+	cache       *tokencache.Cache
+	cacheKey    tokencache.ServiceAccountKey
+	rejected    string
 }
 
 func newServiceAccountTokenSource(credentials *serviceAccountCredentials, timeout time.Duration, logger *slog.Logger, rt http.RoundTripper, now func() time.Time) *serviceAccountTokenSource {
@@ -106,6 +111,9 @@ func (s *serviceAccountTokenSource) Token(ctx context.Context) (transport.Token,
 	}
 	if s.cached.AccessToken != "" && s.cached.ExpiresAt.Sub(s.now()) > 30*time.Second {
 		return s.cached, nil
+	}
+	if s.cache != nil {
+		return s.diskToken(ctx)
 	}
 	token, err := s.exchange(ctx)
 	if err != nil {
@@ -138,6 +146,44 @@ func (s *serviceAccountTokenSource) InvalidateContext(ctx context.Context, sent 
 	}
 	if age < 0 || age >= 30*time.Second {
 		s.cached = transport.Token{}
+		if s.cache != nil {
+			s.rejected = sent
+		}
 	}
 	return nil
+}
+
+// diskToken runs under mu, retaining pending rejection until acquisition and
+// the context-checked memory commit both succeed.
+func (s *serviceAccountTokenSource) diskToken(ctx context.Context) (transport.Token, error) {
+	cached, err := s.cache.GetServiceAccount(ctx, s.cacheKey, s.rejected, func(ctx context.Context) (tokencache.Token, error) {
+		token, err := s.exchange(ctx)
+		if err != nil {
+			return tokencache.Token{}, err
+		}
+		return tokencache.Token{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt}, nil
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return transport.Token{}, ctxErr
+	}
+	if errors.Is(err, tokencache.ErrUnavailable) {
+		return transport.Token{}, ErrTokenCache
+	}
+	if err != nil {
+		return transport.Token{}, err
+	}
+	s.cached = transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}
+	s.obtainedAt = cached.ObtainedAt
+	s.rejected = ""
+	return s.cached, nil
+}
+
+// WithServiceAccountTestTransport injects private exchange dependencies for
+// tests within this module. It does not change the fixed endpoint and is
+// never exposed by the public SDK.
+func WithServiceAccountTestTransport(rt http.RoundTripper, now func() time.Time) Option {
+	return clientOptionFunc(func(cfg *clientConfig) {
+		cfg.serviceAccountTransport = rt
+		cfg.serviceAccountClock = now
+	})
 }

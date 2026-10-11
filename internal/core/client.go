@@ -110,7 +110,12 @@ func buildClient(settings clientConfig) (*Client, error) {
 	case settings.staticToken != "":
 		ts = staticTokenSource(settings.staticToken)
 	case settings.serviceAccount != nil:
-		ts = newServiceAccountTokenSource(settings.serviceAccount, settings.timeout, logger, settings.serviceAccountTransport, settings.serviceAccountClock)
+		source := newServiceAccountTokenSource(settings.serviceAccount, settings.timeout, logger, settings.serviceAccountTransport, settings.serviceAccountClock)
+		if settings.tokenCacheDir != "" {
+			source.cache = tokencache.New(settings.tokenCacheDir, source.now)
+			source.cacheKey = tokencache.NewServiceAccountKey(settings.profile, settings.serviceAccount.clientID, serviceAccountTokenURL, string(*settings.serviceAccount.secret))
+		}
+		ts = source
 	default:
 		source := &iamTokenSource{auth: settings.iamUser, logger: logger, endpoints: loginEndpoints{
 			signin:    resolvedEndpoints.Signin,
