@@ -34,6 +34,15 @@ codex exec -C <disposable-copy> --skip-git-repo-check -m gpt-6-astra -c model_re
 
 The reviewer may write build output and probes in that copy, never source fixes. Cache and network setup remain manager-owned. The brief's ban on unrelated network calls and secret reads provides defense in depth for network access; path restrictions still apply. Design reviews stay read-only in the source worktree.
 
+## GitHub commands
+
+Follow the notification cleanup rule in [landing a slice](instructions/workflow.md#landing-a-slice) whenever working with GitHub. List only this repository's threads; replace `<id>` with a handled thread's ID from that listing before closing it as done.
+
+```sh
+gh api 'notifications?all=true&per_page=100' --paginate --jq '.[] | select(.repository.full_name == "dannyota/vngcloud")'
+gh api -X DELETE 'notifications/threads/<id>'
+```
+
 ## Scratchpad
 
 Use a private scratchpad directory for briefs, temporary files, review copies, and output; put no temporary files under `docs/`. Substitute actual paths for command placeholders and quote paths with spaces. Save review output in the scratchpad. Turn actionable findings into one-line TODO tasks without finding IDs; follow [documentation](instructions/documentation.md#writing-rules) for retention and completion.
