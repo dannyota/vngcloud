@@ -15,9 +15,15 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func observeDiscoveryContext(ctx context.Context) (context.Context, <-chan context.Context) {
+	contexts := make(chan context.Context, 1)
+	return discovery.WithTestContextObserver(ctx, func(ctx context.Context) { contexts <- ctx }), contexts
+}
 
 func TestListStoragePricesReflectionEveryRoute(t *testing.T) {
 	for _, route := range []string{"/internal/v1/regions", "/internal/v1/billing/project_types", "/internal/v1/billing/purchase_types", "vos_billing_normal_min_quota", "vos_billing_normal_max_quota", "max_project_per_user_per_region", "enable_iam_checkout", "/billing-api/v2/price"} {
@@ -176,9 +182,11 @@ func TestListStoragePricesRefreshWaiterDeadline(t *testing.T) {
 			<-provider.entered
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
+			ctx, sessionContexts := observeDiscoveryContext(ctx)
 			waiter := make(chan error, 1)
 			go func() { _, err := c.ListStoragePrices(ctx, nil); waiter <- err }()
-			<-ctx.Done()
+			sessionCtx := <-sessionContexts
+			<-sessionCtx.Done()
 			close(provider.release)
 			if err := <-holder; err != nil {
 				t.Fatal(err)
@@ -238,9 +246,11 @@ func TestListStoragePricesSharedIAMWaiterDeadline(t *testing.T) {
 	<-entered
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := waiterClient.ListStoragePrices(ctx, nil); waiter <- err }()
-	<-ctx.Done()
+	sessionCtx := <-sessionContexts
+	<-sessionCtx.Done()
 	close(release)
 	if err := <-holder; err != nil {
 		t.Fatal(err)
@@ -265,9 +275,11 @@ func TestListStoragePricesRegionWaiterDeadline(t *testing.T) {
 	c.regionMu.Lock()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	done := make(chan error, 1)
 	go func() { _, err := c.ListStoragePrices(ctx, nil); done <- err }()
-	<-ctx.Done()
+	sessionCtx := <-sessionContexts
+	<-sessionCtx.Done()
 	c.regionMu.Unlock()
 	if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error %v", err)

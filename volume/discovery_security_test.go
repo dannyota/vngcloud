@@ -15,9 +15,15 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func observeDiscoveryContext(ctx context.Context) (context.Context, <-chan context.Context) {
+	contexts := make(chan context.Context, 1)
+	return discovery.WithTestContextObserver(ctx, func(ctx context.Context) { contexts <- ctx }), contexts
+}
 
 func TestListVolumePricesReflectionEveryRoute(t *testing.T) {
 	for _, route := range []string{"/v1/project-1/zones", "/v1/project-1/volume_type_zones", "/v1/project-1/fz-82/volume_types", "/v1/project-1/volumes/encryption_types", "/v1/price"} {
@@ -165,9 +171,11 @@ func TestListVolumePricesRefreshWaiterDeadline(t *testing.T) {
 			<-provider.entered
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
+			ctx, sessionContexts := observeDiscoveryContext(ctx)
 			waiter := make(chan error, 1)
 			go func() { _, err := c.ListVolumePrices(ctx, nil); waiter <- err }()
-			<-ctx.Done()
+			sessionCtx := <-sessionContexts
+			<-sessionCtx.Done()
 			close(provider.release)
 			if err := <-holder; err != nil {
 				t.Fatal(err)
@@ -213,9 +221,11 @@ func TestListVolumePricesProjectWaiterDeadline(t *testing.T) {
 	<-entered
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := c.ListVolumePrices(ctx, nil); waiter <- err }()
-	<-ctx.Done()
+	sessionCtx := <-sessionContexts
+	<-sessionCtx.Done()
 	close(release)
 	if err := <-holder; err != nil {
 		t.Fatal(err)
@@ -273,9 +283,11 @@ func TestListVolumePricesSharedIAMWaiterDeadline(t *testing.T) {
 	<-entered
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := waiterClient.ListVolumePrices(ctx, nil); waiter <- err }()
-	<-ctx.Done()
+	sessionCtx := <-sessionContexts
+	<-sessionCtx.Done()
 	close(release)
 	if err := <-holder; err != nil {
 		t.Fatal(err)

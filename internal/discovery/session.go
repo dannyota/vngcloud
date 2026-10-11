@@ -48,6 +48,13 @@ func WithTestClock(ctx context.Context, now func() time.Time, sleeper func(conte
 	return context.WithValue(ctx, testClockKey{}, testClock{now: now, sleep: sleeper})
 }
 
+type testContextObserverKey struct{}
+
+// WithTestContextObserver exposes the derived context to contention tests.
+func WithTestContextObserver(ctx context.Context, observe func(context.Context)) context.Context {
+	return context.WithValue(ctx, testContextObserverKey{}, observe)
+}
+
 type Exchanger interface {
 	WrapDiscoveryError(error) error
 	DoDiscoveryJSONStatus(context.Context, transport.Request, any, func(context.Context) error) (int, error)
@@ -64,6 +71,9 @@ func New(ctx context.Context, maxRequests int) (*Session, error) {
 	s := &Session{ctx: transport.NewDiscoveryContext(child), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}
 	if clock, ok := ctx.Value(testClockKey{}).(testClock); ok {
 		s.now, s.sleep = clock.now, clock.sleep
+	}
+	if observe, ok := ctx.Value(testContextObserverKey{}).(func(context.Context)); ok {
+		observe(s.Context())
 	}
 	return s, nil
 }

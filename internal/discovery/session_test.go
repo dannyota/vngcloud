@@ -8,10 +8,130 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"danny.vn/vngcloud/internal/transport"
 )
+
+type delayedDeadlineContext struct {
+	context.Context
+	done      chan struct{}
+	propagate func()
+}
+
+func (c *delayedDeadlineContext) Done() <-chan struct{} { return c.done }
+
+func (c *delayedDeadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// AfterFunc holds child cancellation until the test releases propagation.
+func (c *delayedDeadlineContext) AfterFunc(f func()) func() bool {
+	active := true
+	c.propagate = func() {
+		if active {
+			active = false
+			f()
+		}
+	}
+	return func() bool {
+		wasActive := active
+		active = false
+		return wasActive
+	}
+}
+
+func TestSessionDeadlineWaitsForChildCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		contexts := make(chan context.Context, 1)
+		parent := &delayedDeadlineContext{
+			Context: WithTestContextObserver(context.Background(), func(ctx context.Context) { contexts <- ctx }),
+			done:    make(chan struct{}),
+		}
+		s, err := New(parent, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		if len(contexts) != 1 || parent.propagate == nil {
+			t.Fatal("missing session context or cancellation callback")
+		}
+		observed := <-contexts
+		released := make(chan struct{})
+		go func() {
+			<-observed.Done()
+			close(released)
+		}()
+		close(parent.done)
+		synctest.Wait()
+		if !errors.Is(parent.Err(), context.DeadlineExceeded) || observed.Err() != nil {
+			t.Fatal("did not hold cancellation between parent and child")
+		}
+		select {
+		case <-released:
+			t.Fatal("released holder before child cancellation")
+		default:
+		}
+		parent.propagate()
+		synctest.Wait()
+		select {
+		case <-released:
+		default:
+			t.Fatal("did not release holder after child cancellation")
+		}
+		if err := observed.Err(); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("session error = %v", err)
+		}
+	})
+}
+
+func TestSessionTestContextObserver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	contexts := make(chan context.Context, 1)
+	calls := 0
+	s, err := New(WithTestContextObserver(ctx, func(ctx context.Context) {
+		contexts <- ctx
+		calls++
+	}), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if calls != 1 {
+		t.Fatalf("observer calls = %d, want 1", calls)
+	}
+	observed := <-contexts
+	if observed != s.Context() {
+		t.Fatal("observer did not receive the session context")
+	}
+	if observed.Done() == ctx.Done() {
+		t.Fatal("observer received the caller context")
+	}
+	deadline, ok := observed.Deadline()
+	if d := time.Until(deadline); !ok || d > 10*time.Minute || d < 9*time.Minute {
+		t.Fatalf("session deadline remaining = %v, present = %t", d, ok)
+	}
+	cancel()
+	<-observed.Done()
+	if err := observed.Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("observed context error = %v", err)
+	}
+	ordinary, err := New(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ordinary.Close()
+	if calls != 1 || ordinary.Context().Err() != nil {
+		t.Fatal("observer escaped its invocation")
+	}
+}
 
 func TestSessionTestClock(t *testing.T) {
 	now := time.Date(2020, 1, 1, 0, 0, 0, 0, time.FixedZone("test", 7*60*60))
