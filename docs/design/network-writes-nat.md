@@ -56,13 +56,13 @@ Resolve once per call; quote immediately before the single order.
 `ListNATPackages` to `network.Client` with CLI commands `list-nat-zones` and
 `list-nat-packages` in the same feature release. Both use the standard
 pointer Input/Output method shape and are reads in read-only profiles.
-`ListNATZonesInput` has `ZoneID`, `Page`, and `Size`; use the inventory read's
-scope resolution and pagination defaults. Its proposed output is
-`core.PagedList[NATAvailabilityZone]`, subject to recording the zone
-endpoint's full pagination envelope before implementation of that decoder.
-`ListNATPackagesInput` has `ZoneID` and required `AvailabilityZoneID`;
-`ListNATPackagesOutput` is `core.List[NATPackageOffer]`, since the verified
-package response is not paged. Reject nil package input and an omitted AZ.
+`ListNATZonesInput` has `ZoneID`, resolved like the inventory read's scope.
+`ListNATZonesOutput` is `core.List[NATAvailabilityZone]`: the verified zones
+reply is an unpaged array, so the SDK sends the console's single query with
+size 1000 and exposes no paging. `ListNATPackagesInput` has `ZoneID` and
+required `AvailabilityZoneID`; `ListNATPackagesOutput` is
+`core.List[NATPackageOffer]`, since the package reply is also unpaged.
+Reject nil package input and an omitted AZ.
 
 `NATAvailabilityZone` exposes `UUID`, `Name`, `ZoneType`, `IsEnabled`,
 `IsDefault`, and `Description` with their wire names; flags are booleans,
@@ -70,15 +70,15 @@ other fields strings. Require explicit presence for guard fields. The
 package offer exposes string `UUID`, `Name`, `PackageID`, `ResourceServiceID`,
 `BillingSKU`, `ServiceName`, `Description`, `CurrencyUnit`, and `CreatedAt`,
 boolean `IsDefault`, numeric `MonthlyPrice`, and a typed `Price` with the
-four observed numeric price fields. Confirm scalar types and nullability
-from safe schema evidence before finalizing decoders. Omit the offer's
+four observed numeric price fields. `Description` is nullable, so it is a
+`*string`; the other strings were non-null in the evidence. Omit the offer's
 `image`, whose discovery shape is not established; never expose license
 keys. Do not change the separate inventory `NATPackage` model.
 
 Catalog prices help callers discover offers; they never replace the fresh
 quote for `MaxPrice`. Preserve unknown zone types in reads but refuse them
 for purchase. Both read decoders reject duplicate keys, malformed envelopes,
-and absent guard fields. Do not claim zone pagination from the query alone.
+and absent guard fields.
 No public VPC-picker or whitelist method is needed for this release.
 
 **Approved.** Use the V3-only no-subnet contract. Before

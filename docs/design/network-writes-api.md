@@ -53,12 +53,24 @@ V3 whitelist the form sends subnetUuid. Live IAM reads showed enabledForAll
 true. No portal-user values or membership logic are needed for the accepted
 V3-only SDK contract.
 
-Zone rows carry `uuid`, `name`, `zoneType`, `isEnabled`, `isDefault`, and
-`description`. UUIDs look like `HAN01-1B`. The form selects zoneType
-AVAILABILITY with isDefault. The full zones envelope, paging metadata, and
-scalar nullability were not supplied; the query is not proof of paging.
-NAT VPC-picker rows carry `zones: [{uuid: "<availabilityZoneId>", ...}]`.
-Its full envelope and multi-page behavior also need safe schema evidence.
+The zones reply is an unpaged array envelope, as is the package reply:
+
+```text
+message: "Successfully", code: 200, success: true, data: object[]
+row: uuid, name, zoneType, description: string
+     isEnabled, isDefault, enable: boolean
+     volumeCount, serverCount: integer
+     id, dnsStatus: null
+```
+
+UUIDs look like `HAN01-1B`. The form selects zoneType AVAILABILITY with
+isDefault. `enable` was false for both zones, including the enabled one, so
+`isEnabled` is the availability flag.
+
+The NAT VPC picker is paged: `{success, data, page, size, totalPage,
+total}`. Its rows match the read evidence's VPC object, except that
+`zones` holds `[{uuid: "<availabilityZoneId>", ...}]`. Multi-page picker
+behavior is not observed.
 
 Live `nat-package` without zoneUuid returned a package for HAN01-1A, whose
 zone was disabled with "Contact to enable". With zoneUuid HAN01-1B, enabled
@@ -71,17 +83,20 @@ The package response is an unpaged array envelope:
 ```text
 message: "Successfully", code: 200, success: true, data: object[]
 row: uuid, name, packageId, resourceServiceId, billingSku, serviceName,
-     description, monthlyPrice, currencyUnit, price, image,
-     isDefault, createdAt
-price: optimumPrice, discountPercent, originalPrice, discountPrice
+     currencyUnit, createdAt: string
+     description: null
+     monthlyPrice: number
+     isDefault: boolean
+     price, image: object
+price: optimumPrice, originalPrice, discountPrice: integer
+       discountPercent: number
 ```
 
 Observed values include name Standard, billingSku `nat.s-standard`,
 monthlyPrice 712400.0, currencyUnit VND, and isDefault true. The image is an
 object; its discovery fields are not established here. Do not reuse the
 inventory package schema blindly: inventory monthlyPrice is zero and its
-nullable fields differ. Raw scalar types and nullability not named above
-still need recording before finalizing a public discovery decoder.
+nullable fields differ.
 
 ## NAT price and direct order
 
