@@ -1,5 +1,34 @@
 # Release Notes
 
+## v0.73.0 - Volume and Storage Price Discovery
+
+### Highlights
+
+- `volume list-volume-prices` lists every volume type in each enabled zone
+  with the account's monthly quote, plain and with each encryption type, and
+  the effective price per GB at the quoted size. Filter with `--zone-id`,
+  `--iops`, `--size`, `--encryption`, or `--volume-type-id`; sort with
+  `--sort-by unit-price`. SDK: `volume.ListVolumePrices`.
+- `storage list-storage-prices` lists each monthly object storage offering
+  with its quote at the minimum or `--quota-gb` size and the price per GB.
+  SDK: `storage.ListStoragePrices`.
+- Both commands are read-only and work under `--read-only`. Unknown
+  charges, such as egress and requests, stay unknown and are named in the
+  notes on stderr; JSON output carries them in `Metadata`. `--allow-partial`
+  prints the rows that could be priced, then the error, and exits 1.
+- Discovery calls are serial, paced, bounded in requests, rows, and body
+  size, and reject a reply that echoes a sent credential.
+- Verified live on 2026-10-11 in hcm-3: ten volume types quoted in the
+  enabled zone (3000 IOPS from 3200 VND per GB-month; encryption did not
+  change the price) and object storage at 1000 VND (Gold) and 530 VND
+  (Archive) per GB-month in HCM04.
+
+### Fixes
+
+- Shared project lookup, token refresh, and the token cache now check the
+  caller's context after waiting for another caller, so a cancelled call
+  cannot change the token or project another call uses.
+
 ## v0.72.0 - Public NAT Create and Delete
 
 ### Highlights
