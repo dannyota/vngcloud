@@ -281,3 +281,13 @@ func TestListStoragePricesIndependentOfferPartial(t *testing.T) {
 		t.Fatalf("output %+v error %v", out, err)
 	}
 }
+
+func TestStorageDiscoveryTaxMetadata(t *testing.T) {
+	c := &Client{}
+	for _, tax := range []string{"", `,"tax":"inclusive"`} {
+		price, err := c.decodeStorageDiscoveryPrice("storage.QuoteProject", 200, json.RawMessage(`{"success":true,"data":{"optimumPrice":30000,"originalPrice":40000,"discountPrice":10000`+tax+`}}`))
+		if err != nil || price.Tax != "as-returned" || *price.MonthlyPrice != 30000 || *price.OriginalPrice != 40000 || *price.DiscountPrice != 10000 {
+			t.Fatalf("price %+v error %v", price, err)
+		}
+	}
+}

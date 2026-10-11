@@ -82,7 +82,7 @@ func decodeDiscoveryProjects(op string, status int, raw json.RawMessage) ([]Proj
 	if !ok || string(list) == "null" {
 		return nil, discoverySchemaError(op, status)
 	}
-	for _, key := range []string{"page", "pageSize", "paging", "pagination", "totalPage", "totalPages", "next", "nextPage", "hasMore", "continuationToken"} {
+	for _, key := range []string{"page", "pageSize", "paging", "pagination", "totalPage", "totalPages", "next", "nextPage", "isNext", "hasMore", "continuationToken"} {
 		if _, ok := envelope[key]; ok {
 			return nil, discoverySchemaError(op, status)
 		}

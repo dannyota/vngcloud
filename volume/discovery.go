@@ -209,48 +209,62 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 			}
 		}
 	}
-	bodies := map[string]bool{}
-	for _, row := range d.out.Items {
-		if row.Price.Status == "unknown" {
-			body, _ := volumeDiscoveryBody(row)
-			raw, _ := json.Marshal(body)
-			bodies[string(raw)] = true
-		}
+	type quoteGroup struct {
+		body map[string]any
+		rows []int
 	}
-	if err := s.Preflight(len(bodies)); err != nil {
+	groups := []quoteGroup{}
+	bodies := map[string]int{}
+	for i, row := range d.out.Items {
+		if row.Price.Status != "unknown" {
+			continue
+		}
+		body, err := volumeDiscoveryBody(row)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		key := string(raw)
+		index, ok := bodies[key]
+		if !ok {
+			index = len(groups)
+			bodies[key] = index
+			groups = append(groups, quoteGroup{body: body})
+		}
+		groups[index].rows = append(groups[index].rows, i)
+	}
+	if err := s.Preflight(len(groups)); err != nil {
 		if !d.record(op, "quotes", err) {
 			return nil, err
 		}
 		return d.finish()
 	}
-	for i := range d.out.Items {
-		row := &d.out.Items[i]
-		if row.Price.Status != "unknown" {
-			continue
-		}
-		body, err := volumeDiscoveryBody(*row)
-		if err != nil {
-			return nil, err
-		}
+	for _, group := range groups {
 		var price pricing.DiscoveryPrice
-		_, err = s.DoJSON(c.c, transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), Body: body, OK: []int{200}}, nil, func(status int, raw json.RawMessage) error {
+		_, err = s.DoJSON(c.c, transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), Body: group.body, OK: []int{200}}, nil, func(status int, raw json.RawMessage) error {
 			var e error
 			price, e = decodeVolumeDiscoveryPrice("pricing.GetQuote", status, raw)
 			return e
 		})
-		if err != nil {
-			row.Price.Status = "failed"
-			if !d.record("pricing.GetQuote", row.ZoneID+"/"+row.VolumeType.VolumeTypeZoneID+"/"+volumePriceID(*row)+"/"+row.EncryptionTypeID, err) {
-				return nil, err
+		for _, i := range group.rows {
+			row := &d.out.Items[i]
+			if err != nil {
+				row.Price.Status = "failed"
+				if !d.record("pricing.GetQuote", row.ZoneID+"/"+row.VolumeType.VolumeTypeZoneID+"/"+volumePriceID(*row)+"/"+row.EncryptionTypeID, err) {
+					return nil, err
+				}
+				continue
 			}
-			if d.stop(err) {
-				break
-			}
-			continue
+			row.Price = price
+			rate := *price.MonthlyPrice / float64(row.SizeGB)
+			row.PricePerGB = &rate
 		}
-		row.Price = price
-		rate := *price.MonthlyPrice / float64(row.SizeGB)
-		row.PricePerGB = &rate
+		if err != nil && d.stop(err) {
+			break
+		}
 	}
 	return d.finish()
 }

@@ -49,7 +49,7 @@ func New(ctx context.Context, maxRequests int) (*Session, error) {
 		return nil, errors.New("MaxRequests must be between 1 and 2000")
 	}
 	child, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	return &Session{ctx: child, cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}, nil
+	return &Session{ctx: transport.NewDiscoveryContext(child), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}, nil
 }
 
 func (s *Session) Close()                   { s.cancel() }

@@ -164,3 +164,35 @@ func TestGuardedAuxiliaryDecodeErrorIdentity(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestDiscoveryProjectContinuationNotCached(t *testing.T) {
+	for _, marker := range []string{"true", "false", "null"} {
+		t.Run(marker, func(t *testing.T) {
+			reads := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				reads++
+				body := `{"projects":[{"projectId":"p-1","region":"hcm-3"}]`
+				if reads == 1 {
+					body += `,"isNext":` + marker
+				}
+				_, _ = w.Write([]byte(body + `}`))
+			}))
+			defer srv.Close()
+			c, err := newClient(WithRegion("hcm-3"), WithStaticToken("canary-secret"), WithEndpointOverrides(EndpointOverrides{VServer: srv.URL}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, _ := discovery.New(context.Background(), 2)
+			defer s.Close()
+			id, err := c.RequireDiscoveryProjectID(s)
+			var api *APIError
+			if id != "" || c.ProjectID() != "" || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+				t.Fatalf("id=%q err=%v", id, err)
+			}
+			id, err = c.RequireDiscoveryProjectID(s)
+			if err != nil || id != "p-1" || reads != 2 || s.Requests() != 2 {
+				t.Fatalf("id=%q err=%v reads=%d", id, err, reads)
+			}
+		})
+	}
+}

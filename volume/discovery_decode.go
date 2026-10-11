@@ -18,7 +18,7 @@ func discoveryArray[T any](op string, status int, raw json.RawMessage, key strin
 		if json.Unmarshal(raw, &fields) != nil || fields == nil {
 			return nil, invalidDiscovery(op, status)
 		}
-		for _, name := range []string{"page", "paging", "pagination", "pageSize", "totalPage", "totalPages", "totalItem", "next", "nextPage", "hasMore", "continuationToken"} {
+		for _, name := range []string{"page", "paging", "pagination", "pageSize", "totalPage", "totalPages", "totalItem", "next", "nextPage", "isNext", "hasMore", "continuationToken"} {
 			if _, ok := fields[name]; ok {
 				return nil, invalidDiscovery(op, status)
 			}
@@ -48,7 +48,6 @@ func decodeVolumeDiscoveryPrice(op string, status int, raw json.RawMessage) (pri
 		Discount *float64 `json:"discountPrice"`
 		Percent  *float64 `json:"discountPercent"`
 		Currency string   `json:"currency"`
-		Tax      string   `json:"tax"`
 	}
 	if json.Unmarshal(raw, &value) != nil || value.Optimum == nil {
 		return pricing.DiscoveryPrice{}, invalidDiscovery(op, status)
@@ -64,5 +63,5 @@ func decodeVolumeDiscoveryPrice(op string, status int, raw json.RawMessage) (pri
 	if value.Currency == "" {
 		value.Currency = "VND"
 	}
-	return pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: value.Currency, Tax: value.Tax, Source: op, MonthlyPrice: value.Optimum, OriginalPrice: value.Original, DiscountPrice: value.Discount, DiscountPercent: value.Percent}, nil
+	return pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: value.Currency, Tax: "as-returned", Source: op, MonthlyPrice: value.Optimum, OriginalPrice: value.Original, DiscountPrice: value.Discount, DiscountPercent: value.Percent}, nil
 }

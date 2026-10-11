@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -321,5 +322,66 @@ func TestDiscoveryReflectionBeforeBodyCloseError(t *testing.T) {
 	var api *APIError
 	if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 || status != 200 {
 		t.Fatalf("status=%d err=%v", status, err)
+	}
+}
+
+func TestDiscoveryScannerErrorsBeforeStatus(t *testing.T) {
+	for _, status := range []int{200, 401, 503} {
+		for _, body := range []string{`{"unused":1e999,"data":[{"name":"canary\u002dsecret"}]}`, `{"unused":?,"data":[]}`, `{"unused":1e999,`} {
+			t.Run(fmt.Sprintf("%d/%s", status, body), func(t *testing.T) {
+				var attempts atomic.Int32
+				source := &discoveryTokenSource{}
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					attempts.Add(1)
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(body))
+				}))
+				defer srv.Close()
+				c := New(Config{HTTPClient: srv.Client(), TokenSource: source, RetryCount: 2, RetryInterval: time.Nanosecond})
+				var out json.RawMessage
+				got, err := c.DoDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, &out, nil)
+				var api *APIError
+				if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != status || got != status || api.Retryable || attempts.Load() != 1 || source.calls.Load() != 1 || len(out) != 0 {
+					t.Fatalf("status=%d err=%v attempts=%d tokens=%d", got, err, attempts.Load(), source.calls.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestDiscoveryPreviousCredentialAfterRotation(t *testing.T) {
+	source := &rotatingDiscoverySource{}
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		if r.Header.Get("Authorization") == "Bearer old-token" {
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"message":"expired"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"name":"old\u002dtoken"}`))
+	}))
+	defer srv.Close()
+	c := New(Config{HTTPClient: srv.Client(), TokenSource: source})
+	var out json.RawMessage
+	_, err := c.DoDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, &out, nil)
+	var api *APIError
+	if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 || attempts.Load() != 2 || len(out) != 0 {
+		t.Fatalf("err=%v attempts=%d", err, attempts.Load())
+	}
+}
+
+func TestDiscoveryScannerPreservesLargeJSONNumbers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"unused":1e999,"name":"safe"}`))
+	}))
+	defer srv.Close()
+	c := New(Config{HTTPClient: srv.Client(), TokenSource: &discoveryTokenSource{}})
+	var out struct {
+		Name string `json:"name"`
+	}
+	status, err := c.DoDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, &out, nil)
+	if err != nil || status != 200 || out.Name != "safe" {
+		t.Fatalf("status=%d error=%v output=%+v", status, err, out)
 	}
 }

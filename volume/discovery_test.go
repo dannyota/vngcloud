@@ -391,3 +391,75 @@ func TestListVolumePricesRegionWideTypesAndBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestListVolumePricesFailedQuoteGroup(t *testing.T) {
+	for _, budget := range []int{6, 7} {
+		for _, partial := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/%t", budget, partial), func(t *testing.T) {
+				t.Parallel()
+				quotes := 0
+				overrides := map[string]string{
+					"/v1/project-1/volume_type_zones": `{"volumeTypeZones":[{"id":"p-1"},{"id":"p-2"}]}`,
+					"/v1/project-1/p-1/volume_types":  `{"volumeTypes":[{"id":"t-1","name":"a","minSize":1,"maxSize":2}]}`,
+					"/v1/project-1/p-2/volume_types":  `{"volumeTypes":[{"id":"t-1","name":"a","minSize":1,"maxSize":2}]}`,
+				}
+				c := newTestClient(t, volumeDiscoveryHandler(t, overrides, func(w http.ResponseWriter, _ *http.Request) {
+					quotes++
+					if quotes == 1 {
+						w.WriteHeader(500)
+						return
+					}
+					testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
+				}))
+				out, err := c.ListVolumePrices(context.Background(), &ListVolumePricesInput{ZoneID: "HCM03-1C", Encryption: "none", MaxRequests: budget, AllowPartial: partial})
+				var api *vngcloud.APIError
+				if !errors.As(err, &api) || api.StatusCode != 500 || quotes != 1 {
+					t.Fatalf("error %v quotes %d", err, quotes)
+				}
+				if !partial {
+					if out != nil {
+						t.Fatal("fail-fast output")
+					}
+					return
+				}
+				if out == nil || len(out.Items) != 2 || out.Metadata.Requests != 6 || len(out.Metadata.Failures) != 2 || !errors.Is(err, pricing.ErrDiscoveryIncomplete) {
+					t.Fatalf("output %+v error %v", out, err)
+				}
+				for _, row := range out.Items {
+					if row.Price.Status != "failed" || row.Price.MonthlyPrice != nil {
+						t.Fatalf("row %+v", row)
+					}
+				}
+				for _, failure := range out.Metadata.Failures {
+					if failure.Status != 500 {
+						t.Fatalf("failure %+v", failure)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestListVolumePricesRejectsContinuation(t *testing.T) {
+	for _, marker := range []string{"true", "false", "null"} {
+		t.Run(marker, func(t *testing.T) {
+			t.Parallel()
+			overrides := map[string]string{"/v1/project-1/fz-82/volume_types": `{"volumeTypes":[{"id":"t-1","name":"a","minSize":1,"maxSize":2}],"isNext":` + marker + `}`}
+			c := newTestClient(t, volumeDiscoveryHandler(t, overrides, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
+			out, err := c.ListVolumePrices(context.Background(), nil)
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+				t.Fatalf("output %+v error %v", out, err)
+			}
+		})
+	}
+}
+
+func TestVolumeDiscoveryTaxMetadata(t *testing.T) {
+	for _, tax := range []string{"", `,"tax":"inclusive"`} {
+		price, err := decodeVolumeDiscoveryPrice("pricing.GetQuote", 200, json.RawMessage(`{"optimumPrice":3200,"originalPrice":4000,"discountPrice":800`+tax+`}`))
+		if err != nil || price.Tax != "as-returned" || *price.MonthlyPrice != 3200 || *price.OriginalPrice != 4000 || *price.DiscountPrice != 800 {
+			t.Fatalf("price %+v error %v", price, err)
+		}
+	}
+}

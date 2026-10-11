@@ -4,15 +4,49 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 const DiscoveryMaxBody = 8 << 20
 
+type discoveryCredentialsKey struct{}
+
+type discoveryCredentials struct {
+	mu     sync.Mutex
+	values map[string]bool
+}
+
+// NewDiscoveryContext scopes sent credentials to one discovery invocation.
+func NewDiscoveryContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, discoveryCredentialsKey{}, &discoveryCredentials{values: make(map[string]bool)})
+}
+
+type discoveryCredentialTransport struct {
+	base        http.RoundTripper
+	credentials *discoveryCredentials
+}
+
+func (t discoveryCredentialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	credential := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	if credential != "" {
+		t.credentials.mu.Lock()
+		t.credentials.values[credential] = true
+		t.credentials.mu.Unlock()
+	}
+	return t.base.RoundTrip(req)
+}
+
 // DoDiscoveryJSONStatus guards each physical exchange before interpreting it.
 // before runs after authentication and before every send, including retries.
 func (c *Client) DoDiscoveryJSONStatus(ctx context.Context, req Request, out any, before func(context.Context) error) (int, error) {
+	credentials, ok := ctx.Value(discoveryCredentialsKey{}).(*discoveryCredentials)
+	if !ok {
+		ctx = NewDiscoveryContext(ctx)
+		credentials = ctx.Value(discoveryCredentialsKey{}).(*discoveryCredentials)
+	}
 	req.discovery = true
 	req.beforeAttempt = before
 	req.MaxBody = DiscoveryMaxBody
@@ -20,6 +54,11 @@ func (c *Client) DoDiscoveryJSONStatus(ctx context.Context, req Request, out any
 	req.NoRedirect = true
 	client := *c.httpClient
 	client.Jar = nil
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	client.Transport = discoveryCredentialTransport{base: base, credentials: credentials}
 	return c.doJSONStatus(ctx, req, out, &client)
 }
 
@@ -40,28 +79,44 @@ func guardDiscoveryResponse(req Request, sent *http.Request, status int, raw []b
 	if !req.discovery {
 		return nil
 	}
-	credential := strings.TrimPrefix(sent.Header.Get("Authorization"), "Bearer ")
-	if reflectsCredential(raw, credential) {
-		return &APIError{Operation: req.Operation, StatusCode: status, Code: "InvalidResponse", Message: "response reflected credential; body withheld"}
+	credentials := sent.Context().Value(discoveryCredentialsKey{}).(*discoveryCredentials)
+	credentials.mu.Lock()
+	unsafe := unsafeDiscoveryResponse(raw, credentials.values)
+	credentials.mu.Unlock()
+	if unsafe {
+		return &APIError{Operation: req.Operation, StatusCode: status, Code: "InvalidResponse", Message: "invalid discovery response; body withheld"}
 	}
 	return sent.Context().Err()
 }
 
-func reflectsCredential(raw []byte, credential string) bool {
-	if credential == "" {
-		return false
-	}
-	if bytes.Contains(raw, []byte(credential)) {
-		return true
+func unsafeDiscoveryResponse(raw []byte, credentials map[string]bool) bool {
+	for credential := range credentials {
+		if bytes.Contains(raw, []byte(credential)) {
+			return true
+		}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	depth := 0
 	for {
 		token, err := decoder.Token()
 		if err != nil {
-			return false
+			return err != io.EOF || depth != 0
 		}
-		if value, ok := token.(string); ok && strings.Contains(value, credential) {
-			return true
+		if delimiter, ok := token.(json.Delim); ok {
+			switch delimiter {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			}
+		}
+		if value, ok := token.(string); ok {
+			for credential := range credentials {
+				if strings.Contains(value, credential) {
+					return true
+				}
+			}
 		}
 	}
 }

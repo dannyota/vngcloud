@@ -361,7 +361,6 @@ func (c *Client) decodeStorageDiscoveryPrice(op string, status int, raw json.Raw
 		Discount *float64 `json:"discountPrice"`
 		Percent  *float64 `json:"discountPercent"`
 		Currency string   `json:"currency"`
-		Tax      string   `json:"tax"`
 	}
 	if json.Unmarshal(env.Data, &value) != nil || value.Optimum == nil {
 		return pricing.DiscoveryPrice{}, storageDiscoveryError(op, status)
@@ -377,5 +376,5 @@ func (c *Client) decodeStorageDiscoveryPrice(op string, status int, raw json.Raw
 	if value.Currency == "" {
 		value.Currency = "VND"
 	}
-	return pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: value.Currency, Tax: value.Tax, Source: op, MonthlyPrice: value.Optimum, OriginalPrice: value.Original, DiscountPrice: value.Discount, DiscountPercent: value.Percent}, nil
+	return pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: value.Currency, Tax: "as-returned", Source: op, MonthlyPrice: value.Optimum, OriginalPrice: value.Original, DiscountPrice: value.Discount, DiscountPercent: value.Percent}, nil
 }

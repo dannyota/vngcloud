@@ -284,3 +284,49 @@ func TestSessionStopsAfterAuthenticationOrThrottleFailure(t *testing.T) {
 		s.Close()
 	}
 }
+
+type sessionRotatingSource struct{ calls atomic.Int32 }
+
+func (s *sessionRotatingSource) Token(context.Context) (transport.Token, error) {
+	token := "old-token"
+	if s.calls.Add(1) > 1 {
+		token = "new-token"
+	}
+	return transport.Token{AccessToken: token, ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+func (*sessionRotatingSource) Invalidate(string) {}
+
+func TestSessionRetainsSentCredentialsAcrossReads(t *testing.T) {
+	source := &sessionRotatingSource{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer old-token" {
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"message":"expired"}`))
+			return
+		}
+		if r.URL.Path == "/v1/p-1/zones" {
+			_, _ = w.Write([]byte(`{"name":"old\u002dtoken"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c := &transportExchange{transport.New(transport.Config{HTTPClient: srv.Client(), TokenSource: source})}
+	s, _ := New(context.Background(), 2)
+	defer s.Close()
+	s.sleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+	if _, err := s.DoJSON(c, transport.Request{Method: "GET", URL: srv.URL + "/v1/projects"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var out json.RawMessage
+	_, err := s.DoJSON(c, transport.Request{Method: "GET", URL: srv.URL + "/v1/p-1/zones"}, &out)
+	var api *transport.APIError
+	if !errors.As(err, &api) || api.Code != "InvalidResponse" || len(out) != 0 {
+		t.Fatalf("err=%v", err)
+	}
+	fresh, _ := New(context.Background(), 1)
+	defer fresh.Close()
+	if _, err := fresh.DoJSON(c, transport.Request{Method: "GET", URL: srv.URL + "/v1/p-1/zones"}, &out); err != nil {
+		t.Fatalf("credentials crossed invocations: %v", err)
+	}
+}
