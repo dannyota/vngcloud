@@ -201,8 +201,20 @@ func (r *flexibleList[T]) UnmarshalJSON(data []byte) error {
 // UserInfo is map-backed until sanitized live fixtures are available.
 type UserInfo map[string]any
 
-// Zone is map-backed until sanitized live fixtures are available.
-type Zone map[string]any
+// Zone describes a portal zone. ID and UUID are separate API fields.
+type Zone struct {
+	ID            *string   `json:"id"`
+	UUID          *string   `json:"uuid"`
+	Name          string    `json:"name"`
+	ZoneType      *string   `json:"zoneType"`
+	IsDefault     *bool     `json:"isDefault"`
+	Description   *string   `json:"description"`
+	IsEnabled     *bool     `json:"isEnabled"`
+	VolumeCount   *int      `json:"volumeCount"`
+	ServerCount   *int      `json:"serverCount"`
+	OpenStackZone *string   `json:"openstackZone"`
+	IPRanges      *[]string `json:"ipRanges"`
+}
 
 // Quota is map-backed until sanitized live fixtures are available.
 type Quota map[string]any

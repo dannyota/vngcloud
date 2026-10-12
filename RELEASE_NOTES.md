@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.77.0 - Typed Portal Zones
+
+### Breaking changes
+
+- `portal.Zone` is now a struct. Replace map access such as
+  `zone["uuid"].(string)` with a nil check on `zone.UUID`, then read
+  `*zone.UUID`. Map literals, iteration, and type assertions must also
+  migrate to struct fields. `Name` is a string; every other field is a
+  pointer. Absent or null fields stay nil. Present false, zero, empty
+  strings, and empty arrays remain distinct.
+- `portal list-zones` uses Go field names in JSON, table, text, and queries.
+  Change `--query 'Items[].[uuid,name]'` to
+  `--query 'Items[].[UUID,Name]'`. SDK JSON retains API spellings such as
+  `uuid` and `isEnabled`; nil pointers encode as null in both SDK and CLI
+  JSON. Unknown fields are ignored.
+- `ID` and `UUID` remain separate fields with no fallback. Use `UUID` for
+  zone selection when present. User info and quotas remain map-backed.
+
 ## v0.76.1 - IAM Guard Fix for Hyphenated Products
 
 ### Fixes

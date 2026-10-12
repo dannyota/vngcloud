@@ -126,8 +126,8 @@ const volumeGetDefaultVolumeTypeNote = "Without --zone-id, the API looks up the 
 	"portal list-zones."
 
 // portalMapRedactionNote documents the CLI's key redaction rule for
-// map-backed Outputs, shared by every portal operation (portal.UserInfo,
-// Zone, Quota, and TagQuota are all map[string]any) and by containerregistry
+// map-backed Outputs, shared by portal.UserInfo,
+// Quota, and TagQuota (all map[string]any) and by containerregistry
 // list-repositories (Repository is map[string]any too), so every key the
 // API returns reaches this rule.
 const portalMapRedactionNote = "Values under a key that looks like a secret " +
@@ -136,9 +136,12 @@ const portalMapRedactionNote = "Values under a key that looks like a secret " +
 
 // portalListZonesNote documents that a zone's IsEnabled flag does not gate
 // pricing or creates, which the output alone gives no hint of.
-const portalListZonesNote = "A zone can report `IsEnabled` false with \"Contact to enable\" " +
-	"(seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.\n\n" +
-	portalMapRedactionNote
+const portalListZonesNote = "Prints Go field names: `ID`, `UUID`, `Name`, `ZoneType`, `IsDefault`, " +
+	"`Description`, `IsEnabled`, `VolumeCount`, `ServerCount`, `OpenStackZone`, and `IPRanges`. " +
+	"Absent or null pointer fields print as null in JSON; unknown fields are ignored. " +
+	"`ID` and `UUID` are separate fields, with no fallback.\n\n" +
+	"A zone can report `IsEnabled` false with \"Contact to enable\" " +
+	"(seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate."
 
 // portalUserInfoNote documents get-user-info's own account-data risk beyond
 // the shared map redaction rule: this command prints the caller's own

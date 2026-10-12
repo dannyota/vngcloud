@@ -13,7 +13,6 @@ permission, cost, and resource gates still apply.
 - [ ] Qualify Backup Center policy detail, server and destination inventory, restore points, and history with populated evidence. [Contract](docs/design/backup-services.md#scope).
 - [ ] Qualify remaining NAT detail and rule reads and network parity reads; NAT and VPN lists are implemented. [Contract](docs/design/network-services.md#scope-and-evidence).
 - [ ] Complete gated vDB engine designs and populated models after the owner provides a free HCM VPC. [Contract](docs/design/database-services.md).
-- [ ] Type `portal.Zone` so `portal list-zones` prints the reviewed field names instead of raw lowercase map keys. [CLI read contract](docs/design/cli-reads.md).
 - [ ] Complete the approved VPN create live probe before implementation that depends on its body and secret contract. [Evidence gates](docs/design/network-writes.md#evidence-gates-and-release-order).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).

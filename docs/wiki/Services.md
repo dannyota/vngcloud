@@ -64,7 +64,7 @@ create/delete still require SDK IAM-user login in Hanoi. See
 |---|---|---|---|---|
 | Backup Center | `backup` | Backends and policies | Typed | See [Backup](Backup.md); `hcm-3` only, no project scope. |
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
-| Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Map-backed | Useful for account and quota metadata. |
+| Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Typed zones; map-backed account and quotas | Useful for account and quota metadata. |
 | Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |
 | Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types, plus volume create and delete | Typed | Includes a convenience method for walking snapshots; see [Volume](Volume.md) for writes. |
 | Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
@@ -98,8 +98,16 @@ portalClient.GetQuota(ctx, in)     // Name (required)
 portalClient.GetTagQuota(ctx, nil)
 ```
 
-Portal models are map-backed so the SDK preserves returned fields without
-requiring a breaking model update when the portal payload changes.
+`portal.Zone` is a struct with `ID`, `UUID`, `Name`, `ZoneType`, `IsDefault`,
+`Description`, `IsEnabled`, `VolumeCount`, `ServerCount`, `OpenStackZone`,
+and `IPRanges`. Only `Name` is not a pointer. Check pointers for nil before
+reading them; absent or null fields stay nil, while present false, zero,
+empty strings, and empty arrays stay distinct. `ID` and `UUID` are separate
+fields with no fallback. Unknown fields are ignored.
+
+SDK JSON uses API spellings (`uuid`, `isEnabled`); CLI JSON, table, text,
+and queries use Go names (`UUID`, `IsEnabled`). Nil pointers encode as null.
+User info and quotas remain map-backed and preserve returned fields.
 
 ## Compute
 

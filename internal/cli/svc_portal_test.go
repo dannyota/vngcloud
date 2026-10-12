@@ -7,19 +7,17 @@ import (
 	"strings"
 	"testing"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/portal"
 )
 
-// TestGoldenPortalListZones and TestGoldenPortalGetQuota check the CLI reads
-// design's map-backed output rendering: portal's models pass the API's own
-// key names through unchanged, and a Get's wrapped resource renders as one
-// compact-JSON cell in table.
 func TestGoldenPortalListZones(t *testing.T) {
 	v := &portal.ListZonesOutput{Items: []portal.Zone{
-		{"id": "zone-1", "name": "example.com"},
+		{ID: vngcloud.Ptr("zone-1"), Name: "example.com"},
 	}}
 	checkGolden(t, "portal-list-zones.json.golden", "json", "", v)
 	checkGolden(t, "portal-list-zones.table.golden", "table", "", v)
+	checkGolden(t, "portal-list-zones.text.golden", "text", "", v)
 }
 
 func TestGoldenPortalGetQuota(t *testing.T) {
@@ -117,8 +115,7 @@ func TestPortalGetUserInfoRedactsSensitiveKeys(t *testing.T) {
 
 // TestPortalListZonesUsesTheProjectScopedPath checks that list-zones (a
 // Project-scoped read, per the CLI reads design's scope table) sends its
-// request under the given --project-id, and prints the API's own zone keys
-// unchanged.
+// request under the given --project-id and prints Go field names.
 func TestPortalListZonesUsesTheProjectScopedPath(t *testing.T) {
 	body := `{"zones":[{"id":"zone-1","name":"example.com"}]}`
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -132,7 +129,29 @@ func TestPortalListZonesUsesTheProjectScopedPath(t *testing.T) {
 	if got, ok := fixture.methodFor("/v1/proj-1/zones"); !ok || got != http.MethodGet {
 		t.Fatalf("method = %q, ok=%v, want GET", got, ok)
 	}
-	if !strings.Contains(stdout.String(), `"id": "zone-1"`) {
-		t.Fatalf("stdout = %s, want the API's own zone keys", stdout.String())
+	if !strings.Contains(stdout.String(), `"ID": "zone-1"`) {
+		t.Fatalf("stdout = %s, want Go field names", stdout.String())
+	}
+}
+
+func TestPortalListZonesDropsUnknownKeys(t *testing.T) {
+	for _, format := range []string{"json", "table", "text"} {
+		for _, query := range []string{"", "Items[].{UUID:UUID,Enabled:IsEnabled,Token:apiToken}"} {
+			t.Run(format+query, func(t *testing.T) {
+				body := `{"data":[{"uuid":"zone-1","name":"kept","isEnabled":false,"apiToken":"unknown-secret"}]}`
+				fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){"/v1/proj-1/zones": jsonHandler(http.StatusOK, body)})
+				root, stdout, stderr := newSvcRoot(t, fixture)
+				root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "--output", format, "--query", query, "portal", "list-zones"})
+				if err := root.ExecuteContext(context.Background()); err != nil {
+					t.Fatalf("execute: %v (%s)", err, stderr.String())
+				}
+				if strings.Contains(stdout.String(), "unknown-secret") || strings.Contains(stdout.String(), "apiToken") {
+					t.Fatalf("unknown key survived: %s", stdout.String())
+				}
+				if !strings.Contains(stdout.String(), "zone-1") {
+					t.Fatalf("UUID missing: %s", stdout.String())
+				}
+			})
+		}
 	}
 }

@@ -2,8 +2,11 @@ package portal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -35,7 +38,7 @@ func TestPortalRoutes(t *testing.T) {
 			body: testutil.FixtureBody(t, "../testdata/portal/list_zones.json"),
 			call: func(c *Client) error {
 				out, err := c.ListZones(context.Background(), nil)
-				if err == nil && (len(out.Items) != 1 || out.Items[0]["id"] != "zone-1") {
+				if err == nil && (len(out.Items) != 1 || (out.Items[0].ID == nil || *out.Items[0].ID != "zone-1")) {
 					t.Fatalf("unexpected zones: %+v", out)
 				}
 				return err
@@ -118,4 +121,92 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	return New(testutil.NewConfig(t, handler))
+}
+
+func TestListZonesFixtures(t *testing.T) {
+	for _, fixture := range []string{"list_zones.json", "discovery_zones.json"} {
+		t.Run(fixture, func(t *testing.T) {
+			body := testutil.FixtureBody(t, "../testdata/portal/"+fixture)
+			var raw map[string][]map[string]any
+			if err := json.Unmarshal([]byte(body), &raw); err != nil {
+				t.Fatal(err)
+			}
+			rows := raw["zones"]
+			if rows == nil {
+				rows = raw["data"]
+			}
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			out, err := c.ListZones(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out.Items) != len(rows) {
+				t.Fatalf("items = %d, want %d", len(out.Items), len(rows))
+			}
+			typ := reflect.TypeFor[Zone]()
+			if typ.Kind() != reflect.Struct {
+				t.Fatalf("Zone kind = %v, want struct", typ.Kind())
+			}
+			for i, zone := range out.Items {
+				for field := range typ.Fields() {
+					key := field.Tag.Get("json")
+					if _, ok := rows[i][key]; !ok {
+						rows[i][key] = nil
+					}
+				}
+				encoded, err := json.Marshal(zone)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var got map[string]any
+				if err := json.Unmarshal(encoded, &got); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(got, rows[i]) {
+					t.Fatalf("row %d = %#v, want %#v", i, got, rows[i])
+				}
+			}
+		})
+	}
+}
+
+func TestListZonesNullAndZeroFields(t *testing.T) {
+	body := `{"data":[{"name":"nulls","id":null,"uuid":null,"zoneType":null,"isDefault":null,"description":null,"isEnabled":null,"volumeCount":null,"serverCount":null,"openstackZone":null,"ipRanges":null,"apiToken":"unknown-secret"},{"name":"zero","id":"","uuid":"","zoneType":"FUTURE","isDefault":false,"description":"","isEnabled":false,"volumeCount":0,"serverCount":0,"openstackZone":"","ipRanges":[]}]}`
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	out, err := c.ListZones(context.Background(), &ListZonesInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Items) != 2 {
+		t.Fatalf("items = %d", len(out.Items))
+	}
+	wantNull := Zone{Name: "nulls"}
+	wantZero := Zone{Name: "zero", ID: vngcloud.Ptr(""), UUID: vngcloud.Ptr(""), ZoneType: vngcloud.Ptr("FUTURE"), IsDefault: vngcloud.Ptr(false), Description: vngcloud.Ptr(""), IsEnabled: vngcloud.Ptr(false), VolumeCount: vngcloud.Ptr(0), ServerCount: vngcloud.Ptr(0), OpenStackZone: vngcloud.Ptr(""), IPRanges: vngcloud.Ptr([]string{})}
+	if !reflect.DeepEqual(out.Items, []Zone{wantNull, wantZero}) {
+		t.Fatalf("zones = %#v", out.Items)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "unknown-secret") || strings.Contains(string(encoded), "apiToken") {
+		t.Fatalf("unknown key survived: %s", encoded)
+	}
+}
+
+func TestListZonesWrongFieldTypes(t *testing.T) {
+	for _, field := range []string{"id", "uuid", "name", "zoneType", "isDefault", "description", "isEnabled", "volumeCount", "serverCount", "openstackZone", "ipRanges"} {
+		t.Run(field, func(t *testing.T) {
+			body := `{"data":[{"name":"valid"},{"` + field + `":{"private":"decode-secret"}}]}`
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			out, err := c.ListZones(context.Background(), nil)
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) {
+				t.Fatalf("output = %v, error = %v, want nil and APIError", out, err)
+			}
+			if strings.Contains(err.Error(), "decode-secret") {
+				t.Fatalf("error leaked body: %v", err)
+			}
+		})
+	}
 }

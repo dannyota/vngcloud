@@ -3577,13 +3577,51 @@ func pickEnabledZoneID(ctx context.Context, client *portal.Client) (string, erro
 		return "", err
 	}
 	for _, zone := range zones.Items {
-		enabled, _ := zone["isEnabled"].(bool)
-		uuid, _ := zone["uuid"].(string)
-		if enabled && uuid != "" {
-			return uuid, nil
+		if zone.IsEnabled != nil && *zone.IsEnabled && zone.UUID != nil && *zone.UUID != "" {
+			return *zone.UUID, nil
 		}
 	}
 	return "", fmt.Errorf("no enabled zone among %d zone(s)", len(zones.Items))
+}
+
+func TestPickEnabledZoneID(t *testing.T) {
+	tests := []struct {
+		name, body, want string
+		status           int
+		wantError        bool
+	}{
+		{name: "nil", body: `{"data":[{"id":"no-fallback","isEnabled":true},{"uuid":"disabled"},{"uuid":null,"isEnabled":true},{"uuid":"null-enabled","isEnabled":null}]}`, wantError: true},
+		{name: "false", body: `{"data":[{"uuid":"disabled","isEnabled":false}]}`, wantError: true},
+		{name: "empty UUID", body: `{"data":[{"uuid":"","isEnabled":true}]}`, wantError: true},
+		{name: "first eligible", body: `{"data":[{"uuid":"skip","isEnabled":false},{"uuid":"first","isEnabled":true},{"uuid":"second","isEnabled":true}]}`, want: "first"},
+		{name: "list error", body: `{}`, status: http.StatusForbidden, wantError: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := portal.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/v1/project-1/zones" {
+					t.Errorf("request = %s %s", r.Method, r.URL.Path)
+				}
+				if tt.status != 0 {
+					w.WriteHeader(tt.status)
+				}
+				_, _ = w.Write([]byte(tt.body))
+			})))
+			got, err := pickEnabledZoneID(context.Background(), client)
+			if got != tt.want || (err != nil) != tt.wantError {
+				t.Fatalf("picker = %q, %v", got, err)
+			}
+			if tt.status != 0 {
+				var api *vngcloud.APIError
+				if !errors.As(err, &api) || api.StatusCode != tt.status {
+					t.Fatalf("error = %v", err)
+				}
+			}
+			if tt.wantError && tt.status == 0 && !strings.Contains(err.Error(), "no enabled zone among") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
 }
 
 // deleteVPCAndSubnets deletes every subnet of vpcID with NoWait, then

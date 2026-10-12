@@ -110,7 +110,7 @@ func TestRedactMapsAppliesBeforeQuery(t *testing.T) {
 }
 
 // redactNestedTestOutput exercises redactMaps through a slice of maps, the
-// shape a map-backed list Output (core.List[portal.Zone], for example) has.
+// shape a map-backed list Output (core.List[portal.Quota], for example) has.
 type redactNestedTestOutput struct {
 	Items []map[string]any
 }

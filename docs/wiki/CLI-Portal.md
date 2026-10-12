@@ -58,9 +58,9 @@ vngcloud portal list-quota-used
 
 Kind: Read.
 
-A zone can report `IsEnabled` false with "Contact to enable" (seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.
+Prints Go field names: `ID`, `UUID`, `Name`, `ZoneType`, `IsDefault`, `Description`, `IsEnabled`, `VolumeCount`, `ServerCount`, `OpenStackZone`, and `IPRanges`. Absent or null pointer fields print as null in JSON; unknown fields are ignored. `ID` and `UUID` are separate fields, with no fallback.
 
-Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+A zone can report `IsEnabled` false with "Contact to enable" (seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.
 
 No fields.
 

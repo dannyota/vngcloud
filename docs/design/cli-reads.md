@@ -1,6 +1,6 @@
 # CLI Reads Design
 
-Status: Accepted; typed Zone contract requires independent review.
+Status: Accepted.
 
 Read commands cover `project`, `portal`, `volume`, `loadbalancer`,
 `globalloadbalancer`, and `containerregistry`. Portal types `Zone`; no new
@@ -111,7 +111,7 @@ status); see [Secrets](#secrets).
 
 #### Typed Zone contract
 
-The owner approves typing `portal.Zone`; the implementation is map-backed.
+`portal.Zone` uses the owner-approved typed contract below.
 [list_zones.json](../../testdata/portal/list_zones.json) is hand-written
 compatibility evidence for `id` and `name` in a `zones` envelope, with no
 capture provenance. [discovery_zones.json][zone-capture] is a sanitized raw

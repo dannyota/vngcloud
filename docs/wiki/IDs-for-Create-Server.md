@@ -6,7 +6,7 @@ examples assume `cfg` and `ctx` from [Compute's Setup](Compute.md#setup).
 
 | `CreateServerInput` field | SDK call | ID field on each row |
 |-|-|-|
-| `ZoneID` | `portal.ListZones` | `"id"` (rows are maps) |
+| `ZoneID` | `portal.ListZones` | `UUID` (check for nil) |
 | `FlavorID` | `compute.ListFlavors` with `ZoneID` | `FlavorID` |
 | `ImageID` | `compute.ListOSImages` with `ZoneID` | `ID` |
 | `RootDiskTypeID`, `DataDiskTypeID` | `volume.ListVolumeTypes` with `ZoneID` | `ID` |
@@ -31,7 +31,10 @@ if err != nil {
 }
 ```
 
-An `IsEnabled` value of false on a zone is a hint, not a gate.
+Zone rows are typed structs. Check `zone.UUID != nil` before reading
+`*zone.UUID`; an absent or null UUID stays nil. The separate `ID` field
+supports the synthetic fixture's shape and provides no fallback for UUID.
+`IsEnabled` is also a pointer; a present false value is a hint, not a gate.
 
 ```go
 flavors, err := compute.New(cfg).ListFlavors(ctx, &compute.ListFlavorsInput{
@@ -69,8 +72,8 @@ Then quote and create as shown on [Compute Servers](Compute-Servers.md).
 ## CLI
 
 Each command prints `{"Items": [...]}`, so a `--query` starts with `Items`.
-Rows print Go field names, except `portal list-zones`, whose rows are maps
-with the keys `id` and `name`.
+Rows print Go field names. Zone pointer fields print null in JSON when
+absent or null; unknown fields are ignored.
 
 | `create-server` flag | Command |
 |-|-|
@@ -88,7 +91,7 @@ with the keys `id` and `name`.
 Pick the ID with one `--query` per lookup:
 
 ```sh
-vngcloud portal list-zones --query "Items[].[id,name]"
+vngcloud portal list-zones --query "Items[].[UUID,Name]"
 vngcloud compute list-flavors --zone-id <zone> --name s2-general-1x2 \
   --query "Items[?!IsSoldOut].[FlavorID,FlavorZoneID]"
 vngcloud compute list-os-images --zone-id <zone> \

@@ -423,7 +423,7 @@ func TestGenDocsMonitorChannelOpsDocumentRedaction(t *testing.T) {
 
 // TestGenDocsPortalOpsDocumentAccountDataAndRedaction checks that
 // get-user-info's section names the account-data risk, and that every
-// portal operation's section states the map-key redaction rule, so a reader
+// map-backed portal operation states the map-key redaction rule, so a reader
 // learns both from the wiki instead of internal/cli/redact_maps.go.
 func TestGenDocsPortalOpsDocumentAccountDataAndRedaction(t *testing.T) {
 	dir := t.TempDir()
@@ -440,11 +440,20 @@ func TestGenDocsPortalOpsDocumentAccountDataAndRedaction(t *testing.T) {
 		t.Errorf("get-user-info section is missing the account-data note:\n%s", userInfo)
 	}
 
-	for _, op := range []string{"get-user-info", "list-zones", "list-quota-used", "get-quota", "get-tag-quota"} {
+	for _, op := range []string{"get-user-info", "list-quota-used", "get-quota", "get-tag-quota"} {
 		section := genDocsSection(t, string(data), op)
 		if !strings.Contains(section, "<redacted>") {
 			t.Errorf("%s section is missing the redaction note:\n%s", op, section)
 		}
+	}
+	zones := genDocsSection(t, string(data), "list-zones")
+	for _, want := range []string{"Go field names", "unknown fields", "null"} {
+		if !strings.Contains(zones, want) {
+			t.Errorf("zone section missing %q: %s", want, zones)
+		}
+	}
+	if strings.Contains(zones, "<redacted>") {
+		t.Errorf("typed zones retain map-redaction note: %s", zones)
 	}
 }
 
