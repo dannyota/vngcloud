@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.78.0 - Native vStorage Object Transfers
+
+- SDK `storage.NewObjectClient`, `PutObject`, and `GetObject` transfer arbitrary
+  binary objects with explicit in-memory S3 credentials and region.
+- CLI `storage put-object` and `storage get-object` transfer regular files on
+  Linux and macOS using a private `--s3-credentials-file`. Output contains
+  metadata; object bytes stay in files. Management authentication is separate.
+- Uploads create only by default. Remote or local replacement requires
+  `--replace --yes`. Read-only mode blocks uploads and permits downloads.
+- Uploads are capped at 5,000,000,000 bytes. Downloads have a configurable
+  finite bound. Transfers default to a five-minute deadline. Uploads use a
+  private snapshot; downloads publish only after complete local writes.
+- HCM04 supports create-only uploads. HAN02 supports downloads and explicit
+  replacement; create-only uploads remain disabled pending server evidence.
+- An unconfirmed upload may already exist. Download to a fresh path and compare
+  byte length and SHA256 before retrying. No transfer retries automatically.
+  ETag remains opaque; a local digest does not verify a remote checksum.
+- Listing, HEAD, append, delete, sync, multipart uploads, and presigned URLs
+  remain outside the native transfer surface. See [object transfer guidance](
+  docs/wiki/Storage-Objects.md).
+
 ## v0.77.0 - Typed Portal Zones
 
 ### Breaking changes

@@ -25,8 +25,8 @@ rests on are in [vStorage: API](storage-api.md), with their sources.
 - Resizing a project. Project prices, purchase, and deletion have their
   own [vStorage projects design](storage-projects.md).
 - The management client does not transfer objects. Native upload and
-  download have a separate [accepted design](storage-objects.md), with
-  implementation pending.
+  download use a separate `ObjectClient` under the
+  [object-transfer design](storage-objects.md).
   Directories and presigned URLs remain outside this management design.
 - Lifecycle, object lock, notifications, ACLs, IP range ACLs,
   usage alerts, reports, the Swift farm (`HCM03`), and Swift users.

@@ -2,11 +2,13 @@
 
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages projects, buckets, S3 keys, IAM key attachments,
-regions, bucket policies, versioning, encryption, and CORS. Use an S3 client
-with an S3 key to read or write objects.
+regions, bucket policies, versioning, encryption, and CORS. Native object
+transfers use the separate `storage.NewObjectClient`; see
+[Storage Objects](Storage-Objects.md).
 
-`storage` calls the vStorage console API, which GreenNode does not document.
-It may change without notice.
+The `storage.New(cfg)` management client calls the vStorage console API, which
+GreenNode does not document. It may change without notice. The separate
+`storage.NewObjectClient` uses the S3 object data plane.
 
 ## Setup
 
@@ -240,11 +242,11 @@ a `UserKeyID` it does not know, and a repeat delete of a deleted key as
 envelope code `114` (`Could not delete s3 keys. InvalidAccessKeyId`), not
 `ErrNotFound`.
 
-A key works on the data plane. With the AWS CLI, put the access key and
-secret in a credentials file and point `AWS_SHARED_CREDENTIALS_FILE` at it,
-then use the endpoint from `Region.S3Host` and the region name:
-
-Use `AWS_DEFAULT_REGION=HCM04` and `--endpoint-url` with the S3 host.
+A key works on the S3 data plane. Use the native
+[Storage Objects](Storage-Objects.md) guide for this project's SDK and CLI
+transfers. Other S3 clients can use the endpoint from `Region.S3Host` and the
+region name. For example, the AWS CLI uses `AWS_DEFAULT_REGION=HCM04` and
+`--endpoint-url` with the S3 host.
 
 ## Service account keys
 

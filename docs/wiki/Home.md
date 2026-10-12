@@ -36,6 +36,8 @@ rename; the module keeps the `vngcloud` name.
   deleting log alarms.
 - [Storage](Storage.md): vStorage regions, projects, buckets, S3 keys, and
   bucket settings, including bucket and key writes.
+- [Storage Objects](Storage-Objects.md): native SDK and CLI binary object
+  uploads and downloads.
 - [Storage: Projects](Storage-Projects.md): package price discovery, purchase,
   deletion, and auto-renew state and updates.
 - [Storage: Bucket Policy](Storage-Bucket-Policy.md): the per-bucket key

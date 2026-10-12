@@ -4,9 +4,10 @@ The CLI commands for [vStorage](storage.md): the command table, the
 per-bucket key setup, and `create-s3-key`. The SDK surface, errors, and
 releases are in that design and [vStorage: keys](storage-keys.md).
 
-Native object upload and download have a separate
-[accepted contract](storage-objects.md#cli-transfers). Implementation is
-pending; they are not part of the shipped command table below.
+Native `storage put-object` and `storage get-object` follow the separate
+[object-transfer contract](storage-objects.md#cli-transfers). They use explicit
+S3 credentials and region, with `--replace --yes` for remote or local
+replacement. The table below covers management commands.
 
 ## Commands
 

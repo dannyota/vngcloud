@@ -77,7 +77,7 @@ create/delete still require SDK IAM-user login in Hanoi. See
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](Container-Registry.md) for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, as in VKS; see [IAM](#iam) below for writes and guards. |
 | Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
-| Storage | `storage` | vStorage regions, projects and price discovery, buckets, settings, S3 keys, bucket and key writes, project purchase, deletion, and auto-renew updates | Typed | Calls an undocumented console API; see [Storage](Storage.md), [Storage-Projects](Storage-Projects.md), and [Storage-Bucket-Settings](Storage-Bucket-Settings.md). |
+| Storage | `storage` | Console management plus native S3 object PUT/GET, vStorage regions, projects, buckets, settings, S3 keys, project purchase, deletion, and auto-renew updates | Typed | Management uses the undocumented console API; native object transfers use explicit S3 credentials. See [Storage](Storage.md), [Storage Objects](Storage-Objects.md), [Storage-Projects](Storage-Projects.md), and [Storage-Bucket-Settings](Storage-Bucket-Settings.md). |
 | VKS | `vks` | Clusters, versions, quota | Typed | [VKS](VKS.md). |
 
 ## Project
@@ -385,10 +385,20 @@ storageClient.ListProjects(ctx, in) // Region (optional; defaults from cfg's reg
 storageClient.ListBuckets(ctx, in)  // ProjectID (required), Region
 storageClient.GetBucket(ctx, in)    // ProjectID (required), Bucket (required), Region
 storageClient.ListS3Keys(ctx, in)   // ProjectID (required), Region
+
+objectClient, err := storage.NewObjectClient(storage.ObjectConfig{
+	Region: "HCM04", Credentials: storage.ObjectCredentials{
+		AccessKeyID: vngcloud.Secret("<access-key-id>"),
+		SecretAccessKey: vngcloud.Secret("<secret-access-key>"),
+	},
+}) // native S3 data plane; credentials stay in memory
 ```
 
-`Region` is a vStorage region name, `HCM04` or `HAN02`. Empty maps `hcm-3`
-to `HCM04` and `han-1` to `HAN02`. `storage` also writes buckets and S3 keys;
+For the `storage.New(cfg)` management calls above, `Region` is a vStorage
+region name, `HCM04` or `HAN02`. Empty maps `hcm-3` to `HCM04` and `han-1` to
+`HAN02`. The native `ObjectConfig.Region` requires the exact value `HCM04` or
+`HAN02`; it does not use the management region defaults. `storage` also
+writes buckets and S3 keys;
 see [Storage](Storage.md) for `CreateBucket`, `DeleteBucket`, `CreateS3Key`,
 and `DeleteS3Key`, the console API's envelope errors, and the state of an
 account with no project.

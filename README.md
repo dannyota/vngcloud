@@ -118,7 +118,7 @@ the linked guides explain supported operations and lead to detailed references.
 | [Load balancers][lb] | Create, resize, pools, listeners, policies, TLS certs |
 | [DNS][dns] | Create, update, and delete private zones and records |
 | [Container registry][registry] | Repositories and repository users |
-| [Storage][storage] | Projects, package price discovery and auto-renew, buckets, S3 keys, policies, bucket settings |
+| [Storage][storage] | Management, native S3 object PUT/GET, projects, buckets, keys, policies and settings |
 | [CDN][cdn] | Web Accelerator updates, enable/disable, analytics, IP ranges |
 | [Monitoring][monitor] | Uptime checks, channels, log projects, alarms |
 | [IAM][iam] | Users, service accounts, policies, groups, access guards |
@@ -128,7 +128,9 @@ the linked guides explain supported operations and lead to detailed references.
 
 Project discovery, account quotas, and global load balancer reads are also
 available. See the [service reference][services] for the full SDK surface.
-Use an S3 client to upload and download vStorage objects.
+Use the native [vStorage object transfer guide][storage-objects] for binary
+file uploads and downloads. Management uses the `storage.New` console client;
+object transfers use the separate `storage.NewObjectClient` S3 client.
 
 ## Scripts and AI agents
 
@@ -189,6 +191,7 @@ Licensed under [Apache 2.0](LICENSE).
 [dns]: https://github.com/dannyota/vngcloud/wiki/DNS
 [registry]: https://github.com/dannyota/vngcloud/wiki/Container-Registry
 [storage]: https://github.com/dannyota/vngcloud/wiki/Storage
+[storage-objects]: https://github.com/dannyota/vngcloud/wiki/Storage-Objects
 [cdn]: https://github.com/dannyota/vngcloud/wiki/CDN
 [monitor]: https://github.com/dannyota/vngcloud/wiki/Monitor
 [iam]: https://github.com/dannyota/vngcloud/wiki/IAM

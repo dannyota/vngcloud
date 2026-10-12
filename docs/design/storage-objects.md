@@ -1,7 +1,7 @@
 # vStorage object transfers
 
-Status: Accepted. The owner approved the five decisions below after independent
-design review. SDK and CLI implementation is pending.
+Status: Implemented. The SDK and CLI provide the accepted transfer surface.
+HAN02 create-only PUT remains gated on conditional-write evidence.
 
 Upload and download arbitrary binary object files through the SDK and CLI. Each
 file becomes one object under a caller-chosen key. Logs are one use case; the
@@ -80,7 +80,8 @@ and `--key` select the object.
 
 ## Public SDK
 
-Keep `storage.Client` and `storage.New(vngcloud.Config)` unchanged. Add:
+`storage.Client` and `storage.New(vngcloud.Config)` remain unchanged. The
+separate object client exposes:
 
 ```go
 type ObjectCredentials struct {
@@ -200,7 +201,7 @@ arbitrary blocking reader cannot be forcibly cancelled safely.
 
 ## CLI transfers
 
-These examples describe the accepted commands. They are not implemented:
+Upload and download a binary file with explicit S3 credentials and region:
 
 ```sh
 vngcloud storage put-object --s3-region HCM04 \
@@ -345,10 +346,10 @@ Ship the SDK, commands, generated CLI reference, and wiki together only when the
 [evidence and tests](storage-objects-api.md#required-tests) pass. Document setup
 using the existing per-bucket key, binary-file examples, permissions, limits,
 read-only behavior, local/remote replacement, ambiguous writes, and the checksum
-limits in `docs/wiki/Storage.md` and generated `docs/wiki/CLI-Storage.md`.
-Update the storage package comment and root coverage docs when commands actually
-ship. Release notes describe the added surface and its limits without claiming a
-full S3 implementation.
+limits in `docs/wiki/Storage-Objects.md` and generated
+`docs/wiki/CLI-Storage.md`. The storage package comment, root coverage docs, and
+release notes describe the added surface without claiming a full S3
+implementation.
 
 Owner contract approval grants no live-run, storage-cost, or cleanup authority.
 When live evidence is needed, the manager obtains approval for a run against

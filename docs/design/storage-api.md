@@ -272,9 +272,8 @@ store, which it cannot create keys in.
 ## Data plane
 
 The data plane is S3-compatible (Signature V4, path-style, regions `HCM04`
-and `HAN02`, HTTPS only). The shipped SDK covers the management plane.
-Native object transfers have an [accepted contract](storage-objects.md),
-with implementation pending;
+and `HAN02`, HTTPS only). The SDK has separate management and object
+clients. Native PUT/GET follow the [object-transfer contract](storage-objects.md);
 [its evidence](storage-objects-api.md) separates HCM04 observations from
 unverified regional behavior. The wiki recommends **rclone**: GreenNode
 documents its setup, and it ships as one static binary with a plain S3

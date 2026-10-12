@@ -31,7 +31,7 @@ command: `put-bucket-policy` gains the `--yes` rule for a public principal
 
 Decisions 1 to 50 are approved except where a decision names its replacement.
 The five [object-transfer decisions](storage-objects.md#owner-decisions)
-are approved; implementation is pending.
+are implemented, with HAN02 create-only PUT gated on evidence.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -50,7 +50,8 @@ are approved; implementation is pending.
 9. Approved: `DeleteBucket` refuses a bucket with objects; no force option.
 10. Approved: `--yes` when making a bucket public.
 11. Approved: native SDK and CLI object reads and writes follow the
-    [object-transfer design](storage-objects.md). Implementation is pending.
+    [object-transfer design](storage-objects.md). HAN02 create-only PUT remains
+    gated on conditional-write evidence.
     Rclone remains guidance for transfer features outside the native slice.
 12. Approved: the release order above.
 13. Approved: every storage call except `ListRegions` sends both

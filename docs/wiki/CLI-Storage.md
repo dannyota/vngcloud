@@ -266,6 +266,27 @@ Kind: Read.
 vngcloud storage get-bucket-versioning --project-id <project-id> --bucket <bucket>
 ```
 
+## get-object
+
+Kind: Read, local replacement requires --yes.
+
+Require explicit --s3-region HCM04 or HAN02 and --s3-credentials-file with a private [default] AWS-format access-key pair. Ignore management region, project, auth and ambient S3 credentials. Explicit --region and --project-id are refused. Linux and macOS only. No --cli-input-json, stdin, stdout bytes, '-' or file:// paths. --output and --query select metadata only: Bucket, Key, ContentLength, SHA256 and ETag; downloads add Destination. The whole transfer deadline defaults to 5m; --transfer-timeout accepts 1s through 1h. --replace requires --yes; --yes alone preserves the default protection. No automatic retry follows a failed transfer or completed-transfer output failure. Download to required --destination in a trusted existing directory. Default publication never clobbers an occupied path. --replace --yes atomically replaces a regular local file only. Read-only permits download. --max-download-bytes defaults to 5000000000, accepts positive values through 9223372036854775806, and never permits unlimited downloads. Publish only after clean EOF, sync and close. Published cleanup errors preserve the completed file and name local cleanup. ETag is opaque; SHA256 describes received bytes, not an independent remote checksum.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--bucket` | `string` | yes |
+| `--destination` | `string` | yes |
+| `--key` | `string` | yes |
+| `--max-download-bytes` | `int64` |  |
+| `--replace` | `bool` |  |
+| `--s3-credentials-file` | `string` | yes |
+| `--s3-region` | `string` | yes |
+| `--transfer-timeout` | `duration` |  |
+
+```sh
+vngcloud storage get-object --s3-region HCM04 --s3-credentials-file ./storage.credentials --bucket app-files --key archives/bundle.bin --destination ./downloaded.bin
+```
+
 ## get-project-auto-renew
 
 Kind: Read.
@@ -439,6 +460,26 @@ Kind: Write.
 
 ```sh
 vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true
+```
+
+## put-object
+
+Kind: Write, replacement requires --yes.
+
+Require explicit --s3-region HCM04 or HAN02 and --s3-credentials-file with a private [default] AWS-format access-key pair. Ignore management region, project, auth and ambient S3 credentials. Explicit --region and --project-id are refused. Linux and macOS only. No --cli-input-json, stdin, stdout bytes, '-' or file:// paths. --output and --query select metadata only: Bucket, Key, ContentLength, SHA256 and ETag; downloads add Destination. The whole transfer deadline defaults to 5m; --transfer-timeout accepts 1s through 1h. --replace requires --yes; --yes alone preserves the default protection. No automatic retry follows a failed transfer or completed-transfer output failure. Upload one completed regular file through required --body, with a 5000000000-byte cap and private snapshot disk use. Default PUT creates only and refuses an existing key. HAN02 create-only PUT is unavailable; HAN02 permits explicit --replace --yes. Read-only refuses upload before credentials or body access. An unconfirmed write requires download and byte-length/SHA256 comparison before retrying. ETag is opaque; SHA256 describes local bytes, not verified remote content.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--body` | `string` | yes |
+| `--bucket` | `string` | yes |
+| `--key` | `string` | yes |
+| `--replace` | `bool` |  |
+| `--s3-credentials-file` | `string` | yes |
+| `--s3-region` | `string` | yes |
+| `--transfer-timeout` | `duration` |  |
+
+```sh
+vngcloud storage put-object --s3-region HCM04 --s3-credentials-file ./storage.credentials --bucket app-files --key archives/bundle.bin --body ./bundle.bin
 ```
 
 ## put-project-auto-renew

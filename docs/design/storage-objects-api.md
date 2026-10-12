@@ -1,6 +1,6 @@
 # vStorage object transfer protocol and evidence
 
-Status: Accepted. Implementation is pending. This specification supports
+Status: Implemented. This specification supports
 [vStorage object transfers](storage-objects.md). Public S3 documentation
 specifies signing and REST shapes; it does not establish that GreenNode
 implements every S3 behavior. No new live results are claimed here.
@@ -304,8 +304,8 @@ Reuse raw, sanitized protocol fixtures only with their provenance stated. Label
 synthetic adversarial replies as synthetic; do not manufacture live captures.
 Existing JSON management fixtures do not prove S3 XML parsing. Run normal
 repository checks and the focused transfer/security tests under an independently
-reviewed implementation plan. No tests in this document have been run as part of
-writing the design.
+reviewed implementation plan. Native macOS and Windows runtime checks require
+those hosts; cross-compilation does not prove filesystem behavior.
 
 ## Release evidence
 
