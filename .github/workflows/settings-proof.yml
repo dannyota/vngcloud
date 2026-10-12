@@ -1,0 +1,23 @@
+name: Settings proof unpinned action
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  unpinned:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Probe required full SHA pin
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Diagnose unexpected execution
+        shell: bash
+        run: printf '%s\n' 'UNEXPECTED_UNPINNED_EXECUTION'
