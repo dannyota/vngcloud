@@ -25,7 +25,7 @@ Every write API needs tests for its request body, success response, and each doc
 |Document move or rewrite|`git diff --check`, `bash scripts/check-lengths.sh`, source-to-destination coverage, and local link/anchor inspection|
 |Release|Green CI on the exact commit under [release](release.md#release-gates)|
 
-CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, vulnerability scans, and full-history gitleaks. Eligible PRs, master pushes, and manual runs execute connected Semgrep Pro Code, Supply Chain, and Secrets scans under the trigger rules below. Keep these gates. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required validation run does not pass. Review-only work is optional and cannot replace or waive an actual validation run.
+CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, vulnerability scans, and full-history gitleaks. Full-history gitleaks scans secrets. Eligible PRs, master pushes, and manual runs execute connected Semgrep Pro Code and Supply Chain scans under the trigger rules below. Keep these gates. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required validation run does not pass. Review-only work is optional and cannot replace or waive an actual validation run.
 
 ## Workflow triggers
 

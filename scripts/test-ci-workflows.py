@@ -25,7 +25,7 @@ IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
-SCAN = "semgrep ci --code --supply-chain --secrets --no-suppress-errors"
+SCAN = "semgrep ci --code --supply-chain --no-suppress-errors"
 TRUST_DIRECTORY = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"'
 GO_COMMANDS = {
     "python3 scripts/test-ci-workflows.py", "go test -race ./...",
@@ -383,6 +383,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_semgrep_failure_trust_and_mutations(self):
         workflow = self.workflows["semgrep"]
+        self.assertNotIn("--secrets", workflow["jobs"]["semgrep"]["steps"][-1]["run"].split())
         script = scanner_policy(workflow)
         for trusted, token, expected in (("true", "synthetic", 0), ("true", "", 1),
                                          ("false", "synthetic", 1), ("false", "", 1)):

@@ -41,8 +41,8 @@ tools-outdated: ## Fail when Go, a pinned tool, or a GitHub Action has a newer r
 semgrep: ## Offline Semgrep scan with registry packs; CI runs the connected scan
 	@semgrep --config p/golang --config p/gosec --config p/secrets --error .
 
-semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI runs it; needs SEMGREP_APP_TOKEN
-	@semgrep ci --code --supply-chain --secrets --no-suppress-errors
+semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain), as CI runs it; needs SEMGREP_APP_TOKEN
+	@semgrep ci --code --supply-chain --no-suppress-errors
 
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive ./livetest/
