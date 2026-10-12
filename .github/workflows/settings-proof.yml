@@ -1,0 +1,19 @@
+name: Settings proof action allowlist
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions: {}
+
+jobs:
+  nonallowlisted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Probe action repository allowlist
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # release v9.0.0
+        with:
+          debug: false
+          retries: 0
+          script: console.log('UNEXPECTED_NONALLOWLISTED_EXECUTION');
