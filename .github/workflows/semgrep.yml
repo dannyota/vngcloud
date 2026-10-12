@@ -54,7 +54,7 @@ jobs:
       - name: Require a trusted connected scan
         env:
           TRUSTED_SOURCE: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SEMGREP_APP_TOKEN: ''
         run: |
           if [ "$TRUSTED_SOURCE" != true ]; then
             echo "Connected Semgrep requires a reviewed same-repository branch" >&2
