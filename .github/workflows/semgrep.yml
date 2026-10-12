@@ -64,4 +64,4 @@ jobs:
             echo "Connected Semgrep requires SEMGREP_APP_TOKEN" >&2
             exit 1
           fi
-          semgrep ci --code --supply-chain --secrets --no-suppress-errors
+          python3 -I scripts/semgrep-connected.py

@@ -25,6 +25,10 @@ Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.
 
 `govulncheck`, gitleaks, and Semgrep run in CI. Connected Semgrep Pro checks Code, Supply Chain, and Secrets for eligible PRs, master pushes, and manual runs under [workflow triggers](testing.md#workflow-triggers). `make semgrep` is the local offline scan command. Keep scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
 
+The pinned connected CLI can exit zero after requesting all three products while the remote enabled-products record omits Secrets and the scan-status header has no regular Secrets rules. Requested flags, Pro engine selection, aggregate rules, and zero findings do not establish product coverage. [The connected wrapper](../scripts/semgrep-connected.py) preserves scanner failures and requires exactly one valid remote enabled-products record containing Code, Supply Chain, and Secrets plus one scan-status header with positive regular rule counts for every product. Missing, malformed, duplicate, contradictory, or zero-rule evidence fails closed. Zero targets still require explicit rule evidence.
+
+The wrapper captures scanner output in bounded memory, emits only fixed diagnostic labels and product counts, and stops and reaps children on failure, cancellation, or a byte or time limit. Output-format changes can fail the gate and need pinned source evidence before parser changes. The local check does not enable a remote product or establish account entitlement or connected blocking policy. The manager must resolve product settings and entitlement with the owner, then obtain exact-head connected coverage and separate finding-enforcement evidence.
+
 Suppress only a verified false positive. For Semgrep, put `// nosemgrep: <full-rule-id>` on the flagged line using the full ID from `semgrep --json`; short IDs do not match. Put the reason in an adjacent comment. [Go](go.md#formatting-and-comments) owns the zero-lint and same-line `nolint` reason rules.
 
 ## Adversarial review

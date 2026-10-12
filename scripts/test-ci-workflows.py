@@ -25,10 +25,10 @@ IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
-SCAN = "semgrep ci --code --supply-chain --secrets --no-suppress-errors"
+SCAN = "python3 -I scripts/semgrep-connected.py"
 TRUST_DIRECTORY = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"'
 GO_COMMANDS = {
-    "python3 scripts/test-ci-workflows.py", "go test -race ./...",
+    "python3 scripts/test-ci-workflows.py", "python3 scripts/test-semgrep-connected.py", "go test -race ./...",
     "go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...",
     "go mod tidy\ngit diff --exit-code -- go.mod go.sum",
     "bash scripts/check-lengths.sh", "bash scripts/check-sdk-deps.sh",
@@ -144,6 +144,8 @@ def aggregate_policy(workflow):
 def scanner_policy(workflow):
     job = workflow["jobs"]["semgrep"]
     controls(job)
+    assert len(job["steps"]) == 4, "unguarded scanner step"
+    assert job["timeout-minutes"] == "15"
     assert job["container"]["image"] == "semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3"
     assert job["steps"][0]["with"]["fetch-depth"] == "0"
     trust = job["steps"][1]
@@ -157,7 +159,16 @@ def scanner_policy(workflow):
                             "SEMGREP_APP_TOKEN": "${{ secrets.SEMGREP_APP_TOKEN }}"}
     assert "env" not in job
     assert all("SEMGREP_APP_TOKEN" not in s.get("env", {}) for s in job["steps"][:-1])
-    assert step["run"].strip().splitlines()[-1] == SCAN, "scanner failure suppression"
+    expected = '''if [ "$TRUSTED_SOURCE" != true ]; then
+  echo "Connected Semgrep requires a reviewed same-repository branch" >&2
+  exit 1
+fi
+if [ -z "$SEMGREP_APP_TOKEN" ]; then
+  echo "Connected Semgrep requires SEMGREP_APP_TOKEN" >&2
+  exit 1
+fi
+''' + SCAN
+    assert step["run"].strip() == expected, "scanner coverage or failure bypass"
     return step["run"]
 
 
@@ -338,6 +349,13 @@ class WorkflowTests(unittest.TestCase):
         make = (ROOT / "Makefile").read_text()
         self.assertRegex(make, r"(?m)^check: .*ci-workflows-check")
         self.assertIn("python3 scripts/test-ci-workflows.py", make)
+        self.assertRegex(make, r"(?m)^check: .*semgrep-connected-check")
+        self.assertIn("python3 scripts/test-semgrep-connected.py", make)
+        self.assertRegex(make, r"(?m)^semgrep-ci:.*\n\t@python3 -I scripts/semgrep-connected.py$")
+        self.rejected(ci_gates, ci,
+                      lambda w: w["jobs"]["go"]["steps"].remove(next(
+                          s for s in w["jobs"]["go"]["steps"]
+                          if s.get("run") == "python3 scripts/test-semgrep-connected.py")))
 
     def test_aggregate_controls_and_mutations(self):
         ci = self.workflows["ci"]
@@ -371,10 +389,18 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(shell(script, NEEDS_JSON=json.dumps(needs), EXPECTED_SHA="head").returncode == 0, accepted)
         self.assertNotEqual(shell(script, NEEDS_JSON="{", EXPECTED_SHA="head").returncode, 0)
 
-    def scan_result(self, script, trusted, token, exit_code):
+    def scan_result(self, script, trusted, token, exit_code, products=True):
         with tempfile.TemporaryDirectory() as temp:
             scanner = Path(temp) / "semgrep"
-            scanner.write_text('#!/bin/sh\ntouch "$SCAN_MARKER"\nexit "$SCAN_EXIT"\n')
+            output = ("  Enabled products: Code, Supply Chain, Secrets\n"
+                      "┌─────────────┐\n│ Scan Status │\n└─────────────┘\n"
+                      "Scanning 19 files tracked by git with 3 Code rules, 2 Secrets rules, 4 Supply Chain rules:\n")
+            if not products:
+                output = output.replace(", Secrets", "").replace("2 Secrets rules, ", "")
+            scanner.write_text(f'#!{sys.executable}\nimport os, sys\n'
+                               'from pathlib import Path\nPath(os.environ["SCAN_MARKER"]).touch()\n'
+                               f'sys.stdout.write({output!r})\n'
+                               'sys.exit(int(os.environ["SCAN_EXIT"]))\n')
             scanner.chmod(0o700)
             marker = Path(temp) / "scanned"
             result = shell(script, TRUSTED_SOURCE=trusted, SEMGREP_APP_TOKEN=token,
@@ -396,11 +422,21 @@ class WorkflowTests(unittest.TestCase):
         result, scanned = self.scan_result(script, "true", "synthetic", 23)
         self.assertTrue(scanned)
         self.assertEqual(result.returncode, 23)
+        result, scanned = self.scan_result(script, "true", "synthetic", 0, products=False)
+        self.assertTrue(scanned)
+        self.assertEqual(result.returncode, 1)
         # The same failing stub exposes the formerly accepted shell suppression.
         self.assertEqual(self.scan_result(script.rstrip() + " || true\n", "true", "synthetic", 23)[0].returncode, 0)
         for field, value in (("run", script.rstrip() + " || true\n"), ("continue-on-error", "true"),
                              ("if", "github.event_name == 'push'"), ("shell", "bash {0}")):
             self.rejected(scanner_policy, workflow, lambda w, f=field, v=value: w["jobs"]["semgrep"]["steps"][-1].update({f: v}))
+        direct = "semgrep ci --code --supply-chain --secrets --no-suppress-errors"
+        for bypass in (direct, SCAN + " || " + direct, SCAN + "\n" + direct):
+            self.rejected(scanner_policy, workflow,
+                          lambda w, b=bypass: w["jobs"]["semgrep"]["steps"][-1].update(
+                              run=script.replace(SCAN, b)))
+        self.rejected(scanner_policy, workflow,
+                      lambda w: w["jobs"]["semgrep"]["steps"].append({"run": direct}))
         self.rejected(scanner_policy, workflow,
                       lambda w: w["jobs"]["semgrep"]["steps"][-1]["env"].update(TRUSTED_SOURCE="${{ true }}"))
         for field, value in (("continue-on-error", "true"), ("if", "github.event_name == 'push'")):

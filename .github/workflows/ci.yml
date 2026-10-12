@@ -54,6 +54,8 @@ jobs:
           restore-keys: go-race-
       - name: Workflow policy regressions
         run: python3 scripts/test-ci-workflows.py
+      - name: Connected Semgrep coverage regressions
+        run: python3 scripts/test-semgrep-connected.py
       - run: go test -race ./...
       - if: ${{ !cancelled() }}
         run: go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...

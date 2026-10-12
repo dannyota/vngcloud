@@ -1,14 +1,17 @@
-.PHONY: help check ci-workflows-check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
+.PHONY: help check ci-workflows-check semgrep-connected-check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
 
 SHELL := bash
 
 help: ## Show this help
 	@bash -c "grep '^[a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | sort | sed 's/:.*## /\t/'"
 
-check: test vet lint lengths-check ci-workflows-check ## Run every local check; run before each commit
+check: test vet lint lengths-check ci-workflows-check semgrep-connected-check ## Run every local check; run before each commit
 
 ci-workflows-check: ## Check workflow triggers, source identity, and validation gates
 	@python3 scripts/test-ci-workflows.py
+
+semgrep-connected-check: ## Check connected product coverage with synthetic children
+	@python3 scripts/test-semgrep-connected.py
 
 test: ## Run tests
 	@go test -race ./...
@@ -42,7 +45,7 @@ semgrep: ## Offline Semgrep scan with registry packs; CI runs the connected scan
 	@semgrep --config p/golang --config p/gosec --config p/secrets --error .
 
 semgrep-ci: ## Connected Semgrep Pro scan (Code, Supply Chain, Secrets), as CI runs it; needs SEMGREP_APP_TOKEN
-	@semgrep ci --code --supply-chain --secrets --no-suppress-errors
+	@python3 -I scripts/semgrep-connected.py
 
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive ./livetest/
