@@ -942,3 +942,20 @@ func TestExitCodeObjectStatusContext(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyDeleteAmbiguity(t *testing.T) {
+	for _, cause := range []error{vngcloud.ErrAuth, vngcloud.ErrNotFound, context.Canceled, context.DeadlineExceeded} {
+		err := errors.Join(storage.ErrObjectDeleteUnconfirmed, &vngcloud.APIError{Operation: "storage.DeleteObject", StatusCode: 404, Code: "UnsafeCode", Err: cause})
+		got := classify(err)
+		if got.Code != "ObjectDeleteUnconfirmed" || got.Message != storage.ErrObjectDeleteUnconfirmed.Error() || got.Operation != "storage.DeleteObject" || got.Status != 404 {
+			t.Fatalf("envelope=%+v", got)
+		}
+	}
+}
+func TestExitCodeDeleteAmbiguity(t *testing.T) {
+	for _, cause := range []error{vngcloud.ErrAuth, vngcloud.ErrNotFound, context.Canceled, context.DeadlineExceeded} {
+		if got := exitCode(errors.Join(storage.ErrObjectDeleteUnconfirmed, cause)); got != 1 {
+			t.Fatalf("exit=%d cause=%v", got, cause)
+		}
+	}
+}

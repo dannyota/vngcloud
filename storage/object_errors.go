@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -19,7 +20,20 @@ var (
 	ErrObjectExists = errors.New("storage: object already exists")
 	// ErrObjectWriteUnconfirmed reports a write that may have reached storage.
 	ErrObjectWriteUnconfirmed = errors.New("storage: object write is unconfirmed; download and compare before retrying")
+	// ErrObjectDeleteUnconfirmed reports a deletion that may have reached storage.
+	ErrObjectDeleteUnconfirmed = errors.New("storage: object delete is unconfirmed; inspect the current key and version history before deciding whether to delete again")
 )
+
+func unconfirmedObjectDelete(err error) error {
+	api := objectAPIError("storage.DeleteObject", 0, "RequestFailed", err)
+	var source *vngcloud.APIError
+	if errors.As(err, &source) {
+		// Rebuild printable fields and causes; never retain a raw error chain.
+		api = objectAPIError("storage.DeleteObject", source.StatusCode, source.Code, err)
+	}
+	api.Retryable = false
+	return fmt.Errorf("%w: %w", ErrObjectDeleteUnconfirmed, api)
+}
 
 func (c *ObjectClient) filterObjectMetadata(value string, maxBytes int) string {
 	if maxBytes < 0 || len(value) > maxBytes || !utf8.ValidString(value) || objectHasControls(value) {
@@ -33,7 +47,7 @@ func (c *ObjectClient) filterObjectMetadata(value string, maxBytes int) string {
 
 func objectAPIError(op string, status int, code string, cause error) *vngcloud.APIError {
 	// Only local operations and codes may enter the shared printable error.
-	if op != "storage.PutObject" && op != "storage.GetObject" && op != "storage.ListObjects" && op != "storage.HeadObject" {
+	if op != "storage.PutObject" && op != "storage.GetObject" && op != "storage.ListObjects" && op != "storage.HeadObject" && op != "storage.DeleteObject" {
 		op = "storage.Object"
 	}
 	message := "object request failed"

@@ -470,7 +470,7 @@ func TestStorageObjectOperationsDocs(t *testing.T) {
 			t.Fatal("help differs from reference")
 		}
 	}
-	for _, name := range []string{"delete-object", "copy-object", "move-object", "rename-object"} {
+	for _, name := range []string{"copy-object", "move-object", "rename-object"} {
 		cmd, _, _ := root.Find([]string{"storage", name})
 		if cmd != nil && cmd.Name() == name {
 			t.Fatalf("registered %s", name)

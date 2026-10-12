@@ -1113,3 +1113,35 @@ func TestGenDocsStorageObjectOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestGenDocsDeleteObject(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Storage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "## delete-object\n")
+	if start < 0 {
+		t.Fatal("missing delete-object documentation")
+	}
+	section := strings.SplitN(text[start:], "\n## ", 2)[0]
+	for _, want := range []string{"| `--bucket` | `string` | yes |", "| `--key` | `string` | yes |", "| `--s3-region` | `string` | yes |", "| `--s3-credentials-file` | `string` | yes |", "Kind: Write", "--yes", "--s3-region", "--s3-credentials-file", "--bucket", "--key", "DeleteMarker", "VersionID", "concurrent", "versioning", "prior existence", "204", "inspect", "No --cli-input-json"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(text, "## move-object") || strings.Contains(text, "## copy-object") {
+		t.Fatal("future mutation exposed")
+	}
+	root, err := os.ReadFile(filepath.Join(dir, "CLI.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(root), "ObjectDeleteUnconfirmed") {
+		t.Fatal("missing DELETE recovery code")
+	}
+}

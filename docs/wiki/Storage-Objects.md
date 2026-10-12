@@ -1,7 +1,7 @@
 # Storage Objects
 
 Use `storage.NewObjectClient` for native S3 transfers, one-page listing, and
-HEAD metadata. The existing
+HEAD metadata, and current-name deletion. The existing
 `storage.New(cfg)` client manages vStorage projects, buckets, keys, policies,
 and settings through the console API. The object client uses a separate S3
 data plane and never loads IAM credentials or a management client.
@@ -29,7 +29,8 @@ The CLI and SDK require the exact S3 region `HCM04` or `HAN02`. They select
 management settings do not select the S3 region. The S3 key scopes the project.
 
 The S3 permission baseline is `s3:PutObject` for upload, `s3:GetObject` for
-download or HEAD, and `s3:ListBucket` on the bucket for listing. Recorded
+download or HEAD, `s3:ListBucket` on the bucket for listing, and
+`s3:DeleteObject` for deletion. Recorded
 provider tests use broader grants and do not prove every minimal-action
 combination. No IAM login or ambient credential chain is used. The CLI
 requires the explicit credential file; SDK callers pass both credentials in
@@ -146,6 +147,91 @@ Exit codes are 0 for success, 2 for usage/config/input refusal, 3 for
 credential failures or HTTP 401, 4 for returned HTTP 404, and 1 for HTTP 403
 or other failures. A query or stdout failure after success exits 1 and says
 the operation completed. It never resends the operation.
+
+## Current-name deletion
+
+Delete one exact current object name with explicit destructive consent:
+
+```sh
+vngcloud storage delete-object --s3-region HCM04 \
+  --s3-credentials-file ./storage.credentials \
+  --bucket app-files --key archives/bundle.tar.gz --yes
+```
+
+`--yes` is required. Read-only from `--read-only`, `VNGCLOUD_READ_ONLY`, or
+profile `read_only` blocks deletion before the credentials file opens. A false
+value in one source cannot disable another source's read-only policy. Usage,
+output, query syntax, and profile checks also run before credentials or client
+construction. `--profile` selects local output and policy settings only.
+
+Require explicit `--s3-region`, `--s3-credentials-file`, `--bucket`, and
+`--key`.
+The command uses the private credential reader described above, ignores
+management and ambient S3 credentials, and makes no IAM, management, cache,
+subprocess, HEAD, GET, or list call. Linux and macOS are supported. There is no
+body, destination, replacement, version selector, precondition, MFA, retention
+bypass, or `--cli-input-json` option. The exact UTF-8 key accepts 1 through
+1,024 bytes, including literal slash and percent sequences. The whole-operation
+`--transfer-timeout` defaults to five minutes and accepts one second through
+one hour; an earlier caller deadline wins.
+
+`--output` and `--query` select metadata only: `Bucket`, `Key`, `DeleteMarker`,
+and `VersionID`. Echoed bucket and key values are redacted against both
+credentials, and the renderer escapes key controls. An absent or filtered
+marker is JSON null; a safe marker can be true or false. An absent or filtered
+version is an empty string. No object content or progress goes to stdout.
+Debug output contains only operation, elapsed time, status, byte count, and a
+local error code. Confirmed deletion reports status 204 and zero content bytes.
+
+DELETE targets the current name unconditionally. It has no protection against
+concurrent writers and can remove a new object written at the same name. HTTP
+204 confirms accepted deletion, even for a missing name; it does not prove
+prior existence, permanent erasure, reclaimed quota, or an empty bucket.
+Optional marker and version observations do not prove those facts either.
+
+With enabled versioning, deletion can add a delete marker while retaining
+older versions. With suspended versioning, it can remove the null version and
+add a marker while retaining numbered versions. Repetition can delete newly
+written data or add another marker. The command offers no exact-version
+removal or permanent-erasure guarantee.
+
+The SDK uses the same unconditional operation with in-memory credentials:
+
+```go
+result, err := client.DeleteObject(ctx, &storage.DeleteObjectInput{
+    Bucket: "app-files", Key: "archives/bundle.tar.gz",
+})
+if errors.Is(err, storage.ErrObjectDeleteUnconfirmed) {
+    // Inspect the current key and version history before another deletion.
+    return err
+}
+if err != nil {
+    return err
+}
+_ = result
+```
+
+The SDK returns only optional `DeleteMarker` and `VersionID`; every failure
+returns nil output. Each invocation sends at most one DELETE with no retry,
+rollback, or verification request. `s3:DeleteObject` is the action requirement.
+The client needs no prior read or console grant, but recorded tests used broader
+grants and do not prove a minimal permission combination. HCM04 has recorded
+deletion behavior; HAN02 relies on published S3 compatibility. No fresh live
+verification or conditional-delete guarantee is implied.
+
+Exit codes are 0 for success, 2 for usage/config/input/read-only/consent
+refusal, 3 for credentials or HTTP 401, 4 for returned HTTP 404, and 1 for HTTP
+403 or other failures. Cancellation or deadline anywhere in an ordinary error
+chain exits 1. `ObjectDeleteUnconfirmed` always exits 1 ahead of wrapped auth,
+not-found, or context errors. Its fixed recovery advice is to inspect the
+current key and version history before deciding whether to delete again.
+Inspection is a separate decision using appropriate tools and permissions;
+the CLI performs no recovery read automatically.
+
+A query evaluation or stdout failure after confirmed deletion exits 1 and says
+`delete completed; metadata output failed; do not retry the operation`. The
+client sends no second DELETE. Keep the completed result and inspect before
+any later deletion decision.
 
 ## CLI file transfers
 
@@ -280,8 +366,9 @@ the exact key to a fresh path, then compare its length and SHA256 with the
 intended file before deciding whether to upload again. An HTTP 412 alone does
 not prove that the existing bytes match your upload.
 
-The native feature provides one-object PUT and GET, one-page listing, and
-HEAD metadata. It does not delete, copy, move, append, sync, resume,
+The native feature provides one-object PUT and GET, one-page listing,
+HEAD metadata, and current-name DELETE. Native copy and move remain unavailable
+in this release. It does not append, sync, resume,
 multipart-transfer, or create presigned URLs.
 Use an external S3 tool such as rclone when you need sync or multipart
 transfers. The native SDK and CLI remain separate from those tools.

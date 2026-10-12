@@ -102,7 +102,7 @@ Consume Task 1 header/time/metadata helpers and existing exact-key addressing. A
 - [x] Run `go test ./internal/cli -run 'TestStorageObjectOperations|TestGenDocs' -count=1`; record red failures, implement manual read commands and narrow registration/generator edits, and repeat for PASS.
 - [x] Add compile-only SDK examples for explicit credentials, one-page continuation with unchanged filters, and HEAD metadata; no Output markers or real API invocation. Update README and matching wiki pages in the same slice, removing transfer-only claims only to reflect implemented reads. Explain page bounds, optional omissions, permissions (`s3:ListBucket`, `s3:GetObject`), observed version metadata, credential/platform boundary, published regional compatibility, and lack of cross-page snapshot.
 - [x] Run `make gen-docs`, inspect generated diff, `go test ./internal/cli -run 'TestStorageObjectOperations|TestGenDocs|TestStorageObjects' -count=1`, and `make wiki-preview`; require PASS. Inspect wiki links and anchors; generated pages change only through source. Report exact files and checks.
-- [ ] Manager integrates accepted read tasks, updates release facts/current-state authority, runs `make check`, obtains the complete-slice adversarial review and fix confirmation, and completes the release checklist below before deletion lands.
+- [x] Manager integrates accepted read tasks, updates release facts/current-state authority, runs `make check`, obtains the complete-slice adversarial review and fix confirmation, and completes the release checklist below before deletion lands.
 
 ## Dependent write-release handoffs
 

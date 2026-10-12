@@ -263,3 +263,57 @@ func TestObjectErrorsReadStatusAndContext(t *testing.T) {
 	}
 	assertObjectSafe(t, api, "/private", "synthetic-secret-key")
 }
+
+func TestObjectErrorsDeleteIdentity(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		api := objectAPIError("storage.DeleteObject", 404, "NoSuchKey", errors.Join(cause, errors.New("synthetic-secret-key")))
+		if api.Operation != "storage.DeleteObject" || api.Code != "NoSuchKey" || !errors.Is(api, vngcloud.ErrNotFound) || !errors.Is(api, cause) {
+			t.Fatalf("DELETE identity lost: %v", api)
+		}
+		assertObjectSafe(t, api, "synthetic-secret-key")
+	}
+}
+
+func TestObjectErrorsDeleteUnconfirmed(t *testing.T) {
+	const recovery = "storage: object delete is unconfirmed; inspect the current key and version history before deciding whether to delete again"
+	if ErrObjectDeleteUnconfirmed.Error() != recovery || errors.Is(ErrObjectDeleteUnconfirmed, ErrObjectWriteUnconfirmed) || errors.Is(ErrObjectDeleteUnconfirmed, ErrObjectExists) {
+		t.Fatal("DELETE recovery identity changed")
+	}
+	raw := errors.New("synthetic-secret-key https://private.invalid")
+	for _, status := range []int{0, 401, 403, 404, 412, 429, 500} {
+		for _, cause := range []error{raw, context.Canceled, context.DeadlineExceeded, io.ErrUnexpectedEOF} {
+			source := &vngcloud.APIError{Operation: "malicious-operation", StatusCode: status, Code: "NoSuchKey", Message: raw.Error(), Retryable: true, Err: errors.Join(raw, cause)}
+			err := unconfirmedObjectDelete(fmt.Errorf("malicious outer text: %w", source))
+			var api *vngcloud.APIError
+			if !errors.Is(err, ErrObjectDeleteUnconfirmed) || errors.Is(err, ErrObjectWriteUnconfirmed) || !errors.As(err, &api) || api.Operation != "storage.DeleteObject" || api.StatusCode != status || api.Code != "NoSuchKey" || api.Retryable || api == source || !source.Retryable {
+				t.Fatalf("unsafe DELETE wrapper: %v", err)
+			}
+			if errors.Is(err, raw) {
+				t.Fatal("unsafe cause retained")
+			}
+			if (errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded)) && !errors.Is(err, cause) {
+				t.Fatal("safe context identity lost")
+			}
+			for _, item := range []struct {
+				status   int
+				sentinel error
+			}{{401, vngcloud.ErrAuth}, {403, vngcloud.ErrPermission}, {404, vngcloud.ErrNotFound}, {429, vngcloud.ErrRateLimited}} {
+				if errors.Is(err, item.sentinel) != (status == item.status) {
+					t.Fatal("safe status identity lost")
+				}
+			}
+			assertObjectSafe(t, err, "synthetic-secret-key", "https://private.invalid", "malicious-operation", "malicious outer text")
+			if strings.Contains(fmt.Sprintf("%v", err), "synthetic-secret-key") || !strings.Contains(err.Error(), recovery) || strings.Contains(err.Error(), "download and compare") {
+				t.Fatal("unsafe recovery formatting")
+			}
+		}
+	}
+	for _, cause := range []error{nil, raw, errors.Join(raw, context.Canceled), &vngcloud.APIError{Operation: "evil", Code: "synthetic-secret-key", Message: "synthetic-secret-key", Err: raw}} {
+		err := unconfirmedObjectDelete(cause)
+		var api *vngcloud.APIError
+		if !errors.As(err, &api) || api.Operation != "storage.DeleteObject" || api.Retryable || errors.Is(err, raw) {
+			t.Fatal("raw error retained")
+		}
+		assertObjectSafe(t, err, "synthetic-secret-key", "https://private.invalid")
+	}
+}

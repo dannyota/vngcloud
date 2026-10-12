@@ -320,11 +320,15 @@ func logStorageObject(e *env, operation string, started time.Time, count int64, 
 		if errors.Is(err, storage.ErrObjectWriteUnconfirmed) {
 			code = "ObjectWriteUnconfirmed"
 		}
-		if errors.Is(err, context.Canceled) {
-			code = "Canceled"
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			code = "DeadlineExceeded"
+		if errors.Is(err, storage.ErrObjectDeleteUnconfirmed) {
+			code = "ObjectDeleteUnconfirmed"
+		} else {
+			if errors.Is(err, context.Canceled) {
+				code = "Canceled"
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				code = "DeadlineExceeded"
+			}
 		}
 	}
 	_, _ = fmt.Fprintf(e.stderr, "operation=%s elapsed=%s status=%d bytes=%d code=%s\n", operation, time.Since(started), status, count, code)

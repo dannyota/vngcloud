@@ -372,7 +372,7 @@ func renderCLIPage(services []docService) string {
 
 	b.WriteString("Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).\n\n")
 	b.WriteString("## --cli-input-json\n\n")
-	b.WriteString("Every operation command except `storage put-object` and `storage get-object` and the read commands `storage list-objects` and `storage head-object` also accepts `--cli-input-json '<json>'` or " +
+	b.WriteString("Every operation command except `storage put-object` and `storage get-object`, `storage list-objects`, `storage head-object`, and `storage delete-object` also accepts `--cli-input-json '<json>'` or " +
 		"`--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, " +
 		"matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag " +
 		"given on the same command line is applied after it and wins for that field. Trailing data after the " +
@@ -512,6 +512,7 @@ func renderCLIPage(services []docService) string {
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`BucketNotEmpty`, `UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
+	b.WriteString("`ObjectDeleteUnconfirmed` means DELETE may have removed the current name; inspect the current key and version history before deciding whether to delete again. It exits 1 ahead of wrapped auth, not-found or context errors. Confirmed deletion followed by metadata output failure also exits 1 and says do not retry.\n\n")
 	b.WriteString("`ObjectWriteUnconfirmed` means a PUT may have stored the object; download to a fresh path and compare length and SHA256 before retrying. `ObjectExists` means create-only PUT refused an existing key. `ObjectWriteUnconfirmed` and `ObjectExists` exit 1. Completed-transfer metadata output and local cleanup failures also exit 1 and must not cause a retry.\n\n")
 
 	b.WriteString("## Read-only\n\n")
@@ -590,7 +591,7 @@ func renderServicePage(svc docService) string {
 		fmt.Fprintf(&b, "Kind: %s.\n\n", op.kind)
 		if svc.name == "storage" && (op.name == "put-object" || op.name == "get-object") {
 			fmt.Fprintf(&b, "%s\n\n", storageObjectNotes(op.name == "put-object"))
-		} else if svc.name == "storage" && (op.name == "list-objects" || op.name == "head-object") {
+		} else if svc.name == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object") {
 			fmt.Fprintf(&b, "%s\n\n", storageObjectOperationNotes(op.name))
 		} else if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
 			fmt.Fprintf(&b, "%s\n\n", note)
@@ -630,7 +631,7 @@ func buildExample(service string, op docOp) string {
 	if service == "storage" && (op.name == "put-object" || op.name == "get-object") {
 		return storageObjectExample(op.name == "put-object")
 	}
-	if service == "storage" && (op.name == "list-objects" || op.name == "head-object") {
+	if service == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object") {
 		return storageObjectOperationExample(op.name)
 	}
 	if override, ok := docExampleOverride[service+" "+op.name]; ok {

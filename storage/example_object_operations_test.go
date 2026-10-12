@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"errors"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/storage"
@@ -58,4 +59,33 @@ func ExampleObjectClient_HeadObject() {
 	_ = metadata.ContentLength
 	_ = metadata.Metadata
 	_ = metadata.VersionID
+}
+
+func ExampleObjectClient_DeleteObject() {
+	client, err := storage.NewObjectClient(storage.ObjectConfig{
+		Region: "HCM04",
+		Credentials: storage.ObjectCredentials{
+			AccessKeyID:     vngcloud.Secret("synthetic-access-id"),
+			SecretAccessKey: vngcloud.Secret("synthetic-secret-key"),
+		},
+	})
+	if err != nil {
+		return
+	}
+	// Delete the current name unconditionally. This does not lock out writers;
+	// versioning can retain old versions or add a marker.
+	out, err := client.DeleteObject(context.Background(), &storage.DeleteObjectInput{
+		Bucket: "app-files", Key: "archives/bundle.bin",
+	})
+	if errors.Is(err, storage.ErrObjectDeleteUnconfirmed) {
+		// Inspect the current key and version history before deciding whether
+		// to delete again. Repeating can delete new data or add another marker.
+		return
+	}
+	if err != nil {
+		return
+	}
+	// Acceptance does not prove that the name previously existed.
+	_ = out.DeleteMarker
+	_ = out.VersionID
 }

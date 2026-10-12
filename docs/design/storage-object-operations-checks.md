@@ -1,6 +1,6 @@
 # vStorage object operations checks
 
-Status: ListObjects and HeadObject implemented; deletion and copy pending.
+Status: ListObjects, HeadObject, and DeleteObject implemented; copy pending.
 
 These checks verify the [design](storage-object-operations.md) and
 [protocol](storage-object-operations-api.md). They are mechanism requirements,

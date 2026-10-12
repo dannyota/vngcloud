@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.80.0 - Native vStorage Object Deletion
+
+- SDK `storage.ObjectClient.DeleteObject` and CLI `storage delete-object`
+  delete one current object name. The CLI requires `--yes`; every read-only
+  setting refuses before S3 credentials load.
+- Each invocation sends one unconditional DELETE. HTTP 204 confirms acceptance,
+  without proving prior existence, permanent erasure, or reclaimed quota.
+  Concurrent writers remain unprotected, and versioning can retain data or add
+  a delete marker. No version selector, precondition, retry, or cleanup is added.
+- Ambiguous results return `ErrObjectDeleteUnconfirmed` and CLI
+  `ObjectDeleteUnconfirmed` with exit 1. Inspect the current key and version
+  history before another deletion. Failed metadata output after confirmed
+  success reports completion and never resends.
+- Explicit S3 region and private credentials-file flags, safe metadata output,
+  and the five-minute default timeout remain. No new live verification is
+  claimed. Native copy is a separate release; move/rename remains gated.
+  See [object guidance](docs/wiki/Storage-Objects.md#current-name-deletion).
+
 ## v0.79.0 - Native vStorage Object Reads
 
 - SDK `storage.ObjectClient.ListObjects` and `HeadObject`, plus CLI

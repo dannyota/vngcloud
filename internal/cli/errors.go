@@ -200,6 +200,14 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	if errors.Is(err, storage.ErrObjectDeleteUnconfirmed) {
+		env := errorEnvelope{Code: "ObjectDeleteUnconfirmed", Message: storage.ErrObjectDeleteUnconfirmed.Error(), Operation: "storage.DeleteObject"}
+		var api *vngcloud.APIError
+		if errors.As(err, &api) && api.StatusCode > 0 {
+			env.Status = api.StatusCode
+		}
+		return env
+	}
 	if errors.Is(err, storage.ErrObjectWriteUnconfirmed) {
 		env := errorEnvelope{Code: "ObjectWriteUnconfirmed", Message: err.Error()}
 		var api *vngcloud.APIError
@@ -528,12 +536,16 @@ func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.AP
 }
 
 // exitCode maps err to the CLI's process exit code, checked in this fixed
-// order: a canceled or expired context anywhere in the chain always exits 1,
+// order: an unconfirmed object deletion always exits 1 before any wrapped
+// auth, not-found, or context error. A canceled or expired context exits 1,
 // even for a *LoginError or an *APIError that wraps it, because the command
 // was interrupted rather than genuinely rejected. Missing or refused
 // credentials and every login failure exit 3. A not-found result exits 4.
 // Every remaining usage or config problem exits 2. Anything else exits 1.
 func exitCode(err error) int {
+	if errors.Is(err, storage.ErrObjectDeleteUnconfirmed) {
+		return 1
+	}
 	if errors.Is(err, storage.ErrObjectWriteUnconfirmed) || errors.Is(err, storage.ErrObjectExists) {
 		return 1
 	}

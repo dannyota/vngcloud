@@ -121,6 +121,24 @@ Kind: Write.
 vngcloud storage delete-bucket-policy --project-id <project-id> --bucket <bucket>
 ```
 
+## delete-object
+
+Kind: Write, destructive.
+
+Require --yes and explicit --s3-region HCM04 or HAN02, --s3-credentials-file with a private [default] AWS-format access-key pair, --bucket and --key. Delete the current name unconditionally with one bodyless DELETE and no prior read, retry or confirmation request. Read-only from --read-only, VNGCLOUD_READ_ONLY or profile read_only blocks deletion before credentials. Ignore management region, project, auth and ambient S3 credentials; explicit --region and --project-id are refused. Linux and macOS only. No --cli-input-json, body, destination, --replace, version selector, precondition, MFA or retention bypass. --transfer-timeout defaults to 5m and accepts 1s through 1h. --output and --query select metadata only: Bucket, Key, DeleteMarker and VersionID. Echoed identifiers are redacted; absent or filtered DeleteMarker is JSON null and VersionID is empty. HTTP 204 confirms acceptance, not prior existence, permanent erasure, reclaimed quota or an empty bucket. No protection against concurrent writers: deletion can remove a new current object. Enabled versioning can add a delete marker and retain older versions; suspended versioning can remove the null version and add a marker while retaining numbered versions. Repetition can delete newly written data or add another marker. ObjectDeleteUnconfirmed exits 1 with fixed recovery: inspect the current key and version history before deciding whether to delete again. A post-success query or stdout failure says delete completed and do not retry, exits 1 and sends no second request. Requires s3:DeleteObject, without requiring a read or console grant in the client; recorded broader grants do not prove a minimal permission combination. HCM04 uses recorded deletion behavior; HAN02 relies on published S3 compatibility, not fresh live verification. Native copy and move remain unavailable.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--bucket` | `string` | yes |
+| `--key` | `string` | yes |
+| `--s3-credentials-file` | `string` | yes |
+| `--s3-region` | `string` | yes |
+| `--transfer-timeout` | `duration` |  |
+
+```sh
+vngcloud storage delete-object --s3-region HCM04 --s3-credentials-file ./storage.credentials --bucket app-files --key archives/bundle.bin --yes
+```
+
 ## delete-project
 
 Kind: Write, destructive.

@@ -1,9 +1,9 @@
 # vStorage object operations
 
-Status: ListObjects and HeadObject implemented; deletion and copy pending.
+Status: ListObjects, HeadObject, and DeleteObject implemented; copy pending.
 
-`storage.ObjectClient` supports bounded listing and metadata lookup. Single
-object deletion and direct server-side copying are accepted and pending.
+`storage.ObjectClient` supports bounded listing, metadata lookup, and single
+object deletion. Direct server-side copying is accepted and pending.
 Automatic move and rename remain gated on safe source removal. The
 [protocol and evidence][api] and [mechanism checks][checks] govern the accepted
 behavior.
@@ -320,9 +320,9 @@ the operation completed. It never causes a resend.
 
 The owner approved the independently reviewed ListObjects and HeadObject reads,
 unconditional DeleteObject with `--yes`, and direct same-project/same-region
-CopyObject with `--replace --yes` and its stated encryption limits. ListObjects
-and HeadObject are implemented; deletion and native copy remain pending as
-independent releases. Create-only copy and move/rename remain deferred behind
+CopyObject with `--replace --yes` and its stated encryption limits. ListObjects,
+HeadObject, and DeleteObject are implemented; native copy remains pending as
+an independent release. Create-only copy and move/rename remain deferred behind
 their specific gates. This approval does not authorize live calls.
 Implementation-plan review precedes implementation; mutation and credential
 code require adversarial review. This document is not a plan.
