@@ -1,0 +1,64 @@
+name: Evidence probe
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-probe-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Source identity probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert head and emit source identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          TESTED_SHA="$actual" python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import sys
+
+          sha = os.environ["TESTED_SHA"]
+          repository = os.environ["REPOSITORY"]
+          if repository != "dannyota/vngcloud" or not re.fullmatch(r"[0-9a-f]{40}", sha):
+              sys.exit("Invalid source identity")
+          numbers = {}
+          for field in ("RUN_ID", "RUN_ATTEMPT"):
+              value = os.environ[field]
+              if not re.fullmatch(r"[1-9][0-9]{0,19}", value):
+                  sys.exit("Invalid run identity")
+              numbers[field] = int(value)
+          record = {
+              "version": 1,
+              "repository": repository,
+              "workflow": ".github/workflows/evidence-probe.yml",
+              "job": "identity",
+              "matrix": {},
+              "tested_sha": sha,
+              "run_id": numbers["RUN_ID"],
+              "run_attempt": numbers["RUN_ATTEMPT"],
+          }
+          message = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+          if len(message.encode("utf-8")) > 2048:
+              sys.exit("Source identity exceeds message limit")
+          escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::notice title=vngcloud-source-identity::" + escaped)
+          PYTHON
