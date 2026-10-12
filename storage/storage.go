@@ -1,7 +1,6 @@
-// Package storage manages vStorage object storage: regions, projects, the
-// buckets in a project, the project's S3 keys, and the attach of a key to a
-// service account. It uses the vStorage console API, which wraps every
-// response in one envelope and reports many failures as HTTP 200.
+// Package storage provides vStorage management and native S3 object clients.
+// Client uses the console API and its response envelopes. ObjectClient uses
+// separate S3 credentials, fixed HTTPS endpoints, and Signature Version 4.
 package storage
 
 import (
