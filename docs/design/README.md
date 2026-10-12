@@ -36,16 +36,16 @@ code starts. Decisions with lasting trade-offs also get an
 | [Server service reads](server-services.md) | Accepted for snapshot policy reads |
 | [Backup Center reads](backup-services.md) | Accepted for the first release |
 | [vNetwork NAT and VPN reads](network-services.md) | Accepted |
-| [Public NAT and VPN writes](network-writes.md) | Draft |
+| [Public NAT and VPN writes](network-writes.md) | Accepted; Public NAT is implemented; VPN writes remain evidence-gated |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
-| [Service-account authentication](service-account-auth.md) | Accepted; eight decisions approved; implementation pending |
+| [Service-account authentication](service-account-auth.md) | Accepted and implemented for SDK login, configuration, cache, and CLI |
 
-Service-account authentication covers SDK login, configuration, cache, CLI,
-and public docs in one release. [Recorded evidence][sa-evidence] establishes
-only the tested exchange and security-group scope, not server discovery.
-Implementation checks and manager repeats remain required; server scope,
-other regions/services, and revocation retain their [evidence gates][sa-gates].
+Service-account login, configuration, cache, and CLI support are implemented.
+[Recorded evidence][sa-evidence] establishes the fixed-host exchange and the
+tested security-group scope, not server discovery. Server scope, other
+services and regions, token expiry behavior, and deletion revocation retain
+their [evidence gates][sa-gates].
 Approval grants no live-run or policy authority.
 
 [sa-evidence]: service-account-auth-api.md#recorded-live-results

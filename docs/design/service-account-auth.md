@@ -1,16 +1,15 @@
 # Service-account authentication
 
-Accepted: the owner approved the eight decisions below. Add SDK-owned
-service-account login and CLI profile support so teams can use separate
-machine identities with server-enforced policies. Implementation waits for
-an independent plan review and the remaining
-[checks](service-account-auth-api.md#open-evidence).
+Accepted: the eight decisions below define the implemented SDK-owned
+service-account login and CLI profile support. The implementation provides
+machine identities whose policies GreenNode enforces. Remaining API evidence
+gates are listed in [Open evidence](service-account-auth-api.md#open-evidence).
 This document authorizes no live calls or policy grants.
 
 ## Scope and evidence
 
-The SDK currently selects a custom credentials provider, a static token,
-or IAM-user login. IAM service-account management already exists, including
+The SDK selects a custom credentials provider, a static token, a service
+account, or IAM-user login. IAM service-account management also supports
 secret-file CLI commands. The [evidence](service-account-auth-api.md) records
 the relevant repository files, first-party sources, disagreements, and facts
 that remain unverified. Recorded live results come from the manager; the
@@ -31,7 +30,7 @@ OAuth library; use their code only as evidence.
 
 ## SDK surface and selection
 
-Add these public names in package `vngcloud`:
+The public surface in package `vngcloud` is:
 
 ```go
 type ServiceAccountAuth struct {
@@ -142,8 +141,8 @@ names, missing-file behavior, and the Windows mode-check exception. Reject
 either non-empty key in the resolved profile's config section with
 `ErrInvalidConfig` before storing profile settings. This reserves two formerly
 unknown keys so misplaced credentials cannot reach `Config.ProfileSetting`.
-Name the credential key and required file, never its value. This change
-needs owner approval. No static-token file key is added.
+Name the credential key and required file, never its value. No static-token
+file key is added.
 
 Explicit `WithProfile` or CLI `--profile` skips all environment credentials,
 including both new variables, and the environment project ID. Region can
@@ -268,7 +267,7 @@ Other operations remain permission-dependent, not newly live-verified.
 
 ## Errors and secret handling
 
-Add `ServiceAccountLoginError` with `Status int`, `Reason string`, and
+`ServiceAccountLoginError` has `Status int`, `Reason string`, and
 `Err error`, plus `Error` and `Unwrap`. `errors.As` identifies this type;
 `errors.Is` matches `ErrAuth`, or the caller's context error when canceled
 or expired. Do not reuse the IAM-specific `LoginError` or captcha fields.
@@ -288,7 +287,7 @@ failure. `LoadConfig` still returns an already-ended context directly.
   only that context error; the same CLI code exits 1.
 - Product 401 after recovery keeps `ErrAuth`, existing API code, exit 3.
   Product 403 keeps `ErrPermission`, existing API code, exit 1.
-- Add public `ErrTokenCache`, with fixed text `vngcloud: token cache
+- `ErrTokenCache` has fixed text `vngcloud: token cache
   unavailable`, for service-account cache directory, read, and lock failures.
   Return that sentinel alone: no path, hash, credential, or filesystem cause
   in the message or unwrap chain. CLI `TokenCacheFailed`, exit 1. At the cache
@@ -320,25 +319,27 @@ These are design constraints for independent adversarial review, not a
 review verdict. Existing path locations are in [local evidence][local].
 
 - High: logging or wrapping a peer's echo could disclose a credential.
-  Follow `internal/core/auth.go:115`'s fixed-error boundary. Inject secret,
+  Follow the fixed-error boundary in
+  [internal/core/auth.go](../../internal/core/auth.go). Inject secret,
   token, Basic-header, URL, and nested-JSON markers into every failure;
   inspect errors, unwrap chains, formatting, stdout, stderr, and captures.
 - High: hostile response lengths or expiry overflow could exhaust memory
-  or retain a token indefinitely. Bound the proposed exchange and cache
-  decode; test duplicate keys, wrong types, null, trailing JSON, empty
+  or retain a token indefinitely. Bound token and cache response decoding;
+  test duplicate keys, wrong types, null, trailing JSON, empty
   tokens, unknown token types, huge expiry, and both 30-second boundaries.
-- High: an override or redirect could steal the secret. The proposed
-  private exchange ignores public HTTP hooks and endpoint overrides.
+- High: an override or redirect could steal the secret. The service-account
+  exchange ignores public HTTP hooks and endpoint overrides.
   Test every redirect status, TLS failures, no cookies, no second send,
   context cancellation, timeout, and zero requests after validation errors.
 - High: profile mixing or cache substitution could select another identity.
-  Extend `internal/core/load.go:271` and `internal/tokencache/cache.go:123`
-  with source-selection and new-namespace tests. Cover partial/mixed sets,
+  Preserve source selection in the [config loader][load-code] and the
+  service-account namespace in the [token cache][cache-code]. Cover
+  partial/mixed sets,
   explicit profiles, changed secret/client/profile/URL keys, unsafe files,
   symlinks, FIFOs, lock cancellation, corrupt cache, and concurrent processes.
 - High: misclassified auth or replays could enable an unverified purchase.
-  Fix selection at `internal/core/client.go:154`; retain the refusal at
-  `network/nat_write_guards.go:33`. Test NAT create/delete reject service
+  Preserve auth selection in the [client][client-code]; retain the refusal
+  in the [NAT guard][nat-guards]. Test NAT create/delete reject service
   accounts before requests, quotes keep read auth/regions, and
   higher-precedence methods retain their own provenance. Confirm
   `Once` sends only once on 401, 429, 5xx, and network failures.
@@ -354,43 +355,41 @@ generated CLI docs, wiki preview, and independent adversarial review.
 
 ## Owner decisions and release order
 
-The wire choice is settled by evidence; standing probe authority needs no
-new decision. These proposed product contracts still need owner approval:
+The owner accepted the following product contracts:
 
-1. Recommend the named SDK surface and precedence between static token and
-   IAM user, selected-method-only validation, and immutable credentials.
-2. Recommend private token HTTP with no public hooks, overrides, redirects,
+1. The SDK exposes the named auth surface and precedence between static token
+   and IAM user, validates only the selected method, and snapshots credentials.
+2. Token exchange uses private HTTP with no public hooks, overrides, redirects,
    or fallback. Adopt the stated timeout, one-send, decoding, expiry, fixed
    errors, and shared-waiter limitation.
-3. Recommend the two environment variables and credentials keys, rejecting
-   non-empty config-file copies. Use stdin-only secret input and masked
-   output; add no interactive or provisioning flow.
-4. Recommend the secret-bound cache namespace, stricter file checks, and
+3. Configuration uses the two environment variables and credentials keys,
+   rejects non-empty config-file copies, and uses stdin-only secret input and
+   masked output; add no interactive or provisioning flow.
+4. The cache uses a secret-bound namespace, stricter file checks, and
    existing 30-second rejection rule. Preserve other auth kinds' behavior.
-5. Recommend the login/cache errors and CLI codes, with cache preflight
+5. Login and cache errors use the specified CLI codes, with cache preflight
    deferred until auth selection.
-6. Recommend unchanged discovery and write guards. Advertise only the
+6. Discovery and write guards remain unchanged. Advertise only the
    observed capability; keep server scope and enumeration gated.
-7. Recommend explicit CLI/wiki rotation guidance from the cache section:
+7. CLI and wiki rotation guidance follows the cache section:
    replace credentials and restart consumers, explain surviving token access,
    and promise neither automatic cache purge nor immediate revocation.
-8. Recommend shipping SDK and CLI together after review and checks, including
+8. SDK and CLI ship together after review and checks, including
    the implemented auth/cache repeats. Add no dependency, public auth test
    hook, cache-clear command, or paid probe.
 
-Review the implementation plan, then build SDK auth, configuration, cache,
-CLI support, tests, and docs together. Verify the remaining implementation
-checks before release. A narrow release can omit server-scoped guidance;
-do not present that omission as completion of the discovery-team use case.
-
-Update [Authentication](../wiki/Authentication.md),
+The implementation and public docs are in place. Keep
+[Authentication](../wiki/Authentication.md),
 [Configuration](../wiki/Configuration.md), [Errors](../wiki/Errors.md),
 [CLI](../wiki/CLI.md), generated [CLI-IAM](../wiki/CLI-IAM.md) where examples
-change, and [Services](../wiki/Services.md) with verified coverage. Add a
-feature entry to [release notes](../../RELEASE_NOTES.md), without assigning a
-version here. The manager must also reconcile the auth sections of
-[SDK design](sdk-and-cli.md), [CLI design](cli.md), the design index, and the
-stale auth evidence in [IAM API](iam-writes-api.md); these paths are outside
-this brief. Follow [wiki publication](../adr/0001-wiki-from-docs.md).
+change, and [Services](../wiki/Services.md) aligned with verified coverage.
+The remaining API gates are listed in
+[Open evidence](service-account-auth-api.md#open-evidence). Other services
+and regions, server scope, expiry behavior, and deletion revocation remain
+unverified. Follow [wiki publication](../adr/0001-wiki-from-docs.md).
 
 [local]: service-account-auth-api.md#repository-evidence
+[load-code]: ../../internal/core/load.go
+[cache-code]: ../../internal/tokencache/cache.go
+[client-code]: ../../internal/core/client.go
+[nat-guards]: ../../network/nat_write_guards.go

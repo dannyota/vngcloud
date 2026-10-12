@@ -1,10 +1,10 @@
 # Public NAT and VPN Write Evidence
 
-Status: Verified evidence (2026-10-11) for the accepted
+Status: Verified evidence for the accepted
 [write design](network-writes.md) and [NAT contract](network-writes-nat.md).
 
 Evidence comes from root-console captures, public HAN console code fetched
-without credentials, and two IAM-user NAT live runs on 2026-10-11. Each IAM
+without credentials, and two IAM-user NAT live runs. Each IAM
 run used SDK login, a bearer token without cookies, one order, and its own
 new disposable VPC. Console code proves request construction, not live
 service behavior. No account values appear here. The
@@ -336,7 +336,7 @@ gate; do not buy resources solely to produce a multi-page inventory.
 | VPN algorithms | Code routes found; values and lifetime units open |
 | VPN quote | Open: route, schema, key exclusion, amount and term |
 | VPN settlement | Open: IAM debit, IDs, states, renewal-off, cleanup |
-| SDK write release | Open: implementation lifecycle and adversarial review |
+| SDK write release | NAT SDK/CLI is implemented; VPN remains evidence-gated |
 
 No refused or ambiguous order authorizes a second attempt. Unexpected
 checkout on the direct path remains NotSettled unless reads establish a
@@ -347,11 +347,11 @@ same-order binding, amount, term, renewal, and unpaid-order cleanup.
 ## Paid implementation checks
 
 The two IAM probe runs are complete evidence, not SDK implementation tests.
-The manager scopes each later run under the accepted owner decisions and
+Each later live run needs its own scoped approval under the accepted
+[NAT amendment](network-writes-nat.md) and
 [live-data](../../instructions/live-data.md), naming the private account,
 region, disposable VPC, package, cap, one order, renewal step, and cleanup.
-The NAT renewal-step amendment still needs owner approval. Do not run NAT
-in production or execute concurrent VPC-creating runs.
+Do not run NAT in production or execute concurrent VPC-creating runs.
 
 For HAN NAT, verify a fresh quote, one direct POST, uniquely identified
 ACTIVE NAT, one matching billing row, and the approved renewal-off step.

@@ -1,13 +1,14 @@
 # vNetwork NAT and VPN Reads
 
-Status: Accepted (2026-10-11) for the NAT and VPN list releases. Detail,
-rule, and write surfaces remain separate designs. The
-[write design](network-writes.md) is Draft, pending owner approval.
+Status: Accepted for NAT and VPN inventory. The
+[write design](network-writes.md) is accepted. Public NAT quotes are
+implemented. Create and delete require IAM-user login in HAN under the
+[NAT amendment](network-writes-nat.md). VPN writes remain evidence-gated.
 
-Extend `network.Client` with read-only Public NAT and site-to-site VPN
-inventory. Ship NAT list first, then VPN list with inline sites and tunnels.
-The populated list schemas are verified. SDK authorization and routing
-checks below remain release prerequisites.
+`network.Client` provides read-only Public NAT and site-to-site VPN
+inventory, with inline VPN sites and tunnels. The populated list schemas
+are verified. SDK authorization and routing checks below remain release
+prerequisites.
 
 This design follows [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md).
 It adds no authentication method, dependency, write API, or root-package
@@ -15,8 +16,8 @@ service re-export. Existing network operations keep their contracts.
 
 ## Scope and evidence
 
-[API evidence](network-services-api.md) records the 2026-10-11 paid
-root-console probes, including populated rows, nullability, statuses,
+[API evidence](network-services-api.md) records paid root-console probes,
+including populated rows, nullability, statuses,
 regional origins, package prices, and delete behavior. HCM and HAN use the
 same route templates. Earlier HCM empty-list reads establish cookie-free
 IAM bearer authorization, but do not prove SDK login-provider behavior.
@@ -32,9 +33,9 @@ IAM bearer authorization, but do not prove SDK login-provider behavior.
 
 Exclude creation, deletion, rename, bandwidth changes, route changes,
 NAT rule changes, VPN secret retrieval, key rotation, configuration
-downloads, and connectivity tests. Delete routes are evidence for a future
-write design, not additions to this read surface. A provisioning status
-must not be presented as proof of traffic flow or tunnel health.
+downloads, and connectivity tests. Delete routes are evidence for the
+accepted write design, not additions to this read surface. A provisioning
+status must not be presented as proof of traffic flow or tunnel health.
 
 ## Public surface
 
@@ -283,8 +284,8 @@ use deterministic tests for request and metadata handling.
 3. Detail or NAT rule reads only after their routes and schemas are proven.
 4. Audit endpoint, peering, and Cross Connect parity separately.
 
-The owner approved this list surface, the field allowlists, and the release
-order on 2026-10-11. No child-route decision blocks VPN inventory.
+The owner accepted this list surface, the field allowlists, and the release
+order. No child-route decision blocks VPN inventory.
 Unverified null-only fields stay excluded under the stated rule.
 
 The separate [write design](network-writes.md) covers cost bounds, retry

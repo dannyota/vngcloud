@@ -9,15 +9,16 @@ rename; the module keeps the `vngcloud` name.
 
 - [Getting Started](Getting-Started.md): install, create a client, list
   resources.
-- [Authentication](Authentication.md): IAM User login, TOTP, and static tokens.
+- [Authentication](Authentication.md): IAM User and service-account login,
+  TOTP, static tokens, and custom credential providers.
 - [Configuration](Configuration.md): regions, projects, and endpoints.
 - [Errors](Errors.md): `APIError`, `LoginError`, and debug logging.
 - [Services](Services.md): every service client and its methods.
 - [Backup](Backup.md): Backup Center backends and policies in `hcm-3`.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
-- [CDN](CDN.md): the published GreenNode CDN IP ranges, plus the vCDN API key,
-  certificate, and API key reads.
+- [CDN](CDN.md): published GreenNode CDN IP ranges, vCDN certificate and API
+  key reads, Web Accelerator reads and writes, and traffic analytics.
 - [Compute](Compute.md): vServer instances, images, and SSH keys, including
   importing and creating them.
 - [Container Registry](Container-Registry.md): repositories and users,
@@ -33,16 +34,20 @@ rename; the module keeps the `vngcloud` name.
   and alarms.
 - [Monitor Log Alarms](Monitor-Log-Alarms.md): creating, updating, and
   deleting log alarms.
-- [Storage](Storage.md): vStorage regions, projects, buckets, and S3 keys,
-  including bucket and key create and delete.
-- [Storage: Projects](Storage-Projects.md): regional package prices, purchase,
-  and deletion.
+- [Storage](Storage.md): vStorage regions, projects, buckets, S3 keys, and
+  bucket settings, including bucket and key writes.
+- [Storage: Projects](Storage-Projects.md): package price discovery, purchase,
+  deletion, and auto-renew state and updates.
 - [Storage: Bucket Policy](Storage-Bucket-Policy.md): the per-bucket key
   policy, its template, and the rules.
 - [Storage: Bucket Settings](Storage-Bucket-Settings.md): bucket versioning
-  and CORS rules.
+  and encryption, plus CORS rules.
 - [Network](Network.md): security groups and their rules, VPCs, subnets,
   and Private DNS, including writes and waits.
+- [Public NAT](Network-NAT.md): inventory, zone and package catalogs, quotes,
+  and guarded create and delete operations; paid writes require IAM-user
+  login in `han-1`.
+- [Site-to-site VPN](Network-VPN.md): VPN inventory with sites and tunnels.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
 - [Network ACLs](Network-ACLs.md): ACLs, rules, and subnet associations.
 - [Network DHCP Options](Network-DHCPOptions.md): DHCP options sets and the

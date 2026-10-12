@@ -9,17 +9,18 @@ lacks access to that product or region. A required Input field is marked
 "required"; passing it empty, or passing a nil Input when a field is
 required, returns `vngcloud.ErrInvalidInput` before any request.
 
-`billing` and `pricing` cover writes too: budgets can be created, changed,
-paused, and deleted. See [Billing and Pricing](Billing-and-Pricing.md).
+`billing` covers budget writes: budgets and thresholds can be created,
+changed, and deleted. `pricing` reads price quotes. See
+[Billing and Pricing](Billing-and-Pricing.md).
 `dns` covers hosted zone and record writes too: zones and records can be
 created, changed, and deleted. See [DNS](DNS.md). `loadbalancer` covers
 load balancer writes too: a load balancer can be created, resized, and
 deleted, with its pools, members, listeners, and L7 policies. See
-[Load Balancer](LoadBalancer.md). `network` covers
-security group and rule writes too: groups and rules can be created,
-changed, and deleted. See [Network](Network.md). `compute` covers SSH key
-writes too: a key can be imported, created, or deleted (see
-[Compute](Compute.md)), and paid server writes: a server can be created,
+[Load Balancer](LoadBalancer.md). `network` covers security group and rule
+writes, Public NAT purchase and deletion, route and ACL writes, and subnet
+associations. See [Network](Network.md) and [Public NAT](Network-NAT.md).
+`compute` covers SSH key writes: a key can be imported, created, or deleted
+(see [Compute](Compute.md)), and paid server writes: a server can be created,
 started, stopped, rebooted, renamed, resized, and deleted (see
 [Compute Servers](Compute-Servers.md)). `volume` covers paid volume
 writes: a volume can be created, deleted, attached, detached, and resized.
@@ -62,19 +63,21 @@ create/delete still require SDK IAM-user login in Hanoi. See
 
 | Product | Package | Coverage | Model Shape | Notes |
 |---|---|---|---|---|
+| Billing | `billing` | Budgets, thresholds, cost, balance, alerts, prepaid resources | Typed | Budgets and thresholds support writes; see [Billing and Pricing](Billing-and-Pricing.md). |
+| Pricing | `pricing` | Generic resource price quotes | Typed | Quotes are reads; see [Billing and Pricing](Billing-and-Pricing.md). |
 | Backup Center | `backup` | Backends and policies | Typed | See [Backup](Backup.md); `hcm-3` only, no project scope. |
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Typed zones; map-backed account and quotas | Useful for account and quota metadata. |
-| Compute | `compute` | Servers, server detail, SSH keys plus SSH key writes, placement groups, placement policies, images, plus paid server writes | Typed | Some methods flatten nested data already returned by list APIs; see [Compute](Compute.md) for SSH key writes and [Compute Servers](Compute-Servers.md) for server writes. |
-| Volume | `volume` | Volumes, volume detail, underlying volume, snapshots, volume types, type zones, encryption types, plus volume create and delete | Typed | Includes a convenience method for walking snapshots; see [Volume](Volume.md) for writes. |
-| Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, rules, virtual IPs, address pairs, routes, peerings, ACLs, interconnects, endpoints, plus security group and rule writes | Typed | Some methods discover VNetwork region metadata before reading resources; see [Network](Network.md) for writes and waits. |
+| Compute | `compute` | Servers, SSH keys and writes, placement groups and policies, images, flavor price discovery, paid server writes | Typed | Some methods flatten nested list data; see [Compute](Compute.md) and [Compute Servers](Compute-Servers.md). |
+| Volume | `volume` | Volumes, underlying volumes, snapshots and policies, volume types and encryption types, price discovery, create, delete, attach, detach, resize | Typed | See [Volume](Volume.md) for discovery, snapshot policies, and write behavior. |
+| Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, virtual IPs, routes, ACLs, endpoints, DHCP options, VPN inventory, Public NAT inventory and catalogs, public-IP price discovery, NAT quotes and writes | Typed | NAT create/delete supports `han-1` with IAM-user login; see [Network](Network.md), [Network-VPN](Network-VPN.md), and [Network-NAT](Network-NAT.md). |
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates, plus certificate writes, create/resize price quotes, and load balancer, pool, listener, and policy writes | Typed | Requires IAM User permissions for the target load balancer resources; see [Load Balancer](LoadBalancer.md) for writes, the price guard, and waits. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](Container-Registry.md) for writes, waits, and secret handling. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, as in VKS; see [IAM](#iam) below for writes and guards. |
 | Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
-| Storage | `storage` | vStorage regions and projects, buckets, bucket detail, S3 keys, plus bucket and S3 key writes | Typed | Calls an undocumented console API. See [Storage](Storage.md). |
+| Storage | `storage` | vStorage regions, projects and price discovery, buckets, settings, S3 keys, bucket and key writes, project purchase, deletion, and auto-renew updates | Typed | Calls an undocumented console API; see [Storage](Storage.md), [Storage-Projects](Storage-Projects.md), and [Storage-Bucket-Settings](Storage-Bucket-Settings.md). |
 | VKS | `vks` | Clusters, versions, quota | Typed | [VKS](VKS.md). |
 
 ## Project

@@ -246,6 +246,6 @@ None.
 instead of being accepted.
 
 Notes for `v0.7.0` to `v0.18.0` are in
-[docs/release-notes/v0.7-v0.18.md](docs/release-notes/v0.7-v0.18.md), and
-notes for `v0.1.0` to `v0.6.0` are in
-[docs/release-notes/v0.1-v0.6.md](docs/release-notes/v0.1-v0.6.md).
+[release-notes/v0.7-v0.18.md](release-notes/v0.7-v0.18.md), and notes for
+`v0.1.0` to `v0.6.0` are in
+[release-notes/v0.1-v0.6.md](release-notes/v0.1-v0.6.md).

@@ -112,13 +112,13 @@ the linked guides explain supported operations and lead to detailed references.
 | Service | Supported resources and operations |
 | --- | --- |
 | [Billing and pricing][billing] | Budgets, alerts, costs, balances, quotes |
-| [Compute][compute] | Servers, images, flavors, SSH keys, placement groups |
-| [Volumes][volume] | Create, attach, resize; read snapshots and disk types |
-| [Network][network] | VPCs, subnets, IPs, security groups, routes, ACLs |
+| [Compute][compute] | Servers, images, flavors, flavor price discovery, SSH keys, placement groups |
+| [Volumes][volume] | Create, attach, resize, volume price discovery; read snapshots, policies, encryption types, and disk types |
+| [Network][network] | VPCs, subnets, IPs, security groups, routes, ACLs, NAT inventory, catalogs and quotes, VPN inventory, public-IP price discovery; NAT create/delete in `han-1` with IAM-user login |
 | [Load balancers][lb] | Create, resize, pools, listeners, policies, TLS certs |
 | [DNS][dns] | Create, update, and delete private zones and records |
 | [Container registry][registry] | Repositories and repository users |
-| [Storage][storage] | Projects, buckets, S3 keys, policies, bucket settings |
+| [Storage][storage] | Projects, package price discovery and auto-renew, buckets, S3 keys, policies, bucket settings |
 | [CDN][cdn] | Web Accelerator updates, enable/disable, analytics, IP ranges |
 | [Monitoring][monitor] | Uptime checks, channels, log projects, alarms |
 | [IAM][iam] | Users, service accounts, policies, groups, access guards |
@@ -159,7 +159,8 @@ guards.
 - [CLI reference][cli]: commands, flags, queries, and exit codes.
 - [Service reference][services]: SDK methods and service-specific behavior.
 - [Configuration][config]: profiles, environment variables, regions, projects.
-- [Authentication][auth]: IAM User login, two-factor codes, and tokens.
+- [Authentication][auth]: IAM User and service-account login, two-factor
+  codes, static tokens, and custom credential providers.
 - [Known limitations][limitations]: API quirks and recovery guidance.
 - [Release notes](RELEASE_NOTES.md): changes by version.
 - [Go reference](https://pkg.go.dev/danny.vn/vngcloud): package documentation.

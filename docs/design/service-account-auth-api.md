@@ -1,6 +1,6 @@
 # Service-account authentication: evidence and probes
 
-Evidence for the proposed [authentication design](service-account-auth.md).
+Evidence for the accepted [authentication design](service-account-auth.md).
 Published sources and manager-recorded live results are separate evidence.
 The designer used no credentials or authenticated APIs and executed no
 public downloads. Downloads stayed under `/tmp`. Live facts below cite the
@@ -128,7 +128,7 @@ The official Go SDK models IAM failures as
 `AUTHENTICATION_FAILED` and `TOO_MANY_FAILED_LOGINS`. Those handlers do not
 prove HTTP status mappings or exhaust the server's shapes. OAuth-style
 `error`/`error_description` is not established by the Accounts spec. The
-proposed SDK returns fixed local errors and status only, avoiding a public
+SDK returns fixed local errors and status only, avoiding a public
 dependency on any unverified server message or code.
 
 ## Repository evidence
@@ -137,18 +137,19 @@ dependency on any unverified server message or code.
   login](../../internal/iamuser/login.go): IAM user uses browser sign-in, PKCE,
   optional TOTP, v1 exchange, and age-limited invalidation; do not reuse that
   flow.
-- [client.go](../../internal/core/client.go),
+- [service-account auth](../../internal/core/service_account_auth.go),
+  [exchange](../../internal/core/service_account_exchange.go),
+  [client.go](../../internal/core/client.go),
   [options](../../internal/core/client_options.go),
   [config](../../internal/core/config.go), [public aliases](../../vngcloud.go):
-  Provider/static/IAM precedence; token-source selection; shared auth;
-  `Authenticate` returns error only.
-- [load.go](../../internal/core/load.go), [load
-  tests](../../internal/core/load_test.go): Whole-source credentials, explicit
-  profiles, 0600 file checks, no static-token file key.
-- [cache](../../internal/tokencache/cache.go), [cache
-  tests](../../internal/tokencache/cache_test.go): Five-field IAM key, 30-second
-  margin/age rule, lock and atomic write; current read uses unbounded
-  `os.ReadFile`.
+  Auth selection, shared token sources, and error-only `Authenticate`.
+- [load.go](../../internal/core/load.go): Whole-source loading, explicit
+  profiles and file checks; service-account
+  [tests](../../internal/core/load_service_account_test.go).
+- [cache](../../internal/tokencache/cache.go), [service-account
+  cache](../../internal/tokencache/service_account.go), [cache
+  tests](../../internal/tokencache/cache_test.go): IAM key fields exclude the
+  password and TOTP; preserve that hash. The service-account key is separate.
 - [transport](../../internal/transport/transport.go), [hardening
   tests](../../internal/core/transport_hardening_test.go): Token required; one
   401 recovery, `Once`, sensitive capture suppression, redirect guards.
@@ -183,25 +184,24 @@ dependency on any unverified server message or code.
   [checks](iam-writes-checks.md): Management contracts and existing live-probe
   rules remain authorities.
 - [Authentication](../wiki/Authentication.md),
-  [Configuration](../wiki/Configuration.md): Current public promises needing a
-  coordinated implementation update.
+  [Configuration](../wiki/Configuration.md): Public auth and cache guidance
+  reflects the implemented behavior.
 - [ADRs](../adr/README.md), [security](../../instructions/security.md), [live
   data](../../instructions/live-data.md): Preserve retries, guards, secret
   handling, approvals, and sanitation.
 
-Two existing statements need manager reconciliation outside the owned paths:
-`iam-writes-api.md` says the upstream SDK/provider have no IAM code, but
-both contain authentication code. The Configuration wiki says changed
-credentials cannot reuse a token; the current IAM key actually excludes
-password and TOTP. Do not change IAM hashes as part of this proposal or
-carry that broad wording into service-account guidance.
+IAM authentication exists in the [Go SDK][go-auth] and [Terraform
+provider][tf-auth]. The [configuration cache docs][cache-docs] state that IAM
+keys exclude password and TOTP; preserve the hash and keep the service-account
+cache key separate.
 
 ## Recorded live results
 
 Source: the manager's private `sa-probe-results.md`. The completed probe used
 `hcm-3`, an IAM-user manager, two disposable unattached security groups,
 one service account, and one narrow policy. Service-account product calls
-used `WithStaticToken`; the proposed auth source is still unimplemented.
+in this probe used `WithStaticToken`; these results establish server policy
+behavior, not SDK token exchange.
 All resources were deleted, confirmed absent, and quota usage returned to
 baseline. These results establish behavior only for this test scope.
 
@@ -375,6 +375,7 @@ Remaining checks must not be presented as verified:
 [sg-reads]: ../../network/network.go
 [sg-writes]: ../../network/security_groups_write.go
 [sg-cost]: vserver-writes.md#cost
+[cache-docs]: ../wiki/Configuration.md#token-cache
 
 [accounts]: https://docs.api.greennode.ai/service-docs/accounts-api.html
 [overview]: https://docs.api.greennode.ai/

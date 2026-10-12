@@ -1,12 +1,12 @@
 # Public NAT and Site-to-Site VPN Writes
 
-Status: Accepted (2026-10-11). The accepted
+Status: Accepted. The accepted
 [NAT contract](network-writes-nat.md) amends the NAT parts.
 
-Add paid create and delete to `network.Client` and the CLI. Public NAT
-ships first, with its quote and delete in the same release. VPN follows
-only after its create body and secret handling are proven. No create is
-ready for implementation until the applicable evidence gaps below close.
+Public NAT quote, create, and delete are implemented under the accepted
+[NAT contract](network-writes-nat.md). VPN write implementation remains
+gated on evidence for its request body, secret handling, pricing, and
+payment behavior.
 
 Follow [ADR 0002](../adr/0002-write-api-conventions.md), the send-once
 transport in [ADR 0003](../adr/0003-toggle-writes.md),
@@ -319,10 +319,10 @@ fail stop before ordering; no error prints the input key or checkout URL.
 ## Evidence gates and release order
 
 The [probe list](network-writes-api.md#probes-before-implementation) records
-closed and open evidence gates. The IAM NAT lifecycle and renewal-off write
-are proven in HAN. Owner approval of the NAT amendment remains required;
-multi-page guard evidence remains a gate. Do not implement an inferred VPN
-body or a guessed payment read.
+closed and open evidence gates. The IAM NAT lifecycle and auto-renew-off write
+are proven in HAN and implemented. Multi-page guard evidence remains a gate.
+VPN request-body and payment evidence remain open; do not infer a VPN body or
+a guessed payment read.
 
 1. Public NAT create, quote, delete, guards, waits, SDK and CLI docs.
    Depends on NAT inventory and proven direct credit payment. Start with
@@ -348,9 +348,9 @@ Apply the write security checks required by ADR 0002 before release.
 
 ## Owner decisions
 
-The owner approved the base choices below on 2026-10-11. The
-[NAT decisions](network-writes-nat.md#owner-decisions), approved the same
-day, replace them for NAT where they differ:
+The owner accepted the base choices below. The
+[NAT decisions](network-writes-nat.md#owner-decisions) replace them for NAT
+where they differ:
 
 1. Public methods, names, inputs, outputs, and first-release scope above,
    including one default VPN site and tunnel and explicit phase choices.
