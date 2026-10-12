@@ -21,6 +21,7 @@ jobs:
   # Own cache: race builds differ from the lint and security jobs' builds,
   # which would otherwise win the shared setup-go cache key.
   go:
+    if: ${{ github.event_name != 'pull_request' }}
     outputs:
       tested_sha: ${{ steps.identity.outputs.tested_sha }}
     runs-on: ubuntu-latest
