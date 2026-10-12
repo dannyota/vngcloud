@@ -236,6 +236,11 @@ func runGenDocs(dir string) error {
 		buildDocService("vks", vksOps),
 		buildDocService("backup", backupOps),
 	}
+	for i := range services {
+		if services[i].name == "storage" {
+			services[i].ops = append(services[i].ops, storageObjectDocOps()...)
+		}
+	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // wiki pages are meant to be world-readable once published
@@ -358,13 +363,14 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("\n")
 
 	b.WriteString("## --query\n\n")
+	b.WriteString("Storage object commands query transfer metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).\n\n")
 	b.WriteString("Every list command prints a JSON object whose rows are under `Items`, with any page fields " +
 		"such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: " +
 		"`--query \"Items[].Name\"`. `--output table` and `--output text` show the rows of `Items` without " +
 		"the wrapper.\n\n")
 
 	b.WriteString("## --cli-input-json\n\n")
-	b.WriteString("Every operation command also accepts `--cli-input-json '<json>'` or " +
+	b.WriteString("Every operation command except `storage put-object` and `storage get-object` also accepts `--cli-input-json '<json>'` or " +
 		"`--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, " +
 		"matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag " +
 		"given on the same command line is applied after it and wins for that field. Trailing data after the " +
@@ -377,7 +383,7 @@ func renderCLIPage(services []docService) string {
 		{"1", "API or network error, or a canceled command"},
 		{"2", "Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a missing region, " +
 			"or an ambiguous project"},
-		{"3", "No credentials, a login failure, or a 401 (retried once, except on a toggle write, which is sent only once)"},
+		{"3", "No credentials, a login failure, or a 401 (retried once, except on a toggle write or object transfer, which is sent only once)"},
 		{"4", "Not found"},
 	} {
 		fmt.Fprintf(&b, "| %s | %s |\n", row[0], row[1])
@@ -504,6 +510,8 @@ func renderCLIPage(services []docService) string {
 		"`ServerGroupInUse`, `ResourceInUse`, `DefaultResource`, `ResourceBusy`, `RepositoryNotEmpty`, " +
 		"`BucketNotEmpty`, `UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
+	b.WriteString("`ObjectWriteUnconfirmed` means a PUT may have stored the object; download to a fresh path and compare length and SHA256 before retrying. `ObjectExists` means create-only PUT refused an existing key. `ObjectWriteUnconfirmed` and `ObjectExists` exit 1. Completed-transfer metadata output and local cleanup failures also exit 1 and must not cause a retry.\n\n")
+
 	b.WriteString("## Read-only\n\n")
 	b.WriteString("Read-only refuses every write command before any request. Any of these turns it on, " +
 		"and none can turn it off: `--read-only`; `VNGCLOUD_READ_ONLY` set to `1` or `true`; the profile's " +
@@ -578,7 +586,9 @@ func renderServicePage(svc docService) string {
 	for _, op := range ops {
 		fmt.Fprintf(&b, "## %s\n\n", op.name)
 		fmt.Fprintf(&b, "Kind: %s.\n\n", op.kind)
-		if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
+		if svc.name == "storage" && (op.name == "put-object" || op.name == "get-object") {
+			fmt.Fprintf(&b, "%s\n\n", storageObjectNotes(op.name == "put-object"))
+		} else if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
 			fmt.Fprintf(&b, "%s\n\n", note)
 		}
 		if len(op.fields) == 0 {
@@ -613,6 +623,9 @@ func renderServicePage(svc docService) string {
 // write. The example must be runnable as printed, so a required field, or a
 // field docExampleExtraFlag names, can never be left out of it.
 func buildExample(service string, op docOp) string {
+	if service == "storage" && (op.name == "put-object" || op.name == "get-object") {
+		return storageObjectExample(op.name == "put-object")
+	}
 	if override, ok := docExampleOverride[service+" "+op.name]; ok {
 		return override
 	}

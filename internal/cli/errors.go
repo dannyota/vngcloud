@@ -200,6 +200,14 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	if errors.Is(err, storage.ErrObjectWriteUnconfirmed) {
+		env := errorEnvelope{Code: "ObjectWriteUnconfirmed", Message: err.Error()}
+		var api *vngcloud.APIError
+		if errors.As(err, &api) {
+			fillEnvelopeFromAPIError(&env, err, api)
+		}
+		return env
+	}
 	if errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 		return errorEnvelope{Code: "DiscoveryIncomplete", Message: err.Error()}
 	}
@@ -526,6 +534,9 @@ func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.AP
 // credentials and every login failure exit 3. A not-found result exits 4.
 // Every remaining usage or config problem exits 2. Anything else exits 1.
 func exitCode(err error) int {
+	if errors.Is(err, storage.ErrObjectWriteUnconfirmed) || errors.Is(err, storage.ErrObjectExists) {
+		return 1
+	}
 	if errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 		return 1
 	}
@@ -583,7 +594,8 @@ func exitCode(err error) int {
 	if errors.As(err, &loginErr) {
 		return 3
 	}
-	if errors.Is(err, vngcloud.ErrAuth) {
+	var apiErr *vngcloud.APIError
+	if errors.Is(err, vngcloud.ErrAuth) || (errors.As(err, &apiErr) && apiErr.StatusCode == 401) {
 		return 3
 	}
 	if vngcloud.IsNotFound(err) {

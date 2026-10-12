@@ -1025,3 +1025,40 @@ func TestGenDocsServiceAccountAuth(t *testing.T) {
 		t.Error("reset note lacks token access window")
 	}
 }
+
+func TestGenDocsStorageObjects(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "CLI-Storage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, word := range []string{"## put-object", "## get-object", "--s3-region", "--s3-credentials-file", "--body", "--destination", "--transfer-timeout", "--max-download-bytes", "metadata", "HAN02", "Linux", "macOS", "--replace --yes", "5000000000", "9223372036854775806"} {
+		if !strings.Contains(page, word) {
+			t.Errorf("missing %q", word)
+		}
+	}
+	for _, op := range storageObjectDocOps() {
+		for _, f := range op.fields {
+			if f.viaJSON || f.goType == "io.ReadSeeker" {
+				t.Fatalf("reflected object input %+v", f)
+			}
+		}
+	}
+	root, err := os.ReadFile(filepath.Join(dir, "CLI.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(root), "except on a toggle write or object transfer") {
+		t.Error("root lacks object retry exception")
+	}
+	if !strings.Contains(string(root), "ObjectWriteUnconfirmed") {
+		t.Error("root lacks object unconfirmed error")
+	}
+	if !strings.Contains(string(root), "except `storage put-object` and `storage get-object`") {
+		t.Fatal("root lacks JSON exception")
+	}
+}

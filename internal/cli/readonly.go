@@ -41,7 +41,10 @@ func readOnlyPreConfig(flags *globalFlags) (on bool, source string, err error) {
 // has resolved which profile applies. profileName is for the refusal
 // message only.
 func readOnlyFromProfile(cfg vngcloud.Config, profileName string) (on bool, source string, err error) {
-	value := cfg.ProfileSetting("read_only")
+	return readOnlyProfileValue(cfg.ProfileSetting("read_only"), profileName)
+}
+
+func readOnlyProfileValue(value, profileName string) (on bool, source string, err error) {
 	on, ok := parseOnOff(value)
 	if !ok {
 		return false, "", fmt.Errorf("%w: read_only in profile %q must be 1, true, 0, false, or empty, got %q", vngcloud.ErrInvalidConfig, profileName, value)

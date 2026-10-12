@@ -157,3 +157,19 @@ func writeCredentialsFile(t *testing.T, home, content string) {
 		t.Fatalf("WriteFile credentials: %v", err)
 	}
 }
+
+func TestReadOnlyProfileValue(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		on    bool
+		code  int
+	}{{"true", true, 0}, {"1", true, 0}, {"false", false, 0}, {"0", false, 0}, {"", false, 0}, {"bad", false, 2}} {
+		on, source, err := readOnlyProfileValue(tc.value, "agent")
+		if on != tc.on || exitCode(err) != tc.code {
+			t.Fatalf("value=%q on=%v error=%v", tc.value, on, err)
+		}
+		if on && source != `read_only in profile "agent"` {
+			t.Fatalf("source=%q", source)
+		}
+	}
+}

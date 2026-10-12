@@ -881,3 +881,31 @@ func TestServiceAccountOverlappingTokenKeyWithholdsCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyObjectWriteUnconfirmed(t *testing.T) {
+	api := &vngcloud.APIError{Operation: "storage.PutObject", StatusCode: 404, Code: "NoSuchKey", Err: vngcloud.ErrNotFound}
+	err := fmt.Errorf("%w: download and compare before retrying: %w", storage.ErrObjectWriteUnconfirmed, api)
+	got := classify(err)
+	if got.Code != "ObjectWriteUnconfirmed" || got.Status != 404 || got.Operation != "storage.PutObject" || !strings.Contains(got.Message, "compare before retrying") || exitCode(err) != 1 {
+		t.Fatalf("envelope=%+v exit=%d", got, exitCode(err))
+	}
+}
+
+func TestExitCodeObjectPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{errors.Join(vngcloud.ErrInvalidConfig, vngcloud.ErrCredentialsFile), 3},
+		{errors.Join(vngcloud.ErrInvalidConfig, vngcloud.ErrNoCredentials), 3},
+		{errors.Join(vngcloud.ErrInvalidConfig, vngcloud.ErrAuth), 3},
+		{errors.Join(context.Canceled, vngcloud.ErrAuth, vngcloud.ErrNotFound), 1},
+		{errors.Join(context.DeadlineExceeded, vngcloud.ErrCredentialsFile), 1},
+		{&vngcloud.APIError{StatusCode: 401, Err: vngcloud.ErrInvalidConfig}, 3},
+		{storage.ErrObjectExists, 1}, {io.ErrUnexpectedEOF, 1}, {vngcloud.ErrPermission, 1},
+	} {
+		if got := exitCode(tc.err); got != tc.want {
+			t.Errorf("%v exit=%d want=%d", tc.err, got, tc.want)
+		}
+	}
+}

@@ -127,6 +127,7 @@ func newStorageCmd(e *env) *cobra.Command {
 			child.Long = docOpNotesStorage["storage "+child.Name()]
 		}
 	}
+	cmd.AddCommand(newStoragePutObjectCmd(e), newStorageGetObjectCmd(e))
 	return cmd
 }
 
