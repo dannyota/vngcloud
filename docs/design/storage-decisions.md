@@ -29,7 +29,9 @@ command: `put-bucket-policy` gains the `--yes` rule for a public principal
 
 ## Owner decisions
 
-Decisions 1 to 50 are approved as recommended.
+Decisions 1 to 50 are approved except where a decision names its replacement.
+The five [object-transfer decisions](storage-objects.md#owner-decisions)
+are approved; implementation is pending.
 
 1. Approved: buckets use the undocumented console API with the IAM User
    token; the documented external API needs service-account login.
@@ -47,7 +49,9 @@ Decisions 1 to 50 are approved as recommended.
    goes only to `--secret-file`.
 9. Approved: `DeleteBucket` refuses a bucket with objects; no force option.
 10. Approved: `--yes` when making a bucket public.
-11. Approved: rclone as the S3 client; no object commands in the CLI.
+11. Approved: native SDK and CLI object reads and writes follow the
+    [object-transfer design](storage-objects.md). Implementation is pending.
+    Rclone remains guidance for transfer features outside the native slice.
 12. Approved: the release order above.
 13. Approved: every storage call except `ListRegions` sends both
     `region` and `region_id` with the region UUID, and S1.1 ships that fix

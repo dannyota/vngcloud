@@ -272,10 +272,13 @@ store, which it cannot create keys in.
 ## Data plane
 
 The data plane is S3-compatible (Signature V4, path-style, regions `HCM04`
-and `HAN02`, HTTPS only). This SDK covers the management plane; objects go
-through any S3 client. The wiki recommends **rclone**: GreenNode documents
-its setup, and it ships as one static binary with a plain S3 mode. Recent
-AWS CLI v2 releases send checksum headers by default that S3-compatible
+and `HAN02`, HTTPS only). The shipped SDK covers the management plane.
+Native object transfers have an [accepted contract](storage-objects.md),
+with implementation pending;
+[its evidence](storage-objects-api.md) separates HCM04 observations from
+unverified regional behavior. The wiki recommends **rclone**: GreenNode
+documents its setup, and it ships as one static binary with a plain S3
+mode. Recent AWS CLI v2 releases send checksum headers by default that S3-compatible
 servers often refuse. With default settings, including checksums,
 `aws s3 ls` with `--endpoint-url https://hcm04.vstorage.vngcloud.vn` and
 `AWS_DEFAULT_REGION=HCM04` exited 0 with a console API key and 255 with a

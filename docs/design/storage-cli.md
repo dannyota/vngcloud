@@ -4,6 +4,10 @@ The CLI commands for [vStorage](storage.md): the command table, the
 per-bucket key setup, and `create-s3-key`. The SDK surface, errors, and
 releases are in that design and [vStorage: keys](storage-keys.md).
 
+Native object upload and download have a separate
+[accepted contract](storage-objects.md#cli-transfers). Implementation is
+pending; they are not part of the shipped command table below.
+
 ## Commands
 
 `svc_storage.go` registers the table, the service account key commands

@@ -18,6 +18,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
+| [vStorage object transfers](storage-objects.md) | Accepted; five decisions approved; implementation pending; HAN02 create-only PUT gated |
 | [vStorage projects](storage-projects.md) | Accepted |
 | [Prepaid resource auto-renew](auto-renew.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |

@@ -1,6 +1,6 @@
 # vStorage Design
 
-Status: Accepted (2026-09-26).
+Status: Accepted.
 
 This design adds vStorage object storage management to the SDK and CLI:
 buckets, their settings, S3 keys, and the service accounts that scope a key
@@ -9,8 +9,8 @@ to one bucket. aboutme creates its buckets and per-bucket keys at setup
 
 It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
 [ADR 0002](../adr/0002-write-api-conventions.md). S3 keys and service
-account keys are in [vStorage: keys](storage-keys.md). Versioning, CORS,
-and public reads are in [vStorage: settings](storage-settings.md). The
+account keys are in [vStorage: keys](storage-keys.md). Versioning, encryption,
+CORS, and public reads are in [vStorage: settings](storage-settings.md). The
 commands and the per-bucket key setup are in [vStorage: CLI](storage-cli.md).
 The release order and the owner's decisions are in
 [vStorage: decisions](storage-decisions.md).
@@ -24,8 +24,11 @@ rests on are in [vStorage: API](storage-api.md), with their sources.
 
 - Resizing a project. Project prices, purchase, and deletion have their
   own [vStorage projects design](storage-projects.md).
-- Objects, directories, presigned URLs, and uploads. Use an S3 client.
-- Lifecycle, encryption, object lock, notifications, ACLs, IP range ACLs,
+- The management client does not transfer objects. Native upload and
+  download have a separate [accepted design](storage-objects.md), with
+  implementation pending.
+  Directories and presigned URLs remain outside this management design.
+- Lifecycle, object lock, notifications, ACLs, IP range ACLs,
   usage alerts, reports, the Swift farm (`HCM03`), and Swift users.
 - The console's public access route, which answers 403 to the IAM user
   ([Public read](storage-settings.md#public-read)).
