@@ -20,3 +20,11 @@ tests unquote the string, verify complete bodyless framing, parse the raw
 response through the SDK transport, and check optional marker/version
 observations. The fixture proves client header handling, not prior existence,
 permanent deletion, or provider versioning behavior.
+
+`copy_result.xml` and `copy_error.xml` are hand-written synthetic raw S3 XML
+responses based on the accepted native copy wire shape. They are not GreenNode
+captures or live evidence. Public CopyObject tests decode a complete result and
+an embedded Error under HTTP 200. The result includes an escaped ETag, an offset
+timestamp, and an unknown subtree. The error includes synthetic private markers
+that must never reach callers. These fixtures prove local result handling, not
+provider metadata preservation, encryption, versioning, or source snapshots.

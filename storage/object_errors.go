@@ -16,6 +16,8 @@ import (
 )
 
 var (
+	// ErrObjectCopyUnconfirmed reports a copy that may have reached storage.
+	ErrObjectCopyUnconfirmed = errors.New("storage: object copy is unconfirmed; inspect the destination before deciding whether to repeat the copy")
 	// ErrObjectExists reports a create-only PUT refused because the key exists.
 	ErrObjectExists = errors.New("storage: object already exists")
 	// ErrObjectWriteUnconfirmed reports a write that may have reached storage.
@@ -47,7 +49,7 @@ func (c *ObjectClient) filterObjectMetadata(value string, maxBytes int) string {
 
 func objectAPIError(op string, status int, code string, cause error) *vngcloud.APIError {
 	// Only local operations and codes may enter the shared printable error.
-	if op != "storage.PutObject" && op != "storage.GetObject" && op != "storage.ListObjects" && op != "storage.HeadObject" && op != "storage.DeleteObject" {
+	if op != "storage.PutObject" && op != "storage.GetObject" && op != "storage.ListObjects" && op != "storage.HeadObject" && op != "storage.DeleteObject" && op != "storage.CopyObject" {
 		op = "storage.Object"
 	}
 	message := "object request failed"
@@ -120,7 +122,7 @@ func (c *ObjectClient) objectResponseError(op string, resp *http.Response, creat
 func objectKnownS3Code(code string) bool {
 	switch code {
 	case "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "RequestTimeTooSkewed",
-		"NoSuchBucket", "NoSuchKey", "PreconditionFailed", "SlowDown", "InternalError", "ServiceUnavailable":
+		"NoSuchBucket", "NoSuchKey", "PreconditionFailed", "SlowDown", "InternalError", "ServiceUnavailable", "NotImplemented":
 		return true
 	default:
 		return false
@@ -186,4 +188,15 @@ func objectXMLCode(raw []byte) string {
 			return ""
 		}
 	}
+}
+
+func unconfirmedObjectCopy(err error) error {
+	api := objectAPIError("storage.CopyObject", 0, "RequestFailed", err)
+	var source *vngcloud.APIError
+	if errors.As(err, &source) {
+		// Rebuild safe fields and causes; never retain a raw error chain.
+		api = objectAPIError("storage.CopyObject", source.StatusCode, source.Code, err)
+	}
+	api.Retryable = false
+	return fmt.Errorf("%w: %w", ErrObjectCopyUnconfirmed, api)
 }

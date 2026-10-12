@@ -1,6 +1,6 @@
 # vStorage object operations protocol and evidence
 
-Status: ListObjects, HeadObject, and DeleteObject implemented; copy pending.
+Status: ListObjects, HeadObject, DeleteObject, and CopyObject implemented.
 
 This specification supports the [object operations design][design]. It adds
 only the mechanics described here to the [transfer protocol][transfer]. Its

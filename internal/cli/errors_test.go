@@ -959,3 +959,16 @@ func TestExitCodeDeleteAmbiguity(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyObjectCopyUnconfirmed(t *testing.T) {
+	for _, cause := range []error{vngcloud.ErrAuth, vngcloud.ErrNotFound, context.Canceled, context.DeadlineExceeded} {
+		err := errors.Join(storage.ErrObjectCopyUnconfirmed, &vngcloud.APIError{Operation: "unsafe", StatusCode: 401, Code: "unsafe", Message: "synthetic-secret", Err: cause})
+		got := classify(err)
+		if exitCode(err) != 1 || got.Code != "ObjectCopyUnconfirmed" || got.Message != storage.ErrObjectCopyUnconfirmed.Error() || got.Operation != "storage.CopyObject" || got.Status != 401 {
+			t.Fatalf("exit=%d envelope=%+v", exitCode(err), got)
+		}
+	}
+	if got := classify(storage.ErrObjectCopyUnconfirmed); got.Status != 0 || got.Operation != "storage.CopyObject" {
+		t.Fatalf("envelope=%+v", got)
+	}
+}

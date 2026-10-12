@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.81.0 - Native vStorage Server-Side Copy
+
+- SDK `storage.ObjectClient.CopyObject` and CLI `storage copy-object` copy one
+  current object directly within vStorage, retaining the source. Both buckets
+  must belong to the same project and region.
+- The SDK requires `Replace: true`; the CLI requires `--replace --yes`.
+  Read-only settings refuse before credentials load. Source and destination
+  names remain subject to concurrent changes; no version selector or
+  create-only destination guarantee is provided.
+- One bodyless signed PUT uses `x-amz-copy-source`. There is no local spool,
+  download/upload fallback, source deletion, multipart copy, or retry.
+  A complete bounded result is required; HTTP 200 with an Error is not success.
+- Ambiguous results use `ErrObjectCopyUnconfirmed` and CLI
+  `ObjectCopyUnconfirmed` with exit 1. Inspect the destination before deciding
+  whether to repeat the copy. Failed metadata output after confirmed success
+  reports completion and never resends.
+- Provider metadata defaults apply without a lossless clone or encryption
+  inheritance guarantee. Recorded HCM04 encrypted sources return 501, and a
+  plain-source copy can remain unencrypted despite destination bucket
+  encryption. HAN02 encryption and GreenNode's exact copy size limit remain
+  unverified. No new live verification is claimed.
+- Existing transfers, listing, HEAD, and deletion remain available. Move/rename
+  stays gated on safe source removal. See [copy guidance](
+  docs/wiki/Storage-Objects-Copy.md).
+
 ## v0.80.0 - Native vStorage Object Deletion
 
 - SDK `storage.ObjectClient.DeleteObject` and CLI `storage delete-object`

@@ -317,3 +317,38 @@ func TestObjectErrorsDeleteUnconfirmed(t *testing.T) {
 		assertObjectSafe(t, err, "synthetic-secret-key", "https://private.invalid")
 	}
 }
+
+func TestObjectErrorsCopyIdentity(t *testing.T) {
+	api := objectAPIError("storage.CopyObject", 501, "NotImplemented", errors.New("synthetic-secret-key"))
+	if api.Operation != "storage.CopyObject" || api.Code != "NotImplemented" || api.Retryable {
+		t.Fatalf("COPY identity lost: %v", api)
+	}
+	assertObjectSafe(t, api, "synthetic-secret-key")
+}
+
+func TestObjectErrorsCopyUnconfirmed(t *testing.T) {
+	const recovery = "storage: object copy is unconfirmed; inspect the destination before deciding whether to repeat the copy"
+	if ErrObjectCopyUnconfirmed.Error() != recovery || errors.Is(ErrObjectCopyUnconfirmed, ErrObjectDeleteUnconfirmed) || errors.Is(ErrObjectCopyUnconfirmed, ErrObjectWriteUnconfirmed) {
+		t.Fatal("copy recovery identity changed")
+	}
+	raw := errors.New("synthetic-secret-key https://private.invalid")
+	for _, status := range []int{0, 200, 401, 403, 404, 412, 429, 501} {
+		for _, cause := range []error{raw, errors.Join(raw, context.Canceled), errors.Join(raw, context.DeadlineExceeded)} {
+			source := &vngcloud.APIError{Operation: "malicious-operation", StatusCode: status, Code: "NotImplemented", Message: "synthetic-secret-key", Retryable: true, Err: cause}
+			err := unconfirmedObjectCopy(fmt.Errorf("malicious outer text: %w", source))
+			var api *vngcloud.APIError
+			if !errors.Is(err, ErrObjectCopyUnconfirmed) || !errors.As(err, &api) || api == source || api.Operation != "storage.CopyObject" || api.StatusCode != status || api.Code != "NotImplemented" || api.Retryable || errors.Is(err, raw) {
+				t.Fatalf("safe copy ambiguity: %v", err)
+			}
+			if errors.Is(err, context.Canceled) != errors.Is(cause, context.Canceled) || errors.Is(err, context.DeadlineExceeded) != errors.Is(cause, context.DeadlineExceeded) {
+				t.Fatal("context identity lost")
+			}
+			assertObjectSafe(t, err, "synthetic-secret-key", "https://private.invalid", "malicious-operation", "malicious outer text")
+		}
+	}
+	err := unconfirmedObjectCopy(raw)
+	if !errors.Is(err, ErrObjectCopyUnconfirmed) || vngcloud.ErrorCode(err) != "RequestFailed" || errors.Is(err, raw) {
+		t.Fatal("raw error retained")
+	}
+	assertObjectSafe(t, err, "synthetic-secret-key", "https://private.invalid")
+}

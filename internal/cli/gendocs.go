@@ -371,8 +371,9 @@ func renderCLIPage(services []docService) string {
 		"the wrapper.\n\n")
 
 	b.WriteString("Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).\n\n")
+	b.WriteString("Storage copy-object uses --replace --yes for one native server-side copy, retaining the source. --output and --query expose only accepted `ETag`, `LastModified`, `VersionID`, `SourceVersionID`, and `ServerSideEncryption`, plus credential-redacted `SourceBucket`, `SourceKey`, `Bucket`, and `Key`. Unsafe or absent timestamps stay JSON null; accepted timestamps are UTC. Controls are escaped across formats and queries. No object bytes, content length, or local checksum are reported. See [Storage](CLI-Storage.md#copy-object) and [Storage Object Copy](Storage-Objects-Copy.md).\n\n")
 	b.WriteString("## --cli-input-json\n\n")
-	b.WriteString("Every operation command except `storage put-object` and `storage get-object`, `storage list-objects`, `storage head-object`, and `storage delete-object` also accepts `--cli-input-json '<json>'` or " +
+	b.WriteString("Every operation command except `storage put-object` and `storage get-object`, `storage list-objects`, `storage head-object`, `storage delete-object`, and `storage copy-object` also accepts `--cli-input-json '<json>'` or " +
 		"`--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, " +
 		"matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag " +
 		"given on the same command line is applied after it and wins for that field. Trailing data after the " +
@@ -513,6 +514,7 @@ func renderCLIPage(services []docService) string {
 		"`BucketNotEmpty`, `UserNotFound`, `SecretFileFailed`, `SystemTag`, `VolumeInUse`, `BootVolume`, and `ServerRunning` all exit 1.\n\n")
 
 	b.WriteString("`ObjectDeleteUnconfirmed` means DELETE may have removed the current name; inspect the current key and version history before deciding whether to delete again. It exits 1 ahead of wrapped auth, not-found or context errors. Confirmed deletion followed by metadata output failure also exits 1 and says do not retry.\n\n")
+	b.WriteString("`ObjectCopyUnconfirmed` means the copy may have replaced the destination; inspect the destination before deciding whether to repeat the copy. HTTP 200 Error, malformed results, response loss, or a timeout after possible dispatch cannot trigger a retry or source deletion. It exits 1 ahead of wrapped auth, not-found or context errors. A query or stdout failure after confirmed success says copy completed and do not retry, exits 1, and sends no second request. An unconditional rerun can replace another writer's object or create another version.\n\n")
 	b.WriteString("`ObjectWriteUnconfirmed` means a PUT may have stored the object; download to a fresh path and compare length and SHA256 before retrying. `ObjectExists` means create-only PUT refused an existing key. `ObjectWriteUnconfirmed` and `ObjectExists` exit 1. Completed-transfer metadata output and local cleanup failures also exit 1 and must not cause a retry.\n\n")
 
 	b.WriteString("## Read-only\n\n")
@@ -591,7 +593,7 @@ func renderServicePage(svc docService) string {
 		fmt.Fprintf(&b, "Kind: %s.\n\n", op.kind)
 		if svc.name == "storage" && (op.name == "put-object" || op.name == "get-object") {
 			fmt.Fprintf(&b, "%s\n\n", storageObjectNotes(op.name == "put-object"))
-		} else if svc.name == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object") {
+		} else if svc.name == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object" || op.name == "copy-object") {
 			fmt.Fprintf(&b, "%s\n\n", storageObjectOperationNotes(op.name))
 		} else if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
 			fmt.Fprintf(&b, "%s\n\n", note)
@@ -631,7 +633,7 @@ func buildExample(service string, op docOp) string {
 	if service == "storage" && (op.name == "put-object" || op.name == "get-object") {
 		return storageObjectExample(op.name == "put-object")
 	}
-	if service == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object") {
+	if service == "storage" && (op.name == "list-objects" || op.name == "head-object" || op.name == "delete-object" || op.name == "copy-object") {
 		return storageObjectOperationExample(op.name)
 	}
 	if override, ok := docExampleOverride[service+" "+op.name]; ok {

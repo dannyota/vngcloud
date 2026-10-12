@@ -230,6 +230,9 @@ func logStorageObjectOperation(e *env, operation string, started time.Time, coun
 		if errors.Is(err, context.DeadlineExceeded) {
 			code = "DeadlineExceeded"
 		}
+		if errors.Is(err, storage.ErrObjectCopyUnconfirmed) {
+			code = "ObjectCopyUnconfirmed"
+		}
 	}
 	_, _ = fmt.Fprintf(e.stderr, "operation=%s elapsed=%s status=%d count=%d code=%s\n", operation, time.Since(started), status, count, code)
 }

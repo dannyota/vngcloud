@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -180,5 +182,28 @@ func TestReadOnlyProfileValue(t *testing.T) {
 		if on && source != `read_only in profile "agent"` {
 			t.Fatalf("source=%q", source)
 		}
+	}
+}
+
+func TestReadOnlyStorageCopyObject(t *testing.T) {
+	for _, source := range []string{"flag", "environment", "profile"} {
+		t.Run(source, func(t *testing.T) {
+			home := withCleanEnv(t)
+			args := []string{"storage", "copy-object", "--s3-region", "HCM04", "--s3-credentials-file", "never-open", "--source-bucket", "source-1", "--source-key", "source", "--bucket", "bucket-1", "--key", "destination", "--replace", "--yes"}
+			switch source {
+			case "flag":
+				args = append(args, "--read-only")
+			case "environment":
+				t.Setenv(envReadOnly, "true")
+			case "profile":
+				writeConfigFile(t, home, "[default]\nread_only=true\n")
+			}
+			root := newRootCmd(strings.NewReader(""), io.Discard, io.Discard)
+			root.SetArgs(args)
+			err := root.Execute()
+			if exitCode(err) != 2 || classify(err).Code != "ReadOnly" {
+				t.Fatalf("err=%v envelope=%+v", err, classify(err))
+			}
+		})
 	}
 }

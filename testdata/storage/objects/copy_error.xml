@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written synthetic embedded S3 error, not a provider capture. -->
+<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Code>InternalError</Code>
+  <Message>synthetic-secret-key</Message>
+  <Resource>synthetic-private-resource</Resource>
+</Error>

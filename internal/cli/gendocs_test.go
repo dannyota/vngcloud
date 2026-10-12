@@ -1134,7 +1134,7 @@ func TestGenDocsDeleteObject(t *testing.T) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	if strings.Contains(text, "## move-object") || strings.Contains(text, "## copy-object") {
+	if strings.Contains(text, "## move-object") || strings.Contains(text, "## rename-object") {
 		t.Fatal("future mutation exposed")
 	}
 	root, err := os.ReadFile(filepath.Join(dir, "CLI.md"))
@@ -1143,5 +1143,54 @@ func TestGenDocsDeleteObject(t *testing.T) {
 	}
 	if !strings.Contains(string(root), "ObjectDeleteUnconfirmed") {
 		t.Fatal("missing DELETE recovery code")
+	}
+}
+
+func TestGenDocsCopyObject(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Storage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if strings.Count(page, "## copy-object\n") != 1 {
+		t.Fatal("COPY must appear exactly once")
+	}
+	start := strings.Index(page, "## copy-object\n")
+	section := strings.SplitN(page[start:], "\n## ", 2)[0]
+	for _, want := range []string{"Kind: Write, destructive", storageCopyObjectNotes(), storageCopyObjectExample(), "| `--replace` | `bool` | yes |", "| `--source-bucket` | `string` | yes |", "| `--source-key` | `string` | yes |", "| `--bucket` | `string` | yes |", "| `--key` | `string` | yes |", "| `--s3-region` | `string` | yes |", "| `--s3-credentials-file` | `string` | yes |"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("COPY lacks %q", want)
+		}
+	}
+	for _, name := range []string{"body", "destination", "version-id", "source-version-id", "if-match", "if-none-match", "prefix", "delimiter", "max-keys", "all", "cli-input-json", "metadata-directive", "header"} {
+		if strings.Contains(section, "| `--"+name+"` |") {
+			t.Errorf("COPY exposes %s", name)
+		}
+	}
+	for _, name := range []string{"move-object", "rename-object"} {
+		if strings.Contains(page, "## "+name+"\n") {
+			t.Errorf("unapproved %s exposed", name)
+		}
+	}
+	if strings.Contains(page, "Native copy and move remain unavailable") {
+		t.Error("obsolete native COPY refusal")
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "CLI.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := string(data)
+	jsonSection := strings.SplitN(strings.SplitN(root, "## --cli-input-json\n", 2)[1], "\n## ", 2)[0]
+	if !strings.Contains(jsonSection, "`storage copy-object`") {
+		t.Error("missing COPY JSON-input exclusion")
+	}
+	for _, want := range []string{"CLI-Storage.md#copy-object", "`ETag`", "`LastModified`", "`VersionID`", "`SourceVersionID`", "`ServerSideEncryption`", "`SourceBucket`", "`SourceKey`", "`Bucket`", "`Key`", "credential-redacted", "JSON null", "ObjectCopyUnconfirmed", "inspect the destination before deciding whether to repeat the copy", "copy completed", "do not retry", "ahead of wrapped auth, not-found or context errors", "except on a toggle write or native object operation"} {
+		if !strings.Contains(root, want) {
+			t.Errorf("root lacks COPY contract %q", want)
+		}
 	}
 }

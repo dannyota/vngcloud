@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written synthetic S3 result, not a provider capture. -->
+<CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <ETag>&quot;synthetic-etag&quot;</ETag>
+  <LastModified>2024-01-02T03:04:05+07:00</LastModified>
+  <Unknown><Value>synthetic-ignored</Value></Unknown>
+</CopyObjectResult>

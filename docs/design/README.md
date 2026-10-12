@@ -19,7 +19,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [vStorage object transfers](storage-objects.md) | Implemented; native SDK and CLI PUT/GET; HAN02 create-only PUT gated |
-| [Object operations][object-ops] | ListObjects, HeadObject, and DeleteObject implemented; copy pending |
+| [Object operations][object-ops] | ListObjects, HeadObject, DeleteObject, and CopyObject implemented |
 | [vStorage projects](storage-projects.md) | Accepted |
 | [Prepaid resource auto-renew](auto-renew.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |

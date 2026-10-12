@@ -451,7 +451,11 @@ func TestStorageObjectOperationsErrors(t *testing.T) {
 
 func TestStorageObjectOperationsDocs(t *testing.T) {
 	root := newRootCmd(strings.NewReader(""), io.Discard, io.Discard)
-	for _, op := range storageObjectOperationDocOps() {
+	ops := storageObjectOperationDocOps()
+	if len(ops) != 4 {
+		t.Fatalf("object doc ops=%d want=4", len(ops))
+	}
+	for _, op := range ops {
 		cmd, _, err := root.Find([]string{"storage", op.name})
 		if err != nil || cmd.Name() != op.name {
 			t.Fatalf("registration %s: %v", op.name, err)
@@ -461,16 +465,47 @@ func TestStorageObjectOperationsDocs(t *testing.T) {
 				t.Errorf("reference disagrees with flag %s", field.name)
 			}
 		}
-		for _, name := range []string{"all", "cli-input-json", "body", "destination", "replace", "version-id"} {
+		want := map[string]string{"s3-region": "string", "s3-credentials-file": "string", "bucket": "string", "transfer-timeout": "duration"}
+		if op.name == "list-objects" {
+			want["prefix"], want["delimiter"], want["continuation-token"], want["max-keys"] = "string", "string", "string", "int"
+		} else {
+			want["key"] = "string"
+		}
+		if op.name == "copy-object" {
+			want["source-bucket"], want["source-key"], want["replace"] = "string", "string", "bool"
+		}
+		if len(op.fields) != len(want) {
+			t.Errorf("%s doc fields=%d want=%d", op.name, len(op.fields), len(want))
+		}
+		for _, field := range op.fields {
+			if field.goType != want[field.name] || field.viaJSON {
+				t.Errorf("%s unexpected doc field %+v", op.name, field)
+			}
+			delete(want, field.name)
+		}
+		if len(want) != 0 {
+			t.Errorf("%s missing doc flags %v", op.name, want)
+		}
+		for _, name := range []string{"all", "cli-input-json", "body", "destination", "version-id", "source-version-id", "if-match", "if-none-match", "header"} {
 			if cmd.Flags().Lookup(name) != nil {
 				t.Errorf("unexpected flag %s", name)
 			}
 		}
+		if op.name != "copy-object" {
+			for _, name := range []string{"replace", "source-bucket", "source-key"} {
+				if cmd.Flags().Lookup(name) != nil {
+					t.Errorf("%s unexpected flag %s", op.name, name)
+				}
+			}
+		} else if op.kind != "Write, destructive" {
+			t.Errorf("COPY kind=%s", op.kind)
+		}
+
 		if cmd.Long != storageObjectOperationNotes(op.name) {
 			t.Fatal("help differs from reference")
 		}
 	}
-	for _, name := range []string{"copy-object", "move-object", "rename-object"} {
+	for _, name := range []string{"move-object", "rename-object"} {
 		cmd, _, _ := root.Find([]string{"storage", name})
 		if cmd != nil && cmd.Name() == name {
 			t.Fatalf("registered %s", name)

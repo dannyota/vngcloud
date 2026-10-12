@@ -1,7 +1,7 @@
 # Storage Objects
 
 Use `storage.NewObjectClient` for native S3 transfers, one-page listing, and
-HEAD metadata, and current-name deletion. The existing
+HEAD metadata, current-name deletion, and server-side copy. The existing
 `storage.New(cfg)` client manages vStorage projects, buckets, keys, policies,
 and settings through the console API. The object client uses a separate S3
 data plane and never loads IAM credentials or a management client.
@@ -233,6 +233,15 @@ A query evaluation or stdout failure after confirmed deletion exits 1 and says
 client sends no second DELETE. Keep the completed result and inspect before
 any later deletion decision.
 
+## Server-side copy
+
+Use [Storage Object Copy](Storage-Objects-Copy.md) to copy one current source
+within the same project and region, retaining the source. Native copy requires
+`--replace --yes`; create-only copy and move remain unavailable. The copy guide
+covers current-name races, diagnostic versions, provider metadata defaults,
+recorded HCM04 encryption restrictions, unverified HAN02 encryption, and
+unconfirmed-result recovery.
+
 ## CLI file transfers
 
 Upload one file and download one exact key:
@@ -367,8 +376,8 @@ intended file before deciding whether to upload again. An HTTP 412 alone does
 not prove that the existing bytes match your upload.
 
 The native feature provides one-object PUT and GET, one-page listing,
-HEAD metadata, and current-name DELETE. Native copy and move remain unavailable
-in this release. It does not append, sync, resume,
+HEAD metadata, current-name DELETE, and native server-side COPY. Create-only
+copy and move remain unavailable. It does not append, sync, resume,
 multipart-transfer, or create presigned URLs.
 Use an external S3 tool such as rclone when you need sync or multipart
 transfers. The native SDK and CLI remain separate from those tools.
