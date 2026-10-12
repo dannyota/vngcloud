@@ -99,6 +99,14 @@ func (c *ObjectClient) objectURL(bucket, key string) (*url.URL, error) {
 	return &url.URL{Scheme: "https", Host: strings.ToLower(c.region) + ".vstorage.vngcloud.vn", Path: path, RawPath: objectEncodePath(path)}, nil
 }
 
+func (c *ObjectClient) objectBucketURL(bucket string) (*url.URL, error) {
+	if c == nil || !bucketNamePattern.MatchString(bucket) {
+		return nil, fmt.Errorf("%w: valid bucket is required", vngcloud.ErrInvalidInput)
+	}
+	path := "/" + bucket
+	return &url.URL{Scheme: "https", Host: strings.ToLower(c.region) + ".vstorage.vngcloud.vn", Path: path, RawPath: objectEncodePath(path)}, nil
+}
+
 func objectHasControls(value string) bool {
 	for i := 0; i < len(value); i++ {
 		if value[i] < 0x20 || value[i] == 0x7f {

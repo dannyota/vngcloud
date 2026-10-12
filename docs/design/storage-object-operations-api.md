@@ -1,6 +1,6 @@
 # vStorage object operations protocol and evidence
 
-Status: Draft, independently reviewed; pending owner approval.
+Status: Accepted for independent releases; implementation pending.
 
 This specification supports the [object operations design][design]. It adds
 only the mechanics described here to the [transfer protocol][transfer]. Its
@@ -30,7 +30,7 @@ source-generation guards, or destination copy conditions.
 
 The [HCM04 portal guide][gn-portal-hcm] and [HAN02 portal guide][gn-portal-han]
 describe copy/move between buckets within one project and exclude cross-project
-operations. This bounds the proposed S3 surface; it does not establish a native
+operations. This bounds the accepted S3 surface; it does not establish a native
 rename operation or transactional semantics. Broader AWS copy scope is not
 evidence of broader GreenNode support.
 

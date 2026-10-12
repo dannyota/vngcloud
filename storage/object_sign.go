@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func (c *ObjectClient) signObjectRequest(req *http.Request, payloadHash string, 
 		headers.WriteString(name + ":" + strings.Join(values[name], ",") + "\n")
 	}
 	signed := strings.Join(names, ";")
-	canonical := strings.Join([]string{req.Method, objectEncodePath(req.URL.Path), "", headers.String(), signed, payloadHash}, "\n")
+	canonical := strings.Join([]string{req.Method, objectEncodePath(req.URL.Path), req.URL.RawQuery, headers.String(), signed, payloadHash}, "\n")
 	scope := stamp[:8] + "/" + c.region + "/s3/aws4_request"
 	digest := sha256.Sum256([]byte(canonical))
 	toSign := "AWS4-HMAC-SHA256\n" + stamp + "\n" + scope + "\n" + hex.EncodeToString(digest[:])
@@ -56,4 +57,32 @@ func objectHMAC(key []byte, value string) []byte {
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte(value))
 	return mac.Sum(nil)
+}
+
+// Query names and values share the exact encoding sent in URL.RawQuery.
+func objectEncodeQuery(values url.Values) string {
+	type pair struct{ name, value string }
+	var pairs []pair
+	for name, entries := range values {
+		encodedName := strings.ReplaceAll(url.QueryEscape(name), "+", "%20")
+		for _, value := range entries {
+			pairs = append(pairs, pair{encodedName, strings.ReplaceAll(url.QueryEscape(value), "+", "%20")})
+		}
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].name != pairs[j].name {
+			return pairs[i].name < pairs[j].name
+		}
+		return pairs[i].value < pairs[j].value
+	})
+	var encoded strings.Builder
+	for i, pair := range pairs {
+		if i != 0 {
+			encoded.WriteByte('&')
+		}
+		encoded.WriteString(pair.name)
+		encoded.WriteByte('=')
+		encoded.WriteString(pair.value)
+	}
+	return encoded.String()
 }

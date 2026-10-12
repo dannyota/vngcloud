@@ -4,7 +4,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -93,7 +97,7 @@ func objectReferenceSign(req *http.Request, hash string, now time.Time, region s
 		lines = append(lines, name+":"+values[name])
 	}
 	signed := strings.Join(names, ";")
-	canonical := strings.Join([]string{req.Method, req.URL.EscapedPath(), "", strings.Join(lines, "\n") + "\n", signed, hash}, "\n")
+	canonical := strings.Join([]string{req.Method, req.URL.EscapedPath(), req.URL.RawQuery, strings.Join(lines, "\n") + "\n", signed, hash}, "\n")
 	scope := stamp[:8] + "/" + region + "/s3/aws4_request"
 	toSign := "AWS4-HMAC-SHA256\n" + stamp + "\n" + scope + "\n" + objectTestHash(canonical)
 	key := []byte("AWS4" + credentials.SecretAccessKey.Reveal())
@@ -142,6 +146,114 @@ func TestObjectSignSupportedRequests(t *testing.T) {
 			if req.Header.Get("Authorization") != want {
 				t.Fatal("resigning included old authorization")
 			}
+		}
+	}
+}
+
+// This bucket-list vector is from the same published AWS SigV4 examples.
+func TestObjectQuerySignPublishedVector(t *testing.T) {
+	c := objectTestClient(t)
+	c.region = "us-east-1"
+	c.credentials = ObjectCredentials{AccessKeyID: vngcloud.Secret("AKIAIOSFODNN7EXAMPLE"), SecretAccessKey: vngcloud.Secret("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://examplebucket.s3.amazonaws.com/?max-keys=2&prefix=J", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2013, 5, 24, 0, 0, 0, 0, time.UTC)
+	canonical, _, want := objectReferenceSign(req.Clone(t.Context()), objectTestHash(""), now, c.region, c.credentials)
+	if objectTestHash(canonical) != "df57d21db20da04d7fa30298dd4488ba3a2b47ca3a489c74750e0f1e7df1b9b7" {
+		t.Fatal("reference canonical hash differs from published vector")
+	}
+	published := "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7"
+	if want != published {
+		t.Fatal("reference signature differs from published vector")
+	}
+	c.signObjectRequest(req, objectTestHash(""), now)
+	if req.Header.Get("Authorization") != published {
+		t.Fatal("signer ignores the published canonical query")
+	}
+	if req.URL.RawQuery != "max-keys=2&prefix=J" {
+		t.Fatal("signer changed wire query")
+	}
+}
+
+func TestObjectQuerySignEncoding(t *testing.T) {
+	values := url.Values{
+		"prefix": {"é/猫 %2F+/?#&="}, "delimiter": {"/"},
+		"continuation-token": {"a+b c%2F/=&?#"}, "empty": {""},
+		"z": {"z", "/", "+", " "}, "é": {"~"}, "a/": {"value"}, "a?": {"value"},
+	}
+	before := url.Values{}
+	for name, entries := range values {
+		before[name] = append([]string(nil), entries...)
+	}
+	const want = "%C3%A9=~&a%2F=value&a%3F=value&continuation-token=a%2Bb%20c%252F%2F%3D%26%3F%23&delimiter=%2F&empty=&prefix=%C3%A9%2F%E7%8C%AB%20%252F%2B%2F%3F%23%26%3D&z=%20&z=%2B&z=%2F&z=z"
+	if got := objectEncodeQuery(values); got != want {
+		t.Fatalf("query=%s want=%s", got, want)
+	}
+	if !reflect.DeepEqual(values, before) {
+		t.Fatal("query encoding mutated caller values")
+	}
+	if objectEncodeQuery(nil) != "" || objectEncodeQuery(url.Values{"absent": nil}) != "" {
+		t.Fatal("empty query encoded")
+	}
+	c := objectTestClient(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI != "/bucket?"+want {
+			t.Errorf("RequestURI=%s", r.RequestURI)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	for _, region := range []string{"HCM04", "HAN02"} {
+		c.region = region
+		for _, hour := range []int{0, 23} {
+			u, err := c.objectBucketURL("bucket")
+			if err != nil {
+				t.Fatal(err)
+			}
+			u.RawQuery = objectEncodeQuery(values)
+			u.Scheme = "http"
+			u.Host = strings.TrimPrefix(server.URL, "http://")
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, u.String(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2025, 1, 2, hour, 30, 0, 0, time.FixedZone("offset", 3600))
+			_, _, auth := objectReferenceSign(req.Clone(t.Context()), objectTestHash(""), now, region, c.credentials)
+			c.signObjectRequest(req, objectTestHash(""), now)
+			if req.Header.Get("Authorization") != auth || req.Header.Get("X-Amz-Date") != now.UTC().Format("20060102T150405Z") {
+				t.Fatal("query signature or UTC date differs from reference")
+			}
+			c.signObjectRequest(req, objectTestHash(""), now)
+			if req.Header.Get("Authorization") != auth || req.URL.RawQuery != want {
+				t.Fatal("resigning changed signature or query")
+			}
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, readErr := io.Copy(io.Discard, resp.Body)
+			closeErr := resp.Body.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatalf("read=%v close=%v", readErr, closeErr)
+			}
+		}
+	}
+}
+
+func TestObjectQuerySignExactRawQuery(t *testing.T) {
+	c := objectTestClient(t)
+	for _, query := range []string{"z=last&a=%20", "a=+", "a=%2f", "empty="} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.test/bucket?"+query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+		_, _, want := objectReferenceSign(req.Clone(t.Context()), objectTestHash(""), now, c.region, c.credentials)
+		c.signObjectRequest(req, objectTestHash(""), now)
+		if req.Header.Get("Authorization") != want || req.URL.RawQuery != query {
+			t.Fatal("signer reencoded RawQuery")
 		}
 	}
 }

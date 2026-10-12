@@ -1,12 +1,12 @@
 # vStorage object operations
 
-Status: Draft, independently reviewed; pending owner approval.
+Status: Accepted for independent releases; implementation pending.
 
 Extend `storage.ObjectClient` with bounded listing, metadata lookup, single
 object deletion, and direct server-side copying. Keep automatic move
 and rename gated on safe source removal. None of this extension is a current
 supported-feature claim. The [protocol and evidence][api] and
-[mechanism checks][checks] govern the proposed behavior.
+[mechanism checks][checks] govern the accepted behavior.
 
 ## Scope and approach
 
@@ -18,7 +18,7 @@ executable, management login, or implicit policy change.
 Three practical copy approaches have different consequences:
 
 1. Native S3 CopyObject keeps content on the service and uses its metadata-copy
-   behavior. The owner selected direct copy. Propose explicit unconditional
+   behavior. The owner selected direct copy with explicit unconditional
    destination replacement first; default refusal avoids promising an unproved
    create-only condition. Encryption limits remain visible compatibility facts.
 2. Client download/upload changes traffic, storage, and metadata behavior.
@@ -146,7 +146,7 @@ effect. Do not reuse the upload sentinel's download-and-compare advice.
 `Bucket string`, and `Key string`, plus `Replace bool`. Bucket and Key name the
 destination. There is one implementation: a native S3 CopyObject request.
 
-Propose requiring Replace true for the initial release in both regions.
+Require Replace true for the initial release in both regions.
 Replace false, including the zero value, wraps ErrInvalidInput before any
 request and says native create-only copy is unavailable. It never becomes
 unconditional implicitly. CLI copy requires `--replace --yes`. This consent
@@ -303,7 +303,7 @@ and `ObjectCopyUnconfirmed`, ahead of the underlying APIError code. A
 post-success query or stdout failure exits 1 and says
 the operation completed. It never causes a resend.
 
-## Proposed release slices and decisions
+## Independent releases and remaining gates
 
 1. Reads: ListObjects and HeadObject with SDK, CLI, help, and wiki. Published
    compatibility supports both regions; HCM04 has additional recorded listing
@@ -318,13 +318,14 @@ the operation completed. It never causes a resend.
 4. Create-only copy and move: only as their [specific gates][gates] permit.
    They do not block the three independent releases above.
 
-The owner must approve these new method/type/flag/error contracts, one-page
-listing, bounded metadata omissions, unconditional standalone deletion, and
-the proposed Replace/consent requirement with native-copy compatibility limits.
-Deferring unsafe move is a recommendation, not approval to omit the request
-silently. Independent design and plan review precede implementation; mutation
-and credential code require adversarial review. This document is not a plan or
-authority for live calls. [Checks][checks] state verification and release gates.
+The owner approved the independently reviewed ListObjects and HeadObject reads,
+unconditional DeleteObject with `--yes`, and direct same-project/same-region
+CopyObject with `--replace --yes` and its stated encryption limits. These are
+independent releases; implementation remains pending. Create-only copy and
+move/rename remain deferred behind their specific gates. This approval does not
+authorize live calls. Implementation-plan review precedes implementation;
+mutation and credential code require adversarial review. This document is not
+a plan. [Checks][checks] state verification and release gates.
 
 [api]: storage-object-operations-api.md
 [checks]: storage-object-operations-checks.md

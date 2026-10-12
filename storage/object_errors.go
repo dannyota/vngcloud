@@ -33,7 +33,7 @@ func (c *ObjectClient) filterObjectMetadata(value string, maxBytes int) string {
 
 func objectAPIError(op string, status int, code string, cause error) *vngcloud.APIError {
 	// Only local operations and codes may enter the shared printable error.
-	if op != "storage.PutObject" && op != "storage.GetObject" {
+	if op != "storage.PutObject" && op != "storage.GetObject" && op != "storage.ListObjects" && op != "storage.HeadObject" {
 		op = "storage.Object"
 	}
 	message := "object request failed"
@@ -46,6 +46,8 @@ func objectAPIError(op string, status int, code string, cause error) *vngcloud.A
 		message = "object exceeds the download limit"
 	case "ObjectBodyClosed":
 		message = "object body is closed"
+	case "InvalidResponse":
+		message = "invalid object response"
 	case "RequestFailed":
 	default:
 		if !objectKnownS3Code(code) {

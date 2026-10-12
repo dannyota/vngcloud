@@ -231,3 +231,28 @@ func assertObjectSafe(t *testing.T, value any, rejected ...string) {
 		}
 	}
 }
+
+func TestObjectBucketURL(t *testing.T) {
+	for _, region := range []string{"HCM04", "HAN02"} {
+		c := objectTestClient(t)
+		c.region = region
+		for _, bucket := range []string{"bucket", "a-b", "a.b", "BAD", strings.Repeat("a", 255)} {
+			u, err := c.objectBucketURL(bucket)
+			want := "https://" + strings.ToLower(region) + ".vstorage.vngcloud.vn/" + bucket
+			if err != nil || u == nil || u.String() != want || u.RawQuery != "" || u.Fragment != "" {
+				t.Fatalf("URL=%v error=%v", u, err)
+			}
+		}
+		for _, bucket := range []string{"", "../bucket", "b/key", "bucket?query", "bucket#fragment", "bucket%2F", "猫", strings.Repeat("a", 256)} {
+			u, err := c.objectBucketURL(bucket)
+			if u != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
+				t.Fatalf("URL=%v error=%v", u, err)
+			}
+			assertObjectSafe(t, err, bucket)
+		}
+	}
+	var c *ObjectClient
+	if u, err := c.objectBucketURL("bucket"); u != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
+		t.Fatalf("URL=%v error=%v", u, err)
+	}
+}

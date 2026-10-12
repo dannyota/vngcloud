@@ -201,3 +201,65 @@ func TestObjectErrorsContextCauseSafety(t *testing.T) {
 		}
 	}
 }
+
+func TestObjectErrorsReadIdentities(t *testing.T) {
+	for _, op := range []string{"storage.ListObjects", "storage.HeadObject"} {
+		for _, code := range []string{"InvalidResponse", "RequestFailed"} {
+			api := objectAPIError(op, 200, code, errors.New("synthetic-secret-key /private"))
+			if api.Operation != op || api.Code != code {
+				t.Errorf("operation=%s code=%s", api.Operation, api.Code)
+			}
+			if api.Err != nil || api.Retryable {
+				t.Fatal("unsafe cause or retry retained")
+			}
+			if code == "InvalidResponse" && api.Message != "invalid object response" {
+				t.Error("invalid response message is not fixed")
+			}
+			assertObjectSafe(t, api, "synthetic-secret-key", "/private")
+		}
+	}
+}
+
+func TestObjectErrorsReadStatusAndContext(t *testing.T) {
+	c := objectTestClient(t)
+	raw := errors.New("synthetic-secret-key /private")
+	for _, op := range []string{"storage.ListObjects", "storage.HeadObject"} {
+		for _, tc := range []struct {
+			status int
+			want   error
+		}{
+			{200, nil}, {204, nil}, {206, nil}, {301, nil}, {400, nil}, {401, vngcloud.ErrAuth},
+			{403, vngcloud.ErrPermission}, {404, vngcloud.ErrNotFound}, {409, nil}, {412, nil},
+			{429, vngcloud.ErrRateLimited}, {500, nil}, {503, nil},
+		} {
+			for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+				cause := &url.Error{Op: "GET", URL: "https://peer.invalid/private", Err: errors.Join(raw, contextErr, io.ErrUnexpectedEOF, vngcloud.ErrInvalidInput)}
+				api := objectAPIError(op, tc.status, "RequestFailed", cause)
+				if api.Operation != op || api.StatusCode != tc.status || api.Code != "RequestFailed" || !errors.Is(api, contextErr) || api.Retryable != (tc.status == 429) {
+					t.Fatalf("identity=%v", api)
+				}
+				for _, sentinel := range []error{vngcloud.ErrAuth, vngcloud.ErrPermission, vngcloud.ErrNotFound, vngcloud.ErrRateLimited, ErrObjectExists} {
+					if errors.Is(api, sentinel) != errors.Is(tc.want, sentinel) {
+						t.Fatalf("status=%d sentinel=%v", tc.status, sentinel)
+					}
+				}
+				var peer *url.Error
+				if errors.As(api, &peer) || errors.Is(api, raw) || errors.Is(api, io.ErrUnexpectedEOF) || errors.Is(api, vngcloud.ErrInvalidInput) {
+					t.Fatal("raw cause chain retained")
+				}
+				assertObjectSafe(t, api, "synthetic-secret-key", "/private", "https://peer.invalid")
+			}
+			err := c.objectResponseError(op, &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader("<Error><Code>NoSuchKey</Code><Message>synthetic-secret-key</Message></Error>"))}, false)
+			var api *vngcloud.APIError
+			if !errors.As(err, &api) || api.Operation != op || api.Code != "NoSuchKey" || api.StatusCode != tc.status {
+				t.Fatalf("response identity=%v", err)
+			}
+			assertObjectSafe(t, err, "synthetic-secret-key")
+		}
+	}
+	api := objectAPIError("storage.ListObjects /private", 200, "InvalidResponse /private", raw)
+	if api.Operation != "storage.Object" || api.Code != "S3Error" || api.Err != nil {
+		t.Fatal("arbitrary identity accepted")
+	}
+	assertObjectSafe(t, api, "/private", "synthetic-secret-key")
+}

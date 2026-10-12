@@ -1,6 +1,6 @@
 # vStorage object operations checks
 
-Status: Draft, independently reviewed; pending owner approval.
+Status: Accepted for independent releases; implementation pending.
 
 These checks verify the [design](storage-object-operations.md) and
 [protocol](storage-object-operations-api.md). They are mechanism requirements,
