@@ -557,7 +557,8 @@ func applyGlobalProjectID[C any](e *env, op Op[C], input any) error {
 	if op.globalProject == "" {
 		return nil
 	}
-	field := reflect.ValueOf(input).Elem().FieldByName(op.globalProject)
+	// Operation tables fix this field name; CLI input supplies only its value.
+	field := reflect.ValueOf(input).Elem().FieldByName(op.globalProject) // nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
 	if e.flags.projectID != "" {
 		field.SetString(e.flags.projectID)
 	}
