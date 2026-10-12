@@ -1,6 +1,6 @@
 # vStorage object operations protocol and evidence
 
-Status: Accepted for independent releases; implementation pending.
+Status: ListObjects and HeadObject implemented; deletion and copy pending.
 
 This specification supports the [object operations design][design]. It adds
 only the mechanics described here to the [transfer protocol][transfer]. Its
@@ -73,10 +73,10 @@ targets the bucket; other methods target objects. Source and destination grants
 can differ. No method changes permissions to compensate for a 403. Permission
 sufficiency is separate from regional compatibility.
 
-The existing native signer puts an empty canonical query into every signature.
-Listing requires a reviewed extension: construct a private list of query
-name/value pairs, percent-encode both with RFC 3986 unreserved bytes only, sort
-by encoded name then value, and join with `&` and `=`. Encode `/`, `+`, `%`,
+The native signer uses the exact encoded request query in the signature.
+Listing constructs private query name/value pairs and percent-encodes both with
+RFC 3986 unreserved bytes only. It sorts by encoded name then value and joins
+pairs with `&` and `=`. Encode `/`, `+`, `%`,
 spaces, `?`, `#`, and `&` in values; spaces are `%20`, never `+`. Assign exactly
 the resulting bytes to URL.RawQuery and the canonical query. Never sign one
 encoding while sending another. Empty values use `name=` when included.

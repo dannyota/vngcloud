@@ -1,12 +1,12 @@
 # vStorage object operations
 
-Status: Accepted for independent releases; implementation pending.
+Status: ListObjects and HeadObject implemented; deletion and copy pending.
 
-Extend `storage.ObjectClient` with bounded listing, metadata lookup, single
-object deletion, and direct server-side copying. Keep automatic move
-and rename gated on safe source removal. None of this extension is a current
-supported-feature claim. The [protocol and evidence][api] and
-[mechanism checks][checks] govern the accepted behavior.
+`storage.ObjectClient` supports bounded listing and metadata lookup. Single
+object deletion and direct server-side copying are accepted and pending.
+Automatic move and rename remain gated on safe source removal. The
+[protocol and evidence][api] and [mechanism checks][checks] govern the accepted
+behavior.
 
 ## Scope and approach
 
@@ -320,12 +320,13 @@ the operation completed. It never causes a resend.
 
 The owner approved the independently reviewed ListObjects and HeadObject reads,
 unconditional DeleteObject with `--yes`, and direct same-project/same-region
-CopyObject with `--replace --yes` and its stated encryption limits. These are
-independent releases; implementation remains pending. Create-only copy and
-move/rename remain deferred behind their specific gates. This approval does not
-authorize live calls. Implementation-plan review precedes implementation;
-mutation and credential code require adversarial review. This document is not
-a plan. [Checks][checks] state verification and release gates.
+CopyObject with `--replace --yes` and its stated encryption limits. ListObjects
+and HeadObject are implemented; deletion and native copy remain pending as
+independent releases. Create-only copy and move/rename remain deferred behind
+their specific gates. This approval does not authorize live calls.
+Implementation-plan review precedes implementation; mutation and credential
+code require adversarial review. This document is not a plan.
+[Checks][checks] state verification and release gates.
 
 [api]: storage-object-operations-api.md
 [checks]: storage-object-operations-checks.md

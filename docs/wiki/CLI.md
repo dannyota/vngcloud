@@ -42,13 +42,15 @@ To find the IDs `compute create-server` and `compute quote-create-server` take, 
 
 ## --query
 
-Storage object commands query transfer metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).
+Storage object commands query accepted metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).
 
 Every list command prints a JSON object whose rows are under `Items`, with any page fields such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: `--query "Items[].Name"`. `--output table` and `--output text` show the rows of `Items` without the wrapper.
 
+Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).
+
 ## --cli-input-json
 
-Every operation command except `storage put-object` and `storage get-object` also accepts `--cli-input-json '<json>'` or `--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag given on the same command line is applied after it and wins for that field. Trailing data after the JSON value, and a key that names no field, are both usage errors.
+Every operation command except `storage put-object` and `storage get-object` and the read commands `storage list-objects` and `storage head-object` also accepts `--cli-input-json '<json>'` or `--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag given on the same command line is applied after it and wins for that field. Trailing data after the JSON value, and a key that names no field, are both usage errors.
 
 ## Exit codes
 

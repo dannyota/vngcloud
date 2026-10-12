@@ -1,0 +1,2 @@
+<ListBucketResult><Name>bucket</Name><MaxKeys>1000</MaxKeys>
+<EncodingType>url</EncodingType><IsTruncated>false</IsTruncated></ListBucketResult>

@@ -12,7 +12,7 @@
 
 ## Release boundary and constraints
 
-- Execute after the read/shared-foundation and unconditional-deletion releases have landed with green master validation. Consume their reviewed helpers; do not duplicate their implementation or plans.
+- SDK work may overlap release work after manager acceptance of the shared read foundation and deletion SDK/error changes; serialize SDK writers on shared error paths. CLI work requires manager-verified read/deletion CLI helpers and copy SDK interfaces. Before complete-slice checks and independent code review, integrate only copy feature paths onto the tagged deletion release. Copy landing still waits for the deletion feature tag and successful master validation. Consume verified helpers, never an active writer's unfinished files; do not duplicate their implementation or plans.
 - The owner approved ordinary native CopyObject in HCM04 and HAN02. Independent plan review precedes code; existing execution and standing landing authority remain. Create-only evidence and safe-move evidence do not gate this release.
 - `Replace` must be true before dispatch. The CLI requires `--replace --yes`; either alone is insufficient. Reject identical source/destination bucket/key pairs and invalid or nil inputs before any request.
 - One credential pair and exact configured region serve both buckets in one project. Caller scope and service authorization enforce project membership; no console lookup or second credential is added.
@@ -39,7 +39,7 @@
 |3 Docs|Modify `README.md`, `docs/wiki/Home.md`, `docs/wiki/Storage.md`, `docs/wiki/Storage-Objects.md`; generated `docs/wiki/CLI.md`, `docs/wiki/CLI-Storage.md`|Current supported copy guidance and generated reference|
 |Manager|`RELEASE_NOTES.md`, this plan, copy-related pending statements in `docs/design/README.md`, `docs/design/storage-object-operations.md`, `docs/design/storage-object-operations-api.md`, `docs/design/storage-object-operations-checks.md`|Versioned feature facts and completed scope, preserving deferred gates|
 
-Shared-file changes follow the released bases sequentially. Tasks 2 and 3 start after their consumed interfaces exist; do not give the same file to concurrent workers. No management SDK, credentials reader, transfer-file implementation, live test, tool pin, or dependency file changes belong here.
+Shared-file writers run sequentially against manager-verified predecessor edits; final integration follows the tagged release bases sequentially. Tasks 2 and 3 start after their consumed interfaces exist; do not give the same file to concurrent workers. No management SDK, credentials reader, transfer-file implementation, live test, tool pin, or dependency file changes belong here.
 
 **SDK produces:**
 

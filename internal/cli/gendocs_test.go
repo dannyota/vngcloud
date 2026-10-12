@@ -1062,3 +1062,42 @@ func TestGenDocsStorageObjects(t *testing.T) {
 		t.Fatal("root lacks JSON exception")
 	}
 }
+
+func TestGenDocsStorageObjectOperations(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "CLI-Storage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, word := range []string{"## list-objects", "## head-object", "--continuation-token", "--max-keys", "--prefix", "--delimiter", "Items", "CommonPrefixes", "MaxKeys", "IsTruncated", "NextContinuationToken", "ContentLength", "LastModified", "VersionID", "ServerSideEncryption", "s3:ListBucket", "s3:GetObject", "Read-only permits", "cross-page snapshot", "published S3 compatibility", "null"} {
+		if !strings.Contains(page, word) {
+			t.Errorf("missing %q", word)
+		}
+	}
+	for _, op := range storageObjectOperationDocOps() {
+		if !strings.Contains(page, storageObjectOperationExample(op.name)) {
+			t.Errorf("missing example %s", op.name)
+		}
+		if !strings.Contains(page, storageObjectOperationNotes(op.name)) {
+			t.Errorf("missing notes %s", op.name)
+		}
+		for _, f := range op.fields {
+			if f.viaJSON {
+				t.Errorf("unexpected JSON input %s", f.name)
+			}
+		}
+	}
+	root, err := os.ReadFile(filepath.Join(dir, "CLI.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"storage list-objects", "storage head-object"} {
+		if !strings.Contains(string(root), "`"+op+"`") {
+			t.Errorf("root lacks JSON exception %s", op)
+		}
+	}
+}

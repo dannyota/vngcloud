@@ -303,6 +303,24 @@ Kind: Read.
 vngcloud storage get-project-auto-renew --region hcm-3 --project-id project-1
 ```
 
+## head-object
+
+Kind: Read.
+
+Require explicit --s3-region HCM04 or HAN02 and --s3-credentials-file with a private [default] AWS-format access-key pair. Ignore management region, project, auth and ambient S3 credentials. Explicit --region and --project-id are refused. Linux and macOS only. Read-only permits both reads. No --cli-input-json, object body, local destination, version selector, subprocess, or automatic retry. --output and --query select accepted metadata only, never object content. --transfer-timeout defaults to 5m and accepts 1s through 1h. A post-success query or stdout failure says the operation completed and exits 1 without another request. Both regions rely on published S3 compatibility; HCM04 has additional recorded listing evidence. Detailed optional fields and HAN02 V2 pagination remain standards-based assumptions. Require --bucket and --key. Send HEAD only, with no GET fallback. Output contains Bucket, Key, ContentLength, ETag, ContentType, LastModified, Metadata, VersionID and ServerSideEncryption. ContentLength -1 means absent; zero means empty. Optional unsafe, unsupported or oversize metadata is omitted; absent LastModified is null and Metadata is a non-nil map with lowercase names and no x-amz-meta- prefix. VersionID and encryption fields are observations, not locks or attestations; version selection is unavailable. Requires s3:GetObject. Preserve returned 403 as failure and 404 as not found; never infer absence from 403.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--bucket` | `string` | yes |
+| `--key` | `string` | yes |
+| `--s3-credentials-file` | `string` | yes |
+| `--s3-region` | `string` | yes |
+| `--transfer-timeout` | `duration` |  |
+
+```sh
+vngcloud storage head-object --s3-region HCM04 --s3-credentials-file ./storage.credentials --bucket app-files --key archives/bundle.bin
+```
+
 ## list-buckets
 
 Kind: Read.
@@ -316,6 +334,27 @@ Kind: Read.
 
 ```sh
 vngcloud storage list-buckets --project-id <project-id>
+```
+
+## list-objects
+
+Kind: Read.
+
+Require explicit --s3-region HCM04 or HAN02 and --s3-credentials-file with a private [default] AWS-format access-key pair. Ignore management region, project, auth and ambient S3 credentials. Explicit --region and --project-id are refused. Linux and macOS only. Read-only permits both reads. No --cli-input-json, object body, local destination, version selector, subprocess, or automatic retry. --output and --query select accepted metadata only, never object content. --transfer-timeout defaults to 5m and accepts 1s through 1h. A post-success query or stdout failure says the operation completed and exits 1 without another request. Both regions rely on published S3 compatibility; HCM04 has additional recorded listing evidence. Detailed optional fields and HAN02 V2 pagination remain standards-based assumptions. Return one ListObjectsV2 page (JSON keeps the envelope; table/text shows item rows, with explicit queries for page fields): Items, CommonPrefixes, MaxKeys, IsTruncated, NextContinuationToken. Require --bucket; --prefix matches exact UTF-8 bytes up to 1024 bytes, --delimiter is empty or '/', and --continuation-token is opaque UTF-8 up to 8 KiB without control bytes. --max-keys defaults to 1000 and accepts 1 through 1000; it bounds Items plus CommonPrefixes, not a total. Object rows contain Key, Size, ETag, LastModified and StorageClass. Common prefixes are groups, not objects. Optional metadata can be omitted; absent LastModified is null. Use IsTruncated and the returned token with unchanged bucket, prefix and delimiter for the next explicit invocation; even a short page can continue. No --all, automatic pagination, total count, or cross-page snapshot: concurrent changes can cause omissions or repeats. Requires s3:ListBucket on the bucket.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--bucket` | `string` | yes |
+| `--continuation-token` | `string` |  |
+| `--delimiter` | `string` |  |
+| `--max-keys` | `int` |  |
+| `--prefix` | `string` |  |
+| `--s3-credentials-file` | `string` | yes |
+| `--s3-region` | `string` | yes |
+| `--transfer-timeout` | `duration` |  |
+
+```sh
+vngcloud storage list-objects --s3-region HCM04 --s3-credentials-file ./storage.credentials --bucket app-files --prefix archives/ --delimiter / --max-keys 100
 ```
 
 ## list-project-types

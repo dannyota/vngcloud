@@ -239,6 +239,7 @@ func runGenDocs(dir string) error {
 	for i := range services {
 		if services[i].name == "storage" {
 			services[i].ops = append(services[i].ops, storageObjectDocOps()...)
+			services[i].ops = append(services[i].ops, storageObjectOperationDocOps()...)
 		}
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
@@ -363,14 +364,15 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("\n")
 
 	b.WriteString("## --query\n\n")
-	b.WriteString("Storage object commands query transfer metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).\n\n")
+	b.WriteString("Storage object commands query accepted metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).\n\n")
 	b.WriteString("Every list command prints a JSON object whose rows are under `Items`, with any page fields " +
 		"such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: " +
 		"`--query \"Items[].Name\"`. `--output table` and `--output text` show the rows of `Items` without " +
 		"the wrapper.\n\n")
 
+	b.WriteString("Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).\n\n")
 	b.WriteString("## --cli-input-json\n\n")
-	b.WriteString("Every operation command except `storage put-object` and `storage get-object` also accepts `--cli-input-json '<json>'` or " +
+	b.WriteString("Every operation command except `storage put-object` and `storage get-object` and the read commands `storage list-objects` and `storage head-object` also accepts `--cli-input-json '<json>'` or " +
 		"`--cli-input-json file://input.json`: a JSON object whose keys are that operation's Input fields, " +
 		"matched by their exact, case-sensitive Go name (`ServerID`, never `serverid` or `serverID`). A flag " +
 		"given on the same command line is applied after it and wins for that field. Trailing data after the " +
@@ -588,6 +590,8 @@ func renderServicePage(svc docService) string {
 		fmt.Fprintf(&b, "Kind: %s.\n\n", op.kind)
 		if svc.name == "storage" && (op.name == "put-object" || op.name == "get-object") {
 			fmt.Fprintf(&b, "%s\n\n", storageObjectNotes(op.name == "put-object"))
+		} else if svc.name == "storage" && (op.name == "list-objects" || op.name == "head-object") {
+			fmt.Fprintf(&b, "%s\n\n", storageObjectOperationNotes(op.name))
 		} else if note, ok := docOpNotes[svc.name+" "+op.name]; ok {
 			fmt.Fprintf(&b, "%s\n\n", note)
 		}
@@ -625,6 +629,9 @@ func renderServicePage(svc docService) string {
 func buildExample(service string, op docOp) string {
 	if service == "storage" && (op.name == "put-object" || op.name == "get-object") {
 		return storageObjectExample(op.name == "put-object")
+	}
+	if service == "storage" && (op.name == "list-objects" || op.name == "head-object") {
+		return storageObjectOperationExample(op.name)
 	}
 	if override, ok := docExampleOverride[service+" "+op.name]; ok {
 		return override

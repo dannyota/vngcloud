@@ -3,8 +3,8 @@
 `storage` is a separate package, `danny.vn/vngcloud/storage`, with its own
 `New(cfg)`. It manages projects, buckets, S3 keys, IAM key attachments,
 regions, bucket policies, versioning, encryption, and CORS. Native object
-transfers use the separate `storage.NewObjectClient`; see
-[Storage Objects](Storage-Objects.md).
+transfers, listing, and HEAD metadata use the separate
+`storage.NewObjectClient`; see [Storage Objects](Storage-Objects.md).
 
 The `storage.New(cfg)` management client calls the vStorage console API, which
 GreenNode does not document. It may change without notice. The separate
@@ -244,9 +244,9 @@ envelope code `114` (`Could not delete s3 keys. InvalidAccessKeyId`), not
 
 A key works on the S3 data plane. Use the native
 [Storage Objects](Storage-Objects.md) guide for this project's SDK and CLI
-transfers. Other S3 clients can use the endpoint from `Region.S3Host` and the
-region name. For example, the AWS CLI uses `AWS_DEFAULT_REGION=HCM04` and
-`--endpoint-url` with the S3 host.
+transfers, listing, and HEAD metadata. Other S3 clients can use the endpoint
+from `Region.S3Host` and the region name. For example, the AWS CLI uses
+`AWS_DEFAULT_REGION=HCM04` and `--endpoint-url` with the S3 host.
 
 ## Service account keys
 
@@ -351,11 +351,13 @@ Bucket versioning, encryption, and CORS rules are on
 
 The following S3 behavior has live evidence in HCM04. The management client
 uses the console API and does not transfer objects. The separate native
-`storage.ObjectClient` provides `PutObject` and `GetObject`; see
-[Storage Objects](Storage-Objects.md). These observations do not establish
-HAN02 behavior or verify encryption. HAN02 ordinary transfers rely on
-published S3 compatibility and recorded region metadata. HAN02 create-only
-PUT remains disabled.
+`storage.ObjectClient` provides `PutObject`, `GetObject`, `ListObjects`, and
+`HeadObject`; see [Storage Objects](Storage-Objects.md). List and HEAD rely on
+published compatibility in both regions, with additional recorded listing
+evidence in HCM04. Detailed optional fields and HAN02 V2 pagination remain
+standards-based assumptions. These observations do not verify encryption.
+HAN02 ordinary transfers rely on published S3 compatibility and recorded
+region metadata. HAN02 create-only PUT remains disabled.
 
 - `PutObject` with `If-None-Match: *` returns 200 for a new key and 412 for
   an existing key.

@@ -118,7 +118,7 @@ the linked guides explain supported operations and lead to detailed references.
 | [Load balancers][lb] | Create, resize, pools, listeners, policies, TLS certs |
 | [DNS][dns] | Create, update, and delete private zones and records |
 | [Container registry][registry] | Repositories and repository users |
-| [Storage][storage] | Management, native S3 object PUT/GET, projects, buckets, keys, policies and settings |
+| [Storage][storage] | Management, native S3 PUT/GET, listing, HEAD, buckets, keys and settings |
 | [CDN][cdn] | Web Accelerator updates, enable/disable, analytics, IP ranges |
 | [Monitoring][monitor] | Uptime checks, channels, log projects, alarms |
 | [IAM][iam] | Users, service accounts, policies, groups, access guards |
@@ -128,9 +128,10 @@ the linked guides explain supported operations and lead to detailed references.
 
 Project discovery, account quotas, and global load balancer reads are also
 available. See the [service reference][services] for the full SDK surface.
-Use the native [vStorage object transfer guide][storage-objects] for binary
-file uploads and downloads. Management uses the `storage.New` console client;
-object transfers use the separate `storage.NewObjectClient` S3 client.
+Use the native [vStorage object guide][storage-objects] for binary file uploads
+and downloads, one-page listing, and HEAD metadata. Management uses the
+`storage.New` console client; object operations use the separate
+`storage.NewObjectClient` S3 client.
 
 ## Scripts and AI agents
 

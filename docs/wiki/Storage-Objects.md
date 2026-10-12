@@ -1,14 +1,15 @@
 # Storage Objects
 
-Use `storage.NewObjectClient` for native S3 object transfers. The existing
+Use `storage.NewObjectClient` for native S3 transfers, one-page listing, and
+HEAD metadata. The existing
 `storage.New(cfg)` client manages vStorage projects, buckets, keys, policies,
 and settings through the console API. The object client uses a separate S3
 data plane and never loads IAM credentials or a management client.
 
-This feature transfers one completed regular file as one object. It supports
-binary content without text conversion, compression, or format inspection.
-The SDK accepts portable in-memory credentials. The CLI file transfer commands
-support Linux and macOS only.
+File transfers send one completed regular file as one object, with binary
+content and no text conversion, compression, or format inspection. List and
+HEAD return metadata without downloading content. The SDK accepts portable
+in-memory credentials. All object CLI commands support Linux and macOS only.
 
 ## Credentials and regions
 
@@ -27,8 +28,10 @@ The CLI and SDK require the exact S3 region `HCM04` or `HAN02`. They select
 `--region` and `--project-id`; environment or profile defaults for those
 management settings do not select the S3 region. The S3 key scopes the project.
 
-The intended actions need only `s3:PutObject` for upload and `s3:GetObject`
-for download. No IAM login or ambient credential chain is used. The CLI
+The S3 permission baseline is `s3:PutObject` for upload, `s3:GetObject` for
+download or HEAD, and `s3:ListBucket` on the bucket for listing. Recorded
+provider tests use broader grants and do not prove every minimal-action
+combination. No IAM login or ambient credential chain is used. The CLI
 requires the explicit credential file; SDK callers pass both credentials in
 memory:
 
@@ -44,6 +47,105 @@ client, err := storage.NewObjectClient(storage.ObjectConfig{
 
 The placeholders above are examples only. Never paste real credentials into
 documentation, source control, or shell history.
+
+## Listing and HEAD metadata
+
+List one page or inspect one exact object key:
+
+```sh
+vngcloud storage list-objects --s3-region HCM04 \
+  --s3-credentials-file ./storage.credentials \
+  --bucket app-files --prefix archives/ --delimiter / --max-keys 100
+
+vngcloud storage head-object --s3-region HAN02 \
+  --s3-credentials-file ./storage.credentials \
+  --bucket app-files --key archives/bundle.tar.gz
+```
+
+Both commands permit read-only mode from the flag, environment, or profile.
+They use no IAM login, management request, token cache, ambient credential
+chain, subprocess, body file, or local destination. `--cli-input-json`,
+`--all`, and version selectors are unavailable. `--transfer-timeout` defaults
+to five minutes and accepts one second through one hour. `--output` and
+`--query` select metadata only. Keys and common prefixes retain literal UTF-8
+bytes, including slash and percent sequences; the renderer escapes controls.
+
+`list-objects` returns the page envelope `Items`, `CommonPrefixes`, `MaxKeys`,
+`IsTruncated`, and `NextContinuationToken`. Each item has `Key`, `Size`,
+`ETag`, `LastModified`, and `StorageClass`. `MaxKeys` is the effective page
+bound, not a total. Its CLI default is 1,000; explicit values must be 1 through
+1,000. The combined item and common-prefix count cannot exceed that bound.
+Common prefixes are groups, not downloadable objects. The client preserves
+server order without sorting or automatic pagination. JSON retains the full
+page envelope; table and text show item rows. Query page fields explicitly
+when using table or text.
+
+An empty prefix matches all keys. A nonempty `--prefix` uses exact UTF-8 byte
+matching and accepts at most 1,024 bytes. `--delimiter` is empty or `/`.
+A continuation token is opaque UTF-8, at most 8 KiB, without control bytes.
+Do not trim, parse, or URL-decode it. If `IsTruncated` is true, invoke the
+command again with the returned token and unchanged bucket, prefix, and
+delimiter. A short or empty page can still continue. A final page has an empty
+next token. Pages do not form a snapshot; concurrent changes can cause
+omissions or repeats.
+
+`head-object` sends HEAD only, with no GET fallback. Its output adds input
+`Bucket` and `Key` to `ContentLength`, `ETag`, `ContentType`, `LastModified`,
+`Metadata`, `VersionID`, and `ServerSideEncryption`. Echoed inputs are
+redacted against the credential pair. Length -1 means the server omitted it;
+zero means an empty object. HEAD can report a size above download limits.
+`Metadata` is a non-nil map of accepted user metadata, with lowercase names
+and the `x-amz-meta-` prefix removed.
+
+Unsafe, unsupported, duplicate, or oversize optional metadata is omitted.
+Absent timestamps are JSON null; accepted timestamps are UTC. ETag, version,
+and encryption fields are observations, not integrity attestations, locks,
+or proof of a unique generation. Version selection is unavailable. A returned
+403 remains failure and a returned 404 remains not found; permissions can
+change which status the service returns for a missing key.
+
+List and HEAD rely on published compatibility in both regions. HCM04 adds
+recorded listing evidence. Detailed optional fields and HAN02 V2 pagination
+remain standards-based assumptions, with strict local decoding on disagreement.
+No fresh live verification is implied.
+
+The SDK accepts the same filters with explicit in-memory credentials:
+
+```go
+input := &storage.ListObjectsInput{
+    Bucket: "app-files", Prefix: "archives/", Delimiter: "/", MaxKeys: 100,
+}
+page, err := client.ListObjects(ctx, input)
+if err != nil {
+    return err
+}
+if page.IsTruncated {
+    input.ContinuationToken = page.NextContinuationToken
+    page, err = client.ListObjects(ctx, input)
+    if err != nil {
+        return err
+    }
+}
+_ = page
+
+metadata, err := client.HeadObject(ctx, &storage.HeadObjectInput{
+    Bucket: "app-files", Key: "archives/bundle.tar.gz",
+})
+if err != nil {
+    return err
+}
+_ = metadata
+```
+
+SDK `ListObjectsInput.MaxKeys` zero selects 1,000; positive values must be
+1 through 1,000. Empty `Items` and `CommonPrefixes` are non-nil slices.
+A failed list or HEAD returns nil output. Each method makes one application
+request without retries or automatic confirmation reads.
+
+Exit codes are 0 for success, 2 for usage/config/input refusal, 3 for
+credential failures or HTTP 401, 4 for returned HTTP 404, and 1 for HTTP 403
+or other failures. A query or stdout failure after success exits 1 and says
+the operation completed. It never resends the operation.
 
 ## CLI file transfers
 
@@ -178,7 +280,8 @@ the exact key to a fresh path, then compare its length and SHA256 with the
 intended file before deciding whether to upload again. An HTTP 412 alone does
 not prove that the existing bytes match your upload.
 
-The native feature adds only one-object PUT and GET. It does not list, HEAD,
-delete, append, sync, resume, multipart-transfer, or create presigned URLs.
+The native feature provides one-object PUT and GET, one-page listing, and
+HEAD metadata. It does not delete, copy, move, append, sync, resume,
+multipart-transfer, or create presigned URLs.
 Use an external S3 tool such as rclone when you need sync or multipart
 transfers. The native SDK and CLI remain separate from those tools.
