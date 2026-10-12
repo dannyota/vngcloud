@@ -385,7 +385,7 @@ func renderCLIPage(services []docService) string {
 		{"1", "API or network error, or a canceled command"},
 		{"2", "Usage or config error: bad flags, a missing `--yes`, a read-only refusal, a missing region, " +
 			"or an ambiguous project"},
-		{"3", "No credentials, a login failure, or a 401 (retried once, except on a toggle write or object transfer, which is sent only once)"},
+		{"3", "No credentials, a login failure, or a 401 (retried once, except on a toggle write or native object operation, which is sent only once)"},
 		{"4", "Not found"},
 	} {
 		fmt.Fprintf(&b, "| %s | %s |\n", row[0], row[1])

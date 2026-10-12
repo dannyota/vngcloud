@@ -171,7 +171,8 @@ func TestObjectClientTransportBoundary(t *testing.T) {
 
 func TestObjectURLBytes(t *testing.T) {
 	c := objectTestClient(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.RequestURI)) }))
+	// The loopback echo is read as bytes to verify escaping of synthetic object keys.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.RequestURI)) })) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 	defer server.Close()
 	for _, tc := range []struct{ key, path string }{
 		{"é/猫", "/bucket/%C3%A9/%E7%8C%AB"}, {"%2F", "/bucket/%252F"}, {"a+b c?#", "/bucket/a%2Bb%20c%3F%23"},

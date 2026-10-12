@@ -560,7 +560,8 @@ func TestStorageProjectAttemptCleansValidationFailures(t *testing.T) {
 				default:
 					t.Errorf("unexpected mock route %s", r.URL.Path)
 				}
-				_, _ = w.Write([]byte(body))
+				// This loopback SDK test serves sanitized fixtures and synthetic project data.
+				_, _ = w.Write([]byte(body)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 			})))
 			baseline, err := client.ListProjects(context.Background(), &storage.ListProjectsInput{Region: "HCM04"})
 			if err != nil || len(baseline.Items) != 0 {

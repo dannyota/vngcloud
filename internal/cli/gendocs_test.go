@@ -141,6 +141,18 @@ func TestGenDocsExitCodeTableCoversAmbiguousProjectAndRetryUnauthorized(t *testi
 	}
 }
 
+func TestGenDocsNativeObjectOperationsNo401Retry(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	page := string(mustReadGenDocsCLIMD(t, dir))
+	want := "| 3 | No credentials, a login failure, or a 401 (retried once, except on a toggle write or native object operation, which is sent only once) |"
+	if !strings.Contains(page, want) {
+		t.Error("exit code 3 must exempt all native object operations from the 401 retry")
+	}
+}
+
 func TestGenDocsReadOnlyTextMentionsNumericOnValue(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -1052,7 +1064,7 @@ func TestGenDocsStorageObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(root), "except on a toggle write or object transfer") {
+	if !strings.Contains(string(root), "except on a toggle write or native object operation") {
 		t.Error("root lacks object retry exception")
 	}
 	if !strings.Contains(string(root), "ObjectWriteUnconfirmed") {

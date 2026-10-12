@@ -122,7 +122,8 @@ func TestRawCaptureRedactsCredentialWithoutChangingBody(t *testing.T) {
 		t.Run(strconv.FormatBool(apiKey), func(t *testing.T) {
 			var captured []byte
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
+				// Echo a synthetic credential on loopback to check raw bytes and capture redaction.
+				_, _ = w.Write([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 			}))
 			defer server.Close()
 			c := New(Config{HTTPClient: server.Client(), TokenSource: &longTokens{}, Capture: func(c Capture) { captured = c.Body }})

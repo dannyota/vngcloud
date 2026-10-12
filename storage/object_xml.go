@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -17,6 +18,7 @@ var (
 
 type objectXMLDecoder struct {
 	decoder  *xml.Decoder
+	syntax   *objectXMLTokenReader
 	reader   *objectXMLReader
 	roots    []string
 	depth    int
@@ -33,7 +35,8 @@ func newObjectXMLDecoder(r io.Reader, maxBytes int64, roots ...string) *objectXM
 		return d
 	}
 	d.reader = &objectXMLReader{source: r, remaining: maxBytes}
-	d.decoder = xml.NewDecoder(d.reader)
+	d.syntax = &objectXMLTokenReader{decoder: xml.NewDecoder(d.reader)}
+	d.decoder = xml.NewTokenDecoder(d.syntax)
 	return d
 }
 
@@ -58,6 +61,21 @@ func (d *objectXMLDecoder) Token() (xml.Token, error) {
 		if d.ended || d.depth == 16 {
 			return d.finish(errObjectXMLInvalid)
 		}
+		// encoding/xml permits duplicates. Compare ordinary attributes by
+		// resolved name and namespace declarations by their original name.
+		seen := make(map[xml.Name]struct{}, len(token.Attr))
+		declarations := make(map[xml.Name]struct{})
+		for i, attr := range token.Attr {
+			name, names := attr.Name, seen
+			raw := d.syntax.attributes[i]
+			if raw.Space == "xmlns" || (raw.Space == "" && raw.Local == "xmlns") {
+				name, names = raw, declarations
+			}
+			if _, duplicate := names[name]; duplicate {
+				return d.finish(errObjectXMLInvalid)
+			}
+			names[name] = struct{}{}
+		}
 		if d.depth == 0 {
 			if d.started || !slices.Contains(d.roots, token.Name.Local) ||
 				(token.Name.Space != "" && token.Name.Space != "http://s3.amazonaws.com/doc/2006-03-01/") {
@@ -81,7 +99,7 @@ func (d *objectXMLDecoder) Token() (xml.Token, error) {
 			return d.finish(errObjectXMLInvalid)
 		}
 	case xml.ProcInst:
-		if !d.initial || token.Target != "xml" || !utf8.Valid(token.Inst) {
+		if !d.initial || token.Target != "xml" || !objectXMLDeclaration(token.Inst) {
 			return d.finish(errObjectXMLInvalid)
 		}
 	case xml.Directive:
@@ -94,8 +112,27 @@ func (d *objectXMLDecoder) Token() (xml.Token, error) {
 func (d *objectXMLDecoder) finish(err error) (xml.Token, error) {
 	d.terminal = err
 	// Drop the parser on failure so its raw syntax error cannot be retained.
-	d.decoder, d.reader, d.roots = nil, nil, nil
+	d.decoder, d.syntax, d.reader, d.roots = nil, nil, nil, nil
 	return nil, err
+}
+
+// Retain raw attribute names before TokenDecoder resolves prefixes. A
+// namespace declaration must stay distinct from an ordinary attribute even
+// when that attribute's namespace name happens to be "xmlns".
+type objectXMLTokenReader struct {
+	decoder    *xml.Decoder
+	attributes []xml.Name
+}
+
+func (r *objectXMLTokenReader) Token() (xml.Token, error) {
+	token, err := r.decoder.RawToken()
+	if start, ok := token.(xml.StartElement); ok {
+		r.attributes = make([]xml.Name, len(start.Attr))
+		for i, attr := range start.Attr {
+			r.attributes[i] = attr.Name
+		}
+	}
+	return token, err
 }
 
 func objectXMLWhitespace(data []byte) bool {
@@ -105,6 +142,55 @@ func objectXMLWhitespace(data []byte) bool {
 		}
 	}
 	return true
+}
+
+// encoding/xml treats a declaration as a processing instruction and does
+// not enforce its grammar. Only XML 1.0 and UTF-8 are supported by this parser.
+func objectXMLDeclaration(inst []byte) bool {
+	version, rest, ok := objectXMLDeclarationField(string(inst), "version")
+	if !ok || version != "1.0" {
+		return false
+	}
+	for _, name := range []string{"encoding", "standalone"} {
+		field := strings.TrimLeft(rest, " \t\r\n")
+		if field == "" {
+			return true
+		}
+		if field == rest {
+			return false
+		}
+		if !strings.HasPrefix(field, name) {
+			continue
+		}
+		var value string
+		value, rest, ok = objectXMLDeclarationField(field, name)
+		if !ok || (name == "encoding" && !strings.EqualFold(value, "UTF-8")) ||
+			(name == "standalone" && value != "yes" && value != "no") {
+			return false
+		}
+	}
+	return strings.TrimLeft(rest, " \t\r\n") == ""
+}
+
+func objectXMLDeclarationField(text, name string) (value, rest string, ok bool) {
+	rest, ok = strings.CutPrefix(text, name)
+	if !ok {
+		return "", "", false
+	}
+	rest = strings.TrimLeft(rest, " \t\r\n")
+	rest, ok = strings.CutPrefix(rest, "=")
+	if !ok {
+		return "", "", false
+	}
+	rest = strings.TrimLeft(rest, " \t\r\n")
+	if len(rest) == 0 || (rest[0] != '\'' && rest[0] != '"') {
+		return "", "", false
+	}
+	end := strings.IndexByte(rest[1:], rest[0])
+	if end < 0 {
+		return "", "", false
+	}
+	return rest[1 : end+1], rest[end+2:], true
 }
 
 // objectXMLReader caps underlying reads without adding one to a possibly

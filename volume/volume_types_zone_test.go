@@ -49,7 +49,8 @@ func volumeTypeServer(t *testing.T, failPaths ...string) (*Client, func() []stri
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(body))
+		// The path selects fixed JSON fixture bodies for the loopback SDK test.
+		_, _ = w.Write([]byte(body)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 	}))
 	return c, func() []string {
 		mu.Lock()

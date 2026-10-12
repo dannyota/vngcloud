@@ -135,7 +135,8 @@ func TestVolumeTypeZoneHasNoNeverSentEnvelopeFields(t *testing.T) {
 	dropped := []string{"UUID", "PoolName", "VolumeTypeZones", "Extra", "Success", "ErrorCode", "ErrorMsg"}
 	typ := reflect.TypeOf(VolumeTypeZone{})
 	for _, name := range dropped {
-		if _, ok := typ.FieldByName(name); ok {
+		// Fixed field names check type shape only; no values or methods are accessed.
+		if _, ok := typ.FieldByName(name); ok { // nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
 			t.Errorf("VolumeTypeZone still has field %q, want it dropped", name)
 		}
 	}

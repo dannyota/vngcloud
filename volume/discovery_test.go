@@ -100,7 +100,8 @@ func volumeDiscoveryHandler(t *testing.T, overrides map[string]string, quote fun
 	t.Helper()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if body, ok := overrides[r.URL.Path]; ok {
-			_, _ = w.Write([]byte(body))
+			// The path selects test-owned JSON overrides on a loopback SDK server.
+			_, _ = w.Write([]byte(body)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 			return
 		}
 		switch r.URL.Path {

@@ -83,7 +83,8 @@ func pricingClient(t *testing.T, override map[string]string, prices *int, config
 		if replacement, ok := override[r.URL.Query().Get("keys")]; ok {
 			body = replacement
 		}
-		_, _ = w.Write([]byte(body))
+		// Loopback SDK replies JSON-quote query keys or select test-owned fixture bodies.
+		_, _ = w.Write([]byte(body)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
 	}))
 }
 

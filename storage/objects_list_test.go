@@ -163,6 +163,83 @@ func TestListObjectsPagination(t *testing.T) {
 	}
 }
 
+func TestListObjectsXMLAttributes(t *testing.T) {
+	page := listPage(`<Contents><Key>visible</Key><Size>0</Size></Contents>`)
+	for _, tc := range []struct {
+		name, body string
+		valid      bool
+	}{
+		{"duplicate default namespace", strings.Replace(page, `<ListBucketResult>`, `<ListBucketResult xmlns="urn:other" xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`, 1), false},
+		{"duplicate identical namespace", strings.Replace(page, `<ListBucketResult>`, `<ListBucketResult xmlns="" xmlns="">`, 1), false},
+		{"duplicate prefix namespace", listPage(`<Unknown xmlns:p="urn:one" xmlns:p="urn:two"/>`), false},
+		{"duplicate root attribute", strings.Replace(page, `<ListBucketResult>`, `<ListBucketResult a="1" a="2">`, 1), false},
+		{"duplicate scalar attribute", strings.Replace(page, `<EncodingType>`, `<EncodingType a="1" a="2">`, 1), false},
+		{"duplicate unknown attribute", listPage(`<Unknown a="1" a="2"/>`), false},
+		{"duplicate qualified attribute", listPage(`<Unknown xmlns:p="urn:one" p:a="1" p:a="2"/>`), false},
+		{"duplicate alias attribute", listPage(`<Unknown xmlns:p="urn:one" xmlns:q="urn:one" p:a="1" q:a="2"/>`), false},
+		{"duplicate inherited alias", listPage(`<Unknown xmlns:p="urn:one" xmlns:q="urn:one"><Child p:a="1" q:a="2"/></Unknown>`), false},
+		{"duplicate decoded namespace alias", listPage(`<Unknown xmlns:p="urn:one" xmlns:q="urn:&#111;ne" p:a="1" q:a="2"/>`), false},
+		{"duplicate XML alias", listPage(`<Unknown xmlns:p="http://www.w3.org/XML/1998/namespace" xml:lang="en" p:lang="fr"/>`), false},
+		{"unknown valid attributes", strings.Replace(page, `<EncodingType>`, `<EncodingType a="1" b="2">`, 1), true},
+		{"different namespaces", listPage(`<Unknown xmlns:p="urn:one" xmlns:q="urn:two" a="0" p:a="1" q:a="2"/>`), true},
+		{"attribute namespace named xmlns", listPage(`<Unknown xmlns:p="xmlns" xmlns:a="urn:one" p:a="1"/>`), true},
+		{"namespace rebinding", listPage(`<Unknown xmlns:p="urn:one" xmlns:q="urn:one"><Child xmlns:q="urn:two" p:a="1" q:a="2"/></Unknown>`), true},
+		{"default namespace excludes attributes", strings.Replace(page, `<ListBucketResult>`, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/" xmlns:s="http://s3.amazonaws.com/doc/2006-03-01/" a="1" s:a="2">`, 1), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, count := objectLocalClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tc.body)
+			})
+			out, err := c.ListObjects(t.Context(), &ListObjectsInput{Bucket: "bucket"})
+			if count.Load() != 1 {
+				t.Fatalf("requests=%d, want 1", count.Load())
+			}
+			if tc.valid {
+				if err != nil || out == nil {
+					t.Fatalf("valid document: out=%v err=%v", out, err)
+				}
+				return
+			}
+			assertListObjectsInvalidXML(t, out, err)
+		})
+	}
+}
+
+func assertListObjectsInvalidXML(t *testing.T, out *ListObjectsOutput, err error) {
+	t.Helper()
+	var api *vngcloud.APIError
+	if out != nil || !errors.As(err, &api) {
+		t.Fatalf("malformed document: out=%v err=%v", out, err)
+	}
+	if api.Operation != "storage.ListObjects" || api.StatusCode != 200 || api.Code != "InvalidResponse" ||
+		api.Message != "invalid object response" || api.Retryable || api.Err != nil {
+		t.Fatalf("unexpected API error: %#v", api)
+	}
+	assertObjectSafe(t, err, "visible", "synthetic-secret-key", "synthetic-access-id")
+}
+
+func TestListObjectsXMLDeclarations(t *testing.T) {
+	page := listPage(`<Contents><Key>visible</Key><Size>0</Size></Contents>`)
+	for _, tc := range objectXMLDeclarationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			c, count := objectLocalClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tc.declaration+page)
+			})
+			out, err := c.ListObjects(t.Context(), &ListObjectsInput{Bucket: "bucket"})
+			if count.Load() != 1 {
+				t.Fatalf("requests=%d, want 1", count.Load())
+			}
+			if tc.valid {
+				if err != nil || out == nil || len(out.Items) != 1 || out.Items[0].Key != "visible" {
+					t.Fatalf("valid declaration: out=%v err=%v", out, err)
+				}
+				return
+			}
+			assertListObjectsInvalidXML(t, out, err)
+		})
+	}
+}
+
 func TestListObjectsEncoding(t *testing.T) {
 	for _, key := range []string{"a+b", "%252F", "%00%0A%7F", "a//.././b", "%E7%8C%AB", strings.Repeat("a", 1024)} {
 		out, err := listCall(t, listPage(`<Contents><Key>`+key+`</Key><Size>0</Size></Contents>`), &ListObjectsInput{Bucket: "bucket"})
