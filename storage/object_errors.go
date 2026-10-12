@@ -71,15 +71,13 @@ func objectAPIError(op string, status int, code string, cause error) *vngcloud.A
 			api.Err = ErrObjectExists
 		}
 	}
-	if api.Err == nil {
-		switch {
-		case errors.Is(cause, context.Canceled):
-			api.Err = context.Canceled
-		case errors.Is(cause, context.DeadlineExceeded):
-			api.Err = context.DeadlineExceeded
-		case errors.Is(cause, io.ErrUnexpectedEOF):
-			api.Err = io.ErrUnexpectedEOF
-		}
+	switch {
+	case errors.Is(cause, context.Canceled):
+		api.Err = errors.Join(api.Err, context.Canceled)
+	case errors.Is(cause, context.DeadlineExceeded):
+		api.Err = errors.Join(api.Err, context.DeadlineExceeded)
+	case api.Err == nil && errors.Is(cause, io.ErrUnexpectedEOF):
+		api.Err = io.ErrUnexpectedEOF
 	}
 	return api
 }

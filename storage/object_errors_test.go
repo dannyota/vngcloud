@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -179,3 +180,24 @@ func TestObjectErrorsBodyReadFailure(t *testing.T) {
 type objectFailReader struct{ err error }
 
 func (r objectFailReader) Read(_ []byte) (int, error) { return 0, r.err }
+
+func TestObjectErrorsContextCauseSafety(t *testing.T) {
+	raw := errors.New("synthetic-secret-key synthetic-object-bytes")
+	for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, status := range []int{0, 200, 401, 403, 404, 412, 429, 500} {
+			t.Run(fmt.Sprintf("%d/%s", status, contextErr), func(t *testing.T) {
+				cause := &url.Error{Op: "GET", URL: "https://peer.invalid/synthetic-access-id", Err: errors.Join(raw, contextErr, vngcloud.ErrInvalidInput, io.ErrUnexpectedEOF)}
+				api := objectAPIError("storage.GetObject", status, "S3Error", cause)
+				if !errors.Is(api, contextErr) || api.StatusCode != status {
+					t.Errorf("context identity or status lost: %v", api)
+				}
+				var peerError *url.Error
+				if errors.As(api, &peerError) || errors.Is(api, raw) || errors.Is(api, vngcloud.ErrInvalidInput) || errors.Is(api, io.ErrUnexpectedEOF) {
+					t.Fatal("raw cause chain retained")
+				}
+				assertObjectSafe(t, api, "synthetic-access-id", "synthetic-secret-key", "synthetic-object-bytes", "https://peer.invalid")
+				assertObjectSafe(t, api.Err, "synthetic-access-id", "synthetic-secret-key", "synthetic-object-bytes", "https://peer.invalid")
+			})
+		}
+	}
+}

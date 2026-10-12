@@ -138,11 +138,20 @@ func TestResolvedProfileName(t *testing.T) {
 // credentials file at mode 0600 as LoadConfig requires.
 func writeConfigFile(t *testing.T, home, content string) {
 	t.Helper()
-	dir := filepath.Join(home, ".vngcloud")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// Confine fixture writes to the temporary home.
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Errorf("CloseRoot: %v", err)
+		}
+	}()
+	if err := root.MkdirAll(".vngcloud", 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(content), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(".vngcloud", "config"), []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile config: %v", err)
 	}
 }

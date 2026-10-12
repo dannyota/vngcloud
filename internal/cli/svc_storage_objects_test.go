@@ -436,6 +436,78 @@ func TestStorageObjectsTransferFailure(t *testing.T) {
 	}
 }
 
+func TestStorageObjectsStatusContextFailure(t *testing.T) {
+	for _, put := range []bool{false, true} {
+		for _, tc := range []struct {
+			status int
+			want   error
+			exit   int
+		}{
+			{401, vngcloud.ErrAuth, 3}, {403, vngcloud.ErrPermission, 1},
+			{404, vngcloud.ErrNotFound, 4}, {412, storage.ErrObjectExists, 1},
+			{429, vngcloud.ErrRateLimited, 1}, {500, nil, 1},
+		} {
+			for _, contextErr := range []error{nil, context.Canceled, context.DeadlineExceeded} {
+				t.Run(fmt.Sprintf("%d/put=%t/context=%v", tc.status, put, contextErr), func(t *testing.T) {
+					stdout := new(bytes.Buffer)
+					stub := new(objectCommandStub)
+					operation := "storage.GetObject"
+					if put {
+						operation = "storage.PutObject"
+					}
+					statusSentinel := tc.want
+					if !put && tc.status == 412 {
+						statusSentinel = nil
+					}
+					api := &vngcloud.APIError{Operation: operation, StatusCode: tc.status, Code: "S3Error", Message: "object request failed", Retryable: tc.status == 429, Err: errors.Join(statusSentinel, contextErr)}
+					var failure error = api
+					if put && tc.status == 500 {
+						failure = fmt.Errorf("%w: %w", storage.ErrObjectWriteUnconfirmed, api)
+					}
+					var snapshot string
+					stub.put = func(_ context.Context, in *storage.PutObjectInput) (*storage.PutObjectOutput, error) {
+						snapshot = in.Body.(*os.File).Name()
+						return nil, failure
+					}
+					stub.get = func(context.Context, *storage.GetObjectInput) (*storage.GetObjectOutput, error) {
+						return nil, failure
+					}
+					root, args, _ := objectCommandFixture(t, put, stub, stdout, &globalFlags{}, nil)
+					err := executeObjectCommand(root, args)
+					wantExit := tc.exit
+					if contextErr != nil {
+						wantExit = 1
+					}
+					var got *vngcloud.APIError
+					if !errors.As(err, &got) || got != api || exitCode(err) != wantExit || stub.calls != 1 || stdout.Len() != 0 {
+						t.Fatalf("error=%v exit=%d want=%d calls=%d stdout=%q", err, exitCode(err), wantExit, stub.calls, stdout)
+					}
+					if contextErr != nil && !errors.Is(err, contextErr) || statusSentinel != nil && !errors.Is(err, statusSentinel) {
+						t.Fatal("command lost error identity")
+					}
+					if put {
+						if _, err := os.Stat(filepath.Dir(snapshot)); !errors.Is(err, os.ErrNotExist) {
+							t.Fatalf("snapshot directory remains: %v", err)
+						}
+					} else {
+						if _, err := os.Lstat(args[len(args)-1]); !errors.Is(err, os.ErrNotExist) {
+							t.Fatalf("failed GET published destination: %v", err)
+						}
+						paths, err := filepath.Glob(filepath.Join(filepath.Dir(args[len(args)-1]), ".vngcloud-object-*"))
+						if err != nil || len(paths) != 0 {
+							t.Fatalf("download temporary files remain: paths=%v error=%v", paths, err)
+						}
+					}
+					envelope := classify(err)
+					if envelope.Status != tc.status || envelope.Operation != operation {
+						t.Fatalf("lost API context: %+v", envelope)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestStorageObjectsPoliciesAndIsolation(t *testing.T) {
 	for _, mode := range []string{"readonly get", "HAN02 replace", "HAN02 get", "occupied", "replace get", "profile output", "bad profile output", "flag output wins", "IAM trap"} {
 		t.Run(mode, func(t *testing.T) {

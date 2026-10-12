@@ -909,3 +909,36 @@ func TestExitCodeObjectPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestExitCodeObjectStatusContext(t *testing.T) {
+	for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, tc := range []struct {
+			status int
+			want   error
+		}{
+			{401, vngcloud.ErrAuth}, {403, vngcloud.ErrPermission},
+			{404, vngcloud.ErrNotFound}, {412, storage.ErrObjectExists},
+			{429, vngcloud.ErrRateLimited}, {500, nil},
+		} {
+			t.Run(fmt.Sprintf("%d/%s", tc.status, contextErr), func(t *testing.T) {
+				for _, cause := range []error{errors.Join(tc.want, contextErr), errors.Join(contextErr, tc.want)} {
+					api := &vngcloud.APIError{Operation: "storage.GetObject", StatusCode: tc.status, Code: "S3Error", Err: cause}
+					for _, err := range []error{api, fmt.Errorf("object request failed: %w", api)} {
+						if got := exitCode(err); got != 1 {
+							t.Errorf("exit=%d want=1: %v", got, err)
+						}
+					}
+					var stderr bytes.Buffer
+					printError(&stderr, api)
+					var decoded struct{ Error errorEnvelope }
+					if err := json.Unmarshal(stderr.Bytes(), &decoded); err != nil {
+						t.Fatal(err)
+					}
+					if decoded.Error.Status != tc.status || decoded.Error.Operation != api.Operation {
+						t.Fatalf("lost API context: %+v", decoded.Error)
+					}
+				}
+			})
+		}
+	}
+}

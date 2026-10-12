@@ -349,9 +349,13 @@ Bucket versioning, encryption, and CORS rules are on
 
 ## S3 compatibility notes
 
-Observed in HCM04 on 2026-10-10. These results help S3-client users; the SDK
-manages the console API and does not cover objects. They do not establish
-behavior in other regions or verify encryption.
+The following S3 behavior has live evidence in HCM04. The management client
+uses the console API and does not transfer objects. The separate native
+`storage.ObjectClient` provides `PutObject` and `GetObject`; see
+[Storage Objects](Storage-Objects.md). These observations do not establish
+HAN02 behavior or verify encryption. HAN02 ordinary transfers rely on
+published S3 compatibility and recorded region metadata. HAN02 create-only
+PUT remains disabled.
 
 - `PutObject` with `If-None-Match: *` returns 200 for a new key and 412 for
   an existing key.
