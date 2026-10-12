@@ -219,7 +219,10 @@ before release.
 
 ### S3 compatibility notes (HCM04, observed 2026-10-10)
 
-These observations help S3-client users; the SDK does not cover objects.
+The SDK implements native `PutObject`/`GetObject`; the CLI implements
+`storage put-object`/`storage get-object`. The accepted
+[object transfer design](storage-objects.md) defines that coverage.
+These observations help S3-client users.
 They do not establish behavior in other regions or verify encryption.
 
 - `PutObject` with `If-None-Match: *` returns 200 for a new key and 412 for

@@ -19,6 +19,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [vStorage object transfers](storage-objects.md) | Implemented; native SDK and CLI PUT/GET; HAN02 create-only PUT gated |
+| [Object operations][object-ops] | Reviewed draft; pending owner approval |
 | [vStorage projects](storage-projects.md) | Accepted |
 | [Prepaid resource auto-renew](auto-renew.md) | Accepted |
 | [CLI reads](cli-reads.md) | Accepted |
@@ -51,3 +52,4 @@ Approval grants no live-run or policy authority.
 
 [sa-evidence]: service-account-auth-api.md#recorded-live-results
 [sa-gates]: service-account-auth-api.md#open-evidence
+[object-ops]: storage-object-operations.md
