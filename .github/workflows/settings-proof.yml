@@ -1,0 +1,24 @@
+name: Settings proof environment branch policy
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions: {}
+
+jobs:
+  scheduling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm environment-free scheduling
+        shell: bash
+        run: printf '%s\n' 'ENVIRONMENT_FREE_SCHEDULING_EXECUTED'
+  environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: wiki
+    steps:
+      - name: Diagnose unexpected environment execution
+        shell: bash
+        run: printf '%s\n' 'UNEXPECTED_WIKI_ENVIRONMENT_EXECUTION'
