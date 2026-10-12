@@ -26,6 +26,7 @@ test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
 SCAN = "semgrep ci --code --supply-chain --secrets --no-suppress-errors"
+TRUST_DIRECTORY = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"'
 GO_COMMANDS = {
     "python3 scripts/test-ci-workflows.py", "go test -race ./...",
     "go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...",
@@ -145,6 +146,11 @@ def scanner_policy(workflow):
     controls(job)
     assert job["container"]["image"] == "semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3"
     assert job["steps"][0]["with"]["fetch-depth"] == "0"
+    trust = job["steps"][1]
+    controls(trust)
+    assert set(trust) == {"name", "run"}
+    assert trust["run"].strip() == TRUST_DIRECTORY, "checkout trust scope"
+    assert job["steps"][2]["id"] == "identity", "trust before identity"
     step = job["steps"][-1]
     controls(step)
     assert step["env"] == {"TRUSTED_SOURCE": "${{ " + TRUST + " }}",
@@ -250,6 +256,68 @@ class WorkflowTests(unittest.TestCase):
                                            GITHUB_OUTPUT=temp + "/output", GITHUB_STEP_SUMMARY=temp + "/summary")
                             self.assertEqual(result.returncode == 0, actual == "head")
 
+    def test_semgrep_container_git_ownership(self):
+        steps = self.workflows["semgrep"]["jobs"]["semgrep"]["steps"]
+        identity = next(s for s in steps if s.get("id") == "identity")
+        before_identity = steps[1:steps.index(identity)]
+        with tempfile.TemporaryDirectory() as temp:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(GIT_CONFIG_GLOBAL=str(Path(temp) / "gitconfig"),
+                       GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_COUNT="0")
+            actual = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
+                                    capture_output=True, text=True, check=True).stdout.strip()
+            env["GIT_TEST_ASSUME_DIFFERENT_OWNER"] = "1"
+            untrusted = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
+                                       capture_output=True, text=True)
+            self.assertEqual(untrusted.returncode, 128)
+            self.assertIn("detected dubious ownership", untrusted.stderr)
+            for expected in (actual, "0" * 40):
+                with self.subTest(expected=expected):
+                    config = Path(temp) / ("config-" + expected)
+                    output = Path(temp) / ("output-" + expected)
+                    summary = Path(temp) / ("summary-" + expected)
+                    env.update(GIT_CONFIG_GLOBAL=str(config), GITHUB_WORKSPACE=str(ROOT),
+                               EXPECTED_SHA=expected, RUN_ID="1", RUN_ATTEMPT="1",
+                               GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                    for step in before_identity:
+                        result = subprocess.run(["sh", "-e", "-c", step["run"]],
+                                                cwd=ROOT, env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    result = subprocess.run(["sh", "-e", "-c", identity["run"]],
+                                            cwd=ROOT, env=env, capture_output=True, text=True)
+                    if expected == actual:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(output.read_text(), f"tested_sha={actual}\n")
+                        self.assertEqual(summary.read_text(),
+                                         f"Tested SHA: {actual}; run: 1; attempt: 1\n")
+                    else:
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertFalse(output.exists())
+                        self.assertFalse(summary.exists())
+                    trusted = subprocess.run(["git", "config", "--global", "--get-all",
+                                              "safe.directory"], cwd=ROOT, env=env,
+                                             capture_output=True, text=True, check=True)
+                    self.assertEqual(trusted.stdout.splitlines(), [str(ROOT)])
+                    later = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
+                                           capture_output=True, text=True, check=True)
+                    self.assertEqual(later.stdout.strip(), actual)
+                    other = dict(env, GIT_CONFIG_GLOBAL=str(Path(temp) / "other-config"),
+                                 GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="safe.directory",
+                                 GIT_CONFIG_VALUE_0=temp)
+                    rejected = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                                              env=other, capture_output=True, text=True)
+                    self.assertEqual(rejected.returncode, 128)
+                    self.assertIn("detected dubious ownership", rejected.stderr)
+            broken = dict(env, GIT_CONFIG_GLOBAL=temp, EXPECTED_SHA=actual,
+                          GITHUB_OUTPUT=str(Path(temp) / "broken-output"),
+                          GITHUB_STEP_SUMMARY=str(Path(temp) / "broken-summary"))
+            script = "\n".join(s["run"] for s in before_identity + [identity])
+            result = subprocess.run(["sh", "-e", "-c", script], cwd=ROOT, env=broken,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 128, result.stderr)
+            self.assertFalse(Path(broken["GITHUB_OUTPUT"]).exists())
+            self.assertFalse(Path(broken["GITHUB_STEP_SUMMARY"]).exists())
+
     def test_ci_commands_and_mutations(self):
         ci = self.workflows["ci"]
         ci_gates(ci)
@@ -338,6 +406,23 @@ class WorkflowTests(unittest.TestCase):
         for field, value in (("continue-on-error", "true"), ("if", "github.event_name == 'push'")):
             self.rejected(scanner_policy, workflow,
                           lambda w, f=field, v=value: w["jobs"]["semgrep"].update({f: v}))
+
+    def test_semgrep_checkout_trust_controls(self):
+        workflow = self.workflows["semgrep"]
+        scanner_policy(workflow)
+        for field, value in (("run", 'git config --global --add safe.directory "*"'),
+                             ("run", TRUST_DIRECTORY.replace('"$GITHUB_WORKSPACE"', '"/__w"')),
+                             ("run", TRUST_DIRECTORY.replace("--global", "--local")),
+                             ("run", TRUST_DIRECTORY + " || true"),
+                             ("continue-on-error", "true"), ("if", "${{ success() }}"),
+                             ("shell", "bash {0}"), ("env", {"GITHUB_WORKSPACE": "*"})):
+            self.rejected(scanner_policy, workflow,
+                          lambda w, f=field, v=value: w["jobs"]["semgrep"]["steps"][1].update({f: v}))
+        self.rejected(scanner_policy, workflow,
+                      lambda w: w["jobs"]["semgrep"]["steps"].pop(1))
+        self.rejected(scanner_policy, workflow,
+                      lambda w: w["jobs"]["semgrep"]["steps"].insert(
+                          2, w["jobs"]["semgrep"]["steps"].pop(1)))
 
     def test_tools_fork_token_and_unauthenticated_script(self):
         step = self.workflows["tools"]["jobs"]["outdated"]["steps"][-1]
