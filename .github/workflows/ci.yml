@@ -41,6 +41,8 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
           printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deliberate mandatory job failure
+        run: exit 1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
