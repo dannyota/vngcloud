@@ -10,6 +10,10 @@ The `storage.New(cfg)` management client calls the vStorage console API, which
 GreenNode does not document. It may change without notice. The separate
 `storage.NewObjectClient` uses the S3 object data plane.
 
+See [Storage Workload Access](Storage-Workload-Access.md) for a dedicated
+application identity, preserved bucket policies, private key handoff, and
+attached-key rotation for vServer and VKS workloads.
+
 ## Setup
 
 ```go
@@ -228,13 +232,17 @@ used: delete it with `DeleteS3Key`.
 
 `CreateS3Key` is sent once, with no retry, no resend after a 401, and no
 redirect. After a 5xx, a network error, or a response that fails to decode,
-the error says a key may exist. Call `ListS3Keys` and delete any `UserKeyID`
-you do not know, since its secret is lost. The SDK lists nothing itself: a
-key another client made at the same time would look the same. A 4xx, a 429,
-a failed dial, and an envelope refusal made no key, and the error says
-nothing about one. At the key limit the server answers HTTP 200 with
-envelope code `114` and the message `Key number is reached to maximum value
-10`.
+the error says a key may exist. Call `ListS3Keys` and reconcile the inventory
+against the pre-create baseline and known IDs. Coordinate with other key
+creators: the SDK lists nothing itself, and a concurrent create can look the
+same. An unfamiliar `UserKeyID` alone proves neither that it belongs to the
+failed create nor that its secret is lost. Delete a confirmed leftover only
+after establishing its ownership, correlation with the failed create, and
+loss of its secret. If those facts remain uncertain, keep a private recovery
+record and do not delete the key or repeat creation blindly. A 4xx, a 429,
+a failed dial, and an envelope refusal made no key, and the error says nothing
+about one. At the key limit the server answers HTTP 200 with envelope code
+`114` and the message `Key number is reached to maximum value 10`.
 
 `DeleteS3Key` ends the key at once and cannot be undone, and it works on an
 attached key. It keeps the transport's retries. The server answers success for
@@ -324,9 +332,13 @@ attach of an attached key gives one of the first two messages.
 The sub-user is named from the service account's name, not its ID. A new
 service account with the name of a deleted one gets the same principal, so it
 inherits any bucket policy that still names it. Remove a service account from
-every bucket policy before you delete it. Detach its keys first too: a key
-stays attached to a deleted service account, and `ListS3Keys` still shows its
-`SubUserID` until you call `DetachS3Key` (which succeeds) or `DeleteS3Key`.
+every bucket policy before you delete it, preserving unrelated grants.
+Delete its identified S3 keys while they are still attached, then remove
+remaining management policy attachments and delete the account under
+[IAM guards](IAM.md#service-account-writes). Never detach as retirement:
+detachment restores the creator's project-wide rights. Deleting the account
+alone leaves its keys attached and its grants in place. Follow
+[workload retirement](Storage-Workload-Access.md#retire-the-workload-identity).
 
 For one key per bucket, run the steps in this order:
 
@@ -401,7 +413,7 @@ status's sentinel, so code 404 matches `vngcloud.ErrNotFound`.
 | `DeleteBucket` accepted, bucket still readable after 30 seconds | Error wrapping `storage.ErrNotSettled`; do not repeat the delete |
 | A versioning, CORS, or policy call answered with an empty body, which is how the server answers a missing bucket (a policy statement without a principal does too) | The SDK reads the bucket once with `GetBucket`: `vngcloud.ErrNotFound` if it is gone, otherwise the `EmptyResponse` error below |
 | A write answered with an empty body | `*vngcloud.APIError`, code `EmptyResponse`; the change may have happened |
-| `CreateS3Key` got a 5xx, a network error, or no decodable response | Error that says a key may exist: list the keys and delete any unknown `UserKeyID` |
+| `CreateS3Key` got a 5xx, a network error, or no decodable response | Error that says a key may exist: reconcile the baseline and known IDs with other creators; delete only a confirmed leftover whose ownership, correlation with the failed create, and lost secret are established ([S3 key recovery](#s3-keys)) |
 | `CreateS3Key` response holds a key but no secret | The key and an error wrapping `storage.ErrNoSecret`; delete the key |
 | `CreateS3Key` at the 10-key limit, or a repeat `DeleteS3Key` | `*vngcloud.APIError` with envelope code `114`, no sentinel |
 | `AttachS3Key` or `DetachS3Key` refused | `*vngcloud.APIError` with envelope code `114` and the server's message, listed under [Service account keys](#service-account-keys) |

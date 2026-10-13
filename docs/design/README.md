@@ -18,6 +18,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
+| [vStorage workload access](storage-workload-access.md) | Existing-command guidance; new endpoint contracts remain proposed |
 | [vStorage object transfers](storage-objects.md) | Implemented; native SDK and CLI PUT/GET; HAN02 create-only PUT gated |
 | [Object operations][object-ops] | ListObjects, HeadObject, DeleteObject, and CopyObject implemented |
 | [vStorage projects](storage-projects.md) | Accepted |
@@ -39,6 +40,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [Backup Center reads](backup-services.md) | Accepted for the first release |
 | [vNetwork NAT and VPN reads](network-services.md) | Accepted |
 | [Public NAT and VPN writes](network-writes.md) | Accepted; Public NAT is implemented; VPN writes remain evidence-gated |
+| [Private endpoint lifecycle](network-endpoints.md) | Proposed; API, billing, DNS, and ownership gates remain open |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
 | [Service-account authentication](service-account-auth.md) | Accepted and implemented for SDK login, configuration, cache, and CLI |

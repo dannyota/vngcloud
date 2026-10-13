@@ -26,6 +26,7 @@
 - [Network Virtual IPs](Network-VirtualIPs.md)
 - [Tagging](Tagging.md)
 - [Storage](Storage.md)
+- [Storage Workload Access](Storage-Workload-Access.md)
 - [Storage Objects](Storage-Objects.md)
 - [Storage Object Copy](Storage-Objects-Copy.md)
 - [Storage: Projects](Storage-Projects.md)

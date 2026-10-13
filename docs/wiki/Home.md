@@ -36,6 +36,9 @@ rename; the module keeps the `vngcloud` name.
   deleting log alarms.
 - [Storage](Storage.md): vStorage regions, projects, buckets, S3 keys, and
   bucket settings, including bucket and key writes.
+- [Storage Workload Access](Storage-Workload-Access.md): application identities,
+  bucket grants, private key handoff, rotation, and network prerequisites for
+  vServer and VKS.
 - [Storage Objects](Storage-Objects.md): native SDK and CLI binary object
   uploads and downloads, one-page listing, HEAD metadata, current-name
   deletion with `--yes`, and server-side copy with `--replace --yes`.

@@ -14,6 +14,7 @@ stay read-only.
 
 See [Network NAT](Network-NAT.md) for Public NAT inventory.
 See [Network VPN](Network-VPN.md) for VPN inventory with sites and tunnels.
+For S3 access, see [Storage Workload Access](Storage-Workload-Access.md).
 
 If a VPC, subnet, route table, ACL, or security group is managed by
 OpenTofu or Terraform, a write made here drifts from that state; keep such

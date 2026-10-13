@@ -6,6 +6,11 @@ identity, users, actions, policies, groups, and service accounts; see the
 page covers service account, policy, and group writes, the IAM resources
 this SDK writes here.
 
+See [Storage Workload Access](Storage-Workload-Access.md) for a dedicated
+service account and attached S3 key for an application. Its IAM client secret
+authenticates management calls; the application S3 secret is separate.
+Bucket policies grant the attached key's bucket access.
+
 ## Service account writes
 
 ```go

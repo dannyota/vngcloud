@@ -3,6 +3,11 @@
 `danny.vn/vngcloud/vks` reads Kubernetes cluster inventory, supported
 versions, and account quota in `hcm-3` and `han-1`.
 
+See [Storage Workload Access](Storage-Workload-Access.md) for cloud-side
+identity, bucket permissions, and private S3 key handoff to applications on
+VKS. The application operator deploys credentials and validates pod access;
+this SDK configures no cluster and provides no workload identity federation.
+
 ```go
 client := vks.New(cfg)
 clusters, err := client.ListClusters(ctx, nil)

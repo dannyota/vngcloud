@@ -145,6 +145,10 @@ with the IAM user's rights on every bucket of the project. The wiki says so
 and tells the reader to make keys only with an IAM user scoped to vStorage.
 
 Before deleting a service account, remove its principal from every bucket
-policy and detach its keys: a new service account with the same name may
-get the same principal ([Principal](storage-keys.md#principal)), and a key
-stays attached to a deleted service account.
+policy, preserving unrelated grants, and delete its identified keys while
+they are still attached. Never detach as retirement: detachment restores the
+creator's project-wide rights. Remove remaining management policy attachments
+and delete the account under [IAM guards](iam-writes.md#rules). A new service
+account with the same name may get the same principal and inherit forgotten
+grants ([Principal](storage-keys.md#principal)); deleting the account alone
+leaves its keys attached and its grants in place.
