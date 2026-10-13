@@ -28,7 +28,10 @@ turned off.
   that match JSON literals. Captures with no match keep the exact body.
   An invalid JSON body containing `\u` escapes is withheld when secrets need
   redaction.
-- A credentials file that group or others can read is refused.
+- A credentials file that group or others can read is refused on systems
+  with Unix mode checks. This check is skipped on Windows; protect access
+  with Windows file permissions. See
+  [file safety](Configuration.md#file-safety).
 - Credentials files are written with mode 0600, and the token cache with mode
   0600 files in a 0700 directory.
 - An explicit profile (`--profile` or `WithProfile`) never takes credentials
@@ -37,9 +40,15 @@ turned off.
 - `vngcloud configure` never takes a password or TOTP secret from the command
   line, and never echoes it.
 - A value an API returns only once, such as a created SSH key's private
-  key, is a `vngcloud.Secret`: it prints, logs, and encodes as `[redacted]`
-  everywhere except `Reveal()`. The CLI writes such a value only to a
-  `--secret-file`, at mode 0600, refusing an existing path or a symlink.
+  key, is a `vngcloud.Secret`. Its supported `fmt` formatting, `slog`
+  logging, JSON encoding, and text marshaling produce `[redacted]`.
+  `Reveal()` returns the value for deliberate use. Direct string conversion,
+  `fmt`'s `%p`, `encoding/gob`, and `reflect.Value.String()` bypass that
+  protection and can expose it. See the
+  [Secret reference](https://pkg.go.dev/danny.vn/vngcloud#Secret).
+  Never use those paths for secrets. The CLI
+  writes such a value only to a `--secret-file`, at mode 0600, refusing an
+  existing path or a symlink.
 
 ## Writes
 

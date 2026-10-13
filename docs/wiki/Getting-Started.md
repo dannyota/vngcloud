@@ -1,12 +1,34 @@
 # Getting Started
 
+## Prerequisites
+
+Use Go 1.27.2 or later. Choose credentials that have permission for the read
+you want to make, and select a region. Compute also needs a project: set one
+explicitly when more than one project matches the region.
+
+- For IAM-user login, configure a profile with `vngcloud configure` after
+  installing the CLI below. You need the root account email, IAM username,
+  password, and a two-factor secret if the account requires it.
+- For service-account login or environment-based setup, follow
+  [Configuration](Configuration.md#loadconfig) and choose the method in
+  [Authentication](Authentication.md).
+- For application S3 access from vServer or VKS, follow
+  [Storage Workload Access](Storage-Workload-Access.md). Native S3 object
+  credentials are separate from the management clients used below.
+
 ## Install
 
 ```bash
-go get danny.vn/vngcloud
+go get danny.vn/vngcloud@latest
 ```
 
-The module needs Go 1.27.2 or later.
+Install the CLI if you will use commands or configure profiles interactively:
+
+```bash
+go install danny.vn/vngcloud/cmd/vngcloud@latest
+```
+
+Add Go's binary directory to `PATH` if your shell cannot find `vngcloud`.
 
 ## Create a client
 
@@ -50,26 +72,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("servers: %d", len(servers.Items))
+	log.Printf("servers on page 1: %d", len(servers.Items))
 }
 ```
 
-That example needs a `~/.vngcloud/credentials` file (see
-[Configuration](Configuration.md#loadconfig)) or `VNGCLOUD_ROOT_EMAIL`,
-`VNGCLOUD_USERNAME`, and `VNGCLOUD_PASSWORD` set. To build a `Config` from Go
-values only, with no environment or file lookups, use `vngcloud.NewConfig`
-instead:
-
-```go
-cfg, err := vngcloud.NewConfig(
-	vngcloud.WithRegion("hcm-3"),
-	vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
-		RootEmail: "<root-email>",
-		Username:  "<iam-username>",
-		Password:  "<password>",
-	}),
-)
-```
+The example counts only the returned page; `ListServers` does not fetch
+later pages automatically. See [Compute](Compute.md#reading) for more server
+reads. To build a `Config` from Go values only, use `vngcloud.NewConfig`; see
+[Configuration](Configuration.md#loadconfig).
 
 Neither `LoadConfig` nor `NewConfig` logs in. Call `cfg.Authenticate(ctx)` to
 log in now, so bad credentials fail before the first service call runs; skip
@@ -78,66 +88,43 @@ targets one region. Build one Config per region you need, and pass it to a
 service package's `New`. Every service client built from the same Config
 shares one login and one project lookup.
 
-## Billing example
-
-`billing` and `pricing` are separate packages built from the same Config,
-exactly like `compute`. See [Billing and Pricing](Billing-and-Pricing.md) for
-their full surface. A minimal read:
-
-```go
-import "danny.vn/vngcloud/billing"
-
-billingClient := billing.New(cfg)
-budgets, err := billingClient.ListBudgets(ctx, nil)
-if err != nil {
-	log.Fatal(err)
-}
-log.Printf("budgets: %d", len(budgets.Items))
-```
-
 ## Command line
 
-Install the `vngcloud` command:
+Commands follow `vngcloud <service> <operation> [flags]`. With an IAM-user
+profile, configure credentials and make a first read:
 
 ```bash
-go install danny.vn/vngcloud/cmd/vngcloud@latest
+vngcloud configure
+vngcloud billing list-budgets --read-only
 ```
 
-It works like the AWS CLI: `vngcloud <service> <operation> [flags]`.
-
-```bash
-vngcloud configure                      # prompts; secrets are not echoed
-vngcloud billing list-budgets
-vngcloud compute list-servers --query 'Items[].Name' --output text
-vngcloud billing delete-budget --budget-uuid <uuid> --yes
-```
+Configuration prompts for credentials without echoing secrets. Select a
+configured profile with `--profile <name>`. Service-account login does not
+establish access to every product; see the limits in
+[Authentication](Authentication.md#service-account).
 
 - Output is JSON by default; `--output table` and `--output text` also work,
   and `--query` takes a JMESPath expression.
 - Errors go to stderr as one JSON line with a stable exit code, so scripts
   and AI agents can act on them.
-- Deletes need `--yes`, and nothing prompts without a terminal.
 - A profile with `read_only = true`, `VNGCLOUD_READ_ONLY=1`, or `--read-only`
-  refuses every write command. Give an AI agent a read-only profile.
+  refuses every CLI write command before a request. This guard does not
+  restrict the credentials' IAM permissions or direct SDK calls. See
+  [Security](Security.md) for write guards and credential handling.
 
 [CLI](CLI.md) lists every command and flag.
 
 ## Repository checks
 
-Run `make check` for unit tests, vet, lint, and file-length checks. Live tests
-and their helpers live in `livetest/`. Compile both tags without API calls:
-
-```bash
-go test -tags live -run '^$' ./livetest/
-go test -tags livewrite -run '^$' ./livetest/
-```
-
-`make live` runs the live read tests using the repository root's `.env`.
-`make live-write` runs gated write tests and needs approval for the run.
+For development setup and required checks, see
+[CONTRIBUTING.md][contributing].
 
 ## Next steps
 
 - Pick an auth method in [Authentication](Authentication.md).
 - Set the project or endpoints in [Configuration](Configuration.md).
-- Find the method you need in [Services](Services.md).
-- Cap spend and price a resource in [Billing and Pricing](Billing-and-Pricing.md).
+- Find a service guide and method examples in [Services](Services.md).
+- Read about budgets and quotes in
+  [Billing and Pricing](Billing-and-Pricing.md).
+
+[contributing]: https://github.com/dannyota/vngcloud/blob/master/CONTRIBUTING.md

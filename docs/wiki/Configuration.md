@@ -278,8 +278,8 @@ The SDK targets the GreenNode domains (`*.console.greennode.ai`,
 them and drop the Authorization header on the way, so the SDK refuses
 cross-host redirects and returns an error instead.
 
-Point any product at another host with `WithEndpointOverrides`, passed to
-`NewConfig` alongside the region and auth options:
+Override the corresponding management endpoints with `WithEndpointOverrides`,
+passed to `NewConfig` alongside the region and auth options:
 
 ```go
 cfg, err := vngcloud.NewConfig(
@@ -298,13 +298,28 @@ computeClient := compute.New(cfg)
 `Dashboard` sets the OAuth redirect URI used during IAM login. Setting it also
 derives the `Token` endpoint, unless you set `Token` too.
 
+These overrides do not change the fixed
+[service-account token exchange](Authentication.md#service-account) or the
+native `storage.ObjectClient` regional HTTPS hosts. The object client uses
+its own configuration. See
+[Storage Workload Access](Storage-Workload-Access.md#choose-the-network-path)
+for the public and private connectivity boundaries.
+
 ## Retries
 
-The SDK retries network errors and HTTP 429, 502, 503, and 504 with jittered
-exponential backoff, and honors `Retry-After`. Change the count and base
-interval with `WithRetry(count, interval)`. Cancel the context to stop
-retrying. `vngcloud.IsRetryable(err)` reports whether a returned error was
-retryable.
+The management retry policy uses jittered exponential backoff for eligible
+network errors and HTTP 429, 502, 503, and 504, and honors `Retry-After`.
+Each operation controls whether a request can retry. Change the count and
+base interval with `WithRetry(count, interval)`. Cancel the context to stop
+retrying.
+
+Some writes send once, including after 429 or 401. Follow the operation's
+recovery guidance before repeating it, such as
+[S3 key recovery](Storage.md#s3-keys) or [Public NAT](Network-NAT.md).
+The [service-account exchange](Authentication.md#service-account) and
+[native object operations](Storage-Objects.md) also send once and do not use
+this retry option. `vngcloud.IsRetryable(err)` classifies the returned error;
+it does not establish that repeating an ambiguous write is safe.
 
 ## Token cache
 

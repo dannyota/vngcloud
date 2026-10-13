@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.81.1 - User Guides and Storage Workload Access
+
+- Document application access to vStorage from vServer and VKS: dedicated
+  identities, bucket grants, private S3 key handoff, rotation, retirement,
+  and network prerequisites. See [Storage Workload Access](
+  docs/wiki/Storage-Workload-Access.md).
+- Clarify key retirement and ambiguous-create recovery: delete identified
+  keys while attached, reconcile uncertain results with known inventory and
+  other creators, and preserve unrelated keys and policy grants.
+- Improve README and Wiki navigation, put credential prerequisites before
+  first-use examples, keep quick starts read-only, and identify SDK server
+  counts as one page. Add CDN, Monitor, and current object operations to the
+  service overview.
+- Correct guidance on secret redaction, Windows file permissions, endpoint
+  overrides, and operation-specific retries. Clarify the CLI read-only guard
+  and quote checks without implying IAM restrictions or final billing locks.
+- This patch changes documentation only. It adds no SDK or CLI operations or
+  endpoint APIs.
+
 ## v0.81.0 - Native vStorage Server-Side Copy
 
 - SDK `storage.ObjectClient.CopyObject` and CLI `storage copy-object` copy one

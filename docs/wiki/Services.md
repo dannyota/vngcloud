@@ -1,5 +1,8 @@
 # Services
 
+This overview links to service guides and shows selected SDK method examples.
+Use each guide for its supported operations, prerequisites, and recovery rules.
+
 Each GreenNode product is its own package, for example
 `danny.vn/vngcloud/compute`. Every package has `New(cfg vngcloud.Config)
 *Client`, built from the same `Config` other services use, and read methods
@@ -75,10 +78,12 @@ create/delete still require SDK IAM-user login in Hanoi. See
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | DNS | `dns` | Hosted zones and records, plus zone and record writes | Typed | Not project-scoped like regional compute resources; see [DNS](DNS.md) for writes and waits. |
 | Container Registry | `containerregistry` | Repositories and users, plus repository and user create and delete | Typed | See [Container Registry](Container-Registry.md) for writes, waits, and secret handling. |
+| CDN | `cdn` | Public IP ranges, vCDN certificates and API keys, Web Accelerator reads and updates, enable/disable, traffic analytics | Typed | vCDN calls use an API key; see [CDN](CDN.md). |
+| Monitor | `monitor` | Uptime checks, probe locations, notification channels, log projects, and alarms | Typed | See [Monitor](Monitor.md), [Monitor Alerts](Monitor-Alerts.md), and [Monitor Log Alarms](Monitor-Log-Alarms.md) for reads and writes. |
 | IAM | `iam` | Caller identity, IAM users, IAM actions, policies, groups, service accounts, plus service account, policy, and group writes | Typed | Page numbers start at 0, as in VKS; see [IAM](#iam) below for writes and guards. |
 | Tagging | `tagging` | Resource tag reads, plus tag writes | Typed | One tag API serves every resource type; see [Tagging](Tagging.md) for `TagResource` and its errors. |
-| Storage | `storage` | Console management plus native S3 object PUT/GET, vStorage regions, projects, buckets, settings, S3 keys, project purchase, deletion, and auto-renew updates | Typed | Management uses the undocumented console API; native object transfers use explicit S3 credentials. See [Storage](Storage.md), [Storage Objects](Storage-Objects.md), [Storage-Projects](Storage-Projects.md), and [Storage-Bucket-Settings](Storage-Bucket-Settings.md). |
-| VKS | `vks` | Clusters, versions, quota | Typed | [VKS](VKS.md). |
+| Storage | `storage` | Console management, native S3 object PUT/GET/DELETE/COPY, listing, HEAD, regions, projects, buckets, settings, S3 keys, project purchase, deletion, and auto-renew updates | Typed | Management uses the undocumented console API; native object operations use explicit S3 credentials. See [Storage](Storage.md), [Storage Objects](Storage-Objects.md), [Storage Workload Access](Storage-Workload-Access.md), [Storage Projects](Storage-Projects.md), and [Storage Bucket Settings](Storage-Bucket-Settings.md). |
+| VKS | `vks` | Cluster inventory, versions, quota | Typed | Read-only operations; see [VKS](VKS.md). |
 
 ## Project
 

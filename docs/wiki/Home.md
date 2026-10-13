@@ -13,7 +13,8 @@ rename; the module keeps the `vngcloud` name.
   TOTP, static tokens, and custom credential providers.
 - [Configuration](Configuration.md): regions, projects, and endpoints.
 - [Errors](Errors.md): `APIError`, `LoginError`, and debug logging.
-- [Services](Services.md): every service client and its methods.
+- [Services](Services.md): service overview, SDK method examples, and links
+  to detailed guides.
 - [Backup](Backup.md): Backup Center backends and policies in `hcm-3`.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
@@ -82,7 +83,7 @@ rename; the module keeps the `vngcloud` name.
 
 ## Source
 
-These pages are published from
+The Wiki mirrors reviewed documentation in
 [`docs/wiki/`](https://github.com/dannyota/vngcloud/tree/master/docs/wiki) in
-the repository. Edit them there; changes made in the wiki web UI are overwritten
-on the next sync.
+the repository. Submit documentation changes there for review. Changes made
+only in the Wiki web UI can be overwritten by a later sync.

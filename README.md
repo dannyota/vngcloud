@@ -9,7 +9,8 @@
 
 A Go SDK and AWS-style command-line tool for
 [GreenNode](https://greennode.ai), formerly VNG Cloud. Inspect resources, get
-price quotes, and manage infrastructure from Go, a terminal, or scripts.
+price quotes, and use selected management operations from Go, a terminal, or
+scripts.
 
 This is a personal, unofficial project, not affiliated with or endorsed by
 GreenNode or VNG. Expect breaking changes until `v1.0.0`.
@@ -33,6 +34,7 @@ vngcloud billing list-budgets
 Configuration prompts for the root account email, IAM username, password,
 and optional two-factor authentication secret. Passwords and secrets are
 not echoed. The IAM User needs permission for the operations you call.
+For service-account setup, see [Configuration][config].
 
 Commands follow `vngcloud <service> <operation> [flags]`:
 
@@ -106,8 +108,8 @@ shows multiple service clients in one program.
 
 ## Service coverage
 
-The SDK and CLI cover the services below. Coverage varies by service;
-the linked guides explain supported operations and lead to detailed references.
+The SDK and CLI support selected operations in the services below. Coverage
+varies by service; the linked guides explain each service's supported scope.
 
 | Service | Supported resources and operations |
 | --- | --- |
@@ -127,13 +129,15 @@ the linked guides explain supported operations and lead to detailed references.
 | [Backup][backup] | Read backends and policies |
 
 Project discovery, account quotas, and global load balancer reads are also
-available. See the [service reference][services] for the full SDK surface.
+available. See the [service overview][services] for SDK method examples.
 Use the native [vStorage object guide][storage-objects] for binary file uploads
 and downloads, one-page listing, HEAD metadata, single-object current-name
 deletion with `--yes`, and server-side copy with `--replace --yes`. Create-only
 copy and move remain unavailable. Management uses the `storage.New` console
 client; object operations use the separate
 `storage.NewObjectClient` S3 client.
+For an application on vServer or VKS, see [Storage Workload Access][workload]
+for identity setup, bucket grants, private key handoff, and rotation.
 
 ## Scripts and AI agents
 
@@ -141,11 +145,12 @@ client; object operations use the separate
   Filter results with JMESPath expressions through `--query`.
 - **Predictable failures:** errors go to stderr as JSON with stable exit
   codes. Commands never prompt without a terminal.
-- **Read-only access:** `--read-only` refuses every CLI write before any
+- **CLI read-only guard:** `--read-only` refuses every CLI write before any
   request. Set `read_only = true` in a profile to keep the guard enabled.
-- **Explicit writes:** destructive commands require `--yes`. Paid creates
-  and resizes use `--max-price` to cap the quoted price. Quote commands
-  place no orders.
+- **Explicit writes:** destructive commands require `--yes`. Supported paid
+  creates and resizes compare a quote against `--max-price` before ordering.
+  This check is not a provider price lock or a final billing guarantee.
+  Quote commands place no orders.
 
 ```bash
 vngcloud configure --profile agent
@@ -162,7 +167,9 @@ guards.
 
 - [Getting started][getting-started]: installation and client setup.
 - [CLI reference][cli]: commands, flags, queries, and exit codes.
-- [Service reference][services]: SDK methods and service-specific behavior.
+- [Service overview][services]: SDK method examples and service guide links.
+- [Storage Workload Access][workload]: application identities, bucket grants,
+  private key handoff, rotation, and network prerequisites for vServer and VKS.
 - [Configuration][config]: profiles, environment variables, regions, projects.
 - [Authentication][auth]: IAM User and service-account login, two-factor
   codes, static tokens, and custom credential providers.
@@ -195,6 +202,7 @@ Licensed under [Apache 2.0](LICENSE).
 [registry]: https://github.com/dannyota/vngcloud/wiki/Container-Registry
 [storage]: https://github.com/dannyota/vngcloud/wiki/Storage
 [storage-objects]: https://github.com/dannyota/vngcloud/wiki/Storage-Objects
+[workload]: https://github.com/dannyota/vngcloud/wiki/Storage-Workload-Access
 [cdn]: https://github.com/dannyota/vngcloud/wiki/CDN
 [monitor]: https://github.com/dannyota/vngcloud/wiki/Monitor
 [iam]: https://github.com/dannyota/vngcloud/wiki/IAM
