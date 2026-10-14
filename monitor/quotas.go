@@ -173,6 +173,9 @@ func (c *Client) quotaReadCredentials(ctx context.Context, op, version string, c
 		return nil, monitorReadError(op, status, "InvalidResponse", "quota credential safety limit exceeded", nil)
 	}
 	if err != nil {
+		if monitorReadSDKError(err) {
+			return nil, err
+		}
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return nil, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
 		}
@@ -206,6 +209,21 @@ func (c *Client) quotaReadCredentials(ctx context.Context, op, version string, c
 		return nil, quotaResponseError(op)
 	}
 	return raw, nil
+}
+
+// Core login errors already withhold peer data. Match only direct SDK errors
+// so a provider or transport wrapper cannot carry unsafe text through this gate.
+func monitorReadSDKError(err error) bool {
+	switch err.(type) { //nolint:errorlint // Wrapped errors may carry unsafe text and must be sanitized.
+	case *core.LoginError, *core.ServiceAccountLoginError:
+		return true
+	}
+	for _, sentinel := range []error{core.ErrTokenCache, core.ErrAuth, core.ErrInvalidConfig, context.Canceled, context.DeadlineExceeded} {
+		if err == sentinel { //nolint:errorlint // Only bare safe sentinels may bypass cause withholding.
+			return true
+		}
+	}
+	return false
 }
 
 // Retain only fixed sentinels, as storage.objectAPIError does for withheld reads.
