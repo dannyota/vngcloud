@@ -74,7 +74,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	if err := core.CheckRequired(op, in); err != nil {
 		return terms, err
 	}
-	kind, err := notificationEmailKind(op, in.Kind)
+	kind, err := notificationKind(op, in.Kind)
 	if err != nil {
 		return terms, err
 	}
@@ -82,7 +82,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	packageID := in.PackageID
 	_, err = c.readNotificationQuota(ctx, op, kind, credentials)
 	if err == nil {
-		return terms, fmt.Errorf("%s: an Email quota already exists: %w", op, core.ErrInvalidInput)
+		return terms, fmt.Errorf("%s: a notification quota already exists: %w", op, core.ErrInvalidInput)
 	}
 	var absent *notificationQuotaAbsent
 	if !errors.As(err, &absent) {
@@ -125,7 +125,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	return notificationCreateTerms{kind: kind, packageID: selected.ID, monthPeriod: 1, listPrice: *selected.Price}, nil
 }
 
-// QuoteCreateNotificationQuota estimates an Email quota order for one month.
+// QuoteCreateNotificationQuota estimates an Email or SMS quota order for one month.
 // MaxPrice and NoWait do not affect the estimate or authorize an order.
 func (c *Client) QuoteCreateNotificationQuota(ctx context.Context, in *CreateNotificationQuotaInput) (*QuoteCreateNotificationQuotaOutput, error) {
 	const op = "monitor.QuoteCreateNotificationQuota"

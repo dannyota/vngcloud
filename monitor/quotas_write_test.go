@@ -588,3 +588,94 @@ func TestCreateNotificationQuotaAuthAfterSendRemainsUnresolved(t *testing.T) {
 		})
 	}
 }
+
+func TestSMSQuotaCreateSettlementAndGuard(t *testing.T) {
+	for _, max := range []float64{50000, 55000} {
+		t.Run(jsonNumber(max), func(t *testing.T) {
+			var reads, mutations atomic.Int32
+			c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/billing-api/v1/sms/quota":
+					if r.Method == http.MethodPost {
+						mutations.Add(1)
+						var body map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&body)
+						if !reflect.DeepEqual(body, map[string]any{"packageId": "5cc24133-938e-11eb-aad3-e0071b70d291", "monthPeriod": float64(1), "redirectUrl": emailRedirect, "pay": true}) {
+							t.Errorf("body=%v", body)
+						}
+						testutil.WriteFixture(t, w, "../testdata/monitor/CreateNotificationQuotaSMS.json")
+						return
+					}
+					n := reads.Add(1)
+					fixture := "GetNotificationQuotaSMSNotFound"
+					if n == 3 {
+						fixture = "GetNotificationQuotaSMSCreating"
+					}
+					if n >= 4 {
+						fixture = "GetNotificationQuotaSMS"
+					}
+					if n <= 2 {
+						w.WriteHeader(404)
+					}
+					testutil.WriteFixture(t, w, "../testdata/monitor/"+fixture+".json")
+				case "/billing-api/v1/sms/packages":
+					testutil.WriteFixture(t, w, "../testdata/monitor/ListNotificationPackagesSMS.json")
+				case "/billing-api/v2/sms/prices/created-price":
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if !reflect.DeepEqual(body, map[string]any{"packageId": "5cc24133-938e-11eb-aad3-e0071b70d291", "quantity": float64(1), "redirectUrl": ""}) {
+						t.Errorf("quote=%v", body)
+					}
+					testutil.WriteFixture(t, w, "../testdata/monitor/QuoteCreateNotificationQuotaSMS.json")
+				default:
+					t.Errorf("unexpected %s", r.URL)
+					w.WriteHeader(500)
+				}
+			})))
+			emailFakeClock(c)
+			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "sMs", PackageID: "5cc24133-938e-11eb-aad3-e0071b70d291", MaxPrice: max})
+			if max == 50000 {
+				if out != nil || !errors.Is(err, ErrPriceAboveMax) || mutations.Load() != 0 {
+					t.Fatalf("out=%v err=%v sends=%d", out, err, mutations.Load())
+				}
+				return
+			}
+			if err != nil || out == nil || out.Quota == nil || out.Quota.ID != "quota-sms-1" || mutations.Load() != 1 || reads.Load() != 4 {
+				t.Fatalf("out=%v err=%v sends=%d reads=%d", out, err, mutations.Load(), reads.Load())
+			}
+		})
+	}
+}
+
+func TestSMSQuotaReadAndUsageSupport(t *testing.T) {
+	var requests atomic.Int32
+	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/billing-api/v1/sms/quota" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaSMSCreating.json")
+	})))
+	out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "SMS"})
+	if err != nil || out == nil || !out.Quota.UpdatedAt.IsZero() || requests.Load() != 1 {
+		t.Fatalf("out=%v err=%v requests=%d", out, err, requests.Load())
+	}
+	usage, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "SMS"})
+	if usage != nil || !errors.Is(err, core.ErrInvalidInput) || requests.Load() != 1 {
+		t.Fatalf("usage=%v err=%v requests=%d", usage, err, requests.Load())
+	}
+}
+
+func TestNotificationUsageOmitsCounts(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmail.json")
+	}))
+	out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil || strings.Contains(string(raw), `"Counts"`) {
+		t.Fatalf("output=%s err=%v", raw, err)
+	}
+}

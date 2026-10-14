@@ -55,6 +55,13 @@ type quotaAttemptKey struct {
 	monthPeriod     int
 	quotaID         string
 	expectedEndTime time.Time
+	status          string
+	autoRenew       bool
+	autoRenewPeriod int
+	poc             bool
+	quantity        int
+	enabled         bool
+	purge           bool
 }
 
 func (key quotaAttemptKey) matches(other quotaAttemptKey) bool {
@@ -68,6 +75,9 @@ type quotaWriteResult struct {
 	quota          *Quota
 	orderID        string
 	paymentPending bool
+	stage          string
+	changed        bool
+	purged         bool
 }
 
 type quotaAttemptResolution struct {
@@ -80,6 +90,7 @@ type quotaAttempt struct {
 	key         quotaAttemptKey
 	result      quotaWriteResult
 	credentials *monitorReadCredentials
+	bound       time.Duration
 	// A read failure is inconclusive. Only an evidenced rejection may set rejected.
 	reconcile func(context.Context) (quotaAttemptResolution, error)
 }
@@ -98,7 +109,13 @@ func (c *Client) reconcileQuotaAttempt(ctx context.Context, key quotaAttemptKey)
 	if attempt == nil {
 		return nil, nil, false
 	}
-	resolution, err := attempt.reconcile(ctx)
+	var resolution quotaAttemptResolution
+	var err error
+	if attempt.bound > 0 {
+		resolution, err = c.waitQuotaAttempt(ctx, key.operation, attempt.reconcile, attempt.bound)
+	} else {
+		resolution, err = attempt.reconcile(ctx)
+	}
 	if err != nil {
 		return &attempt.result, quotaUnsettled(key.operation, err), true
 	}
@@ -115,6 +132,10 @@ func (c *Client) reconcileQuotaAttempt(ctx context.Context, key quotaAttemptKey)
 	}
 	result := attempt.result
 	result.quota = resolution.quota
+	if result.stage != "" {
+		result.stage = "settled"
+		result.changed = attempt.key.operation != "monitor.DeleteNotificationQuota"
+	}
 	result.paymentPending = false
 	return &result, nil, true
 }
@@ -169,7 +190,7 @@ func (c *Client) requireNotificationAbsent(ctx context.Context, op, kind string,
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("%s: an Email quota already exists: %w", op, core.ErrInvalidInput)
+	return fmt.Errorf("%s: a notification quota already exists: %w", op, core.ErrInvalidInput)
 }
 
 func decodeQuotaOrder(op string, raw []byte, redirect string) (quotaWriteResult, error) {
@@ -182,7 +203,7 @@ func decodeQuotaOrder(op string, raw []byte, redirect string) (quotaWriteResult,
 	return quotaWriteResult{orderID: orderID, paymentPending: payment != "" && payment != redirect}, nil
 }
 
-// CreateNotificationQuota orders one month of Email capacity. MaxPrice defaults
+// CreateNotificationQuota orders one month of Email or SMS capacity. MaxPrice defaults
 // to zero and guards the higher of list and quote prices. Each mutation is sent
 // once. An unresolved result, including NoWait, blocks further writes on this
 // kind until a read confirms it. Clients and processes do not share this ledger.
@@ -192,7 +213,7 @@ func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotifica
 		return nil, err
 	}
 	input := *in
-	kind, err := notificationEmailKind(op, input.Kind)
+	kind, err := notificationKind(op, input.Kind)
 	if err != nil {
 		return nil, err
 	}

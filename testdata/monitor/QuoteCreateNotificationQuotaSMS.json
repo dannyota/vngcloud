@@ -1,0 +1,16 @@
+{
+  "optimumPrice": 50000,
+  "discountPercent": null,
+  "originalPrice": 50000,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 50000,
+      "discountPercent": null,
+      "originalPrice": 50000,
+      "discountPrice": 0,
+      "name": "monitor-platform-sms",
+      "description": null
+    }
+  ]
+}

@@ -95,7 +95,8 @@ type SyntheticQuotaDetail struct {
 }
 
 type QuotaUsageDetail struct {
-	Counts       UsageCounts
+	// Counts is present only for synthetic usage; notification usage omits it.
+	Counts       *UsageCounts `json:",omitempty"`
 	Amount       int
 	Descriptions map[string]UsageDescription
 }
@@ -213,6 +214,9 @@ func (c *Client) quotaRequestOutcome(ctx context.Context, req transport.Request,
 			return nil, status, &safe, notSent
 		}
 		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota request failed; cause withheld", err), notSent
+	}
+	if req.Once && len(bytes.TrimSpace(raw)) == 0 && (status == http.StatusOK || status == http.StatusNoContent) {
+		return nil, status, nil, false
 	}
 	// Scrub retained strings, including description keys, before projection.
 	var value any
@@ -502,36 +506,7 @@ func (c *Client) listNotificationPackages(ctx context.Context, op string, in *Li
 func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInput) (*GetSyntheticQuotaOutput, error) {
 	const op = "monitor.GetSyntheticQuota"
 	var credentials monitorReadCredentials
-	raw, err := c.quotaReadCredentials(ctx, op, "v1", &credentials, "synthetic", "quota")
-	if err != nil {
-		return nil, err
-	}
-	q, err := decodeQuota(op, raw)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	raw, err = c.quotaReadCredentials(ctx, op, "v2", &credentials, "synthetic", q.ID, "quota-detail")
-	if err != nil {
-		return nil, err
-	}
-	o := quotaObjectOf(raw)
-	counts := o.counts(true)
-	d := SyntheticQuotaDetail{
-		API: counts.API, Location: counts.Location, Email: counts.Email, SMS: counts.SMS,
-		Slack: counts.Slack, Webhook: counts.Webhook, Telegram: counts.Telegram, Teams: counts.Teams,
-		ClassName: o.text("className", false), TierName: o.text("tierName", true), Price: o.price(),
-	}
-	resourceID, packageID := o.text("resourceId", false), o.text("packageId", false)
-	if o.invalid || resourceID != q.ID || packageID != q.PackageID {
-		return nil, quotaResponseError(op)
-	}
-	for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
-		*field, _ = c.c.RedactError(*field, "", credentials...)
-	}
-	return &GetSyntheticQuotaOutput{Quota: q, Detail: d}, nil
+	return c.readSyntheticQuota(ctx, op, &credentials)
 }
 
 func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuotaUsageInput) (*GetSyntheticQuotaUsageOutput, error) {
@@ -542,7 +517,8 @@ func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuo
 	}
 	o := quotaObjectOf(raw)
 	usage := quotaObjectOf(o.fields["usage"])
-	u := QuotaUsageDetail{Counts: usage.counts(false)}
+	counts := usage.counts(false)
+	u := QuotaUsageDetail{Counts: &counts}
 	description := quotaObjectOf(o.fields["description"])
 	u.Descriptions = make(map[string]UsageDescription, len(description.fields))
 	for key, item := range description.fields {
@@ -583,7 +559,7 @@ func decodeQuota(op string, raw json.RawMessage) (Quota, error) {
 	o := quotaObjectOf(raw)
 	q := Quota{
 		ID: o.text("id", false), Name: o.text("name", false), Type: o.text("type", false), Status: o.text("status", false), PackageID: o.text("packageId", false),
-		StartTime: o.timestamp("startTime"), EndTime: o.timestamp("endTime"), CreatedAt: o.timestamp("createdAt"), UpdatedAt: o.timestamp("updatedAt"),
+		StartTime: o.timestamp("startTime"), EndTime: o.timestamp("endTime"), CreatedAt: o.timestamp("createdAt"), UpdatedAt: o.updatedTimestamp(),
 		AutoRenew: o.flag("autoRenew"), POC: o.flag("poc"), AutoRenewPeriod: o.integer("autoRenewPeriod", false),
 	}
 	o.decode("system", &q.System, false)
@@ -608,14 +584,21 @@ type notificationQuotaAbsent struct{ err error }
 func (e *notificationQuotaAbsent) Error() string { return e.err.Error() }
 func (e *notificationQuotaAbsent) Unwrap() error { return e.err }
 
-func notificationEmailKind(op, kind string) (string, error) {
+func notificationKind(op, kind string) (string, error) {
 	if strings.EqualFold(kind, NotificationKindEmail) {
 		return "email", nil
 	}
 	if strings.EqualFold(kind, NotificationKindSMS) {
-		return "", fmt.Errorf("%s: SMS quota reads and quotes are unsupported until SMS evidence is verified: %w", op, core.ErrInvalidInput)
+		return "sms", nil
 	}
-	return "", fmt.Errorf("%s: Kind must be Email: %w", op, core.ErrInvalidInput)
+	return "", fmt.Errorf("%s: Kind must be Email or SMS: %w", op, core.ErrInvalidInput)
+}
+
+func (o *quotaObject) updatedTimestamp() time.Time {
+	if bytes.Equal(bytes.TrimSpace(o.fields["updatedAt"]), []byte("null")) {
+		return time.Time{}
+	}
+	return o.timestamp("updatedAt")
 }
 
 func (c *Client) GetNotificationQuota(ctx context.Context, in *GetNotificationQuotaInput) (*GetNotificationQuotaOutput, error) {
@@ -623,7 +606,7 @@ func (c *Client) GetNotificationQuota(ctx context.Context, in *GetNotificationQu
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	kind, err := notificationEmailKind(op, in.Kind)
+	kind, err := notificationKind(op, in.Kind)
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +628,7 @@ func (c *Client) readNotificationQuota(ctx context.Context, op, kind string, cre
 	if status == http.StatusNotFound {
 		safe := monitorReadError(op, status, "NotFound", "quota response withheld", nil)
 		obj := quotaObjectOf(raw)
-		if kind == "email" && !obj.invalid && len(obj.fields) == 1 && obj.text("message", false) == "Not found email quota" {
+		if !obj.invalid && len(obj.fields) == 1 && obj.text("message", false) == "Not found "+kind+" quota" {
 			return Quota{}, &notificationQuotaAbsent{err: safe}
 		}
 		return Quota{}, safe
@@ -658,9 +641,12 @@ func (c *Client) GetNotificationQuotaUsage(ctx context.Context, in *GetNotificat
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	kind, err := notificationEmailKind(op, in.Kind)
+	kind, err := notificationKind(op, in.Kind)
 	if err != nil {
 		return nil, err
+	}
+	if kind == "sms" {
+		return nil, fmt.Errorf("%s: SMS usage read is unsupported: %w", op, core.ErrInvalidInput)
 	}
 	raw, err := c.quotaRead(ctx, op, kind, "quota", "usages")
 	if err != nil {
