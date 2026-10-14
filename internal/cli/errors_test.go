@@ -972,3 +972,16 @@ func TestClassifyObjectCopyUnconfirmed(t *testing.T) {
 		t.Fatalf("envelope=%+v", got)
 	}
 }
+
+func TestNotificationQuotaErrorPrecedence(t *testing.T) {
+	for _, cause := range []error{context.Canceled, vngcloud.ErrAuth, vngcloud.ErrNotFound,
+		&vngcloud.APIError{StatusCode: 404, Err: vngcloud.ErrNotFound}} {
+		err := fmt.Errorf("monitor.CreateNotificationQuota: %w", errors.Join(dns.ErrNotSettled, cause))
+		if classify(err).Code != "NotSettled" || exitCode(err) != 1 {
+			t.Fatalf("class=%s exit=%d", classify(err).Code, exitCode(err))
+		}
+		if !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, cause) {
+			t.Fatal("error identities lost")
+		}
+	}
+}

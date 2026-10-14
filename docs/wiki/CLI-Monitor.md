@@ -99,6 +99,23 @@ Orders nothing above --max-price, default 0: a bare create-log-project --name <n
 vngcloud monitor create-log-project --name <name>
 ```
 
+## create-notification-quota
+
+Kind: Write.
+
+Orders one month of Email capacity with pay: true. Consent is finite nonnegative --max-price, default 0, without --yes. An omitted --package-id selects the unique zero-price package, emailfree (20 emails a month). MaxPrice is a local guard on the higher list/quote price, not a server cap. Quotes are pre-VAT; actual debit can exceed them. A positive budget prints a stderr warning. Read-only refuses before requests. --no-wait returns an unconfirmed Output with Quota nil. An uncertain result prints partial Output even with an error, ignoring --query. Serialize writes across processes per account/kind; reconcile with read-only quota reads and console billing. A stale 404 never authorizes a retry. Monthly action accounting is unknown. SMS refuses locally; renewal arrives in a later release. See Monitor Quotas.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+| `--package-id` | `string` |  |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor quote-create-notification-quota --kind Email
+```
+
 ## delete-channel
 
 Kind: Write, destructive.
@@ -221,6 +238,34 @@ Kind: Read.
 
 ```sh
 vngcloud monitor get-log-project --log-project-id <log-project-id> --query LogProject
+```
+
+## get-notification-quota
+
+Kind: Read.
+
+--kind accepts Email, case insensitively. Reads quota identity, status, expiry, and AutoRenew. Table/text timestamps show UTC. A missing quota is NotFound (exit 4). SMS refuses locally before requests.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+
+```sh
+vngcloud monitor get-notification-quota --kind Email --query Quota
+```
+
+## get-notification-quota-usage
+
+Kind: Read.
+
+--kind accepts Email, case insensitively. Reads message consumption and descriptions. A missing quota is NotFound (exit 4). SMS refuses locally before requests.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+
+```sh
+vngcloud monitor get-notification-quota-usage --kind Email --query Usage
 ```
 
 ## get-quota-usage
@@ -370,7 +415,7 @@ vngcloud monitor list-log-projects
 
 Kind: Read.
 
---kind accepts Email or SMS, case insensitively. Prices are in VND; absent prices print unknown in table/text and null in JSON. A zero-price package is not an automatic allowance. Ordering notification quotas is not yet available.
+--kind accepts Email or SMS, case insensitively. Prices are in VND; absent prices print unknown in table/text and null in JSON. A zero-price package is not an automatic allowance. Email quota reads, quotes, and orders are available; SMS quota operations refuse locally.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -410,6 +455,23 @@ Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them
 
 ```sh
 vngcloud monitor quote-create-log-project --name <name>
+```
+
+## quote-create-notification-quota
+
+Kind: Read.
+
+Estimates one month of Email capacity without ordering. An omitted --package-id selects the unique zero-price package. Refuses an existing quota. Ignores MaxPrice and NoWait supplied through JSON; their flags are hidden. Prices are pre-VAT in VND; GuardPrice is the higher of list and quote prices. A quote never authorizes a purchase. SMS refuses locally.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+| `--package-id` | `string` |  |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud monitor quote-create-notification-quota --kind Email
 ```
 
 ## resume-check

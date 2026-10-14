@@ -1,0 +1,22 @@
+{
+  "Usage": {
+    "Counts": {
+      "API": 0,
+      "Location": 0,
+      "Email": 0,
+      "SMS": 0,
+      "Slack": 0,
+      "Webhook": 0,
+      "Telegram": 0,
+      "Teams": 0
+    },
+    "Amount": 0,
+    "Descriptions": {
+      "amount": {
+        "Name": "Email",
+        "Specs": "Maximum number of emails sent per month",
+        "Unit": "/month"
+      }
+    }
+  }
+}

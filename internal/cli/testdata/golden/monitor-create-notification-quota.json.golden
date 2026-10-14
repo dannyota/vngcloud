@@ -1,0 +1,19 @@
+{
+  "Quota": {
+    "ID": "quota-email-1",
+    "Name": "email quota",
+    "Type": "EMAIL",
+    "Status": "ACTIVE",
+    "PackageID": "a15172e2-3537-4b06-9b91-c6626bae5973",
+    "StartTime": "2026-10-14T03:10:06Z",
+    "EndTime": "2026-11-13T03:10:06Z",
+    "CreatedAt": "2026-10-14T03:10:06Z",
+    "UpdatedAt": "2026-10-14T03:10:08Z",
+    "AutoRenew": false,
+    "POC": false,
+    "System": false,
+    "AutoRenewPeriod": 0
+  },
+  "OrderID": "order-1",
+  "PaymentPending": false
+}

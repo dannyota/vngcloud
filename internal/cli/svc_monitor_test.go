@@ -2146,3 +2146,328 @@ func TestMonitorReadsOperationCredentialsAcrossFormats(t *testing.T) {
 		}
 	}
 }
+
+func monitorEmailFixture(t *testing.T, listPrice, quotePrice string, orderStatus int, pending bool) (*svcFixture, *atomic.Int32) {
+	t.Helper()
+	load := func(name string) string {
+		body, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	quota := load("GetNotificationQuotaEmail")
+	orders := new(atomic.Int32)
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v1/email/packages":     jsonHandler(200, `[{"id":"a15172e2-3537-4b06-9b91-c6626bae5973","name":"emailfree","price":`+listPrice+`,"amount":20}]`),
+		"/billing-api/v1/email/quota/usages": jsonHandler(200, load("GetNotificationQuotaUsageEmail")),
+		"/billing-api/v1/email/quota": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				if orders.Load() == 0 {
+					w.WriteHeader(404)
+					_, _ = io.WriteString(w, `{"message":"Not found email quota"}`)
+					return
+				}
+				_, _ = io.WriteString(w, quota)
+				return
+			}
+			orders.Add(1)
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if r.Method != http.MethodPost || len(body) != 4 || body["monthPeriod"] != float64(1) ||
+				body["packageId"] != "a15172e2-3537-4b06-9b91-c6626bae5973" || body["pay"] != true ||
+				body["redirectUrl"] != "https://vmonitor.console.vngcloud.vn/quota-usages/notification" {
+				t.Errorf("order body = %v, method=%s", body, r.Method)
+			}
+			w.WriteHeader(orderStatus)
+			if orderStatus != 200 {
+				_, _ = io.WriteString(w, `{"message":"withheld-peer-value"}`)
+				return
+			}
+			if pending {
+				_, _ = io.WriteString(w, `{"orderId":"order-1","paymentUrl":"https://example.invalid/private-payment"}`)
+			} else {
+				_, _ = io.WriteString(w, `{"orderId":"order-1","paymentUrl":""}`)
+			}
+		},
+		"/billing-api/v2/email/prices/created-price": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if r.Method != http.MethodPost || len(body) != 3 || body["quantity"] != float64(1) ||
+				body["redirectUrl"] != "" || body["packageId"] != "a15172e2-3537-4b06-9b91-c6626bae5973" {
+				t.Errorf("quote body = %v", body)
+			}
+			_, _ = io.WriteString(w, `{"optimumPrice":`+quotePrice+`}`)
+		},
+	})
+	return fixture, orders
+}
+
+func TestMonitorEmailCommands(t *testing.T) {
+	for _, command := range []string{"get-notification-quota", "get-notification-quota-usage", "quote-create-notification-quota", "create-notification-quota"} {
+		for _, format := range []string{"json", "table", "text"} {
+			t.Run(command+"/"+format, func(t *testing.T) {
+				fixture, orders := monitorEmailFixture(t, "0", "0", 200, false)
+				if command == "get-notification-quota" {
+					orders.Store(1)
+				}
+				root, stdout, stderr := newSvcRoot(t, fixture)
+				args := []string{"--region", "hcm-3", "--output", format, "monitor", command, "--kind", "eMaIl"}
+				if command != "create-notification-quota" {
+					args = append(args, "--read-only")
+				}
+				if err := execCmd(t, root, args); err != nil {
+					t.Fatal(err)
+				}
+				if stderr.Len() != 0 {
+					t.Fatalf("unexpected warning: %s", stderr)
+				}
+				if format != "json" && (command == "get-notification-quota" || command == "create-notification-quota") && !strings.Contains(stdout.String(), "UTC") {
+					t.Fatal("missing UTC expiry")
+				}
+				path := goldenPath("monitor-" + command + "." + format + ".golden")
+				if *updateGolden {
+					if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				want, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(stdout.Bytes(), want) {
+					t.Fatalf("got:\n%s\nwant:\n%s", stdout, want)
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorEmailControls(t *testing.T) {
+	for _, tc := range []struct {
+		name, command, code string
+		flags               []string
+	}{
+		{"missing-kind", "get-notification-quota", "InvalidUsage", nil},
+		{"sms-read", "get-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
+		{"sms-usage", "get-notification-quota-usage", "InvalidUsage", []string{"--kind", "SMS"}},
+		{"sms-quote", "quote-create-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
+		{"sms-create", "create-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
+		{"unknown-kind", "get-notification-quota", "InvalidUsage", []string{"--kind", "Other"}},
+		{"nan", "create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "NaN"}},
+		{"infinity", "create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "+Inf"}},
+		{"negative", "create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "-1"}},
+		{"json-negative", "create-notification-quota", "InvalidUsage", []string{"--cli-input-json", `{"Kind":"Email","MaxPrice":-1}`}},
+		{"hidden-price", "quote-create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "1"}},
+		{"hidden-wait", "quote-create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--no-wait"}},
+		{"read-only", "create-notification-quota", "ReadOnly", []string{"--read-only", "--kind", "Email", "--max-price", "1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture, _ := monitorEmailFixture(t, "0", "0", 200, false)
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			err := execCmd(t, root, append([]string{"--region", "hcm-3", "monitor", tc.command}, tc.flags...))
+			if err == nil || classify(err).Code != tc.code || exitCode(err) != 2 {
+				t.Fatalf("err=%v class=%s exit=%d", err, classify(err).Code, exitCode(err))
+			}
+			if fixture.requestCount() != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("requests=%d out=%s stderr=%s", fixture.requestCount(), stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestMonitorEmailPriceConsent(t *testing.T) {
+	for _, tc := range []struct {
+		name, list, quote, code string
+		flags                   []string
+		orders                  int32
+		warning                 bool
+	}{
+		{"default-refuses-paid", "110000", "100000", "PriceAboveMax", nil, 0, false},
+		{"list-price-guards", "110000", "100000", "PriceAboveMax", []string{"--max-price", "100000"}, 0, true},
+		{"paid", "110000", "100000", "", []string{"--max-price", "110000"}, 1, true},
+		{"unpriced", "110000", "0", "Unpriced", []string{"--max-price", "110000"}, 0, true},
+		{"json-budget", "110000", "100000", "", []string{"--cli-input-json", `{"MaxPrice":110000}`}, 1, true},
+		{"flag-overrides-json", "110000", "100000", "PriceAboveMax", []string{"--cli-input-json", `{"MaxPrice":110000}`, "--max-price", "0"}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture, orders := monitorEmailFixture(t, tc.list, tc.quote, 200, false)
+			root, _, stderr := newSvcRoot(t, fixture)
+			args := append([]string{"--region", "hcm-3", "monitor", "create-notification-quota", "--kind", "Email", "--package-id", "a15172e2-3537-4b06-9b91-c6626bae5973"}, tc.flags...)
+			err := execCmd(t, root, args)
+			if (err != nil) != (tc.code != "") || (err != nil && (classify(err).Code != tc.code || exitCode(err) != 1)) {
+				t.Fatalf("err=%v code=%s", err, classify(err).Code)
+			}
+			if orders.Load() != tc.orders {
+				t.Fatalf("orders=%d", orders.Load())
+			}
+			warning := stderr.String()
+			if tc.warning && (!strings.Contains(warning, "pay: true") || !strings.Contains(warning, "debit") || !strings.Contains(warning, "local guard") || !strings.Contains(warning, "server cap")) {
+				t.Fatalf("missing cost warning: %s", warning)
+			}
+			if !tc.warning && warning != "" {
+				t.Fatalf("unexpected warning: %s", warning)
+			}
+		})
+	}
+}
+
+func TestMonitorEmailPartialOutput(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		for _, format := range []string{"json", "table", "text"} {
+			t.Run(format+"/"+map[bool]string{false: "no-wait", true: "pending"}[pending], func(t *testing.T) {
+				fixture, orders := monitorEmailFixture(t, "0", "0", 200, pending)
+				root, stdout, stderr := newSvcRoot(t, fixture)
+				err := execCmd(t, root, []string{"--region", "hcm-3", "--output", format, "--query", "Quota", "monitor", "create-notification-quota", "--kind", "Email", "--no-wait"})
+				if pending {
+					if err == nil || classify(err).Code != "NotSettled" || exitCode(err) != 1 || !strings.Contains(stdout.String(), "order-1") {
+						t.Fatalf("err=%v out=%s", err, stdout)
+					}
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				if orders.Load() != 1 || strings.Contains(stdout.String()+stderr.String(), "private-payment") {
+					t.Fatalf("orders=%d out=%s", orders.Load(), stdout)
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorEmailOrderErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status, exit int
+		code         string
+	}{
+		{400, 1, "BadRequest"}, {401, 3, "Unauthorized"}, {403, 1, "Forbidden"},
+		{404, 4, "NotFound"}, {409, 1, "Conflict"}, {429, 1, "Throttled"}, {502, 1, "NotSettled"},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			fixture, orders := monitorEmailFixture(t, "0", "0", tc.status, false)
+			root, stdout, _ := newSvcRoot(t, fixture)
+			err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", "create-notification-quota", "--kind", "Email"})
+			if err == nil || exitCode(err) != tc.exit || classify(err).Code != tc.code {
+				t.Fatalf("err=%v class=%s exit=%d", err, classify(err).Code, exitCode(err))
+			}
+			if orders.Load() != 1 || strings.Contains(err.Error()+stdout.String(), "withheld-peer-value") {
+				t.Fatal("order repeated or peer text exposed")
+			}
+			if tc.status == 502 && stdout.Len() == 0 {
+				t.Fatal("uncertain order lost partial output")
+			}
+		})
+	}
+}
+
+func TestMonitorEmailReadOnlySources(t *testing.T) {
+	for _, source := range []string{"environment", "profile"} {
+		t.Run(source, func(t *testing.T) {
+			home := withCleanEnv(t)
+			flags := []string{"--region", "hcm-3"}
+			if source == "environment" {
+				t.Setenv(envReadOnly, "1")
+			} else {
+				writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+				flags = []string{"--profile", "agent"}
+			}
+			fixture, _ := monitorEmailFixture(t, "0", "0", 200, false)
+			opts := newFakeServer(t, fixture.mux)
+			withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			root := newRootCmd(strings.NewReader(""), stdout, stderr)
+			err := execCmd(t, root, append(flags, "monitor", "create-notification-quota", "--kind", "Email", "--max-price", "1"))
+			if err == nil || classify(err).Code != "ReadOnly" || exitCode(err) != 2 || fixture.requestCount() != 0 || stderr.Len() != 0 {
+				t.Fatalf("err=%v requests=%d warning=%s", err, fixture.requestCount(), stderr)
+			}
+		})
+	}
+}
+
+func TestMonitorEmailQuoteJSONControls(t *testing.T) {
+	fixture, orders := monitorEmailFixture(t, "0", "0", 200, false)
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	err := execCmd(t, root, []string{"--region", "hcm-3", "--read-only", "monitor", "quote-create-notification-quota", "--cli-input-json", `{"Kind":"SMS","MaxPrice":-1,"NoWait":true}`, "--kind", "Email", "--query", "GuardPrice"})
+	if err != nil || strings.TrimSpace(stdout.String()) != "0" || orders.Load() != 0 || stderr.Len() != 0 {
+		t.Fatalf("err=%v out=%s orders=%d warning=%s", err, stdout, orders.Load(), stderr)
+	}
+}
+
+func TestMonitorEmailReadNotFound(t *testing.T) {
+	for _, command := range []string{"get-notification-quota", "get-notification-quota-usage"} {
+		t.Run(command, func(t *testing.T) {
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/billing-api/v1/email/quota":        jsonHandler(404, `{"message":"Not found email quota"}`),
+				"/billing-api/v1/email/quota/usages": jsonHandler(404, `{"message":"Not found email quota"}`),
+			})
+			root, stdout, _ := newSvcRoot(t, fixture)
+			err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", command, "--kind", "Email"})
+			if err == nil || exitCode(err) != 4 || classify(err).Code != "NotFound" || stdout.Len() != 0 {
+				t.Fatalf("err=%v out=%s", err, stdout)
+			}
+		})
+	}
+}
+
+func TestMonitorEmailHelpAndExample(t *testing.T) {
+	root, stdout, _ := newSvcRoot(t, newSvcFixture(nil))
+	if err := execCmd(t, root, []string{"monitor", "create-notification-quota", "--help"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"finite --max-price", "default 0", "pay: true", "debit", "local guard", "server cap"} {
+		if !strings.Contains(stdout.String(), text) {
+			t.Fatalf("missing help %q: %s", text, stdout)
+		}
+	}
+	for _, op := range buildDocService("monitor", monitorOps).ops {
+		if op.name == "create-notification-quota" {
+			example := buildExample("monitor", op)
+			if example != "vngcloud monitor quote-create-notification-quota --kind Email" {
+				t.Fatalf("unsafe order example: %s", example)
+			}
+		}
+	}
+}
+
+func TestMonitorEmailNoWaitOutput(t *testing.T) {
+	fixture, orders := monitorEmailFixture(t, "0", "0", 200, false)
+	root, stdout, _ := newSvcRoot(t, fixture)
+	if err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", "create-notification-quota", "--kind", "Email", "--no-wait"}); err != nil {
+		t.Fatal(err)
+	}
+	var out monitor.CreateNotificationQuotaOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Quota != nil || out.OrderID != "order-1" || out.PaymentPending || orders.Load() != 1 {
+		t.Fatalf("out=%+v orders=%d", out, orders.Load())
+	}
+	// Two absence reads, a package list, a quote, and one order; no wait read.
+	if fixture.requestCount() != 5 {
+		t.Fatalf("NoWait requests=%d, want 5", fixture.requestCount())
+	}
+}
+
+func TestMonitorEmailQuotaQueries(t *testing.T) {
+	for _, format := range []string{"json", "table", "text"} {
+		t.Run(format, func(t *testing.T) {
+			fixture, orders := monitorEmailFixture(t, "0", "0", 200, false)
+			orders.Store(1)
+			root, stdout, _ := newSvcRoot(t, fixture)
+			if err := execCmd(t, root, []string{"--region", "hcm-3", "--read-only", "--output", format, "--query", "Quota.EndTime", "monitor", "get-notification-quota", "--kind", "Email"}); err != nil {
+				t.Fatal(err)
+			}
+			want := "2026-11-13T03:10:06Z"
+			if format != "json" {
+				want = "2026-11-13 03:10:06 UTC"
+			}
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("out=%s, want %s", stdout, want)
+			}
+		})
+	}
+}

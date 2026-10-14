@@ -1,0 +1,1 @@
+order-1	false	{"AutoRenew":false,"AutoRenewPeriod":0,"CreatedAt":"2026-10-14 03:10:06 UTC","EndTime":"2026-11-13 03:10:06 UTC","ID":"quota-email-1","Name":"email quota","POC":false,"PackageID":"a15172e2-3537-4b06-9b91-c6626bae5973","StartTime":"2026-10-14 03:10:06 UTC","Status":"ACTIVE","System":false,"Type":"EMAIL","UpdatedAt":"2026-10-14 03:10:08 UTC"}

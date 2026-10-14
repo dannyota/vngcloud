@@ -96,6 +96,12 @@ func showMonitorQuotas(ctx context.Context, client *monitor.Client, outputs *sdk
 		packages, err := client.ListNotificationPackages(ctx, &monitor.ListNotificationPackagesInput{Kind: kind})
 		recordAccountOne(outputs, "monitor/notification_packages_"+kind, "monitor notification packages", packages, err)
 	}
+	emailQuota, err := client.GetNotificationQuota(ctx, &monitor.GetNotificationQuotaInput{Kind: monitor.NotificationKindEmail})
+	recordAccountOne(outputs, "monitor/email_quota", "monitor email quota", emailQuota, err)
+	emailUsage, err := client.GetNotificationQuotaUsage(ctx, &monitor.GetNotificationQuotaUsageInput{Kind: monitor.NotificationKindEmail})
+	recordAccountOne(outputs, "monitor/email_quota_usage", "monitor email quota usage", emailUsage, err)
+	emailQuote, err := client.QuoteCreateNotificationQuota(ctx, &monitor.CreateNotificationQuotaInput{Kind: monitor.NotificationKindEmail})
+	recordAccountOne(outputs, "monitor/email_quota_quote", "monitor email quota quote", emailQuote, err)
 	quota, err := client.GetSyntheticQuota(ctx, nil)
 	recordAccountOne(outputs, "monitor/synthetic_quota", "monitor synthetic quota", quota, err)
 	syntheticUsage, err := client.GetSyntheticQuotaUsage(ctx, nil)

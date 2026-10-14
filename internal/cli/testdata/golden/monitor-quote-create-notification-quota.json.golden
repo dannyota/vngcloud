@@ -1,0 +1,11 @@
+{
+  "PackageID": "a15172e2-3537-4b06-9b91-c6626bae5973",
+  "Quantity": 1,
+  "MonthPeriod": 1,
+  "ResourceID": "",
+  "ExpectedEndTime": null,
+  "OptimumPrice": 0,
+  "ListPrice": 0,
+  "GuardPrice": 0,
+  "Currency": "VND"
+}

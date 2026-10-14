@@ -18,7 +18,7 @@ const monitorQuotaUsageNote = "Reads composite usage and freeEmailQuota/freeSmsQ
 
 const monitorNotificationPackagesNote = "--kind accepts Email or SMS, case insensitively. Prices are " +
 	"in VND; absent prices print unknown in table/text and null in JSON. A zero-price package is not " +
-	"an automatic allowance. Ordering notification quotas is not yet available."
+	"an automatic allowance. Email quota reads, quotes, and orders are available; SMS quota operations refuse locally."
 
 const monitorSyntheticQuotaNote = "Reads quota identity, status, expiry, AutoRenew, and package detail. " +
 	"Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. " +
@@ -27,3 +27,32 @@ const monitorSyntheticQuotaNote = "Reads quota identity, status, expiry, AutoRen
 
 const monitorSyntheticUsageNote = "Reads synthetic usage counters and their descriptions. " +
 	"Alert emails consume the Email quota, rather than the synthetic email counter. See Monitor Quotas."
+
+func init() {
+	docExampleOverride["monitor create-notification-quota"] = "vngcloud monitor quote-create-notification-quota --kind Email"
+	docExampleOverride["monitor quote-create-notification-quota"] = "vngcloud monitor quote-create-notification-quota --kind Email"
+	docExampleOverride["monitor get-notification-quota"] = "vngcloud monitor get-notification-quota --kind Email --query Quota"
+	docExampleOverride["monitor get-notification-quota-usage"] = "vngcloud monitor get-notification-quota-usage --kind Email --query Usage"
+
+	docOpNotes["monitor get-notification-quota"] = "--kind accepts Email, case insensitively. " +
+		"Reads quota identity, status, expiry, and AutoRenew. Table/text timestamps show UTC. " +
+		"A missing quota is NotFound (exit 4). SMS refuses locally before requests."
+	docOpNotes["monitor get-notification-quota-usage"] = "--kind accepts Email, case insensitively. " +
+		"Reads message consumption and descriptions. A missing quota is NotFound (exit 4). " +
+		"SMS refuses locally before requests."
+	docOpNotes["monitor quote-create-notification-quota"] = "Estimates one month of Email capacity without ordering. " +
+		"An omitted --package-id selects the unique zero-price package. Refuses an existing quota. " +
+		"Ignores MaxPrice and NoWait supplied through JSON; their flags are hidden. " +
+		"Prices are pre-VAT in VND; GuardPrice is the higher of list and quote prices. " +
+		"A quote never authorizes a purchase. SMS refuses locally."
+	docOpNotes["monitor create-notification-quota"] = "Orders one month of Email capacity with pay: true. " +
+		"Consent is finite nonnegative --max-price, default 0, without --yes. " +
+		"An omitted --package-id selects the unique zero-price package, emailfree (20 emails a month). " +
+		"MaxPrice is a local guard on the higher list/quote price, not a server cap. " +
+		"Quotes are pre-VAT; actual debit can exceed them. A positive budget prints a stderr warning. " +
+		"Read-only refuses before requests. --no-wait returns an unconfirmed Output with Quota nil. " +
+		"An uncertain result prints partial Output even with an error, ignoring --query. " +
+		"Serialize writes across processes per account/kind; reconcile with read-only quota reads and console billing. " +
+		"A stale 404 never authorizes a retry. Monthly action accounting is unknown. " +
+		"SMS refuses locally; renewal arrives in a later release. See Monitor Quotas."
+}

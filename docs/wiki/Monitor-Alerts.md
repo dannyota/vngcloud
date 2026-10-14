@@ -109,7 +109,9 @@ Email and SMS allowances depend on the account and package. The observed
 Basic synthetic quota grants zero Email and SMS messages. An available
 zero-price notification package advertises 20 messages, but listing it
 does not grant an allowance or prove delivery. OTP quota accounting is
-unverified. See [Monitor Quotas](Monitor-Quotas.md) for alert consumption.
+unverified. Email quota reads, quotes, and orders are available; renewal
+arrives in a later release. See [Monitor Quotas](Monitor-Quotas.md) for
+ordering, price guards, reconciliation, and alert consumption.
 `Slack` and `Telegram` cost nothing extra.
 
 ### Creating, updating, and deleting channels

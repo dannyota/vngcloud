@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -16,7 +19,7 @@ import (
 // pause-check, so neither needs --yes. CreateCheck and UpdateCheck are Write
 // but not Destructive either. DeleteCheck is Write and Destructive: a
 // deleted check and its history cannot be restored by one more command, so
-// it needs --yes. A read-only profile refuses every Write op, all five,
+// it needs --yes. A read-only profile refuses every Write op,
 // before any request. CreateCheckInput's Headers, Query, and Assertions
 // fields have no flag-settable type, so they reach the command only through
 // --cli-input-json; Locations is []string, a type flags.go can bind a
@@ -107,6 +110,14 @@ import (
 // alarm gets a new ID. A read-only profile refuses all three, before any
 // request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
+	monitorQuotaView(Read[monitor.Client, monitor.GetNotificationQuotaInput, monitor.GetNotificationQuotaOutput](
+		kebab("GetNotificationQuota"), (*monitor.Client).GetNotificationQuota)),
+	Read[monitor.Client, monitor.GetNotificationQuotaUsageInput, monitor.GetNotificationQuotaUsageOutput](
+		kebab("GetNotificationQuotaUsage"), (*monitor.Client).GetNotificationQuotaUsage),
+	Read[monitor.Client, monitor.CreateNotificationQuotaInput, monitor.QuoteCreateNotificationQuotaOutput](
+		kebab("QuoteCreateNotificationQuota"), (*monitor.Client).QuoteCreateNotificationQuota,
+		NoFlag("MaxPrice", "NoWait")),
+	monitorEmailCreateOp(),
 	Read[monitor.Client, monitor.GetCheckAlarmInput, monitor.GetCheckAlarmOutput](
 		kebab("GetCheckAlarm"), (*monitor.Client).GetCheckAlarm),
 	Read[monitor.Client, monitor.ListCheckAlarmHistoryInput, monitor.ListCheckAlarmHistoryOutput](
@@ -194,6 +205,21 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("UpdateLogAlarm"), (*monitor.Client).UpdateLogAlarm),
 	Write[monitor.Client, monitor.DeleteLogAlarmInput, monitor.DeleteLogAlarmOutput](
 		kebab("DeleteLogAlarm"), (*monitor.Client).DeleteLogAlarm, Destructive()),
+}
+
+func monitorEmailCreateOp() Op[monitor.Client] {
+	op := monitorQuotaView(Write[monitor.Client, monitor.CreateNotificationQuotaInput, monitor.CreateNotificationQuotaOutput](
+		kebab("CreateNotificationQuota"), (*monitor.Client).CreateNotificationQuota))
+	op.short = "Order Email quota with a finite --max-price (default 0); pay: true may debit the balance; MaxPrice is a local guard, not a server cap"
+	call := op.call
+	op.call = func(cmd *cobra.Command, client *monitor.Client, ctx context.Context, input any) (any, error) {
+		in := input.(*monitor.CreateNotificationQuotaInput)
+		if in.MaxPrice > 0 && !math.IsInf(in.MaxPrice, 0) && !math.IsNaN(in.MaxPrice) {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: pay: true may debit the balance; MaxPrice is a local guard, not a server cap. Quotes are pre-VAT.")
+		}
+		return call(cmd, client, ctx, input)
+	}
+	return op
 }
 
 // literalCLIInputJSONFields returns the top-level key set of cmd's
@@ -386,22 +412,39 @@ type monitorQuotaDisplay struct {
 }
 
 func monitorQuotaPresentation(out any) any {
-	value, ok := out.(*monitor.GetSyntheticQuotaOutput)
-	if !ok {
+	switch value := out.(type) {
+	case *monitor.GetNotificationQuotaOutput:
+		return struct{ Quota monitorQuotaDisplay }{monitorQuotaDisplayOf(value.Quota)}
+	case *monitor.CreateNotificationQuotaOutput:
+		var quota *monitorQuotaDisplay
+		if value.Quota != nil {
+			q := monitorQuotaDisplayOf(*value.Quota)
+			quota = &q
+		}
+		return struct {
+			Quota          *monitorQuotaDisplay
+			OrderID        string
+			PaymentPending bool
+		}{quota, value.OrderID, value.PaymentPending}
+	case *monitor.GetSyntheticQuotaOutput:
+		return struct {
+			Quota  monitorQuotaDisplay
+			Detail monitor.SyntheticQuotaDetail
+		}{
+			Quota:  monitorQuotaDisplayOf(value.Quota),
+			Detail: value.Detail,
+		}
+	default:
 		return out
 	}
-	q := value.Quota
-	return struct {
-		Quota  monitorQuotaDisplay
-		Detail monitor.SyntheticQuotaDetail
-	}{
-		Quota: monitorQuotaDisplay{
-			ID: q.ID, Name: q.Name, Type: q.Type, Status: q.Status, PackageID: q.PackageID,
-			StartTime: monitorQuotaTime(q.StartTime), EndTime: monitorQuotaTime(q.EndTime),
-			CreatedAt: monitorQuotaTime(q.CreatedAt), UpdatedAt: monitorQuotaTime(q.UpdatedAt),
-			AutoRenew: q.AutoRenew, POC: q.POC, System: q.System, AutoRenewPeriod: q.AutoRenewPeriod,
-		},
-		Detail: value.Detail,
+}
+
+func monitorQuotaDisplayOf(q monitor.Quota) monitorQuotaDisplay {
+	return monitorQuotaDisplay{
+		ID: q.ID, Name: q.Name, Type: q.Type, Status: q.Status, PackageID: q.PackageID,
+		StartTime: monitorQuotaTime(q.StartTime), EndTime: monitorQuotaTime(q.EndTime),
+		CreatedAt: monitorQuotaTime(q.CreatedAt), UpdatedAt: monitorQuotaTime(q.UpdatedAt),
+		AutoRenew: q.AutoRenew, POC: q.POC, System: q.System, AutoRenewPeriod: q.AutoRenewPeriod,
 	}
 }
 
