@@ -27,6 +27,40 @@ type oversizeTokens struct {
 	invalidations atomic.Int32
 }
 
+type redactionMemoryPeer struct{ payload, credential string }
+
+func (p redactionMemoryPeer) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("Authorization") != "Bearer "+p.credential {
+		return nil, errors.New("incorrect synthetic token")
+	}
+	return &http.Response{StatusCode: http.StatusForbidden, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(p.payload)), Request: req}, nil
+}
+
+func TestRedactionBoundedHTTPErrorCost(t *testing.T) {
+	const capBytes = 4 << 20
+	token := strings.Repeat("a", 128<<10)
+	payload := `{"message":"` + strings.Repeat("a", capBytes-64) + `"}`
+	httpClient := &http.Client{Transport: redactionMemoryPeer{payload: payload, credential: token}}
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken(token), vngcloud.WithHTTPClient(httpClient), vngcloud.WithRetry(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	status, err := core.ClientOf(cfg).DoJSONStatus(ctx, transport.Request{URL: "http://synthetic.invalid/", MaxBody: capBytes, Sensitive: true}, nil)
+	elapsed := time.Since(started)
+	t.Logf("body=%d token=%d elapsed=%s context=%v", len(payload), len(token), elapsed, ctx.Err())
+	var api *vngcloud.APIError
+	if status != http.StatusForbidden || !errors.As(err, &api) || api.StatusCode != status || api.Message != "[redacted]" || !errors.Is(err, vngcloud.ErrPermission) {
+		t.Fatal("redaction changed the fixed HTTP error identity")
+	}
+	// Allow one second beyond the deadline for scheduling and race instrumentation.
+	if elapsed > 1500*time.Millisecond {
+		t.Fatal("bounded response redaction ran past the deadline margin")
+	}
+}
+
 func (s *oversizeTokens) Token(context.Context) (transport.Token, error) {
 	s.calls.Add(1)
 	return transport.Token{AccessToken: "synthetic-oversize-token", ExpiresAt: time.Now().Add(time.Hour)}, nil

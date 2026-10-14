@@ -175,6 +175,25 @@ const shortValueMinLen = 8
 // redactedText replaces every match in s.
 const redactedText = "[redacted]"
 
+// Bound preparation bytes and matcher comparisons across every credential form.
+// Span and form limits also bound sorting and retained match metadata. Exhaustion
+// withholds the whole field; collected matches must never escape as partial work.
+const (
+	redactionWorkLimit = 8 << 20
+	redactionSpanLimit = 4096
+	redactionFormLimit = 256
+)
+
+type redactionBudget struct{ work, spans int }
+
+func (b *redactionBudget) takeWork(n int) bool {
+	if n > b.work {
+		return false
+	}
+	b.work -= n
+	return true
+}
+
 // redact returns s with every occurrence of each non-empty value in values
 // replaced by "[redacted]": the value itself, its JSON-escaped form (the
 // literal text a server produces when it echoes the value's own JSON
@@ -192,32 +211,58 @@ func redact(s string, values []string) string {
 	if s == "" || len(values) == 0 {
 		return s
 	}
+	budget := redactionBudget{work: redactionWorkLimit, spans: redactionSpanLimit}
 	forms := make(map[string]bool)
+	addForm := func(form string) bool {
+		if !budget.takeWork(len(form)) || !budget.takeWork(len(form)+1) {
+			return false
+		}
+		if !forms[form] && len(forms) == redactionFormLimit {
+			return false
+		}
+		forms[form] = true
+		return true
+	}
 	for _, v := range values {
+		if !budget.takeWork(1) {
+			return redactedText
+		}
 		if v == "" {
 			continue
 		}
+		// JSON escaping can expand each input byte into six output bytes.
+		// Reserve before encoding, hashing forms, or preparing match tables.
+		if len(v) > budget.work/6 {
+			return redactedText
+		}
+		budget.takeWork(6 * len(v))
 		escaped := jsonEscapedForm(v)
 		if len(v) < shortValueMinLen {
-			if strings.Contains(s, v) || (escaped != "" && strings.Contains(s, escaped)) {
-				return redactedText
+			for _, form := range []string{v, escaped} {
+				matches, ok := findRedactionSpans(s, form, nil, &budget)
+				if !ok || len(matches) > 0 {
+					return redactedText
+				}
 			}
 			continue
 		}
-		forms[v] = true
-		if escaped != "" {
-			forms[escaped] = true
+		if !addForm(v) || (escaped != "" && !addForm(escaped)) {
+			return redactedText
 		}
-		for _, line := range strings.Split(v, "\n") {
+		for line := range strings.SplitSeq(v, "\n") {
 			trimmed := strings.TrimSpace(line)
-			if len(trimmed) >= redactLineMinLen {
-				forms[trimmed] = true
+			if len(trimmed) >= redactLineMinLen && !addForm(trimmed) {
+				return redactedText
 			}
 		}
 	}
 	var spans []redactionSpan
 	for form := range forms {
-		spans = findRedactionSpans(s, form, spans)
+		var ok bool
+		spans, ok = findRedactionSpans(s, form, spans, &budget)
+		if !ok {
+			return redactedText
+		}
 	}
 	if len(spans) == 0 {
 		return s
@@ -248,25 +293,63 @@ func redact(s string, values []string) string {
 
 type redactionSpan struct{ start, end int }
 
-// Match the original text, including overlapping occurrences. Merge a form's
-// self-overlap while collecting it so repeated input does not grow the list.
-func findRedactionSpans(s, form string, spans []redactionSpan) []redactionSpan {
-	base := len(spans)
-	for offset := 0; offset < len(s); {
-		match := strings.Index(s[offset:], form)
-		if match < 0 {
-			break
+// KMP reuses prefix matches, including self-overlap, instead of comparing the
+// whole form at each byte. Preparation and scanning are linear in their inputs.
+func findRedactionSpans(s, form string, spans []redactionSpan, budget *redactionBudget) ([]redactionSpan, bool) {
+	if form == "" || len(form) > len(s) {
+		return spans, true
+	}
+	if !budget.takeWork(len(form)) {
+		return nil, false
+	}
+	prefix := make([]int, len(form))
+	for i, matched := 1, 0; i < len(form); i++ {
+		for {
+			if !budget.takeWork(1) {
+				return nil, false
+			}
+			if form[i] == form[matched] {
+				matched++
+				break
+			}
+			if matched == 0 {
+				break
+			}
+			matched = prefix[matched-1]
 		}
-		start := offset + match
-		end := start + len(form)
+		prefix[i] = matched
+	}
+	base := len(spans)
+	for i, matched := 0, 0; i < len(s); i++ {
+		for {
+			if !budget.takeWork(1) {
+				return nil, false
+			}
+			if s[i] == form[matched] {
+				matched++
+				break
+			}
+			if matched == 0 {
+				break
+			}
+			matched = prefix[matched-1]
+		}
+		if matched != len(form) {
+			continue
+		}
+		start, end := i+1-len(form), i+1
 		if len(spans) > base && start < spans[len(spans)-1].end {
 			spans[len(spans)-1].end = end
 		} else {
+			if budget.spans == 0 {
+				return nil, false
+			}
+			budget.spans--
 			spans = append(spans, redactionSpan{start: start, end: end})
 		}
-		offset = start + 1
+		matched = prefix[matched-1]
 	}
-	return spans
+	return spans, true
 }
 
 type safeDecodeError struct{ cause error }

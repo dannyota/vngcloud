@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -16,6 +17,148 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRedactionBudgetWithholdsField(t *testing.T) {
+	values := []string{"known-token"}
+	for i := range 64 {
+		values = append(values, fmt.Sprintf("token-%03d", i))
+	}
+	forms := make([]string, 257)
+	for i := range forms {
+		forms[i] = fmt.Sprintf("credential-%03d", i)
+	}
+	for _, tc := range []struct {
+		name, text string
+		values     []string
+	}{
+		{"work after a match", "known-token " + strings.Repeat("z", (512<<10)-12), values},
+		{"spans", strings.Repeat("token-00 plain ", 8192), []string{"token-00"}},
+		{"spans across forms", strings.Repeat("token-00 token-01 ", 3000), []string{"token-00", "token-01"}},
+		{"preparation", "ordinary text", []string{strings.Repeat("a", 3<<20)}},
+		{"forms", "ordinary text", forms},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			started := time.Now()
+			got := RedactValues(tc.text, tc.values...)
+			t.Logf("body=%d credentials=%d elapsed=%s outputBytes=%d", len(tc.text), len(tc.values), time.Since(started), len(got))
+			if got != redactedText {
+				t.Fatal("exhausted redaction budget did not withhold the whole field")
+			}
+		})
+	}
+}
+
+func TestRedactionMatcherWork(t *testing.T) {
+	for _, tc := range []struct {
+		name, text, form string
+		maxWork          int
+	}{
+		{"128 KiB repetitive token", strings.Repeat("a", (4<<20)-64), strings.Repeat("a", 128<<10), (4 << 20) + 3*(128<<10)},
+		{"period two", strings.Repeat("ab", (512<<10)-1), strings.Repeat("ab", 32<<10), (1 << 20) + 3*(64<<10)},
+		{"prefix fallback", strings.Repeat("a", 64<<10) + "b", strings.Repeat("a", 128) + "b", 2*((64<<10)+1) + 3*129},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			budget := redactionBudget{work: redactionWorkLimit, spans: redactionSpanLimit}
+			started := time.Now()
+			spans, ok := findRedactionSpans(tc.text, tc.form, nil, &budget)
+			work := redactionWorkLimit - budget.work
+			t.Logf("body=%d form=%d work=%d spans=%d elapsed=%s", len(tc.text), len(tc.form), work, len(spans), time.Since(started))
+			if !ok || work > tc.maxWork || len(spans) != 1 || spans[0].end != len(tc.text) {
+				t.Fatal("overlapping matches exceeded linear work or lost coverage")
+			}
+		})
+	}
+}
+
+func TestRedactionMatcherExhaustion(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		budget redactionBudget
+	}{
+		{"work", redactionBudget{work: 27, spans: 10}},
+		{"spans", redactionBudget{work: 1000, spans: 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spans, ok := findRedactionSpans(strings.Repeat("token-00 ", 3), "token-00", nil, &tc.budget)
+			if ok || spans != nil || tc.budget.work < 0 || tc.budget.spans < 0 {
+				t.Fatal("matcher returned partial spans or exceeded its budget")
+			}
+		})
+	}
+}
+
+// Mark coverage directly, independently of the matcher's spans and prefix table.
+func redactionCoverageOracle(text string, values []string) string {
+	covered := make([]bool, len(text))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		encoded, _ := json.Marshal(v)
+		escaped := string(encoded[1 : len(encoded)-1])
+		if len(v) < 8 {
+			if strings.Contains(text, v) || strings.Contains(text, escaped) {
+				return redactedText
+			}
+			continue
+		}
+		forms := []string{v, escaped}
+		for _, line := range strings.Split(v, "\n") {
+			if trimmed := strings.TrimSpace(line); len(trimmed) >= 8 {
+				forms = append(forms, trimmed)
+			}
+		}
+		for i := range len(text) {
+			for _, form := range forms {
+				if strings.HasPrefix(text[i:], form) {
+					for j := i; j < i+len(form); j++ {
+						covered[j] = true
+					}
+				}
+			}
+		}
+	}
+	var result strings.Builder
+	for i := 0; i < len(text); {
+		if !covered[i] {
+			result.WriteByte(text[i])
+			i++
+			continue
+		}
+		result.WriteString(redactedText)
+		for i < len(text) && covered[i] {
+			i++
+		}
+	}
+	return result.String()
+}
+
+func TestRedactionCoverageOracle(t *testing.T) {
+	random := rand.New(rand.NewSource(9421)) //nolint:gosec // Fixed seed reproduces generated test inputs.
+	const alphabet = "aaaaabcd\\\"\n "
+	for n := range 3000 {
+		raw := make([]byte, 20+random.Intn(100))
+		for i := range raw {
+			raw[i] = alphabet[random.Intn(len(alphabet))]
+		}
+		text := string(raw)
+		values := make([]string, 1+random.Intn(10))
+		for i := range values {
+			start := random.Intn(len(raw))
+			end := min(len(raw), start+random.Intn(18))
+			values[i] = text[start:end]
+		}
+		want := redactionCoverageOracle(text, values)
+		got := RedactValues(text, values...)
+		// Adjacent matches may keep separate placeholders.
+		for strings.Contains(got, redactedText+redactedText) {
+			got = strings.ReplaceAll(got, redactedText+redactedText, redactedText)
+		}
+		if got != want {
+			t.Fatalf("coverage mismatch at case %d: got %q want %q", n, got, want)
+		}
+	}
+}
 
 func TestRedactionMatchesOriginalText(t *testing.T) {
 	const first = "synthetic-shared-token"
