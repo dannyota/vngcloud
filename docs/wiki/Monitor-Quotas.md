@@ -42,6 +42,7 @@ vngcloud monitor get-quota-usage
 vngcloud monitor list-notification-packages --kind Email
 vngcloud monitor list-notification-packages --kind SMS
 vngcloud monitor get-synthetic-quota
+vngcloud monitor get-synthetic-quota --query Quota.EndTime
 vngcloud monitor get-synthetic-quota-usage
 ```
 
@@ -80,8 +81,8 @@ was ordered. Metric packages can grant a free allowance, so check both
 `freeEmailQuota` in composite usage and the Email quota in the console.
 Direct Email quota and usage reads are not yet available in the SDK or CLI.
 
-Observed usage can exceed the transition count: usage was 4 for 3 observed
-transitions, and the extra count remains unexplained. An `update-check`
-URL change was followed by an extra transition. Only the In-alarm email
-receipt was confirmed; Up receipts and OTP quota accounting remain
-unverified. Do not use transition count as an exact billing counter.
+The 4 received alert emails, including the Up email, match Email usage 4.
+Location history logged 3 transitions for those 4 emails; the difference
+remains unexplained. An `update-check` URL change was followed by an extra
+transition. OTP quota accounting remains unverified. Do not use transition
+count as an exact billing counter.

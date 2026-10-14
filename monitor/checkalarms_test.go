@@ -319,8 +319,9 @@ func TestCheckHistoryOptionalEndpointsAndFrequency(t *testing.T) {
 		interval           string
 	}{
 		{end: "2026-10-15T07:00:00+07:00", frequency: "60.0", wantStart: 1791936000000, wantEnd: 1792022400000, interval: "60"},
-		{start: "2026-10-13T00:00:00Z", frequency: "0", wantStart: 1791849600000, wantEnd: 1792022400000},
-		{frequency: "-1", wantStart: 1791936000000, wantEnd: 1792022400000},
+		{start: "2026-10-13T00:00:00Z", frequency: "1", wantStart: 1791849600000, wantEnd: 1792022400000, interval: "1"},
+		{frequency: "6e1", wantStart: 1791936000000, wantEnd: 1792022400000, interval: "60"},
+		{frequency: strconv.Itoa(int(^uint(0) >> 1)), wantStart: 1791936000000, wantEnd: 1792022400000, interval: strconv.Itoa(int(^uint(0) >> 1))},
 	} {
 		t.Run(tc.frequency, func(t *testing.T) {
 			calls := 0
@@ -454,5 +455,31 @@ func TestCheckAlarmRedactsSentCredential(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "token-1") {
 		t.Fatal("output contains sent credential")
+	}
+}
+
+func TestCheckAlarmRejectsInvalidFrequency(t *testing.T) {
+	for _, frequency := range []string{"1e100", "9223372036854775808", "60.5", "0", "-1", "null", `"60"`, "1e100000000"} {
+		t.Run(frequency, func(t *testing.T) {
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls == 1 {
+					_, _ = w.Write([]byte(`{"id":"chk-1","history_alarm":"alarm-1","options":{"test_frequency":` + frequency + `}}`))
+					return
+				}
+				if calls == 2 {
+					_, _ = w.Write([]byte(checkAlarmFixture(t, "GetCheckAlarm")))
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":[]}`))
+			}))
+			c.now = func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
+			out, err := c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1"})
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 || calls != 1 {
+				t.Fatalf("out=%v err=%v calls=%d", out, err, calls)
+			}
+		})
 	}
 }

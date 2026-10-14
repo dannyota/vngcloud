@@ -1858,3 +1858,21 @@ func TestMonitorQuotaReadErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestMonitorQuotaPreservesOpaqueTimestampStrings(t *testing.T) {
+	const opaque = "2026-01-01T07:00:00+07:00"
+	for _, format := range []string{"json", "table", "text"} {
+		for _, query := range []string{"", "Items[0].ID", "Items[0].Name"} {
+			t.Run(format+query, func(t *testing.T) {
+				var out bytes.Buffer
+				value := &monitor.ListNotificationPackagesOutput{Items: []monitor.NotificationPackage{{ID: opaque, Name: opaque, Amount: 20}}}
+				if err := renderMonitorQuota(&out, format, query, value); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(out.String(), opaque) {
+					t.Fatalf("opaque value changed: %s", out.String())
+				}
+			})
+		}
+	}
+}

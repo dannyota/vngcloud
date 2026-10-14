@@ -223,23 +223,27 @@ func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit
 	}
 	var credential string
 	decoder := checkAlarmDecoder{out: out}
-	_, err := c.c.DoJSONStatus(ctx, transport.Request{
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: op, Method: http.MethodGet, URL: route, OK: []int{200}, MaxBody: limit,
 		Sensitive: true, WithholdMessage: "check alarm response withheld", SentCredential: &credential,
 		ClassifyError: func(status int, _ string) string { return core.ResolvedCode(status, "") },
 	}, &decoder)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return 0, "", &core.APIError{Operation: op, Code: "ResponseLimitExceeded", Message: "check alarm response exceeds safety limit", Err: transport.ErrBodyTooLarge}
+			return 0, "", monitorReadError(op, status, "ResponseLimitExceeded", "check alarm response exceeds safety limit", err)
 		}
 		var apiErr *core.APIError
 		if errors.As(err, &apiErr) {
 			safe := *apiErr
+			if safe.StatusCode == 0 && status > 0 {
+				safe.StatusCode = status
+			}
 			safe.Code = core.ResolvedCode(safe.StatusCode, "")
 			if safe.Code == "" {
 				safe.Code = "InvalidResponse"
 			}
 			safe.Message = "check alarm request failed; response withheld"
+			safe.Err = monitorReadCause(safe.StatusCode, apiErr.Err)
 			return 0, "", &safe
 		}
 		return 0, "", err
@@ -250,11 +254,23 @@ func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit
 	return decoder.size, credential, nil
 }
 
+type checkAlarmFrequency int
+
+func (f *checkAlarmFrequency) UnmarshalJSON(raw []byte) error {
+	obj := &quotaObject{fields: map[string]json.RawMessage{"frequency": raw}}
+	value := obj.integer("frequency", false)
+	if obj.invalid || value <= 0 {
+		return errors.New("invalid check frequency")
+	}
+	*f = checkAlarmFrequency(value)
+	return nil
+}
+
 type checkAlarmSnapshot struct {
 	ID             string  `json:"id"`
 	HistoryAlarmID *string `json:"history_alarm"`
 	Options        *struct {
-		TestFrequency *flexibleInt `json:"test_frequency"`
+		TestFrequency *checkAlarmFrequency `json:"test_frequency"`
 	} `json:"options"`
 }
 

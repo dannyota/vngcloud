@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -145,7 +148,7 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 	}, &raw)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, &core.APIError{Operation: op, StatusCode: status, Code: "ResponseTooLarge", Message: "quota response exceeded size limit"}
+			return nil, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -158,6 +161,7 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 				safe.Code = "InvalidResponse"
 			}
 			safe.Message = "quota response withheld"
+			safe.Err = monitorReadCause(safe.StatusCode, api.Err)
 			return nil, &safe
 		}
 		return nil, err
@@ -175,6 +179,39 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 		return nil, quotaResponseError(op)
 	}
 	return raw, nil
+}
+
+// Retain only fixed sentinels, as storage.objectAPIError does for withheld reads.
+func monitorReadCause(status int, cause error) error {
+	causes := []error{errors.New("monitor: request cause withheld")}
+	for _, sentinel := range []error{
+		context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF,
+		io.ErrClosedPipe, net.ErrClosed, syscall.ECONNREFUSED, syscall.ECONNRESET,
+		transport.ErrBodyTooLarge, core.ErrAuth, core.ErrPermission,
+		core.ErrNotFound, core.ErrRateLimited, core.ErrInvalidConfig, core.ErrInvalidInput,
+	} {
+		if errors.Is(cause, sentinel) {
+			causes = append(causes, sentinel)
+		}
+	}
+	switch status {
+	case http.StatusUnauthorized:
+		causes = append(causes, core.ErrAuth)
+	case http.StatusForbidden:
+		causes = append(causes, core.ErrPermission)
+	case http.StatusNotFound:
+		causes = append(causes, core.ErrNotFound)
+	case http.StatusTooManyRequests:
+		causes = append(causes, core.ErrRateLimited)
+	}
+	return errors.Join(causes...)
+}
+
+func monitorReadError(op string, status int, code, message string, cause error) *core.APIError {
+	if classified := core.ResolvedCode(status, ""); classified != "" {
+		code = classified
+	}
+	return &core.APIError{Operation: op, StatusCode: status, Code: code, Message: message, Err: monitorReadCause(status, cause)}
 }
 
 func (c *Client) scrubQuotaStrings(value any, credential string) any {

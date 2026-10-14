@@ -357,6 +357,15 @@ func monitorQuotaCells(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, item := range v {
+			switch key {
+			case "StartTime", "EndTime", "CreatedAt", "UpdatedAt":
+				if text, ok := item.(string); ok {
+					if instant, err := time.Parse(time.RFC3339Nano, text); err == nil {
+						v[key] = instant.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
+						continue
+					}
+				}
+			}
 			v[key] = monitorQuotaCells(item)
 		}
 	case []any:
@@ -365,10 +374,6 @@ func monitorQuotaCells(value any) any {
 		}
 	case nil:
 		return "unknown"
-	case string:
-		if instant, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			return instant.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
-		}
 	}
 	return value
 }

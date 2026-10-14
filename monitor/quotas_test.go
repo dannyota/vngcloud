@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -261,13 +265,32 @@ func TestQuotaMissingPrices(t *testing.T) {
 }
 
 func TestQuotaMalformedUsage(t *testing.T) {
-	for _, body := range []string{`null`, `{}`, `[]`, `{"usage":null,"description":{}}`, `{"usage":{"api":1.5},"description":{}}`} {
-		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
-		out, err := c.GetSyntheticQuotaUsage(context.Background(), nil)
-		var api *core.APIError
-		if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
-			t.Fatalf("body = %s, output = %+v, error = %v", body, out, err)
-		}
+	for _, tc := range []struct {
+		name   string
+		change func(map[string]json.RawMessage)
+		raw    string
+	}{
+		{name: "null object", raw: `null`},
+		{name: "array object", raw: `[]`},
+		{name: "missing usage", change: func(m map[string]json.RawMessage) { delete(m, "usage") }},
+		{name: "missing description", change: func(m map[string]json.RawMessage) { delete(m, "description") }},
+		{name: "null usage", change: func(m map[string]json.RawMessage) { m["usage"] = json.RawMessage(`null`) }},
+		{name: "fractional count", change: func(m map[string]json.RawMessage) {
+			m["usage"] = json.RawMessage(`{"api":1.5,"location":0,"email":0,"sms":0,"slack":0,"webhook":0,"telegram":0,"teams":0}`)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(tc.raw)
+			if tc.raw == "" {
+				body = quotaFixture(t, "GetSyntheticQuotaUsage", tc.change)
+			}
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+			out, err := c.GetSyntheticQuotaUsage(context.Background(), nil)
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("output=%v error=%v", out, err)
+			}
+		})
 	}
 }
 
@@ -290,6 +313,9 @@ func TestQuotaResponseSafety(t *testing.T) {
 			var api *core.APIError
 			if out != nil || !errors.As(err, &api) || strings.Contains(err.Error(), "private") || strings.Contains(api.Code, "private") || captures != 0 {
 				t.Fatalf("output = %+v, error = %+v, captures = %d", out, err, captures)
+			}
+			if tt.name == "oversize" && !errors.Is(err, transport.ErrBodyTooLarge) {
+				t.Fatal("oversize lost transport sentinel")
 			}
 			if tt.name != "oversize" && api.StatusCode != tt.status {
 				t.Fatalf("status = %d, want %d", api.StatusCode, tt.status)
@@ -417,5 +443,81 @@ func TestQuotaCancellationAndReadRetry(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("calls = %d", calls)
+	}
+}
+
+func monitorReadFailures() map[string]func(*Client) error {
+	return map[string]func(*Client) error{
+		"quota": func(c *Client) error {
+			out, err := c.GetQuotaUsage(context.Background(), nil)
+			if out != nil {
+				return errors.New("unexpected output")
+			}
+			return err
+		},
+		"alarm": func(c *Client) error {
+			out, err := c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
+			if out != nil {
+				return errors.New("unexpected output")
+			}
+			return err
+		},
+	}
+}
+
+func TestMonitorReadsWithholdRedirectCause(t *testing.T) {
+	for name, read := range monitorReadFailures() {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "https://private.svc.cluster.local/", http.StatusFound)
+			}))
+			err := read(c)
+			var api *core.APIError
+			if !errors.As(err, &api) || strings.Contains(err.Error(), "cluster.local") || (api.Err != nil && strings.Contains(api.Err.Error(), "cluster.local")) {
+				t.Fatalf("unsafe error: %v", err)
+			}
+		})
+	}
+}
+
+type monitorFailureHTTP func(*http.Request) (*http.Response, error)
+
+func (f monitorFailureHTTP) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestMonitorReadsKeepSafeSentinels(t *testing.T) {
+	for name, read := range monitorReadFailures() {
+		for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, net.ErrClosed, syscall.ECONNREFUSED, syscall.ECONNRESET} {
+			t.Run(name+sentinel.Error(), func(t *testing.T) {
+				tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: monitorFailureHTTP(func(*http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("private.svc.cluster.local: %w", sentinel)
+				})}})
+				c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: "https://example.invalid/"}, tc))
+				err := read(c)
+				var api *core.APIError
+				if !errors.Is(err, sentinel) || !errors.As(err, &api) || strings.Contains(err.Error(), "cluster.local") {
+					t.Fatalf("sentinel lost or unsafe error: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorReadsDecodeStatus(t *testing.T) {
+	for name, read := range monitorReadFailures() {
+		for _, status := range []int{200, 401, 403, 404, 429} {
+			t.Run(fmt.Sprintf("%s/%d", name, status), func(t *testing.T) {
+				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status); _, _ = w.Write([]byte(`{"bad":`)) }))
+				err := read(c)
+				var api *core.APIError
+				if !errors.As(err, &api) || api.StatusCode != status {
+					t.Fatalf("status lost: %v", err)
+				}
+				for code, sentinel := range map[int]error{401: core.ErrAuth, 403: core.ErrPermission, 404: core.ErrNotFound, 429: core.ErrRateLimited} {
+					if errors.Is(err, sentinel) != (status == code) {
+						t.Fatalf("status %d sentinel %v: %v", status, sentinel, err)
+					}
+				}
+			})
+		}
 	}
 }

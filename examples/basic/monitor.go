@@ -23,7 +23,7 @@ func showMonitor(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 
 	detail, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checks.Items[0].ID})
 	recordAccountOne(outputs, "monitor/check_detail", "monitor check detail", detail, err)
-	if checks.Items[0].HistoryAlarmID != "" {
+	if err == nil && detail != nil && detail.Check.HistoryAlarmID != "" {
 		alarm, err := client.GetCheckAlarm(ctx, &monitor.GetCheckAlarmInput{CheckID: checks.Items[0].ID})
 		recordAccountOne(outputs, "monitor/check_alarm", "monitor check alarm", alarm, err)
 		history, err := client.ListCheckAlarmHistory(ctx, &monitor.ListCheckAlarmHistoryInput{CheckID: checks.Items[0].ID})
