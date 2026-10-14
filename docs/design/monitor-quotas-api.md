@@ -6,10 +6,10 @@ safety rules, and owner decisions. Nothing here authorizes a live call.
 
 ## Provenance and limits
 
-The manager's sanitized response record comes from read-only calls using an
+The manager's sanitized response record comes from live calls using an
 SDK-issued IAM User bearer token without extra headers at the Monitor root,
-`https://vmonitor.console.greennode.ai/`. No write in this file was sent.
-The design improver has no live access and made no network calls.
+`https://vmonitor.console.greennode.ai/`. The only write sent was the free
+Email order the owner chose; every other write here is console code.
 
 Console sources are public Angular bundles from that same root, read as
 untrusted text: uptime creation in chunk 478, billing flows in chunk 816,
@@ -115,14 +115,14 @@ returned `{"usage":{"amount":0},"description":{"amount":{name, specs,
 unit}}}`. `POST v1/email/quota/introspect` with a null body returned 200
 `{"active":true}`; it stays out of scope.
 
-**Live delivery test** after the free order: an In-alarm email reached the
-owner about one minute after a check entered ALARM; before the quota, an
-ALARM transition sent nothing and usage stayed 0. This confirms the missing
-quota as the cause. `update-check` replayed a transition (a URL change gave
-an extra ALARM to OK). Email usage then read `amount 4` for three observed
-transitions; one count is unexplained, and whether both Up emails arrived
-is unconfirmed. Synthetic usage `email` stayed 0: alert emails count
-against the Email quota usage, not the synthetic counter.
+**Live delivery test** after the free order: one In-alarm email reached
+the owner about one minute after a check entered ALARM; before the quota
+an ALARM transition sent nothing and usage stayed 0. On this account, with
+no Email quota and zero free allowance, the missing quota is the confirmed
+cause. Three transitions were observed, one right after an `update-check`
+URL change; usage then read `amount 4`, so one count is unexplained, and
+only the In-alarm receipt is confirmed. Synthetic usage `email` stayed 0:
+alert emails count against the Email quota usage.
 
 **Live packages:** `GET v1/email/packages` and `GET v1/sms/packages` return
 `[{id, name, price, amount}]` with VND numeric prices. Email's emailfree has
@@ -267,8 +267,10 @@ console, substitutions). Keep original keys and types. Replace numeric
 account IDs with a synthetic number and string dimensions.user_id with
 `<account>`; resources with synthetic IDs such as check-1 or quota-1 that
 pass path checks; links with `<internal-url>`; names with synthetic names;
-credential or payment URLs with placeholders. Preserve non-UUID package
-IDs, integral decimals, nulls, offsets, and unknown keys.
+credentials and real checkout URLs with placeholders. The free Email order
+fixture keeps the public fixed redirect URL literal, so the echo-equals-sent
+rule stays testable. Preserve non-UUID package IDs, integral decimals,
+nulls, offsets, and unknown keys.
 
 Required fixture families, all decoded through the public SDK:
 
@@ -284,10 +286,9 @@ Required fixture families, all decoded through the public SDK:
   SMS. Fixtures stay synthetic: no test assumes the account owns a quota.
 
 Check required-key presence, not just json.Unmarshal success: null or empty
-bodies cannot be a zero-valued success. Sanitation must keep valid route IDs
-so path validation does not prevent the intended decode test. New SDK
-Sensitive requests suppress ordinary capture hooks; only the manager's
-separately authorized private capture produces raw fixture material.
+bodies are never a zero-valued success. Sanitation keeps valid route IDs so
+path validation does not block the decode test. Sensitive requests suppress
+capture hooks; only the manager's private capture yields raw fixtures.
 
 ## Deterministic checks
 

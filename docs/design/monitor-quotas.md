@@ -3,17 +3,16 @@
 Status: Proposed. This design approves no code, purchase, or live run.
 
 Expose synthetic check state and history, quota allowances and expiry,
-notification quota orders, and quota renewal through `monitor`. A missing
-Email quota was the confirmed cause of the silent alarm: once the free
-quota existed, an In-alarm email arrived about a minute after a transition.
-No alarm or trigger creation step is missing. [API evidence and
-checks](monitor-quotas-api.md) owns wire shapes, provenance, and live gates.
+notification quota orders, and quota renewal through `monitor`. On the
+tested account, with no Email quota and a zero free allowance, the missing
+quota was the confirmed cause of the silent alarm: after the free order an
+In-alarm email arrived. [API evidence and checks](monitor-quotas-api.md)
+owns wire shapes, provenance, and live gates.
 
 This extends [vMonitor](monitor.md) and [Alerts](monitor-alerts.md), follows
 [SDK and CLI](sdk-and-cli.md), [CLI](cli.md), and
 [write conventions](../adr/0002-write-api-conventions.md). The SDK stays
-standard-library only; the CLI calls only public SDK operations. No
-dependency or authentication change is needed.
+standard-library only; the CLI calls only public SDK operations.
 
 ## Scope and release order
 
@@ -21,16 +20,16 @@ Ship the smallest independently useful slices, subject to owner decisions:
 
 1. Check fields, alarm reads, history (with the owner decision 9 limit),
    verified quota reads, and the wiki correction.
-2. Email quota reads, quote, and free email order together. Their wire
-   shapes are live; delivery and billing-side zero-debit evidence are open.
+2. Email quota reads, quote, and free email order together. The order
+   response and one In-alarm receipt are verified; the rest stays gated.
 3. Free Synthetic Test extension, then Email extension, independently as
    their gates close. Synthetic expiry stops checks, so prioritize it.
 4. SMS writes, paid notification writes, and trash recovery only with their
    own evidence. Console similarity does not verify another kind or path.
 
-A first release including the email order would unblock delivery sooner,
-but write responses are unverified. Recommend reads first and email right
-after its gates close. No gate is waived for a free order.
+The free order response is verified; Up receipts, the extra usage count,
+billing-side zero debit, and action accounting are open. Recommend reads
+first and email right after; no gate is waived for a free order.
 
 Out of scope: quota delete/purge, auto-renew changes, metric quotas, log
 quota renewal/resize, new or paid Synthetic Test orders, bundles,
@@ -306,8 +305,9 @@ String flags `--start`, `--end`, `--expected-end-time`, and `--kind`, int
 Quote commands hide ignored fields with NoFlag, as log project quotes do.
 Tables show status, expiry with UTC zone, AutoRenew, and absent prices as
 unknown; partial write Outputs print even when an error follows. The wiki
-says each alert email, one per transition per location, consumes the Email
-quota usage, and that `update-check` can cause an extra transition.
+says each alert consumes Email quota, observed usage can exceed the
+transition count, `update-check` was followed by an extra transition, and
+users check both `freeEmailQuota` in composite usage and the Email quota.
 
 Use existing error identities: InvalidUsage/2 for local validation and
 read-only refusal (ReadOnly/2); NotFound/4 for missing reads;
