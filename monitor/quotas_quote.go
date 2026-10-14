@@ -132,6 +132,10 @@ func (c *Client) QuoteCreateNotificationQuota(ctx context.Context, in *CreateNot
 	if err != nil {
 		return nil, err
 	}
+	return c.quoteNotificationCreate(ctx, op, terms)
+}
+
+func (c *Client) quoteNotificationCreate(ctx context.Context, op string, terms notificationCreateTerms) (*QuotaQuote, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

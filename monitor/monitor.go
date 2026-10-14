@@ -24,6 +24,9 @@ import (
 type Client struct {
 	c *core.Client
 
+	quotaMu       quotaWriteLock
+	quotaAttempts map[string]*quotaAttempt
+
 	// toggleMu serializes PauseCheck, ResumeCheck, and UpdateCheck within
 	// one Client, so two goroutines sharing it never race a read-then-write
 	// sequence, toggle or update, against each other. It does not, and
