@@ -1,5 +1,32 @@
 # Release Notes
 
+## v0.82.0 - vMonitor Check Alarm and Quota Reads
+
+- `monitor.Check` adds `MonitorStatus` (`OK`, `ALARM`, or `UNDETERMINED`),
+  the check's alarm state, and `HistoryAlarmID`. `Status` stays the
+  `ENABLED` or `DISABLED` run state. CLI `get-check` and `list-checks`
+  print both new fields.
+- SDK `GetCheckAlarm` and CLI `monitor get-check-alarm` read a check's
+  current alarm state per probe location. SDK `ListCheckAlarmHistory` and
+  CLI `monitor list-check-alarm-history` list state transitions over an
+  RFC 3339 range (default: the last 24 hours). History holds only the
+  records the server returned: paging and truncation are unknown, and an
+  empty result proves nothing.
+- SDK `GetQuotaUsage`, `ListNotificationPackages`, `GetSyntheticQuota`, and
+  `GetSyntheticQuotaUsage`, with CLI `get-quota-usage`,
+  `list-notification-packages --kind Email|SMS`, `get-synthetic-quota`, and
+  `get-synthetic-quota-usage`, read composite usage, notification packages,
+  and the synthetic quota with its expiry. Read the expiry alone with
+  `vngcloud monitor get-synthetic-quota --query Quota.EndTime`. Free
+  quotas renew only in their last 7 days; ordering and renewal commands
+  come in later releases.
+- The wiki no longer claims 20 free alert emails. Allowances depend on the
+  account and package: a synthetic-only account has none until it orders
+  an email package. See Monitor Quotas.
+- Compatibility: unkeyed `monitor.Check` struct literals no longer
+  compile, and exact snapshots of `Check` JSON or CLI output gain the two
+  fields.
+
 ## v0.81.3 - Credential Redaction Across Retries
 
 - Requests that retried or refreshed their token redacted only the last
