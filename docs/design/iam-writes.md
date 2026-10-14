@@ -38,10 +38,12 @@ live on their own.
 ## Non-goals
 
 - IAM user writes, except create and delete proposed in
-  [IAM users](iam-users.md), subject to its approval and evidence gates.
-  Password input for create belongs there; reset, identity providers, MFA,
-  IP allow lists, and other access changes stay out. `ListUsers` remains
-  a read for finding user IDs.
+  [IAM users](iam-users.md) and password reset, rename, and MFA enable and
+  disable proposed in [IAM user administration](iam-users-admin.md), each
+  subject to its approval and evidence gates. Password input and
+  generation belong there. Account activate and deactivate, MFA set-up and
+  verification, identity providers, IP allow lists, tags, and other access
+  changes stay out. `ListUsers` remains a read for finding user IDs.
 - Service account activate and deactivate, trusted roots (cross-account
   trust), impersonation, and service account login.
 - Tags on groups, policies, and service accounts.

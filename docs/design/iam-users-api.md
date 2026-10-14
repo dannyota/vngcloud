@@ -9,14 +9,15 @@ has been verified for this design.
 
 - [Accounts OpenAPI][spec], version 1.0.0: paths, request properties,
   statuses, and the user-list schema below. Its server is
-  `https://iamapis.vngcloud.vn/accounts-api`. Use the SDK's existing
-  Dashboard endpoint; this source does not verify that gateway's writes.
+  `https://iamapis.vngcloud.vn/accounts-api`; the SDK uses its existing
+  Dashboard endpoint, whose writes this source does not verify.
 - [Console main bundle][main]: `getListUserAccounts`, `getUserById`,
-  `createUser`, `deleteUAById`, user-model defaults, and validators.
-  [User-account chunk][users]: `createUsers` sends username and password
-  and discards the response. [Account-settings chunk][settings]: custom
-  password controls. [Quota chunk][quota]: `quotas/iam-user`. Source-level
-  inferences, read as text and never executed, not server evidence.
+  `createUser`, `deleteUAById`, user-model defaults, and validators; no
+  user update call. [User-account chunk][users]: `createUsers` sends
+  username and password and discards the response. [Account-settings
+  chunk][settings]: custom password controls. [Quota chunk][quota]:
+  `quotas/iam-user`. Source-level inferences, read as text and never
+  executed, not server evidence.
 - Product pages [User Accounts][product-users], [Create an IAM User
   Account][product-create], and [Delete an IAM User Account][product-delete]
   state the username and password rules, that a new user holds no policy and
@@ -61,8 +62,8 @@ observed, and absence proves no server default or sign-in behavior.
 The 201 response has no documented schema and the console ignores its body;
 empty, optional-`id`, and malformed handling are proposed client behavior.
 DELETE's 204 has no body. A create 409 may be a duplicate name, a quota, or
-another conflict. A delete 409 may occur despite empty attachment reads; never
-translate it into `ErrInUse`, success, or automatic detach.
+another conflict. A delete 409 is the server's refusal, for attachments or
+anything else; never translate it into success or automatic detach.
 
 The list schema has `data`, `pageNumber`, `pageSize`, `totalItems`, and
 `totalPages`; rows have `id`, `username`, and RFC 3339 `createdAt`. The spec
@@ -76,14 +77,14 @@ those defaults, so neither presence nor wire types follow from the model. The
 list view takes `enabled`, `lastUse`, and `from` from get results, and the
 password UI checks `from === "iam"`; treat `iam` and `idp` as observed
 discriminators, not a complete enum. MFA fields carry email, SMS, and Google
-authenticator state with contact values. Omit these and `idpId` from public
-outputs; preserve their presence in sanitized raw fixture evidence.
-
-The console username validator allows 5 to 50 ASCII letters, digits,
-underscores, hyphens, or dots. Its password validator, below, requires 8 to
-50 JavaScript characters with at least one upper-case ASCII letter, lower-case
-ASCII letter, digit, and special character, where the special class includes
-ASCII space; the final dot restricts no other character.
+authenticator state with contact values; omit contact values and `idpId` from
+public outputs, keep their presence in sanitized raw fixtures, and see the
+[administration state model](iam-users-admin-api.md#state-model) for the
+factor booleans. The console username validator allows 5 to 50 ASCII letters,
+digits, underscores, hyphens, or dots. Its password validator, below, requires
+8 to 50 JavaScript characters with at least one upper-case ASCII letter,
+lower-case ASCII letter, digit, and special character, where the special
+class includes ASCII space; the final dot restricts no other character.
 
 ```text
 ^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[ !"#$%&'()*+,-./:;<=>?@\[\]\\^_`{|}~]).{8,50}$
@@ -101,48 +102,52 @@ use `vngcloud:"required"`; nil required inputs fail locally.
 
 ### Reads
 
-- `GetUserInput { UserID string }`, required and checked by
-  `core.CheckPathID`; `GetUserOutput { User UserDetail }`. The request
-  sets `Sensitive`, since whether a user object can carry a password-like
-  key is unverified; the probe records that.
+- `GetUserInput { UserID string }`, required and checked by `core.CheckPathID`;
+  `GetUserOutput { User UserDetail }`. The request sets `Sensitive` until the
+  probe shows that a user object carries no password-like key.
 - `ListUsersInput` retains `Page int` and `Size int` and adds optional
   `Name string`; `ListUsersOutput` remains `core.List[User]`.
 - `UserDetail` embeds the existing `User` and adds `Enabled bool` and
-  `From string` with API JSON tags. Fix `LastUse`'s type only after raw
-  evidence and design review; never guess `int64` from a console default.
-  This type gate blocks the model's implementation.
+  `From string` with API JSON tags. `LastUse`'s type waits for raw
+  evidence and design review, never a guess from a console default; that
+  gate blocks the model's implementation.
 
 Public `ListUsers` still returns one page and no metadata. Page <= 0 sends 0;
 Size <= 0 sends the existing default, 10000. Send `name` only when non-empty,
 query-encoded without trimming or case normalization. Do not promise exact
 filtering. Input shape bounds for `Name` match Username below. Existing keyed
 literals and methods retain their behavior except the proposed body cap; adding
-a field breaks unkeyed struct literals. Document that source-compatibility limit
-in release notes.
-
-A private list helper must retain presence-aware metadata for create
-confirmation; `ListUsersOutput` cannot prove completeness. Public reads remain
-tolerant of missing metadata. A guard target read requires usable, matching ID
-and exact `from: "iam"`, never zero-value model defaults.
+a field breaks unkeyed struct literals, a source-compatibility limit for the
+release notes. A private list helper must retain presence-aware metadata for
+create confirmation; `ListUsersOutput` cannot prove completeness. Public reads
+remain tolerant of missing metadata. A guard target read requires usable,
+matching ID and exact `from: "iam"`, never zero-value model defaults.
 
 ### Generation
 
-When Password is empty, generate 32 ASCII characters with `crypto/rand` from
-upper- and lower-case letters, digits, and `!@#$%^&*()_+-=[]{}:;,.?/<>|~`, all
-in the console's special class; spaces, quotes, backslash, and backtick are
-excluded. Sample uniformly without modulo bias and reject a whole candidate
-unless all four classes appear; do not fix class positions. Bound attempts at
-256 and entropy consumption at 64 KiB, check cancellation between draws, and
-return a fixed local error on entropy failure or exhaustion before any request.
-Production randomness is never caller-selectable; inject a reader only through
-private test seams. This gives well over 190 bits of entropy. Do not copy the
+When Password is empty, generate `PasswordLength` ASCII characters with
+`crypto/rand` from the 63-character alphabet of upper-case letters,
+lower-case letters, digits, and `@`. Zero means 32; values outside 8 to 50
+are `ErrInvalidInput` before any request. `@` is the only special character
+because the owner reports that the console hard-codes the specials it
+accepts and `@` passes; the set widens only by owner decision. Sample each
+character uniformly without modulo bias and reject a whole candidate unless
+all four classes appear; do not fix class positions. Bound attempts at 256
+and entropy at 64 KiB, check cancellation between draws, and return a fixed
+local error on entropy failure or exhaustion; about 8% of length-8 and 40%
+of length-32 candidates pass, so 256 attempts fail with probability below
+1e-9. Production randomness is never caller-selectable; inject a reader
+only through private test seams. The four-class condition leaves about 44.2
+bits at length 8 (47.8 unconstrained), 190.0 bits at 32 (191.3), and 298.0
+bits at 50. The same generator serves create and reset. Never copy the
 console's `Math.random` generator or claim compatibility with every policy.
 
 ### Writes
 
-- `CreateUserInput { Username string; Password vngcloud.Secret }`.
-  Username is required. Empty Password selects generation; an empty
-  supplied CLI file must fail before reaching this method.
+- `CreateUserInput { Username string; Password vngcloud.Secret;
+  PasswordLength int }`. Username is required. Empty Password selects
+  generation with PasswordLength; a non-zero PasswordLength with a supplied
+  Password is `ErrInvalidInput`. An empty supplied CLI file fails earlier.
 - `CreateUserOutput { User UserDetail; Password vngcloud.Secret;
   CreatedID string }`. Password holds only a locally generated value.
   CreatedID holds only a valid ID from this invocation's 201 response,
@@ -151,19 +156,17 @@ console's `Math.random` generator or claim compatibility with every policy.
   `DeleteUserOutput {}`. No partial update fields or guard override exist.
 
 Validate before authentication or requests: Username is non-empty valid UTF-8,
-at most 4096 bytes, with no whitespace or controls. Supplied Password is valid
-UTF-8, at most 4096 bytes, with no controls; spaces are allowed and preserved.
-Never quote invalid input. The server owns actual length, character-class,
-uniqueness, and policy checks. Do not mutate the caller's Input while generating
-or clearing internal values.
+at most 4096 bytes, with no whitespace or controls; a supplied Password is
+valid UTF-8, at most 4096 bytes, with no controls, spaces preserved. Never
+quote invalid input. The server owns length, class, uniqueness, and policy
+checks. Never mutate the caller's Input while generating or clearing values.
 
 Create uses `DoJSONStatus`, `Once`, a per-call `NotSent`, `Sensitive`, `Redact`
-with the submitted password, `WithholdMessage` with fixed text, and
-`ClassifyError` returning fixed status-based codes. Never retain raw server
-codes as a fallback. Serialize the password explicitly in a private wire struct;
-marshaling Secret directly would send `[redacted]`. Use these privacy controls
-on private confirmation requests too. Return no arbitrary server string from a
-malformed response or raw unwrap cause.
+with the submitted password, `WithholdMessage` with fixed text, and a
+`ClassifyError` returning fixed status-based codes, never raw server codes.
+Serialize the password in a private wire struct; marshaling Secret directly
+sends `[redacted]`. Private confirmation requests use the same controls and
+return no arbitrary server string from a malformed response or unwrap cause.
 
 | Create result | Output and error |
 |-|-|
@@ -184,10 +187,9 @@ A partial output always retains requested Username and the generated Password.
 Set CreatedID only from a complete valid 201 object; retain it if confirmation
 fails. Reject duplicate identity or paging keys in private create, get, and list
 decoders before trusting any value. Use existing `ErrCreateUnconfirmed` only for
-known 201 acceptance, and new `ErrUserCreateUncertain` for unknown outcomes.
-Generalize the former's service-account-specific text without changing its
-identity or existing behavior. Neither case triggers a second POST or an
-automatic SDK delete.
+known 201 acceptance, generalizing its service-account text without changing
+its identity or behavior, and new `ErrUserCreateUncertain` for unknown
+outcomes. Neither case triggers a second POST or an automatic SDK delete.
 
 After a valid 201 object with an ID, validate that ID and read it once. Require
 returned ID to match case-insensitively, username to match exactly, and `from`
@@ -206,34 +208,34 @@ Private confirms suppress capture and unsafe error text. Validate returned
 string fields against their recorded schema and submitted identity before
 publishing them. Refuse a response identity containing the submitted password;
 never redact an ID and then use the altered ID for a request. Redact the
-submitted password from other retained text. A successful read never supplies a
-password. Preserve only trusted input and create identity in partial results,
-not partially decoded server data.
+submitted password from other retained text. A successful read never supplies
+a password. Partial results hold only trusted input and create identity, not
+partially decoded server data.
 
 Delete runs the [ordered guards](iam-users.md#guards), then sends DELETE with
 `OK: 204`, a 64 KiB response cap, and `NoRedirect`. Keep the shared idempotent
 retry policy. Return an empty Output only on 204. A target 404 returns nil and
 `ErrNotFound`; 409 remains Conflict; every exhausted failure remains an error.
 Wrap guard dependency errors with a fixed read label without losing error
-identity. Every dependency read decodes under the strict rule below. No
-automatic delete follows a create in the SDK or the CLI.
+identity. The caller identity and target reads decode under the strict rule
+below. No automatic delete follows a create in the SDK or the CLI.
 
-Use `errors.Is` for `ErrInvalidInput`, guard sentinels, create outcome
-sentinels, and context cancellation/deadline errors. Keep sanitized
-`*vngcloud.APIError` reachable through `errors.As`, including status and
-Retryable; preserve safe underlying causes. Map 401 to `ErrAuth`, 403 to
-`ErrPermission`, 404 to `ErrNotFound`, and 429 to `ErrRateLimited` through the
-existing core mapping. CLI create-outcome handling precedes underlying status
-mapping, so an uncertain/accepted create always exits 1.
+Use `errors.Is` for `ErrInvalidInput`, `ErrSelfChange`, `ErrPrivilegedChange`,
+the new `ErrOriginNotIAM`, create outcome sentinels, and context
+cancellation/deadline errors. Keep sanitized `*vngcloud.APIError` reachable
+through `errors.As`, including status and Retryable; preserve safe underlying
+causes. Map 401 to `ErrAuth`, 403 to `ErrPermission`, 404 to `ErrNotFound`,
+and 429 to `ErrRateLimited` through the existing core mapping. CLI
+create-outcome handling precedes underlying status mapping, so an
+uncertain/accepted create always exits 1.
 
 ### Bounds and strict decoding
 
 New create/delete responses cap at 64 KiB, get at 256 KiB, and lists at 4 MiB.
 Fail on overflow; never decode a truncated prefix. Confirmation performs at most
-one list and one get, or one get with CreatedID. No wait or eventual-consistency
-polling occurs. All SDK requests and guard reads use the caller's context;
-cancellation stops further reads and writes. Nothing runs on a detached
-context.
+one list and one get, or one get with CreatedID. No wait or polling occurs.
+All requests use the caller's context; cancellation stops further reads and
+writes, and nothing runs on a detached context.
 
 Strict rule: a request sets `transport.Request.StrictJSON`, and
 `doJSONStatus` then runs `jsonresponse.ValidateStrict(body, out)` before its
@@ -249,27 +251,29 @@ struct, two keys that `encoding/json` would assign to the same field, which it
 matches case-insensitively. Maps, interfaces, raw messages, and non-struct
 kinds get exact-duplicate rejection only, so distinct case-sensitive
 `Condition` map keys still decode. `Validate` and its callers stay unchanged.
-Set `StrictJSON` on the user get, the filtered list, the create response, and
-every read a delete depends on: `GetCallerIdentity`, `ListActions`,
-`GetPolicy`, `guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
-`guardGetGroupAttachments`, and `guardUserGroups`.
 
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
-per send, plus the existing single 401 refresh send, and at most 30 seconds per
-backoff. The HTTP client timeout bounds each request; callers must set an
-overall context deadline for a multi-request operation. No new retry loop wraps
-the transport. Create remains one attempt.
+per send, the existing single 401 refresh send, and at most 30 seconds per
+backoff. The HTTP client timeout bounds each request; a multi-request
+operation needs a caller deadline. No new retry loop wraps the transport;
+create remains one attempt.
 
-Existing caller, action, policy, and guard readers omit `MaxBody` and the
-strict rule. Before this feature's SDK work, one separately briefed and
-reviewed prerequisite adds `StrictJSON` to `internal/transport`,
-`ValidateStrict` to `internal/jsonresponse`, and both flags to those readers
-in `iam/caller.go`, `iam/actions.go`, `iam/policies.go`, and `iam/guard.go`:
-256 KiB for single objects, 4 MiB for lists. Preserve their fail-closed
-classification and error identities. Oversized or ambiguous existing reads
-will begin failing for every guarded write; owner approval must cover that
-compatibility change. Do not describe a capped user get as bounding the whole
-guard graph.
+Set `StrictJSON` on the user get, the filtered list, the create response, and
+`GetCallerIdentity`, the one existing read every user write depends on, which
+today omits `MaxBody` and the strict rule. Before this feature's SDK work, one
+separately briefed and reviewed prerequisite adds `StrictJSON` to
+`internal/transport`, `ValidateStrict` to `internal/jsonresponse`, and both
+flags with a 256 KiB cap to `GetCallerIdentity` in `iam/caller.go`. If the
+[administration privilege
+guard](iam-users-admin.md#owner-decisions) is accepted, the same
+prerequisite extends to `ListActions`, `GetPolicy`,
+`guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
+`guardGetGroupAttachments`, and `guardUserGroups` in `iam/actions.go`,
+`iam/policies.go`, and `iam/guard.go`: 256 KiB for single objects, 4 MiB for
+lists, preserving their fail-closed classification and error identities. An
+oversized or ambiguous `userinfo` response will begin failing for every
+guarded write; decision 9 covers that compatibility change. Do not describe
+a capped user get as bounding the whole guard graph.
 
 ## Unit tests
 
@@ -281,9 +285,10 @@ in the [calls table](#calls), plus unexpected responses.
   Record no-body create as empty bytes with provenance, not invented `{}`.
   Test omitted, null, wrong-type, and duplicate JSON identity/metadata keys;
   reject ambiguous duplicate keys in security-relevant private decoders.
-- Check generator alphabet, length, all classes, unbiased sampling logic,
-  fresh values, entropy failure, cancellation, and bounded exhaustion.
-  Test password spaces, UTF-8, controls, byte bounds, and no Input mutation.
+- Check generator alphabet, default and chosen lengths, the 8 and 50 bounds,
+  all four classes, unbiased sampling, fresh values, entropy failure,
+  cancellation, bounded exhaustion, and the supplied-plus-length refusal;
+  test password spaces, UTF-8, controls, byte bounds, and no Input mutation.
 - Count create POSTs for 401, 429, 500/502, all redirects, partial bodies,
   body overflow, dropped connections, and cancellation before/after send.
   Distinguish proven NotSent from custom-transport dial-shaped errors.
@@ -294,28 +299,23 @@ in the [calls table](#calls), plus unexpected responses.
 - Exercise missing/null/negative/inconsistent list metadata, multi-page
   results, substring and case-only names, wrong get identity, caps, and
   public ListUsers compatibility without Name. Verify CreatedID provenance.
-- Test self before origin or privilege reads; unknown/root caller; missing
-  caller ID; service-account caller; non-iam origin; direct and inherited
-  privilege; deny-only attachment; any group; every guard read failure;
-  empty action catalog; malformed policy patterns; null/short attachments.
-  Assert zero mutations on refusal, not zero reads.
+- Test self before the target read; unknown/root caller; missing caller
+  ID; service-account caller; non-iam, missing, null, and wrong-type
+  origin; mismatched target ID; failed target read. Assert zero mutations
+  on refusal, not zero reads. An attached user is not refused locally; the
+  server's 409 stays `Conflict`.
 - Test DELETE 204, 404, 409, retries ending in 404, exhausted 5xx, no
-  redirects, cancellation, and dependency 404 labels.
-- Send zero DELETEs for each ambiguous dependency response: a duplicate
-  `data` or `totalItems`, a `DATA` or `TOTALITEMS` alias after the real
-  key, a duplicate `iamUsers`, `policies`, or `mode` in a group, a
-  duplicate `statements`, `effect`, or `actions` in a policy, a duplicate
-  `userId` or `userType` in the caller identity, a duplicate `data` in the
-  action list, and a duplicate `id` or `from` in the target user. A policy
-  whose `Condition` holds the distinct map keys `Env` and `env` still
-  decodes with both.
+  redirects, cancellation, and dependency 404 labels. Send zero DELETEs
+  for a duplicate `userId` or `userType`, or a `USERID` alias after the
+  real key, in the caller identity, and for a duplicate `id`, `username`,
+  or `from` in the target user.
 - Put a canary in a `$numberLong` timestamp, a `root`, and a malformed
   strict body on every strict read, and check that no SDK error node,
-  `APIError` field, or CLI stderr line carries it.
-- Canary-check stdout, stderr, debug, capture, every reachable error node,
-  and supported fmt/slog/JSON paths. Include nested escaped password
-  echoes in error codes/messages and success bodies; unsafe formatting is
-  forbidden, not claimed safe. Confirm requests serialize the actual value.
+  `APIError` field, or CLI stderr line carries it. Canary-check stdout,
+  stderr, debug, capture, every reachable error node, and supported
+  fmt/slog/JSON paths, including nested escaped password echoes in error
+  codes/messages and success bodies; unsafe formatting is forbidden, not
+  claimed safe. Confirm requests serialize the actual value.
 - CLI tests cover exactly-one flag, empty file, private file mode, symlinks,
   FIFO/device/directory refusal, terminal stdin, CRLF/spaces, overflow,
   stalled input deadline, and cancellation. `beforeInput` runs before any
@@ -335,12 +335,11 @@ Only the manager may run probes, after owner approval naming the account,
 resources, sign-in scope, cost assumption, and cleanup authority, and after a
 separate adversarial review with fix confirmation of the credential-free probe
 source, which handles a password and creates and deletes a principal. IAM is
-global.
-This design grants no standing approval. Serialize the probe with other IAM
-writers in the test account. Use `vngcloud-probe-<8 hex>` names, precheck
-absence, and keep a private per-run ledger of returned IDs. A prefix alone never
-authorizes cleanup. Do not alter policy or account security settings to make the
-probe pass.
+global. This design grants no standing approval. Serialize the probe with
+other IAM writers in the test account. Use `vngcloud-probe-<8 hex>` names,
+precheck absence, and keep a private per-run ledger of returned IDs. A prefix
+alone never authorizes cleanup. Do not alter policy or account security
+settings to make the probe pass.
 
 1. Verify permissions and quota headroom using `quotas/iam-user`. Read the
    caller and its own user only if expressly approved; record get keys,
@@ -349,14 +348,14 @@ probe pass.
    alphabet. Hold response bytes only in memory; record status, key names,
    types, and whether an ID exists. Keep the password until cleanup.
 3. List by full disposable username, a substring, a case variation, and
-   a definitely absent random name. Record metadata and filter semantics.
-   Get the disposable user and verify ID, origin, model fields, empty
-   direct policies, and empty groups. Attachment calls use the policies
-   endpoint, not the accounts endpoint.
+   a definitely absent random name; record metadata and filter semantics.
+   Get the disposable user and verify ID, origin, model fields, and, through
+   the policies endpoint, empty direct policies and empty groups. Then run
+   the [administration probes](iam-users-admin-api.md#probes) on this user.
 4. Try the same name once more only if approved; record status and safe
-   code. A 409 establishes this duplicate case only, not all conflicts.
-   Avoid short-name or weak-password negative probes: custom policy may
-   accept them and create extra identities. Use offline validation tests.
+   code. A 409 establishes this duplicate case only. Skip short-name and
+   weak-password negatives, which custom policy may accept while creating
+   extra identities; offline tests cover validation.
 5. If separately approved, sign in as the disposable user through the
    existing IAM login, without a persistent token cache, then read caller
    identity and compare IDs in memory. Record booleans only. MFA or sign-in
@@ -368,33 +367,34 @@ probe pass.
 
 No probe deletes the caller, an attached user, or a pre-existing user. Delete
 409 meaning, custom policy breadth, concurrent races, and token revocation after
-deletion remain unverified unless separately evidenced. A read failure or name
-mismatch must never expand cleanup scope.
+deletion remain unverified; a read failure or name mismatch never expands
+cleanup scope.
 
 ### Fixture provenance
 
 Keep account-bearing raw reads only under the private output paths in [live
 data](../../instructions/live-data.md). Sanitize create bytes in memory; if
 they contain a password, omit that fixture and keep the schema gate. Never
-substitute SDK output or a hand-built response for raw evidence.
-
-Fixtures are `get_user.json`, `list_users_filtered.json`, and, if safe,
-`create_user.json` under `testdata/iam/`. Provenance records method, path with
-placeholders, status, raw origin, removed values, and intentional model
-omissions. Use `<id>`, `<account>`, and `<secret>` or short synthetic IDs that
-pass path validation; retain structural keys and types. Record an empty HTTP
-body as such. The manager checks sanitation before workers receive fixtures and
-re-reviews any contract the probes change.
+substitute SDK output or a hand-built response for raw evidence. Fixtures are
+`get_user.json`, `list_users_filtered.json`, and, if safe, `create_user.json`
+under `testdata/iam/`. Provenance records method, placeholder path, status,
+raw origin, removed values, and intentional model omissions. Use `<id>`,
+`<account>`, and `<secret>` or short synthetic IDs that pass path validation;
+retain structural keys and types, and record an empty HTTP body as such. The
+manager checks sanitation before workers receive fixtures and re-reviews any
+contract the probes change.
 
 ## Live checks
 
-Implement and independently review live helpers before running them. Add GetUser
-and filtered ListUsers to the authorized read suite. Gate `TestLiveWriteIAMUser`
-on both `VNGCLOUD_LIVE_WRITE=1` and `VNGCLOUD_LIVE_IAM_USER=1`. Use a unique
+Add GetUser and filtered ListUsers to the authorized read suite, after
+independent review of the helpers. Gate `TestLiveWriteIAMUser` on both
+`VNGCLOUD_LIVE_WRITE=1` and `VNGCLOUD_LIVE_IAM_USER=1`. Use a unique
 `vngcloud-live-<8 hex>` name and only resources recorded by this run; never
 sweep all prefix users. Exercise generation, create, private temporary
-secret-file persistence, get, filtered list, self refusal with no DELETE, and
-guarded delete. Register cleanup before create using a ledger, never a
-name-based delete; on uncertain ownership, report a leftover and stop. Remove
-temporary secrets on completion and emit only fixed labels, statuses, counts,
-and booleans. Compile-only checks are not live evidence.
+secret-file persistence, get, filtered list, self refusal with no DELETE,
+guarded delete, and the [administration live
+checks](iam-users-admin-api.md#live-checks) on the same user. Register
+cleanup before create using a ledger, never a name-based delete; on uncertain
+ownership, report a leftover and stop. Remove temporary secrets on completion
+and emit only fixed labels, statuses, counts, and booleans. Compile-only
+checks are not live evidence.
