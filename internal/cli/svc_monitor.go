@@ -329,12 +329,12 @@ func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
 	return op
 }
 
-// Queries use SDK values; presentation changes only the selected table/text view.
+// JSON queries use SDK values; table/text queries use typed presentation values.
 func renderMonitorQuota(w io.Writer, format, query string, out any) error {
 	if format == outputJSON {
 		return renderOutput(w, format, query, out, false)
 	}
-	data, err := encodeJSON(out)
+	data, err := encodeJSON(monitorQuotaPresentation(out))
 	if err != nil {
 		return err
 	}
@@ -357,15 +357,6 @@ func monitorQuotaCells(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, item := range v {
-			switch key {
-			case "StartTime", "EndTime", "CreatedAt", "UpdatedAt":
-				if text, ok := item.(string); ok {
-					if instant, err := time.Parse(time.RFC3339Nano, text); err == nil {
-						v[key] = instant.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
-						continue
-					}
-				}
-			}
 			v[key] = monitorQuotaCells(item)
 		}
 	case []any:
@@ -376,4 +367,44 @@ func monitorQuotaCells(value any) any {
 		return "unknown"
 	}
 	return value
+}
+
+type monitorQuotaDisplay struct {
+	ID              string
+	Name            string
+	Type            string
+	Status          string
+	PackageID       string
+	StartTime       string
+	EndTime         string
+	CreatedAt       string
+	UpdatedAt       string
+	AutoRenew       bool
+	POC             bool
+	System          bool
+	AutoRenewPeriod int
+}
+
+func monitorQuotaPresentation(out any) any {
+	value, ok := out.(*monitor.GetSyntheticQuotaOutput)
+	if !ok {
+		return out
+	}
+	q := value.Quota
+	return struct {
+		Quota  monitorQuotaDisplay
+		Detail monitor.SyntheticQuotaDetail
+	}{
+		Quota: monitorQuotaDisplay{
+			ID: q.ID, Name: q.Name, Type: q.Type, Status: q.Status, PackageID: q.PackageID,
+			StartTime: monitorQuotaTime(q.StartTime), EndTime: monitorQuotaTime(q.EndTime),
+			CreatedAt: monitorQuotaTime(q.CreatedAt), UpdatedAt: monitorQuotaTime(q.UpdatedAt),
+			AutoRenew: q.AutoRenew, POC: q.POC, System: q.System, AutoRenewPeriod: q.AutoRenewPeriod,
+		},
+		Detail: value.Detail,
+	}
+}
+
+func monitorQuotaTime(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
 }
