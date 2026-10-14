@@ -484,3 +484,78 @@ func TestCreateNotificationQuotaOperationCredentialRedaction(t *testing.T) {
 		})
 	}
 }
+
+// Expired tokens force acquisition at each request, including the mutation.
+type quotaPreSendTokens struct {
+	calls   int
+	failure error
+}
+
+func (p *quotaPreSendTokens) Token(context.Context) (transport.Token, error) {
+	p.calls++
+	if p.calls == 5 {
+		return transport.Token{}, p.failure
+	}
+	return transport.Token{AccessToken: "synthetic-token", ExpiresAt: time.Unix(1, 0)}, nil
+}
+func (*quotaPreSendTokens) Invalidate(string) {}
+
+func TestCreateNotificationQuotaAuthBeforeSend(t *testing.T) {
+	for _, failure := range []error{
+		&core.LoginError{Err: core.ErrAuth, Reason: "login failed"},
+		&core.ServiceAccountLoginError{Err: core.ErrAuth, Reason: "token request failed"},
+		core.ErrTokenCache, core.ErrAuth, core.ErrInvalidConfig,
+		context.Canceled, context.DeadlineExceeded,
+		errors.New("private-provider-canary"),
+	} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			s := &emailOrderServer{send: freeEmailSend(t)}
+			server := httptest.NewServer(s.handler(t))
+			defer server.Close()
+			source := &quotaPreSendTokens{failure: failure}
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source, RetryCount: 3})))
+			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if out != nil || err == nil || errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
+				t.Errorf("out=%+v err=%v attempts=%d sends=%d tokens=%d", out, err, len(c.quotaAttempts), s.mutations.Load(), source.calls)
+			}
+			if monitorReadSDKError(failure) && err != failure { //nolint:errorlint // Safe pre-send errors must pass through unchanged.
+				t.Errorf("identity lost: got %v, want %v", err, failure)
+			}
+			if strings.Contains(err.Error(), "private-provider-canary") {
+				t.Error("provider text exposed")
+			}
+			out, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if err != nil || out == nil || s.mutations.Load() != 1 {
+				t.Fatalf("recovered out=%+v err=%v sends=%d", out, err, s.mutations.Load())
+			}
+		})
+	}
+}
+
+type quotaInvalidateTokens struct{ failure error }
+
+func (*quotaInvalidateTokens) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: "synthetic-token", ExpiresAt: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+}
+func (*quotaInvalidateTokens) Invalidate(string)                                 {}
+func (p *quotaInvalidateTokens) InvalidateContext(context.Context, string) error { return p.failure }
+
+func TestCreateNotificationQuotaAuthAfterSendRemainsUnresolved(t *testing.T) {
+	for _, failure := range []error{context.Canceled, core.ErrTokenCache, &core.LoginError{Err: core.ErrAuth, Reason: "login failed"}} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			s := &emailOrderServer{send: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }}
+			server := httptest.NewServer(s.handler(t))
+			defer server.Close()
+			source := &quotaInvalidateTokens{failure: failure}
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if out == nil || !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 || s.mutations.Load() != 1 {
+				t.Fatalf("out=%+v err=%v attempts=%d sends=%d", out, err, len(c.quotaAttempts), s.mutations.Load())
+			}
+			_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+				t.Fatalf("next err=%v sends=%d", err, s.mutations.Load())
+			}
+		})
+	}
+}

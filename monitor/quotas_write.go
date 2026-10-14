@@ -142,9 +142,12 @@ func createQuotaOutput(result *quotaWriteResult) *CreateNotificationQuotaOutput 
 // Retryable flag at status zero proves a failed dial for a Once request.
 func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) ([]byte, error, bool) {
 	req.Once = true
-	raw, status, err := c.quotaRequest(ctx, req, credentials)
+	raw, status, err, notSent := c.quotaRequestOutcome(ctx, req, credentials)
 	if err == nil {
 		return raw, nil, false
+	}
+	if notSent {
+		return nil, err, true
 	}
 	var api *core.APIError
 	definite := status >= 400 && status < 500

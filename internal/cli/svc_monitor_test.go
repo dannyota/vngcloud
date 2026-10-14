@@ -2535,3 +2535,39 @@ func TestMonitorEmailQuotaQueries(t *testing.T) {
 		})
 	}
 }
+
+type monitorOrderAuthProvider struct {
+	calls   int
+	failure error
+}
+
+func (p *monitorOrderAuthProvider) Token(context.Context) (vngcloud.Token, error) {
+	p.calls++
+	if p.calls == 5 {
+		return vngcloud.Token{}, p.failure
+	}
+	return vngcloud.Token{AccessToken: "synthetic-token", ExpiresAt: time.Unix(1, 0)}, nil
+}
+func (*monitorOrderAuthProvider) Invalidate(string) {}
+
+func TestMonitorEmailPreSendLoginClassification(t *testing.T) {
+	for _, tc := range []struct {
+		code    string
+		failure error
+	}{
+		{"LoginFailed", &vngcloud.LoginError{Err: vngcloud.ErrAuth, Reason: "login failed"}},
+		{"ServiceAccountLoginFailed", &vngcloud.ServiceAccountLoginError{Err: vngcloud.ErrAuth, Reason: "token request failed"}},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			fixture, orders := monitorEmailFixture(t, "0", "0", 200, false)
+			root, stdout, _ := newSvcRoot(t, fixture)
+			source := &monitorOrderAuthProvider{failure: tc.failure}
+			opts := newFakeServer(t, fixture.mux)
+			withTestOptions(t, append(opts, vngcloud.WithCredentialsProvider(source))...)
+			err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", "create-notification-quota", "--kind", "Email", "--no-wait"})
+			if err == nil || classify(err).Code != tc.code || exitCode(err) != 3 || !errors.Is(err, tc.failure) || stdout.Len() != 0 || orders.Load() != 0 || source.calls != 5 {
+				t.Fatalf("err=%v code=%s exit=%d out=%s orders=%d tokens=%d", err, classify(err).Code, exitCode(err), stdout, orders.Load(), source.calls)
+			}
+		})
+	}
+}

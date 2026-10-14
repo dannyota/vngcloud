@@ -170,6 +170,11 @@ func (c *Client) quotaReadCredentials(ctx context.Context, op, version string, c
 }
 
 func (c *Client) quotaRequest(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) (json.RawMessage, int, error) {
+	raw, status, err, _ := c.quotaRequestOutcome(ctx, req, credentials)
+	return raw, status, err
+}
+
+func (c *Client) quotaRequestOutcome(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) (json.RawMessage, int, error, bool) {
 	op := req.Operation
 	var raw json.RawMessage
 	var sent []string
@@ -179,16 +184,20 @@ func (c *Client) quotaRequest(ctx context.Context, req transport.Request, creden
 	req.SentCredentials = &sent
 	req.Redact = append(req.Redact, (*credentials)...)
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
+	// Network failures are APIErrors. Bare acquisition errors with no attached
+	// credential occur before send; a 401 invalidation error has a credential.
+	var api *core.APIError
+	notSent := err != nil && status == 0 && len(sent) == 0 && !errors.As(err, &api)
 	if !credentials.add(sent) {
-		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota credential safety limit exceeded", nil)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota credential safety limit exceeded", nil), notSent
 	}
 
 	if err != nil {
 		if monitorReadSDKError(err) {
-			return nil, status, err
+			return nil, status, err, notSent
 		}
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, status, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
+			return nil, status, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err), notSent
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -203,23 +212,23 @@ func (c *Client) quotaRequest(ctx context.Context, req transport.Request, creden
 			}
 			safe.Message = "quota response withheld"
 			safe.Err = monitorReadError(op, safe.StatusCode, safe.Code, safe.Message, api.Err).Err
-			return nil, status, &safe
+			return nil, status, &safe, notSent
 		}
-		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota request failed; cause withheld", err)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota request failed; cause withheld", err), notSent
 	}
 	// Scrub retained strings, including description keys, before projection.
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if decoder.Decode(&value) != nil {
-		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil), notSent
 	}
 	value = c.scrubQuotaStrings(value, *credentials)
 	raw, err = json.Marshal(value)
 	if err != nil {
-		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil), notSent
 	}
-	return raw, status, nil
+	return raw, status, nil, false
 }
 
 // Core login errors already withhold peer data. Match only direct SDK errors
