@@ -13,9 +13,9 @@ const (
 	quotaSettlementBound = 120 * time.Second
 )
 
-func (c *Client) notificationCreateReconciler(op string, terms notificationCreateTerms) func(context.Context) (quotaAttemptResolution, error) {
+func (c *Client) notificationCreateReconciler(op string, terms notificationCreateTerms, credentials *monitorReadCredentials) func(context.Context) (quotaAttemptResolution, error) {
 	return func(ctx context.Context) (quotaAttemptResolution, error) {
-		q, err := c.readNotificationQuota(ctx, op, terms.kind)
+		q, err := c.readNotificationQuota(ctx, op, terms.kind, credentials)
 		if core.IsNotFound(err) {
 			return quotaAttemptResolution{}, nil
 		}

@@ -427,3 +427,60 @@ func TestCreateNotificationQuotaRereadUnverified404Refuses(t *testing.T) {
 		t.Fatalf("out=%+v err=%v sends=%d reads=%d", out, err, s.mutations.Load(), s.reads.Load())
 	}
 }
+
+func TestCreateNotificationQuotaOperationCredentialRedaction(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	for _, stage := range []string{"order", "settlement", "settlement error", "settlement decode", "reconcile"} {
+		t.Run(stage, func(t *testing.T) {
+			s := &emailOrderServer{send: func(w http.ResponseWriter, _ *http.Request) {
+				orderID := "order-1"
+				if stage == "order" || stage == "reconcile" {
+					orderID = first
+				}
+				_, _ = io.WriteString(w, `{"orderId":`+jsonString(orderID)+`,"paymentUrl":`+jsonString(emailRedirect)+`}`)
+			}, quota: func(n int32) string {
+				if n <= 2 {
+					return ""
+				}
+				return changedEmailFixture(t, map[string]any{"name": first + " " + second, "packageId": "p"})
+			}}
+			handler := s.handler(t)
+			c := monitorRefreshClient(t, first, second, "/billing-api/v1/email/packages", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == emailQuotaPath && s.mutations.Load() > 0 {
+					if stage == "settlement error" {
+						w.WriteHeader(403)
+						_, _ = io.WriteString(w, `{"message":`+jsonString(first)+`}`)
+						return
+					}
+					if stage == "settlement decode" {
+						_, _ = io.WriteString(w, `{"name":`+jsonString(first))
+						return
+					}
+				}
+				handler(w, r)
+			}))
+			emailFakeClock(c)
+			in := &CreateNotificationQuotaInput{Kind: "Email", NoWait: stage == "order" || stage == "reconcile"}
+			out, err := c.CreateNotificationQuota(context.Background(), in)
+			if stage == "reconcile" {
+				assertMonitorCredentialsAbsent(t, out, err, first, second)
+				in.NoWait = false
+				out, err = c.CreateNotificationQuota(context.Background(), in)
+			}
+			if out == nil || s.mutations.Load() != 1 {
+				t.Fatalf("out=%v err=%v sends=%d", out, err, s.mutations.Load())
+			}
+			if strings.Contains(stage, "error") || strings.Contains(stage, "decode") {
+				if !errors.Is(err, dns.ErrNotSettled) {
+					t.Fatal(err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if stage != "order" && !strings.Contains(stage, "error") && !strings.Contains(stage, "decode") && out.Quota == nil {
+				t.Fatal("missing settlement")
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
+	}
+}

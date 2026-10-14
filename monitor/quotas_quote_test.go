@@ -125,7 +125,8 @@ func TestNotificationFrozenTermsAndGuard(t *testing.T) {
 	calls := []string{}
 	c := notificationQuoteClient(t, `[{"id":"opaque/package","name":"p","price":110000,"amount":20}]`, "", `{"optimumPrice":100000}`, &calls)
 	in := &CreateNotificationQuotaInput{Kind: "Email", PackageID: "opaque/package"}
-	terms, err := c.prepareNotificationCreate(context.Background(), "monitor.test", in)
+	var credentials monitorReadCredentials
+	terms, err := c.prepareNotificationCreate(context.Background(), "monitor.test", in, &credentials)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,5 +234,47 @@ func TestNotificationQuoteRefreshAndRetry(t *testing.T) {
 	out, err = c.QuoteCreateNotificationQuota(ctx, &CreateNotificationQuotaInput{Kind: "Email"})
 	if out != nil || !errors.Is(err, context.Canceled) || attempts != 2 {
 		t.Fatalf("out=%v err=%v attempts=%d", out, err, attempts)
+	}
+}
+
+func TestNotificationQuoteOperationCredentialRedaction(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	for _, stage := range []string{"package", "quote error", "quote decode"} {
+		t.Run(stage, func(t *testing.T) {
+			quotes := 0
+			c := monitorRefreshClient(t, first, second, emailQuotaPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case emailQuotaPath:
+					w.WriteHeader(404)
+					_, _ = w.Write([]byte(`{"message":"Not found email quota"}`))
+				case "/billing-api/v1/email/packages":
+					id := "p"
+					if stage == "package" {
+						id = first
+					}
+					_, _ = w.Write([]byte(`[{"id":` + jsonString(id) + `,"name":"p","price":0,"amount":20}]`))
+				case "/billing-api/v2/email/prices/created-price":
+					quotes++
+					if stage == "quote error" {
+						w.WriteHeader(403)
+					}
+					body := `{"message":` + jsonString(first) + `}`
+					if stage == "quote decode" {
+						body = `{"optimumPrice":` + jsonString(first)
+					}
+					_, _ = w.Write([]byte(body))
+				default:
+					t.Error("unexpected request")
+				}
+			}))
+			out, err := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
+			if out != nil || err == nil {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			if stage == "package" && quotes != 0 {
+				t.Error("credential package sent to quote")
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud"
@@ -68,7 +69,7 @@ func (t notificationCreateTerms) orderBody() notificationCreateOrderBody {
 	return notificationCreateOrderBody{MonthPeriod: t.monthPeriod, PackageID: t.packageID, RedirectURL: "https://vmonitor.console.vngcloud.vn/quota-usages/notification", Pay: true}
 }
 
-func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *CreateNotificationQuotaInput) (notificationCreateTerms, error) {
+func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *CreateNotificationQuotaInput, credentials *monitorReadCredentials) (notificationCreateTerms, error) {
 	var terms notificationCreateTerms
 	if err := core.CheckRequired(op, in); err != nil {
 		return terms, err
@@ -79,7 +80,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	}
 	// Freeze caller values before the first request.
 	packageID := in.PackageID
-	_, err = c.readNotificationQuota(ctx, op, kind)
+	_, err = c.readNotificationQuota(ctx, op, kind, credentials)
 	if err == nil {
 		return terms, fmt.Errorf("%s: an Email quota already exists: %w", op, core.ErrInvalidInput)
 	}
@@ -90,7 +91,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	if err := ctx.Err(); err != nil {
 		return terms, err
 	}
-	packages, err := c.ListNotificationPackages(ctx, &ListNotificationPackagesInput{Kind: kind})
+	packages, err := c.listNotificationPackages(ctx, op, &ListNotificationPackagesInput{Kind: kind}, credentials)
 	if err != nil {
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -118,7 +119,7 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 	if selected == nil {
 		return terms, fmt.Errorf("%s: no matching package: %w", op, core.ErrInvalidInput)
 	}
-	if selected.Price == nil {
+	if selected.Price == nil || strings.Contains(selected.ID, "[redacted]") {
 		return terms, quotaResponseError(op)
 	}
 	return notificationCreateTerms{kind: kind, packageID: selected.ID, monthPeriod: 1, listPrice: *selected.Price}, nil
@@ -128,18 +129,19 @@ func (c *Client) prepareNotificationCreate(ctx context.Context, op string, in *C
 // MaxPrice and NoWait do not affect the estimate or authorize an order.
 func (c *Client) QuoteCreateNotificationQuota(ctx context.Context, in *CreateNotificationQuotaInput) (*QuoteCreateNotificationQuotaOutput, error) {
 	const op = "monitor.QuoteCreateNotificationQuota"
-	terms, err := c.prepareNotificationCreate(ctx, op, in)
+	var credentials monitorReadCredentials
+	terms, err := c.prepareNotificationCreate(ctx, op, in, &credentials)
 	if err != nil {
 		return nil, err
 	}
-	return c.quoteNotificationCreate(ctx, op, terms)
+	return c.quoteNotificationCreate(ctx, op, terms, &credentials)
 }
 
-func (c *Client) quoteNotificationCreate(ctx context.Context, op string, terms notificationCreateTerms) (*QuotaQuote, error) {
+func (c *Client) quoteNotificationCreate(ctx context.Context, op string, terms notificationCreateTerms, credentials *monitorReadCredentials) (*QuotaQuote, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, _, err := c.quotaRequest(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.billingRoute("v2", []string{terms.kind, "prices", "created-price"}), Body: terms.quoteBody(), Idempotent: true, OK: []int{http.StatusOK}})
+	raw, _, err := c.quotaRequest(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.billingRoute("v2", []string{terms.kind, "prices", "created-price"}), Body: terms.quoteBody(), Idempotent: true, OK: []int{http.StatusOK}}, credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +152,8 @@ func (c *Client) quoteNotificationCreate(ctx context.Context, op string, terms n
 	if terms.listPrice > 0 && price == 0 {
 		return nil, fmt.Errorf("%s: %w", op, ErrUnpriced)
 	}
-	return &QuotaQuote{PackageID: terms.packageID, Quantity: 1, MonthPeriod: terms.monthPeriod, OptimumPrice: price, ListPrice: terms.listPrice, GuardPrice: math.Max(price, terms.listPrice), Currency: "VND"}, nil
+	packageID, _ := c.c.RedactError(terms.packageID, "", (*credentials)...)
+	return &QuotaQuote{PackageID: packageID, Quantity: 1, MonthPeriod: terms.monthPeriod, OptimumPrice: price, ListPrice: terms.listPrice, GuardPrice: math.Max(price, terms.listPrice), Currency: "VND"}, nil
 }
 
 func decodeQuotaPrice(op string, raw json.RawMessage) (float64, error) {

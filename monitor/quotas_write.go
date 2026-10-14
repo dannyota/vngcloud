@@ -77,8 +77,9 @@ type quotaAttemptResolution struct {
 }
 
 type quotaAttempt struct {
-	key    quotaAttemptKey
-	result quotaWriteResult
+	key         quotaAttemptKey
+	result      quotaWriteResult
+	credentials *monitorReadCredentials
 	// A read failure is inconclusive. Only an evidenced rejection may set rejected.
 	reconcile func(context.Context) (quotaAttemptResolution, error)
 }
@@ -139,9 +140,9 @@ func createQuotaOutput(result *quotaWriteResult) *CreateNotificationQuotaOutput 
 
 // sendQuotaMutation is the shared boundary for quota side effects. A transport
 // Retryable flag at status zero proves a failed dial for a Once request.
-func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request) ([]byte, error, bool) {
+func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) ([]byte, error, bool) {
 	req.Once = true
-	raw, status, err := c.quotaRequest(ctx, req)
+	raw, status, err := c.quotaRequest(ctx, req, credentials)
 	if err == nil {
 		return raw, nil, false
 	}
@@ -158,8 +159,8 @@ func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request) (
 	return nil, err, definite
 }
 
-func (c *Client) requireNotificationAbsent(ctx context.Context, op, kind string) error {
-	_, err := c.readNotificationQuota(ctx, op, kind)
+func (c *Client) requireNotificationAbsent(ctx context.Context, op, kind string, credentials *monitorReadCredentials) error {
+	_, err := c.readNotificationQuota(ctx, op, kind, credentials)
 	var absent *notificationQuotaAbsent
 	if errors.As(err, &absent) {
 		return nil
@@ -184,7 +185,7 @@ func decodeQuotaOrder(op string, raw []byte, redirect string) (quotaWriteResult,
 // to zero and guards the higher of list and quote prices. Each mutation is sent
 // once. An unresolved result, including NoWait, blocks further writes on this
 // kind until a read confirms it. Clients and processes do not share this ledger.
-func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotificationQuotaInput) (*CreateNotificationQuotaOutput, error) {
+func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotificationQuotaInput) (out *CreateNotificationQuotaOutput, err error) {
 	const op = "monitor.CreateNotificationQuota"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -201,6 +202,31 @@ func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotifica
 		return nil, err
 	}
 	defer c.quotaMu.release()
+	credentials := new(monitorReadCredentials)
+	if attempt := c.quotaAttempts[kind]; attempt != nil && attempt.credentials != nil {
+		credentials = attempt.credentials
+	}
+	defer func() {
+		var api *core.APIError
+		if errors.As(err, &api) && api.Message == "quota credential safety limit exceeded" {
+			// No retained string is safe to project after a credential was omitted.
+			if out != nil {
+				out.OrderID = ""
+				out.Quota = nil
+			}
+			if attempt := c.quotaAttempts[kind]; attempt != nil {
+				attempt.result.orderID = ""
+				attempt.result.quota = nil
+			}
+		}
+		if out != nil {
+			c.scrubQuotaWriteResult(&quotaWriteResult{quota: out.Quota}, *credentials)
+			out.OrderID, _ = c.c.RedactError(out.OrderID, "", (*credentials)...)
+		}
+		if attempt := c.quotaAttempts[kind]; attempt != nil {
+			c.scrubQuotaWriteResult(&attempt.result, *credentials)
+		}
+	}()
 	key := quotaAttemptKey{operation: op, kind: kind, packageID: input.PackageID, monthPeriod: 1}
 	// An omitted package means the original resolved default while reconciling,
 	// rather than permission to resolve a different catalog default and reorder.
@@ -217,27 +243,31 @@ func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotifica
 		}
 		return createQuotaOutput(result), err
 	}
-	terms, err := c.prepareNotificationCreate(ctx, op, &input)
+	terms, err := c.prepareNotificationCreate(ctx, op, &input, credentials)
 	if err != nil {
 		return nil, err
 	}
-	quote, err := c.quoteNotificationCreate(ctx, op, terms)
+	quote, err := c.quoteNotificationCreate(ctx, op, terms, credentials)
 	if err != nil {
 		return nil, err
 	}
 	if err := checkNotificationPrice(op, terms.listPrice, quote.OptimumPrice, input.MaxPrice); err != nil {
 		return nil, err
 	}
-	if err := c.requireNotificationAbsent(ctx, op, kind); err != nil {
+	if err := c.requireNotificationAbsent(ctx, op, kind, credentials); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	safePackageID, _ := c.c.RedactError(terms.packageID, "", (*credentials)...)
+	if safePackageID != terms.packageID {
+		return nil, quotaResponseError(op)
+	}
 	key.packageID = terms.packageID
-	attempt := &quotaAttempt{key: key, reconcile: c.notificationCreateReconciler(op, terms)}
+	attempt := &quotaAttempt{key: key, credentials: credentials, reconcile: c.notificationCreateReconciler(op, terms, credentials)}
 	body := terms.orderBody()
-	raw, sendErr, definite := c.sendQuotaMutation(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.billingRoute("v1", []string{kind, "quota"}), Body: body, OK: []int{http.StatusOK}})
+	raw, sendErr, definite := c.sendQuotaMutation(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.billingRoute("v1", []string{kind, "quota"}), Body: body, OK: []int{http.StatusOK}}, credentials)
 	if definite {
 		return nil, sendErr
 	}
@@ -263,4 +293,13 @@ func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotifica
 	delete(c.quotaAttempts, kind)
 	result.quota = resolution.quota
 	return createQuotaOutput(&result), nil
+}
+
+func (c *Client) scrubQuotaWriteResult(result *quotaWriteResult, credentials monitorReadCredentials) {
+	result.orderID, _ = c.c.RedactError(result.orderID, "", credentials...)
+	if q := result.quota; q != nil {
+		for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
+			*field, _ = c.c.RedactError(*field, "", credentials...)
+		}
+	}
 }

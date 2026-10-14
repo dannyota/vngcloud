@@ -5,13 +5,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 func emailFakeClock(c *Client) *time.Time {
@@ -357,4 +360,75 @@ func TestQuotaSettlementContextHasHardBoundAndCallerLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestCreateNotificationQuotaSettlementRefreshScrubsRetainedOrder(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	for _, noWait := range []bool{false, true} {
+		t.Run(map[bool]string{false: "wait", true: "reconcile"}[noWait], func(t *testing.T) {
+			s := &emailOrderServer{send: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, `{"orderId":`+jsonString(second)+`,"paymentUrl":`+jsonString(emailRedirect)+`}`)
+			}, quota: func(n int32) string {
+				if n <= 2 {
+					return ""
+				}
+				return changedEmailFixture(t, map[string]any{"name": first + " " + second, "packageId": "p"})
+			}}
+			handler := s.handler(t)
+			refreshes := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if s.mutations.Load() > 0 && r.Method == http.MethodGet {
+					refreshes++
+					if refreshes == 1 {
+						w.WriteHeader(401)
+						return
+					}
+				}
+				handler(w, r)
+			}))
+			defer server.Close()
+			source := &monitorRefreshTokens{first: first, second: second}
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+			emailFakeClock(c)
+			in := &CreateNotificationQuotaInput{Kind: "Email", NoWait: noWait}
+			out, err := c.CreateNotificationQuota(context.Background(), in)
+			if noWait {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertMonitorCredentialsAbsent(t, out, err, first)
+				in.NoWait = false
+				out, err = c.CreateNotificationQuota(context.Background(), in)
+			}
+			if err != nil || out == nil || out.Quota == nil || s.mutations.Load() != 1 || refreshes != 2 || source.calls != 2 {
+				t.Fatalf("out=%v err=%v sends=%d refreshes=%d token calls=%d", out, err, s.mutations.Load(), refreshes, source.calls)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
+	}
+}
+
+func TestQuotaAttemptCredentialLimitWithholdsRetainedOutput(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	c := monitorRefreshClient(t, first, second, emailQuotaPath, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, emailSnapshot(t, "ACTIVE", "p"))
+	}))
+	credentials := make(monitorReadCredentials, 256)
+	for i := range credentials {
+		credentials[i] = jsonNumber(float64(i)) + "-synthetic-credential"
+	}
+	terms := notificationCreateTerms{kind: "email", packageID: "p", monthPeriod: 1}
+	attempt := &quotaAttempt{
+		key:         quotaAttemptKey{operation: "monitor.CreateNotificationQuota", kind: "email", packageID: "p", monthPeriod: 1},
+		credentials: &credentials,
+		result:      quotaWriteResult{orderID: first},
+		reconcile:   c.notificationCreateReconciler("monitor.CreateNotificationQuota", terms, &credentials),
+	}
+	c.recordQuotaAttempt(attempt)
+	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", PackageID: "p"})
+	if out == nil || out.Quota != nil || !errors.Is(err, dns.ErrNotSettled) || len(credentials) != 256 {
+		t.Fatalf("out=%v err=%v credentials=%d", out, err, len(credentials))
+	}
+	assertMonitorCredentialsAbsent(t, out, err, first, second)
+	assertMonitorCredentialsAbsent(t, createQuotaOutput(&attempt.result), nil, first, second)
 }
