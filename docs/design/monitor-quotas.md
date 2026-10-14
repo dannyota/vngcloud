@@ -4,8 +4,9 @@ Status: Proposed. This design approves no code, purchase, or live run.
 
 Expose synthetic check state and history, quota allowances and expiry,
 notification quota orders, and quota renewal through `monitor`. A missing
-Email quota is a plausible cause of missing alerts, not a proven one. No
-alarm or trigger creation step is missing. [API evidence and
+Email quota was the confirmed cause of the silent alarm: once the free
+quota existed, an In-alarm email arrived about a minute after a transition.
+No alarm or trigger creation step is missing. [API evidence and
 checks](monitor-quotas-api.md) owns wire shapes, provenance, and live gates.
 
 This extends [vMonitor](monitor.md) and [Alerts](monitor-alerts.md), follows
@@ -18,11 +19,10 @@ dependency or authentication change is needed.
 
 Ship the smallest independently useful slices, subject to owner decisions:
 
-1. Check fields, alarm reads, history, verified quota reads, and the wiki
-   correction. History ships with a documented completeness limit (owner
-   decision 9). These reads diagnose state and warn of quota expiry.
-2. Email quota reads, quote, and free email order together, once their
-   evidence gates close. Do not delay this slice for SMS or paid pricing.
+1. Check fields, alarm reads, history (with the owner decision 9 limit),
+   verified quota reads, and the wiki correction.
+2. Email quota reads, quote, and free email order together. Their wire
+   shapes are live; delivery and billing-side zero-debit evidence are open.
 3. Free Synthetic Test extension, then Email extension, independently as
    their gates close. Synthetic expiry stops checks, so prioritize it.
 4. SMS writes, paid notification writes, and trash recovery only with their
@@ -106,30 +106,29 @@ OldState, NewState string`, `Timestamp time.Time`, and
 `SubAlarms []CheckSubAlarmState`; the latter has `State string` and
 `CurrentValues []float64`. Omit raw Reason, metrics, reason_date, and
 subAlarmExpression. No raw response map escapes. A failed location returns
-no partial history. Empty Items means no transition inside the window;
-history carries no state forward, so current state comes from
-`GetCheckAlarm`. Live, 90-day windows returned whole with no paging keys,
-but only one transition existed, so Items is documented as the transitions
-the server returned, complete only if the server does not page (owner
-decision 9); never truncate or invent pages. An unknown alarm ID gets 200
-and an empty list; an unknown definition ID gets 500, returned as that
+no partial history. Items is the records the server returned, not a
+complete history: the server reports no state at the window start, paging
+and truncation are both unknown (the response has no paging keys), and an
+unknown alarm ID gets 200 with an empty list, so empty Items proves
+neither that no transition happened nor that the alarm exists (owner
+decision 9). Current state comes from `GetCheckAlarm`. Never truncate or
+invent pages. An unknown definition ID gets 500, returned as that
 `*APIError`, never NotFound.
 
 ### Quota reads
 
-All remaining unspecified textual model fields are strings; timestamps must
-be present and parse as RFC 3339 where a decision or identity needs them.
-
-Empty Inputs: `GetQuotaUsage`, `GetSyntheticQuota`,
-`GetSyntheticQuotaUsage`. Required Kind Inputs: `GetNotificationQuota`,
-`GetNotificationQuotaUsage`, `ListNotificationPackages`.
+Unspecified textual fields are strings; timestamps must be present and
+parse as RFC 3339 where a decision or identity needs them. Empty Inputs:
+`GetQuotaUsage`, `GetSyntheticQuota`, `GetSyntheticQuotaUsage`. Required
+Kind Inputs: `GetNotificationQuota`, `GetNotificationQuotaUsage`,
+`ListNotificationPackages`.
 
 - `GetQuotaUsageOutput` has `Usage QuotaUsage`. `QuotaUsage` has
-  `SyntheticUsages []UsageCounts`, `FreeEmailQuota, FreeSMSQuota int`,
-  `LogSeverity, MetricSeverity, SyntheticSeverity, EmailSeverity,
-  SMSSeverity, NotificationSeverity string`, and `UnmodeledKinds []string`.
-  Unseen nonempty usage arrays add their fixed kind names to UnmodeledKinds;
-  they never appear as RawMessage or contribute invented totals.
+  `SyntheticUsages []UsageCounts`, `EmailUsages []NotificationUsage`
+  (`Amount int`, live), `FreeEmailQuota, FreeSMSQuota int`, the six
+  severity strings, and `UnmodeledKinds []string`: an unseen nonempty
+  usage array (log, metric, SMS) adds its fixed kind name there and never
+  appears as RawMessage or contributes invented totals.
 - `UsageCounts` has `API, Location, Email, SMS, Slack, Webhook, Telegram,
   Teams int`. Use integral-number decoding; reject fractional counts.
 - `GetNotificationQuotaOutput` has `Quota Quota`.
@@ -145,15 +144,15 @@ Empty Inputs: `GetQuotaUsage`, `GetSyntheticQuota`,
   describe known statuses; reads preserve other status strings.
 - `SyntheticQuotaDetail` has `API, Location, Email, SMS, Slack, Webhook,
   Telegram, Teams int`, `ClassName, TierName string`, and `Price *float64`.
-- Both quota usage Outputs have `Usage QuotaUsageDetail`, containing
-  `Usage UsageCounts` and `Descriptions map[string]UsageDescription`.
-  `UsageDescription` has `Name, Specs, Unit string`; keys are known counters.
+- Both quota usage Outputs have `Usage QuotaUsageDetail`: `Counts
+  UsageCounts` (synthetic), `Amount int` (notification, live `{amount}`),
+  and `Descriptions map[string]UsageDescription{Name, Specs, Unit}`.
 - `ListNotificationPackagesOutput` is `core.List[NotificationPackage]`.
   A package has `ID, Name string`, `Price *float64` (VND), `Amount int`.
   Nil Price means absent or null, never free. Arrays have no observed pages.
 
-Notification quota and usage success schemas remain inferred. Do not ship
-those reads based only on Email 404s. A quota-read 404 means NotFound; a
+Email quota and usage schemas are live; SMS schemas stay inferred and do
+not ship on Email evidence. A quota-read 404 means NotFound; a
 create proceeds only on the verified kind-specific absence response, not a
 404 from another route, auth proxy, or usage read. A renewal 404 never
 falls back to create. A missing synthetic quota points to the console.
@@ -243,23 +242,23 @@ recovery, not merely NoRedirect. SDK and CLI add no outer write retries.
 adds `PreviousEndTime time.Time`, `Renewed bool`. Renewed means confirmed
 new expiry, not merely sent. NoWait returns immediately after a valid
 response with Quota nil and Renewed false; it does not skip preparation.
-PaymentPending means only a nonempty paymentUrl was returned. Return partial
-Output with `dns.ErrNotSettled` and stop; never follow or expose that URL,
-pretend payment completed, or issue another order.
+PaymentPending means paymentUrl was nonempty and differed from the sent
+redirectUrl (a free order echoes it). Then return partial Output with
+`dns.ErrNotSettled` and stop; never follow or expose that URL or reorder.
 
 Otherwise wait with reads every 2 seconds under a 120-second child context
 bounded also by the caller's context. Create settles only on the selected
-package at ACTIVE. Renewal requires the same quota/package, ACTIVE, and
-EndTime later than PreviousEndTime; leaving trash alone is insufficient.
-NoWait suppresses the wait, not single-send or uncertainty handling.
+package at ACTIVE; a 404 or CREATING keeps polling (live: 404, CREATING at
+about 3 s, ACTIVE at about 5 s). Renewal requires the same quota/package,
+ACTIVE, and EndTime later than PreviousEndTime; leaving trash alone is
+insufficient. NoWait suppresses the wait, not single-send or uncertainty.
 
 Pre-send errors return nil Output except the documented expiry skip.
 Definite 4xx refusal or a proven failed dial returns its sanitized error.
 Any other send failure, oversized/malformed success, cancellation after
 possible send, or failed wait returns partial Output and an error wrapping
-`dns.ErrNotSettled` plus the safe underlying cause. `errors.As` retains
-`*vngcloud.APIError` status; `errors.Is` retains cause and sentinel identity.
-Never imply a failed read proves that an order did not happen.
+`dns.ErrNotSettled` plus the safe cause; `errors.As` keeps the APIError
+status and `errors.Is` the sentinel. A failed read never proves no order.
 
 Hold a context-aware per-Client lock across preparation, send, and
 settlement. Record each unresolved attempt, NoWait included, under an
@@ -306,8 +305,9 @@ String flags `--start`, `--end`, `--expected-end-time`, and `--kind`, int
 `--package-id` use existing flag support and the same JSON-input validation.
 Quote commands hide ignored fields with NoFlag, as log project quotes do.
 Tables show status, expiry with UTC zone, AutoRenew, and absent prices as
-unknown. Normal json/table/text and --query work on safe public Outputs;
-partial write Outputs must print even when an error follows.
+unknown; partial write Outputs print even when an error follows. The wiki
+says each alert email, one per transition per location, consumes the Email
+quota usage, and that `update-check` can cause an extra transition.
 
 Use existing error identities: InvalidUsage/2 for local validation and
 read-only refusal (ReadOnly/2); NotFound/4 for missing reads;
@@ -391,9 +391,9 @@ All remain proposed; approval cannot replace wire evidence.
 8. Existing-quota create: recommend refusing before quote/order; a second
    order's effect is unknown and may charge again.
 9. History paging: recommend shipping history in release 1 with Items
-   documented as complete only if the server does not page (90-day windows
-   returned whole, no paging keys); the alternative waits for a
-   multi-transition alarm.
+   documented as the server's returned records, paging and truncation
+   unknown, and empty Items proving nothing; the alternative waits for a
+   multi-transition alarm before any history read ships.
 10. Creation price source: recommend the v2 quote alone with the period
     fixed at 1, as the console buy page does, bounded by the list price;
     the alternative also requires the v1 query quote to agree for paid
