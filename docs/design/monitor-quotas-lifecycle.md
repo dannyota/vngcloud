@@ -256,8 +256,8 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 - The delete has no ID, so a replacement quota created between the final
   reread and the send would be deleted instead. `ExpectedQuotaID`, the
   lock, and the reread narrow the window; nothing in the SDK detects a
-  replacement made inside it, since no response identifies the affected
-  quota. No server precondition exists to prevent it.
+  replacement made inside it, since no affected-resource identity has
+  been verified in any response. No server precondition prevents it.
 - Purge is irreversible and names no quota: the trash listing is a client
   precondition, an ambiguous listing refuses, a second entry can still
   appear before the send, and purge never follows an unsettled delete or
