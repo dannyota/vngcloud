@@ -116,14 +116,14 @@ returned `{"usage":{"amount":0},"description":{"amount":{name, specs,
 unit}}}`. `POST v1/email/quota/introspect` with a null body returned 200
 `{"active":true}`; it stays out of scope.
 
-**Live delivery test** after the free order: one In-alarm email reached
-the owner about one minute after a check entered ALARM; before the quota
-an ALARM transition sent nothing and usage stayed 0. On this account, with
-no Email quota and zero free allowance, the missing quota is the confirmed
-cause. Three transitions were observed, one right after an `update-check`
-URL change; usage then read `amount 4`, so one count is unexplained, and
-only the In-alarm receipt is confirmed. Synthetic usage `email` stayed 0:
-alert emails count against the Email quota usage.
+**Live delivery test** after the free order: the owner received all four
+alert emails, the first In-alarm one about one minute after a check
+entered ALARM; before the quota an ALARM transition sent nothing and usage
+stayed 0. On this account, with no Email quota and zero free allowance,
+the missing quota is the confirmed cause. Email usage read `amount 4`,
+matching the four emails, while the location history showed three
+transitions, one right after an `update-check` URL change; that gap stays
+open. Synthetic usage `email` stayed 0: alerts count against Email usage.
 
 **Live packages:** `GET v1/email/packages` and `GET v1/sms/packages` return
 `[{id, name, price, amount}]` with VND numeric prices. Email's emailfree has
@@ -379,7 +379,7 @@ after implementation needs separate approval.
    extension quote with `resourceId`; no order without its quote mapping.
 3. Free Email: done once, owner-chosen and kept; order, settlement, quota,
    usage, and delivery are recorded above. Open: action-budget accounting
-   and the unexplained fourth usage count. Do not order again here.
+   and four emails against three logged transitions. Do not order again.
 4. Free synthetic extension: approve one active-quota extension, quote it,
    capture the response, old/new EndTime, identity, settlement, and month
    arithmetic. Free Email extension follows with separate approval.
@@ -397,4 +397,4 @@ after implementation needs separate approval.
 No listed check is complete beyond the recorded responses. Open: every
 write response but the free Email create, SMS and extension quotes,
 renewal arithmetic, trash recovery, monthly accounting, history paging and
-truncation, the unexplained email count, and both lifecycle writes.
+truncation, the email-to-transition gap, and every lifecycle row.
