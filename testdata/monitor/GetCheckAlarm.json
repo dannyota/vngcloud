@@ -1,0 +1,116 @@
+{
+  "data": {
+    "id": "def-1",
+    "name": "syntt-his-example-check-AbCdE",
+    "description": "",
+    "expression": {
+      "sub_expressions": [
+        {
+          "function": "AVG",
+          "metric_name": "syntt.http.failure",
+          "dimensions": {
+            "syntt_id": "chk-1"
+          },
+          "operator": "GTE",
+          "threshold": 1.0,
+          "period": 60,
+          "periods": 3,
+          "deterministic": false
+        }
+      ],
+      "operators": []
+    },
+    "expression_syntax": "(avg(syntt.http.failure{syntt_id=chk-1}, 60) >= 1 times 3)",
+    "match_bys": [
+      "location_id"
+    ],
+    "severity": "LOW",
+    "alarm_actions": [],
+    "ok_actions": [],
+    "undetermined_actions": [],
+    "alarms": [
+      {
+        "id": "alarm-loc-1",
+        "links": [
+          {
+            "rel": "self",
+            "href": "http://monasca-api.example.svc.cluster.local:8070/v2.0/alarms/alarm-loc-1"
+          }
+        ],
+        "metrics": [
+          {
+            "id": null,
+            "name": "syntt.http.failure",
+            "dimensions": {
+              "location_name": "SYNTT-VN-HCM01",
+              "syntt_id": "chk-1",
+              "user_id": "123456789",
+              "syntt_name": "example-check",
+              "location_id": "loc-1"
+            }
+          }
+        ],
+        "state": "OK",
+        "link": null,
+        "alarm_definition": {
+          "id": "def-1",
+          "links": [
+            {
+              "rel": "self",
+              "href": "http://monasca-api.example.svc.cluster.local:8070/v2.0/alarm-definitions/def-1"
+            }
+          ],
+          "name": "syntt-his-example-check-AbCdE",
+          "severity": "LOW"
+        },
+        "lifecycle_state": null,
+        "state_updated_timestamp": "2026-10-14T08:53:03.000+07:00",
+        "updated_timestamp": "2026-10-14T08:53:03.000+07:00",
+        "created_timestamp": "2026-10-14T08:51:07.000+07:00"
+      },
+      {
+        "id": "alarm-loc-2",
+        "links": [
+          {
+            "rel": "self",
+            "href": "http://monasca-api.example.svc.cluster.local:8070/v2.0/alarms/alarm-loc-2"
+          }
+        ],
+        "metrics": [
+          {
+            "id": null,
+            "name": "syntt.http.failure",
+            "dimensions": {
+              "location_name": "SYNTT-VN-HAN01",
+              "syntt_id": "chk-1",
+              "user_id": "123456789",
+              "syntt_name": "example-check",
+              "location_id": "loc-2"
+            }
+          }
+        ],
+        "state": "OK",
+        "link": null,
+        "alarm_definition": {
+          "id": "def-1",
+          "links": [
+            {
+              "rel": "self",
+              "href": "http://monasca-api.example.svc.cluster.local:8070/v2.0/alarm-definitions/def-1"
+            }
+          ],
+          "name": "syntt-his-example-check-AbCdE",
+          "severity": "LOW"
+        },
+        "lifecycle_state": null,
+        "state_updated_timestamp": "2026-10-14T08:53:03.000+07:00",
+        "updated_timestamp": "2026-10-14T08:53:03.000+07:00",
+        "created_timestamp": "2026-10-14T08:51:06.000+07:00"
+      }
+    ],
+    "status": {
+      "status": "OK",
+      "status_updated_at": "2026-10-14T08:53:03.000+07:00"
+    }
+  }
+}

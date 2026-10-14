@@ -157,3 +157,29 @@ func TestGetCheckPathIDRejection(t *testing.T) {
 		})
 	}
 }
+
+func TestGetCheckMonitorStateDecodesFixture(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetCheck.json")
+	}))
+	out, err := c.GetCheck(context.Background(), &GetCheckInput{CheckID: "chk-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Check.MonitorStatus != MonitorStatusUndetermined || out.Check.HistoryAlarmID != "alarm-1" || out.Check.Status != StatusEnabled {
+		t.Fatalf("check state = %+v", out.Check)
+	}
+}
+
+func TestListChecksMonitorStateDecodesFixture(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/monitor/ListChecks.json")
+	}))
+	out, err := c.ListChecks(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Items) != 1 || out.Items[0].MonitorStatus != MonitorStatusUndetermined || out.Items[0].HistoryAlarmID != "" {
+		t.Fatalf("checks = %+v", out)
+	}
+}

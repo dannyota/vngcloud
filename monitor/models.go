@@ -16,24 +16,32 @@ const (
 	StatusDisabled = "DISABLED"
 )
 
-// Check is one vMonitor synthetic check. The API also sends user_id,
-// monitor_status, history_alarm, and deleted_at; the SDK drops them, the
-// same way it drops any field a caller's struct omits. CreatedAt and
-// UpdatedAt hold whatever the API sends, a formatted string such as "Sep
-// 26, 2026, 7:56:28 AM" rather than an ISO 8601 timestamp; the SDK does not
-// parse them.
+// MonitorStatus constants name known probe states. Unknown states pass through.
+const (
+	MonitorStatusOK           = "OK"
+	MonitorStatusAlarm        = "ALARM"
+	MonitorStatusUndetermined = "UNDETERMINED"
+)
+
+// Check is one vMonitor synthetic check. The SDK omits user_id and
+// deleted_at. MonitorStatus describes probe state; Status remains the run
+// state. Added fields can affect unkeyed literals and exact JSON snapshots.
+// CreatedAt and UpdatedAt hold the API's formatted local-time strings;
+// the SDK does not parse them.
 type Check struct {
-	ID            string             `json:"id"`
-	Name          string             `json:"name"`
-	Type          string             `json:"type"`
-	Subtype       string             `json:"subtype"`
-	Status        string             `json:"status"`
-	Config        CheckConfig        `json:"config"`
-	Options       CheckOptions       `json:"options"`
-	Locations     []string           `json:"locations"`
-	Notifications CheckNotifications `json:"notifications"`
-	CreatedAt     string             `json:"created_at"`
-	UpdatedAt     string             `json:"updated_at"`
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Type           string             `json:"type"`
+	Subtype        string             `json:"subtype"`
+	Status         string             `json:"status"`
+	Config         CheckConfig        `json:"config"`
+	Options        CheckOptions       `json:"options"`
+	Locations      []string           `json:"locations"`
+	Notifications  CheckNotifications `json:"notifications"`
+	CreatedAt      string             `json:"created_at"`
+	UpdatedAt      string             `json:"updated_at"`
+	MonitorStatus  string             `json:"monitor_status"`
+	HistoryAlarmID string             `json:"history_alarm"`
 }
 
 // CheckNotifications names, by ID, which Channels a check alerts on each

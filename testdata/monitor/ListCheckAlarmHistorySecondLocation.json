@@ -1,0 +1,35 @@
+{
+  "data": [
+    {
+      "id": "1791942784473",
+      "metrics": [
+        {
+          "id": null,
+          "name": "syntt.http.failure",
+          "dimensions": {
+            "location_name": "SYNTT-VN-HAN01",
+            "syntt_id": "chk-1",
+            "user_id": "123456789",
+            "syntt_name": "example-check",
+            "location_id": "loc-2"
+          }
+        }
+      ],
+      "reason": "The alarm threshold(s) have not been exceeded for the sub-alarms: avg(syntt.http.failure{syntt_id=chk-1}) >= 1.0 times 3 with the values: [0.0]",
+      "timestamp": "2026-10-14T08:53:04.473+07:00",
+      "alarm_id": "alarm-loc-2",
+      "old_state": "UNDETERMINED",
+      "new_state": "OK",
+      "reason_date": null,
+      "sub_alarms": [
+        {
+          "subAlarmExpression": null,
+          "sub_alarm_state": "OK",
+          "current_values": [
+            0.0
+          ]
+        }
+      ]
+    }
+  ]
+}

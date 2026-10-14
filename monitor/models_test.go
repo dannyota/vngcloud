@@ -267,3 +267,23 @@ func TestCheckOptionsDecode(t *testing.T) {
 		}
 	})
 }
+
+func TestCheckMonitorStateDecode(t *testing.T) {
+	for _, status := range []string{MonitorStatusOK, MonitorStatusAlarm, MonitorStatusUndetermined, "future", ""} {
+		var c Check
+		if err := json.Unmarshal([]byte(`{"status":"ENABLED","monitor_status":`+jsonString(status)+`,"history_alarm":"alarm-1","user_id":123456789,"deleted_at":null}`), &c); err != nil {
+			t.Fatal(err)
+		}
+		if c.Status != StatusEnabled || c.MonitorStatus != status || c.HistoryAlarmID != "alarm-1" {
+			t.Fatalf("check = %+v", c)
+		}
+		assertCheckAlarmSafe(t, c)
+	}
+	var c Check
+	if err := json.Unmarshal([]byte(`{"status":"DISABLED"}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.MonitorStatus != "" || c.HistoryAlarmID != "" || c.Status != StatusDisabled {
+		t.Fatalf("check = %+v", c)
+	}
+}
