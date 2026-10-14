@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.81.3 - Credential Redaction Across Retries
+
+- Requests that retried or refreshed their token redacted only the last
+  credential they sent. A server that echoed an earlier token in a response
+  could get it into SDK output, errors, captures, or logs. Every credential
+  a request sends is now redacted. This affects billing, billing resources,
+  NAT, and vStorage project operations.
+- An oversized error response now keeps its HTTP status and public error
+  identity (`ErrAuth`, `ErrPermission`, `ErrNotFound`, `ErrRateLimited`)
+  instead of status 0, with the body withheld. The server console log keeps
+  its documented rule: a body over 8 MiB on any status is
+  `ResponseTooLarge` with status 0.
+- No public SDK or CLI surface changes.
+
 ## v0.81.2 - Billing Cost Resource Fixes
 
 - `billing.ListCostResources` and CLI `billing list-cost-resources` now
