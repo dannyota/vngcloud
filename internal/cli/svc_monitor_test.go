@@ -1863,7 +1863,7 @@ func TestMonitorQuotaReadErrors(t *testing.T) {
 func TestMonitorQuotaPreservesOpaqueTimestampStrings(t *testing.T) {
 	const opaque = "2026-01-01T07:00:00+07:00"
 	for _, format := range []string{"json", "table", "text"} {
-		for _, query := range []string{"", "Items[0].ID", "Items[0].Name"} {
+		for _, query := range []string{"", "Items[0].ID", "Items[0].Name", "{EndTime:Items[0].ID}"} {
 			t.Run(format+query, func(t *testing.T) {
 				var out bytes.Buffer
 				value := &monitor.ListNotificationPackagesOutput{Items: []monitor.NotificationPackage{{ID: opaque, Name: opaque, Amount: 20}}}
@@ -1977,6 +1977,170 @@ func TestMonitorReadsRefreshCredentialsAcrossFormats(t *testing.T) {
 							t.Error("CLI output omitted the redacted field")
 						}
 					})
+				}
+			}
+		}
+	}
+}
+
+func TestMonitorQuotaSelectedExpiryUTC(t *testing.T) {
+	instant, err := time.Parse(time.RFC3339, "2026-01-01T07:00:00+07:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := &monitor.GetSyntheticQuotaOutput{Quota: monitor.Quota{EndTime: instant}}
+	for _, format := range []string{"table", "text"} {
+		t.Run(format, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := renderMonitorQuota(&out, format, "Quota.EndTime", value); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "2026-01-01 00:00:00 UTC") {
+				t.Fatalf("expiry = %q", out.String())
+			}
+			if value.Quota.EndTime.Location() != instant.Location() {
+				t.Fatal("renderer mutated SDK value")
+			}
+		})
+	}
+}
+func TestMonitorReadsOperationCredentialsAcrossFormats(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"synthetic-token-A", "synthetic-token-B"},
+		{"synthetic-token-long", "synthetic-token"},
+		{"synthetic-token", "synthetic-token-long"},
+	} {
+		for _, result := range []string{"success", "error", "decode", "reference"} {
+			for _, command := range []string{"get-synthetic-quota", "get-check-alarm", "list-check-alarm-history"} {
+				for _, format := range []string{"json", "table", "text"} {
+					for _, query := range []bool{false, true} {
+						label := result + "/" + pair[0] + "/" + pair[1] + "/" + command + "/" + format
+						if query {
+							label += "/query"
+						}
+						t.Run(label, func(t *testing.T) {
+							withCleanEnv(t)
+							echo := pair[0] + " " + pair[1]
+							target := "/billing-api/v2/synthetic/quota-syn-1/quota-detail"
+							refreshTarget := "/billing-api/v1/synthetic/quota"
+							flags, expression := []string{}, "Detail.ClassName"
+							if command == "get-check-alarm" {
+								target = "/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-1"
+								flags, expression = []string{"--check-id", "chk-1"}, "Alarm.Locations[0].LocationName"
+							}
+							if command == "list-check-alarm-history" {
+								target = "/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-loc-1/histories"
+								flags = []string{"--check-id", "chk-1", "--location-id", "loc-1", "--start", "2026-10-14T00:00:00Z", "--end", "2026-10-15T00:00:00Z"}
+								expression = "Items[0].OldState"
+							}
+							if command != "get-synthetic-quota" {
+								refreshTarget = "/vmonitor-uptime-manager/v1/uptimes/chk-1"
+							}
+							fixture := monitorReadFixture(t)
+							readBody := func(name string) string {
+								data, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+								if err != nil {
+									t.Fatal(err)
+								}
+								return string(data)
+							}
+							referenceCalls := 0
+							var clock atomic.Int64
+							clock.Store(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+							attempts := 0
+							opts := newFakeServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+								if r.URL.Path == refreshTarget {
+									attempts++
+									if attempts == 1 {
+										clock.Add(60)
+										w.WriteHeader(http.StatusUnauthorized)
+										return
+									}
+								}
+								if result == "reference" && r.URL.Path == refreshTarget {
+									name, replace := "GetCheck", "alarm-1"
+									if command == "get-synthetic-quota" {
+										name, replace = "GetSyntheticQuota", "quota-syn-1"
+									}
+									_, _ = w.Write([]byte(strings.ReplaceAll(readBody(name), replace, pair[0])))
+									return
+								}
+								if result == "reference" {
+									referenceCalls++
+									w.WriteHeader(403)
+									return
+								}
+								if command == "list-check-alarm-history" && strings.HasSuffix(r.URL.Path, "/alarm-1") {
+									_, _ = w.Write([]byte(strings.ReplaceAll(readBody("GetCheckAlarm"), "SYNTT-VN-HCM01", echo)))
+									return
+								}
+								if r.URL.Path != target {
+									fixture.mux.ServeHTTP(w, r)
+									return
+								}
+								name, replace := "GetCheckAlarm", "SYNTT-VN-HCM01"
+								if command == "get-synthetic-quota" {
+									name, replace = "GetSyntheticQuotaDetail", "Basic"
+								}
+								if command == "list-check-alarm-history" {
+									name, replace = "ListCheckAlarmHistory", "UNDETERMINED"
+								}
+								body := strings.ReplaceAll(readBody(name), replace, echo)
+								if result == "error" {
+									w.WriteHeader(403)
+									body = `{"message":"` + echo + `"}`
+								}
+								if result == "decode" {
+									body = `{"data":"` + echo
+								}
+								_, _ = w.Write([]byte(body))
+							}))
+							exchanges := 0
+							private := saCLITransport(func(*http.Request) (*http.Response, error) {
+								exchanges++
+								value := pair[0]
+								if exchanges > 1 {
+									value = pair[1]
+								}
+								body := `{"access_token":"` + value + `","token_type":"Bearer","expires_in":1800}`
+								return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+							})
+							withTestOptions(t, append(opts, vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "synthetic-client", ClientSecret: "synthetic-secret"}), core.WithServiceAccountTestTransport(private, func() time.Time { return time.Unix(clock.Load(), 0) }))...)
+							stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+							root := newRootCmd(strings.NewReader(""), stdout, stderr)
+							args := append([]string{"--region", "hcm-3", "monitor", command, "--output", format, "--debug"}, flags...)
+							if query {
+								args = append(args, "--query", expression)
+							}
+							err := execCmd(t, root, args)
+							if result == "success" {
+								if err != nil {
+									t.Fatal(err)
+								}
+							} else {
+								if err == nil || stdout.Len() != 0 {
+									t.Fatalf("out=%q err=%v", stdout.String(), err)
+								}
+								if strings.Contains(err.Error(), pair[0]) || strings.Contains(err.Error(), pair[1]) {
+									t.Error("CLI error retained credential")
+								}
+							}
+							if referenceCalls != 0 {
+								t.Errorf("credential ID routed: calls=%d", referenceCalls)
+							}
+							if attempts != 2 || exchanges != 2 {
+								t.Fatalf("attempts=%d exchanges=%d, want 2 each", attempts, exchanges)
+							}
+							for _, value := range []string{pair[0], pair[1], "-long"} {
+								if strings.Contains(stdout.String(), value) || strings.Contains(stderr.String(), value) {
+									t.Error("CLI output retained a credential or overlap suffix")
+								}
+							}
+							if result == "success" && !strings.Contains(stdout.String(), "[redacted]") {
+								t.Error("CLI output omitted the redacted field")
+							}
+						})
+					}
 				}
 			}
 		}

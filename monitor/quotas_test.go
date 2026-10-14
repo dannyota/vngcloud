@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -859,5 +860,125 @@ func TestNotificationRefreshRedaction(t *testing.T) {
 			}
 			assertMonitorCredentialsAbsent(t, out, err, "synthetic-token-A", "synthetic-token-B")
 		}
+	}
+}
+
+func TestSyntheticQuotaOperationCredentialRedaction(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	for _, result := range []string{"success", "error", "decode", "route"} {
+		t.Run(result, func(t *testing.T) {
+			calls := 0
+			c := monitorRefreshClient(t, first, second, "/billing-api/v1/synthetic/quota", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				name := "GetSyntheticQuota"
+				if calls > 1 {
+					name = "GetSyntheticQuotaDetail"
+				}
+				body := checkAlarmFixture(t, name)
+				if result == "route" {
+					body = strings.ReplaceAll(body, "quota-syn-1", first)
+				}
+				if calls > 1 {
+					body = strings.ReplaceAll(body, "Basic", first+" "+second)
+					if result == "error" {
+						w.WriteHeader(403)
+						body = `{"message":` + jsonString(first) + `}`
+					}
+					if result == "decode" {
+						body = `{"className":` + jsonString(first)
+					}
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			out, err := c.GetSyntheticQuota(context.Background(), nil)
+			if result == "success" {
+				if err != nil || out == nil {
+					t.Fatalf("out=%v err=%v", out, err)
+				}
+			} else if err == nil || out != nil {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			if result == "route" && calls != 1 {
+				t.Errorf("credential ID routed: calls=%d", calls)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
+	}
+}
+
+func TestCheckAlarmCredentialReferenceRefused(t *testing.T) {
+	const first, second = "synthetic-token-A", "synthetic-token-B"
+	for _, history := range []bool{false, true} {
+		t.Run(strconv.FormatBool(history), func(t *testing.T) {
+			calls := 0
+			c := monitorRefreshClient(t, first, second, "/vmonitor-uptime-manager/v1/uptimes/chk-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls != 1 {
+					t.Error("credential reference routed")
+					w.WriteHeader(403)
+					return
+				}
+				_, _ = w.Write([]byte(strings.ReplaceAll(checkAlarmFixture(t, "GetCheck"), "alarm-1", first)))
+			}))
+			var out any
+			var err error
+			if history {
+				out, err = c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1"})
+			} else {
+				out, err = c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
+			}
+			var api *core.APIError
+			if !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("err=%v", err)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
+	}
+}
+
+type monitorFailureTokens struct{ monitorRefreshTokens }
+
+func (s *monitorFailureTokens) Token(ctx context.Context) (transport.Token, error) {
+	if s.calls == 2 {
+		return transport.Token{}, fmt.Errorf("%s %s: %w", s.first, s.second, core.ErrAuth)
+	}
+	return s.monitorRefreshTokens.Token(ctx)
+}
+
+func TestMonitorOperationTokenSourceErrorWithheld(t *testing.T) {
+	for _, operation := range []string{"quota", "alarm", "history"} {
+		t.Run(operation, func(t *testing.T) {
+			const first, second = "synthetic-token-A", "synthetic-token-B"
+			source := &monitorFailureTokens{monitorRefreshTokens{first: first, second: second}}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls != 2 {
+					w.WriteHeader(401)
+					return
+				}
+				name := "GetCheck"
+				if operation == "quota" {
+					name = "GetSyntheticQuota"
+				}
+				_, _ = w.Write([]byte(checkAlarmFixture(t, name)))
+			}))
+			defer server.Close()
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+			var out any
+			var err error
+			switch operation {
+			case "quota":
+				out, err = c.GetSyntheticQuota(context.Background(), nil)
+			case "alarm":
+				out, err = c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
+			case "history":
+				out, err = c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1"})
+			}
+			if !errors.Is(err, core.ErrAuth) || calls != 3 {
+				t.Fatalf("calls=%d err=%v", calls, err)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, first, second)
+		})
 	}
 }

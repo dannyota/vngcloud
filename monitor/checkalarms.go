@@ -91,7 +91,8 @@ func (c *Client) GetCheckAlarm(ctx context.Context, in *GetCheckAlarmInput) (*Ge
 	if err := core.CheckPathID(op, "CheckID", in.CheckID); err != nil {
 		return nil, err
 	}
-	alarm, _, err := c.readCheckAlarm(ctx, op, in.CheckID)
+	var credentials monitorReadCredentials
+	alarm, _, err := c.readCheckAlarm(ctx, op, in.CheckID, &credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,8 @@ func (c *Client) ListCheckAlarmHistory(ctx context.Context, in *ListCheckAlarmHi
 	if err != nil {
 		return nil, err
 	}
-	alarm, frequency, err := c.readCheckAlarm(ctx, op, in.CheckID)
+	var credentials monitorReadCredentials
+	alarm, frequency, err := c.readCheckAlarm(ctx, op, in.CheckID, &credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +139,9 @@ func (c *Client) ListCheckAlarmHistory(ctx context.Context, in *ListCheckAlarmHi
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if checkAlarmText(l.AlarmID, credentials) != l.AlarmID {
+			return nil, checkAlarmResponseError(op, "InvalidResponse")
+		}
 		q := url.Values{"start_time": {strconv.FormatInt(start.UnixMilli(), 10)}, "end_time": {strconv.FormatInt(end.UnixMilli(), 10)}}
 		if frequency > 0 {
 			q.Set("interval", strconv.Itoa(frequency))
@@ -144,7 +149,7 @@ func (c *Client) ListCheckAlarmHistory(ctx context.Context, in *ListCheckAlarmHi
 		var body struct {
 			Data *[]checkTransitionWire `json:"data"`
 		}
-		size, credentials, err := c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"alarms", "synthetic", "metrics", "mona", l.AlarmID, "histories"}, q), min(checkHistoryMaxBody, remaining), &body)
+		size, err := c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"alarms", "synthetic", "metrics", "mona", l.AlarmID, "histories"}, q), min(checkHistoryMaxBody, remaining), &body, &credentials)
 		if err != nil {
 			return nil, err
 		}
@@ -158,6 +163,15 @@ func (c *Client) ListCheckAlarmHistory(ctx context.Context, in *ListCheckAlarmHi
 				return nil, err
 			}
 			out.Items = append(out.Items, transition)
+		}
+	}
+	for i := range out.Items {
+		item := &out.Items[i]
+		for _, field := range []*string{&item.ID, &item.AlarmID, &item.LocationID, &item.LocationName, &item.OldState, &item.NewState} {
+			*field = checkAlarmText(*field, credentials)
+		}
+		for j := range item.SubAlarms {
+			item.SubAlarms[j].State = checkAlarmText(item.SubAlarms[j].State, credentials)
 		}
 	}
 	slices.SortStableFunc(out.Items, func(a, b CheckAlarmTransition) int {
@@ -217,24 +231,28 @@ func (d *checkAlarmDecoder) UnmarshalJSON(body []byte) error {
 	return json.Unmarshal(body, d.out)
 }
 
-func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit int64, out any) (int64, []string, error) {
+func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit int64, out any, credentials *monitorReadCredentials) (int64, error) {
 	if limit <= 0 {
-		return 0, nil, checkAlarmResponseError(op, "ResponseLimitExceeded")
+		return 0, checkAlarmResponseError(op, "ResponseLimitExceeded")
 	}
-	var credentials []string
+	var sent []string
 	decoder := checkAlarmDecoder{out: out}
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: op, Method: http.MethodGet, URL: route, OK: []int{200}, MaxBody: limit,
-		Sensitive: true, WithholdMessage: "check alarm response withheld", SentCredentials: &credentials,
+		Sensitive: true, WithholdMessage: "check alarm response withheld", SentCredentials: &sent, Redact: *credentials,
 		ClassifyError: func(status int, _ string) string { return core.ResolvedCode(status, "") },
 	}, &decoder)
+	if !credentials.add(sent) {
+		return 0, monitorReadError(op, status, "InvalidResponse", "check alarm credential safety limit exceeded", nil)
+	}
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return 0, nil, monitorReadError(op, status, "ResponseLimitExceeded", "check alarm response exceeds safety limit", err)
+			return 0, monitorReadError(op, status, "ResponseLimitExceeded", "check alarm response exceeds safety limit", err)
 		}
 		var apiErr *core.APIError
 		if errors.As(err, &apiErr) {
 			safe := *apiErr
+			safe.Operation = op
 			if safe.StatusCode == 0 && status > 0 {
 				safe.StatusCode = status
 			}
@@ -244,14 +262,14 @@ func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit
 			}
 			safe.Message = "check alarm request failed; response withheld"
 			safe.Err = monitorReadCause(apiErr.Err)
-			return 0, nil, &safe
+			return 0, &safe
 		}
-		return 0, nil, err
+		return 0, monitorReadError(op, status, "InvalidResponse", "check alarm request failed; cause withheld", err)
 	}
 	if decoder.size == 0 {
-		return 0, nil, checkAlarmResponseError(op, "InvalidResponse")
+		return 0, checkAlarmResponseError(op, "InvalidResponse")
 	}
-	return decoder.size, credentials, nil
+	return decoder.size, nil
 }
 
 type checkAlarmFrequency int
@@ -299,9 +317,9 @@ type checkAlarmWire struct {
 	Alarms *[]checkLocationWire `json:"alarms"`
 }
 
-func (c *Client) readCheckAlarm(ctx context.Context, op, id string) (CheckAlarm, int, error) {
+func (c *Client) readCheckAlarm(ctx context.Context, op, id string, credentials *monitorReadCredentials) (CheckAlarm, int, error) {
 	var snapshot checkAlarmSnapshot
-	_, _, err := c.readCheckAlarmJSON(ctx, op, c.route([]string{"uptimes", id}), checkAlarmMaxBody, &snapshot)
+	_, err := c.readCheckAlarmJSON(ctx, op, c.route([]string{"uptimes", id}), checkAlarmMaxBody, &snapshot, credentials)
 	if err != nil {
 		return CheckAlarm{}, 0, err
 	}
@@ -312,7 +330,7 @@ func (c *Client) readCheckAlarm(ctx context.Context, op, id string) (CheckAlarm,
 	if ref == "" {
 		return CheckAlarm{}, 0, &core.APIError{Operation: op, Code: "NotFound", Message: "check has no alarm reference", Err: core.ErrNotFound}
 	}
-	if core.CheckPathID(op, "HistoryAlarmID", ref) != nil {
+	if core.CheckPathID(op, "HistoryAlarmID", ref) != nil || checkAlarmText(ref, *credentials) != ref {
 		return CheckAlarm{}, 0, checkAlarmResponseError(op, "InvalidResponse")
 	}
 	if err := ctx.Err(); err != nil {
@@ -321,7 +339,7 @@ func (c *Client) readCheckAlarm(ctx context.Context, op, id string) (CheckAlarm,
 	var definition struct {
 		Data *checkAlarmWire `json:"data"`
 	}
-	_, credentials, err := c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"alarms", "synthetic", "metrics", "mona", ref}, nil), checkAlarmMaxBody, &definition)
+	_, err = c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"alarms", "synthetic", "metrics", "mona", ref}, nil), checkAlarmMaxBody, &definition, credentials)
 	if err != nil {
 		return CheckAlarm{}, 0, err
 	}
@@ -332,7 +350,7 @@ func (c *Client) readCheckAlarm(ctx context.Context, op, id string) (CheckAlarm,
 	if len(*d.Alarms) > checkAlarmMaxLocations {
 		return CheckAlarm{}, 0, checkAlarmResponseError(op, "FanOutLimitExceeded")
 	}
-	a := CheckAlarm{ID: checkAlarmText(d.ID, credentials), Status: checkAlarmText(d.Status.Status, credentials), StatusUpdatedAt: *d.Status.UpdatedAt, Locations: []CheckLocationAlarm{}}
+	a := CheckAlarm{ID: checkAlarmText(d.ID, *credentials), Status: checkAlarmText(d.Status.Status, *credentials), StatusUpdatedAt: *d.Status.UpdatedAt, Locations: []CheckLocationAlarm{}}
 	seenLocations := map[string]bool{}
 	seenAlarms := map[string]bool{}
 	for _, wire := range *d.Alarms {
@@ -345,7 +363,7 @@ func (c *Client) readCheckAlarm(ctx context.Context, op, id string) (CheckAlarm,
 		}
 		seenLocations[locationID] = true
 		seenAlarms[wire.ID] = true
-		a.Locations = append(a.Locations, CheckLocationAlarm{AlarmID: checkAlarmText(wire.ID, credentials), LocationID: checkAlarmText(locationID, credentials), LocationName: checkAlarmText(locationName, credentials), State: checkAlarmText(wire.State, credentials), StateUpdatedAt: *wire.StateUpdatedAt, UpdatedAt: *wire.UpdatedAt, CreatedAt: *wire.CreatedAt})
+		a.Locations = append(a.Locations, CheckLocationAlarm{AlarmID: checkAlarmText(wire.ID, *credentials), LocationID: checkAlarmText(locationID, *credentials), LocationName: checkAlarmText(locationName, *credentials), State: checkAlarmText(wire.State, *credentials), StateUpdatedAt: *wire.StateUpdatedAt, UpdatedAt: *wire.UpdatedAt, CreatedAt: *wire.CreatedAt})
 	}
 	// Projected IDs must remain valid before they can become another route.
 	for _, l := range a.Locations {

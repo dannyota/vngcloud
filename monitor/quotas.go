@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -138,23 +139,50 @@ func quotaResponseError(op string) error {
 	return &core.APIError{Operation: op, StatusCode: http.StatusOK, Code: "InvalidResponse", Message: "quota response had invalid structure"}
 }
 
+// Keep credentials for the whole operation, without dropping earlier values.
+// Refuse further projection if concurrent refreshes exceed the safety bound.
+type monitorReadCredentials []string
+
+func (c *monitorReadCredentials) add(sent []string) bool {
+	for _, value := range sent {
+		if value == "" || slices.Contains(*c, value) {
+			continue
+		}
+		if len(*c) >= 256 {
+			return false
+		}
+		*c = append(*c, value)
+	}
+	return true
+}
+
 // quotaRead suppresses routine captures and retains only fixed error metadata.
-func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...string) (json.RawMessage, error) {
+func (c *Client) quotaRead(ctx context.Context, op string, parts ...string) (json.RawMessage, error) {
+	var credentials monitorReadCredentials
+	return c.quotaReadCredentials(ctx, op, "v1", &credentials, parts...)
+}
+
+func (c *Client) quotaReadCredentials(ctx context.Context, op, version string, credentials *monitorReadCredentials, parts ...string) (json.RawMessage, error) {
 	raw, _, err := c.quotaRequest(ctx, transport.Request{
 		Operation: op, Method: http.MethodGet, URL: c.billingRoute(version, parts), OK: []int{http.StatusOK},
-	})
+	}, credentials)
 	return raw, err
 }
 
-func (c *Client) quotaRequest(ctx context.Context, req transport.Request) (json.RawMessage, int, error) {
+func (c *Client) quotaRequest(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) (json.RawMessage, int, error) {
 	op := req.Operation
 	var raw json.RawMessage
-	var credentials []string
+	var sent []string
 	req.Sensitive = true
 	req.MaxBody = quotaMaxBody
 	req.WithholdMessage = "quota response withheld"
-	req.SentCredentials = &credentials
+	req.SentCredentials = &sent
+	req.Redact = append(req.Redact, (*credentials)...)
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
+	if !credentials.add(sent) {
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota credential safety limit exceeded", nil)
+	}
+
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return nil, status, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
@@ -162,6 +190,7 @@ func (c *Client) quotaRequest(ctx context.Context, req transport.Request) (json.
 		var api *core.APIError
 		if errors.As(err, &api) {
 			safe := *api
+			safe.Operation = op
 			if safe.StatusCode == 0 && status > 0 {
 				safe.StatusCode = status
 			}
@@ -173,7 +202,7 @@ func (c *Client) quotaRequest(ctx context.Context, req transport.Request) (json.
 			safe.Err = monitorReadError(op, safe.StatusCode, safe.Code, safe.Message, api.Err).Err
 			return nil, status, &safe
 		}
-		return nil, status, err
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota request failed; cause withheld", err)
 	}
 	// Scrub retained strings, including description keys, before projection.
 	var value any
@@ -182,7 +211,7 @@ func (c *Client) quotaRequest(ctx context.Context, req transport.Request) (json.
 	if decoder.Decode(&value) != nil {
 		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
 	}
-	value = c.scrubQuotaStrings(value, credentials)
+	value = c.scrubQuotaStrings(value, *credentials)
 	raw, err = json.Marshal(value)
 	if err != nil {
 		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
@@ -358,7 +387,7 @@ func quotaArray(raw json.RawMessage) ([]json.RawMessage, bool) {
 
 func (c *Client) GetQuotaUsage(ctx context.Context, in *GetQuotaUsageInput) (*GetQuotaUsageOutput, error) {
 	const op = "monitor.GetQuotaUsage"
-	raw, err := c.quotaRead(ctx, op, "v1", "quotas", "usages")
+	raw, err := c.quotaRead(ctx, op, "quotas", "usages")
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +437,11 @@ func (c *Client) GetQuotaUsage(ctx context.Context, in *GetQuotaUsageInput) (*Ge
 }
 
 func (c *Client) ListNotificationPackages(ctx context.Context, in *ListNotificationPackagesInput) (*ListNotificationPackagesOutput, error) {
-	const op = "monitor.ListNotificationPackages"
+	var credentials monitorReadCredentials
+	return c.listNotificationPackages(ctx, "monitor.ListNotificationPackages", in, &credentials)
+}
+
+func (c *Client) listNotificationPackages(ctx context.Context, op string, in *ListNotificationPackagesInput, credentials *monitorReadCredentials) (*ListNotificationPackagesOutput, error) {
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
@@ -421,7 +454,7 @@ func (c *Client) ListNotificationPackages(ctx context.Context, in *ListNotificat
 	default:
 		return nil, fmt.Errorf("%s: Kind must be Email or SMS: %w", op, core.ErrInvalidInput)
 	}
-	raw, err := c.quotaRead(ctx, op, "v1", kind, "packages")
+	raw, err := c.quotaReadCredentials(ctx, op, "v1", credentials, kind, "packages")
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +476,8 @@ func (c *Client) ListNotificationPackages(ctx context.Context, in *ListNotificat
 
 func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInput) (*GetSyntheticQuotaOutput, error) {
 	const op = "monitor.GetSyntheticQuota"
-	raw, err := c.quotaRead(ctx, op, "v1", "synthetic", "quota")
+	var credentials monitorReadCredentials
+	raw, err := c.quotaReadCredentials(ctx, op, "v1", &credentials, "synthetic", "quota")
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +488,7 @@ func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInp
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, err = c.quotaRead(ctx, op, "v2", "synthetic", q.ID, "quota-detail")
+	raw, err = c.quotaReadCredentials(ctx, op, "v2", &credentials, "synthetic", q.ID, "quota-detail")
 	if err != nil {
 		return nil, err
 	}
@@ -469,12 +503,15 @@ func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInp
 	if o.invalid || resourceID != q.ID || packageID != q.PackageID {
 		return nil, quotaResponseError(op)
 	}
+	for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
+		*field, _ = c.c.RedactError(*field, "", credentials...)
+	}
 	return &GetSyntheticQuotaOutput{Quota: q, Detail: d}, nil
 }
 
 func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuotaUsageInput) (*GetSyntheticQuotaUsageOutput, error) {
 	const op = "monitor.GetSyntheticQuotaUsage"
-	raw, err := c.quotaRead(ctx, op, "v1", "synthetic", "quota", "usages")
+	raw, err := c.quotaRead(ctx, op, "synthetic", "quota", "usages")
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +534,7 @@ func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuo
 }
 
 func (c *Client) listSyntheticPackages(ctx context.Context, op string) ([]syntheticPackage, error) {
-	raw, err := c.quotaRead(ctx, op, "v1", "synthetic", "packages")
+	raw, err := c.quotaRead(ctx, op, "synthetic", "packages")
 	if err != nil {
 		return nil, err
 	}
@@ -565,17 +602,18 @@ func (c *Client) GetNotificationQuota(ctx context.Context, in *GetNotificationQu
 	if err != nil {
 		return nil, err
 	}
-	q, err := c.readNotificationQuota(ctx, op, kind)
+	var credentials monitorReadCredentials
+	q, err := c.readNotificationQuota(ctx, op, kind, &credentials)
 	if err != nil {
 		return nil, err
 	}
 	return &GetNotificationQuotaOutput{Quota: q}, nil
 }
 
-func (c *Client) readNotificationQuota(ctx context.Context, op, kind string) (Quota, error) {
+func (c *Client) readNotificationQuota(ctx context.Context, op, kind string, credentials *monitorReadCredentials) (Quota, error) {
 	raw, status, err := c.quotaRequest(ctx, transport.Request{
 		Operation: op, Method: http.MethodGet, URL: c.billingRoute("v1", []string{kind, "quota"}), OK: []int{http.StatusOK, http.StatusNotFound},
-	})
+	}, credentials)
 	if err != nil {
 		return Quota{}, err
 	}
@@ -599,7 +637,7 @@ func (c *Client) GetNotificationQuotaUsage(ctx context.Context, in *GetNotificat
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.quotaRead(ctx, op, "v1", kind, "quota", "usages")
+	raw, err := c.quotaRead(ctx, op, kind, "quota", "usages")
 	if err != nil {
 		return nil, err
 	}
