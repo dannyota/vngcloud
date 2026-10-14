@@ -22,6 +22,14 @@
   behavior is verified. Listing SMS packages still works.
 - Each alert email consumes the email quota. Free quotas renew only in
   their last 7 days; renewal commands come in a later release.
+- Fix for every single-send write (paid creates, resizes, server actions,
+  orders): Go's HTTP/2 transport could replay the request body after a
+  refused stream or GOAWAY, and HTTP/1 after a dead reused connection,
+  despite the SDK's own no-retry rule. Those writes now go out once; a
+  refused stream is reported as an uncertain outcome. Empty-body single-send
+  PUTs use chunked framing, verified against the vMonitor and vServer APIs.
+- The transport reports when a request was never sent, so an order whose
+  login failed first leaves no unresolved attempt and keeps its login error.
 
 ## v0.82.0 - vMonitor Check Alarm and Quota Reads
 
