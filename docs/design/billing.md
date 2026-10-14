@@ -218,10 +218,16 @@ Both take `StartDate` (r), `EndDate` (r), `Product`, `ResourceType`,
 sends `daily`). `ListCostResources` also takes `Page`, `Size`, `Sort`, and
 `Order`.
 
-`ListCostResources` is the first API that caps page size: a `size` above
-200 returns HTTP 400. Pages start at 1. The SDK sends `Size` 200 when it is
-0, and 200 when it is above 200. The output holds one page with the API's
-`page`, `size`, `total`, and `totalPages` in the `PagedList` fields.
+`CostResource` holds `ResourceID`, `ResourceName`, `ResourceType`, `Product`,
+`Cost`, `DailyAverage`, and `StartDate`. `Cost` reads `totalCost` only: the
+resource's total cost over the requested range, in VND, as the API reports it.
+`DailyAverage` reads `dailyAvg`; `StartDate` reads `startDate`. The SDK omits
+`region` and the account's `userId`.
+
+`ListCostResources` sends `Size` 200 for non-positive sizes or sizes above 200.
+The API rejects larger sizes with HTTP 400. Non-positive `Page` selects page 1.
+Public `Page` is 1-based; the SDK sends `Page - 1` to the 0-based API.
+It returns `pagination.page + 1` as `Page`; other paging metadata is unchanged.
 
 The SDK does not page for the caller in this release. A caller that needs
 every row loops on `Page` up to `TotalPage`. A helper is lasting public API,

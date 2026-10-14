@@ -172,11 +172,15 @@ type CostSeries struct {
 
 // CostResource is one row of the per-resource cost list.
 type CostResource struct {
-	ResourceID   string  `json:"resourceId"`
-	ResourceName string  `json:"resourceName"`
-	ResourceType string  `json:"resourceType"`
-	Product      string  `json:"product"`
-	Cost         float64 `json:"cost"`
+	ResourceID   string `json:"resourceId"`
+	ResourceName string `json:"resourceName"`
+	ResourceType string `json:"resourceType"`
+	Product      string `json:"product"`
+	// Cost is the resource's total cost over the requested range, in VND,
+	// as the API reports it.
+	Cost         float64 `json:"totalCost"`
+	DailyAverage float64 `json:"dailyAvg"`
+	StartDate    string  `json:"startDate"`
 }
 
 // CostResourceSummary totals the per-resource cost list.
