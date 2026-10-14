@@ -33,6 +33,8 @@ rename; the module keeps the `vngcloud` name.
   them.
 - [Monitor Alerts](Monitor-Alerts.md): notification channels, log projects,
   and alarms.
+- [Monitor Quotas](Monitor-Quotas.md): check alarm state, transition history,
+  quota usage, notification packages, and synthetic quota expiry.
 - [Monitor Log Alarms](Monitor-Log-Alarms.md): creating, updating, and
   deleting log alarms.
 - [Storage](Storage.md): vStorage regions, projects, buckets, S3 keys, and

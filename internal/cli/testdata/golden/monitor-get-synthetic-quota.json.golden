@@ -1,0 +1,30 @@
+{
+  "Quota": {
+    "ID": "quota-syn-1",
+    "Name": "synthetic test",
+    "Type": "SYNTHETIC_TEST",
+    "Status": "ACTIVE",
+    "PackageID": "32b3743d-94b8-49ab-984d-bd7ec99b46f6",
+    "StartTime": "2026-09-25T21:43:00Z",
+    "EndTime": "2026-10-25T21:43:00Z",
+    "CreatedAt": "2026-09-25T21:43:00Z",
+    "UpdatedAt": "2026-09-25T21:43:03Z",
+    "AutoRenew": false,
+    "POC": false,
+    "System": false,
+    "AutoRenewPeriod": 0
+  },
+  "Detail": {
+    "API": 10,
+    "Location": 1,
+    "Email": 0,
+    "SMS": 0,
+    "Slack": 0,
+    "Webhook": 0,
+    "Telegram": 0,
+    "Teams": 0,
+    "ClassName": "Basic",
+    "TierName": "",
+    "Price": null
+  }
+}

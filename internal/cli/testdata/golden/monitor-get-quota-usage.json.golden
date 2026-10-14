@@ -1,0 +1,30 @@
+{
+  "Usage": {
+    "SyntheticUsages": [
+      {
+        "API": 1,
+        "Location": 0,
+        "Email": 0,
+        "SMS": 0,
+        "Slack": 0,
+        "Webhook": 0,
+        "Telegram": 0,
+        "Teams": 0
+      }
+    ],
+    "EmailUsages": [
+      {
+        "Amount": 4
+      }
+    ],
+    "FreeEmailQuota": 0,
+    "FreeSMSQuota": 0,
+    "LogSeverity": "",
+    "MetricSeverity": "",
+    "SyntheticSeverity": "warning",
+    "EmailSeverity": "good",
+    "SMSSeverity": "",
+    "NotificationSeverity": "good",
+    "UnmodeledKinds": []
+  }
+}

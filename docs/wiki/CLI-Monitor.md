@@ -197,6 +197,20 @@ Kind: Read.
 vngcloud monitor get-check --check-id <check-id> --query Check
 ```
 
+## get-check-alarm
+
+Kind: Read.
+
+Reads the current alarm state and its location states through the check's HistoryAlarmID. An empty alarm reference is NotFound (exit 4). An unknown definition can return server error 500 (exit 1), rather than NotFound. Status on a check is its ENABLED/DISABLED run state; MonitorStatus is its alarm state.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--check-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-check-alarm --check-id <check-id> --query Alarm
+```
+
 ## get-log-project
 
 Kind: Read.
@@ -207,6 +221,42 @@ Kind: Read.
 
 ```sh
 vngcloud monitor get-log-project --log-project-id <log-project-id> --query LogProject
+```
+
+## get-quota-usage
+
+Kind: Read.
+
+Reads composite usage and freeEmailQuota/freeSmsQuota. UnmodeledKinds names nonempty usage arrays whose item shapes are unknown; they contribute no invented totals. Alert emails consume Email quota usage, while the synthetic email counter can stay zero. Allowances depend on the account and package. See Monitor Quotas.
+
+No fields.
+
+```sh
+vngcloud monitor get-quota-usage --query Usage
+```
+
+## get-synthetic-quota
+
+Kind: Read.
+
+Reads quota identity, status, expiry, AutoRenew, and package detail. Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. Renewal, deletion, and auto-renew changes are not yet available.
+
+No fields.
+
+```sh
+vngcloud monitor get-synthetic-quota
+```
+
+## get-synthetic-quota-usage
+
+Kind: Read.
+
+Reads synthetic usage counters and their descriptions. Alert emails consume the Email quota, rather than the synthetic email counter. See Monitor Quotas.
+
+No fields.
+
+```sh
+vngcloud monitor get-synthetic-quota-usage --query Usage
 ```
 
 ## list-alarms
@@ -254,6 +304,23 @@ Redacts every header value and every Address except an Email, SMS, or Telegram c
 vngcloud monitor list-channels
 ```
 
+## list-check-alarm-history
+
+Kind: Read.
+
+--start and --end are RFC 3339 strings. End defaults to now and Start to 24 hours before End. Invalid, empty, or reversed ranges at millisecond precision exit 2 before requests. --location-id selects one probe location. Items contains only returned transitions: paging and truncation are unknown, and no state at the window start is supplied. Empty Items proves neither that no transition occurred nor that an alarm exists. Use get-check-alarm for current state.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--check-id` | `string` | yes |
+| `--start` | `string` |  |
+| `--end` | `string` |  |
+| `--location-id` | `string` |  |
+
+```sh
+vngcloud monitor list-check-alarm-history --check-id <check-id>
+```
+
 ## list-checks
 
 Kind: Read.
@@ -297,6 +364,20 @@ Kind: Read.
 
 ```sh
 vngcloud monitor list-log-projects
+```
+
+## list-notification-packages
+
+Kind: Read.
+
+--kind accepts Email or SMS, case insensitively. Prices are in VND; absent prices print unknown in table/text and null in JSON. A zero-price package is not an automatic allowance. Ordering notification quotas is not yet available.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--kind` | `string` | yes |
+
+```sh
+vngcloud monitor list-notification-packages --kind Email
 ```
 
 ## pause-check
@@ -347,7 +428,7 @@ vngcloud monitor resume-check --check-id <check-id>
 
 Kind: Write.
 
-Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as --otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an ambiguous failure, since a retry could message the address a second time. SMS and Email beyond the free 20 each spend a paid package, and sending this OTP counts toward it.
+Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as --otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an ambiguous failure, since a retry could message the address a second time. Email and SMS allowances depend on the account and package; an available zero-price package advertises 20 messages but does not grant them automatically. OTP quota accounting is unverified. See Monitor Quotas.
 
 | Flag | Type | Required |
 |-|-|-|

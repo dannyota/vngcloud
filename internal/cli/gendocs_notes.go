@@ -369,6 +369,12 @@ const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE,
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"monitor get-check-alarm":                 monitorGetCheckAlarmNote,
+	"monitor list-check-alarm-history":        monitorCheckHistoryNote,
+	"monitor get-quota-usage":                 monitorQuotaUsageNote,
+	"monitor list-notification-packages":      monitorNotificationPackagesNote,
+	"monitor get-synthetic-quota":             monitorSyntheticQuotaNote,
+	"monitor get-synthetic-quota-usage":       monitorSyntheticUsageNote,
 	"volume list-volume-prices":               volumeDiscoveryNote,
 	"storage list-storage-prices":             storageDiscoveryNote,
 	"iam create-service-account":              iamCreateServiceAccountNote,
@@ -646,15 +652,16 @@ var docExampleExtraFlag = map[string]string{
 var docExampleOverride = map[string]string{
 	"cdn update-web-accelerator": "vngcloud cdn update-web-accelerator --cdn-id <cdn-id> " +
 		"--cli-input-json file://changes.json",
-	"storage put-bucket-policy":        "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",
-	"storage put-bucket-versioning":    "vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true",
-	"iam create-policy":                "vngcloud iam create-policy --name <name> --document-file policy.json",
-	"iam update-policy":                "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
-	"monitor send-channel-otp":         "vngcloud monitor send-channel-otp --type Email --address <address>",
-	"monitor create-channel":           "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
-	"monitor update-channel":           "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
-	"monitor list-alarms":              "vngcloud monitor list-alarms --kind Log",
-	"loadbalancer list-load-balancers": "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
+	"storage put-bucket-policy":          "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",
+	"storage put-bucket-versioning":      "vngcloud storage put-bucket-versioning --project-id <project-id> --bucket <bucket> --enabled=true",
+	"iam create-policy":                  "vngcloud iam create-policy --name <name> --document-file policy.json",
+	"iam update-policy":                  "vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json --yes",
+	"monitor send-channel-otp":           "vngcloud monitor send-channel-otp --type Email --address <address>",
+	"monitor create-channel":             "vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json file://channel.json",
+	"monitor update-channel":             "vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file://channel.json",
+	"monitor list-notification-packages": "vngcloud monitor list-notification-packages --kind Email",
+	"monitor list-alarms":                "vngcloud monitor list-alarms --kind Log",
+	"loadbalancer list-load-balancers":   "vngcloud loadbalancer list-load-balancers --query 'Items[].{ID:UUID,Name:Name,Status:DisplayStatus}'",
 	"loadbalancer create-load-balancer": "vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-id> " +
 		"--type <type> --scheme Internal --subnet-id <subnet-id> --zone-id <zone-id> --max-price 400000",
 	"network add-route":    "vngcloud network add-route --route-table-id <route-table-id> --destination-cidr <destination-cidr> --target <target> --yes",

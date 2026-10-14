@@ -13,7 +13,9 @@ check's `Notifications` names, by channel ID, which
 transition; a check created with no `Notifications` set alerts nobody.
 
 See [Monitor Alerts](Monitor-Alerts.md) for notification
-channels, log projects, and alarms.
+channels, log projects, and alarms. See
+[Monitor Quotas](Monitor-Quotas.md) for check alarm state, transition history,
+usage, and quota expiry.
 
 ## Setup
 

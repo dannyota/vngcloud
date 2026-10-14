@@ -1,0 +1,1 @@
+{"EmailSeverity":"good","EmailUsages":[{"Amount":4}],"FreeEmailQuota":0,"FreeSMSQuota":0,"LogSeverity":"","MetricSeverity":"","NotificationSeverity":"good","SMSSeverity":"","SyntheticSeverity":"warning","SyntheticUsages":[{"API":1,"Email":0,"Location":0,"SMS":0,"Slack":0,"Teams":0,"Telegram":0,"Webhook":0}],"UnmodeledKinds":[]}

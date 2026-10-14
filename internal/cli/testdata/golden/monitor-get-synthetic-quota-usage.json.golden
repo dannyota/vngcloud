@@ -1,0 +1,57 @@
+{
+  "Usage": {
+    "Counts": {
+      "API": 1,
+      "Location": 0,
+      "Email": 0,
+      "SMS": 0,
+      "Slack": 0,
+      "Webhook": 0,
+      "Telegram": 0,
+      "Teams": 0
+    },
+    "Amount": 0,
+    "Descriptions": {
+      "api": {
+        "Name": "Number of API tests",
+        "Specs": "Maximum API tests per month",
+        "Unit": "/month"
+      },
+      "email": {
+        "Name": "Number of email notifications",
+        "Specs": "Maximum emails sent number per months",
+        "Unit": "/month"
+      },
+      "location": {
+        "Name": "Number of locations",
+        "Specs": "Maximum locations per month",
+        "Unit": "/month"
+      },
+      "slack": {
+        "Name": "Number of Slack notifications",
+        "Specs": "Maximum Slack messages number sent per month",
+        "Unit": "/month"
+      },
+      "sms": {
+        "Name": "Number of SMS notifications",
+        "Specs": "Maximum number of SMS sent per month",
+        "Unit": "/month"
+      },
+      "teams": {
+        "Name": "Notification - Microsoft Teams",
+        "Specs": "Maximum number of Microsoft Teams messages sent per month",
+        "Unit": "/month"
+      },
+      "telegram": {
+        "Name": "Number of Telegram notifications",
+        "Specs": "Maximum number of telegram messages sent per month",
+        "Unit": "/month"
+      },
+      "webhook": {
+        "Name": "Number of webhook notifications",
+        "Specs": "Maximum webhooks called number per month",
+        "Unit": "/month"
+      }
+    }
+  }
+}

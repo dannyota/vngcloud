@@ -13,6 +13,8 @@ import (
 func showMonitor(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	client := monitor.New(cfg)
 
+	showMonitorQuotas(ctx, client, outputs)
+
 	checks, err := client.ListChecks(ctx, nil)
 	recordAccount(outputs, "monitor/check", "monitor checks", checkItems(checks), err)
 	if err != nil || checks == nil || len(checks.Items) == 0 {
@@ -21,6 +23,12 @@ func showMonitor(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 
 	detail, err := client.GetCheck(ctx, &monitor.GetCheckInput{CheckID: checks.Items[0].ID})
 	recordAccountOne(outputs, "monitor/check_detail", "monitor check detail", detail, err)
+	if checks.Items[0].HistoryAlarmID != "" {
+		alarm, err := client.GetCheckAlarm(ctx, &monitor.GetCheckAlarmInput{CheckID: checks.Items[0].ID})
+		recordAccountOne(outputs, "monitor/check_alarm", "monitor check alarm", alarm, err)
+		history, err := client.ListCheckAlarmHistory(ctx, &monitor.ListCheckAlarmHistoryInput{CheckID: checks.Items[0].ID})
+		recordAccountOne(outputs, "monitor/check_alarm_history", "monitor check alarm history", history, err)
+	}
 }
 
 // showMonitorLocations records vMonitor probe locations. It runs alongside
@@ -79,4 +87,17 @@ func checkItems(result *monitor.ListChecksOutput) []monitor.Check {
 		return nil
 	}
 	return result.Items
+}
+
+func showMonitorQuotas(ctx context.Context, client *monitor.Client, outputs *sdkOutputStore) {
+	usage, err := client.GetQuotaUsage(ctx, nil)
+	recordAccountOne(outputs, "monitor/quota_usage", "monitor quota usage", usage, err)
+	for _, kind := range []string{monitor.NotificationKindEmail, monitor.NotificationKindSMS} {
+		packages, err := client.ListNotificationPackages(ctx, &monitor.ListNotificationPackagesInput{Kind: kind})
+		recordAccountOne(outputs, "monitor/notification_packages_"+kind, "monitor notification packages", packages, err)
+	}
+	quota, err := client.GetSyntheticQuota(ctx, nil)
+	recordAccountOne(outputs, "monitor/synthetic_quota", "monitor synthetic quota", quota, err)
+	syntheticUsage, err := client.GetSyntheticQuotaUsage(ctx, nil)
+	recordAccountOne(outputs, "monitor/synthetic_quota_usage", "monitor synthetic quota usage", syntheticUsage, err)
 }

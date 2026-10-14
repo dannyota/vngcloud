@@ -116,6 +116,7 @@ func TestLive(t *testing.T) {
 	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
+	t.Run("monitor-quotas", func(t *testing.T) { testLiveMonitorQuotas(ctx, t, firstCfg) })
 	t.Run("monitor-alarms", func(t *testing.T) { testLiveMonitorAlarms(ctx, t, firstCfg) })
 	t.Run("globalloadbalancer", func(t *testing.T) { testLiveGlobalLoadBalancer(ctx, t, firstCfg) })
 	t.Run("iam", func(t *testing.T) { testLiveIAM(ctx, t, firstCfg) })
@@ -317,6 +318,14 @@ func testLiveMonitor(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 		}
 		if detail.Check.ID != first.ID {
 			t.Fatalf("GetCheck returned id %q, want %q", detail.Check.ID, first.ID)
+		}
+		if detail.Check.HistoryAlarmID != "" {
+			if _, err := client.GetCheckAlarm(ctx, &monitor.GetCheckAlarmInput{CheckID: first.ID}); err != nil {
+				t.Fatalf("GetCheckAlarm: %v", err)
+			}
+			if _, err := client.ListCheckAlarmHistory(ctx, &monitor.ListCheckAlarmHistoryInput{CheckID: first.ID}); err != nil {
+				t.Fatalf("ListCheckAlarmHistory: %v", err)
+			}
 		}
 	}
 
@@ -1456,5 +1465,32 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("GetQuote: %v", err)
 		}
 		t.Log("ok")
+	})
+}
+
+func testLiveMonitorQuotas(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+	client := monitor.New(cfg)
+	if _, err := client.GetQuotaUsage(ctx, nil); err != nil {
+		t.Fatalf("GetQuotaUsage: %v", err)
+	}
+	for _, kind := range []string{monitor.NotificationKindEmail, monitor.NotificationKindSMS} {
+		if _, err := client.ListNotificationPackages(ctx, &monitor.ListNotificationPackagesInput{Kind: kind}); err != nil {
+			t.Fatalf("ListNotificationPackages %s: %v", kind, err)
+		}
+	}
+	t.Run("synthetic", func(t *testing.T) {
+		quota, err := client.GetSyntheticQuota(ctx, nil)
+		if vngcloud.IsNotFound(err) {
+			t.Skip("account has no synthetic quota")
+		}
+		if err != nil {
+			t.Fatalf("GetSyntheticQuota: %v", err)
+		}
+		if quota.Quota.ID == "" {
+			t.Fatal("GetSyntheticQuota decoded empty identity")
+		}
+		if _, err := client.GetSyntheticQuotaUsage(ctx, nil); err != nil {
+			t.Fatalf("GetSyntheticQuotaUsage: %v", err)
+		}
 	})
 }

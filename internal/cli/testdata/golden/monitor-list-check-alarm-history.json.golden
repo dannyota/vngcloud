@@ -1,0 +1,91 @@
+{
+  "Items": [
+    {
+      "ID": "1791942784094",
+      "AlarmID": "alarm-loc-1",
+      "LocationID": "loc-1",
+      "LocationName": "SYNTT-VN-HCM01",
+      "OldState": "UNDETERMINED",
+      "NewState": "ALARM",
+      "Timestamp": "2026-10-14T08:53:04.094+07:00",
+      "SubAlarms": [
+        {
+          "State": "ALARM",
+          "CurrentValues": [
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "ID": "1791942784473",
+      "AlarmID": "alarm-loc-2",
+      "LocationID": "loc-2",
+      "LocationName": "SYNTT-VN-HAN01",
+      "OldState": "UNDETERMINED",
+      "NewState": "OK",
+      "Timestamp": "2026-10-14T08:53:04.473+07:00",
+      "SubAlarms": [
+        {
+          "State": "OK",
+          "CurrentValues": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "ID": "1791947584199",
+      "AlarmID": "alarm-loc-1",
+      "LocationID": "loc-1",
+      "LocationName": "SYNTT-VN-HCM01",
+      "OldState": "ALARM",
+      "NewState": "OK",
+      "Timestamp": "2026-10-14T10:13:04.199+07:00",
+      "SubAlarms": [
+        {
+          "State": "OK",
+          "CurrentValues": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "ID": "1791947704631",
+      "AlarmID": "alarm-loc-1",
+      "LocationID": "loc-1",
+      "LocationName": "SYNTT-VN-HCM01",
+      "OldState": "ALARM",
+      "NewState": "OK",
+      "Timestamp": "2026-10-14T10:15:04.631+07:00",
+      "SubAlarms": [
+        {
+          "State": "OK",
+          "CurrentValues": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "ID": "1791947765090",
+      "AlarmID": "alarm-loc-1",
+      "LocationID": "loc-1",
+      "LocationName": "SYNTT-VN-HCM01",
+      "OldState": "OK",
+      "NewState": "ALARM",
+      "Timestamp": "2026-10-14T10:16:05.09+07:00",
+      "SubAlarms": [
+        {
+          "State": "ALARM",
+          "CurrentValues": [
+            1
+          ]
+        }
+      ]
+    }
+  ],
+  "Start": "2026-10-14T00:00:00Z",
+  "End": "2026-10-15T00:00:00Z"
+}

@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -20,11 +22,13 @@ import (
 // realistic Check rather than an empty struct.
 func exampleCheck(status string) monitor.Check {
 	return monitor.Check{
-		ID:      "chk-1",
-		Name:    "example-check",
-		Type:    "API",
-		Subtype: "HTTP",
-		Status:  status,
+		ID:             "chk-1",
+		Name:           "example-check",
+		Type:           "API",
+		Subtype:        "HTTP",
+		Status:         status,
+		MonitorStatus:  monitor.MonitorStatusUndetermined,
+		HistoryAlarmID: "alarm-1",
 		Config: monitor.CheckConfig{
 			Request: monitor.CheckRequest{
 				URL:         "https://example.com",
@@ -1660,5 +1664,197 @@ func TestMonitorGetAlarmUnknownIDExitsOneNotFour(t *testing.T) {
 	}
 	if got := exitCode(err); got != 1 {
 		t.Fatalf("exitCode = %d, want 1", got)
+	}
+}
+
+func monitorReadFixture(t *testing.T) *svcFixture {
+	t.Helper()
+	routes := map[string]string{
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1":                                "GetCheck",
+		"/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-1":               "GetCheckAlarm",
+		"/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-loc-1/histories": "ListCheckAlarmHistory",
+		"/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-loc-2/histories": "ListCheckAlarmHistorySecondLocation",
+		"/billing-api/v1/quotas/usages":                                            "GetQuotaUsage",
+		"/billing-api/v1/email/packages":                                           "ListNotificationPackagesEmail",
+		"/billing-api/v1/sms/packages":                                             "ListNotificationPackagesSMS",
+		"/billing-api/v1/synthetic/quota":                                          "GetSyntheticQuota",
+		"/billing-api/v2/synthetic/quota-syn-1/quota-detail":                       "GetSyntheticQuotaDetail",
+		"/billing-api/v1/synthetic/quota/usages":                                   "GetSyntheticQuotaUsage",
+	}
+	handlers := map[string]func(http.ResponseWriter, *http.Request){}
+	for route, name := range routes {
+		body, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "ListNotificationPackagesEmail" {
+			body = []byte(`[{"id":"free","name":"free","price":0,"amount":20},{"id":"unknown","name":"unknown","amount":20}]`)
+		}
+		if name == "GetSyntheticQuotaDetail" {
+			var detail map[string]any
+			if err := json.Unmarshal(body, &detail); err != nil {
+				t.Fatal(err)
+			}
+			delete(detail, "price")
+			body, err = json.Marshal(detail)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		handlers[route] = func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("read sent %s", r.Method)
+			}
+			_, _ = w.Write(body)
+		}
+	}
+	return newSvcFixture(handlers)
+}
+
+func TestMonitorQuotaReadCommands(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+	}{
+		{"get-check-alarm", []string{"--check-id", "chk-1"}},
+		{"list-check-alarm-history", []string{"--check-id", "chk-1", "--start", "2026-10-14T00:00:00Z", "--end", "2026-10-15T00:00:00Z"}},
+		{"get-quota-usage", nil},
+		{"list-notification-packages", []string{"--kind", "Email"}},
+		{"get-synthetic-quota", nil},
+		{"get-synthetic-quota-usage", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			found := false
+			for _, op := range monitorOps {
+				if op.name == tc.name {
+					found = true
+					if op.kind != kindRead {
+						t.Fatal("not Read")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing Read command")
+			}
+			for _, format := range []string{"json", "table", "text"} {
+				t.Run(format, func(t *testing.T) {
+					root, stdout, stderr := newSvcRoot(t, monitorReadFixture(t))
+					args := append([]string{"--region", "hcm-3", "--read-only", "--output", format, "monitor", tc.name}, tc.flags...)
+					if err := execCmd(t, root, args); err != nil {
+						t.Fatalf("%v: %s", err, stderr)
+					}
+					if format != "json" && (tc.name == "list-notification-packages" || tc.name == "get-synthetic-quota") && !strings.Contains(stdout.String(), "unknown") {
+						t.Fatal("missing price must show unknown")
+					}
+					if format != "json" && tc.name == "get-synthetic-quota" && !strings.Contains(stdout.String(), "UTC") {
+						t.Fatal("expiry must show UTC")
+					}
+					path := goldenPath("monitor-" + tc.name + "." + format + ".golden")
+					if *updateGolden {
+						if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+							t.Fatal(err)
+						}
+						return
+					}
+					want, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !bytes.Equal(stdout.Bytes(), want) {
+						t.Fatalf("got:\n%s\nwant:\n%s", stdout, want)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestMonitorHistoryInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		valid bool
+	}{
+		{"defaults", nil, true},
+		{"end", []string{"--end", "2026-10-15T00:00:00Z"}, true},
+		{"precedence", []string{"--cli-input-json", `{"Start":"bad","End":"2026-10-15T00:00:00Z"}`, "--start", "2026-10-14T00:00:00+07:00"}, true},
+		{"bad-time", []string{"--start", "bad"}, false},
+		{"bad-json-time", []string{"--cli-input-json", `{"End":"bad"}`}, false},
+		{"reversed", []string{"--start", "2026-10-15T00:00:00Z", "--end", "2026-10-14T00:00:00Z"}, false},
+		{"equal", []string{"--start", "2026-10-14T00:00:00Z", "--end", "2026-10-14T00:00:00Z"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := monitorReadFixture(t)
+			root, stdout, _ := newSvcRoot(t, fixture)
+			err := execCmd(t, root, append([]string{"--region", "hcm-3", "monitor", "list-check-alarm-history", "--check-id", "chk-1"}, tc.flags...))
+			if !tc.valid {
+				if err == nil || exitCode(err) != 2 {
+					t.Fatalf("err=%v exit=%d", err, exitCode(err))
+				}
+				if fixture.requestCount() != 0 {
+					t.Fatal("invalid range sent request")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out monitor.ListCheckAlarmHistoryOutput
+			if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name != "precedence" && out.End.Sub(out.Start) != 24*time.Hour {
+				t.Fatal("default range is not 24 hours")
+			}
+			if tc.name == "precedence" && out.Start.Format(time.RFC3339) != "2026-10-14T00:00:00+07:00" {
+				t.Fatal("flag did not override JSON")
+			}
+		})
+	}
+}
+
+func TestMonitorQuotaReadQueries(t *testing.T) {
+	for _, tc := range []struct {
+		format, query, want string
+	}{
+		{"json", "Items[1].Price", "null"},
+		{"text", "Items[1].Price", "unknown"},
+		{"text", "Items[0].Price", "0"},
+		{"json", "Items[0].Amount", "20"},
+	} {
+		t.Run(tc.format+tc.query, func(t *testing.T) {
+			root, stdout, _ := newSvcRoot(t, monitorReadFixture(t))
+			err := execCmd(t, root, []string{"--region", "hcm-3", "--output", tc.format, "--query", tc.query,
+				"monitor", "list-notification-packages", "--kind", "email"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(stdout.String()) != tc.want {
+				t.Fatalf("got %q, want %q", stdout.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestMonitorQuotaReadErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status, exit int
+	}{
+		{401, 3}, {403, 1}, {404, 4}, {500, 1},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+				"/billing-api/v1/synthetic/quota": jsonHandler(tc.status, `{"message":"withheld-value"}`),
+			})
+			root, stdout, stderr := newSvcRoot(t, fixture)
+			err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", "get-synthetic-quota"})
+			if err == nil || exitCode(err) != tc.exit {
+				t.Fatalf("err=%v exit=%d, want %d", err, exitCode(err), tc.exit)
+			}
+			if stdout.Len() != 0 || strings.Contains(stderr.String()+err.Error(), "withheld-value") {
+				t.Fatal("failed read exposed response")
+			}
+		})
 	}
 }

@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -105,6 +107,19 @@ import (
 // alarm gets a new ID. A read-only profile refuses all three, before any
 // request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
+	Read[monitor.Client, monitor.GetCheckAlarmInput, monitor.GetCheckAlarmOutput](
+		kebab("GetCheckAlarm"), (*monitor.Client).GetCheckAlarm),
+	Read[monitor.Client, monitor.ListCheckAlarmHistoryInput, monitor.ListCheckAlarmHistoryOutput](
+		kebab("ListCheckAlarmHistory"), (*monitor.Client).ListCheckAlarmHistory),
+	Read[monitor.Client, monitor.GetQuotaUsageInput, monitor.GetQuotaUsageOutput](
+		kebab("GetQuotaUsage"), (*monitor.Client).GetQuotaUsage),
+	monitorQuotaView(Read[monitor.Client, monitor.ListNotificationPackagesInput, monitor.ListNotificationPackagesOutput](
+		kebab("ListNotificationPackages"), (*monitor.Client).ListNotificationPackages)),
+	monitorQuotaView(Read[monitor.Client, monitor.GetSyntheticQuotaInput, monitor.GetSyntheticQuotaOutput](
+		kebab("GetSyntheticQuota"), (*monitor.Client).GetSyntheticQuota)),
+	Read[monitor.Client, monitor.GetSyntheticQuotaUsageInput, monitor.GetSyntheticQuotaUsageOutput](
+		kebab("GetSyntheticQuotaUsage"), (*monitor.Client).GetSyntheticQuotaUsage),
+
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
 	Read[monitor.Client, monitor.GetCheckInput, monitor.GetCheckOutput](
@@ -307,4 +322,53 @@ func refuseLiteralUpdateChannelAddress(cmd *cobra.Command, _ any) error {
 
 func newMonitorCmd(e *env) *cobra.Command {
 	return Service(e, "monitor", "vMonitor synthetic checks", monitor.New, monitorOps...)
+}
+
+func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
+	op.render = renderMonitorQuota
+	return op
+}
+
+// Queries use SDK values; presentation changes only the selected table/text view.
+func renderMonitorQuota(w io.Writer, format, query string, out any) error {
+	if format == outputJSON {
+		return renderOutput(w, format, query, out, false)
+	}
+	data, err := encodeJSON(out)
+	if err != nil {
+		return err
+	}
+	jp, err := compileQuery(query)
+	if err != nil {
+		return err
+	}
+	result, err := runQuery(jp, data)
+	if err != nil {
+		return &queryFailedError{err: err}
+	}
+	result = monitorQuotaCells(result)
+	if format == outputTable {
+		return renderTable(w, result)
+	}
+	return renderText(w, result)
+}
+
+func monitorQuotaCells(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			v[key] = monitorQuotaCells(item)
+		}
+	case []any:
+		for i, item := range v {
+			v[i] = monitorQuotaCells(item)
+		}
+	case nil:
+		return "unknown"
+	case string:
+		if instant, err := time.Parse(time.RFC3339Nano, v); err == nil {
+			return instant.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
+		}
+	}
+	return value
 }

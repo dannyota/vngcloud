@@ -1,0 +1,27 @@
+{
+  "Alarm": {
+    "ID": "def-1",
+    "Status": "OK",
+    "StatusUpdatedAt": "2026-10-14T08:53:03+07:00",
+    "Locations": [
+      {
+        "AlarmID": "alarm-loc-1",
+        "LocationID": "loc-1",
+        "LocationName": "SYNTT-VN-HCM01",
+        "State": "OK",
+        "StateUpdatedAt": "2026-10-14T08:53:03+07:00",
+        "UpdatedAt": "2026-10-14T08:53:03+07:00",
+        "CreatedAt": "2026-10-14T08:51:07+07:00"
+      },
+      {
+        "AlarmID": "alarm-loc-2",
+        "LocationID": "loc-2",
+        "LocationName": "SYNTT-VN-HAN01",
+        "State": "OK",
+        "StateUpdatedAt": "2026-10-14T08:53:03+07:00",
+        "UpdatedAt": "2026-10-14T08:53:03+07:00",
+        "CreatedAt": "2026-10-14T08:51:06+07:00"
+      }
+    ]
+  }
+}

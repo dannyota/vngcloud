@@ -105,9 +105,12 @@ needs and every other type is refused for.
 `Address`, `OTPRef`, and the OTP itself are secrets, the same as a header
 value: none ever appears in an error message, and a server message that
 echoes one back comes back with `<redacted>` in its place instead.
-Sending an OTP to, and later notifying, an `SMS` or `Email` channel counts
-toward that channel's free 20 messages; either one past its free 20 spends
-a paid package. `Slack` and `Telegram` cost nothing extra.
+Email and SMS allowances depend on the account and package. The observed
+Basic synthetic quota grants zero Email and SMS messages. An available
+zero-price notification package advertises 20 messages, but listing it
+does not grant an allowance or prove delivery. OTP quota accounting is
+unverified. See [Monitor Quotas](Monitor-Quotas.md) for alert consumption.
+`Slack` and `Telegram` cost nothing extra.
 
 ### Creating, updating, and deleting channels
 

@@ -122,7 +122,7 @@ varies by service; the linked guides explain each service's supported scope.
 | [Container registry][registry] | Repositories and repository users |
 | [Storage][storage] | Management, native S3 PUT/GET/DELETE/COPY, listing, HEAD, buckets, keys and settings |
 | [CDN][cdn] | Web Accelerator updates, enable/disable, analytics, IP ranges |
-| [Monitoring][monitor] | Uptime checks, channels, log projects, alarms |
+| [Monitoring][monitor] | Uptime checks, channels, log projects, alarms, [quota reads](docs/wiki/Monitor-Quotas.md) |
 | [IAM][iam] | Users, service accounts, policies, groups, access guards |
 | [Tagging][tagging] | Read, add, and remove resource tags |
 | [Kubernetes][vks] | Read clusters, versions, and quota |
