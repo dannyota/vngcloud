@@ -78,35 +78,44 @@ before any quote or send: kind, quota ID, package ID, status, `EndTime`,
 `AutoRenew`, `POC`, and for the synthetic quota the detail's API quantity;
 for auto-renew also the target `Enabled` and period 1; for delete also
 `Purge`. The unresolved-attempt record's identity is operation
-(`set-auto-renew`, `delete`, or `purge`), kind, quota ID, and for
-`set-auto-renew` the target `Enabled` and package. A delete with `Purge`
-has two stages, each with its own record; the purge stage never opens
-while the delete stage is unresolved.
+(`set-auto-renew` or `delete`), kind, quota ID, and the intent: for
+`set-auto-renew` the target `Enabled` and package, for `delete` the
+`Purge` flag. A delete record carries a stage, `delete` or `purge`. The
+purge stage opens only after the delete stage reconciles as settled; a
+later call with the same identity and `Purge` true continues from the
+reconciled stage, while a call whose intent differs (`Purge` false after a
+`Purge` true record, or the reverse) follows the parent's rule and returns
+`ErrInvalidInput` naming the prior attempt and its stage.
 
 An optional `ExpectedQuotaID` on every lifecycle Input is compared with the
-read before send and refuses a mismatch with `ErrInvalidInput`. It narrows
-the window in which a replacement quota could be acted on; the server
-still has no conditional request, so a race between the final reread and
-the send remains, and the Output's returned quota ID lets a caller detect
-it after the fact. That comparison is retrospective detection, not
-prevention.
+quota ID right after the initial read, before any no-op return, quote, or
+send, and again against an existing attempt record's quota ID before that
+record is reconciled; a mismatch returns `ErrInvalidInput`. It narrows the
+window in which a replacement quota could be acted on; the server has no
+conditional request, so a race between the final reread and the send
+remains. The delete and purge requests name no quota, and no response
+names the affected one, so the actual target can remain unknown; the
+Output's quota ID is the intended snapshot, and comparing it afterwards is
+retrospective detection, not proof or prevention.
 
-Partial Outputs carry `Quota *Quota` (the frozen read), `Stage string`
-(`prepared`, `sent`, `settled`, `purge-sent`, or `purged`), and for
-auto-renew `Changed bool`, for delete `Purged bool`. `Stage` is the last
-stage the SDK confirmed, never the one it attempted.
+Partial Outputs carry `Quota *Quota` (the frozen read, the intended
+target, not proof of the affected resource), `Stage string` (`prepared`,
+`sent`, `settled`, `purge-sent`, or `purged`), and for auto-renew
+`Changed bool`, for delete `Purged bool`. `Stage` is the last stage the
+SDK confirmed, never the one it attempted.
 
 ## Delete
 
 `DeleteNotificationQuotaInput` has `Kind` (r), `Purge bool`, and
 `ExpectedQuotaID`; `DeleteSyntheticQuotaInput` has the last two.
 
-1. Refuse read-only profiles and check `Kind` and `ExpectedQuotaID` before
-   any request.
+1. Refuse read-only profiles and check `Kind` and the shape of
+   `ExpectedQuotaID` before any request.
 2. Under the lock, read the quota and freeze the terms. A 404 returns the
-   not-found sentinel. Refuse with `ErrInvalidInput` and no request when
-   `AutoRenew` or `POC` is true: disable auto-renew first, and a POC
-   quota's deletion semantics are unknown.
+   not-found sentinel. Compare `ExpectedQuotaID` at once. Refuse with
+   `ErrInvalidInput` and no request when `AutoRenew` or `POC` is true:
+   disable auto-renew first, and a POC quota's deletion semantics are
+   unknown.
 3. Immediately before send, reread and require the same quota ID, package,
    status, and flags; any change aborts without a send.
 4. Send `DELETE {kind}/quota` once with `Once`, accepting only the recorded
@@ -121,23 +130,31 @@ stage the SDK confirmed, never the one it attempted.
    returns `dns.ErrNotSettled` with the partial Output. Settlement sets
    `Stage` `settled` and closes the delete record.
 6. With `Purge`, after settlement read `GET trash/quotas` once the live
-   check has established its item shape and that it lists the frozen quota
-   ID. If the listing lacks that ID (a free quota can leave trash on its
-   own), return `Purged: false` at `Stage` `settled` with no purge sent.
-   Otherwise send `DELETE trash/{kind}/quota` once with `Once`, open the
-   purge record, then read the trash list every 2 seconds for up to 60
-   seconds until the ID is absent: `Purged: true`, `Stage` `purged`. A
-   purge 404 or any other non-accepted answer while the ID was listed is
-   uncertain, not tolerated: `dns.ErrNotSettled` at `Stage` `purge-sent`.
+   check has established its item shape. Trash membership is a client
+   precondition only: the purge request names no quota, so it acts on
+   whatever trash entry of that kind the server holds. Proceed only when
+   the listing holds exactly one entry of that kind and its ID is the
+   frozen quota ID. No such entry (a free quota can leave trash on its
+   own) returns `Purged: false` at `Stage` `settled` with no purge sent;
+   more than one entry of that kind, or one with another ID, is an
+   ambiguous selection and returns `ErrInvalidInput` with no purge sent.
+   Then send `DELETE trash/{kind}/quota` once with `Once`, move the record
+   to stage `purge`, and read the trash list every 2 seconds for up to 60
+   seconds until the frozen ID is absent: `Purged: true`, `Stage` `purged`.
+   A purge 404 or any other non-accepted answer, or the bound, is
+   `dns.ErrNotSettled` at `Stage` `purge-sent`. A second entry can still
+   appear between the listing and the send; that kind-wide race has no
+   server-side guard and the wiki says so.
 
 Reconciliation of an open record, by reads only: a delete record resolves
-to settled on either evidenced outcome, to rejected when the read shows
-the same quota unchanged (same ID, status, `UpdatedAt`) after the bound,
-and otherwise stays open. A purge record resolves to purged when the trash
-list lacks the ID and stays open while it lists it; because the purge
-target is bound by ID and the call is idempotent, a matching call whose
-trash read still lists the ID may send one new purge. That is the only
-resend any quota write permits.
+to settled on either evidenced outcome; an unchanged read (same ID,
+status, `UpdatedAt`) never proves the server did not act, so it stays
+inconclusive, and the bound returns `dns.ErrNotSettled` again. A record
+closes as rejected only on a definite refusal response at send time or on
+authoritative provider evidence the manager records. A record at stage
+`purge` resolves to purged when the trash list lacks the frozen ID and
+stays open while it lists it; no call resends the purge, per the parent's
+rule, and the recovery is the console.
 
 The CLI commands `delete-notification-quota` and `delete-synthetic-quota`
 are Write and Destructive: `--yes` is required, `--purge` adds the second
@@ -152,10 +169,16 @@ the recovery is a read.
 has the last three. The period is always 1 month.
 
 1. Refuse read-only profiles; check `Kind`, a nil `Enabled`, a finite
-   nonnegative `MaxPrice`, and `ExpectedQuotaID` before any request.
-2. Under the lock, read the quota and freeze the terms (404 is not-found).
-   When `AutoRenew` already equals the target and, for enable,
-   `AutoRenewPeriod` is 1, return `Changed: false` and send nothing.
+   nonnegative `MaxPrice`, and the shape of `ExpectedQuotaID` before any
+   request.
+2. Under the lock, read the quota and freeze the terms (404 is not-found)
+   and compare `ExpectedQuotaID` at once. When `AutoRenew` already equals
+   the target and, for enable, `AutoRenewPeriod` is 1, return `Changed:
+   false` and send nothing. An enable on a quota already enabled with a
+   period other than 1 is refused with `ErrInvalidInput` before any quote:
+   the SDK does not correct a period it did not set, and the period's
+   semantics for a quota are unverified. This is the chosen behavior over a
+   guarded correction to period 1.
 3. For enable, quote the renewal from the frozen terms through the
    parent's renewal quote mapping and apply the price guard: the higher of
    quote and list price must not exceed `MaxPrice`, and a zero quote for a
@@ -169,9 +192,11 @@ has the last three. The period is always 1 month.
    Every other check (identity, package, quantity, status, guard) applies
    to free and POC quotas unchanged.
 5. Immediately before send, reread and require the same quota ID, package,
-   status, `POC`, and for synthetic the same API quantity; for enable also
-   that `AutoRenew` is still false. A package or quantity change during
-   quoting aborts without send, since the guard priced different terms.
+   status, `POC`, the same `AutoRenew` and `AutoRenewPeriod` as the frozen
+   baseline for both enable and disable, and for synthetic the same API
+   quantity. A package or quantity change during quoting aborts without
+   send, since the guard priced different terms; a flag or period change
+   aborts because another actor already changed the setting.
 6. Send `POST {kind}/quota/{id}/update-auto-renew` once with `Once`. The
    path ID is the frozen quota ID after `core.CheckPathID`; the body
    repeats it as `resourceId`. Accept only the recorded statuses. A 4xx or a
@@ -186,12 +211,15 @@ has the last three. The period is always 1 month.
    SDK learns the server ignores the setting.
 
 Reconciliation of an open auto-renew record: the same quota and package
-showing the target resolves it as applied; the same quota showing the
-opposite with `UpdatedAt` unchanged from the frozen read resolves it as
-not applied and returns the original error; anything else stays open. An
-opposing-setting call while a record is open reconciles first and, per the
-parent rule, returns `ErrInvalidInput` naming the prior attempt once it
-resolves; the caller reruns the opposing call deliberately.
+showing the target resolves it as applied. The same quota showing the
+opposite, with or without an unchanged `UpdatedAt`, never proves the
+server did not act, so it stays open and the bound returns
+`dns.ErrNotSettled` again; only a definite refusal response at send time
+or authoritative provider evidence closes it as rejected. An
+opposing-setting call while a record is open reconciles first and, per
+the parent rule, returns `ErrInvalidInput` naming the prior attempt once
+it resolves, and `dns.ErrNotSettled` while it stays open; the caller
+reruns the opposing call deliberately only after a resolution.
 
 The CLI commands `set-notification-quota-auto-renew` and
 `set-synthetic-quota-auto-renew` are Write, not Destructive: the opposite
@@ -215,8 +243,10 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
   reread and the send would be deleted instead. `ExpectedQuotaID`, the
   lock, and the reread narrow the window; the Output's quota ID detects
   the case afterwards. No server precondition exists to prevent it.
-- Purge is irreversible, is sent only against a trash entry bound to the
-  frozen ID, and never follows an unsettled delete.
+- Purge is irreversible and names no quota: the trash listing is a client
+  precondition, an ambiguous listing refuses, a second entry can still
+  appear before the send, and purge never follows an unsettled delete or
+  is resent.
 - Auto-renew enable on a paid quota is a future-charge consent; the guard
   runs on the frozen terms before every enable, the reread aborts on a
   package or quantity change, and disable never quotes.
@@ -225,28 +255,37 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 ## Deterministic checks
 
-- Delete: read-first with the 404 case; refusal on auto-renew, POC, or an
-  `ExpectedQuotaID` mismatch with no request; abort on a changed reread;
-  one `DELETE` under each recorded status, 502, dropped connection, and
-  307; settle on 404 and on same-ID `IN-TRASH`; an ERROR or intermediate
-  status, a different ID, or a different package never settles; the
-  60-second bound; `Purge` sent only after settlement and a trash listing
-  with the frozen ID, skipped with `Purged: false` when absent, never after
-  an unsettled delete; purge 404 while listed is `NotSettled` at
-  `purge-sent`; one permitted purge resend on a matching call while still
-  listed; `--yes` and read-only refusal; `Stage` values in partial Output.
-- Auto-renew: nil `Enabled` refused; no-op at target; enable quotes and
-  guards on the frozen terms, disable sends no quote; free and POC quotas
-  proceed with the warning; reread aborts on a package, quantity, status,
-  or flag change; one `POST` under each recorded status, 502, dropped
-  connection, and 307; confirm requires the same ID and package with the
-  target and `AutoRenewPeriod`; a replacement quota at the target never
-  confirms; the 30-second bound; reconciliation outcomes applied, not
-  applied, and open; an opposing call while open returns `ErrInvalidInput`
-  naming the attempt; path ID from the read; read-only refusal; `Changed`.
-- Both: record identities include operation, kind, quota ID, and the
-  operation's terms; a completed delete followed by an uncertain purge
-  leaves `Stage` `purge-sent` and reconciles from the trash list only.
+- Delete: read-first with the 404 case; `ExpectedQuotaID` compared right
+  after the read and against an open record; refusal on auto-renew or POC
+  with no request; abort on a changed reread; one `DELETE` under each
+  recorded status, 502, dropped connection, and 307; settle on 404 and on
+  same-ID `IN-TRASH`; an ERROR or intermediate status, a different ID, or a
+  different package never settles; the 60-second bound; an unchanged read
+  stays inconclusive and never closes the record as rejected; `Purge` sent
+  only after settlement and a trash listing with exactly one entry of that
+  kind bearing the frozen ID, skipped with `Purged: false` when absent,
+  refused as ambiguous with two entries or another ID, never after an
+  unsettled delete; purge 404 while listed is `NotSettled` at
+  `purge-sent`; no purge resend on any later call; a matching `Purge` call
+  continues from the reconciled stage while a changed `Purge` intent
+  returns `ErrInvalidInput`; `--yes` and read-only refusal; `Stage` values
+  in partial Output.
+- Auto-renew: nil `Enabled` refused; `ExpectedQuotaID` compared before the
+  no-op return; no-op at target; enable on a period other than 1 refused
+  before any quote; enable quotes and guards on the frozen terms, disable
+  sends no quote; free and POC quotas proceed with the warning; reread
+  aborts on a package, quantity, status, flag, or period change for both
+  targets; one `POST` under each recorded status, 502, dropped connection,
+  and 307; confirm requires the same ID and package with the target and
+  `AutoRenewPeriod`; a replacement quota at the target never confirms; the
+  30-second bound; reconciliation outcomes applied and open, with an
+  opposite read never closing the record; an opposing call while open
+  returns `NotSettled` and, once resolved, `ErrInvalidInput` naming the
+  attempt; path ID from the read; read-only refusal; `Changed`.
+- Both: record identities include operation, kind, quota ID, and intent;
+  a completed delete followed by an uncertain purge leaves `Stage`
+  `purge-sent` and reconciles from the trash list only; Output is the
+  intended snapshot, never asserted as the affected resource.
 
 ## Live checks
 
@@ -256,12 +295,13 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
    else stop before any write. Send enable once and record status, body,
    and timings. Read until the setting shows or 30 seconds pass. If the
    read shows enabled, send disable once and read until it shows disabled;
-   that restores the baseline. If the read shows disabled with `UpdatedAt`
-   unchanged, the server did not act: record the refusal, send nothing
-   more. If reads stay inconclusive, send no disable blind; report the
-   quota ID and last read as unresolved, and the manager restores by hand
-   in the console after reading it there. The same read protocol governs
-   an ambiguous disable. This check evidences only the rows it ran.
+   that restores the baseline. A definite refusal response at send time
+   records the refusal and sends nothing more. A read that still shows
+   disabled, with or without an unchanged `UpdatedAt`, proves nothing:
+   treat the enable as inconclusive, send no disable blind, report the
+   quota ID and last read as unresolved, and let the manager read and, if
+   needed, restore by hand in the console. The same rule governs an
+   ambiguous disable. This check evidences only the rows it ran.
 2. Delete and purge need a disposable quota and separate owner approval:
    order a free quota of a kind the account does not use for production
    (for example `smsfree`), within the privately kept action ledger, read
