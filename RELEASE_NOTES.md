@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.83.0 - vMonitor Email Notification Quota Order
+
+- SDK `GetNotificationQuota` and `GetNotificationQuotaUsage`, with CLI
+  `monitor get-notification-quota --kind Email` and
+  `get-notification-quota-usage --kind Email`, read the email quota, its
+  expiry, and the emails sent this month. A missing quota is `NotFound`
+  (exit 4).
+- SDK `QuoteCreateNotificationQuota` and `CreateNotificationQuota`, with CLI
+  `quote-create-notification-quota` and `create-notification-quota --kind
+  Email`, order an email notification quota. The free `emailfree` package
+  (0 VND, 20 emails a month) is the default. A paid package is ordered only
+  when `--max-price` covers the higher of its quote and list price, both
+  before VAT. A positive `--max-price` prints a stderr warning that the
+  order may debit the balance.
+- The order refuses when an email quota already exists. It re-checks the
+  quota just before sending, sends once, never retries, and waits up to
+  120 seconds for the quota to become active (`--no-wait` skips the wait).
+  After an uncertain outcome, read the quota before ordering again.
+- SMS quota reads, quotes, and orders are refused locally until SMS
+  behavior is verified. Listing SMS packages still works.
+- Each alert email consumes the email quota. Free quotas renew only in
+  their last 7 days; renewal commands come in a later release.
+
 ## v0.82.0 - vMonitor Check Alarm and Quota Reads
 
 - `monitor.Check` adds `MonitorStatus` (`OK`, `ALARM`, or `UNDETERMINED`),
