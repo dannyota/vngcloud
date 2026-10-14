@@ -352,8 +352,8 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
   type's `http(s)` address keeps scheme and host plus `/<redacted>`, else
   all `<redacted>`. Header values print `<redacted>`, in every format and
   before `--query`. No flag reveals them; the SDK does.
-- `CreateLogProject` orders nothing above `MaxPrice`, default 0. SMS and
-  email beyond the free 20 each spend a paid package; the wiki says so.
+- `CreateLogProject` orders nothing above `MaxPrice`, default 0. Email and
+  SMS alerts need a quota; see [check state and quotas](monitor-quotas.md).
 - Each write release gets an adversarial review. It checks: no resend of
   a create, Send OTP, Validate OTP, or the order; the price guard runs
   before the order on the create's own body; redaction in output, errors,
@@ -401,8 +401,8 @@ manager records only field names, types, statuses, and timings.
    the `PUT` return?), delete the channel, and read the check (does the ID
    dangle?). Delete the check.
 3. Email channel to an address the owner reads: Send OTP, Validate, and
-   create, then delete. The owner relays the code. Also whether an email
-   alert needs an email package.
+   create, then delete. The owner relays the code. An email alert needs
+   an email quota: [check state and quotas](monitor-quotas.md).
 4. Free Basic log project `vngcloud-live-<hex>`: done; the results are in
    [Log projects](#log-projects). Still open: a delete with `Purge` in one
    call.
