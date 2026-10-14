@@ -126,8 +126,14 @@ type Request struct {
 	// The transport reads at most MaxBody+1 bytes, so it can tell a body
 	// that exactly fills the cap from one that overflows it: reading that
 	// many means the real body is larger, and the call fails with
-	// ErrBodyTooLarge instead of returning a partial body.
+	// an error instead of returning a partial body; see ErrBodyTooLarge for
+	// HTTP error classification.
 	MaxBody int64
+
+	// BodyLimitOverridesStatus returns ErrBodyTooLarge on overflow even for
+	// HTTP errors. The observed status is still returned, so the caller can
+	// apply a contract that gives body overflow precedence over status mapping.
+	BodyLimitOverridesStatus bool
 
 	// Once sends req at most once, overriding every retry rule Idempotent
 	// and the method would otherwise apply: no retry after any status or
@@ -232,10 +238,12 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 	req.resetSentCredentials()
 	statusCode, _, body, err := c.doAuthenticated(ctx, req, client)
 	if err != nil {
-		if req.discovery {
-			return statusCode, err
+		if errors.Is(err, ErrBodyTooLarge) && statusCode >= http.StatusBadRequest && !req.BodyLimitOverridesStatus {
+			// Classify from the status alone. The oversized body is discarded,
+			// so neither its text nor a partial envelope can reach the error.
+			return statusCode, decodeError(req, statusCode, nil)
 		}
-		return 0, err
+		return statusCode, err
 	}
 
 	if !containsStatus(req.OK, statusCode) {

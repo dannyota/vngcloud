@@ -33,14 +33,14 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
-// ErrBodyTooLarge is returned by DoJSONStatus and DoRaw when a response body
-// exceeds Request.MaxBody. It is never wrapped in an APIError: a caller
-// that wants to tell it apart from a genuine HTTP or network failure uses
-// errors.Is directly. DoRaw returns it alongside the response's real status
-// code, rather than 0, so a caller can tell an oversized body on a 200 from
-// one on a 503: the status, not the size, decides what the failure means.
-// DoJSONStatus still returns status 0 on this error, since no JSON caller
-// reads the status on an error path today.
+// ErrBodyTooLarge reports a response body that exceeds Request.MaxBody.
+// DoRaw returns it with the observed HTTP status and no partial body.
+// DoJSONStatus also preserves the status, but an oversized 4xx or 5xx body
+// becomes an APIError classified from that status without any peer body text.
+// Request.BodyLimitOverridesStatus keeps ErrBodyTooLarge instead for callers
+// whose contracts give body overflow precedence over HTTP classification.
+// Other statuses return ErrBodyTooLarge directly, including oversized 2xx
+// responses; callers can distinguish these from HTTP failures with errors.Is.
 var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
 
 func retryableStatus(status int) bool {

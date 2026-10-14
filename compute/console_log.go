@@ -34,14 +34,16 @@ func (c *Client) GetServerConsoleLog(ctx context.Context, in *GetServerConsoleLo
 	}
 	var resp map[string]json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
-		Operation:       op,
-		Method:          "GET",
-		URL:             c.computeURL("v2", []string{projectID, "servers", in.ServerID, "console-log"}, nil),
-		OK:              []int{200},
-		Sensitive:       true,
-		NoRedirect:      true,
-		MaxBody:         8 << 20,
-		WithholdMessage: "console log request failed; body withheld",
+		Operation:  op,
+		Method:     "GET",
+		URL:        c.computeURL("v2", []string{projectID, "servers", in.ServerID, "console-log"}, nil),
+		OK:         []int{200},
+		Sensitive:  true,
+		NoRedirect: true,
+		MaxBody:    8 << 20,
+		// The console-log contract gives overflow precedence on every status.
+		BodyLimitOverridesStatus: true,
+		WithholdMessage:          "console log request failed; body withheld",
 		ClassifyError: func(status int, _ string) string {
 			if code := core.ResolvedCode(status, ""); code != "" {
 				return code
