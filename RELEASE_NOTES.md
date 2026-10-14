@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.81.2 - Billing Cost Resource Fixes
+
+- `billing.ListCostResources` and CLI `billing list-cost-resources` now
+  return the first page. The cost explorer API pages from 0; the SDK sent
+  the 1-based `Page` unchanged, so it skipped the first page and returned no
+  rows at all when every row fit on one page. `Page` stays 1-based: the SDK
+  sends `Page - 1` and reports the server's page plus 1. A response whose
+  page is negative or the largest int returns an `InvalidResponse` API
+  error.
+- `CostResource.Cost` now reads the API's `totalCost`, the resource's total
+  cost over the requested range in VND. It previously read `cost`, which the
+  API never sends, so every row showed 0.
+- `CostResource` adds `DailyAverage` (`dailyAvg`) and `StartDate`
+  (`startDate`, `YYYY-MM-DD`). The account ID and region in each item stay
+  omitted.
+- Compatibility: SDK JSON that serialized `CostResource` with the old `cost`
+  key no longer decodes into `Cost`; re-encode it with `totalCost`. Unkeyed
+  `CostResource` struct literals no longer compile. CLI JSON keeps the `Cost`
+  key and adds `DailyAverage` and `StartDate`; table and text output gain two
+  columns, so scripts that read text columns by position must be updated.
+
 ## v0.81.1 - User Guides and Storage Workload Access
 
 - Document application access to vStorage from vServer and VKS: dedicated
