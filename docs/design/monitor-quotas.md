@@ -22,19 +22,19 @@ Ship the smallest independently useful slices, subject to owner decisions:
    verified quota reads, and the wiki correction.
 2. Email quota reads, quote, and free email order together. The order
    response and all four alert receipts are verified; the rest stays gated.
-3. Free Synthetic Test extension, then Email extension, independently as
-   their gates close. Synthetic expiry stops checks, so prioritize it.
-4. SMS writes and trash recovery with their own evidence; paid packages
-   ship with the order whenever `MaxPrice` covers them.
-5. Auto-renew, then delete and purge, under [quota
-   lifecycle](monitor-quotas-lifecycle.md), each after its live check.
+3. SMS quota read, quote, and order; Email and SMS auto-renew disable and
+   active-quota delete (decision 11); enable deferred (decision 12).
+4. Free Synthetic Test extension after an in-window renewal (the server
+   allows a free renewal only in its last 7 days), then Email extension.
+5. Notification auto-renew enable, synthetic delete, and purge or recovery
+   under [quota lifecycle](monitor-quotas-lifecycle.md), each after its
+   own live check.
 
-The free order and all four receipts are verified; four emails against
-three logged transitions, and action accounting, stay open. No gate is waived.
+Four emails against three logged transitions stay open; no gate is waived.
 
 Out of scope: metric quotas, log quota renewal/resize, new or paid
 Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
-and a settings operation. Slack, Telegram, Webhook, and Teams have counters
+and a settings operation; Slack, Telegram, Webhook, and Teams have counters
 but no packages. Production quotas are never deleted for a test.
 
 ## Public surface
@@ -117,11 +117,10 @@ invent pages. An unknown definition ID gets 500, returned as that
 
 ### Quota reads
 
-Unspecified textual fields are strings; timestamps must be present and
-parse as RFC 3339 where a decision or identity needs them. Empty Inputs:
-`GetQuotaUsage`, `GetSyntheticQuota`, `GetSyntheticQuotaUsage`. Required
-Kind Inputs: `GetNotificationQuota`, `GetNotificationQuotaUsage`,
-`ListNotificationPackages`.
+Unspecified textual fields are strings; timestamps parse as RFC 3339 where
+a decision or identity needs them. Empty Inputs: `GetQuotaUsage`,
+`GetSyntheticQuota`, and `GetSyntheticQuotaUsage`; required `Kind` Inputs:
+`GetNotificationQuota`, `GetNotificationQuotaUsage`, and the package list.
 
 - `GetQuotaUsageOutput` has `Usage QuotaUsage`. `QuotaUsage` has
   `SyntheticUsages []UsageCounts`, `EmailUsages []NotificationUsage`
@@ -136,12 +135,12 @@ Kind Inputs: `GetNotificationQuota`, `GetNotificationQuotaUsage`,
   Its quota and detail reads must both succeed and agree on resource and
   package identity. Check the returned quota ID before the detail path.
 - `Quota` has `ID, Name, Type, Status, PackageID string`,
-  `StartTime, EndTime, CreatedAt, UpdatedAt time.Time`,
-  `AutoRenew, POC, System bool`, and `AutoRenewPeriod int` (months).
-  AutoRenew and POC decode numeric 0 (live) as false and numeric 1 as
-  true (inferred from console truthiness, gated on evidence); any other
-  encoding fails closed. Constants `QuotaStatusActive` and `QuotaStatusInTrash`
-  describe known statuses; reads preserve other status strings.
+  `StartTime, EndTime, CreatedAt, UpdatedAt time.Time` (a wire null
+  `updatedAt`, live while CREATING, decodes as the zero time; the type is
+  unchanged), `AutoRenew, POC, System bool`, and `AutoRenewPeriod int`.
+  AutoRenew decodes numeric 0 and 1 (both live); POC decodes 0 (live) and
+  1 (inferred, gated); other encodings fail closed. `QuotaStatusActive`
+  and `QuotaStatusInTrash` name known statuses; other strings pass through.
 - `SyntheticQuotaDetail` has `API, Location, Email, SMS, Slack, Webhook,
   Telegram, Teams int`, `ClassName, TierName string`, and `Price *float64`.
 - Both quota usage Outputs have `Usage QuotaUsageDetail`: `Counts
@@ -151,11 +150,12 @@ Kind Inputs: `GetNotificationQuota`, `GetNotificationQuotaUsage`,
   A package has `ID, Name string`, `Price *float64` (VND), `Amount int`.
   Nil Price means absent or null, never free. Arrays have no observed pages.
 
-Email quota and usage schemas are live; SMS schemas stay inferred and do
-not ship on Email evidence. A quota-read 404 means NotFound; a
-create proceeds only on the verified kind-specific absence response, not a
-404 from another route, auth proxy, or usage read. A renewal 404 never
-falls back to create. A missing synthetic quota points to the console.
+Support is per operation and kind, in the [lifecycle support
+matrix](monitor-quotas-lifecycle.md#support-matrix): the SMS quota read,
+quote, and create are live, while the SMS usage read stays refused until
+evidenced. A quota-read 404 means NotFound; a create proceeds only on the
+verified kind-specific absence response, not a 404 from another route,
+auth proxy, or usage read. A renewal 404 never falls back to create.
 
 ### Quote and price contract
 
@@ -175,17 +175,15 @@ and ignores MaxPrice, MaxDaysLeft, and NoWait. Each named Output aliases
 no opaque properties or URLs. A quote is an estimate, never authorization.
 
 Validate finite nonnegative MaxPrice, nonnegative MaxDaysLeft, and expiry
-syntax before requests. Reject duration arithmetic overflow. Resolve a
-package once; an omitted PackageID selects exactly one present zero-price
-package. Unknown, duplicate, missing-price, or ambiguous candidates refuse
-before quote/order, after the necessary list read.
+syntax before requests; reject duration overflow. Resolve a package once:
+an omitted PackageID selects the single zero-price package; unknown,
+duplicate, unpriced, or ambiguous candidates refuse after the list read.
 
 **Order terms and quote mapping:** every write freezes one immutable set
-of order terms before any quote: kind, package ID, `monthPeriod` fixed at
-1, and for a renewal the quota ID, its package, and the frozen expiry. One
-builder per write maps those terms to its quote request and its mutation
-body (ADR 0002 rule 8 asks for shared construction; live, no quote
-endpoint accepts a mutation body).
+of order terms before any quote: kind, package ID, `monthPeriod` 1, and
+for a renewal the quota ID, package, and frozen expiry. One builder per
+write maps those terms to its quote request and mutation body (ADR 0002
+rule 8 asks for shared construction; no quote accepts a mutation body).
 
 | Write | Quote request (from the terms) | Mutation body |
 |-|-|-|
@@ -205,8 +203,8 @@ of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
 quote and list price and return `ErrPriceAboveMax` if exceeded. List and
 quote must cover the same quantity and one-month term. Synthetic writes
 cover only the verified free package with zero detail and quote prices.
-Quotes are pre-VAT, so the actual debit can exceed the quote; a paid
-package is allowed whenever MaxPrice covers the higher value.
+Email quotes are inferred pre-VAT in the API sibling, so the actual debit
+can exceed the quote; a paid package is allowed whenever MaxPrice covers.
 
 ### Order and renewal execution
 
@@ -214,14 +212,17 @@ Preparation reads packages and quota under the per-Client write lock. Create
 refuses an existing quota before quoting. Renew compares the read EndTime
 to ExpectedEndTime as instants; a mismatch is ErrInvalidInput with no
 quote or write. Positive MaxDaysLeft skips a further-away expiry with
-`Renewed: false` after the reads; zero allows early renewal.
+`Renewed: false` after the reads; zero allows early renewal. A free quota's
+extension outside its last 7 days gets 409 (live), a definite refusal with
+no state change, returned as the status-classified `Conflict` `*APIError`:
+visible, never retried; a job avoids it with `MaxDaysLeft` 7, not by
+suppressing 409s.
 
-Refuse POC, auto-renewing, unknown-status, missing-identity, or invalid-expiry
-quotas before quoting. The console recovers only when expired AND IN-TRASH,
-otherwise extends; do not reduce that to status alone. Initially only
-evidenced ACTIVE extension is eligible; other-status or gated recovery
-cases refuse without a write. Recovery waits for a verified trash lookup
-contract; never invent a resource from an empty trash list.
+Refuse POC, auto-renewing, unknown-status, missing-identity, or
+invalid-expiry quotas before quoting. The console recovers only when
+expired AND IN-TRASH, otherwise extends; only evidenced ACTIVE extension
+is eligible, other-status or gated recovery cases refuse without a write,
+and recovery waits for a verified trash lookup contract.
 
 Immediately before send, reread and repeat the complete eligibility
 predicate on the fresh snapshot: quota identity, package, expiry equal to
@@ -233,9 +234,9 @@ or requote in a loop. No server precondition or price lock is known, so
 this narrows but cannot eliminate cross-client races or price changes.
 
 Send the evidenced body with `pay: true`, one month, and the fixed console
-redirect value. `Once: true` prevents retries on every status/error, token
-refresh resend, and redirects. Use it for every order, extension, and
-recovery, not merely NoRedirect. SDK and CLI add no outer write retries.
+redirect value, with `Once: true` on every order, extension, and recovery:
+no retry on any status or error, no token-refresh resend, no redirect, and
+no outer SDK or CLI retry.
 
 `CreateNotificationQuotaOutput` has `Quota *Quota`, `OrderID string`,
 `PaymentPending bool`. `RenewQuotaOutput`, aliased by both renewal Outputs,
@@ -248,10 +249,10 @@ redirectUrl (a free order echoes it). Then return partial Output with
 
 Otherwise wait with reads every 2 seconds under a 120-second child context
 bounded also by the caller's context. Create settles only on the selected
-package at ACTIVE; a 404 or CREATING keeps polling (live: 404, CREATING at
-about 3 s, ACTIVE at about 5 s). Renewal requires the same quota/package,
-ACTIVE, and EndTime later than PreviousEndTime; leaving trash alone is
-insufficient. NoWait suppresses the wait, not single-send or uncertainty.
+package at ACTIVE; a 404 or a CREATING read, whose `updatedAt` can be null,
+keeps polling (live: 404, CREATING at 3 s, ACTIVE at 5 to 6 s). Renewal
+needs the same quota/package, ACTIVE, and EndTime later than
+PreviousEndTime; trash exit alone is insufficient. NoWait skips the wait only.
 
 Pre-send errors return nil Output except the documented expiry skip.
 Definite 4xx refusal or a proven failed dial returns its sanitized error.
@@ -368,33 +369,32 @@ the probes. File references name inspected code, not satisfied invariants.
 
 ## Owner decisions
 
-All ten are decided. Decisions 3 and 6 changed from the recommendation;
-the rest were approved as recommended. Approval replaces no wire evidence.
+Eleven are decided (3 and 6 changed, 11 decided against the
+recommendation, the rest as recommended); 12 is proposed. Approval is no
+evidence.
 
-1. Release order: reads first, then free Email, then Synthetic and Email
-   extensions; SMS and recovery gated separately; lifecycle writes last.
-2. Time inputs: RFC 3339 strings on existing flags, no time.Time
-   reflection support.
-3. Price safety, changed: frozen order terms mapped by one builder per
-   write, and the higher of quote and list price as the local guard. Paid
-   packages are allowed whenever MaxPrice covers them; the account runs on
-   credit, so no debit or tax evidence gates a paid write.
-4. Renewal consent: required ExpectedEndTime and optional MaxDaysLeft; the
-   former refuses stale requests, the latter supports cron.
-5. Repetition: Once, the full eligibility re-check before send, and a
-   per-Client unresolved-attempt record keyed by operation and frozen terms
-   with the reconciliation rules above; callers serialize across processes.
-6. Scope, changed: quota delete, purge, and auto-renew are in scope after
-   the renewals, under [quota lifecycle](monitor-quotas-lifecycle.md), each
-   gated on its own live check; on a free or POC quota the SDK sends the
-   auto-renew setting and reports the server's answer with a warning.
-7. Output safety: small state/history views, no raw free-form text or
-   unseen usage shapes, and explicit local size bounds.
-8. Existing-quota create: refuse before quote/order; a second order's
-   effect is unknown and may charge again.
-9. History paging: ship history in release 1 with Items documented as the
-   server's returned records, paging and truncation unknown, and empty
-   Items proving nothing.
-10. Creation price source: the v2 quote alone with the period fixed at 1,
-    as the console buy page does, bounded by the list price; v1 returns
-    500 for free packages, so it cannot be the source.
+1. Release order: reads and free Email (shipped), then SMS create, disable,
+   and delete, then renewals after an in-window synthetic renewal, then
+   the remaining rows as evidenced.
+2. Time inputs: RFC 3339 strings on existing flags, no time.Time support.
+3. Price safety, changed: frozen terms mapped by one builder per write,
+   and the higher of quote and list price as the local guard. Paid
+   packages ship whenever MaxPrice covers them; no debit or tax gate.
+4. Renewal consent: required ExpectedEndTime, optional MaxDaysLeft for cron.
+5. Repetition: Once, the full re-check before send, and a per-Client
+   attempt record keyed by operation and frozen terms; callers serialize.
+6. Scope, changed: delete, purge, and auto-renew in scope under [quota
+   lifecycle](monitor-quotas-lifecycle.md), each row gated on its own
+   evidence; the server's free-quota 400 is reported, not refused locally.
+7. Output safety: small views, no raw text or unseen usage shapes, bounds.
+8. Existing-quota create: refuse before quote; a second order may charge.
+9. History: Items are the server's records; paging and truncation unknown.
+10. Creation price source: the v2 quote at period 1, bounded by list price.
+11. Email lifecycle rows, decided: SMS evidence covers Email auto-renew
+    disable and active-quota delete, which ship with the SMS rows: one
+    console path, identical bodies, matching live order responses and
+    quota reads; only the unused v1 VAT treatment differs. Orders are not
+    covered; each was verified on its own.
+12. Notification auto-renew enable, proposed: defer Email and SMS enable
+    until a live renewal quote with `resourceId` exists (never sent).
+    Recommended: defer; the alternative is another paid SMS purchase.

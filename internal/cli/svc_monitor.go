@@ -112,12 +112,18 @@ import (
 var monitorOps = []Op[monitor.Client]{
 	monitorQuotaView(Read[monitor.Client, monitor.GetNotificationQuotaInput, monitor.GetNotificationQuotaOutput](
 		kebab("GetNotificationQuota"), (*monitor.Client).GetNotificationQuota)),
-	Read[monitor.Client, monitor.GetNotificationQuotaUsageInput, monitor.GetNotificationQuotaUsageOutput](
-		kebab("GetNotificationQuotaUsage"), (*monitor.Client).GetNotificationQuotaUsage),
+	monitorQuotaView(Read[monitor.Client, monitor.GetNotificationQuotaUsageInput, monitor.GetNotificationQuotaUsageOutput](
+		kebab("GetNotificationQuotaUsage"), (*monitor.Client).GetNotificationQuotaUsage)),
 	Read[monitor.Client, monitor.CreateNotificationQuotaInput, monitor.QuoteCreateNotificationQuotaOutput](
 		kebab("QuoteCreateNotificationQuota"), (*monitor.Client).QuoteCreateNotificationQuota,
 		NoFlag("MaxPrice", "NoWait")),
 	monitorEmailCreateOp(),
+	monitorQuotaView(Write[monitor.Client, monitor.SetNotificationQuotaAutoRenewInput, monitor.SetNotificationQuotaAutoRenewOutput](
+		kebab("SetNotificationQuotaAutoRenew"), (*monitor.Client).SetNotificationQuotaAutoRenew)),
+	monitorSyntheticAutoRenewOp(),
+	monitorQuotaView(Write[monitor.Client, monitor.DeleteNotificationQuotaInput, monitor.DeleteNotificationQuotaOutput](
+		kebab("DeleteNotificationQuota"), (*monitor.Client).DeleteNotificationQuota,
+		Destructive(), WriteNoFlag("Purge"))),
 	Read[monitor.Client, monitor.GetCheckAlarmInput, monitor.GetCheckAlarmOutput](
 		kebab("GetCheckAlarm"), (*monitor.Client).GetCheckAlarm),
 	Read[monitor.Client, monitor.ListCheckAlarmHistoryInput, monitor.ListCheckAlarmHistoryOutput](
@@ -207,15 +213,29 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("DeleteLogAlarm"), (*monitor.Client).DeleteLogAlarm, Destructive()),
 }
 
+func monitorSyntheticAutoRenewOp() Op[monitor.Client] {
+	op := monitorQuotaView(Write[monitor.Client, monitor.SetSyntheticQuotaAutoRenewInput, monitor.SetSyntheticQuotaAutoRenewOutput](
+		kebab("SetSyntheticQuotaAutoRenew"), (*monitor.Client).SetSyntheticQuotaAutoRenew))
+	call := op.call
+	op.call = func(cmd *cobra.Command, client *monitor.Client, ctx context.Context, input any) (any, error) {
+		in := input.(*monitor.SetSyntheticQuotaAutoRenewInput)
+		if in.Enabled != nil && *in.Enabled {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: auto-renew on a free quota is refused by the server (400); POC quota behavior is unverified. The error remains visible.")
+		}
+		return call(cmd, client, ctx, input)
+	}
+	return op
+}
+
 func monitorEmailCreateOp() Op[monitor.Client] {
 	op := monitorQuotaView(Write[monitor.Client, monitor.CreateNotificationQuotaInput, monitor.CreateNotificationQuotaOutput](
 		kebab("CreateNotificationQuota"), (*monitor.Client).CreateNotificationQuota))
-	op.short = "Order Email quota with a finite --max-price (default 0); pay: true may debit the balance; MaxPrice is a local guard, not a server cap"
+	op.short = "Order Email or SMS quota with a finite --max-price (default 0); pay: true may debit the balance; MaxPrice is a local guard, not a server cap"
 	call := op.call
 	op.call = func(cmd *cobra.Command, client *monitor.Client, ctx context.Context, input any) (any, error) {
 		in := input.(*monitor.CreateNotificationQuotaInput)
 		if in.MaxPrice > 0 && !math.IsInf(in.MaxPrice, 0) && !math.IsNaN(in.MaxPrice) {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: pay: true may debit the balance; MaxPrice is a local guard, not a server cap. Quotes are pre-VAT.")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: pay: true may debit the balance; MaxPrice is a local guard, not a server cap. Email quotes are inferred pre-VAT; SMS VAT treatment is unverified.")
 		}
 		return call(cmd, client, ctx, input)
 	}
@@ -358,6 +378,9 @@ func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
 // JSON queries use SDK values; table/text queries use typed presentation values.
 func renderMonitorQuota(w io.Writer, format, query string, out any) error {
 	if format == outputJSON {
+		if value, ok := out.(*monitor.GetNotificationQuotaUsageOutput); ok {
+			return renderOutput(w, format, query, monitorNotificationUsageView(value), false)
+		}
 		return renderOutput(w, format, query, out, false)
 	}
 	data, err := encodeJSON(monitorQuotaPresentation(out))
@@ -411,8 +434,34 @@ type monitorQuotaDisplay struct {
 	AutoRenewPeriod int
 }
 
+func monitorNotificationUsageView(out *monitor.GetNotificationQuotaUsageOutput) any {
+	return struct {
+		Usage struct {
+			Amount       int
+			Descriptions map[string]monitor.UsageDescription
+		}
+	}{Usage: struct {
+		Amount       int
+		Descriptions map[string]monitor.UsageDescription
+	}{out.Usage.Amount, out.Usage.Descriptions}}
+}
+
 func monitorQuotaPresentation(out any) any {
 	switch value := out.(type) {
+	case *monitor.GetNotificationQuotaUsageOutput:
+		return monitorNotificationUsageView(value)
+	case *monitor.SetQuotaAutoRenewOutput:
+		return struct {
+			Quota   *monitorQuotaDisplay
+			Stage   string
+			Changed bool
+		}{monitorLifecycleQuotaDisplay(value.Quota), value.Stage, value.Changed}
+	case *monitor.DeleteQuotaOutput:
+		return struct {
+			Quota  *monitorQuotaDisplay
+			Stage  string
+			Purged bool
+		}{monitorLifecycleQuotaDisplay(value.Quota), value.Stage, value.Purged}
 	case *monitor.GetNotificationQuotaOutput:
 		return struct{ Quota monitorQuotaDisplay }{monitorQuotaDisplayOf(value.Quota)}
 	case *monitor.CreateNotificationQuotaOutput:
@@ -437,6 +486,14 @@ func monitorQuotaPresentation(out any) any {
 	default:
 		return out
 	}
+}
+
+func monitorLifecycleQuotaDisplay(q *monitor.Quota) *monitorQuotaDisplay {
+	if q == nil {
+		return nil
+	}
+	value := monitorQuotaDisplayOf(*q)
+	return &value
 }
 
 func monitorQuotaDisplayOf(q monitor.Quota) monitorQuotaDisplay {

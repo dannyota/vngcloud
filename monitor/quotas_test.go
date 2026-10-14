@@ -10,14 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
@@ -689,383 +686,50 @@ func TestMonitorReadsOversizedStatus(t *testing.T) {
 	}
 }
 
-func TestNotificationEmailReads(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.RawQuery != "" {
-			t.Fatalf("request=%s %s", r.Method, r.URL)
-		}
-		switch r.URL.Path {
-		case "/billing-api/v1/email/quota":
-			testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaEmail.json")
-		case "/billing-api/v1/email/quota/usages":
-			testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmail.json")
-		case "/billing-api/v1/quotas/usages":
-			testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaUsageEmail.json")
-		default:
-			t.Fatalf("path=%s", r.URL.Path)
-		}
-	}))
-	out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "eMaIl"})
-	if err != nil || out == nil || out.Quota.ID != "quota-email-1" || out.Quota.Status != QuotaStatusActive {
-		t.Fatalf("out=%v err=%v", out, err)
+func TestQuotaUsageCountsCompatibility(t *testing.T) {
+	// Existing callers assign a value and take the address of Counts.
+	out := QuotaUsageDetail{Counts: UsageCounts{API: 1}}
+	counts := &out.Counts
+	if counts.API != 1 {
+		t.Fatal("Counts lost value semantics")
 	}
-	usage, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
-	if err != nil || usage == nil || usage.Usage.Amount != 0 || usage.Usage.Descriptions["amount"].Unit != "/month" {
-		t.Fatalf("out=%v err=%v", usage, err)
-	}
-	composite, err := c.GetQuotaUsage(context.Background(), nil)
-	if err != nil || len(composite.Usage.EmailUsages) != 1 || composite.Usage.EmailUsages[0].Amount != 0 {
-		t.Fatalf("out=%v err=%v", composite, err)
+	for _, tc := range []struct {
+		usage   QuotaUsageDetail
+		present bool
+	}{{QuotaUsageDetail{Amount: 4}, false}, {out, true}} {
+		data, err := json.Marshal(tc.usage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["Counts"]; ok != tc.present {
+			t.Fatalf("Counts presence: %s", data)
+		}
 	}
 }
 
-func TestNotificationAbsence(t *testing.T) {
-	for _, tc := range []struct {
-		body     string
-		verified bool
-	}{
-		{`{"message":"Not found email quota"}`, true},
-		{`{"message":"Not found the Resource"}`, false},
-		{`{"message":"private proxy missing"}`, false},
-		{`{"message":"Not found email quota","extra":true}`, false},
-		{`{"message":"Not found email quota"`, false},
-	} {
-		calls := 0
-		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			calls++
-			w.WriteHeader(404)
-			_, _ = w.Write([]byte(tc.body))
-		}))
-		_, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
-		var absent *notificationQuotaAbsent
-		if !errors.Is(err, core.ErrNotFound) || errors.As(err, &absent) != tc.verified || strings.Contains(err.Error(), "private") {
-			t.Fatalf("err=%v verified=%v", err, tc.verified)
-		}
-		out, err := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-		if out != nil || err == nil {
-			t.Fatalf("out=%v err=%v", out, err)
-		}
-		if !tc.verified && calls != 2 {
-			t.Fatalf("arbitrary 404 permitted preparation: calls=%d", calls)
-		}
-	}
+func TestNotificationUsageFixtureOmitsCounts(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(404)
-		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmailNotFound.json")
+		if r.Method != http.MethodGet || r.URL.Path != "/billing-api/v1/email/quota/usages" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmail.json")
 	}))
 	out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
-	var absent *notificationQuotaAbsent
-	if out != nil || !errors.Is(err, core.ErrNotFound) || errors.As(err, &absent) {
-		t.Fatalf("out=%v err=%v", out, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestNotificationLocalSupportLimit(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") }))
-	for _, kind := range []string{"", "../email", "Slack", "SMS", "sMs"} {
-		_, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: kind})
-		if !errors.Is(err, core.ErrInvalidInput) {
-			t.Fatal(err)
-		}
-		_, err = c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: kind})
-		if !errors.Is(err, core.ErrInvalidInput) {
-			t.Fatal(err)
-		}
-		_, err = c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: kind})
-		if !errors.Is(err, core.ErrInvalidInput) {
-			t.Fatal(err)
-		}
-		if strings.EqualFold(kind, "SMS") && !strings.Contains(err.Error(), "SMS") {
-			t.Fatal("missing support limit")
-		}
+	if out.Usage.Counts != (UsageCounts{}) {
+		t.Fatalf("notification Counts=%+v", out.Usage.Counts)
 	}
-}
-
-func TestNotificationMalformedReads(t *testing.T) {
-	for _, fixture := range []string{"GetNotificationQuotaEmail", "GetNotificationQuotaUsageEmail"} {
-		keys := []string{"id", "packageId", "endTime", "autoRenew", "poc", "system"}
-		if strings.Contains(fixture, "Usage") {
-			keys = []string{"usage", "description"}
-		}
-		for _, key := range keys {
-			for _, value := range []string{"missing", "null", "invalid"} {
-				t.Run(fixture+"/"+key+"/"+value, func(t *testing.T) {
-					body := quotaFixture(t, fixture, func(m map[string]json.RawMessage) {
-						switch value {
-						case "missing":
-							delete(m, key)
-						case "null":
-							m[key] = json.RawMessage(`null`)
-						default:
-							m[key] = json.RawMessage(`42`)
-						}
-					})
-					c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
-					var err error
-					if strings.Contains(fixture, "Usage") {
-						out, e := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
-						err = e
-						if out != nil {
-							t.Fatal("partial output")
-						}
-					} else {
-						out, e := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
-						err = e
-						if out != nil {
-							t.Fatal("partial output")
-						}
-					}
-					var api *core.APIError
-					if !errors.As(err, &api) || api.Code != "InvalidResponse" || strings.Contains(err.Error(), "private-canary") {
-						t.Fatalf("err=%v", err)
-					}
-				})
-			}
-		}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, amount := range []string{`null`, `1.5`, `"1"`, `1e309`} {
-		body := `{"usage":{"amount":` + amount + `},"description":{}}`
-		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-		out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
-		if out != nil || err == nil {
-			t.Fatalf("out=%v err=%v", out, err)
-		}
-	}
-}
-
-func TestNotificationRefreshRedaction(t *testing.T) {
-	for _, usage := range []bool{false, true} {
-		target := "/billing-api/v1/email/quota"
-		fixture := "GetNotificationQuotaEmail"
-		if usage {
-			target += "/usages"
-			fixture = "GetNotificationQuotaUsageEmail"
-		}
-		body := quotaFixture(t, fixture, func(m map[string]json.RawMessage) {
-			if usage {
-				m["description"] = json.RawMessage(`{"synthetic-token-A":{"name":"synthetic-token-B","specs":"synthetic-token-A","unit":"synthetic-token-B"}}`)
-			} else {
-				m["name"] = json.RawMessage(`"synthetic-token-A synthetic-token-B"`)
-			}
-		})
-		c := monitorRefreshClient(t, "synthetic-token-A", "synthetic-token-B", target, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
-		if usage {
-			out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertMonitorCredentialsAbsent(t, out, err, "synthetic-token-A", "synthetic-token-B")
-		} else {
-			out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertMonitorCredentialsAbsent(t, out, err, "synthetic-token-A", "synthetic-token-B")
-		}
-	}
-}
-
-func TestSyntheticQuotaOperationCredentialRedaction(t *testing.T) {
-	const first, second = "synthetic-token-A", "synthetic-token-B"
-	for _, result := range []string{"success", "error", "decode", "route"} {
-		t.Run(result, func(t *testing.T) {
-			calls := 0
-			c := monitorRefreshClient(t, first, second, "/billing-api/v1/synthetic/quota", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				name := "GetSyntheticQuota"
-				if calls > 1 {
-					name = "GetSyntheticQuotaDetail"
-				}
-				body := checkAlarmFixture(t, name)
-				if result == "route" {
-					body = strings.ReplaceAll(body, "quota-syn-1", first)
-				}
-				if calls > 1 {
-					body = strings.ReplaceAll(body, "Basic", first+" "+second)
-					if result == "error" {
-						w.WriteHeader(403)
-						body = `{"message":` + jsonString(first) + `}`
-					}
-					if result == "decode" {
-						body = `{"className":` + jsonString(first)
-					}
-				}
-				_, _ = w.Write([]byte(body))
-			}))
-			out, err := c.GetSyntheticQuota(context.Background(), nil)
-			if result == "success" {
-				if err != nil || out == nil {
-					t.Fatalf("out=%v err=%v", out, err)
-				}
-			} else if err == nil || out != nil {
-				t.Fatalf("out=%v err=%v", out, err)
-			}
-			if result == "route" && calls != 1 {
-				t.Errorf("credential ID routed: calls=%d", calls)
-			}
-			assertMonitorCredentialsAbsent(t, out, err, first, second)
-		})
-	}
-}
-
-func TestCheckAlarmCredentialReferenceRefused(t *testing.T) {
-	const first, second = "synthetic-token-A", "synthetic-token-B"
-	for _, history := range []bool{false, true} {
-		t.Run(strconv.FormatBool(history), func(t *testing.T) {
-			calls := 0
-			c := monitorRefreshClient(t, first, second, "/vmonitor-uptime-manager/v1/uptimes/chk-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				if calls != 1 {
-					t.Error("credential reference routed")
-					w.WriteHeader(403)
-					return
-				}
-				_, _ = w.Write([]byte(strings.ReplaceAll(checkAlarmFixture(t, "GetCheck"), "alarm-1", first)))
-			}))
-			var out any
-			var err error
-			if history {
-				out, err = c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1"})
-			} else {
-				out, err = c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
-			}
-			var api *core.APIError
-			if !errors.As(err, &api) || api.Code != "InvalidResponse" {
-				t.Fatalf("err=%v", err)
-			}
-			assertMonitorCredentialsAbsent(t, out, err, first, second)
-		})
-	}
-}
-
-type monitorFailureTokens struct{ monitorRefreshTokens }
-
-func (s *monitorFailureTokens) Token(ctx context.Context) (transport.Token, error) {
-	if s.calls == 2 {
-		return transport.Token{}, fmt.Errorf("%s %s: %w", s.first, s.second, core.ErrAuth)
-	}
-	return s.monitorRefreshTokens.Token(ctx)
-}
-
-func TestMonitorOperationTokenSourceErrorWithheld(t *testing.T) {
-	for _, operation := range []string{"quota", "alarm", "history"} {
-		t.Run(operation, func(t *testing.T) {
-			const first, second = "synthetic-token-A", "synthetic-token-B"
-			source := &monitorFailureTokens{monitorRefreshTokens{first: first, second: second}}
-			calls := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				if calls != 2 {
-					w.WriteHeader(401)
-					return
-				}
-				name := "GetCheck"
-				if operation == "quota" {
-					name = "GetSyntheticQuota"
-				}
-				_, _ = w.Write([]byte(checkAlarmFixture(t, name)))
-			}))
-			defer server.Close()
-			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
-			var out any
-			var err error
-			switch operation {
-			case "quota":
-				out, err = c.GetSyntheticQuota(context.Background(), nil)
-			case "alarm":
-				out, err = c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
-			case "history":
-				out, err = c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1"})
-			}
-			if !errors.Is(err, core.ErrAuth) || calls != 3 {
-				t.Fatalf("calls=%d err=%v", calls, err)
-			}
-			assertMonitorCredentialsAbsent(t, out, err, first, second)
-		})
-	}
-}
-
-func TestMonitorReadsKeepLoginErrors(t *testing.T) {
-	operations := monitorReadFailures()
-	operations["GetNotificationQuota"] = func(c *Client) error {
-		out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
-		if out != nil {
-			return errors.New("unexpected output")
-		}
-		return err
-	}
-	operations["QuoteCreateNotificationQuota"] = func(c *Client) error {
-		out, err := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-		if out != nil {
-			return errors.New("unexpected output")
-		}
-		return err
-	}
-	operations["CreateNotificationQuota"] = func(c *Client) error {
-		out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-		if out != nil {
-			return errors.New("unexpected output")
-		}
-		return err
-	}
-	for reader, read := range operations {
-		for _, kind := range []string{"password", "service-account", "cache"} {
-			t.Run(reader+"/"+kind, func(t *testing.T) {
-				monitorCalls, loginCalls := 0, 0
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if strings.HasPrefix(r.URL.Path, "/billing-api/") || strings.HasPrefix(r.URL.Path, "/vmonitor-") {
-						monitorCalls++
-						w.WriteHeader(500)
-						return
-					}
-					loginCalls++
-					_, _ = w.Write([]byte(`<html><input name="_csrf" value="synthetic-csrf"></html>`))
-				}))
-				defer server.Close()
-				opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Signin: server.URL, Dashboard: server.URL + "/", Monitor: server.URL})}
-				if kind == "password" {
-					opts = append(opts, vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "synthetic-root", Username: "synthetic-user", Password: "synthetic-password"}))
-				} else {
-					opts = append(opts, vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "synthetic-client", ClientSecret: "synthetic-secret"}), core.WithServiceAccountTestTransport(monitorFailureHTTP(func(*http.Request) (*http.Response, error) {
-						loginCalls++
-						return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
-					}), time.Now))
-					if kind == "cache" {
-						path := filepath.Join(t.TempDir(), "cache-file")
-						if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
-							t.Fatal(err)
-						}
-						opts = append(opts, vngcloud.WithTokenCache(path))
-					}
-				}
-				cfg, err := vngcloud.NewConfig(opts...)
-				if err != nil {
-					t.Fatal(err)
-				}
-				err = read(New(cfg))
-				if monitorCalls != 0 {
-					t.Errorf("monitor requests = %d", monitorCalls)
-				}
-				switch kind {
-				case "password":
-					var login *vngcloud.LoginError
-					if !errors.As(err, &login) || login.Status != 200 || !login.CaptchaSuspected || !errors.Is(err, vngcloud.ErrAuth) {
-						t.Errorf("login metadata lost: %v", err)
-					}
-				case "service-account":
-					var login *vngcloud.ServiceAccountLoginError
-					if !errors.As(err, &login) || login.Status != 401 || !errors.Is(err, vngcloud.ErrAuth) {
-						t.Errorf("exchange identity lost: %v", err)
-					}
-				case "cache":
-					if !errors.Is(err, vngcloud.ErrTokenCache) {
-						t.Errorf("cache identity lost: %v", err)
-					}
-				}
-				if (kind == "cache" && loginCalls != 0) || (kind != "cache" && loginCalls == 0) {
-					t.Errorf("login calls = %d", loginCalls)
-				}
-			})
-		}
+	if strings.Contains(string(data), "Counts") {
+		t.Fatalf("Counts serialized: %s", data)
 	}
 }

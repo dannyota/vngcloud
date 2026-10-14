@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -431,4 +432,46 @@ func TestQuotaAttemptCredentialLimitWithholdsRetainedOutput(t *testing.T) {
 	}
 	assertMonitorCredentialsAbsent(t, out, err, first, second)
 	assertMonitorCredentialsAbsent(t, createQuotaOutput(&attempt.result), nil, first, second)
+}
+
+func TestSMSQuoteFixturesAndAbsenceRouting(t *testing.T) {
+	const packageID = "5cc24133-938e-11eb-aad3-e0071b70d291"
+	for _, absent := range []bool{true, false} {
+		var requests, quotes atomic.Int32
+		c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests.Add(1)
+			switch r.URL.Path {
+			case "/billing-api/v1/sms/quota":
+				w.WriteHeader(404)
+				if absent {
+					testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaSMSNotFound.json")
+				} else {
+					_, _ = io.WriteString(w, `{"message":"Not found email quota"}`)
+				}
+			case "/billing-api/v1/sms/packages":
+				testutil.WriteFixture(t, w, "../testdata/monitor/ListNotificationPackagesSMS.json")
+			case "/billing-api/v2/sms/prices/created-price":
+				quotes.Add(1)
+				testutil.WriteFixture(t, w, "../testdata/monitor/QuoteCreateNotificationQuotaSMS.json")
+			default:
+				t.Errorf("unexpected path=%s", r.URL.Path)
+			}
+		})))
+		out, e := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "SMS", PackageID: packageID})
+		if !absent {
+			if out != nil || !errors.Is(e, core.ErrNotFound) || requests.Load() != 1 || quotes.Load() != 0 {
+				t.Fatalf("out=%v err=%v", out, e)
+			}
+			continue
+		}
+		var v1 struct {
+			TotalCost float64 `json:"totalCost"`
+		}
+		if err := json.Unmarshal([]byte(testutil.FixtureBody(t, "../testdata/monitor/QuoteCreateNotificationQuotaSMSV1.json")), &v1); err != nil {
+			t.Fatal(err)
+		}
+		if e != nil || out == nil || out.OptimumPrice != 50000 || out.GuardPrice != v1.TotalCost || out.ListPrice != 55000 || requests.Load() != 3 {
+			t.Fatalf("out=%v err=%v", out, e)
+		}
+	}
 }
