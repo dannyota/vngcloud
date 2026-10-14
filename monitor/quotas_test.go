@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
@@ -980,5 +982,90 @@ func TestMonitorOperationTokenSourceErrorWithheld(t *testing.T) {
 			}
 			assertMonitorCredentialsAbsent(t, out, err, first, second)
 		})
+	}
+}
+
+func TestMonitorReadsKeepLoginErrors(t *testing.T) {
+	operations := monitorReadFailures()
+	operations["GetNotificationQuota"] = func(c *Client) error {
+		out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
+		if out != nil {
+			return errors.New("unexpected output")
+		}
+		return err
+	}
+	operations["QuoteCreateNotificationQuota"] = func(c *Client) error {
+		out, err := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
+		if out != nil {
+			return errors.New("unexpected output")
+		}
+		return err
+	}
+	operations["CreateNotificationQuota"] = func(c *Client) error {
+		out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
+		if out != nil {
+			return errors.New("unexpected output")
+		}
+		return err
+	}
+	for reader, read := range operations {
+		for _, kind := range []string{"password", "service-account", "cache"} {
+			t.Run(reader+"/"+kind, func(t *testing.T) {
+				monitorCalls, loginCalls := 0, 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasPrefix(r.URL.Path, "/billing-api/") || strings.HasPrefix(r.URL.Path, "/vmonitor-") {
+						monitorCalls++
+						w.WriteHeader(500)
+						return
+					}
+					loginCalls++
+					_, _ = w.Write([]byte(`<html><input name="_csrf" value="synthetic-csrf"></html>`))
+				}))
+				defer server.Close()
+				opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Signin: server.URL, Dashboard: server.URL + "/", Monitor: server.URL})}
+				if kind == "password" {
+					opts = append(opts, vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "synthetic-root", Username: "synthetic-user", Password: "synthetic-password"}))
+				} else {
+					opts = append(opts, vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "synthetic-client", ClientSecret: "synthetic-secret"}), core.WithServiceAccountTestTransport(monitorFailureHTTP(func(*http.Request) (*http.Response, error) {
+						loginCalls++
+						return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+					}), time.Now))
+					if kind == "cache" {
+						path := filepath.Join(t.TempDir(), "cache-file")
+						if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						opts = append(opts, vngcloud.WithTokenCache(path))
+					}
+				}
+				cfg, err := vngcloud.NewConfig(opts...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = read(New(cfg))
+				if monitorCalls != 0 {
+					t.Errorf("monitor requests = %d", monitorCalls)
+				}
+				switch kind {
+				case "password":
+					var login *vngcloud.LoginError
+					if !errors.As(err, &login) || login.Status != 200 || !login.CaptchaSuspected || !errors.Is(err, vngcloud.ErrAuth) {
+						t.Errorf("login metadata lost: %v", err)
+					}
+				case "service-account":
+					var login *vngcloud.ServiceAccountLoginError
+					if !errors.As(err, &login) || login.Status != 401 || !errors.Is(err, vngcloud.ErrAuth) {
+						t.Errorf("exchange identity lost: %v", err)
+					}
+				case "cache":
+					if !errors.Is(err, vngcloud.ErrTokenCache) {
+						t.Errorf("cache identity lost: %v", err)
+					}
+				}
+				if (kind == "cache" && loginCalls != 0) || (kind != "cache" && loginCalls == 0) {
+					t.Errorf("login calls = %d", loginCalls)
+				}
+			})
+		}
 	}
 }

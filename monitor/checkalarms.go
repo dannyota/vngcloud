@@ -246,6 +246,9 @@ func (c *Client) readCheckAlarmJSON(ctx context.Context, op, route string, limit
 		return 0, monitorReadError(op, status, "InvalidResponse", "check alarm credential safety limit exceeded", nil)
 	}
 	if err != nil {
+		if monitorReadSDKError(err) {
+			return 0, err
+		}
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return 0, monitorReadError(op, status, "ResponseLimitExceeded", "check alarm response exceeds safety limit", err)
 		}

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -2333,6 +2336,67 @@ func TestMonitorEmailPartialOutput(t *testing.T) {
 				}
 				if orders.Load() != 1 || strings.Contains(stdout.String()+stderr.String(), "private-payment") {
 					t.Fatalf("orders=%d out=%s", orders.Load(), stdout)
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorReadLoginClassification(t *testing.T) {
+	for _, reader := range []string{"quota", "alarm"} {
+		for _, tc := range []struct {
+			kind, code string
+			exit       int
+		}{{"password", "LoginFailed", 3}, {"service-account", "ServiceAccountLoginFailed", 3}, {"cache", "TokenCacheFailed", 1}} {
+			t.Run(reader+"/"+tc.kind, func(t *testing.T) {
+				monitorCalls := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasPrefix(r.URL.Path, "/billing-api/") || strings.HasPrefix(r.URL.Path, "/vmonitor-") {
+						monitorCalls++
+						w.WriteHeader(500)
+						return
+					}
+					_, _ = w.Write([]byte(`<html><input name="_csrf" value="synthetic-csrf"></html>`))
+				}))
+				defer server.Close()
+				opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Signin: server.URL, Dashboard: server.URL + "/", Monitor: server.URL})}
+				if tc.kind == "password" {
+					opts = append(opts, vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "synthetic-root", Username: "synthetic-user", Password: "synthetic-password"}))
+				} else {
+					opts = append(opts, vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "synthetic-client", ClientSecret: "synthetic-secret"}), core.WithServiceAccountTestTransport(saCLITransport(func(*http.Request) (*http.Response, error) {
+						return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+					}), time.Now))
+					if tc.kind == "cache" {
+						path := filepath.Join(t.TempDir(), "cache-file")
+						if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						opts = append(opts, vngcloud.WithTokenCache(path))
+					}
+				}
+				cfg, err := vngcloud.NewConfig(opts...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				client := monitor.New(cfg)
+				if reader == "quota" {
+					_, err = client.GetQuotaUsage(context.Background(), nil)
+				} else {
+					_, err = client.GetCheckAlarm(context.Background(), &monitor.GetCheckAlarmInput{CheckID: "chk-1"})
+				}
+				if monitorCalls != 0 {
+					t.Errorf("monitor requests = %d", monitorCalls)
+				}
+				var login *vngcloud.LoginError
+				var serviceAccount *vngcloud.ServiceAccountLoginError
+				if (tc.kind == "password" && !errors.As(err, &login)) || (tc.kind == "service-account" && !errors.As(err, &serviceAccount)) || (tc.kind == "cache" && !errors.Is(err, vngcloud.ErrTokenCache)) {
+					t.Errorf("SDK identity lost: %v", err)
+				}
+				if got := classify(err).Code; got != tc.code {
+					t.Errorf("code = %q, want %q", got, tc.code)
+				}
+				if got := exitCode(err); got != tc.exit {
+					t.Errorf("exit = %d, want %d", got, tc.exit)
 				}
 			})
 		}
