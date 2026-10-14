@@ -2,9 +2,6 @@ package monitor
 
 import (
 	"context"
-	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/internal/endpoints"
-	"danny.vn/vngcloud/internal/transport"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,9 +18,12 @@ import (
 	"testing"
 	"time"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 type lifecycleServer struct {
@@ -173,7 +173,8 @@ func TestLifecycleSingleSendHTTPAndAmbiguousReconciliation(t *testing.T) {
 					if s.sends.Load() != 1 {
 						t.Fatalf("sends=%d err=%v", s.sends.Load(), err)
 					}
-					if status == 200 || status == 204 {
+					switch {
+					case status == 200 || status == 204:
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -187,7 +188,7 @@ func TestLifecycleSingleSendHTTPAndAmbiguousReconciliation(t *testing.T) {
 								t.Fatalf("out=%+v", v)
 							}
 						}
-					} else if ambiguous {
+					case ambiguous:
 						if !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 {
 							t.Fatalf("out=%v err=%v", out, err)
 						}
@@ -195,7 +196,7 @@ func TestLifecycleSingleSendHTTPAndAmbiguousReconciliation(t *testing.T) {
 						if !errors.Is(err, dns.ErrNotSettled) || s.sends.Load() != 1 {
 							t.Fatalf("repeat err=%v sends=%d", err, s.sends.Load())
 						}
-					} else {
+					default:
 						var api *core.APIError
 						if !errors.As(err, &api) || api.StatusCode != status || api.Code != core.ResolvedCode(status, "") || len(c.quotaAttempts) != 0 || s.reads.Load() != 2 || strings.Contains(err.Error(), "private") {
 							t.Fatalf("out=%v err=%v reads=%d", out, err, s.reads.Load())
@@ -580,7 +581,7 @@ func TestLifecycleSyntheticQuantityChangeRefusesWrite(t *testing.T) {
 	handler := s.handler(t)
 	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/quota-detail") && s.reads.Load() >= 2 {
-			_, _ = io.WriteString(w, string(quotaFixture(t, "GetSyntheticQuotaDetail", func(m map[string]json.RawMessage) { m["api"] = json.RawMessage(`11`) })))
+			_, _ = w.Write(quotaFixture(t, "GetSyntheticQuotaDetail", func(m map[string]json.RawMessage) { m["api"] = json.RawMessage(`11`) }))
 			return
 		}
 		handler(w, r)
