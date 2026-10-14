@@ -26,7 +26,7 @@ Ship the smallest independently useful slices, subject to owner decisions:
    active-quota delete (decision 11); enable deferred (decision 12).
 4. Free Synthetic Test extension after an in-window renewal (the server
    allows a free renewal only in its last 7 days), then Email extension.
-5. Email auto-renew and delete, synthetic delete, and purge or recovery
+5. Notification auto-renew enable, synthetic delete, and purge or recovery
    under [quota lifecycle](monitor-quotas-lifecycle.md), each after its
    own live check.
 
