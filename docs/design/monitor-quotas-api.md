@@ -6,11 +6,12 @@ safety rules, and owner decisions. Nothing here authorizes a live call.
 
 ## Provenance and limits
 
-The manager's sanitized response record comes from live calls using an
-SDK-issued IAM User bearer token without extra headers at the Monitor root,
-`https://vmonitor.console.greennode.ai/`. The only quota write sent was
-the free Email order the owner chose; every other quota write here is
-console code.
+The manager's sanitized response record comes from live calls at the
+Monitor root `https://vmonitor.console.greennode.ai/`, as the IAM User
+except where noted. Quota writes sent: the free Email order, the paid SMS
+run (order, auto-renew enable and disable, delete), and the early synthetic
+renewal attempt, sent as the renew-only service account; every other quota
+write here is console code.
 
 Console sources are public Angular bundles from that same root, read as
 untrusted text: uptime creation in chunk 478, billing flows in chunk 816,
@@ -20,8 +21,8 @@ flows coexist; use the specified v2 renewal. This is first-party
 implementation evidence, not a published API guarantee.
 
 Labels mean **live** response status and shape, **console** code never
-sent, or **inferred** behavior established by neither. Email evidence does
-not verify SMS. Document approval promotes no label; manager-approved
+sent, or **inferred** behavior established by neither. Evidence for one
+kind or principal never verifies another. Approval promotes no label;
 captures close each gate, and mock fixtures never close a live gate.
 
 ## Check state and history
@@ -112,8 +113,9 @@ returned `{"usage":{"amount":0},"description":{"amount":{name, specs,
 unit}}}`; introspect (null body) returned 200 `{"active":true}`, out of scope.
 
 **Live SMS quota** (paid `sms5` order, later deleted): the same shape with
-type "SMS", name "sms quota", and endTime at startTime plus 30 days;
-CREATING at 3 s, ACTIVE at 6 s. SMS usage was not read; it stays inferred.
+type "SMS", name "sms quota", endTime at startTime plus 30 days; CREATING
+at 3 s with `updatedAt` null, ACTIVE at 6 s. SMS usage was not read and
+stays inferred; Email's CREATING `updatedAt` is likely null, unverified.
 
 **Live delivery test** after the free order: the owner received all four
 alert emails, the first In-alarm one about one minute after a check
@@ -136,8 +138,8 @@ specs, unit; specs says maximum emails per month. No operation exposes it.
 **Live synthetic quota:** `GET v1/synthetic/quota` returns id, name, type
 SYNTHETIC_TEST, status ACTIVE, packageId, startTime, endTime, createdAt,
 updatedAt, system false, autoRenew 0, autoRenewPeriod 0, poc 0. Time strings
-use RFC 3339 with +00:00. Flag values 0 and 1 are both live (the SMS
-auto-renew flip); any other encoding fails closed.
+use RFC 3339 with +00:00. `autoRenew` 0 and 1 are live (the SMS flip);
+`poc` 1 is unverified; any other encoding fails closed.
 `GET v1/synthetic/quota/usages` returns
 `{usage:{api,location,email,sms,slack,webhook,telegram,teams},description}`;
 description maps counter names to `{name,specs,unit}`.
@@ -145,9 +147,8 @@ description maps counter names to `{name,specs,unit}`.
 **Live detail:** `GET v2/synthetic/{quota-id}/quota-detail` returns id, name,
 price 0.0, location 1, api 10, tierId, tierName, email 0, sms 0, slack,
 webhook, telegram, teams, resourceId, classId, className Basic, packageId.
-The zero email allowance applies to this Basic synthetic quota. It does
-not prove every account lacks free messages: the console says Metric
-packages can supply them and only one Email quota can exist at a time.
+The zero email allowance applies to this Basic quota only: the console says
+Metric packages can grant free messages, one Email quota at a time.
 
 **Live synthetic packages:** `GET v1/synthetic/packages` lists free10 with
 id, name, price 0, tierId, location 1, api 10. `GET v2/synthetic/quota-class`
@@ -170,13 +171,13 @@ retry loop. All paths below are relative to `billing-api/`.
   Bare result has optimumPrice, discountPercent, originalPrice,
   discountPrice, propertiesPrice[] with the same price keys plus name and
   description. emailfree quoted 0; email5k quoted 100000 against list
-  110000. Quotes are pre-VAT by inference; the actual debit can exceed
-  the quote, and no debit or tax evidence gates a paid write.
+  110000. Email quotes are pre-VAT by inference; the actual debit can
+  exceed the quote, and no debit or tax evidence gates a paid write.
 - **Live SMS create:** `v2/sms/prices/created-price` with the same body
-  quoted sms5 at 50000 against list 55000; the v1 query quote
-  `?package_id=<sms5>&month_period=1` returned totalCost 55000, equal to
-  the list price (the Email v1 quote was below its list). v2 stays the
-  price source under owner decision 10.
+  quoted sms5 at 50000 against list 55000; smsfree was not quoted on v2.
+  The v1 query quote `?package_id=<sms5>&month_period=1` returned
+  totalCost 55000, equal to the list price, so the v1/v2 agreement and the
+  VAT note hold for Email only. v2 stays the price source (decision 10).
 - **Console Email and SMS renewal:** the v2 call and body with
   `"resourceId":"<quota-id>"` added; neither was sent.
 - **Live synthetic renewal:** `v2/synthetic/prices/created-price` with
@@ -225,10 +226,9 @@ and SMS, the same origin plus `quota-usages/synthetic-test` for synthetic.
   200 `{"orderId":null,"paymentUrl":<the sent redirectUrl>,"amount":null}`.
   A free order echoes the redirect as paymentUrl; there is no checkout.
   Reads then gave 404 at once, CREATING at about 3 s, ACTIVE at about 5 s.
-  **Live** create SMS: `POST v1/sms/quota` with the same body for sms5
-  returned 200 with the same envelope; reads gave CREATING at 3 s and
-  ACTIVE at 6 s. The balance was not read between the order and the later
-  delete, so the paid debit itself was not observed; the net change was 0.
+  **Live** create SMS: the same body for sms5 returned 200 with the same
+  envelope; CREATING at 3 s, ACTIVE at 6 s. The balance was not read between
+  order and delete, so the debit itself was not observed; net change 0.
 - Email extension: `POST v1/email/quota/extend-time`; recovery:
   `POST v1/trash/email/quota`. Both send
   `{monthPeriod:1,redirectUrl:<notification-page>,pay:true}`.
@@ -241,14 +241,15 @@ and SMS, the same origin plus `quota-usages/synthetic-test` for synthetic.
 - Each renew flow recovers only when endTime has passed AND status is
   IN-TRASH; otherwise it extends. Known-state refusal in the SDK further
   narrows eligibility until each path is evidenced.
-- **Live** early synthetic extension, 11 days before expiry, after the
-  design's guards and a 0 quote: `POST v2/synthetic/quota/extend-time`
+- **Live** early synthetic extension, sent as the renew-only service
+  account 11 days before expiry, after the design's guards and a 0 quote:
+  `POST v2/synthetic/quota/extend-time`
   returned 409 with the message "You can only renew in the last 7 days
   of a free quota." and 120 s of reads showed no state change. A free
   quota renews only in its last 7 days; the success shape is unverified.
-- **Response:** live for the free Email create as above. For every other
-  write the `{amount, orderId, paymentUrl}` envelope, status, nullability,
-  and paid-order orderId stay inferred. Capture each supported write.
+- **Response:** live for the free Email and paid SMS creates. For every
+  other write the `{amount, orderId, paymentUrl}` envelope, status, and
+  nullability stay inferred. Capture each supported write.
 - **Inferred expiry:** console preview adds a period to current endTime.
   Verify active extension before promising that it adds a month. Recovery
   may use different identity and expiry semantics; it remains gated.
@@ -257,10 +258,11 @@ and SMS, the same origin plus `quota-usages/synthetic-test` for synthetic.
   Introspect `POST v1/{kind}/quota/introspect` stays out of scope.
 
 Settings show `maxMonthlyResetNotificationBillingAction` 3 and a Basic log
-quota got 409 after three orders, but five notification actions this month
-(two orders, two auto-renew changes, one delete) were not refused. What
-the limit counts stays unknown; it is not treated as a likely limit for
-these actions, and the manager still records attempts privately.
+quota got 409 after three orders; five notification actions this month
+(two orders, two auto-renew changes, one delete) were not refused, but
+only two were orders. What the limit counts stays unknown. Policy for
+later probes: at most one notification order or recovery per month beyond
+those already approved, unless the owner approves more.
 
 ## Fixtures
 
@@ -283,11 +285,11 @@ Required fixture families, all decoded through the public SDK:
   and package list, Email and SMS quota and usage 404s, the synthetic
   renewal quote, and the early-renewal 409.
 - Email and SMS v2 quotes for the free and a paid package, the v1 paid
-  quotes, the live Email and SMS quota successes and the Email usage, the
-  free Email and paid SMS order responses, the composite usage with an
-  emailUsages item, the lifecycle responses the sibling records, and
-  each gated SMS, extend, or recover success. Never reuse Email proof for
-  SMS. Fixtures stay synthetic: no test assumes the account owns a quota.
+  quotes, the live Email and SMS quota successes including a raw CREATING
+  read with `updatedAt` null, the Email usage, the free Email and paid SMS
+  order responses, the composite usage with an emailUsages item, the
+  lifecycle responses the sibling records, and each gated extend or
+  recover success. Fixtures stay synthetic: no test assumes a quota exists.
 
 Check required-key presence, not just json.Unmarshal success: null or empty
 bodies are never a zero-valued success. Sanitation keeps valid route IDs so
@@ -314,9 +316,10 @@ file assignments, wiki generation, and acceptance order.
   partial Output on a later error, every response and aggregate cap, and
   fan-out refusal.
 - Quota reads: nil Inputs only where empty, fixed Kind routing, unknown
-  statuses preserved, numeric flags/counts validated, unknown usage kinds
-  reported without raw JSON. Detail failures return nil Output. Check
-  quota/detail identities and absence versus unknown endpoint 404s.
+  statuses preserved, numeric flags/counts validated, a CREATING read with
+  `updatedAt` null decoding, unknown usage kinds reported without raw JSON,
+  the SMS usage read refused with zero requests. Detail failures return nil
+  Output. Check quota/detail identities and absence versus other 404s.
 - Pricing: opaque package IDs, absent/null/negative/nonfinite prices,
   duplicate/unknown packages, ambiguous free default, invalid MaxPrice with
   zero requests, and synthetic quantity from capacity. Freeze one set of
@@ -327,15 +330,15 @@ file assignments, wiki generation, and acceptance order.
   and zero quote on a priced package is Unpriced; a quote never orders.
 - Writes: every supported mutation body and success status, 400/401/403/404/
   409/429, 500/502/503/504, dial failure, disconnect after send, cancellation,
-  malformed/oversized 2xx, and every redirect including 307/308. Each makes
-  at most one mutation attempt; 401 must not refresh and resend. Unseen
-  status cases are deterministic robustness probes, not live claims.
+  malformed/oversized 2xx, and every redirect including 307/308; at most one
+  mutation attempt each, and 401 never refreshes and resends.
 - Renewal: required ExpectedEndTime, instant-equivalent offsets, stale
   expiry refusal, MaxDaysLeft read-only skip, overflow, positive versus zero
   threshold, expiry crossing during quote, ACTIVE extension, expired AND
   IN-TRASH recovery only when gated evidence permits it, and the 409
-  early-renewal fixture decoding to `RenewalTooEarly` with the message
-  withheld, no record opened, and no further request. No creation on 404,
+  early-renewal fixture decoding to a `Conflict` `*APIError` naming the
+  renew operation, message withheld, no record, no further request, with
+  an unrelated 409 body decoding the same way. No creation on 404,
   no guessed trash lookup, and no POC/auto-renew/unknown-status mutation.
   The pre-send reread repeats the whole predicate: a snapshot that changes
   only `autoRenew` or `poc` during quoting, or whose flag stops decoding,
@@ -380,21 +383,18 @@ brief consumes inferred schemas; SDK live verification needs approval.
 3. Free Email: done once, owner-chosen and kept; order, settlement, quota,
    usage, and delivery are recorded above. Open: four emails against three
    logged transitions. Do not order again.
-4. Free synthetic extension: the early attempt was refused with the 409
-   above. Approve one extension inside the last 7 days, quote it, capture
-   the response, old/new EndTime, identity, settlement, and month
-   arithmetic. Free Email extension follows with separate approval.
+4. Free synthetic extension: the early attempt got the 409 above. Approve
+   one inside the last 7 days; capture response, old/new EndTime, identity,
+   settlement, and month arithmetic. Email extension needs separate approval.
 5. Recovery: wait for a naturally lapsed, owner-approved quota; capture
    its GET and trash listing before any recovery, then identity, quote,
    response, and settlement. Never expire production monitoring for this.
 6. Paid SMS: done once under a 110000 VND cap (order, auto-renew flip,
-   delete), recorded above and in the lifecycle sibling. Other paid
-   packages need explicit mutation approval naming the amount; quotes are
-   pre-VAT and the guard is a local estimate.
+   delete). Other paid packages need explicit approval naming the amount;
+   Email quotes are pre-VAT and the guard is a local estimate.
 7. Lifecycle rows: see [quota
    lifecycle](monitor-quotas-lifecycle.md#live-checks).
 
-No listed check is complete beyond the recorded responses. Open: the
-extension and recovery responses, renewal arithmetic, trash recovery,
-monthly accounting, history paging and truncation, the email-to-transition
-gap, and the lifecycle rows still marked console.
+Open: the extension and recovery responses, renewal arithmetic, trash
+recovery, monthly accounting, history paging and truncation, the
+email-to-transition gap, and the rows still marked console or deferred.
