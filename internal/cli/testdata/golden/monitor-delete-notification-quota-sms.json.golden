@@ -1,0 +1,19 @@
+{
+  "Quota": {
+    "ID": "quota-sms-1",
+    "Name": "sms quota",
+    "Type": "SMS",
+    "Status": "ACTIVE",
+    "PackageID": "5cc24133-938e-11eb-aad3-e0071b70d291",
+    "StartTime": "2026-10-14T11:51:22Z",
+    "EndTime": "2026-11-13T11:51:22Z",
+    "CreatedAt": "2026-10-14T11:51:22Z",
+    "UpdatedAt": "2026-10-14T11:51:24Z",
+    "AutoRenew": false,
+    "POC": false,
+    "System": false,
+    "AutoRenewPeriod": 0
+  },
+  "Stage": "settled",
+  "Purged": false
+}

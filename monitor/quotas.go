@@ -96,7 +96,7 @@ type SyntheticQuotaDetail struct {
 
 type QuotaUsageDetail struct {
 	// Counts is present only for synthetic usage; notification usage omits it.
-	Counts       *UsageCounts `json:",omitempty"`
+	Counts       UsageCounts `json:",omitzero"`
 	Amount       int
 	Descriptions map[string]UsageDescription
 }
@@ -518,7 +518,7 @@ func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuo
 	o := quotaObjectOf(raw)
 	usage := quotaObjectOf(o.fields["usage"])
 	counts := usage.counts(false)
-	u := QuotaUsageDetail{Counts: &counts}
+	u := QuotaUsageDetail{Counts: counts}
 	description := quotaObjectOf(o.fields["description"])
 	u.Descriptions = make(map[string]UsageDescription, len(description.fields))
 	for key, item := range description.fields {

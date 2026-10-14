@@ -685,3 +685,51 @@ func TestMonitorReadsOversizedStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestQuotaUsageCountsCompatibility(t *testing.T) {
+	// Existing callers assign a value and take the address of Counts.
+	out := QuotaUsageDetail{Counts: UsageCounts{API: 1}}
+	counts := &out.Counts
+	if counts.API != 1 {
+		t.Fatal("Counts lost value semantics")
+	}
+	for _, tc := range []struct {
+		usage   QuotaUsageDetail
+		present bool
+	}{{QuotaUsageDetail{Amount: 4}, false}, {out, true}} {
+		data, err := json.Marshal(tc.usage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["Counts"]; ok != tc.present {
+			t.Fatalf("Counts presence: %s", data)
+		}
+	}
+}
+
+func TestNotificationUsageFixtureOmitsCounts(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/billing-api/v1/email/quota/usages" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmail.json")
+	}))
+	out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Usage.Counts != (UsageCounts{}) {
+		t.Fatalf("notification Counts=%+v", out.Usage.Counts)
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "Counts") {
+		t.Fatalf("Counts serialized: %s", data)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -2257,10 +2258,7 @@ func TestMonitorEmailControls(t *testing.T) {
 		flags               []string
 	}{
 		{"missing-kind", "get-notification-quota", "InvalidUsage", nil},
-		{"sms-read", "get-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
 		{"sms-usage", "get-notification-quota-usage", "InvalidUsage", []string{"--kind", "SMS"}},
-		{"sms-quote", "quote-create-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
-		{"sms-create", "create-notification-quota", "InvalidUsage", []string{"--kind", "SMS"}},
 		{"unknown-kind", "get-notification-quota", "InvalidUsage", []string{"--kind", "Other"}},
 		{"nan", "create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "NaN"}},
 		{"infinity", "create-notification-quota", "InvalidUsage", []string{"--kind", "Email", "--max-price", "+Inf"}},
@@ -2569,5 +2567,424 @@ func TestMonitorEmailPreSendLoginClassification(t *testing.T) {
 				t.Fatalf("err=%v code=%s exit=%d out=%s orders=%d tokens=%d", err, classify(err).Code, exitCode(err), stdout, orders.Load(), source.calls)
 			}
 		})
+	}
+}
+
+func TestMonitorNotificationUsageOmitsCounts(t *testing.T) {
+	for _, format := range []string{"json", "table", "text"} {
+		t.Run(format, func(t *testing.T) {
+			fixture, _ := monitorEmailFixture(t, "0", "0", 200, false)
+			root, stdout, _ := newSvcRoot(t, fixture)
+			if err := execCmd(t, root, []string{"--region", "hcm-3", "--output", format,
+				"monitor", "get-notification-quota-usage", "--kind", "Email"}); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(stdout.String(), "Counts") {
+				t.Fatalf("synthetic Counts in notification: %s", stdout)
+			}
+		})
+	}
+}
+
+func monitorLifecycleFixture(t *testing.T, kind string, deleting bool, status int) (*svcFixture, *atomic.Int32, string) {
+	t.Helper()
+	name := "GetNotificationQuotaEmail"
+	if kind == "sms" {
+		name = "GetNotificationQuotaSMS"
+	}
+	if kind == "synthetic" {
+		name = "GetSyntheticQuota"
+	}
+	data, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var quota map[string]any
+	if err := json.Unmarshal(data, &quota); err != nil {
+		t.Fatal(err)
+	}
+	id := quota["id"].(string)
+	if !deleting && kind != "synthetic" {
+		quota["autoRenew"], quota["autoRenewPeriod"] = 1, 1
+	}
+	mutations := new(atomic.Int32)
+	write := func(w http.ResponseWriter, r *http.Request) {
+		mutations.Add(1)
+		if deleting {
+			body, err := io.ReadAll(r.Body)
+			if err != nil || r.Method != http.MethodDelete || len(body) != 0 {
+				t.Errorf("delete %s body=%s err=%v", r.Method, body, err)
+			}
+		} else {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if r.Method != http.MethodPost || len(body) != 3 || body["resourceId"] != id || body["period"] != float64(1) || body["enabled"] != (kind == "synthetic") {
+				t.Errorf("auto-renew body=%v", body)
+			}
+		}
+		w.WriteHeader(status)
+		if kind == "synthetic" && status == 400 {
+			data, err := os.ReadFile("../../testdata/monitor/SetQuotaAutoRenewSyntheticRefused.json")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_, _ = w.Write(data)
+		} else if status >= 400 {
+			_, _ = io.WriteString(w, `{"message":"withheld-peer-value"}`)
+		}
+	}
+	handlers := map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v1/" + kind + "/quota": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				write(w, r)
+				return
+			}
+			q := make(map[string]any, len(quota))
+			for key, value := range quota {
+				q[key] = value
+			}
+			if mutations.Load() > 0 && status < 400 {
+				if deleting {
+					w.WriteHeader(404)
+					_, _ = io.WriteString(w, `{"message":"Not found `+kind+` quota"}`)
+					return
+				}
+				q["autoRenew"], q["autoRenewPeriod"] = 0, 0
+			}
+			if err := json.NewEncoder(w).Encode(q); err != nil {
+				t.Error(err)
+			}
+		},
+		"/billing-api/v1/" + kind + "/quota/" + id + "/update-auto-renew": write,
+	}
+	if kind == "synthetic" {
+		detail, err := os.ReadFile("../../testdata/monitor/GetSyntheticQuotaDetail.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		handlers["/billing-api/v2/synthetic/"+id+"/quota-detail"] = jsonHandler(200, string(detail))
+		handlers["/billing-api/v2/synthetic/prices/created-price"] = func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if r.Method != http.MethodPost || len(body) != 4 || body["resourceId"] != id || body["packageId"] != quota["packageId"] || body["quantity"] != float64(10) || body["redirectUrl"] != "" {
+				t.Errorf("quote body=%v", body)
+			}
+			_, _ = io.WriteString(w, `{"optimumPrice":0}`)
+		}
+	}
+	return newSvcFixture(handlers), mutations, id
+}
+
+func TestMonitorQuotaLifecycleCommands(t *testing.T) {
+	for _, deleting := range []bool{false, true} {
+		for _, kind := range []string{"email", "sms"} {
+			for _, format := range []string{"json", "table", "text"} {
+				command, status := "set-notification-quota-auto-renew", 200
+				if deleting {
+					command, status = "delete-notification-quota", 204
+				}
+				t.Run(command+"/"+kind+"/"+format, func(t *testing.T) {
+					fixture, mutations, id := monitorLifecycleFixture(t, kind, deleting, status)
+					root, stdout, _ := newSvcRoot(t, fixture)
+					args := []string{"--region", "hcm-3", "--output", format, "monitor", command, "--kind", kind, "--expected-quota-id", id}
+					if deleting {
+						args = append(args, "--yes")
+					} else {
+						args = append(args, "--enabled=false")
+					}
+					if err := execCmd(t, root, args); err != nil {
+						t.Fatal(err)
+					}
+					if mutations.Load() != 1 || !strings.Contains(stdout.String(), "settled") {
+						t.Fatalf("writes=%d out=%s", mutations.Load(), stdout)
+					}
+					path := goldenPath("monitor-" + command + "-" + kind + "." + format + ".golden")
+					if *updateGolden {
+						if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+							t.Fatal(err)
+						}
+						return
+					}
+					want, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !bytes.Equal(stdout.Bytes(), want) {
+						t.Fatalf("got:\n%s\nwant:\n%s", stdout, want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestMonitorQuotaLifecycleControls(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		flags   []string
+		code    string
+	}{
+		{"set-notification-quota-auto-renew", []string{"--kind", "Email"}, "InvalidUsage"},
+		{"set-notification-quota-auto-renew", []string{"--kind", "Email", "--enabled=true"}, "InvalidUsage"},
+		{"set-notification-quota-auto-renew", []string{"--kind", "SMS", "--enabled=true"}, "InvalidUsage"},
+		{"set-synthetic-quota-auto-renew", nil, "InvalidUsage"},
+		{"set-synthetic-quota-auto-renew", []string{"--enabled=false"}, "InvalidUsage"},
+		{"delete-notification-quota", []string{"--kind", "Email"}, "InvalidUsage"},
+		{"delete-notification-quota", []string{"--kind", "SMS", "--yes", "--cli-input-json", `{"Purge":true}`}, "InvalidUsage"},
+	} {
+		t.Run(tc.command+strings.Join(tc.flags, ""), func(t *testing.T) {
+			fixture := newSvcFixture(nil)
+			root, _, _ := newSvcRoot(t, fixture)
+			err := execCmd(t, root, append([]string{"--region", "hcm-3", "monitor", tc.command}, tc.flags...))
+			if err == nil || classify(err).Code != tc.code || exitCode(err) != 2 || fixture.requestCount() != 0 {
+				t.Fatalf("err=%v code=%s requests=%d", err, classify(err).Code, fixture.requestCount())
+			}
+		})
+	}
+	for _, op := range monitorOps {
+		if op.name == "delete-synthetic-quota" {
+			t.Fatal("deferred synthetic delete registered")
+		}
+	}
+}
+
+func TestMonitorQuotaLifecycleErrors(t *testing.T) {
+	for _, kind := range []string{"email", "sms", "synthetic"} {
+		for _, deleting := range []bool{false, true} {
+			if kind == "synthetic" && deleting {
+				continue
+			}
+			for _, status := range []int{400, 401, 403, 404, 409, 429, 502} {
+				for _, format := range []string{"json", "table", "text"} {
+					t.Run(fmt.Sprintf("%s/%t/%d/%s", kind, deleting, status, format), func(t *testing.T) {
+						fixture, mutations, id := monitorLifecycleFixture(t, kind, deleting, status)
+						root, stdout, stderr := newSvcRoot(t, fixture)
+						command := "set-notification-quota-auto-renew"
+						flags := []string{"--kind", kind, "--enabled=false"}
+						if kind == "synthetic" {
+							command = "set-synthetic-quota-auto-renew"
+							flags = []string{"--enabled=true"}
+						}
+						if deleting {
+							command = "delete-notification-quota"
+							flags = []string{"--kind", kind, "--yes"}
+						}
+						args := append([]string{"--region", "hcm-3", "--output", format, "--query", "Quota.ID", "monitor", command, "--expected-quota-id", id}, flags...)
+						err := execCmd(t, root, args)
+						code := map[int]string{400: "BadRequest", 401: "Unauthorized", 403: "Forbidden", 404: "NotFound", 409: "Conflict", 429: "Throttled", 502: "NotSettled"}[status]
+						wantExit := 1
+						if status == 401 {
+							wantExit = 3
+						}
+						if status == 404 {
+							wantExit = 4
+						}
+						if err == nil || classify(err).Code != code || exitCode(err) != wantExit || mutations.Load() != 1 {
+							t.Fatalf("err=%v code=%s exit=%d writes=%d", err, classify(err).Code, exitCode(err), mutations.Load())
+						}
+						if strings.Contains(err.Error()+stdout.String()+stderr.String(), "withheld-peer-value") {
+							t.Fatal("peer text exposed")
+						}
+						if status == 502 && (!strings.Contains(stdout.String(), "sent") || !strings.Contains(stdout.String(), id)) {
+							t.Fatalf("partial output lost: %s", stdout)
+						}
+						if kind == "synthetic" && status == 400 && fixture.requestCount() != 6 {
+							t.Fatalf("free refusal sent confirm reads: requests=%d", fixture.requestCount())
+						}
+						if kind == "synthetic" && status == 502 {
+							path := goldenPath("monitor-set-synthetic-quota-auto-renew-partial." + format + ".golden")
+							if *updateGolden {
+								if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+									t.Fatal(err)
+								}
+							} else {
+								want, err := os.ReadFile(path)
+								if err != nil {
+									t.Fatal(err)
+								}
+								if !bytes.Equal(stdout.Bytes(), want) {
+									t.Fatalf("got:\n%s\nwant:\n%s", stdout, want)
+								}
+							}
+						}
+						if kind == "synthetic" && !strings.Contains(stderr.String(), "free") {
+							t.Fatal("missing free-quota warning")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestMonitorQuotaLifecycleReadOnly(t *testing.T) {
+	for _, command := range []string{"set-notification-quota-auto-renew", "set-synthetic-quota-auto-renew", "delete-notification-quota"} {
+		for _, source := range []string{"flag", "environment", "profile"} {
+			t.Run(command+"/"+source, func(t *testing.T) {
+				home := withCleanEnv(t)
+				flags := []string{"--region", "hcm-3"}
+				switch source {
+				case "flag":
+					flags = append(flags, "--read-only")
+				case "environment":
+					t.Setenv(envReadOnly, "1")
+				case "profile":
+					writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
+					flags = []string{"--profile", "agent"}
+				}
+				fixture := newSvcFixture(nil)
+				opts := newFakeServer(t, fixture.mux)
+				withTestOptions(t, append(opts, vngcloud.WithStaticToken("test-token"))...)
+				stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+				root := newRootCmd(strings.NewReader(""), stdout, stderr)
+				flags = append(flags, "monitor", command)
+				args := flags
+				if command != "set-synthetic-quota-auto-renew" {
+					args = append(args, "--kind", "SMS")
+				}
+				if command == "delete-notification-quota" {
+					args = append(args, "--yes")
+				} else {
+					args = append(args, "--enabled=true")
+				}
+				err := execCmd(t, root, args)
+				if err == nil || classify(err).Code != "ReadOnly" || exitCode(err) != 2 || fixture.requestCount() != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+					t.Fatalf("err=%v requests=%d out=%s warning=%s", err, fixture.requestCount(), stdout, stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorQuotaLifecycleExpectedID(t *testing.T) {
+	for _, kind := range []string{"email", "sms", "synthetic"} {
+		for _, deleting := range []bool{false, true} {
+			if kind == "synthetic" && deleting {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/%t", kind, deleting), func(t *testing.T) {
+				fixture, writes, _ := monitorLifecycleFixture(t, kind, deleting, 200)
+				root, _, _ := newSvcRoot(t, fixture)
+				command := "set-notification-quota-auto-renew"
+				flags := []string{"--kind", kind, "--enabled=false"}
+				if kind == "synthetic" {
+					command = "set-synthetic-quota-auto-renew"
+					flags = []string{"--enabled=true"}
+				}
+				if deleting {
+					command = "delete-notification-quota"
+					flags = []string{"--kind", kind, "--yes"}
+				}
+				err := execCmd(t, root, append([]string{"--region", "hcm-3", "monitor", command, "--expected-quota-id", "replacement"}, flags...))
+				if err == nil || classify(err).Code != "InvalidUsage" || exitCode(err) != 2 || writes.Load() != 0 {
+					t.Fatalf("err=%v writes=%d", err, writes.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestMonitorSMSCommands(t *testing.T) {
+	for _, command := range []string{"get-notification-quota", "quote-create-notification-quota", "create-notification-quota"} {
+		for _, format := range []string{"json", "table", "text"} {
+			for _, budget := range []string{"55000", "50000"} {
+				if command != "create-notification-quota" && budget == "50000" {
+					continue
+				}
+				t.Run(command+"/"+format+"/"+budget, func(t *testing.T) {
+					load := func(name string) string {
+						data, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+						if err != nil {
+							t.Fatal(err)
+						}
+						return string(data)
+					}
+					quota := load("GetNotificationQuotaSMS")
+					writes := new(atomic.Int32)
+					if command == "get-notification-quota" {
+						writes.Store(1)
+					}
+					fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+						"/billing-api/v1/sms/packages": jsonHandler(200, load("ListNotificationPackagesSMS")),
+						"/billing-api/v2/sms/prices/created-price": func(w http.ResponseWriter, r *http.Request) {
+							var body map[string]any
+							if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+								t.Error(err)
+							}
+							if r.Method != http.MethodPost || len(body) != 3 || body["packageId"] != "5cc24133-938e-11eb-aad3-e0071b70d291" || body["redirectUrl"] != "" || body["quantity"] != float64(1) {
+								t.Errorf("quote body=%v", body)
+							}
+							_, _ = io.WriteString(w, load("QuoteCreateNotificationQuotaSMS"))
+						},
+						"/billing-api/v1/sms/quota": func(w http.ResponseWriter, r *http.Request) {
+							if r.Method == http.MethodGet {
+								if writes.Load() == 0 {
+									w.WriteHeader(404)
+									_, _ = io.WriteString(w, `{"message":"Not found sms quota"}`)
+								} else {
+									_, _ = io.WriteString(w, quota)
+								}
+								return
+							}
+							writes.Add(1)
+							var body map[string]any
+							if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+								t.Error(err)
+							}
+							if r.Method != http.MethodPost || len(body) != 4 || body["packageId"] != "5cc24133-938e-11eb-aad3-e0071b70d291" || body["monthPeriod"] != float64(1) || body["pay"] != true || body["redirectUrl"] != "https://vmonitor.console.vngcloud.vn/quota-usages/notification" {
+								t.Errorf("order body=%v", body)
+							}
+							_, _ = io.WriteString(w, load("CreateNotificationQuotaSMS"))
+						},
+					})
+					root, stdout, _ := newSvcRoot(t, fixture)
+					args := []string{"--region", "hcm-3", "--output", format, "monitor", command, "--kind", "sMs"}
+					if command != "get-notification-quota" {
+						args = append(args, "--package-id", "5cc24133-938e-11eb-aad3-e0071b70d291")
+					}
+					if command == "create-notification-quota" {
+						args = append(args, "--max-price", budget)
+					} else {
+						args = append(args, "--read-only")
+					}
+					err := execCmd(t, root, args)
+					if budget == "50000" {
+						if err == nil || classify(err).Code != "PriceAboveMax" || exitCode(err) != 1 || writes.Load() != 0 {
+							t.Fatalf("err=%v writes=%d", err, writes.Load())
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantWrites := int32(1)
+					if command == "quote-create-notification-quota" {
+						wantWrites = 0
+					}
+					if writes.Load() != wantWrites {
+						t.Fatalf("writes=%d", writes.Load())
+					}
+					path := goldenPath("monitor-" + command + "-sms." + format + ".golden")
+					if *updateGolden {
+						if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
+							t.Fatal(err)
+						}
+						return
+					}
+					want, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !bytes.Equal(stdout.Bytes(), want) {
+						t.Fatalf("got:\n%s\nwant:\n%s", stdout, want)
+					}
+				})
+			}
+		}
 	}
 }

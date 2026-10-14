@@ -985,3 +985,28 @@ func TestNotificationQuotaErrorPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestMonitorQuotaLifecycleErrorIdentities(t *testing.T) {
+	for _, op := range []string{"monitor.SetNotificationQuotaAutoRenew", "monitor.SetSyntheticQuotaAutoRenew", "monitor.DeleteNotificationQuota"} {
+		for _, tc := range []struct {
+			status int
+			code   string
+			exit   int
+		}{
+			{400, "BadRequest", 1}, {404, "NotFound", 4}, {409, "Conflict", 1},
+		} {
+			err := &vngcloud.APIError{Operation: op, StatusCode: tc.status, Code: tc.code, Message: "quota response withheld"}
+			if classify(err).Code != tc.code || exitCode(err) != tc.exit {
+				t.Fatalf("%s: code=%s exit=%d", op, classify(err).Code, exitCode(err))
+			}
+			unsettled := fmt.Errorf("%s: %w: %w", op, dns.ErrNotSettled, err)
+			if classify(unsettled).Code != "NotSettled" || exitCode(unsettled) != 1 || !errors.Is(unsettled, dns.ErrNotSettled) {
+				t.Fatalf("partial error=%v", unsettled)
+			}
+			var api *vngcloud.APIError
+			if !errors.As(unsettled, &api) || api.Operation != op || api.StatusCode != tc.status {
+				t.Fatal("API identity lost")
+			}
+		}
+	}
+}
