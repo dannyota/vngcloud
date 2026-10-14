@@ -1,0 +1,15 @@
+{
+  "id": "quota-email-1",
+  "name": "email quota",
+  "type": "EMAIL",
+  "status": "ACTIVE",
+  "packageId": "a15172e2-3537-4b06-9b91-c6626bae5973",
+  "startTime": "2026-10-14T03:10:06.000+00:00",
+  "endTime": "2026-11-13T03:10:06.000+00:00",
+  "createdAt": "2026-10-14T03:10:06.000+00:00",
+  "updatedAt": "2026-10-14T03:10:08.000+00:00",
+  "system": false,
+  "autoRenew": 0,
+  "autoRenewPeriod": 0,
+  "poc": 0
+}

@@ -1,0 +1,16 @@
+{
+  "optimumPrice": 0,
+  "discountPercent": null,
+  "originalPrice": 0,
+  "discountPrice": 0,
+  "propertiesPrice": [
+    {
+      "optimumPrice": 0,
+      "discountPercent": null,
+      "originalPrice": 0,
+      "discountPrice": 0,
+      "name": "monitor-platform-email",
+      "description": null
+    }
+  ]
+}

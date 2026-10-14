@@ -140,15 +140,24 @@ func quotaResponseError(op string) error {
 
 // quotaRead suppresses routine captures and retains only fixed error metadata.
 func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...string) (json.RawMessage, error) {
+	raw, _, err := c.quotaRequest(ctx, transport.Request{
+		Operation: op, Method: http.MethodGet, URL: c.billingRoute(version, parts), OK: []int{http.StatusOK},
+	})
+	return raw, err
+}
+
+func (c *Client) quotaRequest(ctx context.Context, req transport.Request) (json.RawMessage, int, error) {
+	op := req.Operation
 	var raw json.RawMessage
 	var credentials []string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{
-		Operation: op, Method: http.MethodGet, URL: c.billingRoute(version, parts), OK: []int{http.StatusOK},
-		Sensitive: true, MaxBody: quotaMaxBody, WithholdMessage: "quota response withheld", SentCredentials: &credentials,
-	}, &raw)
+	req.Sensitive = true
+	req.MaxBody = quotaMaxBody
+	req.WithholdMessage = "quota response withheld"
+	req.SentCredentials = &credentials
+	status, err := c.c.DoJSONStatus(ctx, req, &raw)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
+			return nil, status, monitorReadError(op, status, "ResponseTooLarge", "quota response exceeded size limit", err)
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -161,24 +170,24 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 				safe.Code = "InvalidResponse"
 			}
 			safe.Message = "quota response withheld"
-			safe.Err = monitorReadCause(api.Err)
-			return nil, &safe
+			safe.Err = monitorReadError(op, safe.StatusCode, safe.Code, safe.Message, api.Err).Err
+			return nil, status, &safe
 		}
-		return nil, err
+		return nil, status, err
 	}
 	// Scrub retained strings, including description keys, before projection.
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if decoder.Decode(&value) != nil {
-		return nil, quotaResponseError(op)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
 	}
 	value = c.scrubQuotaStrings(value, credentials)
 	raw, err = json.Marshal(value)
 	if err != nil {
-		return nil, quotaResponseError(op)
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil)
 	}
-	return raw, nil
+	return raw, status, nil
 }
 
 // Retain only fixed sentinels, as storage.objectAPIError does for withheld reads.
@@ -198,6 +207,9 @@ func monitorReadCause(cause error) error {
 }
 
 func monitorReadError(op string, status int, code, message string, cause error) *core.APIError {
+	if sentinel := map[int]error{401: core.ErrAuth, 403: core.ErrPermission, 404: core.ErrNotFound, 429: core.ErrRateLimited}[status]; sentinel != nil {
+		cause = errors.Join(cause, sentinel)
+	}
 	if classified := core.ResolvedCode(status, ""); classified != "" {
 		code = classified
 	}
@@ -435,15 +447,9 @@ func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInp
 	if err != nil {
 		return nil, err
 	}
-	o := quotaObjectOf(raw)
-	q := Quota{
-		ID: o.text("id", false), Name: o.text("name", false), Type: o.text("type", false), Status: o.text("status", false), PackageID: o.text("packageId", false),
-		StartTime: o.timestamp("startTime"), EndTime: o.timestamp("endTime"), CreatedAt: o.timestamp("createdAt"), UpdatedAt: o.timestamp("updatedAt"),
-		AutoRenew: o.flag("autoRenew"), POC: o.flag("poc"), AutoRenewPeriod: o.integer("autoRenewPeriod", false),
-	}
-	o.decode("system", &q.System, false)
-	if o.invalid || q.PackageID == "" || core.CheckPathID(op, "quota ID", q.ID) != nil {
-		return nil, quotaResponseError(op)
+	q, err := decodeQuota(op, raw)
+	if err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -452,7 +458,7 @@ func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInp
 	if err != nil {
 		return nil, err
 	}
-	o = quotaObjectOf(raw)
+	o := quotaObjectOf(raw)
 	counts := o.counts(true)
 	d := SyntheticQuotaDetail{
 		API: counts.API, Location: counts.Location, Email: counts.Email, SMS: counts.SMS,
@@ -509,4 +515,107 @@ func (c *Client) listSyntheticPackages(ctx context.Context, op string) ([]synthe
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+func decodeQuota(op string, raw json.RawMessage) (Quota, error) {
+	o := quotaObjectOf(raw)
+	q := Quota{
+		ID: o.text("id", false), Name: o.text("name", false), Type: o.text("type", false), Status: o.text("status", false), PackageID: o.text("packageId", false),
+		StartTime: o.timestamp("startTime"), EndTime: o.timestamp("endTime"), CreatedAt: o.timestamp("createdAt"), UpdatedAt: o.timestamp("updatedAt"),
+		AutoRenew: o.flag("autoRenew"), POC: o.flag("poc"), AutoRenewPeriod: o.integer("autoRenewPeriod", false),
+	}
+	o.decode("system", &q.System, false)
+	if o.invalid || q.PackageID == "" || core.CheckPathID(op, "quota ID", q.ID) != nil {
+		return Quota{}, quotaResponseError(op)
+	}
+	return q, nil
+}
+
+type GetNotificationQuotaInput struct {
+	Kind string `vngcloud:"required"`
+}
+type GetNotificationQuotaOutput struct{ Quota Quota }
+type GetNotificationQuotaUsageInput struct {
+	Kind string `vngcloud:"required"`
+}
+type GetNotificationQuotaUsageOutput struct{ Usage QuotaUsageDetail }
+
+// Only the evidenced quota route's exact absence envelope permits creation.
+type notificationQuotaAbsent struct{ err error }
+
+func (e *notificationQuotaAbsent) Error() string { return e.err.Error() }
+func (e *notificationQuotaAbsent) Unwrap() error { return e.err }
+
+func notificationEmailKind(op, kind string) (string, error) {
+	if strings.EqualFold(kind, NotificationKindEmail) {
+		return "email", nil
+	}
+	if strings.EqualFold(kind, NotificationKindSMS) {
+		return "", fmt.Errorf("%s: SMS quota reads and quotes are unsupported until SMS evidence is verified: %w", op, core.ErrInvalidInput)
+	}
+	return "", fmt.Errorf("%s: Kind must be Email: %w", op, core.ErrInvalidInput)
+}
+
+func (c *Client) GetNotificationQuota(ctx context.Context, in *GetNotificationQuotaInput) (*GetNotificationQuotaOutput, error) {
+	const op = "monitor.GetNotificationQuota"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	kind, err := notificationEmailKind(op, in.Kind)
+	if err != nil {
+		return nil, err
+	}
+	q, err := c.readNotificationQuota(ctx, op, kind)
+	if err != nil {
+		return nil, err
+	}
+	return &GetNotificationQuotaOutput{Quota: q}, nil
+}
+
+func (c *Client) readNotificationQuota(ctx context.Context, op, kind string) (Quota, error) {
+	raw, status, err := c.quotaRequest(ctx, transport.Request{
+		Operation: op, Method: http.MethodGet, URL: c.billingRoute("v1", []string{kind, "quota"}), OK: []int{http.StatusOK, http.StatusNotFound},
+	})
+	if err != nil {
+		return Quota{}, err
+	}
+	if status == http.StatusNotFound {
+		safe := monitorReadError(op, status, "NotFound", "quota response withheld", nil)
+		obj := quotaObjectOf(raw)
+		if kind == "email" && !obj.invalid && len(obj.fields) == 1 && obj.text("message", false) == "Not found email quota" {
+			return Quota{}, &notificationQuotaAbsent{err: safe}
+		}
+		return Quota{}, safe
+	}
+	return decodeQuota(op, raw)
+}
+
+func (c *Client) GetNotificationQuotaUsage(ctx context.Context, in *GetNotificationQuotaUsageInput) (*GetNotificationQuotaUsageOutput, error) {
+	const op = "monitor.GetNotificationQuotaUsage"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	kind, err := notificationEmailKind(op, in.Kind)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.quotaRead(ctx, op, "v1", kind, "quota", "usages")
+	if err != nil {
+		return nil, err
+	}
+	obj := quotaObjectOf(raw)
+	usage := quotaObjectOf(obj.fields["usage"])
+	description := quotaObjectOf(obj.fields["description"])
+	out := QuotaUsageDetail{Amount: usage.integer("amount", false), Descriptions: make(map[string]UsageDescription, len(description.fields))}
+	for key, item := range description.fields {
+		d := quotaObjectOf(item)
+		out.Descriptions[key] = UsageDescription{Name: d.text("name", false), Specs: d.text("specs", false), Unit: d.text("unit", false)}
+		if d.invalid {
+			return nil, quotaResponseError(op)
+		}
+	}
+	if obj.invalid || usage.invalid || description.invalid {
+		return nil, quotaResponseError(op)
+	}
+	return &GetNotificationQuotaUsageOutput{Usage: out}, nil
 }

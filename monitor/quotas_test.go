@@ -133,7 +133,9 @@ func quotaFixture(t *testing.T, name string, change func(map[string]json.RawMess
 	if err := json.Unmarshal(b, &obj); err != nil {
 		t.Fatal(err)
 	}
-	change(obj)
+	if change != nil {
+		change(obj)
+	}
 	b, err = json.Marshal(obj)
 	if err != nil {
 		t.Fatal(err)
@@ -680,6 +682,182 @@ func TestMonitorReadsOversizedStatus(t *testing.T) {
 				}
 				assertMonitorCredentialsAbsent(t, nil, err, "private-body-canary")
 			})
+		}
+	}
+}
+
+func TestNotificationEmailReads(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.RawQuery != "" {
+			t.Fatalf("request=%s %s", r.Method, r.URL)
+		}
+		switch r.URL.Path {
+		case "/billing-api/v1/email/quota":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaEmail.json")
+		case "/billing-api/v1/email/quota/usages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmail.json")
+		case "/billing-api/v1/quotas/usages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaUsageEmail.json")
+		default:
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+	}))
+	out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "eMaIl"})
+	if err != nil || out == nil || out.Quota.ID != "quota-email-1" || out.Quota.Status != QuotaStatusActive {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+	usage, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+	if err != nil || usage == nil || usage.Usage.Amount != 0 || usage.Usage.Descriptions["amount"].Unit != "/month" {
+		t.Fatalf("out=%v err=%v", usage, err)
+	}
+	composite, err := c.GetQuotaUsage(context.Background(), nil)
+	if err != nil || len(composite.Usage.EmailUsages) != 1 || composite.Usage.EmailUsages[0].Amount != 0 {
+		t.Fatalf("out=%v err=%v", composite, err)
+	}
+}
+
+func TestNotificationAbsence(t *testing.T) {
+	for _, tc := range []struct {
+		body     string
+		verified bool
+	}{
+		{`{"message":"Not found email quota"}`, true},
+		{`{"message":"Not found the Resource"}`, false},
+		{`{"message":"private proxy missing"}`, false},
+		{`{"message":"Not found email quota","extra":true}`, false},
+		{`{"message":"Not found email quota"`, false},
+	} {
+		calls := 0
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		_, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
+		var absent *notificationQuotaAbsent
+		if !errors.Is(err, core.ErrNotFound) || errors.As(err, &absent) != tc.verified || strings.Contains(err.Error(), "private") {
+			t.Fatalf("err=%v verified=%v", err, tc.verified)
+		}
+		out, err := c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
+		if out != nil || err == nil {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+		if !tc.verified && calls != 2 {
+			t.Fatalf("arbitrary 404 permitted preparation: calls=%d", calls)
+		}
+	}
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetNotificationQuotaUsageEmailNotFound.json")
+	}))
+	out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+	var absent *notificationQuotaAbsent
+	if out != nil || !errors.Is(err, core.ErrNotFound) || errors.As(err, &absent) {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestNotificationLocalSupportLimit(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") }))
+	for _, kind := range []string{"", "../email", "Slack", "SMS", "sMs"} {
+		_, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: kind})
+		if !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatal(err)
+		}
+		_, err = c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: kind})
+		if !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatal(err)
+		}
+		_, err = c.QuoteCreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: kind})
+		if !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatal(err)
+		}
+		if strings.EqualFold(kind, "SMS") && !strings.Contains(err.Error(), "SMS") {
+			t.Fatal("missing support limit")
+		}
+	}
+}
+
+func TestNotificationMalformedReads(t *testing.T) {
+	for _, fixture := range []string{"GetNotificationQuotaEmail", "GetNotificationQuotaUsageEmail"} {
+		keys := []string{"id", "packageId", "endTime", "autoRenew", "poc", "system"}
+		if strings.Contains(fixture, "Usage") {
+			keys = []string{"usage", "description"}
+		}
+		for _, key := range keys {
+			for _, value := range []string{"missing", "null", "invalid"} {
+				t.Run(fixture+"/"+key+"/"+value, func(t *testing.T) {
+					body := quotaFixture(t, fixture, func(m map[string]json.RawMessage) {
+						switch value {
+						case "missing":
+							delete(m, key)
+						case "null":
+							m[key] = json.RawMessage(`null`)
+						default:
+							m[key] = json.RawMessage(`42`)
+						}
+					})
+					c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+					var err error
+					if strings.Contains(fixture, "Usage") {
+						out, e := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+						err = e
+						if out != nil {
+							t.Fatal("partial output")
+						}
+					} else {
+						out, e := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
+						err = e
+						if out != nil {
+							t.Fatal("partial output")
+						}
+					}
+					var api *core.APIError
+					if !errors.As(err, &api) || api.Code != "InvalidResponse" || strings.Contains(err.Error(), "private-canary") {
+						t.Fatalf("err=%v", err)
+					}
+				})
+			}
+		}
+	}
+	for _, amount := range []string{`null`, `1.5`, `"1"`, `1e309`} {
+		body := `{"usage":{"amount":` + amount + `},"description":{}}`
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+		out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+		if out != nil || err == nil {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+	}
+}
+
+func TestNotificationRefreshRedaction(t *testing.T) {
+	for _, usage := range []bool{false, true} {
+		target := "/billing-api/v1/email/quota"
+		fixture := "GetNotificationQuotaEmail"
+		if usage {
+			target += "/usages"
+			fixture = "GetNotificationQuotaUsageEmail"
+		}
+		body := quotaFixture(t, fixture, func(m map[string]json.RawMessage) {
+			if usage {
+				m["description"] = json.RawMessage(`{"synthetic-token-A":{"name":"synthetic-token-B","specs":"synthetic-token-A","unit":"synthetic-token-B"}}`)
+			} else {
+				m["name"] = json.RawMessage(`"synthetic-token-A synthetic-token-B"`)
+			}
+		})
+		c := monitorRefreshClient(t, "synthetic-token-A", "synthetic-token-B", target, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+		if usage {
+			out, err := c.GetNotificationQuotaUsage(context.Background(), &GetNotificationQuotaUsageInput{Kind: "Email"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, "synthetic-token-A", "synthetic-token-B")
+		} else {
+			out, err := c.GetNotificationQuota(context.Background(), &GetNotificationQuotaInput{Kind: "Email"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertMonitorCredentialsAbsent(t, out, err, "synthetic-token-A", "synthetic-token-B")
 		}
 	}
 }

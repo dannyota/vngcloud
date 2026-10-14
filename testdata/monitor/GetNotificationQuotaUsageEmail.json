@@ -1,0 +1,12 @@
+{
+  "usage": {
+    "amount": 0
+  },
+  "description": {
+    "amount": {
+      "name": "Email",
+      "specs": "Maximum number of emails sent per month",
+      "unit": "/month"
+    }
+  }
+}
