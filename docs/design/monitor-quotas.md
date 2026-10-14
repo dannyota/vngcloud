@@ -94,11 +94,12 @@ or reversed at that precision. No invented server maximum range is imposed.
 Validate optional LocationID as an ID; no matching location is NotFound.
 
 Fetch one history response per selected alarm sequentially, sending
-`interval` as the check's `TestFrequency` in minutes when positive and
-omitting it otherwise; live, it changed nothing. Check cancellation between
-requests. Validate alarm IDs before routing, and reject history whose
-`alarm_id` conflicts with the requested alarm. Merge and sort by Timestamp,
-LocationID, AlarmID, then ID. Identical timestamps remain separate events.
+`interval` as the check's `test_frequency` in minutes; a missing,
+non-positive, non-integral, or out-of-range frequency is an invalid
+response, refused before any history request. Check cancellation between
+requests, validate alarm IDs before routing, and reject history whose
+`alarm_id` conflicts with the requested alarm. Sort by Timestamp,
+LocationID, AlarmID, then ID; identical timestamps stay separate events.
 
 `CheckAlarmTransition` holds `ID, AlarmID, LocationID, LocationName,
 OldState, NewState string`, `Timestamp time.Time`, and
@@ -350,12 +351,11 @@ the probes. File references name inspected code, not satisfied invariants.
   from their author. Test foreign redirects, hook rewrites, and 307/308.
 - **Local profile/cache tampering, high.** Cache keys bind identity at
   `internal/tokencache/cache.go:41`; directory checks are at line 238 and
-  credential writes use 0600 at `internal/cli/configfile.go:152`.
-  Read-only has separate pre-config and profile checks at
-  `internal/cli/readonly.go:24` and line 43. Reuse these mechanisms without
-  new files, permissions, or token reuse rules. They do not defeat an
-  attacker running as the same user. Test refusal before any network call
-  and retain cache identity/permission regressions; no cleanup uses secrets.
+  credential writes use 0600 at `internal/cli/configfile.go:152`. Read-only
+  has pre-config and profile checks at `internal/cli/readonly.go:24` and
+  line 43. Reuse these without new files, permissions, or token reuse
+  rules; they do not defeat an attacker running as the same user. Test
+  refusal before any network call and keep cache identity regressions.
 - **Concurrent or repeated charge, high.** Existing one-builder quoting is
   at `monitor/logprojects_write.go:128`; Once behavior is at
   `internal/transport/transport.go:308` and line 403. Require the frozen
