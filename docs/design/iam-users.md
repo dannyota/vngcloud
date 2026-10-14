@@ -139,14 +139,15 @@ privilege reads can prove it. Missing policy data, invalid policy IDs,
 incomplete attachment pages, null group lists, and missing group `policies`
 never count as empty. Every read a delete depends on, including the target
 read, caller identity, the action list, each policy, and every attachment
-reader in `iam/guard.go`, validates the raw body with the
-[strict JSON rule](iam-users-api.md#bounds-and-strict-decoding) before
-decoding: a duplicate key, or two keys equal under case folding, refuses the
-delete. Go's decoder otherwise lets a later `data` or `DATA` member replace an
-earlier attachment list with an empty one. Reuse the existing classification;
-do not replace it with managed-policy names. The user-group reader does not
-check group mode or membership fields like the full group reader does, but any
-membership still prevents this delete.
+reader in `iam/guard.go`, decodes under the
+[strict JSON rule](iam-users-api.md#bounds-and-strict-decoding): a duplicate
+key anywhere, or two keys the decoder would assign to one struct field,
+refuses the delete. Go's decoder otherwise lets a later `data` or `DATA`
+member replace an earlier attachment list with an empty one. Distinct map keys
+such as policy condition names stay the server's. Reuse the existing
+classification; do not replace it with managed-policy names. The user-group
+reader does not check group mode or membership fields like the full group
+reader does, but any membership still prevents this delete.
 
 A service-account caller cannot be the target IAM user. It still needs
 classified identity and all target checks; this does not relax the existing
@@ -251,9 +252,14 @@ tests](iam-users-api.md#unit-tests).
    `json.Unmarshal` (`internal/transport/transport.go:262`), where a later
    duplicate or case-alias member replaces an earlier one. The
    [bounds and strict-decoding prerequisite](iam-users-api.md#bounds-and-strict-decoding)
-   must land before reuse. Check caps, wrong IDs, duplicate exact names,
-   missing keys, duplicate and case-alias keys, partial JSON, and failure
-   propagation. Never let an inferred console default satisfy a guard.
+   must land before reuse, and typed decoding stays inside the transport:
+   `sanitizeDecodeError` (`internal/transport/network_error.go:56`) keeps
+   only fixed `encoding/json` kinds, so the `strconv.NumError` that
+   `iam/timestamp.go:48` builds from peer text never reaches an error. Check
+   caps, wrong IDs, duplicate exact names, missing keys, duplicate and
+   case-alias keys, canaries in timestamp and `root` values, partial JSON,
+   and failure propagation. Never let an inferred console default satisfy a
+   guard.
 3. **An attacker redirects a request or changes an endpoint.** Invariant:
    no credentials cross the configured origin on redirect and TLS verifies
    the peer with the standard transport. Severity: high for password and

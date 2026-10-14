@@ -13,12 +13,10 @@ has been verified for this design.
   Dashboard endpoint; this source does not verify that gateway's writes.
 - [Console main bundle][main]: `getListUserAccounts`, `getUserById`,
   `createUser`, `deleteUAById`, user-model defaults, and validators.
-  [User-account chunk][users]: `createUsers` sends username and password,
-  discards the create response, and enriches list rows using get results.
-  [Account-settings chunk][settings] defines custom password controls.
-  [Quota chunk][quota] names `quotas/iam-user`. These are source-level
-  inferences, not server response evidence. Bundles were read as text and
-  never executed; runtime filenames are content-addressed evidence pins.
+  [User-account chunk][users]: `createUsers` sends username and password
+  and discards the response. [Account-settings chunk][settings]: custom
+  password controls. [Quota chunk][quota]: `quotas/iam-user`. Source-level
+  inferences, read as text and never executed, not server evidence.
 - Product pages [User Accounts][product-users], [Create an IAM User
   Account][product-create], and [Delete an IAM User Account][product-delete]
   state the username and password rules, that a new user holds no policy and
@@ -36,9 +34,8 @@ has been verified for this design.
 
 ## Calls
 
-Paths below are relative to `accounts-api/v1/` on the configured Dashboard
-endpoint. The spec documents the four operations, including every listed status.
-It does not document user-specific error bodies or meanings of 409.
+Paths are relative to `accounts-api/v1/` on the configured Dashboard endpoint.
+The spec documents these statuses and no error bodies or 409 meanings.
 
 | Operation and path | Success | Documented errors |
 |-|-|-|
@@ -56,51 +53,45 @@ evidence only, used by probes, not a new SDK method.
 ## Bodies and responses
 
 Create sends exactly `{"username":"<account>","password":"<secret>"}`. The spec
-requires the body but does not mark either property required; the console and
-proposed SDK require both actual values. The console supports local password
-generation, not a server-generation switch. No observed create field supplies
-groups, policies, console access, or a forced-password-change option. Absence of
-those fields does not prove server defaults or sign-in behavior.
+requires the body but marks neither property required; the console and the
+proposed SDK require both values. The console generates passwords locally; no
+server switch, group, policy, console-access, or forced-change field was
+observed, and absence proves no server default or sign-in behavior.
 
-The 201 response has no documented schema. The console ignores its body. Empty
-response, optional `id`, and malformed response handling are proposed client
-behavior, not evidence of what the server returns. DELETE's 204 has no body. A
-create 409 may be a duplicate name; quota or another conflict is not ruled out.
-A delete 409 may occur despite empty attachment reads. Never translate it into
-`ErrInUse`, success, or automatic detach.
+The 201 response has no documented schema and the console ignores its body;
+empty, optional-`id`, and malformed handling are proposed client behavior.
+DELETE's 204 has no body. A create 409 may be a duplicate name, a quota, or
+another conflict. A delete 409 may occur despite empty attachment reads; never
+translate it into `ErrInUse`, success, or automatic detach.
 
 The list schema has `data`, `pageNumber`, `pageSize`, `totalItems`, and
-`totalPages`. Rows have `id`, `username`, and RFC 3339 `createdAt`. Existing
-sanitized reads support that minimal row shape. The spec does not make metadata
-keys required, so strict completeness is a local confirmation rule, not a claim
-about every valid list response.
+`totalPages`; rows have `id`, `username`, and RFC 3339 `createdAt`. The spec
+does not make metadata keys required, so completeness is a local confirmation
+rule, not a claim about every valid list response.
 
 The console's user model initializes `id`, `username`, `createdAt`, `enabled`,
-`lastUse`, `from`, `idpId`, and `twoFactorAuth`. It also has UI-only fields,
-including a blank `password`, group selections, and loading flags. The get
-mapper assigns arbitrary response properties onto those defaults. Therefore
-neither field presence nor wire types follow from the model alone. The list view
-uses get results for `enabled`, `lastUse`, and `from`; the password UI checks
-`from === "iam"`. Treat `iam` and `idp` as observed console discriminators, not
-a complete server enum. MFA model fields include email, SMS, and Google
-authenticator state, with contact values. Omit these and `idpId` from public
+`lastUse`, `from`, `idpId`, and `twoFactorAuth`, plus UI-only fields such as a
+blank `password`; its get mapper copies arbitrary response properties onto
+those defaults, so neither presence nor wire types follow from the model. The
+list view takes `enabled`, `lastUse`, and `from` from get results, and the
+password UI checks `from === "iam"`; treat `iam` and `idp` as observed
+discriminators, not a complete enum. MFA fields carry email, SMS, and Google
+authenticator state with contact values. Omit these and `idpId` from public
 outputs; preserve their presence in sanitized raw fixture evidence.
 
 The console username validator allows 5 to 50 ASCII letters, digits,
-underscores, hyphens, or dots. Its password validator requires 8 to 50
-JavaScript characters and at least one upper-case ASCII letter, lower-case ASCII
-letter, digit, and special character. The special class includes ASCII space and
-punctuation. Use the exact expression below; it requires a special character but
-does not restrict all other characters.
+underscores, hyphens, or dots. Its password validator, below, requires 8 to
+50 JavaScript characters with at least one upper-case ASCII letter, lower-case
+ASCII letter, digit, and special character, where the special class includes
+ASCII space; the final dot restricts no other character.
 
 ```text
 ^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[ !"#$%&'()*+,-./:;<=>?@\[\]\\^_`{|}~]).{8,50}$
 ```
 
-The final dot is not a whitelist of password characters. The settings UI allows
-minimum length 8 to 50, configurable required classes, expiration 1 to 1095
-days, and reuse history 1 to 24. These UI rules do not establish server policy
-for a particular account. The SDK validates shape only.
+The settings UI allows minimum length 8 to 50, configurable required classes,
+expiration 1 to 1095 days, and reuse history 1 to 24. These UI rules do not
+establish server policy for an account. The SDK validates shape only.
 
 ## SDK
 
@@ -136,19 +127,16 @@ and exact `from: "iam"`, never zero-value model defaults.
 
 ### Generation
 
-When Password is empty, generate 32 ASCII characters with `crypto/rand`. Use
-upper- and lower-case ASCII letters, decimal digits, and
-`!@#$%^&*()_+-=[]{}:;,.?/<>|~`. All are in the console's special class; spaces,
-quotes, backslash, and backtick are deliberately excluded.
-
-Sample uniformly without modulo bias. Reject a whole candidate unless all four
-classes appear; do not fix predictable class positions. Bound candidate attempts
-at 256 and entropy consumption at 64 KiB, including rejected byte samples. Check
-cancellation between draws and return a fixed local error on entropy failure or
-exhaustion before any request. Production randomness is never caller-selectable;
-inject a reader only through private test seams. This gives well over 190 bits
-of entropy with a functioning uniform source. Do not copy the console's
-`Math.random` generator or claim compatibility with all custom policies.
+When Password is empty, generate 32 ASCII characters with `crypto/rand` from
+upper- and lower-case letters, digits, and `!@#$%^&*()_+-=[]{}:;,.?/<>|~`, all
+in the console's special class; spaces, quotes, backslash, and backtick are
+excluded. Sample uniformly without modulo bias and reject a whole candidate
+unless all four classes appear; do not fix class positions. Bound attempts at
+256 and entropy consumption at 64 KiB, check cancellation between draws, and
+return a fixed local error on entropy failure or exhaustion before any request.
+Production randomness is never caller-selectable; inject a reader only through
+private test seams. This gives well over 190 bits of entropy. Do not copy the
+console's `Math.random` generator or claim compatibility with every policy.
 
 ### Writes
 
@@ -247,16 +235,23 @@ polling occurs. All SDK requests and guard reads use the caller's context;
 cancellation stops further reads and writes. Nothing runs on a detached
 context.
 
-Strict rule: decode the body into `json.RawMessage`, validate it, then decode
-the typed value. Validation rejects malformed JSON, trailing data, a duplicate
-key at any depth, and two keys in one object that are equal under Unicode
-case folding, since Go's struct decoding matches keys case-insensitively and
-lets a later member replace an earlier one. `internal/jsonresponse.Validate`
-rejects exact duplicates today; add `ValidateStrict` beside it for the
-case-fold rule and leave `Validate`'s callers unchanged. Apply the strict rule
-to the user get, the filtered list, the create response, and every read a
-delete depends on: `GetCallerIdentity`, `ListActions`, `GetPolicy`,
-`guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
+Strict rule: a request sets `transport.Request.StrictJSON`, and
+`doJSONStatus` then runs `jsonresponse.ValidateStrict(body, out)` before its
+own `json.Unmarshal`, inside the same error path, so a validation or typed
+decode failure returns the existing sanitized decode error, or the withheld
+form under `Sensitive`. Typed decoding never moves out of the transport:
+`sanitizeDecodeError` keeps only fixed `encoding/json` error kinds and
+discards every other cause, such as the `strconv.NumError` that
+`iam/timestamp.go` builds from peer text. `ValidateStrict` walks the body
+beside the target's static type and rejects malformed JSON, trailing data, an
+exact duplicate key in any object, and, only for an object decoded into a
+struct, two keys that `encoding/json` would assign to the same field, which it
+matches case-insensitively. Maps, interfaces, raw messages, and non-struct
+kinds get exact-duplicate rejection only, so distinct case-sensitive
+`Condition` map keys still decode. `Validate` and its callers stay unchanged.
+Set `StrictJSON` on the user get, the filtered list, the create response, and
+every read a delete depends on: `GetCallerIdentity`, `ListActions`,
+`GetPolicy`, `guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
 `guardGetGroupAttachments`, and `guardUserGroups`.
 
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
@@ -267,13 +262,14 @@ the transport. Create remains one attempt.
 
 Existing caller, action, policy, and guard readers omit `MaxBody` and the
 strict rule. Before this feature's SDK work, one separately briefed and
-reviewed prerequisite adds both to those readers in `iam/caller.go`,
-`iam/actions.go`, `iam/policies.go`, and `iam/guard.go`, with
-`internal/jsonresponse/keys.go` gaining `ValidateStrict`: 256 KiB for single
-objects, 4 MiB for lists. Preserve their fail-closed classification and error
-identities. Oversized or ambiguous existing reads will begin failing for every
-guarded write; owner approval must cover that compatibility change. Do not
-describe a capped user get as bounding the whole guard graph.
+reviewed prerequisite adds `StrictJSON` to `internal/transport`,
+`ValidateStrict` to `internal/jsonresponse`, and both flags to those readers
+in `iam/caller.go`, `iam/actions.go`, `iam/policies.go`, and `iam/guard.go`:
+256 KiB for single objects, 4 MiB for lists. Preserve their fail-closed
+classification and error identities. Oversized or ambiguous existing reads
+will begin failing for every guarded write; owner approval must cover that
+compatibility change. Do not describe a capped user get as bounding the whole
+guard graph.
 
 ## Unit tests
 
@@ -310,7 +306,12 @@ in the [calls table](#calls), plus unexpected responses.
   key, a duplicate `iamUsers`, `policies`, or `mode` in a group, a
   duplicate `statements`, `effect`, or `actions` in a policy, a duplicate
   `userId` or `userType` in the caller identity, a duplicate `data` in the
-  action list, and a duplicate `id` or `from` in the target user.
+  action list, and a duplicate `id` or `from` in the target user. A policy
+  whose `Condition` holds the distinct map keys `Env` and `env` still
+  decodes with both.
+- Put a canary in a `$numberLong` timestamp, a `root`, and a malformed
+  strict body on every strict read, and check that no SDK error node,
+  `APIError` field, or CLI stderr line carries it.
 - Canary-check stdout, stderr, debug, capture, every reachable error node,
   and supported fmt/slog/JSON paths. Include nested escaped password
   echoes in error codes/messages and success bodies; unsafe formatting is
