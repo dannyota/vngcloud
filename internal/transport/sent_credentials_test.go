@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,9 +12,128 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestRedactionMatchesOriginalText(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, tc := range []struct {
+		name, text, want string
+		values           []string
+	}{
+		{"prefix", "bad " + second + "; " + first, "bad [redacted]; [redacted]", []string{first, second}},
+		{"staggered", "abcdefghijklmnopqr", "[redacted]", []string{"abcdefghijk", "hijklmnopqr"}},
+		{"self overlap", "aaaaaaaaaa", "[redacted]", []string{"aaaaaaaa", "aaaaaaaaa"}},
+		{"escaped", "bad " + jsonEscapedForm(`synthetic-"token-SECRET-TAIL`), "bad [redacted]", []string{`synthetic-"token`, `synthetic-"token-SECRET-TAIL`}},
+		{"trimmed line", "bad " + second, "bad [redacted]", []string{"header\n  " + first + "\nfooter", "header\n  " + second + "\nfooter"}},
+		{"short", "bad tok-SECRET-TAIL", "[redacted]", []string{"tok", "tok-SECRET-TAIL"}},
+		{"adjacent", first + second, "[redacted][redacted]", []string{first, second}},
+	} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reverse=%t", tc.name, reverse), func(t *testing.T) {
+				values := slices.Clone(tc.values)
+				if reverse {
+					slices.Reverse(values)
+				}
+				if got := RedactValues(tc.text, values...); got != tc.want {
+					t.Errorf("redacted text = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	}
+}
+
+type overlapTokens struct {
+	values []string
+	calls  atomic.Int32
+}
+
+func (s *overlapTokens) Token(context.Context) (Token, error) {
+	i := min(int(s.calls.Add(1))-1, len(s.values)-1)
+	return Token{AccessToken: s.values[i], ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*overlapTokens) Invalidate(string) {}
+
+func TestCollectedOverlappingCredentials(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, reverse := range []bool{false, true} {
+		for _, status := range []int{200, 400} {
+			t.Run(fmt.Sprintf("reverse=%t/%d", reverse, status), func(t *testing.T) {
+				values := []string{first, second}
+				if reverse {
+					slices.Reverse(values)
+				}
+				var attempts atomic.Int32
+				var captures [][]byte
+				var logs bytes.Buffer
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					w.WriteHeader(status)
+					_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q,"%s":%q}`, second, second, second, second)
+				}))
+				defer server.Close()
+				client := New(Config{HTTPClient: server.Client(), TokenSource: &overlapTokens{values: values}, Capture: func(c Capture) { captures = append(captures, c.Body) }, Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))})
+				var sent []string
+				var out struct{ Code, Message string }
+				err := client.DoJSON(context.Background(), Request{URL: server.URL + "/" + second, SentCredentials: &sent}, &out)
+				if !slices.Equal(sent, values) || attempts.Load() != 2 {
+					t.Fatal("did not collect both credentials across refresh")
+				}
+				switch {
+				case status == 400:
+					var api *APIError
+					if !errors.As(err, &api) {
+						t.Fatal("missing APIError")
+					}
+					out.Code, out.Message = api.Code, api.Message
+				case err != nil:
+					t.Fatal(err)
+				default:
+					out.Code, out.Message = RedactErrorText(out.Code, sent...), RedactErrorText(out.Message, sent...)
+				}
+				if out.Code != redactedText || out.Message != redactedText {
+					t.Error("error or envelope retained part of an overlapping credential")
+				}
+				if len(captures) == 0 {
+					t.Fatal("missing response capture")
+				}
+				for _, body := range captures {
+					if strings.Contains(string(body), "SECRET-TAIL") {
+						t.Error("capture retained a credential suffix")
+					}
+				}
+				loggedRetry := false
+				for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+					var record struct {
+						Status int    `json:"status"`
+						Path   string `json:"path"`
+					}
+					if json.Unmarshal([]byte(line), &record) != nil {
+						t.Fatal("invalid log record")
+					}
+					// The retry is the first attempt that knows both credentials.
+					if record.Status == status {
+						loggedRetry = true
+						if record.Path != "/[redacted]" {
+							t.Error("debug path retained a credential suffix after refresh")
+						}
+					}
+				}
+				if !loggedRetry {
+					t.Fatal("missing retry debug record")
+				}
+			})
+		}
+	}
+}
 
 func TestSentCredentialsRedactEarlierAttempts(t *testing.T) {
 	for _, mode := range []string{"refresh", "5xx", "api-key"} {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -188,29 +189,110 @@ const redactedText = "[redacted]"
 // risks corrupting an unrelated word or number that merely contains the same
 // short text.
 func redact(s string, values []string) string {
+	if s == "" || len(values) == 0 {
+		return s
+	}
+	forms := make(map[string]bool)
 	for _, v := range values {
 		if v == "" {
 			continue
 		}
+		escaped := jsonEscapedForm(v)
 		if len(v) < shortValueMinLen {
-			escaped := jsonEscapedForm(v)
 			if strings.Contains(s, v) || (escaped != "" && strings.Contains(s, escaped)) {
 				return redactedText
 			}
 			continue
 		}
-		s = strings.ReplaceAll(s, v, redactedText)
-		if escaped := jsonEscapedForm(v); escaped != "" {
-			s = strings.ReplaceAll(s, escaped, redactedText)
+		forms[v] = true
+		if escaped != "" {
+			forms[escaped] = true
 		}
 		for _, line := range strings.Split(v, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if len(trimmed) >= redactLineMinLen {
-				s = strings.ReplaceAll(s, trimmed, redactedText)
+				forms[trimmed] = true
 			}
 		}
 	}
-	return s
+	var spans []redactionSpan
+	for form := range forms {
+		spans = findRedactionSpans(s, form, spans)
+	}
+	if len(spans) == 0 {
+		return s
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].start == spans[j].start {
+			return spans[i].end > spans[j].end
+		}
+		return spans[i].start < spans[j].start
+	})
+	var cleaned strings.Builder
+	start, end := spans[0].start, spans[0].end
+	previous := 0
+	for _, span := range spans[1:] {
+		if span.start < end {
+			end = max(end, span.end)
+			continue
+		}
+		cleaned.WriteString(s[previous:start])
+		cleaned.WriteString(redactedText)
+		previous, start, end = end, span.start, span.end
+	}
+	cleaned.WriteString(s[previous:start])
+	cleaned.WriteString(redactedText)
+	cleaned.WriteString(s[end:])
+	return cleaned.String()
+}
+
+type redactionSpan struct{ start, end int }
+
+// Match the original text, including overlapping occurrences. Merge a form's
+// self-overlap while collecting it so repeated input does not grow the list.
+func findRedactionSpans(s, form string, spans []redactionSpan) []redactionSpan {
+	base := len(spans)
+	for offset := 0; offset < len(s); {
+		match := strings.Index(s[offset:], form)
+		if match < 0 {
+			break
+		}
+		start := offset + match
+		end := start + len(form)
+		if len(spans) > base && start < spans[len(spans)-1].end {
+			spans[len(spans)-1].end = end
+		} else {
+			spans = append(spans, redactionSpan{start: start, end: end})
+		}
+		offset = start + 1
+	}
+	return spans
+}
+
+type safeDecodeError struct{ cause error }
+
+func (*safeDecodeError) Error() string   { return "response failed to decode" }
+func (e *safeDecodeError) Unwrap() error { return e.cause }
+
+// SanitizeDecodeError preserves JSON error types using fixed decoder inputs.
+// It never retains the original cause or copies its exported fields.
+func SanitizeDecodeError(err error) error {
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	var invalid *json.InvalidUnmarshalError
+	var cause error
+	switch {
+	case errors.As(err, &syntax):
+		var value any
+		cause = json.Unmarshal([]byte("?"), &value)
+	case errors.As(err, &mismatch):
+		var value int
+		cause = json.Unmarshal([]byte(`""`), &value)
+	case errors.As(err, &invalid):
+		var value *int
+		cause = json.Unmarshal([]byte(`0`), value)
+	}
+	return &safeDecodeError{cause: cause}
 }
 
 // jsonEscapedForm returns the text between the quotes json.Marshal would

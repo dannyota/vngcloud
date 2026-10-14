@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // listBucketsLimit is the per-project bucket cap, so one call returns every
@@ -105,7 +106,7 @@ func (c *Client) GetBucket(ctx context.Context, in *GetBucketInput) (*GetBucketO
 		return nil, &core.APIError{Operation: op, StatusCode: 200, Message: "response had no bucket"}
 	}
 	if err := json.Unmarshal(env.Data, &out.Bucket); err != nil {
-		return nil, &core.APIError{Operation: op, StatusCode: 200, Err: fmt.Errorf("decode bucket: %w", err)}
+		return nil, &core.APIError{Operation: op, StatusCode: 200, Err: fmt.Errorf("decode bucket: %w", transport.SanitizeDecodeError(err))}
 	}
 	return &out, nil
 }

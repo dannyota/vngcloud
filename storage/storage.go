@@ -214,7 +214,7 @@ func decodeList[T any](op string, status int, env *envelope) ([]T, error) {
 	}
 	var items []T
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, &core.APIError{Operation: op, StatusCode: status, Err: fmt.Errorf("decode list: %w", err)}
+		return nil, &core.APIError{Operation: op, StatusCode: status, Err: fmt.Errorf("decode list: %w", transport.SanitizeDecodeError(err))}
 	}
 	return items, nil
 }

@@ -2,13 +2,16 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -16,6 +19,112 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+type credentialTestTokens struct {
+	values []string
+	calls  atomic.Int32
+}
+
+func (s *credentialTestTokens) Token(context.Context) (transport.Token, error) {
+	i := min(int(s.calls.Add(1))-1, len(s.values)-1)
+	return transport.Token{AccessToken: s.values[i], ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*credentialTestTokens) Invalidate(string) {}
+
+func TestEnvelopeOverlappingCredentials(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, reverse := range []bool{false, true} {
+		for _, balances := range []bool{false, true} {
+			t.Run(fmt.Sprintf("reverse=%t/balances=%t", reverse, balances), func(t *testing.T) {
+				values := []string{first, second}
+				if reverse {
+					values[0], values[1] = values[1], values[0]
+				}
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, second, second)
+				}))
+				defer server.Close()
+				tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: values}})
+				c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+				var err error
+				if balances {
+					err = c.doBalances(context.Background(), transport.Request{URL: server.URL}, nil)
+				} else {
+					_, err = c.ListBudgets(context.Background(), nil)
+				}
+				var api *core.APIError
+				if attempts.Load() != 2 || !errors.As(err, &api) {
+					t.Fatal("expected refresh and envelope failure")
+				}
+				if api.Code != "[redacted]" || api.Message != "[redacted]" {
+					t.Error("envelope retained an overlapping credential suffix")
+				}
+			})
+		}
+	}
+}
+
+func TestBillingDecodeCauseWithholdsPeerValues(t *testing.T) {
+	const secret = "123456789e999"
+	for _, kind := range []string{"budget data", "envelope", "balances envelope", "balances data", "balances raw"} {
+		t.Run(kind, func(t *testing.T) {
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if attempts.Add(1) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				switch kind {
+				case "budget data":
+					_, _ = fmt.Fprintf(w, `{"code":200,"data":[{"uuid":"budget-1","limitAmount":%s}]}`, secret)
+				case "envelope", "balances envelope":
+					_, _ = fmt.Fprintf(w, `{"code":200,"message":%s,"data":[]}`, secret)
+				case "balances data":
+					_, _ = fmt.Fprintf(w, `{"code":200,"data":{"value":%s}}`, secret)
+				case "balances raw":
+					_, _ = fmt.Fprintf(w, `{"value":%s}`, secret)
+				}
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{secret, "synthetic-fresh-token"}}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+			var err error
+			if strings.HasPrefix(kind, "balances") {
+				var out map[string]float64
+				err = c.doBalances(context.Background(), transport.Request{Operation: "billing.GetBalances", URL: server.URL}, &out)
+			} else {
+				var out *ListBudgetsOutput
+				out, err = c.ListBudgets(context.Background(), nil)
+				if out != nil {
+					t.Fatal("decoder failure returned partial output")
+				}
+			}
+			var api *core.APIError
+			var typed *json.UnmarshalTypeError
+			if attempts.Load() != 2 || !errors.As(err, &api) || !errors.As(err, &typed) {
+				t.Fatal("expected refresh, APIError, and JSON type identity")
+			}
+			if errors.Unwrap(err).Error() != "response failed to decode" {
+				t.Error("decoder cause was not replaced with fixed text")
+			}
+			for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+				if strings.Contains(cause.Error(), secret) {
+					t.Error("decoder error chain retained an echoed credential")
+				}
+			}
+			if typed.Value != "string" || typed.Struct != "" || typed.Field != "" || typed.Offset != 2 {
+				t.Error("JSON type error retained original exported fields")
+			}
+		})
+	}
+}
 
 func TestEnvelopeRedactsEarlierAttempt(t *testing.T) {
 	for _, balances := range []bool{false, true} {

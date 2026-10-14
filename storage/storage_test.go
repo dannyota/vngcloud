@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -16,6 +18,133 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+type credentialTestTokens struct {
+	values []string
+	calls  atomic.Int32
+}
+
+func (s *credentialTestTokens) Token(context.Context) (transport.Token, error) {
+	i := min(int(s.calls.Add(1))-1, len(s.values)-1)
+	return transport.Token{AccessToken: s.values[i], ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*credentialTestTokens) Invalidate(string) {}
+
+func TestEnvelopeOverlappingCredentials(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, reverse := range []bool{false, true} {
+		for _, kind := range []string{"read", "price", "buckets"} {
+			t.Run(fmt.Sprintf("reverse=%t/%s", reverse, kind), func(t *testing.T) {
+				values := []string{first, second}
+				if reverse {
+					values[0], values[1] = values[1], values[0]
+				}
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"success":false,"code":%q,"errorMsg":%q}`, second, second)
+				}))
+				defer server.Close()
+				tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: values}})
+				c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Storage: server.URL + "/"}, tc))
+				var err error
+				switch kind {
+				case "read":
+					_, err = c.ListRegions(context.Background(), nil)
+				case "price":
+					_, err = c.exchangeProjectPrice(context.Background(), call{op: "storage.QuoteCreateProject", method: http.MethodPost, url: server.URL, ok: []int{200}})
+				case "buckets":
+					_, err = c.readProjectBuckets(context.Background(), "storage.DeleteProject", "region-1", "project-1")
+				}
+				var api *core.APIError
+				if attempts.Load() != 2 || !errors.As(err, &api) {
+					t.Fatal("expected refresh and envelope failure")
+				}
+				if api.Code != "[redacted]" || api.Message != "[redacted]" {
+					t.Error("envelope retained an overlapping credential suffix")
+				}
+			})
+		}
+	}
+}
+
+func TestStorageDecodeCauseWithholdsPeerValues(t *testing.T) {
+	const secret = "123456789e999"
+	for _, kind := range []string{"regions", "buckets", "bucket", "delete guard"} {
+		t.Run(kind, func(t *testing.T) {
+			var attempts, deletes atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodDelete {
+					deletes.Add(1)
+				}
+				if kind != "regions" && strings.HasSuffix(r.URL.Path, "/regions") {
+					_, _ = w.Write([]byte(`{"success":true,"data":[{"regionId":"region-1","regionName":"HCM04"}]}`))
+					return
+				}
+				if attempts.Add(1) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				switch kind {
+				case "regions":
+					_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"status":%s}]}`, secret)
+				case "buckets":
+					_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"count":%s}]}`, secret)
+				default:
+					_, _ = fmt.Fprintf(w, `{"success":true,"data":{"count":%s}}`, secret)
+				}
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{secret, "synthetic-fresh-token"}}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Storage: server.URL + "/"}, tc))
+			var err error
+			switch kind {
+			case "regions":
+				var out *ListRegionsOutput
+				out, err = c.ListRegions(context.Background(), nil)
+				if out != nil {
+					t.Fatal("decoder failure returned partial regions")
+				}
+			case "buckets":
+				var out *ListBucketsOutput
+				out, err = c.ListBuckets(context.Background(), &ListBucketsInput{Region: "HCM04", ProjectID: "project-1"})
+				if out != nil {
+					t.Fatal("decoder failure returned partial buckets")
+				}
+			case "bucket":
+				var out *GetBucketOutput
+				out, err = c.GetBucket(context.Background(), &GetBucketInput{Region: "HCM04", ProjectID: "project-1", Bucket: "bucket-1"})
+				if out != nil {
+					t.Fatal("decoder failure returned partial bucket")
+				}
+			case "delete guard":
+				var out *DeleteBucketOutput
+				out, err = c.DeleteBucket(context.Background(), &DeleteBucketInput{Region: "HCM04", ProjectID: "project-1", Bucket: "bucket-1"})
+				if out != nil {
+					t.Fatal("decoder failure reached mutation")
+				}
+			}
+			var api *core.APIError
+			var typed *json.UnmarshalTypeError
+			if attempts.Load() != 2 || deletes.Load() != 0 || !errors.As(err, &api) || !errors.As(err, &typed) {
+				t.Fatal("expected refresh, safe APIError, JSON type identity, and no delete")
+			}
+			for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+				if strings.Contains(cause.Error(), secret) {
+					t.Error("decoder error chain retained an echoed credential")
+				}
+			}
+			if typed.Value != "string" || typed.Struct != "" || typed.Field != "" || typed.Offset != 2 {
+				t.Error("JSON type error retained original exported fields")
+			}
+		})
+	}
+}
 
 func TestEnvelopeRedactsEarlierAttempt(t *testing.T) {
 	for _, kind := range []string{"read", "price", "buckets"} {
