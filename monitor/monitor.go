@@ -62,3 +62,9 @@ func (c *Client) notificationRoute(parts []string, q url.Values) string {
 	full := append([]string{"notification-gateway", "api", "v1"}, parts...)
 	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full, Query: q})
 }
+
+// billingRoute uses the billing API on the same Monitor endpoint root.
+func (c *Client) billingRoute(version string, parts []string) string {
+	full := append([]string{"billing-api", version}, parts...)
+	return c.c.RouteURL(routes.Route{Product: routes.ProductMonitor, Parts: full})
+}

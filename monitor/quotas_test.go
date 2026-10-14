@@ -1,0 +1,421 @@
+package monitor
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
+)
+
+func TestQuotaUsageFixture(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/billing-api/v1/quotas/usages" || r.URL.RawQuery != "" {
+			t.Fatalf("request = %s %s", r.Method, r.URL)
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaUsage.json")
+	}))
+	out, err := c.GetQuotaUsage(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := out.Usage
+	if len(u.SyntheticUsages) != 1 || u.SyntheticUsages[0].API != 1 || len(u.EmailUsages) != 1 || u.EmailUsages[0].Amount != 4 || u.SyntheticSeverity != "warning" || u.EmailSeverity != "good" || u.NotificationSeverity != "good" || u.FreeEmailQuota != 0 || u.FreeSMSQuota != 0 || len(u.UnmodeledKinds) != 0 {
+		t.Fatalf("usage = %+v", u)
+	}
+}
+
+func TestQuotaNotificationPackagesFixtures(t *testing.T) {
+	for _, tt := range []struct {
+		kind, segment, fixture string
+		count                  int
+	}{
+		{"eMaIl", "email", "ListNotificationPackagesEmail", 6},
+		{"sMs", "sms", "ListNotificationPackagesSMS", 8},
+	} {
+		t.Run(tt.segment, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/billing-api/v1/"+tt.segment+"/packages" {
+					t.Fatalf("request = %s %s", r.Method, r.URL)
+				}
+				testutil.WriteFixture(t, w, "../testdata/monitor/"+tt.fixture+".json")
+			}))
+			out, err := c.ListNotificationPackages(context.Background(), &ListNotificationPackagesInput{Kind: tt.kind})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out.Items) != tt.count || out.Items[0].ID == "" || out.Items[0].Price == nil || out.Items[0].Amount == 0 {
+				t.Fatalf("packages = %+v", out)
+			}
+			if tt.segment == "email" && out.Items[3].ID != "vMonitor-Platform-Notification-email5k" {
+				t.Fatalf("opaque ID = %q", out.Items[3].ID)
+			}
+		})
+	}
+}
+
+func TestQuotaNotificationKindValidation(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") }))
+	for _, in := range []*ListNotificationPackagesInput{nil, {}, {Kind: "../email"}, {Kind: "Slack"}, {Kind: " Email"}} {
+		out, err := c.ListNotificationPackages(context.Background(), in)
+		if out != nil || !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatalf("output = %+v, error = %v", out, err)
+		}
+	}
+}
+
+func TestQuotaSyntheticFixtures(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s", r.Method)
+		}
+		switch r.URL.Path {
+		case "/billing-api/v1/synthetic/quota":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuota.json")
+		case "/billing-api/v2/synthetic/quota-syn-1/quota-detail":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaDetail.json")
+		case "/billing-api/v1/synthetic/quota/usages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaUsage.json")
+		case "/billing-api/v1/synthetic/packages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticPackages.json")
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	out, err := c.GetSyntheticQuota(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Quota.ID != "quota-syn-1" || out.Quota.Status != QuotaStatusActive || out.Quota.StartTime.IsZero() || out.Quota.EndTime.IsZero() || out.Quota.CreatedAt.IsZero() || out.Quota.UpdatedAt.IsZero() || out.Quota.AutoRenew || out.Quota.POC || out.Quota.System || out.Detail.API != 10 || out.Detail.Location != 1 || out.Detail.Price == nil || *out.Detail.Price != 0 || out.Detail.ClassName != "Basic" {
+		t.Fatalf("quota = %+v", out)
+	}
+	usage, err := c.GetSyntheticQuotaUsage(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Usage.Counts.API != 1 || usage.Usage.Descriptions["api"].Name != "Number of API tests" || usage.Usage.Descriptions["api"].Unit != "/month" {
+		t.Fatalf("usage = %+v", usage)
+	}
+	packages, err := c.listSyntheticPackages(context.Background(), "monitor.GetSyntheticQuota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 || packages[0].API != 10 || packages[0].Location != 1 || packages[0].Price == nil || *packages[0].Price != 0 {
+		t.Fatalf("packages = %+v", packages)
+	}
+	if calls != 4 {
+		t.Fatalf("calls = %d", calls)
+	}
+}
+
+func quotaFixture(t *testing.T, name string, change func(map[string]json.RawMessage)) []byte {
+	t.Helper()
+	b, err := os.ReadFile("../testdata/monitor/" + name + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		t.Fatal(err)
+	}
+	change(obj)
+	b, err = json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestQuotaUsageUnmodeledAndIntegralCounts(t *testing.T) {
+	body := quotaFixture(t, "GetQuotaUsage", func(m map[string]json.RawMessage) {
+		for _, key := range []string{"logUsages", "metricUsages", "smsUsages"} {
+			m[key] = json.RawMessage(`[{"private":"discard me"}]`)
+		}
+		m["freeEmailQuota"] = json.RawMessage(`20.0`)
+		m["emailUsages"] = json.RawMessage(`[{"amount":4.0}]`)
+	})
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
+	out, err := c.GetQuotaUsage(context.Background(), &GetQuotaUsageInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(out.Usage.UnmodeledKinds, ",") != "log,metric,sms" || out.Usage.FreeEmailQuota != 20 || out.Usage.EmailUsages[0].Amount != 4 {
+		t.Fatalf("usage = %+v", out)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "discard me") {
+		t.Fatalf("unmodeled data exposed: %s", b)
+	}
+}
+
+func TestQuotaSyntheticInvalidResponses(t *testing.T) {
+	for _, tt := range []struct{ name, fixture, key, value string }{
+		{"bad path", "GetSyntheticQuota", "id", `"../secret"`},
+		{"empty id", "GetSyntheticQuota", "id", `""`},
+		{"bad time", "GetSyntheticQuota", "endTime", `"secret"`},
+		{"missing time", "GetSyntheticQuota", "startTime", `null`},
+		{"boolean flag", "GetSyntheticQuota", "autoRenew", `true`},
+		{"unknown flag", "GetSyntheticQuota", "poc", `2`},
+		{"string flag", "GetSyntheticQuota", "poc", `"0"`},
+		{"missing flag", "GetSyntheticQuota", "autoRenew", `null`},
+		{"fractional period", "GetSyntheticQuota", "autoRenewPeriod", `0.5`},
+		{"resource mismatch", "GetSyntheticQuotaDetail", "resourceId", `"other"`},
+		{"package mismatch", "GetSyntheticQuotaDetail", "packageId", `"other"`},
+		{"fractional capacity", "GetSyntheticQuotaDetail", "api", `10.5`},
+		{"negative price", "GetSyntheticQuotaDetail", "price", `-1`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := quotaFixture(t, tt.fixture, func(m map[string]json.RawMessage) { m[tt.key] = json.RawMessage(tt.value) })
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls == 1 && tt.fixture == "GetSyntheticQuotaDetail" {
+					testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuota.json")
+					return
+				}
+				_, _ = w.Write(body)
+			}))
+			out, err := c.GetSyntheticQuota(context.Background(), nil)
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.Operation != "monitor.GetSyntheticQuota" || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("output = %+v, error = %+v", out, err)
+			}
+			want := 1
+			if tt.fixture == "GetSyntheticQuotaDetail" {
+				want = 2
+			}
+			if calls != want {
+				t.Fatalf("calls = %d, want %d", calls, want)
+			}
+		})
+	}
+}
+
+func TestQuotaSyntheticUnknownStatusAndNumericFlags(t *testing.T) {
+	body := quotaFixture(t, "GetSyntheticQuota", func(m map[string]json.RawMessage) {
+		m["status"] = json.RawMessage(`"FUTURE"`)
+		m["autoRenew"] = json.RawMessage(`1`)
+		m["poc"] = json.RawMessage(`1.0`)
+	})
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/billing-api/v1/synthetic/quota" {
+			_, _ = w.Write(body)
+			return
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaDetail.json")
+	}))
+	out, err := c.GetSyntheticQuota(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Quota.Status != "FUTURE" || !out.Quota.AutoRenew || !out.Quota.POC {
+		t.Fatalf("quota = %+v", out.Quota)
+	}
+}
+
+func TestQuotaSyntheticSecondReadFailure(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/billing-api/v1/synthetic/quota" {
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuota.json")
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"private-code","message":"private-message"}`))
+	}))
+	out, err := c.GetSyntheticQuota(context.Background(), nil)
+	var api *core.APIError
+	if out != nil || !errors.Is(err, core.ErrNotFound) || !errors.As(err, &api) || api.Operation != "monitor.GetSyntheticQuota" || api.Code != "NotFound" || strings.Contains(err.Error(), "private") {
+		t.Fatalf("output = %+v, error = %+v", out, err)
+	}
+}
+
+func TestQuotaMissingPrices(t *testing.T) {
+	for _, price := range []string{"", `,"price":null`} {
+		t.Run(price, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`[{"id":"opaque/package","name":"free","amount":20` + price + `}]`))
+			}))
+			out, err := c.ListNotificationPackages(context.Background(), &ListNotificationPackagesInput{Kind: NotificationKindEmail})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Items[0].Price != nil {
+				t.Fatalf("price = %v", out.Items[0].Price)
+			}
+		})
+	}
+}
+
+func TestQuotaMalformedUsage(t *testing.T) {
+	for _, body := range []string{`null`, `{}`, `[]`, `{"usage":null,"description":{}}`, `{"usage":{"api":1.5},"description":{}}`} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+		out, err := c.GetSyntheticQuotaUsage(context.Background(), nil)
+		var api *core.APIError
+		if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+			t.Fatalf("body = %s, output = %+v, error = %v", body, out, err)
+		}
+	}
+}
+
+func TestQuotaResponseSafety(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		status     int
+	}{
+		{"oversize", `{"private":"` + strings.Repeat("x", 1<<20) + `"}`, 200},
+		{"decode", `{"emailSeverity":"private`, 200},
+		{"error", `{"code":"private-code","message":"private-message"}`, 403},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			captures := 0
+			c := New(testutil.NewConfigWithCapture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}), func(transport.Capture) { captures++ }))
+			out, err := c.GetQuotaUsage(context.Background(), nil)
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || strings.Contains(err.Error(), "private") || strings.Contains(api.Code, "private") || captures != 0 {
+				t.Fatalf("output = %+v, error = %+v, captures = %d", out, err, captures)
+			}
+			if tt.name != "oversize" && api.StatusCode != tt.status {
+				t.Fatalf("status = %d, want %d", api.StatusCode, tt.status)
+			}
+		})
+	}
+}
+
+func TestQuotaRequiredCompositeFields(t *testing.T) {
+	for _, key := range []string{"syntheticUsages", "emailUsages", "logUsages", "freeEmailQuota", "emailSeverity"} {
+		t.Run(key, func(t *testing.T) {
+			body := quotaFixture(t, "GetQuotaUsage", func(m map[string]json.RawMessage) { delete(m, key) })
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
+			out, err := c.GetQuotaUsage(context.Background(), nil)
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("output = %+v, error = %v", out, err)
+			}
+		})
+	}
+}
+
+func TestQuotaMalformedCountsAndPackages(t *testing.T) {
+	for _, value := range []string{`4.5`, `"4"`, `null`, `9223372036854775808`, `1e100000000`} {
+		t.Run(value, func(t *testing.T) {
+			body := quotaFixture(t, "GetQuotaUsage", func(m map[string]json.RawMessage) { m["emailUsages"] = json.RawMessage(`[{"amount":` + value + `}]`) })
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
+			out, err := c.GetQuotaUsage(context.Background(), nil)
+			if out != nil || err == nil {
+				t.Fatalf("output = %+v, error = %v", out, err)
+			}
+		})
+	}
+	for _, body := range []string{`null`, `{}`, `[null]`, `[{"id":"pkg","name":"free","amount":20,"price":-1}]`, `[{"id":"pkg","name":"free","amount":20,"price":1e309}]`, `[{"id":"pkg","name":"free","price":0}]`} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+		out, err := c.ListNotificationPackages(context.Background(), &ListNotificationPackagesInput{Kind: NotificationKindSMS})
+		if out != nil || err == nil {
+			t.Fatalf("body = %s, output = %+v, error = %v", body, out, err)
+		}
+	}
+}
+
+func TestQuotaSyntheticDetailMissingPrice(t *testing.T) {
+	for _, value := range []string{"missing", "null"} {
+		t.Run(value, func(t *testing.T) {
+			body := quotaFixture(t, "GetSyntheticQuotaDetail", func(m map[string]json.RawMessage) {
+				if value == "missing" {
+					delete(m, "price")
+				} else {
+					m["price"] = json.RawMessage(`null`)
+				}
+			})
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/billing-api/v1/synthetic/quota" {
+					testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuota.json")
+					return
+				}
+				_, _ = w.Write(body)
+			}))
+			out, err := c.GetSyntheticQuota(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Detail.Price != nil {
+				t.Fatalf("price = %v", out.Detail.Price)
+			}
+		})
+	}
+}
+
+func TestQuotaSuccessCredentialRedaction(t *testing.T) {
+	captures := 0
+	credential := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		credential = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		body := quotaFixture(t, "GetQuotaUsage", func(m map[string]json.RawMessage) {
+			encoded, err := json.Marshal("prefix " + credential + " suffix")
+			if err != nil {
+				t.Fatal(err)
+			}
+			m["emailSeverity"] = encoded
+		})
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{
+		HTTPClient: server.Client(), TokenSource: quotaTestTokenSource{}, Capture: func(transport.Capture) { captures++ },
+	})))
+	out, err := c.GetQuotaUsage(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential == "" || strings.Contains(out.Usage.EmailSeverity, credential) || captures != 0 {
+		t.Fatalf("credential redaction or capture suppression failed")
+	}
+}
+
+type quotaTestTokenSource struct{}
+
+func (quotaTestTokenSource) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: "synthetic-quota-test-credential", ExpiresAt: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+}
+
+func (quotaTestTokenSource) Invalidate(string) {}
+
+func TestQuotaCancellationAndReadRetry(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") }))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, err := c.GetQuotaUsage(ctx, nil)
+	if out != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("output = %+v, error = %v", out, err)
+	}
+	calls := 0
+	c = New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaUsage.json")
+	})))
+	if _, err := c.GetQuotaUsage(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d", calls)
+	}
+}

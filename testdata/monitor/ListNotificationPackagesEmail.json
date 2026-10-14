@@ -1,0 +1,38 @@
+[
+  {
+    "id": "a15172e2-3537-4b06-9b91-c6626bae5973",
+    "name": "emailfree",
+    "price": 0.0,
+    "amount": 20
+  },
+  {
+    "id": "vMonitor-Platform-Notification-email200k",
+    "name": "email200k",
+    "price": 4400000.0,
+    "amount": 200000
+  },
+  {
+    "id": "vMonitor-Platform-Notification-email100k",
+    "name": "email100k",
+    "price": 2200000.0,
+    "amount": 100000
+  },
+  {
+    "id": "vMonitor-Platform-Notification-email5k",
+    "name": "email5k",
+    "price": 110000.0,
+    "amount": 5000
+  },
+  {
+    "id": "vMonitor-Platform-Notification-email10k",
+    "name": "email10k",
+    "price": 220000.0,
+    "amount": 10000
+  },
+  {
+    "id": "vMonitor-Platform-Notification-email50k",
+    "name": "email50k",
+    "price": 1100000.0,
+    "amount": 50000
+  }
+]

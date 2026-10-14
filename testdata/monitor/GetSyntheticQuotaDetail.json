@@ -1,0 +1,19 @@
+{
+  "id": "detail-1",
+  "name": null,
+  "price": 0.0,
+  "location": 1,
+  "api": 10,
+  "tierId": null,
+  "tierName": null,
+  "email": 0,
+  "sms": 0,
+  "slack": null,
+  "webhook": null,
+  "telegram": null,
+  "teams": null,
+  "resourceId": "quota-syn-1",
+  "classId": "e574cf4a-460b-48d8-a794-80367289a6c8",
+  "className": "Basic",
+  "packageId": "32b3743d-94b8-49ab-984d-bd7ec99b46f6"
+}
