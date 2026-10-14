@@ -193,8 +193,8 @@ products. It takes no filters or pagination parameters and sends no region
 or project headers. `Items` contains resource rows; nullable counts and
 `Extra` preserve the server summaries and raw warning/alarm thresholds.
 Counts do not establish completeness. A row can outlive its resource. Two
-deleted vMonitor log projects remained listed as `active` in the observed account.
-Confirm that a resource exists with its product's own read.
+deleted vMonitor log projects remained listed as `active` in the observed
+account. Confirm that a resource exists with its product's own read.
 
 ```go
 resources, err := client.ListResources(ctx, nil)

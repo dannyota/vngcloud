@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -167,6 +168,14 @@ func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInp
 	}
 	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
+	}
+	if data.Pagination.Page < 0 || data.Pagination.Page == math.MaxInt {
+		return nil, &core.APIError{
+			Operation:  op,
+			StatusCode: http.StatusOK,
+			Code:       "InvalidResponse",
+			Message:    "invalid cost resource page; body withheld",
+		}
 	}
 	return &ListCostResourcesOutput{
 		PagedList: *core.NewPagedList(data.Items, data.Pagination.Page+1, data.Pagination.Size, data.Pagination.TotalPages, data.Pagination.Total),

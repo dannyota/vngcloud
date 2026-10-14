@@ -1,6 +1,6 @@
 # Billing and Pricing Design
 
-Status: Approved (2026-09-25).
+Status: Approved.
 
 This design adds budgets, cost reads, balances, and price quotes to the SDK
 and CLI. Budgets and price quotes ship before any paid write, so a user can

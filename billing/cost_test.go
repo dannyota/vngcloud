@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -245,6 +246,65 @@ func TestListCostResourcesPageConversion(t *testing.T) {
 			}
 			if out.Summary.TotalAll != 15 || out.Summary.ActiveCount != 5 || out.Summary.AvgPerResource != 3 {
 				t.Fatalf("unexpected summary: %+v", out.Summary)
+			}
+		})
+	}
+}
+
+func TestListCostResourcesWirePageBounds(t *testing.T) {
+	cases := []struct {
+		name     string
+		wirePage int
+		wantPage int
+		wantErr  bool
+	}{
+		{"negative wire page", -1, 0, true},
+		{"first wire page", 0, 1, false},
+		{"overflowing wire page", math.MaxInt, 0, true},
+		{"last representable wire page", math.MaxInt - 1, math.MaxInt, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"code":200,"message":"response-body-marker","data":{"items":[{"dailyAvg":617,"product":"compute","region":"region-body-marker","resourceId":"resource-body-marker","resourceName":"name-body-marker","resourceType":"server","startDate":"2026-09-01","totalCost":1234,"userId":123456789}],"pagination":{"page":%d,"size":1,"total":1,"totalPages":1},"summary":{"totalAll":1234,"activeCount":1,"avgPerResource":1234}}}`, tc.wirePage)
+			}))
+			out, err := client.ListCostResources(context.Background(), &ListCostResourcesInput{
+				StartDate: "2026-09-01",
+				EndDate:   "2026-09-02",
+			})
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("ListCostResources() error = %v", err)
+				}
+				if out == nil || out.Page != tc.wantPage || len(out.Items) != 1 {
+					t.Fatalf("output = %+v, want public page %d with one item", out, tc.wantPage)
+				}
+				return
+			}
+			if err == nil {
+				if out == nil {
+					t.Fatal("ListCostResources() returned no error, want InvalidResponse")
+				}
+				t.Fatalf("wire page %d returned public page %d with %d items, want InvalidResponse and no output", tc.wirePage, out.Page, len(out.Items))
+			}
+			if out != nil {
+				t.Errorf("output = %+v, want nil for an invalid wire page", out)
+			}
+			var apiErr *vngcloud.APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("error = %v, want *vngcloud.APIError", err)
+			}
+			if apiErr.Operation != "billing.ListCostResources" || apiErr.StatusCode != http.StatusOK || apiErr.Code != "InvalidResponse" {
+				t.Errorf("APIError = %+v, want ListCostResources InvalidResponse with status 200", apiErr)
+			}
+			if apiErr.Err != nil || apiErr.Retryable {
+				t.Errorf("invalid-response error has a cause or is retryable: %+v", apiErr)
+			}
+			for _, marker := range []string{"response-body-marker", "region-body-marker", "resource-body-marker", "name-body-marker", "123456789", "1234"} {
+				if strings.Contains(apiErr.Message, marker) || strings.Contains(err.Error(), marker) {
+					t.Errorf("invalid-response error exposes response value %q", marker)
+				}
 			}
 		})
 	}
