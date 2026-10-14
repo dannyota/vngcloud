@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -80,9 +80,12 @@ func lifecycleUnsupported(op, row string) error {
 	return fmt.Errorf("%s: %s is unsupported: %w", op, row, core.ErrInvalidInput)
 }
 func (c *Client) validateQuotaLifecycle(in quotaLifecycleInput) error {
-	readOnly, _ := strconv.ParseBool(c.c.ProfileSetting("read_only"))
-	if readOnly {
+	switch strings.ToLower(strings.TrimSpace(c.c.ProfileSetting("read_only"))) {
+	case "1", "true":
 		return &core.APIError{Operation: in.op, Code: "ReadOnly", Message: "read-only profile refuses quota writes", Err: core.ErrInvalidInput}
+	case "", "0", "false":
+	default:
+		return fmt.Errorf("%s: %w: read_only must be 1, true, 0, false, or empty", in.op, core.ErrInvalidConfig)
 	}
 	if in.expectedID != "" {
 		if err := core.CheckPathID(in.op, "ExpectedQuotaID", in.expectedID); err != nil {
