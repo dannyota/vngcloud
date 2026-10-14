@@ -1,5 +1,40 @@
 # Release Notes
 
+## v0.84.0 - vMonitor SMS Orders and Quota Lifecycle
+
+- SMS quota reads, quotes, and orders now work with
+  `--kind SMS`, under the same guards as Email: an existing quota refuses
+  the order, and a paid package needs a `--max-price` covering the higher
+  of its quote and list price (the paid SMS package lists 55000 VND). SMS
+  usage reads stay refused locally (exit 2) until verified.
+- SDK `SetNotificationQuotaAutoRenew` and CLI
+  `monitor set-notification-quota-auto-renew --kind Email|SMS
+  --enabled=false` turn notification auto-renew off. Turning it on is
+  refused locally (exit 2) until the renewal price is verified.
+- SDK `SetSyntheticQuotaAutoRenew` and CLI
+  `monitor set-synthetic-quota-auto-renew --enabled=true --max-price <VND>`
+  quote the renewal, check the budget, and turn synthetic auto-renew on.
+  The server refuses auto-renew on the free quota with a visible
+  `BadRequest` (400, exit 1). Turning synthetic auto-renew off is not
+  available.
+- SDK `DeleteNotificationQuota` and CLI `monitor delete-notification-quota
+  --kind Email|SMS --yes` delete an ACTIVE quota with auto-renew off. The
+  deleted quota does not go to trash and cannot be recovered by these
+  commands. Alerts that draw on it are expected to stop. SDK
+  `DeleteSyntheticQuota` always refuses with `ErrInvalidInput`, and the
+  CLI has no synthetic delete command.
+- Each lifecycle write re-reads the quota just before sending, sends once,
+  never retries, and confirms the result. `--expected-quota-id` refuses
+  when the current quota has a different ID. An uncertain outcome prints
+  partial output with `Stage` and returns `NotSettled` (exit 1). Read-only
+  settings refuse every lifecycle write before any request.
+- A quota whose `updatedAt` is null, as a new quota's is while it is
+  being created, now decodes with a zero `UpdatedAt` instead of failing,
+  so SMS orders settle.
+- Compatibility: `QuotaUsageDetail.Counts` is now tagged `omitzero`, so
+  its JSON encoding omits zero counts. Notification usage output in the
+  CLI no longer prints an empty `Counts`.
+
 ## v0.83.0 - vMonitor Email Notification Quota Order
 
 - SDK `GetNotificationQuota` and `GetNotificationQuotaUsage`, with CLI
