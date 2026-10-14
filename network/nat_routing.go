@@ -45,8 +45,8 @@ func (c *Client) natZoneIDWithPrivacy(ctx context.Context, base string, sensitiv
 		withhold = "NAT response withheld"
 	}
 	var raw json.RawMessage
-	var credential string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredential: &credential, Sensitive: sensitive, NoRedirect: sensitive, WithholdMessage: withhold, Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &raw)
+	var credentials []string
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Sensitive: sensitive, NoRedirect: sensitive, WithholdMessage: withhold, Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &raw)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return "", invalidNATResponse("oversized regions envelope")
@@ -57,7 +57,7 @@ func (c *Client) natZoneIDWithPrivacy(ctx context.Context, base string, sensitiv
 		return "", err
 	}
 	var resp natRegionsResponse
-	if natReflectsCredential(raw, credential) || json.Unmarshal(raw, &resp) != nil {
+	if natReflectsSentCredentials(raw, credentials) || json.Unmarshal(raw, &resp) != nil {
 		return "", invalidNATResponse("invalid regions envelope")
 	}
 	if resp.Success == nil || !*resp.Success || len(resp.Data) == 0 || string(resp.Data) == "null" {

@@ -3,10 +3,10 @@
   "message": "Success",
   "data": {
     "items": [
-      {"resourceId": "server-1", "resourceName": "web-1", "resourceType": "server", "product": "compute", "cost": 250000},
-      {"resourceId": "vol-1", "resourceName": "data-1", "resourceType": "volume", "product": "volume", "cost": 90000}
+      {"dailyAvg": 125000.5, "product": "compute", "region": "global", "resourceId": "server-1", "resourceName": "web-1", "resourceType": "server", "startDate": "2026-09-01", "totalCost": 250000, "userId": 123456789},
+      {"dailyAvg": 45000.25, "product": "volume", "region": "global", "resourceId": "vol-1", "resourceName": "data-1", "resourceType": "volume", "startDate": "2026-09-02", "totalCost": 90000, "userId": 123456789}
     ],
-    "pagination": {"page": 1, "size": 200, "total": 2, "totalPages": 1},
+    "pagination": {"page": 0, "size": 200, "total": 2, "totalPages": 1},
     "summary": {"totalAll": 340000, "activeCount": 2, "avgPerResource": 170000}
   }
 }

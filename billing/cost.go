@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -94,7 +95,8 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 }
 
 // ListCostResourcesInput scopes the per-resource cost list to a date range,
-// optional filters, and a page.
+// optional filters, and a page. Page starts at 1; non-positive values select
+// the first page.
 type ListCostResourcesInput struct {
 	StartDate    string `vngcloud:"required"`
 	EndDate      string `vngcloud:"required"`
@@ -148,7 +150,7 @@ func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInp
 	if size <= 0 || size > maxCostResourcesSize {
 		size = maxCostResourcesSize
 	}
-	q.Set("page", strconv.Itoa(page))
+	q.Set("page", strconv.Itoa(page-1))
 	q.Set("size", strconv.Itoa(size))
 	if in.Sort != "" {
 		q.Set("sort", in.Sort)
@@ -167,8 +169,16 @@ func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInp
 	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
 	}
+	if data.Pagination.Page < 0 || data.Pagination.Page == math.MaxInt {
+		return nil, &core.APIError{
+			Operation:  op,
+			StatusCode: http.StatusOK,
+			Code:       "InvalidResponse",
+			Message:    "invalid cost resource page; body withheld",
+		}
+	}
 	return &ListCostResourcesOutput{
-		PagedList: *core.NewPagedList(data.Items, data.Pagination.Page, data.Pagination.Size, data.Pagination.TotalPages, data.Pagination.Total),
+		PagedList: *core.NewPagedList(data.Items, data.Pagination.Page+1, data.Pagination.Size, data.Pagination.TotalPages, data.Pagination.Total),
 		Summary:   data.Summary,
 	}, nil
 }

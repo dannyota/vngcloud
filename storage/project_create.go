@@ -162,13 +162,13 @@ func projectWriteError(op string, err error, recovery string) error {
 // The live check uses a private HTTP transport to capture the response safely.
 func (c *Client) exchangeProjectWrite(ctx context.Context, k call, redact ...string) (*envelope, error) {
 	var raw json.RawMessage
-	var credential string
+	var credentials []string
 	// Decode 4xx envelopes to distinguish a refusal from an uncertain result.
 	ok := append([]int(nil), k.ok...)
 	for status := 400; status < 500; status++ {
 		ok = append(ok, status)
 	}
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{SentCredential: &credential, Redact: redact, Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: ok, Once: true, Sensitive: true, WithholdMessage: "project write response withheld", Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{SentCredentials: &credentials, Redact: redact, Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: ok, Once: true, Sensitive: true, WithholdMessage: "project write response withheld", Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
 	if err != nil {
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -200,7 +200,7 @@ func (c *Client) exchangeProjectWrite(ctx context.Context, k call, redact ...str
 		if (!valid || strings.TrimSpace(code) == "") && status/100 == 4 {
 			return nil, c.envelopeError(k.op, status, &envelope{Code: json.RawMessage(strconv.Itoa(status)), ErrMsg: "project write response withheld"})
 		}
-		err = c.envelopeError(k.op, status, &env, credential)
+		err = c.envelopeError(k.op, status, &env, credentials...)
 		var api *core.APIError
 		if errors.As(err, &api) {
 			api.Message = "project write response withheld"

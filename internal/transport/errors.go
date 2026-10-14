@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -33,14 +34,14 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
-// ErrBodyTooLarge is returned by DoJSONStatus and DoRaw when a response body
-// exceeds Request.MaxBody. It is never wrapped in an APIError: a caller
-// that wants to tell it apart from a genuine HTTP or network failure uses
-// errors.Is directly. DoRaw returns it alongside the response's real status
-// code, rather than 0, so a caller can tell an oversized body on a 200 from
-// one on a 503: the status, not the size, decides what the failure means.
-// DoJSONStatus still returns status 0 on this error, since no JSON caller
-// reads the status on an error path today.
+// ErrBodyTooLarge reports a response body that exceeds Request.MaxBody.
+// DoRaw returns it with the observed HTTP status and no partial body.
+// DoJSONStatus also preserves the status, but an oversized 4xx or 5xx body
+// becomes an APIError classified from that status without any peer body text.
+// Request.BodyLimitOverridesStatus keeps ErrBodyTooLarge instead for callers
+// whose contracts give body overflow precedence over HTTP classification.
+// Other statuses return ErrBodyTooLarge directly, including oversized 2xx
+// responses; callers can distinguish these from HTTP failures with errors.Is.
 var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
 
 func retryableStatus(status int) bool {
@@ -174,6 +175,25 @@ const shortValueMinLen = 8
 // redactedText replaces every match in s.
 const redactedText = "[redacted]"
 
+// Bound preparation bytes and matcher comparisons across every credential form.
+// Span and form limits also bound sorting and retained match metadata. Exhaustion
+// withholds the whole field; collected matches must never escape as partial work.
+const (
+	redactionWorkLimit = 8 << 20
+	redactionSpanLimit = 4096
+	redactionFormLimit = 256
+)
+
+type redactionBudget struct{ work, spans int }
+
+func (b *redactionBudget) takeWork(n int) bool {
+	if n > b.work {
+		return false
+	}
+	b.work -= n
+	return true
+}
+
 // redact returns s with every occurrence of each non-empty value in values
 // replaced by "[redacted]": the value itself, its JSON-escaped form (the
 // literal text a server produces when it echoes the value's own JSON
@@ -188,29 +208,174 @@ const redactedText = "[redacted]"
 // risks corrupting an unrelated word or number that merely contains the same
 // short text.
 func redact(s string, values []string) string {
+	if s == "" || len(values) == 0 {
+		return s
+	}
+	budget := redactionBudget{work: redactionWorkLimit, spans: redactionSpanLimit}
+	forms := make(map[string]bool)
+	addForm := func(form string) bool {
+		if !budget.takeWork(len(form)) || !budget.takeWork(len(form)+1) {
+			return false
+		}
+		if !forms[form] && len(forms) == redactionFormLimit {
+			return false
+		}
+		forms[form] = true
+		return true
+	}
 	for _, v := range values {
+		if !budget.takeWork(1) {
+			return redactedText
+		}
 		if v == "" {
 			continue
 		}
+		// JSON escaping can expand each input byte into six output bytes.
+		// Reserve before encoding, hashing forms, or preparing match tables.
+		if len(v) > budget.work/6 {
+			return redactedText
+		}
+		budget.takeWork(6 * len(v))
+		escaped := jsonEscapedForm(v)
 		if len(v) < shortValueMinLen {
-			escaped := jsonEscapedForm(v)
-			if strings.Contains(s, v) || (escaped != "" && strings.Contains(s, escaped)) {
-				return redactedText
+			for _, form := range []string{v, escaped} {
+				matches, ok := findRedactionSpans(s, form, nil, &budget)
+				if !ok || len(matches) > 0 {
+					return redactedText
+				}
 			}
 			continue
 		}
-		s = strings.ReplaceAll(s, v, redactedText)
-		if escaped := jsonEscapedForm(v); escaped != "" {
-			s = strings.ReplaceAll(s, escaped, redactedText)
+		if !addForm(v) || (escaped != "" && !addForm(escaped)) {
+			return redactedText
 		}
-		for _, line := range strings.Split(v, "\n") {
+		for line := range strings.SplitSeq(v, "\n") {
 			trimmed := strings.TrimSpace(line)
-			if len(trimmed) >= redactLineMinLen {
-				s = strings.ReplaceAll(s, trimmed, redactedText)
+			if len(trimmed) >= redactLineMinLen && !addForm(trimmed) {
+				return redactedText
 			}
 		}
 	}
-	return s
+	var spans []redactionSpan
+	for form := range forms {
+		var ok bool
+		spans, ok = findRedactionSpans(s, form, spans, &budget)
+		if !ok {
+			return redactedText
+		}
+	}
+	if len(spans) == 0 {
+		return s
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].start == spans[j].start {
+			return spans[i].end > spans[j].end
+		}
+		return spans[i].start < spans[j].start
+	})
+	var cleaned strings.Builder
+	start, end := spans[0].start, spans[0].end
+	previous := 0
+	for _, span := range spans[1:] {
+		if span.start < end {
+			end = max(end, span.end)
+			continue
+		}
+		cleaned.WriteString(s[previous:start])
+		cleaned.WriteString(redactedText)
+		previous, start, end = end, span.start, span.end
+	}
+	cleaned.WriteString(s[previous:start])
+	cleaned.WriteString(redactedText)
+	cleaned.WriteString(s[end:])
+	return cleaned.String()
+}
+
+type redactionSpan struct{ start, end int }
+
+// KMP reuses prefix matches, including self-overlap, instead of comparing the
+// whole form at each byte. Preparation and scanning are linear in their inputs.
+func findRedactionSpans(s, form string, spans []redactionSpan, budget *redactionBudget) ([]redactionSpan, bool) {
+	if form == "" || len(form) > len(s) {
+		return spans, true
+	}
+	if !budget.takeWork(len(form)) {
+		return nil, false
+	}
+	prefix := make([]int, len(form))
+	for i, matched := 1, 0; i < len(form); i++ {
+		for {
+			if !budget.takeWork(1) {
+				return nil, false
+			}
+			if form[i] == form[matched] {
+				matched++
+				break
+			}
+			if matched == 0 {
+				break
+			}
+			matched = prefix[matched-1]
+		}
+		prefix[i] = matched
+	}
+	base := len(spans)
+	for i, matched := 0, 0; i < len(s); i++ {
+		for {
+			if !budget.takeWork(1) {
+				return nil, false
+			}
+			if s[i] == form[matched] {
+				matched++
+				break
+			}
+			if matched == 0 {
+				break
+			}
+			matched = prefix[matched-1]
+		}
+		if matched != len(form) {
+			continue
+		}
+		start, end := i+1-len(form), i+1
+		if len(spans) > base && start < spans[len(spans)-1].end {
+			spans[len(spans)-1].end = end
+		} else {
+			if budget.spans == 0 {
+				return nil, false
+			}
+			budget.spans--
+			spans = append(spans, redactionSpan{start: start, end: end})
+		}
+		matched = prefix[matched-1]
+	}
+	return spans, true
+}
+
+type safeDecodeError struct{ cause error }
+
+func (*safeDecodeError) Error() string   { return "response failed to decode" }
+func (e *safeDecodeError) Unwrap() error { return e.cause }
+
+// SanitizeDecodeError preserves JSON error types using fixed decoder inputs.
+// It never retains the original cause or copies its exported fields.
+func SanitizeDecodeError(err error) error {
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	var invalid *json.InvalidUnmarshalError
+	var cause error
+	switch {
+	case errors.As(err, &syntax):
+		var value any
+		cause = json.Unmarshal([]byte("?"), &value)
+	case errors.As(err, &mismatch):
+		var value int
+		cause = json.Unmarshal([]byte(`""`), &value)
+	case errors.As(err, &invalid):
+		var value *int
+		cause = json.Unmarshal([]byte(`0`), value)
+	}
+	return &safeDecodeError{cause: cause}
 }
 
 // jsonEscapedForm returns the text between the quotes json.Marshal would

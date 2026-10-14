@@ -130,10 +130,9 @@ if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{
 
 ## Cost and balances
 
-`GetCostOverview`, `ListCostResources`, and `ListBudgetAlerts` decode the
-console's own field names, but no live capture has yet shown a response
-with real cost or alert data for these three. Until one does, treat a field
-that reads as zero as unconfirmed rather than as a true zero.
+`GetCostOverview` and `ListBudgetAlerts` decode the console's own field
+names. Populated cost and alert data for these operations remain unverified;
+treat a zero field as unconfirmed.
 
 `GetCurrentPeriodCost` reports the account's current billing period:
 
@@ -166,6 +165,14 @@ for page := 1; ; page++ {
 }
 ```
 
+Each `CostResource` item holds `ResourceID`, `ResourceName`, `ResourceType`,
+`Product`, `Cost`, `DailyAverage`, and `StartDate`. `Cost` is the resource's
+total cost over the requested range, in VND, as the API reports it through
+`totalCost`; the SDK does not use `cost` as a fallback. `DailyAverage` holds
+the reported `dailyAvg`, and `StartDate` holds the reported `startDate`
+string in `YYYY-MM-DD` format. The SDK omits `region` and the account's
+`userId`.
+
 `GetBalances` reads the account's cash and POC (pay-on-credit) balances.
 Each field is nil when the account has none of that kind:
 
@@ -186,8 +193,8 @@ products. It takes no filters or pagination parameters and sends no region
 or project headers. `Items` contains resource rows; nullable counts and
 `Extra` preserve the server summaries and raw warning/alarm thresholds.
 Counts do not establish completeness. A row can outlive its resource. Two
-deleted vMonitor log projects remained listed as `active` in the observed account.
-Confirm that a resource exists with its product's own read.
+deleted vMonitor log projects remained listed as `active` in the observed
+account. Confirm that a resource exists with its product's own read.
 
 ```go
 resources, err := client.ListResources(ctx, nil)

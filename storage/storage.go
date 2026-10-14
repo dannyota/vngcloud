@@ -102,10 +102,10 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 	if k.session != nil {
 		return c.exchangeDiscovery(k)
 	}
-	var credential string
+	var credentials []string
 	req := transport.Request{
-		SentCredential: &credential,
-		Operation:      k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
+		SentCredentials: &credentials,
+		Operation:       k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
 		Sensitive: k.sensitive, Once: k.once,
 	}
 	if k.regionID != "" {
@@ -139,7 +139,7 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		return nil, c.envelopeError(k.op, status, &env, credential)
+		return nil, c.envelopeError(k.op, status, &env, credentials...)
 	}
 	return &env, nil
 }
@@ -214,7 +214,7 @@ func decodeList[T any](op string, status int, env *envelope) ([]T, error) {
 	}
 	var items []T
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, &core.APIError{Operation: op, StatusCode: status, Err: fmt.Errorf("decode list: %w", err)}
+		return nil, &core.APIError{Operation: op, StatusCode: status, Err: fmt.Errorf("decode list: %w", transport.SanitizeDecodeError(err))}
 	}
 	return items, nil
 }

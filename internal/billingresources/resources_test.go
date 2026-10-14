@@ -2,14 +2,109 @@ package billingresources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+type rotatingResourceTokens struct {
+	count  atomic.Int64
+	values []string
+}
+
+func (s *rotatingResourceTokens) Token(context.Context) (transport.Token, error) {
+	n := s.count.Add(1)
+	value := fmt.Sprintf("synthetic-token-%d", n)
+	if len(s.values) > 0 {
+		value = s.values[min(int(n)-1, len(s.values)-1)]
+	}
+	return transport.Token{AccessToken: value, ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*rotatingResourceTokens) Invalidate(string) {}
+
+func TestBillingResourcesWithholdOverlapAndDecodeCauses(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, reverse := range []bool{false, true} {
+		for _, decode := range []bool{false, true} {
+			t.Run(fmt.Sprintf("reverse=%t/decode=%t", reverse, decode), func(t *testing.T) {
+				values := []string{first, second}
+				if reverse {
+					values[0], values[1] = values[1], values[0]
+				}
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					if decode {
+						_, _ = w.Write([]byte(`{"code":200,"data":{"data":[{"cost":123456789e999}]}}`))
+					} else {
+						_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, second, second)
+					}
+				}))
+				defer server.Close()
+				captures := 0
+				tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingResourceTokens{values: values}, Capture: func(transport.Capture) { captures++ }})
+				c := core.NewTestClient("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc)
+				out, err := List(context.Background(), c)
+				var api *core.APIError
+				var typed *json.UnmarshalTypeError
+				if attempts.Load() != 2 || captures != 0 || out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.Err != nil || errors.As(err, &typed) {
+					t.Fatal("billing resource response retained peer values or a decoder cause")
+				}
+				if strings.Contains(api.Error(), "SECRET-TAIL") || strings.Contains(api.Error(), "123456789e999") {
+					t.Error("billing resource error retained peer text")
+				}
+			})
+		}
+	}
+}
+
+func TestBillingWithholdsEarlierAttemptCredential(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				w.WriteHeader(status)
+				_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, sent[0], "bad "+strings.Join(sent, " "))
+			}))
+			defer server.Close()
+			captures := 0
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingResourceTokens{}, Capture: func(transport.Capture) { captures++ }})
+			c := core.NewTestClient("hcm-3", "", endpoints.Set{Region: "hcm-3", Billing: server.URL + "/"}, tc)
+			data, err := List(context.Background(), c)
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) || data != nil || captures != 0 {
+				t.Fatalf("expected refresh and withheld response, got %v", err)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("billing response leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 func TestAccountStrict(t *testing.T) {
 	for _, field := range []string{"accountId", "userId"} {

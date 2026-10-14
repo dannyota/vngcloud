@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 var (
@@ -104,7 +105,7 @@ func (c *Client) checkBucketEmpty(ctx context.Context, op, regionID string, in *
 		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Message: "response had no bucket"}
 	}
 	if err := json.Unmarshal(env.Data, &u); err != nil {
-		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Err: fmt.Errorf("decode bucket: %w", err)}
+		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Err: fmt.Errorf("decode bucket: %w", transport.SanitizeDecodeError(err))}
 	}
 	switch {
 	case u.Count == nil:

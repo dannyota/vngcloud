@@ -119,7 +119,7 @@ func (c *Client) finishEnvelope(req transport.Request, status int, env envelope,
 	}
 	if out != nil && len(env.Data) > 0 && !isJSONNull(env.Data) {
 		if err := json.Unmarshal(env.Data, out); err != nil {
-			return &core.APIError{Operation: req.Operation, Err: err}
+			return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
 		}
 	}
 	return nil
@@ -133,10 +133,10 @@ func (c *Client) finishEnvelope(req transport.Request, status int, env envelope,
 // unenveloped body means the response does not match what the caller asked
 // for.
 func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, error) {
-	var credential string
-	req.SentCredential = &credential
+	var credentials []string
+	req.SentCredentials = &credentials
 	raw, status, err := c.doRaw(ctx, req)
-	req.Redact = append(append([]string(nil), req.Redact...), credential)
+	req.Redact = append(append([]string(nil), req.Redact...), credentials...)
 	if err != nil {
 		return status, err
 	}
@@ -146,7 +146,7 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, e
 
 	env, err := decodeEnvelope(raw)
 	if err != nil {
-		return status, &core.APIError{Operation: req.Operation, Err: err}
+		return status, &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
 	}
 	if env.Code == nil && env.Data == nil {
 		return status, &core.APIError{
@@ -163,10 +163,10 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, e
 // endpoint is enveloped today but was not always, and this is a defense
 // against it reverting; no other operation gets this fallback.
 func (c *Client) doBalances(ctx context.Context, req transport.Request, out any) error {
-	var credential string
-	req.SentCredential = &credential
+	var credentials []string
+	req.SentCredentials = &credentials
 	raw, status, err := c.doRaw(ctx, req)
-	req.Redact = append(append([]string(nil), req.Redact...), credential)
+	req.Redact = append(append([]string(nil), req.Redact...), credentials...)
 	if err != nil {
 		return err
 	}
@@ -176,12 +176,12 @@ func (c *Client) doBalances(ctx context.Context, req transport.Request, out any)
 
 	env, err := decodeEnvelope(raw)
 	if err != nil {
-		return &core.APIError{Operation: req.Operation, Err: err}
+		return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
 	}
 	if env.Code == nil && env.Data == nil {
 		if out != nil {
 			if err := json.Unmarshal(raw, out); err != nil {
-				return &core.APIError{Operation: req.Operation, Err: err}
+				return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
 			}
 		}
 		return nil

@@ -116,8 +116,8 @@ func natSafeError(op string, err error) error {
 func (c *Client) natExchange(ctx context.Context, req transport.Request, code *int) (*natEnvelope, error) {
 	req.Sensitive = true
 	req.MaxBody = natMaxBody
-	var credential string
-	req.SentCredential = &credential
+	var credentials []string
+	req.SentCredentials = &credentials
 	req.NoRedirect = true
 	req.WithholdMessage = "NAT response withheld"
 	var raw json.RawMessage
@@ -131,7 +131,7 @@ func (c *Client) natExchange(ctx context.Context, req transport.Request, code *i
 		}
 		return nil, natSafeError(req.Operation, err)
 	}
-	if natReflectsCredential(raw, credential) {
+	if natReflectsSentCredentials(raw, credentials) {
 		return nil, natInvalid(req.Operation)
 	}
 	var env natEnvelope
@@ -278,8 +278,8 @@ func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
 		return id, nil
 	}
 	var raw json.RawMessage
-	var credential string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredential: &credential, Operation: op, Method: http.MethodGet, URL: c.c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v1", Parts: []string{"projects"}}), OK: []int{200}, Sensitive: true, NoRedirect: true, WithholdMessage: "NAT project discovery withheld"}, &raw)
+	var credentials []string
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Operation: op, Method: http.MethodGet, URL: c.c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v1", Parts: []string{"projects"}}), OK: []int{200}, Sensitive: true, NoRedirect: true, WithholdMessage: "NAT project discovery withheld"}, &raw)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return "", natInvalid(op)
@@ -289,7 +289,7 @@ func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
 		}
 		return "", natSafeError(op, err)
 	}
-	if natReflectsCredential(raw, credential) {
+	if natReflectsSentCredentials(raw, credentials) {
 		return "", natInvalid(op)
 	}
 	var wire struct {

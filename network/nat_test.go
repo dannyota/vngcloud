@@ -4,15 +4,154 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+type rotatingNATTokens struct {
+	count  atomic.Int64
+	values []string
+}
+
+func (s *rotatingNATTokens) Token(context.Context) (transport.Token, error) {
+	n := s.count.Add(1)
+	value := fmt.Sprintf("synthetic-token-%d", n)
+	if len(s.values) > 0 {
+		value = s.values[min(int(n)-1, len(s.values)-1)]
+	}
+	return transport.Token{AccessToken: value, ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*rotatingNATTokens) Invalidate(string) {}
+
+func TestNATOverlappingCredentialsAndDecodeFailures(t *testing.T) {
+	const first = "synthetic-shared-token"
+	const second = first + "-SECRET-TAIL"
+	for _, reverse := range []bool{false, true} {
+		for _, kind := range []string{"list", "catalog", "project", "regions", "decode"} {
+			t.Run(fmt.Sprintf("reverse=%t/%s", reverse, kind), func(t *testing.T) {
+				values := []string{first, second}
+				if reverse {
+					values[0], values[1] = values[1], values[0]
+				}
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if attempts.Add(1) == 1 {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					switch kind {
+					case "list":
+						_, _ = fmt.Fprintf(w, `{"success":false,"code":%q,"message":%q}`, second, second)
+					case "catalog":
+						_, _ = fmt.Fprintf(w, `{"success":true,"code":200,"data":{"name":%q}}`, second)
+					case "project":
+						_, _ = fmt.Fprintf(w, `{"projects":[{"projectId":%q}]}`, second)
+					case "regions":
+						_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":%q}]}`, second)
+					case "decode":
+						_, _ = w.Write([]byte(`{"success":true,"page":123456789e999,"data":[]}`))
+					}
+				}))
+				defer server.Close()
+				tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{values: values}})
+				project := "project-1"
+				if kind == "project" {
+					project = ""
+				}
+				c := New(core.NewTestConfig("hcm-3", project, endpoints.Set{VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+				var err error
+				switch kind {
+				case "list", "decode":
+					_, err = c.ListNATInstances(context.Background(), &ListNATInstancesInput{ZoneID: "zone-1"})
+				case "catalog":
+					_, err = c.natExchange(context.Background(), transport.Request{URL: server.URL}, nil)
+				case "project":
+					_, err = c.natProjectID(context.Background(), "network.CreateNATInstance")
+				case "regions":
+					_, err = c.natZoneID(context.Background(), server.URL+"/")
+				}
+				var api *core.APIError
+				var typed *json.UnmarshalTypeError
+				if attempts.Load() != 2 || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.Err != nil || errors.As(err, &typed) {
+					t.Fatal("NAT retained reflected values or a decoder cause")
+				}
+				if strings.Contains(api.Error(), "SECRET-TAIL") || strings.Contains(api.Error(), "123456789e999") {
+					t.Error("NAT error retained peer text")
+				}
+			})
+		}
+	}
+}
+
+func TestNATRejectsEarlierAttemptCredential(t *testing.T) {
+	for _, kind := range []string{"list error", "list data", "catalog", "project", "regions"} {
+		t.Run(kind, func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				switch kind {
+				case "list error":
+					_, _ = fmt.Fprintf(w, `{"success":false,"code":%q,"message":%q}`, sent[0], "bad "+sent[0])
+				case "list data":
+					_, _ = fmt.Fprintf(w, `{"success":true,"page":1,"size":10,"totalPage":1,"total":1,"data":[{"uuid":%q}]}`, sent[0])
+				case "catalog":
+					_, _ = fmt.Fprintf(w, `{"success":true,"code":200,"data":{"name":%q}}`, sent[0])
+				case "project":
+					_, _ = fmt.Fprintf(w, `{"projects":[{"projectId":%q,"region":"hcm-3"}]}`, sent[0])
+				case "regions":
+					_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":%q,"vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`, sent[0])
+				}
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{}})
+			projectID := "project-1"
+			if kind == "project" {
+				projectID = ""
+			}
+			c := New(core.NewTestConfig("hcm-3", projectID, endpoints.Set{Region: "hcm-3", VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+			var err error
+			switch kind {
+			case "list error", "list data":
+				_, err = c.ListNATInstances(context.Background(), &ListNATInstancesInput{ZoneID: "zone-1"})
+			case "catalog":
+				_, err = c.natExchange(context.Background(), transport.Request{URL: server.URL}, nil)
+			case "project":
+				_, err = c.natProjectID(context.Background(), "network.CreateNATInstance")
+			case "regions":
+				_, err = c.natZoneID(context.Background(), server.URL+"/")
+			}
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) {
+				t.Fatalf("expected refresh and withheld response, got %v", err)
+			}
+			if api.Code != "InvalidResponse" {
+				t.Errorf("code = %q, want InvalidResponse", api.Code)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("response leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 func natTestClient(t *testing.T, region, project string, h http.Handler) *Client {
 	t.Helper()

@@ -126,8 +126,14 @@ type Request struct {
 	// The transport reads at most MaxBody+1 bytes, so it can tell a body
 	// that exactly fills the cap from one that overflows it: reading that
 	// many means the real body is larger, and the call fails with
-	// ErrBodyTooLarge instead of returning a partial body.
+	// an error instead of returning a partial body; see ErrBodyTooLarge for
+	// HTTP error classification.
 	MaxBody int64
+
+	// BodyLimitOverridesStatus returns ErrBodyTooLarge on overflow even for
+	// HTTP errors. The observed status is still returned, so the caller can
+	// apply a contract that gives body overflow precedence over status mapping.
+	BodyLimitOverridesStatus bool
 
 	// Once sends req at most once, overriding every retry rule Idempotent
 	// and the method would otherwise apply: no retry after any status or
@@ -167,9 +173,16 @@ type Request struct {
 	// IAM token; see apikey.go.
 	APIKey string
 
-	// SentCredential receives the final attempt's credential for envelope
-	// redaction. The pointer belongs to one call and must not be shared.
+	// SentCredential receives the final attempt's credential for compatibility.
+	// Use SentCredentials for redaction across retries. The pointer belongs to
+	// one call and must not be shared.
 	SentCredential *string
+
+	// SentCredentials receives every distinct non-empty credential sent during
+	// the call, including retries and refresh. Earlier values are cleared at
+	// the start of the call. The pointer belongs to one call and must not be
+	// shared or retained beyond that call's response redaction.
+	SentCredentials *[]string
 
 	// ClassifyError returns a fixed code before credential redaction. An empty
 	// result keeps the server code. Callers must not retain the raw message.
@@ -222,25 +235,18 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 		req.OK = []int{http.StatusOK}
 	}
 
-	if req.SentCredential != nil {
-		*req.SentCredential = ""
-	}
-	statusCode, _, body, credential, err := c.doAuthenticated(ctx, req, client)
-	if req.SentCredential != nil {
-		*req.SentCredential = credential
-		if req.APIKey != "" {
-			*req.SentCredential = req.APIKey
-		}
-	}
+	req.resetSentCredentials()
+	statusCode, _, body, err := c.doAuthenticated(ctx, req, client)
 	if err != nil {
-		if req.discovery {
-			return statusCode, err
+		if errors.Is(err, ErrBodyTooLarge) && statusCode >= http.StatusBadRequest && !req.BodyLimitOverridesStatus {
+			// Classify from the status alone. The oversized body is discarded,
+			// so neither its text nor a partial envelope can reach the error.
+			return statusCode, decodeError(req, statusCode, nil)
 		}
-		return 0, err
+		return statusCode, err
 	}
 
 	if !containsStatus(req.OK, statusCode) {
-		req.Redact = append(append([]string(nil), req.Redact...), credential)
 		return statusCode, decodeError(req, statusCode, body)
 	}
 	if out != nil && len(body) > 0 {
@@ -272,7 +278,8 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, e
 	if req.Method == "" {
 		req.Method = http.MethodGet
 	}
-	status, contentType, body, _, err := c.doAuthenticated(ctx, req, c.rawClient())
+	req.resetSentCredentials()
+	status, contentType, body, err := c.doAuthenticated(ctx, req, c.rawClient())
 	return status, contentType, body, err
 }
 
@@ -280,21 +287,21 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, e
 // sends it through client with send's retry policy, and retries once more
 // with a refreshed token after a 401 that req did not opt out of
 // authentication for. It returns the final status, Content-Type header, and
-// raw body, and the access token sent on the final attempt.
-func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, string, error) {
+// raw body. SentCredentials records credentials across both sends.
+func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, error) {
 	if err := req.checkAPIKey(); err != nil {
-		return 0, "", nil, "", err
+		return 0, "", nil, err
 	}
 	if req.usesToken() {
 		if err := c.EnsureToken(ctx); err != nil {
-			return 0, "", nil, "", err
+			return 0, "", nil, err
 		}
 		// A nil tokenSource means this Client was built without any
 		// authentication at all (test wiring); it sends unauthenticated
 		// requests on purpose. A configured source that yields an empty
 		// token, in contrast, must never let the request go out.
 		if c.tokenSource != nil && c.currentToken().AccessToken == "" {
-			return 0, "", nil, "", &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
+			return 0, "", nil, &APIError{Operation: req.Operation, StatusCode: http.StatusUnauthorized, Err: errNoToken}
 		}
 	}
 
@@ -302,7 +309,7 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 	if err != nil {
 		// statusCode carries a real value only for ErrBodyTooLarge (see its
 		// doc comment); every other error path in send leaves it 0.
-		return statusCode, "", nil, sent, err
+		return statusCode, "", nil, err
 	}
 	if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {
 		if req.Once {
@@ -310,19 +317,19 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 			// resend. The caller gets this 401 back; a later call, Once or
 			// not, fetches a fresh token instead of reusing the rejected one.
 			if err := c.invalidateOnceContext(ctx, sent); err != nil {
-				return 0, "", nil, sent, err
+				return 0, "", nil, err
 			}
-			return statusCode, contentType, body, sent, nil
+			return statusCode, contentType, body, nil
 		}
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
-			return 0, "", nil, "", err
+			return 0, "", nil, err
 		}
-		statusCode, contentType, body, sent, err = c.send(ctx, req, client)
+		statusCode, contentType, body, _, err = c.send(ctx, req, client)
 		if err != nil {
-			return statusCode, "", nil, sent, err
+			return statusCode, "", nil, err
 		}
 	}
-	return statusCode, contentType, body, sent, nil
+	return statusCode, contentType, body, nil
 }
 
 // errNoToken backs the synthetic 401 DoJSONStatus returns when EnsureToken
@@ -448,16 +455,19 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 		}
 
-		attemptReq := req
-		attemptReq.Redact = append(append([]string(nil), req.Redact...), sentToken)
 		if err := beforeDiscoveryAttempt(ctx, req); err != nil {
 			return 0, "", nil, sentToken, err
 		}
+		credential := sentToken
+		if req.APIKey != "" {
+			credential = req.APIKey
+		}
+		req.recordSentCredential(credential)
 		start := time.Now()
 		resp, err := sendClient.Do(httpReq)
 		duration := time.Since(start)
 		if err != nil {
-			c.logRequest(ctx, httpReq, 0, false, duration, attemptReq.redactValues())
+			c.logRequest(ctx, httpReq, 0, false, duration, req.redactValues())
 			lastErr = err
 			if req.Once {
 				// A failed dial never reached the server, so rerunning the
@@ -474,9 +484,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 				}
 				continue
 			}
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(err, attemptReq.redactValues())}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(err, req.redactValues())}
 		}
-		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration, attemptReq.redactValues())
+		c.logRequest(ctx, httpReq, resp.StatusCode, true, duration, req.redactValues())
 
 		respBody, readErr := readBody(resp.Body, req.MaxBody)
 		closeErr := resp.Body.Close()
@@ -487,10 +497,10 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
 		if readErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(readErr, attemptReq.redactValues())}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(readErr, req.redactValues())}
 		}
 		if closeErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(closeErr, attemptReq.redactValues())}
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(closeErr, req.redactValues())}
 		}
 
 		// A non-idempotent request retries only on 429: the server has not
@@ -504,7 +514,7 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			continue
 		}
-		c.captureResponse(attemptReq, resp.StatusCode, respBody)
+		c.captureResponse(req, resp.StatusCode, respBody)
 		return resp.StatusCode, resp.Header.Get("Content-Type"), respBody, sentToken, nil
 	}
 

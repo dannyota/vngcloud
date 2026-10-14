@@ -1,5 +1,43 @@
 # Release Notes
 
+## v0.81.3 - Credential Redaction Across Retries
+
+- Requests that retried or refreshed their token redacted only the last
+  credential they sent. A server that echoed an earlier token in a response
+  could get it into SDK output, errors, captures, or logs. Every credential
+  a request sends is now redacted. This affects billing, billing resources,
+  NAT, and vStorage project operations. Overlapping credentials, where an
+  earlier token is a prefix of a later one, are redacted in full.
+- Billing and vStorage decode errors no longer keep the JSON decoder's
+  error, which could carry a value the server echoed back.
+- An oversized error response now keeps its HTTP status and public error
+  identity (`ErrAuth`, `ErrPermission`, `ErrNotFound`, `ErrRateLimited`)
+  instead of status 0, with the body withheld. The server console log keeps
+  its documented rule: a body over 8 MiB on any status is
+  `ResponseTooLarge` with status 0.
+- No public SDK or CLI surface changes.
+
+## v0.81.2 - Billing Cost Resource Fixes
+
+- `billing.ListCostResources` and CLI `billing list-cost-resources` now
+  return the first page. The cost explorer API pages from 0; the SDK sent
+  the 1-based `Page` unchanged, so it skipped the first page and returned no
+  rows at all when every row fit on one page. `Page` stays 1-based: the SDK
+  sends `Page - 1` and reports the server's page plus 1. A response whose
+  page is negative or the largest int returns an `InvalidResponse` API
+  error.
+- `CostResource.Cost` now reads the API's `totalCost`, the resource's total
+  cost over the requested range in VND. It previously read `cost`, which the
+  API never sends, so every row showed 0.
+- `CostResource` adds `DailyAverage` (`dailyAvg`) and `StartDate`
+  (`startDate`, `YYYY-MM-DD`). The account ID and region in each item stay
+  omitted.
+- Compatibility: SDK JSON that serialized `CostResource` with the old `cost`
+  key no longer decodes into `Cost`; re-encode it with `totalCost`. Unkeyed
+  `CostResource` struct literals no longer compile. CLI JSON keeps the `Cost`
+  key and adds `DailyAverage` and `StartDate`; table and text output gain two
+  columns, so scripts that read text columns by position must be updated.
+
 ## v0.81.1 - User Guides and Storage Workload Access
 
 - Document application access to vStorage from vServer and VKS: dedicated
