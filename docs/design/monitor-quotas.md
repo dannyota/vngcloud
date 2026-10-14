@@ -21,7 +21,7 @@ Ship the smallest independently useful slices, subject to owner decisions:
 1. Check fields, alarm reads, history (with the owner decision 9 limit),
    verified quota reads, and the wiki correction.
 2. Email quota reads, quote, and free email order together. The order
-   response and one In-alarm receipt are verified; the rest stays gated.
+   response and all four alert receipts are verified; the rest stays gated.
 3. Free Synthetic Test extension, then Email extension, independently as
    their gates close. Synthetic expiry stops checks, so prioritize it.
 4. SMS writes and trash recovery with their own evidence; paid packages
@@ -29,8 +29,8 @@ Ship the smallest independently useful slices, subject to owner decisions:
 5. Auto-renew, then delete and purge, under [quota
    lifecycle](monitor-quotas-lifecycle.md), each after its live check.
 
-The free order response is verified; Up receipts, the extra usage count,
-and action accounting are open. No gate is waived for a free order.
+The free order and all four receipts are verified; four emails against
+three logged transitions, and action accounting, stay open. No gate is waived.
 
 Out of scope: metric quotas, log quota renewal/resize, new or paid
 Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
@@ -261,8 +261,8 @@ status and `errors.Is` the sentinel. A failed read never proves no order.
 
 Hold a context-aware per-Client lock across preparation, send, and
 settlement. Record each unresolved attempt, NoWait included, under an
-identity of operation (create or renew), kind, and frozen terms (package;
-for a renewal also quota ID and the expiry it extended from) until a read
+identity of operation, kind, and frozen terms (package; renewals add quota
+ID and the extended-from expiry; lifecycle writes add theirs) until a read
 reconciles it. While a record is open, every write on that kind reads
 first and never resends. A matching call clears the record on a confirmed
 outcome and returns it, clears it on a known rejection and returns the
