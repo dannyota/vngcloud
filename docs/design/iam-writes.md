@@ -37,10 +37,11 @@ live on their own.
 
 ## Non-goals
 
-- IAM user writes other than the create and delete that
-  [IAM users](iam-users.md) adds; identity providers, MFA, passwords, IP
-  allow lists, and access settings, per the survey: they change who can
-  sign in. `ListUsers` is a read, so callers can find a user ID.
+- IAM user writes, except create and delete proposed in
+  [IAM users](iam-users.md), subject to its approval and evidence gates.
+  Password input for create belongs there; reset, identity providers, MFA,
+  IP allow lists, and other access changes stay out. `ListUsers` remains
+  a read for finding user IDs.
 - Service account activate and deactivate, trusted roots (cross-account
   trust), impersonation, and service account login.
 - Tags on groups, policies, and service accounts.

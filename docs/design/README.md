@@ -33,7 +33,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vLB writes](lb-writes.md) | Accepted |
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
 | [IAM writes](iam-writes.md) | Accepted |
-| [IAM users](iam-users.md) | Proposed; owner decisions open and every write gated on the user probes |
+| [IAM users](iam-users.md) | Proposed; decisions, evidence, and guard bounds gated |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
 | [Encrypted volumes](encrypted-volumes.md) | Accepted |
