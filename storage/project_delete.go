@@ -77,8 +77,8 @@ func (c *Client) DeleteProject(ctx context.Context, in *DeleteProjectInput) (*De
 
 func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID string) (*envelope, error) {
 	var raw json.RawMessage
-	var credential string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: c.route([]string{"ceph", "projects", projectID}, url.Values{"limit": {listBucketsLimit}}), Redact: []string{projectID}, SentCredential: &credential, Headers: map[string]string{"region": regionID, "region_id": regionID}}, &raw)
+	var credentials []string
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: c.route([]string{"ceph", "projects", projectID}, url.Values{"limit": {listBucketsLimit}}), Redact: []string{projectID}, SentCredentials: &credentials, Headers: map[string]string{"region": regionID, "region_id": regionID}}, &raw)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID
 		return nil, emptyResponse(call{op: op}, status)
 	}
 	if !*env.Success {
-		return nil, c.envelopeError(op, status, &env, credential)
+		return nil, c.envelopeError(op, status, &env, credentials...)
 	}
 	return &env, nil
 }

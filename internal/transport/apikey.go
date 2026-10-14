@@ -26,13 +26,21 @@ func (r Request) checkAPIKey() error {
 	return nil
 }
 
-// redactValues is Redact plus the API key, so no error or captured body
-// echoes the key.
+// redactValues includes credentials from every attempt, so a later error,
+// capture, or log cannot echo a credential sent before a refresh or retry.
 func (r Request) redactValues() []string {
-	if r.APIKey == "" {
+	var sent []string
+	if r.SentCredentials != nil {
+		sent = *r.SentCredentials
+	}
+	if r.APIKey == "" && len(sent) == 0 {
 		return r.Redact
 	}
-	return append(append([]string(nil), r.Redact...), r.APIKey)
+	values := append(append([]string(nil), r.Redact...), sent...)
+	if r.APIKey != "" {
+		values = append(values, r.APIKey)
+	}
+	return values
 }
 
 // redactBody copies the body and scrubs credentials and explicit secrets.

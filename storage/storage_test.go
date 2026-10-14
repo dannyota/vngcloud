@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,8 +11,48 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+func TestEnvelopeRedactsEarlierAttempt(t *testing.T) {
+	for _, kind := range []string{"read", "price", "buckets"} {
+		t.Run(kind, func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"success":false,"code":%q,"errorMsg":%q}`, sent[0], "bad "+strings.Join(sent, " "))
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingEnvelopeTokens{}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Region: "hcm-3", Storage: server.URL + "/"}, tc))
+			var err error
+			switch kind {
+			case "read":
+				_, err = c.ListRegions(context.Background(), nil)
+			case "price":
+				_, err = c.exchangeProjectPrice(context.Background(), call{op: "storage.QuoteCreateProject", method: http.MethodPost, url: server.URL, ok: []int{200}})
+			case "buckets":
+				_, err = c.readProjectBuckets(context.Background(), "storage.DeleteProject", "region-1", "project-1")
+			}
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) {
+				t.Fatalf("expected refresh and envelope error, got %v", err)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("envelope leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 const fixtures = "../testdata/storage/"
 

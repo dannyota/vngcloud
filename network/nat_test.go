@@ -4,15 +4,86 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+type rotatingNATTokens struct{ count atomic.Int64 }
+
+func (s *rotatingNATTokens) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: fmt.Sprintf("synthetic-token-%d", s.count.Add(1)), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*rotatingNATTokens) Invalidate(string) {}
+
+func TestNATRejectsEarlierAttemptCredential(t *testing.T) {
+	for _, kind := range []string{"list error", "list data", "catalog", "project", "regions"} {
+		t.Run(kind, func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				switch kind {
+				case "list error":
+					_, _ = fmt.Fprintf(w, `{"success":false,"code":%q,"message":%q}`, sent[0], "bad "+sent[0])
+				case "list data":
+					_, _ = fmt.Fprintf(w, `{"success":true,"page":1,"size":10,"totalPage":1,"total":1,"data":[{"uuid":%q}]}`, sent[0])
+				case "catalog":
+					_, _ = fmt.Fprintf(w, `{"success":true,"code":200,"data":{"name":%q}}`, sent[0])
+				case "project":
+					_, _ = fmt.Fprintf(w, `{"projects":[{"projectId":%q,"region":"hcm-3"}]}`, sent[0])
+				case "regions":
+					_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":%q,"vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`, sent[0])
+				}
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{}})
+			projectID := "project-1"
+			if kind == "project" {
+				projectID = ""
+			}
+			c := New(core.NewTestConfig("hcm-3", projectID, endpoints.Set{Region: "hcm-3", VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+			var err error
+			switch kind {
+			case "list error", "list data":
+				_, err = c.ListNATInstances(context.Background(), &ListNATInstancesInput{ZoneID: "zone-1"})
+			case "catalog":
+				_, err = c.natExchange(context.Background(), transport.Request{URL: server.URL}, nil)
+			case "project":
+				_, err = c.natProjectID(context.Background(), "network.CreateNATInstance")
+			case "regions":
+				_, err = c.natZoneID(context.Background(), server.URL+"/")
+			}
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) {
+				t.Fatalf("expected refresh and withheld response, got %v", err)
+			}
+			if api.Code != "InvalidResponse" {
+				t.Errorf("code = %q, want InvalidResponse", api.Code)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("response leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 func natTestClient(t *testing.T, region, project string, h http.Handler) *Client {
 	t.Helper()

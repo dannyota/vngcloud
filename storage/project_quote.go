@@ -149,9 +149,9 @@ func (c *Client) sendProjectQuote(ctx context.Context, op, id string, spec proje
 
 // exchangeProjectPrice retries the read-only POST without changing write retries.
 func (c *Client) exchangeProjectPrice(ctx context.Context, k call) (*envelope, error) {
-	var credential string
+	var credentials []string
 	var raw json.RawMessage
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok, Idempotent: true, NoRedirect: true, SentCredential: &credential, Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok, Idempotent: true, NoRedirect: true, SentCredentials: &credentials, Headers: map[string]string{"region": k.regionID, "region_id": k.regionID}}, &raw)
 	if err != nil {
 		var syn *json.SyntaxError
 		if status > 0 && errors.As(err, &syn) {
@@ -169,7 +169,7 @@ func (c *Client) exchangeProjectPrice(ctx context.Context, k call) (*envelope, e
 		return nil, emptyResponse(k, status)
 	}
 	if !*env.Success {
-		return nil, c.envelopeError(k.op, status, &env, credential)
+		return nil, c.envelopeError(k.op, status, &env, credentials...)
 	}
 	return &env, nil
 }

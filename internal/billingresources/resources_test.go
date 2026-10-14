@@ -3,13 +3,59 @@ package billingresources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+type rotatingResourceTokens struct{ count atomic.Int64 }
+
+func (s *rotatingResourceTokens) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: fmt.Sprintf("synthetic-token-%d", s.count.Add(1)), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (*rotatingResourceTokens) Invalidate(string) {}
+
+func TestBillingWithholdsEarlierAttemptCredential(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				w.WriteHeader(status)
+				_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, sent[0], "bad "+strings.Join(sent, " "))
+			}))
+			defer server.Close()
+			captures := 0
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingResourceTokens{}, Capture: func(transport.Capture) { captures++ }})
+			c := core.NewTestClient("hcm-3", "", endpoints.Set{Region: "hcm-3", Billing: server.URL + "/"}, tc)
+			data, err := List(context.Background(), c)
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) || data != nil || captures != 0 {
+				t.Fatalf("expected refresh and withheld response, got %v", err)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("billing response leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 func TestAccountStrict(t *testing.T) {
 	for _, field := range []string{"accountId", "userId"} {

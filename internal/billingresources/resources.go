@@ -58,8 +58,8 @@ func object(raw json.RawMessage) bool {
 
 func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.RawMessage, int, error) {
 	var raw json.RawMessage
-	var credential string
-	req.SentCredential = &credential
+	var credentials []string
+	req.SentCredentials = &credentials
 	req.NoRedirect = true
 	req.MaxBody = 4 << 20
 	// Account data and resource tags must not enter routine captures or errors.

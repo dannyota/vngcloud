@@ -63,10 +63,10 @@ func (c *Client) ListNATInstances(ctx context.Context, in *ListNATInstancesInput
 		Page   int      `json:"page"`
 		Size   int      `json:"size"`
 	}{Search: []string{}, Page: page, Size: size})
-	var sentCredential string
+	var sentCredentials []string
 	var raw json.RawMessage
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
-		Operation: listNATOperation, Method: http.MethodGet, SentCredential: &sentCredential, Sensitive: true, MaxBody: natMaxBody,
+		Operation: listNATOperation, Method: http.MethodGet, SentCredentials: &sentCredentials, Sensitive: true, MaxBody: natMaxBody,
 		URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{zoneID, projectID, "nats"}, Query: url.Values{"params": {string(params)}}}), OK: []int{http.StatusOK},
 	}, &raw)
 	if err != nil {
@@ -80,14 +80,14 @@ func (c *Client) ListNATInstances(ctx context.Context, in *ListNATInstancesInput
 		return nil, err
 	}
 	var resp natListResponse
-	if natReflectsCredential(raw, sentCredential) || json.Unmarshal(raw, &resp) != nil {
+	if natReflectsSentCredentials(raw, sentCredentials) || json.Unmarshal(raw, &resp) != nil {
 		return nil, invalidNATResponse("invalid list envelope")
 	}
 	if resp.Success == nil {
 		return nil, invalidNATResponse("missing success")
 	}
 	if !*resp.Success {
-		message, code := c.c.RedactError(resp.Message, resp.Code, sentCredential)
+		message, code := c.c.RedactError(resp.Message, resp.Code, sentCredentials...)
 		return nil, &core.APIError{Operation: listNATOperation, StatusCode: status, Code: code, Message: message}
 	}
 	if resp.Page == nil || *resp.Page <= 0 || resp.Size == nil || *resp.Size <= 0 || resp.TotalPage == nil || *resp.TotalPage < 0 || resp.Total == nil || *resp.Total < 0 {
@@ -127,4 +127,13 @@ type natListResponse struct {
 
 func invalidNATResponse(message string) error {
 	return &core.APIError{Operation: listNATOperation, StatusCode: http.StatusOK, Code: "InvalidResponse", Message: message}
+}
+
+func natReflectsSentCredentials(raw []byte, credentials []string) bool {
+	for _, credential := range credentials {
+		if natReflectsCredential(raw, credential) {
+			return true
+		}
+	}
+	return false
 }

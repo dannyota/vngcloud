@@ -5,11 +5,51 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/internal/transport"
 )
+
+func TestEnvelopeRedactsEarlierAttempt(t *testing.T) {
+	for _, balances := range []bool{false, true} {
+		t.Run(strconv.FormatBool(balances), func(t *testing.T) {
+			var sent []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent = append(sent, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				if len(sent) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, sent[0], "bad "+strings.Join(sent, " "))
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingEnvelopeTokens{}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Region: "hcm-3", Billing: server.URL + "/"}, tc))
+			var err error
+			if balances {
+				err = c.doBalances(context.Background(), transport.Request{URL: server.URL}, nil)
+			} else {
+				_, err = c.ListBudgets(context.Background(), nil)
+			}
+			var api *core.APIError
+			if len(sent) != 2 || sent[0] == sent[1] || !errors.As(err, &api) {
+				t.Fatalf("expected refresh and envelope error, got %v", err)
+			}
+			for _, credential := range sent {
+				if strings.Contains(api.Message, credential) || strings.Contains(api.Code, credential) || strings.Contains(api.Error(), credential) {
+					t.Error("envelope leaked an earlier credential")
+				}
+			}
+		})
+	}
+}
 
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
