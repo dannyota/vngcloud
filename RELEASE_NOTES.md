@@ -6,7 +6,10 @@
   credential they sent. A server that echoed an earlier token in a response
   could get it into SDK output, errors, captures, or logs. Every credential
   a request sends is now redacted. This affects billing, billing resources,
-  NAT, and vStorage project operations.
+  NAT, and vStorage project operations. Overlapping credentials, where an
+  earlier token is a prefix of a later one, are redacted in full.
+- Billing and vStorage decode errors no longer keep the JSON decoder's
+  error, which could carry a value the server echoed back.
 - An oversized error response now keeps its HTTP status and public error
   identity (`ErrAuth`, `ErrPermission`, `ErrNotFound`, `ErrRateLimited`)
   instead of status 0, with the body withheld. The server console log keeps
