@@ -532,6 +532,35 @@ func TestCreateNotificationQuotaAuthBeforeSend(t *testing.T) {
 	}
 }
 
+func TestCreateNotificationQuotaAPIErrorBeforeSend(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure error
+	}{
+		{name: "empty token"},
+		{name: "provider APIError", failure: &transport.APIError{StatusCode: 503, Message: "private-provider-canary"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &emailOrderServer{send: freeEmailSend(t)}
+			server := httptest.NewServer(s.handler(t))
+			defer server.Close()
+			source := &quotaPreSendTokens{failure: tc.failure}
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source, RetryCount: 3})))
+			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if out != nil || err == nil || errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
+				t.Errorf("out=%+v err=%v attempts=%d sends=%d tokens=%d", out, err, len(c.quotaAttempts), s.mutations.Load(), source.calls)
+			}
+			if err != nil && strings.Contains(err.Error(), "private-provider-canary") {
+				t.Error("provider text exposed")
+			}
+			out, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
+			if err != nil || out == nil || s.mutations.Load() != 1 {
+				t.Fatalf("recovered out=%+v err=%v sends=%d", out, err, s.mutations.Load())
+			}
+		})
+	}
+}
+
 type quotaInvalidateTokens struct{ failure error }
 
 func (*quotaInvalidateTokens) Token(context.Context) (transport.Token, error) {

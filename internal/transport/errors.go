@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptrace"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"unicode"
 )
 
@@ -411,4 +413,47 @@ func redactCredentialKeys(text string) string {
 // Inspect keys first so a known token cannot erase a credential-key marker.
 func RedactErrorText(text string, values ...string) string {
 	return redact(redactCredentialKeys(text), values)
+}
+
+// Keep evidence across retries and 401 recovery. Once any send is uncertain,
+// later local refusals cannot make the whole call safe to repeat.
+func (r *Request) beginNotSent() func(error) {
+	if r.NotSent == nil {
+		return func(error) {}
+	}
+	*r.NotSent = false
+	safe := true
+	r.notSentState = &safe
+	return func(err error) { *r.NotSent = err != nil && safe }
+}
+
+func (r Request) observeSend(req *http.Request, client *http.Client) (*http.Request, func(bool, error)) {
+	if r.notSentState == nil {
+		return req, func(bool, error) {}
+	}
+	previous := *r.notSentState
+	*r.notSentState = false
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if _, ok := base.(*http.Transport); !ok {
+		// Arbitrary RoundTrippers may send without trace hooks or return a
+		// dial-shaped error after a write. No evidence means unknown.
+		return req, func(bool, error) {}
+	}
+	var connecting, connected atomic.Bool
+	trace := &httptrace.ClientTrace{
+		GetConn: func(string) { connecting.Store(true) },
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	return req, func(hasResponse bool, err error) {
+		// GotConn precedes every request write, including reused connections
+		// and redirects. A response or any connection makes this uncertain.
+		if previous && !hasResponse && err != nil && connecting.Load() &&
+			!connected.Load() && isDialError(err) {
+			*r.notSentState = true
+		}
+	}
 }

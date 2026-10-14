@@ -101,6 +101,15 @@ func New(cfg Config) *Client {
 }
 
 type Request struct {
+	// NotSent is reset for each call and becomes true only on an error when
+	// no request bytes could have reached a connection. Acquisition and local
+	// construction refusals qualify. Unknown send outcomes and all responses
+	// leave it false, including redirects and 401s. The pointer belongs to one
+	// call and must not be shared.
+	NotSent *bool
+
+	notSentState *bool
+
 	discovery     bool
 	beforeAttempt func(context.Context) error
 
@@ -288,7 +297,9 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, e
 // with a refreshed token after a 401 that req did not opt out of
 // authentication for. It returns the final status, Content-Type header, and
 // raw body. SentCredentials records credentials across both sends.
-func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (int, string, []byte, error) {
+func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.Client) (status int, contentTypeResult string, bodyResult []byte, resultErr error) {
+	finish := req.beginNotSent()
+	defer func() { finish(resultErr) }()
 	if err := req.checkAPIKey(); err != nil {
 		return 0, "", nil, err
 	}
@@ -458,13 +469,18 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		if err := beforeDiscoveryAttempt(ctx, req); err != nil {
 			return 0, "", nil, sentToken, err
 		}
+		if req.NotSent != nil && ctx.Err() != nil {
+			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: ctx.Err()}
+		}
 		credential := sentToken
 		if req.APIKey != "" {
 			credential = req.APIKey
 		}
 		req.recordSentCredential(credential)
 		start := time.Now()
+		httpReq, finishSend := req.observeSend(httpReq, sendClient)
 		resp, err := sendClient.Do(httpReq)
+		finishSend(resp != nil, err)
 		duration := time.Since(start)
 		if err != nil {
 			c.logRequest(ctx, httpReq, 0, false, duration, req.redactValues())

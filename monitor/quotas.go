@@ -178,16 +178,14 @@ func (c *Client) quotaRequestOutcome(ctx context.Context, req transport.Request,
 	op := req.Operation
 	var raw json.RawMessage
 	var sent []string
+	var notSent bool
+	req.NotSent = &notSent
 	req.Sensitive = true
 	req.MaxBody = quotaMaxBody
 	req.WithholdMessage = "quota response withheld"
 	req.SentCredentials = &sent
 	req.Redact = append(req.Redact, (*credentials)...)
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
-	// Network failures are APIErrors. Bare acquisition errors with no attached
-	// credential occur before send; a 401 invalidation error has a credential.
-	var api *core.APIError
-	notSent := err != nil && status == 0 && len(sent) == 0 && !errors.As(err, &api)
 	if !credentials.add(sent) {
 		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota credential safety limit exceeded", nil), notSent
 	}

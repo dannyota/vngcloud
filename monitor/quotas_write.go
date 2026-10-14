@@ -138,8 +138,7 @@ func createQuotaOutput(result *quotaWriteResult) *CreateNotificationQuotaOutput 
 	return out
 }
 
-// sendQuotaMutation is the shared boundary for quota side effects. A transport
-// Retryable flag at status zero proves a failed dial for a Once request.
+// sendQuotaMutation uses transport send evidence and known 4xx refusals.
 func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request, credentials *monitorReadCredentials) ([]byte, error, bool) {
 	req.Once = true
 	raw, status, err, notSent := c.quotaRequestOutcome(ctx, req, credentials)
@@ -152,7 +151,6 @@ func (c *Client) sendQuotaMutation(ctx context.Context, req transport.Request, c
 	var api *core.APIError
 	definite := status >= 400 && status < 500
 	if errors.As(err, &api) {
-		definite = definite || (status == 0 && api.Retryable)
 		safe := *api
 		safe.Err = monitorReadCause(api.Err)
 		err = &safe
