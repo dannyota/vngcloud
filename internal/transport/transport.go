@@ -452,6 +452,17 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			}
 			httpReq.Header.Set(key, value)
 		}
+		if req.Once {
+			// net/http retries inside Do, below the SDK retry loop. A nil
+			// body or http.NoBody permits replay even without GetBody; keep
+			// an empty, non-rewindable stream so both HTTP versions refuse it.
+			httpReq.GetBody = nil
+			if len(body) == 0 {
+				httpReq.Body = io.NopCloser(bytes.NewReader(body))
+			}
+			httpReq.Header.Del("Idempotency-Key")
+			httpReq.Header.Del("X-Idempotency-Key")
+		}
 		if req.APIKey != "" {
 			httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
 		} else if !req.SkipAuth {
