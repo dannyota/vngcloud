@@ -1,208 +1,340 @@
 # vMonitor check state and quotas: API evidence and checks
 
-Wire evidence, fixture rules, deterministic checks, and the live checks
-before code for [vMonitor check state and quotas](monitor-quotas.md). This
-file owns the wire contracts; the design owns the rules.
+This file owns wire evidence, fixture provenance, and checks for
+[check state and quotas](monitor-quotas.md). The design owns public types,
+safety rules, and owner decisions. Nothing here authorizes a live call.
 
-## Provenance
+## Provenance and limits
 
-The manager collected every live response below read-only on the test
-account with an SDK-issued IAM User bearer token and no extra header,
-against the `Monitor` endpoint root `https://vmonitor.console.greennode.ai/`.
-Console flows come from the public vMonitor Angular bundle, read as data.
-The designer had no live access. Each row carries one of these marks:
+The manager's sanitized response record comes from read-only calls using an
+SDK-issued IAM User bearer token without extra headers at the Monitor root,
+`https://vmonitor.console.greennode.ai/`. No write in this file was sent.
+The design improver has no live access and made no network calls.
 
-| Mark | Meaning |
-|-|-|
-| live | Status and body shape seen in a live response |
-| live 404 | Only the not-found response was seen; the 200 shape is inferred |
-| console | Read from console code; never sent |
-| inferred | Derived from a sibling shape or console behavior; unverified |
+Console sources are public Angular bundles from that same root, read only
+as untrusted text: uptime creation in chunk 478; billing flows and usage in
+chunk 816; quota guidance in chunk 439; state filters in chunk 580; common
+request classes and billing service methods. The manager's billing-service
+and flow extracts supply method names below. Older v1 and current v2
+synthetic flows coexist; select the specified v2 renewal, not a similarly
+named v1 method. These are first-party implementation evidence, not a
+published API guarantee. Private source paths and captures stay private.
 
-No document move or approval upgrades an inferred row. Every inferred row
-has a live check below, and an operation that depends on one stays gated
-until that check runs.
+Labels below mean **live** response status/shape, **console** code never
+sent, or **inferred** behavior not established by either. An Email 404 does
+not verify its success schema, SMS, or synthetic absence. Document approval
+cannot promote any label. Manager-approved captures must close each gate
+before dependent implementation; mock fixtures never close a live gate.
 
-## Check state
+## Check state and history
 
-| Call | Mark | Shape |
-|-|-|-|
-| `GET vmonitor-uptime-manager/v1/uptimes/{id}` | live | Adds `monitor_status` (`OK`, `ALARM`, `UNDETERMINED`), `history_alarm` (UUID), `user_id` (number, account data), `deleted_at` (null) |
-| `GET vmonitor-api/api/v1/alarms/synthetic/metrics/mona/{history_alarm}` | live | `{"data": {...}}`, below |
-| `GET vmonitor-api/api/v1/alarms/synthetic/metrics/mona/{alarm}/histories?start_time=&end_time=&interval=` | live | `{"data": [...]}`, below |
+**Live:** `GET vmonitor-uptime-manager/v1/uptimes/{id}` adds
+`monitor_status`, `history_alarm`, numeric `user_id`, and null `deleted_at`.
+ALARM and OK were observed; console filters also name UNDETERMINED.
+`history_alarm` is the lookup ID for the definition, not a location alarm ID.
+Console `onClickCreateApiTest` sends one create with `notifications`, with
+no second alarm/trigger call.
 
-Definition `data` keys: `id` (differs from `history_alarm`), `name`
-(`syntt-his-<check name>-<5 chars>`), `description`, `expression`
-(`sub_expressions[]` of `function`, `metric_name`, `dimensions{syntt_id}`,
-`operator`, `threshold` (number), `period`, `periods`, `deterministic`;
-`operators []`), `expression_syntax`, `match_bys ["location_id"]`,
-`severity`, `alarm_actions []`, `ok_actions []`, `undetermined_actions []`,
-`alarms[]`, and `status {status, status_updated_at}`. `alarm_actions` was
-empty although the check named an Email channel: the uptime manager's
-`notifications` map carries the wiring, not the alarm definition.
+**Live:** `GET vmonitor-api/api/v1/alarms/synthetic/metrics/mona/{id}`
+uses history_alarm and returns `{"data": {...}}`. Console method:
+`getAlarmSyntheticMetricDefinitionById`. Definition keys:
 
-Each `alarms[]` item is one location: `id`, `links[]` (internal cluster
-URLs), `metrics[0] {id null, name, dimensions {location_name, syntt_id,
-user_id, syntt_name, location_id}}`, `state`, `link` (null),
-`alarm_definition {id, links, name, severity}`, `lifecycle_state` (null),
-`state_updated_timestamp`, `updated_timestamp`, `created_timestamp`.
-Timestamps follow the layout `2006-01-02T15:04:05.000-07:00` with a
-`+07:00` offset; `time.RFC3339` parses them. A check with two locations
-had two items.
+- `id` differs from the lookup history_alarm; `name` has the form
+  `syntt-his-<check-name>-<suffix>`; `description`, `expression_syntax`.
+- `expression.sub_expressions[]`: `function` AVG, `metric_name`
+  syntt.http.failure, `dimensions{syntt_id}`, `operator` GTE,
+  `threshold` 1.0, `period` 60, `periods`, `deterministic` false;
+  `expression.operators[]` was empty.
+- `match_bys` contains location_id; `severity` LOW;
+  `alarm_actions`, `ok_actions`, `undetermined_actions` are arrays.
+  Empty alarm_actions despite Email notifications confirms the uptime
+  notifications map carries the wiring; copying channels here is wrong.
+- `status {status, status_updated_at}`; `alarms[]` holds one per location.
+  Two locations produced two items; this is not a documented maximum.
 
-History items: `id` (digit string), `metrics[]` (as above), `reason`
-(text naming `syntt_id`), `timestamp`, `alarm_id`, `old_state`,
-`new_state`, `reason_date` (null), `sub_alarms[] {subAlarmExpression null,
-sub_alarm_state, current_values[]}`. The console sends the check's
-`test_frequency` as `interval` and the chart range in epoch milliseconds.
-One item came back per alarm in a six-hour window. Paging, maximum range,
-and the effect of `interval` are unknown.
+Each location alarm has `id`, `links[]` containing internal cluster URLs,
+`metrics[0] {id:null, name, dimensions}`, `state`, null `link`,
+`alarm_definition {id, links, name, severity}`, null `lifecycle_state`,
+`state_updated_timestamp`, `updated_timestamp`, and `created_timestamp`.
+Dimensions include location_name, syntt_id, user_id, syntt_name, location_id.
+Timestamps use an RFC 3339 shape with fractional seconds and +07:00 offset.
+Never expose internal links or raw dimension maps.
 
-## Quota reads
+**Live:** the same alarm base path with `/{alarm-id}/histories` relative to
+`mona` takes `start_time` and `end_time` as epoch milliseconds and `interval`
+as the check's test_frequency in minutes. It uses an alarms[].id, not the
+lookup or definition ID. Console method: `getAlarmSyntheticMetricHistoryById`.
+Result: `{"data": [...]}`. Each item has digit-string `id`, `metrics[]`,
+`reason` text containing syntt_id, `timestamp`, `alarm_id`, `old_state`,
+`new_state`, null `reason_date`, and `sub_alarms[]` with null
+`subAlarmExpression`, `sub_alarm_state`, `current_values[]`.
 
-| Call | Mark | Shape |
-|-|-|-|
-| `GET billing-api/v1/quotas/usages` | live | `logUsages[]`, `metricUsages[]`, `syntheticUsages[{api, location, email, sms, slack, webhook, telegram, teams}]`, `emailUsages[]`, `smsUsages[]`, `freeEmailQuota`, `freeSmsQuota`, and `logSeverity`, `metricSeverity`, `syntheticSeverity`, `emailSeverity`, `smsSeverity`, `notificationSeverity` strings |
-| `GET billing-api/v1/email/quota` | live 404 | `{"message":"Not found email quota"}`; 200 inferred as the synthetic quota shape |
-| `GET billing-api/v1/email/quota/usages` | live 404 | `{"message":"Not found the Resource"}`; 200 inferred as the synthetic usage shape |
-| `GET billing-api/v1/sms/quota`, `.../usages` | console | Same paths as email; never sent |
-| `GET billing-api/v1/email/packages` | live | `[{id, name, price, amount}]`: `emailfree` (UUID id, 0, 20) and paid ids such as `vMonitor-Platform-Notification-email5k` (110000, 5000) up to `email200k` |
-| `GET billing-api/v1/sms/packages` | live | Same shape: `smsfree` (UUID, 0, 20), paid UUID ids from `sms5` (55000, 50) to `sms100` (1100000, 1000) |
-| `GET billing-api/v1/email/package-description` | live | `{"amount":{name, specs, unit}}`; not modeled |
-| `GET billing-api/v1/synthetic/quota` | live | `{id, name, type "SYNTHETIC_TEST", status "ACTIVE", packageId, startTime, endTime (ISO, +00:00), createdAt, updatedAt, system false, autoRenew 0, autoRenewPeriod 0, poc 0}` |
-| `GET billing-api/v1/synthetic/quota/usages` | live | `{usage {api, location, email, sms, slack, webhook, telegram, teams}, description {<key>: {name, specs, unit}}}` |
-| `GET billing-api/v2/synthetic/{id}/quota-detail` | live | `{id, name, price 0.0, location 1, api 10, tierId, tierName, email 0, sms 0, slack, webhook, telegram, teams, resourceId, classId, className "Basic", packageId}` |
-| `GET billing-api/v1/settings` | live | `{paymentMethod "PRE-PAID", monthPeriods [1,3,6,12,24,36], maxMonthPeriodForFreeQuota 1, maxMonthlyResetNotificationBillingAction 3, hidePeriod true}` |
-| `GET billing-api/v1/trash/quotas` | live | `[]`; the item shape is unseen |
-| `GET billing-api/v1/synthetic/packages`, `GET billing-api/v2/synthetic/quota-class` | live | Basic `free10` (price 0, location 1, api 10); Pro and Enterprise `DISABLED`; not modeled |
+One transition per alarm was observed in a six-hour window:
+UNDETERMINED to ALARM and UNDETERMINED to OK. No 24-hour, seven-day,
+pagination, maximum-range, interval-effect, or multi-page check is recorded.
+Those checks are outstanding, not completed read verification.
 
-The composite usage counted `api 2` and every notification counter 0 after
-the alarm fired, with `freeEmailQuota 0`. The synthetic detail's `email 0`
-shows the Basic synthetic class grants no free email. The console text
-reads: "You don't have any Paid email notification quota. Buy a package to
-extend your Notification quota. You can have Free notification quota
-provided with your Metric packages," and "At one time, you can only own
-one Email Notification quota."
+## Billing reads
 
-## Quotes
+All paths below are relative to `billing-api/`. Successes listed as live
+were 200. Bare arrays have no observed pagination envelope.
 
-| Call | Mark | Body and result |
-|-|-|-|
-| `POST billing-api/v2/email/prices/created-price` | live | `{"redirectUrl":"","packageId":<id>,"quantity":1}` -> `{optimumPrice, discountPercent, originalPrice, discountPrice, propertiesPrice[{optimumPrice, discountPercent, originalPrice, discountPrice, name "monitor-platform-email", description}]}`; `emailfree` 0; `email5k` 100000 against a list price of 110000 |
-| `POST billing-api/v2/email/prices/created-price` with `resourceId` | console | Renewal quote: `{"redirectUrl":"","packageId":<quota packageId>,"quantity":1,"resourceId":<quota id>}` |
-| `POST billing-api/v2/sms/prices/created-price` | console | Same bodies as email |
-| `POST billing-api/v2/synthetic/prices/created-price` | live | `{"redirectUrl":"","packageId":<quota packageId>,"quantity":<api total>,"resourceId":<quota id>}` -> 200, `optimumPrice` 0 for the free quota |
-| `POST billing-api/v1/synthetic/prices/time-extension-price?month_period=1` | live | 500; not used |
+**Live composite usage:** `GET v1/quotas/usages` returns logUsages[],
+metricUsages[], syntheticUsages[], emailUsages[], smsUsages[], freeEmailQuota,
+freeSmsQuota, logSeverity, metricSeverity, syntheticSeverity, emailSeverity,
+smsSeverity, notificationSeverity. Only syntheticUsages had items:
+`{api, location, email, sms, slack, webhook, telegram, teams}`. Other array
+item shapes remain unknown, so they cannot become public raw JSON models.
+The account showed freeEmailQuota 0 and no counted notification after alarm.
 
-The quote response is the log project quote shape, so the SDK reuses that
-decoder with the same nil-price refusal.
+**Live Email absence:** `GET v1/email/quota` returned 404 with
+`{"message":"Not found email quota"}`. `GET v1/email/quota/usages` returned
+404 with `{"message":"Not found the Resource"}`. The first response is the
+only evidenced create precondition. **Console:** corresponding SMS paths
+exist; they were not called. Email/SMS quota and usage 200 shapes are
+**inferred** from synthetic, not verified. `GET v1/metric/quota` also
+returned 404; metric quota operations remain outside this design.
 
-## Writes
+**Live packages:** `GET v1/email/packages` and `GET v1/sms/packages` return
+`[{id, name, price, amount}]` with VND numeric prices. Email's emailfree has
+a UUID ID, price 0, amount 20; email5k has non-UUID ID
+`vMonitor-Platform-Notification-email5k`, price 110000, amount 5000.
+Other paid Email IDs also use names. SMS's smsfree has a UUID ID, 0, 20;
+sms5 has a UUID ID, 55000, 50. Never apply UUID validation to packages.
+`GET v1/email/package-description` returns amount metadata with name,
+specs, unit; specs says maximum emails per month. No operation exposes it.
 
-All bodies come from console code. `pay` is true for an IAM user, which
-charges the balance at once; the console opens `paymentUrl` when the
-response has one. `PAYMENT_REDIRECT_URL` is
-`https://vmonitor.console.vngcloud.vn/quota-usage/quota` and each flow
-replaces `quota-usage/quota` with its page path.
+**Live synthetic quota:** `GET v1/synthetic/quota` returns id, name, type
+SYNTHETIC_TEST, status ACTIVE, packageId, startTime, endTime, createdAt,
+updatedAt, system false, autoRenew 0, autoRenewPeriod 0, poc 0. Time strings
+use RFC 3339 with +00:00. Nonzero flags and other statuses need evidence.
+`GET v1/synthetic/quota/usages` returns
+`{usage:{api,location,email,sms,slack,webhook,telegram,teams},description}`;
+description maps counter names to `{name,specs,unit}`.
 
-| Call | Mark | Body |
-|-|-|-|
-| `POST billing-api/v1/email/quota` | console | `{monthPeriod: 1, packageId, redirectUrl: ".../quota-usages/notification", pay}` |
-| `POST billing-api/v1/sms/quota` | console | Same body |
-| `POST billing-api/v1/email/quota/extend-time`, `POST billing-api/v1/trash/email/quota` | console | `{monthPeriod: 1, redirectUrl: ".../quota-usages/notification", pay}`; trash when `endTime` passed and status `IN-TRASH`, else extend |
-| `POST billing-api/v1/sms/quota/extend-time`, `POST billing-api/v1/trash/sms/quota` | console | Same rule and body |
-| `POST billing-api/v2/synthetic/quota/extend-time`, `POST billing-api/v2/trash/synthetic/quota` | console | `{redirectUrl: ".../quota-usages/synthetic-test", monthPeriod: 1, pay}`; same rule |
-| Order response | inferred | `{amount, orderId, paymentUrl}` as the log order returns; `orderId` may be empty for a free order |
-| `POST billing-api/v1/{synthetic\|email\|sms}/quota/{id}/update-auto-renew` | console | `{resourceId, enabled, period: 1}`; hidden for free and POC quotas; out of scope |
-| `DELETE billing-api/v1/{kind}/quota`, `DELETE billing-api/v1/trash/{kind}/quota` | console | No body, no ID; out of scope |
-| `POST billing-api/v1/{kind}/quota/introspect` | console | Null body, `{active}`; out of scope |
+**Live detail:** `GET v2/synthetic/{quota-id}/quota-detail` returns id, name,
+price 0.0, location 1, api 10, tierId, tierName, email 0, sms 0, slack,
+webhook, telegram, teams, resourceId, classId, className Basic, packageId.
+The zero email allowance applies to this Basic synthetic quota. It does
+not prove every account lacks free messages: the console says Metric
+packages can supply them and only one Email quota can exist at a time.
 
-The console preselects the first paid email package; the SDK defaults to
-the free one instead. The console's new-expiry preview adds the period to
-the current `endTime`, which is the basis for the inferred rule that an
-early renewal extends rather than restarts the term. The 409 "Exceeded
-quota" after three Basic log orders a month and
-`maxMonthlyResetNotificationBillingAction 3` are the basis for the
-inferred three-actions rule on notification quotas.
+**Live synthetic packages:** `GET v1/synthetic/packages` lists free10 with
+id, name, price 0, tierId, location 1, api 10. `GET v2/synthetic/quota-class`
+shows Basic ACTIVE with config.locations entries amount 1, minApi 10,
+maxApi 10, step 1, packageId; Pro and Enterprise are DISABLED. Package
+lookup for free renewal is internal, not a new public list operation.
+
+**Live settings:** `GET v1/settings` returns paymentMethod PRE-PAID,
+monthPeriods [1,3,6,12,24,36], maxMonthPeriodForFreeQuota 1,
+maxMonthlyResetNotificationBillingAction 3, hidePeriod true.
+`GET v1/trash/quotas` returned `[]`; no trash item or lookup is verified.
+
+## Quote bodies
+
+All quote calls here are `POST`, semantically read-only. The intended SDK
+uses Idempotent with the configured bounded read retries, never a write
+retry loop. All paths below are relative to `billing-api/`.
+
+- **Live Email create:** `v2/email/prices/created-price` with
+  `{"redirectUrl":"","packageId":"<package-id>","quantity":1}`.
+  Bare result has optimumPrice, discountPercent, originalPrice,
+  discountPrice, propertiesPrice[] with the same price keys plus name and
+  description. emailfree quoted 0; email5k quoted 100000 against list
+  110000. Pre-VAT pricing is an inference, not a verified tax rule.
+- **Console Email renewal:** that same endpoint and body with
+  `"resourceId":"<quota-id>"` added. SMS uses `v2/sms/prices/created-price`
+  and the corresponding create or renewal body; neither SMS quote was sent.
+- **Live synthetic renewal:** `v2/synthetic/prices/created-price` with
+  `{"redirectUrl":"","packageId":"<package-id>","quantity":10,`
+  `"resourceId":"<quota-id>"}` quoted optimumPrice 0. Quantity came from
+  the detail's total api capacity, not current consumed usage.
+- **Live failed alternative:** `v1/synthetic/prices/time-extension-price`
+  with query `month_period=1`, null body, returned 500. Do not use it.
+
+Similar price keys permit a private decoder patterned on the log project
+quote, but missing/null optimumPrice must never mean free. No evidence
+shows these quote endpoints accept the exact order bodies below, or that
+adding quote-only fields to an order is safe. The design's exact-body gate
+therefore blocks writes, including free writes. Preserve both observed
+bodies in evidence; do not relabel them as identical after sharing a helper.
+
+## Console writes and unresolved semantics
+
+All are **console only** under `billing-api/`, with unverified success
+statuses and responses. For IAM users the console sets pay true and may
+open paymentUrl. The SDK must not open it. The configured base redirect is
+`https://vmonitor.console.vngcloud.vn/quota-usage/quota`; flows replace its
+last path with the appropriate page. Do not modernize its hostname by guess.
+
+Notification page: `https://vmonitor.console.vngcloud.vn/` plus
+`quota-usages/notification`. Synthetic page: the same origin plus
+`quota-usages/synthetic-test`. These are fixed body values, not fetched URLs.
+
+- Create Email: `POST v1/email/quota`, body
+  `{monthPeriod:1,packageId,redirectUrl:<notification-page>,pay:true}`.
+  SMS: `POST v1/sms/quota`, same shape. Console preselects a paid package;
+  SDK selection of a zero-price package still needs a real order check.
+- Email extension: `POST v1/email/quota/extend-time`; recovery:
+  `POST v1/trash/email/quota`. Both send
+  `{monthPeriod:1,redirectUrl:<notification-page>,pay:true}`.
+  SMS substitutes sms in both paths. No resource ID appears in these paths
+  or write bodies; the account's current quota is the target.
+- Synthetic extension: `POST v2/synthetic/quota/extend-time`; recovery:
+  `POST v2/trash/synthetic/quota`. Body:
+  `{redirectUrl:<synthetic-page>,monthPeriod:1,pay:true}`.
+  Use renewSyntheticOrderV2/recoverSyntheticOrderV2, not the v1 alternatives.
+- Each renew flow recovers only when endTime has passed AND status is
+  IN-TRASH; otherwise it extends. Known-state refusal in the SDK further
+  narrows eligibility until each path is evidenced.
+- **Inferred response:** amount, orderId, paymentUrl, by analogy to log
+  orders. Console reading paymentUrl does not prove the complete envelope,
+  status, nullability, or free-order orderId. Capture each supported write.
+- **Inferred expiry:** console preview adds a period to current endTime.
+  Verify active extension before promising that it adds a month. Recovery
+  may use different identity and expiry semantics; it remains gated.
+- Auto-renew `POST v1/{kind}/quota/{id}/update-auto-renew` sends
+  `{resourceId,enabled,period:1}`. Console hides controls for isFree and POC;
+  this does not prove free auto-renew support. Out of scope.
+- Delete `DELETE v1/{kind}/quota` and `DELETE v1/trash/{kind}/quota` use
+  no body/ID. Introspect `POST v1/{kind}/quota/introspect` uses null body
+  and the console reads active. All remain out of scope.
+
+The setting 3 and a Basic log quota 409 suggest a three-actions-a-month
+notification budget. Whether it counts orders, extension, recovery, delete,
+failed attempts, or shared Email/SMS actions is unverified. Never assert
+that deletion spends an action or synthetic renewal is exempt. Plan
+conservatively: serialize all billing probes, reserve one possible action
+per mutation attempt, assume a shared budget of three until clarified,
+and stop when remaining budget is unknown or exhausted. No probing a fourth
+write to discover the limit. APIError status 409 survives without resending.
 
 ## Fixtures
 
-Each fixture under `testdata/monitor/` is a sanitized raw response and
-decodes through the SDK; decoded SDK output is never fixture evidence.
-Replace check and alarm IDs with `<id>`, the account ID in `user_id` and
-in every `dimensions.user_id` with `<account>`, each `links[]` entry and
-`alarm_definition.links[]` entry with `<internal-url>`, check and
-`syntt_name` values with synthetic names, and quota, order, and package
-UUIDs with `<id>`. Keep every key, `links` and `user_id` included, so the
-decode test proves the model drops them. Keep statuses, severities, the
-number shapes (`threshold 1.0`, `autoRenew 0`, `poc 0`), the `+07:00` and
-`+00:00` timestamp shapes, and the `Not found email quota` message.
+The manager supplies sanitized raw responses, never decoded SDK output.
+Store fixtures in `testdata/monitor/`; provenance identifies source operation,
+HTTP status, console-only versus live evidence, and any substitutions.
+Keep original keys and types. Replace numeric account IDs with a synthetic
+number, not a string placeholder; string dimensions.user_id with `<account>`.
+Replace resources with synthetic IDs such as check-1/quota-1 that pass path
+checks, links with `<internal-url>`, names with synthetic names, and any
+credential/payment URL with placeholders. Preserve non-UUID package shape,
+fractional-integral numbers, nulls, offsets, and unknown keys. Synthetic
+malformed-response probes are tests, not claimed live fixtures.
 
-| Fixture | Source |
-|-|-|
-| `GetCheck.json` | Already holds `monitor_status` and `history_alarm`; the decode test starts reading them |
-| `GetCheckAlarm.json` | The live definition with two locations |
-| `ListCheckAlarmHistory.json` | The live `UNDETERMINED -> ALARM` item |
-| `GetQuotaUsage.json` | The live composite usage |
-| `GetNotificationQuotaNotFound.json` | The live 404 body |
-| `ListNotificationPackagesEmail.json`, `...SMS.json` | The two live lists, prices kept |
-| `QuoteCreateNotificationQuota.json` | The live `email5k` quote |
-| `GetSyntheticQuota.json`, `GetSyntheticQuotaDetail.json`, `GetSyntheticQuotaUsage.json` | The three live synthetic reads |
-| `QuoteRenewSyntheticQuota.json` | The live renewal quote |
-| `GetNotificationQuota.json`, `GetNotificationQuotaUsage.json`, `CreateNotificationQuota.json` | Gated on live check 2 |
-| `RenewSyntheticQuota.json`, `RenewNotificationQuota.json` | Gated on live checks 3 and 4 |
+Required fixture families, all decoded through the public SDK:
+
+- Existing GetCheck plus definition with two locations and each location's
+  history; a manager-supplied raw list response for ListChecks additions.
+- Composite usage, Email and SMS package lists, synthetic quota/detail/usage
+  and package list, Email quota and usage 404s.
+- Email free and paid quote responses and synthetic renewal quote.
+- Gated per-kind quota/usage successes, exact-body quote responses, and
+  each create/extend/recover success. Never reuse Email proof for SMS.
+
+Check required-key presence, not just json.Unmarshal success: null or empty
+bodies cannot be a zero-valued success. Sanitation must keep valid route IDs
+so path validation does not prevent the intended decode test. New SDK
+Sensitive requests suppress ordinary capture hooks; only the manager's
+separately authorized private capture produces raw fixture material.
 
 ## Deterministic checks
 
-Every check runs against `httptest` with the injected clock and counts
-requests; a fake server fails the test on a second order or renewal.
+Use httptest, fake clock/sleep, synthetic credentials, and counted requests.
+No test calls GreenNode. Run focused tests and `make check`; the plan owns
+file assignments, wiki generation, and acceptance order.
 
-| Operation | Checks |
-|-|-|
-| `Check` decode | `MonitorStatus` and `HistoryAlarmID` from the fixture; `user_id` and `deleted_at` still dropped |
-| `GetCheckAlarm` | Decode with two locations; `links`, `dimensions`, and action lists absent from the Output; empty `history_alarm` is not-found with one request; 404 on each read; bad `CheckID` sends nothing |
-| `ListCheckAlarmHistory` | Zero `End` is the clock's now and zero `Start` is 24 hours before; `Start >= End` sends nothing; query holds millisecond epochs and `interval` = `TestFrequency` (1 when 0); one request per location in order; `LocationID` filter and its not-found; an error on the second location returns no Output; items merged and sorted; a body over 16 MiB is an error; cancelled `ctx` between locations |
-| `GetQuotaUsage` | Decode; empty usage arrays; unknown severity strings pass through |
-| `GetNotificationQuota`, `GetNotificationQuotaUsage` | `Email` and `sms` map to `email` and `sms`; `Teams` and `../email` are `ErrInvalidInput` with no request; 404 is the not-found sentinel whose message names the kind; the inferred 200 decodes |
-| `ListNotificationPackages` | Both fixtures; a non-UUID id decodes |
-| `GetSyntheticQuota` | Two requests in order; `autoRenew 0` and `1` and `poc 0` and `1` decode to bools; a 404 on the quota is not-found; a 500 on the detail returns no Output |
-| `CreateNotificationQuota` | Free default selected; zero or two free packages refuse; unknown `PackageID` refuses; a 200 pre-order read refuses with no quote; quote and order bodies; `NoRedirect` set; guard on quote 100000 and list 110000 with `MaxPrice` 100000 refusing and 110000 passing; quote 0 with list 110000 is `ErrUnpriced`; quote 0 free passes; nil `optimumPrice` orders nothing; one `POST` on 502 and on a dropped connection with the read-first hint; 400, 401, 403, 404, 409, and 429 returned unchanged; `PaymentPending` from a non-empty `paymentUrl` with the URL absent from Output, error, and log; wait to `ACTIVE`, timeout, and `NoWait` |
-| `RenewNotificationQuota`, `RenewSyntheticQuota` | 404 is not-found naming the order; `MaxDaysLeft` skip with no request and `Renewed` false; extend when active, extend when expired but not in trash, recover when expired and `IN-TRASH`; `v1` and `v2` prefixes; quote body with `resourceId` and the synthetic `quantity` from the detail; guard and `ErrUnpriced` as the order; one `POST` on 502; 409 unchanged; wait on `EndTime` moving and on leaving `IN-TRASH`; timeout; `NoWait` |
-| `Quote*` | Same body as the write, no order, `MaxPrice` ignored, `Idempotent` retry after a 502 |
-| `quotaMu` | Two concurrent orders on one `Client` make one order and one refusal |
-| CLI | Golden `json`, `table`, and `text`; `--start` and `--end` parse RFC 3339 and refuse other text with exit 2; read-only refusal of the three writes with no request; exit 4 on no quota; `PriceAboveMax`, `Unpriced`, and `NotSettled` codes; `--debug` output holds no body, query string, or URL |
+- Check fields: preserve run Status and existing create/update wire bodies;
+  unknown monitor states survive; omitted additions decode empty; old keyed
+  callers still compile. Read and list raw fixtures exercise actual SDK
+  decoding. New projections omit user_id and deleted_at.
+- Alarm: use history_alarm for definition and alarms[].id for history;
+  validate malicious response IDs before a second request, with no echoed
+  value. Empty history_alarm is NotFound. Two locations map correctly;
+  absent/ambiguous identity or conflicting history alarm_id fails closed.
+- History: defaults, independent optional endpoints, RFC 3339 offsets,
+  invalid text, epoch-millisecond collapse, invalid frequency, location
+  filter/NotFound, cancellation between locations, stable total sort, no
+  partial Output on a later error. Test every response and aggregate cap,
+  fan-out refusal, and the manager-established pagination contract.
+- Quota reads: nil Inputs only where empty, fixed Kind routing, unknown
+  statuses preserved, numeric flags/counts validated, unknown usage kinds
+  reported without raw JSON. Detail failures return nil Output. Check
+  quota/detail identities and absence versus unknown endpoint 404s.
+- Pricing: opaque package IDs, absent/null/negative/nonfinite prices,
+  duplicate/unknown packages, ambiguous free default, invalid MaxPrice with
+  zero requests, and synthetic quantity from capacity. Freeze one body:
+  quote/order JSON equality, no mutated caller Input or later catalog read
+  changes it. Compare 100000 quote/110000 list at both budgets; free zero
+  passes and zero quote on a priced package is Unpriced. Standalone quote
+  ignores write-only controls and never sends an order.
+- Writes: every supported exact body and success status, 400/401/403/404/
+  409/429, 500/502/503/504, dial failure, disconnect after send, cancellation,
+  malformed/oversized 2xx, and every redirect including 307/308. Each makes
+  at most one mutation attempt; 401 must not refresh and resend. Unseen
+  status cases are deterministic robustness probes, not live claims.
+- Renewal: required ExpectedEndTime, instant-equivalent offsets, stale
+  expiry refusal, MaxDaysLeft read-only skip, overflow, positive versus zero
+  threshold, expiry crossing during quote, ACTIVE extension, expired AND
+  IN-TRASH recovery only when gated evidence permits it. No creation on 404,
+  no guessed trash lookup, and no POC/auto-renew/unknown-status mutation.
+- Wait/uncertainty: selected package and identity checks, unchanged expiry
+  despite ACTIVE, leaving trash without extension, delay, read error, hard
+  deadline during a slow request, cancellation, NoWait, and paymentUrl.
+  Partial Outputs and wrapped causes survive CLI output/error handling.
+  Never print the URL or declare Renewed merely on an accepted response.
+- Concurrency: lock wait cancellation, delayed visibility, concurrent create
+  versus renewal, two same-expiry renewals, repeated unresolved and NoWait
+  calls, and read reconciliation that stays unknown. Assert no second send.
+  A separate-client simulation documents the residual race, not a guarantee.
+- Security: sent tokens in successful strings, status/code/error text,
+  malformed timestamp, nested JSON, paymentUrl, links, dimensions, and
+  unseen usage arrays. Assert safe json/table/text, --query, errors.As
+  fields, debug logs, and suppressed captures. Test limits before allocation
+  and no foreign request from links, redirect, or caller redirect hooks.
+- CLI: existing string flag/JSON precedence, NoFlag controls, read-only flag,
+  environment and profile refusals before network, cost warning to stderr,
+  MaxPrice consent, safe partial output, and exact error identity/exit codes.
+  Keep existing transport, cache, credential, and log-project regressions.
 
 ## Live checks before code
 
-The manager runs these on the test account under [live
-data](../../instructions/live-data.md), records only field names, types,
-statuses, prices, and timings, and sanitizes every capture before it
-becomes a fixture. Notification quota orders, recoveries, and deletions
-share a budget of three a month, so the order below spends at most two.
+The manager gets approval per run under
+[live data](../../instructions/live-data.md).
+Name account, package/resource, maximum cost, possible action consumption,
+and retention. A free retained quota is not a cleanable disposable resource.
+No code brief consumes inferred schemas. Close each dependency first with
+private manager probes; after implementation, separately approve SDK live
+verification. Do not require an unimplemented SDK to produce its own inputs.
 
-1. Reads for the first release: `GetCheckAlarm` and
-   `ListCheckAlarmHistory` on an existing check with two locations over 24
-   hours and over 7 days (paging, size, and whether `interval` changes the
-   items), the composite usage, both package lists, and the three
-   synthetic reads. Done read-only; repeat only if a shape changed.
-2. Free email order, gated on owner approval naming the account and the
-   `emailfree` package: quote, order, the order response shape, then
-   `GET email/quota` and `email/quota/usages` until `ACTIVE`, with
-   timings. Try the order once without the console `redirectUrl` only if
-   the owner accepts a possible wasted action. Then fire a check into
-   alarm and back and record whether an email arrives, which settles the
-   root cause. Keep the quota; do not delete it.
-3. Synthetic renewal, gated on owner approval: quote with `resourceId`,
-   then `extend-time` on the active free quota, and record the new
-   `EndTime` against the old one, the response shape, and the time to
-   settle. This spends no notification action.
-4. Email renewal, gated on owner approval and the budget: `extend-time`
-   on the active free email quota from check 2, recording `EndTime`
-   before and after. The trash recovery path needs a lapsed quota; when
-   the owner prefers not to delete the email quota, recovery stays
-   inferred and its code path ships behind the extend path with the
-   status rule untested live.
-5. Paid amounts: only with explicit owner approval of the cost, order
-   `sms5` or `email5k` and reconcile the debit against the quote and the
-   list price. Without this check the guard keeps the higher bound and
-   the wiki says so.
+1. Read prerequisites: obtain existing raw fixtures and inspect all required
+   fields/types. Outstanding history checks need approval for 24-hour and
+   seven-day multi-location ranges, interval comparisons, and paging or
+   truncation evidence. Do not rerun already captured reads without need.
+2. Pricing prerequisites: test quotes with the exact candidate create or
+   renewal body and establish its semantics for package, quantity, resource,
+   period, pay, and redirect. Acceptance alone does not prove all fields
+   affect price. Do not try an order if its pricing correspondence is unknown.
+3. Free Email: approve a single emailfree order using the evidenced body and
+   fixed redirect. Do not waste a mutation testing omission of redirectUrl.
+   Capture status, response, settled quota and usage, and debit if any. Keep
+   the quota. Separately approve a safe check transition and notification
+   recipient; delivery after the transition tests the quota hypothesis,
+   while failure does not justify repeat purchases.
+4. Free synthetic extension: approve one active-quota extension, quote it,
+   capture success response and old/new EndTime, identity, and settlement.
+   Verify month arithmetic and actual debit. Free Email extension follows
+   only with separate approval and a known remaining action budget.
+5. Recovery: wait for a naturally lapsed, owner-approved quota. Capture its
+   ordinary GET and trash listing before any recovery; establish resource
+   identity, quote, response, and settlement. No deliberate delete/expiry of
+   production monitoring to obtain evidence. An unevidenced branch stays out.
+6. SMS and paid operations: obtain kind-specific reads/quotes first and
+   explicit mutation/cost approval. Reconcile actual debit, tax, term, and
+   quantity against quote and list; never treat max(list, quote) as proven
+   protection without this. Confirm budget accounting without exhausting it.
+
+No listed check is declared complete beyond the responses in the evidence
+sections. Root-cause delivery, write response/status, exact-body pricing,
+paid debit, renewal arithmetic, trash lookup/recovery, monthly accounting,
+and history completeness remain open.

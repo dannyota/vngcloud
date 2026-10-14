@@ -16,7 +16,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor](monitor.md) | Accepted |
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
-| [vMonitor check state and quotas](monitor-quotas.md) | Proposed |
+| [vMonitor state and quotas](monitor-quotas.md) | Proposed; gated writes |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
 | [vStorage workload access](storage-workload-access.md) | Existing-command guidance; new endpoint contracts remain proposed |

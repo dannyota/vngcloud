@@ -1,144 +1,93 @@
 # vMonitor check state and quotas implementation plan
 
-Ship [vMonitor check state and quotas](../design/monitor-quotas.md) as three feature releases: check state and verified quota reads, then the Email and SMS quota reads with the free-by-default order, then the three renewals.
+After owner approval, implement the [domain design](../design/monitor-quotas.md) in independently gated slices. [API evidence and checks](../design/monitor-quotas-api.md) owns wire facts, fixtures, deterministic checks, and live prerequisites. The design's [owner decisions](../design/monitor-quotas.md#owner-decisions) remain proposed; this plan grants no implementation or live-run authority.
 
-For workers: use test-first development under the project's brief, worktree, ownership, routing, and review rules; the manager dispatches workers and owns Git state.
+## Execution and gates
 
-**Goal:** A user can see why a check is in alarm and when it got there, see that the account has no email quota, order the free email package, and renew the free Synthetic Test quota before it lapses, all through the public SDK and the CLI.
+- [ ] Obtain owner decisions and separate independent design/plan review before code. Do not count design improvement as independent review. Use the repository routing and three-worker total limit; designers never implement their slice and reviewers never fix or review their own work.
+- [ ] Dispatch implementers on `gpt-6.1-sol` medium, troubleshooters on `gpt-6.1-sol` xhigh for failures, and separate design/code reviewers on `gpt-6.1-sol` xhigh for reviews and fix confirmation. Every brief states model, effort, exact owned paths, authorities, required checks, and forbidden actions.
+- [ ] Give workers separate credential-free worktrees and disjoint ownership. Require `git status --short`, preservation of others' edits, no Git mutations, no secrets/private configs/captures, no live calls, and no unrelated network or edits outside the brief. The manager owns Git, integration, and live verification.
+- [ ] Close evidence dependencies before issuing the affected implementation brief. The manager performs separately approved private probes without relying on the unimplemented SDK, sanitizes raw responses, and supplies operation/status provenance. Do not authorize guessed fixtures or inferred recovery code merely because release is later gated.
+- [ ] Keep reads first; ship free Email next without waiting for SMS or paid writes. Free synthetic extension can proceed independently once its own gates and shared write mechanism are accepted. Each extension, SMS operation, paid operation, and recovery path needs separate evidence and review.
+- [ ] Preserve exact-body pricing as a blocking gate for all writes. Console quote and order bodies differ; if first-party evidence cannot establish an identical supported payload, stop dependent work and revise the design with owner approval and independent review. Do not implement a silent projection exception.
+- [ ] The manager records remaining monthly action allowance privately before each mutation probe and reserves a possible action for every attempt. Unknown budget blocks mutation; do not assume extensions, failures, deletion, or synthetic calls are exempt. Keep free quotas and never run an automatic cleanup purchase/delete cycle.
+- [ ] Keep the SDK standard-library only and the CLI on public SDK calls. No dependency or generic CLI flag-type change is planned. Preserve existing log-project semantics; avoid an unrelated shared-helper refactor.
 
-**Architecture:** Extend the standard-library `monitor` package with two check alarm reads, quota reads, and quote-then-order writes that copy `CreateLogProject`; register them in the existing `monitorOps` table; add `time.Time` to the CLI flag reflection.
+## Owned paths and dependencies
 
-**Tech stack:** Repository-pinned Go, standard-library SDK, existing Cobra and JMESPath dependencies, `httptest` and the injected clock; no dependency additions.
+Paths here authorize only future briefed work, not the current design edit. A worker owns its row only while dispatched. Shared files pass to the next worker after manager acceptance; do not run overlapping rows together. The manager narrows fixtures and methods to the evidenced kind/path before dispatch.
 
-**Authorities:** [Design](../design/monitor-quotas.md), [API evidence and checks](../design/monitor-quotas-api.md), [vMonitor](../design/monitor.md), [vMonitor Alerts](../design/monitor-alerts.md), [ADR 0002](../adr/0002-write-api-conventions.md), [workflow](../../instructions/workflow.md), [testing](../../instructions/testing.md), [live data](../../instructions/live-data.md), and [release](../../instructions/release.md).
-
-## Constraints and execution
-
-- [ ] Code starts only after the owner approves the design's six owner decisions and an independent `design_reviewer` on `gpt-6.1-sol` xhigh reviews the design and this plan.
-- [ ] Dispatch `implementer` on `gpt-6.1-sol` medium, failures to `troubleshooter` on `gpt-6.1-sol` xhigh, and every review and fix confirmation to `code_reviewer` or `design_reviewer` on `gpt-6.1-sol` xhigh as a separate job from the author; set model and effort explicitly on every dispatch.
-- [ ] Each worker gets a credential-free `.claude/worktrees/<slice>` worktree and disjoint owned paths; at most three workers run across all slices, reviewers included.
-- [ ] Each brief states exact paths, authorities, public interfaces, checks, and forbidden actions; workers start with `git status --short`, preserve others' edits, make no Git mutations, and report conflicts instead of widening scope.
-- [ ] Forbid secret and private-config reads, `.env`, captures, live calls, unrelated network, dependencies, and edits outside the brief.
-- [ ] The manager inspects every diff and reruns focused checks before accepting a report or starting dependent work; one independent adversarial review runs per release after its last code task, then fix confirmation.
-- Preserve every existing `monitor` method, field, constant, and command; `Check` gains two fields and nothing changes shape.
-- Every path ID passes `core.CheckPathID`; `Kind` maps to a fixed segment and never reaches a path as typed.
-- No order or renewal is resent after a 5xx, a dropped connection, a redirect, or a cancelled context; the CLI never retries a write.
-- Inferred shapes in the API document stay inferred until the named live check produces a sanitized fixture; a fixture built from decoded SDK output is not evidence.
-- Human docs wrap at 80 columns; this plan uses one line per paragraph or list item, no dates or em dashes; keep the Markdown and Go length limits.
-
-## Gates
-
-- [ ] Owner approval of the design decisions, recorded in the design's owner decisions section before the first code brief.
-- [ ] Live check 1 (read-only) before release 1 is tagged: confirms the first-release shapes against the fixtures.
-- [ ] Owner approval of the free `emailfree` order on the test account before live check 2; release 2 code can be written and reviewed before it, but its inferred fixtures and tag wait for it.
-- [ ] Owner approval before live checks 3 and 4; release 3 code can be written and reviewed before them, but its tag waits for check 3 at least.
-- [ ] No paid order or renewal runs without explicit owner approval of the amount; without live check 5 the price guard keeps the higher bound and the wiki says so.
-
-## Files and dependencies
-
-|Task|Exact owned paths|Dependency|
+|Work|Exact owned paths|Dependency|
 |-|-|-|
-|1 Check state SDK|Modify `monitor/models.go`, `monitor/models_test.go`; new `monitor/checkalarms.go`, `monitor/checkalarms_test.go`, `testdata/monitor/GetCheckAlarm.json`, `testdata/monitor/ListCheckAlarmHistory.json`|Approved design; sanitized fixtures from the manager|
-|2 Quota reads SDK|New `monitor/quotas.go`, `monitor/quotas_test.go`, `testdata/monitor/GetQuotaUsage.json`, `testdata/monitor/ListNotificationPackagesEmail.json`, `testdata/monitor/ListNotificationPackagesSMS.json`, `testdata/monitor/GetSyntheticQuota.json`, `testdata/monitor/GetSyntheticQuotaDetail.json`, `testdata/monitor/GetSyntheticQuotaUsage.json`; modify `monitor/monitor.go` only for route helpers|Approved design; may run alongside task 1|
-|3 Release 1 CLI and docs|Modify `internal/cli/flags.go`, `internal/cli/flags_test.go`, `internal/cli/input.go` only if `time.Time` needs a JSON case, `internal/cli/svc_monitor.go`, `internal/cli/svc_monitor_test.go`, `internal/cli/gendocs_notes.go`; new `internal/cli/gendocs_notes_monitor_quotas.go`; modify `examples/basic/monitor.go`, `livetest/live_test.go` only inside `testLiveMonitor`, `docs/wiki/Monitor.md`, `docs/wiki/Home.md`, `docs/wiki/CLI-Monitor.md` and `docs/wiki/CLI.md` through `make gen-docs`|Tasks 1 and 2 accepted|
-|4 Notification quota SDK|Modify `monitor/quotas.go`, `monitor/quotas_test.go`, `monitor/monitor.go` for `quotaMu`; new `monitor/quotas_write.go`, `monitor/quotas_write_test.go`, `testdata/monitor/GetNotificationQuotaNotFound.json`, `testdata/monitor/QuoteCreateNotificationQuota.json`, and after live check 2 `testdata/monitor/GetNotificationQuota.json`, `testdata/monitor/GetNotificationQuotaUsage.json`, `testdata/monitor/CreateNotificationQuota.json`|Release 1 landed|
-|5 Release 2 CLI and docs|Modify `internal/cli/svc_monitor.go`, `internal/cli/svc_monitor_test.go`, `internal/cli/gendocs_notes_monitor_quotas.go`, `internal/cli/gendocs_notes_monitor_logalarm.go` only the send-channel-otp note, `examples/basic/monitor.go`, `docs/wiki/Monitor-Alerts.md`, `docs/wiki/Home.md`, `README.md`; new `docs/wiki/Monitor-Quotas.md`; generated `docs/wiki/CLI-Monitor.md` and `docs/wiki/CLI.md`|Task 4 accepted|
-|6 Renewals SDK|Modify `monitor/quotas_write.go`, `monitor/quotas_write_test.go`; new `testdata/monitor/QuoteRenewSyntheticQuota.json`, and after live checks 3 and 4 `testdata/monitor/RenewSyntheticQuota.json`, `testdata/monitor/RenewNotificationQuota.json`|Release 2 landed|
-|7 Release 3 CLI and docs|Modify `internal/cli/svc_monitor.go`, `internal/cli/svc_monitor_test.go`, `internal/cli/gendocs_notes_monitor_quotas.go`, `docs/wiki/Monitor-Quotas.md`, `docs/wiki/Monitor.md`; generated `docs/wiki/CLI-Monitor.md` and `docs/wiki/CLI.md`|Task 6 accepted|
-|Manager|`RELEASE_NOTES.md`, `docs/design/monitor-quotas.md`, `docs/design/monitor-quotas-api.md`, `docs/design/README.md`, `docs/design/monitor-alerts.md`, this plan|Each release verified; preserve evidence marks|
+|Check SDK|`monitor/models.go`, `monitor/models_test.go`, `monitor/checks_test.go`, new `monitor/checkalarms.go`, `monitor/checkalarms_test.go`, `testdata/monitor/GetCheckAlarm.json`, `testdata/monitor/ListCheckAlarmHistory.json`; existing `testdata/monitor/GetCheck.json`, `testdata/monitor/ListChecks.json` only for manager-supplied sanitation|Approved design and raw check/alarm fixtures; history additionally needs completeness evidence|
+|Quota read SDK|New `monitor/quotas.go`, `monitor/quotas_test.go`, `testdata/monitor/GetQuotaUsage.json`, `testdata/monitor/ListNotificationPackagesEmail.json`, `testdata/monitor/ListNotificationPackagesSMS.json`, `testdata/monitor/GetSyntheticQuota.json`, `testdata/monitor/GetSyntheticQuotaDetail.json`, `testdata/monitor/GetSyntheticQuotaUsage.json`, `testdata/monitor/ListSyntheticPackages.json`; `monitor/monitor.go` only for route helpers|Approved design and corresponding raw fixtures; disjoint from Check SDK|
+|Read CLI/docs|`internal/cli/svc_monitor.go`, `internal/cli/svc_monitor_test.go`, `internal/cli/gendocs_notes.go`, new `internal/cli/gendocs_notes_monitor_quotas.go`, `internal/cli/gendocs_notes_monitor_logalarm.go` only quota wording, `examples/basic/monitor.go`, `livetest/live_test.go` only monitor reads, `docs/wiki/Monitor.md`, `docs/wiki/Monitor-Alerts.md`, `docs/wiki/Home.md`, new `docs/wiki/Monitor-Quotas.md`, `README.md`, generated `docs/wiki/CLI-Monitor.md`, `docs/wiki/CLI.md`|Accepted read SDK; keep gated methods out of docs/help|
+|Email read/quote SDK|`monitor/quotas.go`, `monitor/quotas_test.go`, new `monitor/quotas_quote.go`, `monitor/quotas_quote_test.go`, `testdata/monitor/GetNotificationQuotaEmail.json`, `testdata/monitor/GetNotificationQuotaUsageEmail.json`, `testdata/monitor/GetNotificationQuotaEmailNotFound.json`, `testdata/monitor/GetNotificationQuotaUsageEmailNotFound.json`, `testdata/monitor/QuoteCreateNotificationQuotaEmail.json`|Manager's approved free-order probe supplies success schemas; exact-body quote gate closed|
+|Common writes and Email order SDK|`monitor/monitor.go`, new `monitor/quotas_write.go`, `monitor/quotas_write_test.go`, `monitor/quotas_wait.go`, `monitor/quotas_wait_test.go`, `testdata/monitor/CreateNotificationQuotaEmail.json`|First evidenced write supplies common mechanism; Email method additionally requires Email read/quote and order evidence|
+|Write CLI/docs|`internal/cli/svc_monitor.go`, `internal/cli/svc_monitor_test.go`, `internal/cli/gendocs_notes_monitor_quotas.go`, `internal/cli/op.go` only partial-output/cost-warning integration if needed, `internal/cli/op_test.go`, `internal/cli/errors_test.go`, `examples/basic/monitor.go`, `docs/wiki/Monitor-Quotas.md`, `docs/wiki/Monitor.md`, generated `docs/wiki/CLI-Monitor.md`, `docs/wiki/CLI.md`|Accepted corresponding SDK operation; serialize with Read CLI/docs|
+|Synthetic extension SDK|`monitor/quotas_quote.go`, `monitor/quotas_quote_test.go`, `monitor/quotas_write.go`, `monitor/quotas_write_test.go`, `monitor/quotas_wait.go`, `monitor/quotas_wait_test.go`, new `testdata/monitor/QuoteRenewSyntheticQuota.json`, `testdata/monitor/RenewSyntheticQuota.json`|Verified synthetic read; exact-body/expiry/status evidence; accepted common single-send and reconciliation mechanism|
+|Email extension SDK|Same quote/write/wait Go files as Synthetic extension; new `testdata/monitor/QuoteRenewNotificationQuotaEmail.json`, `testdata/monitor/RenewNotificationQuotaEmail.json`|Accepted Email read and verified extension evidence; no parallel edits with synthetic|
+|Deferred kinds and recovery|No implementation paths authorized yet; manager must supply a new bounded brief and exact per-kind/per-path fixture inventory|SMS, paid debit, trash identity and recovery evidence closed; design updated and independently reviewed|
+|Manager|`RELEASE_NOTES.md`, `docs/design/monitor-quotas.md`, `docs/design/monitor-quotas-api.md`, `docs/design/README.md`, `docs/design/monitor-alerts.md` only links, this plan|Verified contracts/results; preserve evidence labels and line limits|
 
-Tasks 1 and 2 touch disjoint files and may run in parallel; `monitor/monitor.go` belongs to task 2 in release 1 and to task 4 in release 2. If `monitor/quotas.go` nears 700 lines, task 4 splits reads and writes into `quotas.go` and `quotas_write.go` as listed rather than growing one file.
+If a file would exceed its length cap or integration needs an unlisted file, return a proposed split or ownership change to the manager before editing it. `internal/cli/flags.go` and `input.go` need no new time type. Any shared transport/auth change requires its own brief and review.
 
-Existing seams consumed unchanged: `core.CheckRequired`, `core.CheckPathID`, `core.ErrNotFound`, `core.ErrInvalidInput`, `core.ErrPriceAboveMax`, `core.ErrUnpriced`, `core.List`, `transport.Request` with `Idempotent`, `NoRedirect`, and `MaxBody`, `(*Client).alarmRoute`, `(*Client).logBillingRoute` and `logBillingRouteV1` (renamed or wrapped as shared billing route helpers in task 2), `sendLogProjectQuote`'s decoder and nil-price refusal (generalized in task 4), `poll`, `contextSleep`, `checkLogProjectMaxPrice` (generalized in task 4), `wrapAmbiguousLogProjectOrderErr` (generalized in task 4), and `monitorOps` with `Read`, `Write`, and `NoFlag`.
+## Check SDK
 
-## Review focus
+- [ ] Add tests for MonitorStatus and HistoryAlarmID through raw SDK fixtures, preserving run Status, existing JSON fields, keyed callers, and create/update bodies. Document unkeyed-literal and exact-output compatibility limits. Do not repurpose Status or expose user_id/deleted_at.
+- [ ] Implement GetCheckAlarm's bounded private snapshot and definition projection after failing tests for path validation, empty history reference, missing/ambiguous identity, two locations, timestamps, and response-field omission. Do not internally reuse unbounded full GetCheck output.
+- [ ] After the history evidence gate, implement ListCheckAlarmHistory with RFC 3339 string inputs, millisecond validation, sequential per-location reads, positive observed frequency, cancellation, stable sort, all-or-nothing output, and per-response/aggregate/fan-out bounds. Preserve unknown server pagination as a gate until established.
+- [ ] Run focused check/alarm tests, `go test -race ./monitor`, `make check`, and `git diff --check`; report exact commands/results, compatibility limits, and any fixture not supplied. Manager inspects the diff before CLI work.
 
-1. A redirect or a transport retry can replay a paid `POST`; tasks 4 and 6 count attempts under 502, dropped connection, 307, 429, and cancellation.
-2. The price guard can be bypassed by a quote below the list price or a zero quote; task 4 tests both bounds and `ErrUnpriced`.
-3. A concurrent order on the same `Client` can pass the pre-order 404 twice; task 4 tests the mutex.
-4. The history read is the only caller-sized read; task 1 tests the `MaxBody` error and that no partial Output escapes.
-5. `paymentUrl`, `links`, and `dimensions.user_id` must never reach Output, errors, or debug logs; tasks 1, 3, 4, and 5 assert their absence.
+## Quota read SDK
 
-## Task 1: Check state fields and alarm reads
+- [ ] Add raw fixture decode tests for usage, both package lists, synthetic quota/detail/usage, and the internal synthetic package reader. Exercise missing/null prices, unknown nonempty usage kinds, numeric flags/counts, quota/detail identity, bad response path IDs, and second-read failure with nil Output.
+- [ ] Implement fixed Kind mapping and named public Outputs from the design, using Sensitive bounded requests and safe error metadata. Do not export RawMessage for unseen shapes or infer notification successes from synthetic fixtures.
+- [ ] Run focused quota tests, `go test -race ./monitor`, `make check`, and `git diff --check`; manager accepts these reads independently of alarm/history work.
 
-**Produces:** `Check.MonitorStatus`, `Check.HistoryAlarmID`, constants `MonitorStatusOK`, `MonitorStatusAlarm`, `MonitorStatusUndetermined`, `GetCheckAlarm(ctx, *GetCheckAlarmInput) (*GetCheckAlarmOutput, error)`, `ListCheckAlarmHistory(ctx, *ListCheckAlarmHistoryInput) (*ListCheckAlarmHistoryOutput, error)`, and the types `CheckAlarm`, `CheckAlarmSubExpression`, `CheckLocationAlarm`, `CheckAlarmTransition`, `CheckSubAlarmState` named in the design.
+## Read CLI, wiki, and first release
 
-- [ ] Write the `Check` decode test reading `MonitorStatus` and `HistoryAlarmID` from the existing `GetCheck.json`, and asserting `user_id` and `deleted_at` stay dropped.
-- [ ] Write `GetCheckAlarm` tests: fixture decode with two locations; `links`, `dimensions`, `alarm_definition`, and the three action lists absent from the Output; empty `history_alarm` returns not-found after one request; 404 on the check and on the definition; bad `CheckID` sends nothing; a non-RFC-3339 timestamp fails the read.
-- [ ] Write `ListCheckAlarmHistory` tests: zero `End` is the injected clock's now and zero `Start` is 24 hours earlier; `Start >= End` sends nothing; query holds millisecond epochs and `interval` equal to `TestFrequency`, 1 when 0; one history request per location in definition order; `LocationID` filter and its not-found; an error on the second location returns nil Output; items merged and sorted by `Timestamp` then `LocationName`; a body over 16 MiB is an error; cancelled `ctx` between locations stops.
-- [ ] Run `go test ./monitor -run 'TestCheck|TestGetCheckAlarm|TestListCheckAlarmHistory' -count=1` and record the red result.
-- [ ] Implement the fields and `monitor/checkalarms.go` under `alarmRoute`, decoding only the modeled keys, with `MaxBody` 16 MiB on the history read and sequential location reads.
-- [ ] Rerun the focused tests and `go test -race ./monitor`, expecting PASS; report the exact public types.
+- [ ] Register only accepted Read methods, using existing string flags for --start/--end and the same validation for JSON input. Test defaults, flag/JSON precedence, invalid times and ranges, json/table/text, --query, safe error exits, and missing price display. Do not edit generic flag reflection.
+- [ ] Add read-only examples and compile-only live read coverage. Examples never order or renew automatically. Keep production state transitions out of the generic read test.
+- [ ] Correct the existing “free 20” claim in Monitor-Alerts and the applicable OTP command note immediately: allowance is account/package dependent; this observed Basic synthetic quota grants zero Email/SMS; an available zero-price package advertises 20 messages but ordering and delivery remain separate gates. Do not generalize a synthetic-only account to all accounts, promise automatic free messages, or assert that OTP uses the same quota without evidence.
+- [ ] Add Monitor-Quotas for available reads and expiry, link it from Home, Monitor and the README coverage row, and document the difference between run state and alarm state. Mention writes only as unavailable until shipped; do not document inferred outputs as current behavior.
+- [ ] Run focused CLI tests, `make gen-docs`, a second-generation comparison in a private temporary directory, `make wiki-preview`, relative-link/anchor inspection, `git diff --check`, `bash scripts/check-lengths.sh`, and `make check`. Obtain independent review and manager verification before landing the read release; defer history alone if its evidence remains missing.
 
-## Task 2: Verified quota reads
+## Email reads and quote
 
-**Produces:** `GetQuotaUsage`, `ListNotificationPackages`, `GetSyntheticQuota`, `GetSyntheticQuotaUsage`, the `Kind` mapping helper, constants `NotificationKindEmail`, `NotificationKindSMS`, `QuotaStatusActive`, `QuotaStatusInTrash`, and the types `QuotaUsage`, `UsageCounts`, `NotificationPackage`, `Quota`, `SyntheticQuotaDetail`, `QuotaUsageDetail`.
+- [ ] Before code, obtain the manager's approved exact-body quote and free-order probe results: success status/body, quota and usage 200s, precise absence response, settlement timing, and retained quota. Record which gates closed without promoting SMS or paid behavior.
+- [ ] Add failing read and quote tests for absence versus arbitrary 404, fixed routing, malformed schemas, missing prices, opaque package IDs, existing quota refusal, default package ambiguity, and body equality. Quote shares preparation with the write and ignores only its documented write-only controls.
+- [ ] Implement the Email-supported surface and price decoder without changing CreateLogProject. Unsupported SMS dependent operations must fail locally with an explicit support limit until their evidence closes; listing SMS packages remains available.
+- [ ] Run focused tests, `go test -race ./monitor`, `make check`, and `git diff --check`; manager checks public types and error identity before accepting the order work.
 
-- [ ] Write decode tests for the six fixtures; `autoRenew` 0 and 1 and `poc` 0 and 1 decode to bools; empty usage arrays decode; unknown severity strings pass through; a non-UUID package id decodes.
-- [ ] Write `Kind` tests: `Email`, `email`, `SMS`, and `sms` map to `email` and `sms`; `Teams`, `../email`, and empty are `ErrInvalidInput` with no request.
-- [ ] Write `GetSyntheticQuota` tests: two requests in order; a 404 on the quota is not-found; a 500 on the detail returns nil Output.
-- [ ] Run `go test ./monitor -run 'TestGetQuotaUsage|TestListNotificationPackages|TestGetSyntheticQuota|TestNotificationKind' -count=1` and record red.
-- [ ] Implement `monitor/quotas.go` with shared `billing-api` v1 and v2 route helpers in `monitor/monitor.go`, leaving the log project helpers behaving as before.
-- [ ] Rerun the focused tests and `go test -race ./monitor`, expecting PASS.
+## Common write mechanism and Email order
 
-## Task 3: Release 1 CLI, example, live read, and wiki
+- [ ] Build the common mechanism with the first evidence-cleared write, whether Email create or synthetic extension; it has no Email schema dependency. If synthetic clears first, transfer the common write/quote/wait paths to its worker and defer the Email method. Implement only after single-send, price, wait, and reconciliation tests fail for the intended reason. Assert immutable exact quote/order bodies; MaxPrice default zero; finite nonnegative guards; missing prices fail closed; zero quote for priced package gives ErrUnpriced; quote/list unit agreement; and no paid eligibility without debit evidence.
+- [ ] Test Once at every layer: no second mutation on 401, 429, failed dial, 5xx, disconnect, context cancellation, or redirects. Preserve errors.As status and errors.Is sentinels while withholding raw peer text and paymentUrl from errors and all outputs.
+- [ ] Implement the context-aware per-Client lock through preparation/send/settlement and the unresolved-attempt block, including NoWait. Reconciliation reads may repeat; writes may not. Test delayed visibility, concurrent calls, cancellation while waiting for the lock, definite rejection, inconclusive read, and confirmed prior result.
+- [ ] Test and implement 120-second hard-bounded settlement, package/identity checks, safe partial outputs, PaymentPending as an unsettled result, malformed/oversized success as uncertainty, and caller recovery hints that never authorize retry on stale 404/expiry. Keep token, account, and link material out of captures and CLI projections.
+- [ ] Run focused quote/write/wait tests, `go test -race ./monitor`, `make check`, and `git diff --check`; retain existing log-project, Once, redirect, redaction, credentials, and cache regressions. Report any unresolved assertion rather than substituting a guessed wire contract.
 
-**Consumes:** Task 1 and 2 public types.
+## Write CLI and docs per enabled slice
 
-- [ ] Write flag tests: a `time.Time` field binds a string flag parsed with `time.RFC3339`; other text exits 2 naming the flag; an unset flag leaves the zero value; `--cli-input-json` with an RFC 3339 string decodes into the same field.
-- [ ] Write command tests: golden `json`, `table`, and `text` for the six new reads; `--location-id`; exit 4 when the check has no alarm; `--debug` output holds no body, query string, or URL; help lists `--start` and `--end` as RFC 3339.
-- [ ] Run `go test ./internal/cli -run 'TestFlags|TestMonitor' -count=1` and record red.
-- [ ] Implement the `time.Time` case in `flags.go`, register the six reads in `monitorOps`, and add doc notes for the history range default and the dropped internal fields.
-- [ ] Add the reads to `examples/basic/monitor.go` and to the monitor live read test without pinning counts; compile-only checks `go test -tags live -run '^$' ./livetest/` and `go vet -tags live ./...`.
-- [ ] Update `docs/wiki/Monitor.md` for the two fields and two reads, link the coming quota page from `docs/wiki/Home.md` only once it exists, and run `make gen-docs`, comparing a second generation in a private temporary directory with `diff -ru`.
-- [ ] Run `make wiki-preview`, `git diff --check`, and `bash scripts/check-lengths.sh`; rerun focused tests and `go test -race ./internal/cli`, expecting PASS.
+- [ ] Register only evidence-cleared commands as Write and quotes as Read. Test read-only flag, environment and profile refusal before network, NoFlag controls, cost warning on stderr, MaxPrice consent, NoWait partial output, error precedence, and safe json/table/text/--query output. Prove partial Output prints when the operation returns an error; adapt the existing operation runner only if needed under the assigned narrow ownership.
+- [ ] Document current supported kinds/paths, local-price-guard limits, retained resources, uncertain outcomes, read-only reconciliation, monthly accounting uncertainty, and explicit process serialization. Add examples as quotes only. No payment URL, shell retry loop, automatic cleanup, or production mutation in examples.
+- [ ] Run focused CLI tests, `make gen-docs` twice with an idempotence comparison, `make wiki-preview`, relative-link/anchor inspection, `git diff --check`, `bash scripts/check-lengths.sh`, and `make check`. The free Email slice can release without SMS, paid orders, or renewal support.
 
-## Task 4: Notification quota reads and the order
+## Synthetic and Email extensions
 
-**Produces:** `GetNotificationQuota`, `GetNotificationQuotaUsage`, `QuoteCreateNotificationQuota`, `CreateNotificationQuota`, `CreateNotificationQuotaInput{Kind, PackageID, MaxPrice, NoWait}`, `CreateNotificationQuotaOutput{Quota, OrderID, PaymentPending}`, `QuoteNotificationQuotaOutput`, `monitor.ErrUnpriced`, and `Client.quotaMu`.
+- [ ] Close each extension's exact-body quote, success response, expiry arithmetic, identity, and settlement gates before its code brief. Synthetic extension does not depend on Email purchase evidence; it does depend on the accepted common write mechanism. Keep trash recovery and other statuses refused until separately verified.
+- [ ] Add quote/renew Inputs and Outputs as designed, required ExpectedEndTime and optional MaxDaysLeft, with failing tests for malformed/precondition-mismatch expiry, equivalent offsets, skip after reads, checked expiry-threshold arithmetic, missing package/capacity, unknown flags/status, POC/auto-renew refusal, and free-only synthetic eligibility.
+- [ ] Test pre-send snapshot changes and expiry boundary crossing, quote resourceId/quantity semantics under the proven identical payload, no create fallback on 404, one-month pay:true body, and correct v1 notification versus v2 synthetic routes. Reuse the accepted common mechanism without weakening its guards.
+- [ ] Confirm by same quota/package, ACTIVE, and increased EndTime; leaving trash or merely receiving 2xx never sets Renewed. Test repeated same-baseline requests, concurrency, lost response, NoWait, and bounded cancellation. Update Write CLI/docs only after SDK acceptance.
+- [ ] Run focused renewal tests, `go test -race ./monitor`, `make check`, and `git diff --check`. Independently review each enabled extension slice and fix confirmation; no incomplete Email gate delays a fully verified synthetic extension.
 
-- [ ] Write read tests: the 404 fixture maps to not-found whose message names the kind and `CreateNotificationQuota`; the inferred 200 shape decodes; both kinds route to their paths.
-- [ ] Write order tests from the design's deterministic list: free default selection, zero or two free packages refuse, unknown `PackageID` refuses, a 200 pre-order read refuses before any quote, quote and order bodies with the console `redirectUrl` and `pay` true, `NoRedirect` set, the guard against quote 100000 and list 110000 at `MaxPrice` 100000 refusing and 110000 passing, zero quote for a priced package is `ErrUnpriced`, free zero quote passes at `MaxPrice` 0, nil `optimumPrice` orders nothing, exactly one `POST` after 502 and after a dropped connection with the read-first hint, 400, 401, 403, 404, 409, and 429 unchanged, `PaymentPending` true from a non-empty `paymentUrl` with the URL absent from Output, error text, and the debug log, the wait to `ACTIVE`, the timeout as `dns.ErrNotSettled` with the Output, and `NoWait`.
-- [ ] Write the mutex test: two concurrent orders on one `Client` against a server whose quota read flips to 200 after the first order produce one order and one `ErrInvalidInput`.
-- [ ] Write quote tests: same body as the order, no order sent, `MaxPrice` ignored, `Idempotent` retry after a 502.
-- [ ] Run `go test ./monitor -run 'TestGetNotificationQuota|TestCreateNotificationQuota|TestQuoteCreateNotificationQuota' -count=1` and record red.
-- [ ] Implement `monitor/quotas_write.go`, generalizing the log project quote decoder, `MaxPrice` check, and ambiguous-order wrapper into shared helpers without changing `CreateLogProject`'s behavior or tests.
-- [ ] Rerun the focused tests and `go test -race ./monitor`, expecting PASS; report any live-check fixture still missing.
+## Manager acceptance and live verification
 
-## Task 5: Release 2 CLI, docs, and the free-20 correction
-
-**Consumes:** Task 4 public types.
-
-- [ ] Write command tests: `get-notification-quota --kind Email` exits 4 with `NotFound` on the 404 fixture; read-only refusal of `create-notification-quota` with no request; `PriceAboveMax`, `Unpriced`, and `NotSettled` codes with exit 1; `quote-create-notification-quota` hides `--max-price` and `--no-wait`; golden output for the four commands.
-- [ ] Run `go test ./internal/cli -run 'TestMonitor' -count=1` and record red.
-- [ ] Register the four commands and their notes: the free default, the one-quota rule, `pay` debiting a paid package at once, the three-actions-a-month limit, the guard bound, and that `PaymentPending` means the order awaits payment in the console.
-- [ ] Replace "the free 20" in `docs/wiki/Monitor-Alerts.md` and in the send-channel-otp note: a synthetic-only account has no free Email or SMS until it orders the free package, whose `Amount` then sets the monthly allowance; a paid package replaces it.
-- [ ] Write `docs/wiki/Monitor-Quotas.md` for the reads and the order, including `MaxPrice`, `PaymentPending`, and the limits; link it from `Home.md` and the README coverage row; add the order to `examples/basic/monitor.go` only as a quote, never an order.
-- [ ] Run `make gen-docs` with the second-generation diff, `make wiki-preview`, `git diff --check`, `bash scripts/check-lengths.sh`, the focused tests, and `go test -race ./internal/cli`, expecting PASS.
-
-## Task 6: Renewals
-
-**Produces:** `QuoteRenewNotificationQuota`, `RenewNotificationQuota`, `QuoteRenewSyntheticQuota`, `RenewSyntheticQuota`, `RenewNotificationQuotaInput{Kind, MaxPrice, MaxDaysLeft, NoWait}`, `RenewSyntheticQuotaInput{MaxPrice, MaxDaysLeft, NoWait}`, and `RenewQuotaOutput{Renewed, Quota, OrderID, PaymentPending}`.
-
-- [ ] Write tests from the design's renewal list: 404 is not-found naming the order call; `MaxDaysLeft` skip returns `Renewed` false with no quote or send; extend when active, extend when expired but not in trash, recover when expired and `IN-TRASH`; `v1` for Email and SMS and `v2` for synthetic; quote body with `resourceId` and the synthetic `quantity` from the detail; the guard and `ErrUnpriced` as the order; exactly one `POST` after 502 and a dropped connection; 409 unchanged; the wait on `EndTime` moving and on leaving `IN-TRASH`; timeout; `NoWait`; the mutex across a renewal and an order.
-- [ ] Run `go test ./monitor -run 'TestRenew|TestQuoteRenew' -count=1` and record red.
-- [ ] Implement the renewals in `monitor/quotas_write.go` sharing the order's quote, guard, send, and wait helpers.
-- [ ] Rerun the focused tests and `go test -race ./monitor`, expecting PASS.
-
-## Task 7: Release 3 CLI and docs
-
-- [ ] Write command tests: read-only refusal of both renewals; `--max-days-left` skip prints `Renewed` false and exits 0; the quote commands hide `--max-price`, `--max-days-left`, and `--no-wait`; golden output; `NotSettled` prints the Output.
-- [ ] Run `go test ./internal/cli -run 'TestMonitor' -count=1` and record red.
-- [ ] Register the four commands and notes: early renewal extends from the current `EndTime`, one month a renewal, the monthly limit, the cron pattern with `--max-days-left`, and that a lapsed Synthetic Test quota stops every check.
-- [ ] Update `docs/wiki/Monitor-Quotas.md` and the quota note in `docs/wiki/Monitor.md`; run `make gen-docs` with the second-generation diff, `make wiki-preview`, `git diff --check`, `bash scripts/check-lengths.sh`, the focused tests, and `go test -race ./internal/cli`, expecting PASS.
-
-## Manager verification, live checks, review, and release
-
-- [ ] Before each release: inspect every owned diff, run `make check`, `bash scripts/check-sdk-deps.sh`, `GOOS=windows go vet ./...`, `GOOS=darwin go vet ./...`, `go vet -tags live ./...`, `go vet -tags livewrite ./...`, `go test -tags live -run '^$' ./livetest/`, and `go test -tags livewrite -run '^$' ./livetest/`; send failures to a briefed troubleshooter instead of weakening or retrying checks.
-- [ ] Run live check 1 read-only and hand sanitized fixtures to tasks 1 and 2 before their briefs; rerun it after release 1 code to confirm the fixtures still match.
-- [ ] Obtain owner approval and run live check 2 on the test account after task 4's review: free `emailfree` order through the SDK with `MaxPrice` 0, then the two reads until `ACTIVE`, then a check alarm transition and whether an email arrives; hand the sanitized fixtures to task 4 and record the root-cause result in the design's open questions.
-- [ ] Obtain owner approval and run live check 3 after task 6's review: `RenewSyntheticQuota` on the free quota, recording `EndTime` before and after; run live check 4 only within the monthly budget; correct the design's inferred rows from what the checks show before tagging.
-- [ ] Run no paid order or renewal unless the owner approves the amount; record live check 5 as not run when skipped and keep the higher-bound guard text in the wiki.
-- [ ] Prepare a disposable public-source review copy per release with the base commit, complete diff, and new-file inventory and no secrets or private state; dispatch one independent `code_reviewer` on `gpt-6.1-sol` xhigh adversarial review per release tracing the five review focus items, then confirm fixes in a separate job.
-- [ ] Update `RELEASE_NOTES.md`, the design status and evidence marks, and the design index after each release; stage exact paths, commit with the owner's SSH signature and DCO sign-off, open the PR, require every applicable exact-head validation run, land a descendant of current master, and tag one signed feature tag per release after master validation passes.
-- [ ] Report exact new, changed, and deleted files, checks and results, skipped checks with reasons, confirmed review invariants, evidence limits, and the remaining gates; mark boxes only after manager verification.
+- [ ] Inspect every worker diff and rerun the focused checks before accepting it or starting dependent work. Run `make check` for each completed slice, including race tests; do not claim CI replaces it. Send failed tests to a bounded troubleshooter brief, never retry a flaky test into a pass.
+- [ ] Before release run `bash scripts/check-sdk-deps.sh`, `GOOS=windows go vet ./...`, `GOOS=darwin go vet ./...`, both `go vet -tags live ./...` and `go vet -tags livewrite ./...`, and both compile-only `go test -tags live -run '^$' ./livetest/` and `go test -tags livewrite -run '^$' ./livetest/`. Any required fixture or generated-doc failure blocks that slice.
+- [ ] After implementation review, seek separate approval for necessary SDK live confirmation under the API sibling's live procedure. Never repeat a successful prerequisite purchase just to exercise SDK creation on an already-owned account quota. Use an explicitly approved eligible account/resource and remaining budget, or report verification blocked. The retained Email quota can support approved read/delivery checks.
+- [ ] Keep all raw account responses private; compare raw versus SDK output and hand only sanitized raw fixtures to workers. A safe alarm transition and message receipt test needs owner-approved check, recipient, and restoration; failure to deliver is not permission to order again.
+- [ ] Dispatch independent adversarial code review on a manager-prepared disposable public-source copy after each slice's final edits, covering all five threat models. Reviewer never fixes source; brief fixes separately, then obtain independent fix confirmation. Preserve evidence limits and unanswered gates in the report.
+- [ ] Update release facts, design status/index, and completed plan checkboxes only after verification. Follow the repository landing/release process for signed commits/tags and exact-head validation; this plan does not bypass any release gate or permit wiki publication.
+- [ ] Report exact new/changed/deleted files, line counts, commands/results, failures/skips, evidence sources, confirmed invariants, Not checked, and remaining owner decisions or gates. Do not declare complete a gated path merely because other slices shipped.
