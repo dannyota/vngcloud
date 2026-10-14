@@ -378,8 +378,8 @@ brief consumes inferred schemas; SDK live verification needs approval.
    empty-window, and unknown-ID probes). Paging stays unknown until an
    alarm holds more than one transition; the read ships with that limit
    under owner decision 9.
-2. Pricing prerequisites: done for Email and SMS (v2 free and paid, v1
-   paid). Open: the Email and SMS extension quotes with `resourceId`.
+2. Pricing: done for Email (v2 free and paid, v1 paid) and SMS (v2 and v1
+   paid; smsfree never quoted). Open: the extension quotes with `resourceId`.
 3. Free Email: done once, owner-chosen and kept; order, settlement, quota,
    usage, and delivery are recorded above. Open: four emails against three
    logged transitions. Do not order again.

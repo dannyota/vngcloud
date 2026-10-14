@@ -1,8 +1,8 @@
 # vMonitor quota lifecycle: delete and auto-renew
 
 Status: Accepted as part of [check state and quotas](monitor-quotas.md);
-every path below ships only when its row of the support matrix is live.
-Nothing here approves a live run.
+every path below ships only when its row of the support matrix is live or
+covered. Nothing here approves a live run.
 
 Add quota deletion, purge from trash, and the auto-renew setting for the
 Email, SMS, and Synthetic Test quotas. The parent design owns the shared
@@ -21,17 +21,16 @@ each write sent once, with the responses sanitized.
 
 | Write | Request | Evidence |
 |-|-|-|
-| Auto-renew | `POST {kind}/quota/{id}/update-auto-renew` with `{"resourceId":<id>,"enabled":<bool>,"period":1}` | Live, paid SMS quota: enable and disable both 200 with an empty body; reads 3 s later showed `autoRenew` and `autoRenewPeriod` 1 and 1, then 0 and 0, with `updatedAt` moving. The enable was sent without the design's renewal quote: the v2 quote with `resourceId` was never sent for SMS, and the quota is now deleted. Live, free synthetic quota: 400 `Resource quota with free package is not available for auto-renew setting`, no state change. Email and POC quotas: unverified |
-| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Live, ACTIVE paid SMS quota: 204 with an empty body, 404 `Not found sms quota` on the next read about 6 s later, and `trash/quotas` empty before and after. An active quota is removed outright with no trash entry. Email, synthetic, and expired quotas: unverified |
+| Auto-renew | `POST {kind}/quota/{id}/update-auto-renew` with `{"resourceId":<id>,"enabled":<bool>,"period":1}` | Live, paid SMS quota: enable and disable both 200 with an empty body; reads 3 s later showed `autoRenew` and `autoRenewPeriod` 1 and 1, then 0 and 0, with `updatedAt` moving. The enable was sent without the design's renewal quote: the v2 quote with `resourceId` was never sent for SMS, and the quota is now deleted. Live, free synthetic quota: 400 `Resource quota with free package is not available for auto-renew setting`, no state change. Email: covered by the SMS disable evidence under owner decision 11; the free Email quota is expected to answer enable with the same 400. POC quotas: unverified |
+| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Live, ACTIVE paid SMS quota: 204 with an empty body, 404 `Not found sms quota` on the next read about 6 s later, and `trash/quotas` empty before and after. An active quota is removed outright with no trash entry. Email active quota: covered under owner decision 11. Synthetic and expired quotas: unverified |
 | Purge | `DELETE trash/{kind}/quota`, no body, no ID | Console only. Designed for an expired quota that reached trash; whether expiry creates a trash entry, the item shape, and the purge response are unverified |
 
 The console shows auto-renew instead of renew for paid quotas and hides
 both for free and POC quotas; the server enforces the free case with the
 400 above. The central billing console's resource auto-renew, accepted in
 [prepaid resource auto-renew](auto-renew.md), is a different endpoint and
-is not used here. The paid SMS run showed a net balance change of 0 after
-the delete; whether the order debited and the delete refunded was not
-observed.
+is not used here. The paid SMS run's net balance change was 0; the debit
+and refund were not observed separately.
 
 Action budget: five notification billing actions in one month (two
 orders, two auto-renew changes, one delete) were not refused, but only two
@@ -44,32 +43,31 @@ unless the owner approves more, with every attempt recorded privately.
 ## Support matrix
 
 Each row is one operation on one kind. A row's implementation brief needs
-raw response evidence (status and sanitized body) and settlement evidence
-(the reads that followed, with timings) for that exact row, recorded here
-or in the API sibling. Evidence for one row never clears another, even on
-the same API shape: the SMS rows say nothing about Email, an active-quota
-delete says nothing about an expired one, and an auto-renew response says
-nothing about the quote that must precede an enable.
+raw response and settlement evidence for that exact row, recorded here or
+in the API sibling, or coverage under owner decision 11 (decided in the
+parent): SMS evidence covers Email auto-renew disable and Email delete of
+an active quota, since the two kinds share one console path and request
+bodies and their live responses match. Ordering is not covered; each order
+was verified on its own. Otherwise evidence for one row never clears
+another: an active delete says nothing about an expired one, and an
+auto-renew response says nothing about the quote that precedes an enable.
 
 | Operation | Email | SMS | Synthetic |
 |-|-|-|-|
 | Quota read | live | live | live |
 | Usage read | live | console; refused until evidenced | live |
 | Create quote and order | live (free) | live (paid) | not in scope |
-| Enable auto-renew | console | live response; deferred (decision 12) | live refusal (400 on the free quota) |
-| Disable auto-renew | console | live | console; the free quota cannot enable |
-| Delete, active quota | console | live | console; no disposable quota exists |
+| Enable auto-renew | deferred (decision 12); free-quota 400 expected | live response; deferred (decision 12) | live refusal (400 on the free quota) |
+| Disable auto-renew | covered by SMS evidence (decision 11) | live | console; the free quota cannot enable |
+| Delete, active quota | covered by SMS evidence (decision 11) | live | console; no disposable quota exists |
 | Purge, expired quota | console | console | console |
 
-"live" means the row ships; "live refusal" means the row ships as a
-documented definite refusal with no state change; "console" means the
-wire shape is console code only and the row is not implementable; a
-refused row returns `ErrInvalidInput` naming it before any request. The
-Email lifecycle rows stay console under owner decision 11: the only Email
-quota on the account is the production one, and a test delete or flip is
-expected, though unverified, to cut alerts. SMS auto-renew enable is
-deferred under owner decision 12 until a live renewal quote with
-`resourceId` exists for SMS; both decisions are proposed.
+"live" and "covered" rows ship; a "live refusal" ships as a documented
+definite refusal with no state change; "console" rows have console code
+only and are not implementable; a refused or deferred row returns
+`ErrInvalidInput` naming it before any request. Notification enable is
+deferred under owner decision 12, still proposed, until a live renewal
+quote with `resourceId` exists.
 
 ## Effects the wiki must state
 
@@ -77,10 +75,10 @@ Verified effects come only from a row's own live reads:
 
 - Deleting the active paid SMS quota removed it outright: the read was 404
   about 6 s later and no trash entry appeared, so there was nothing to
-  purge. The wiki states this for SMS only.
+  purge. The wiki states this for SMS, and for Email under decision 11.
 - Auto-renew on the free Synthetic Test quota is refused by the server
   with a 400; the wiki says the free synthetic quota cannot auto-renew and
-  that other free quotas are unverified.
+  that the free Email quota is expected to answer the same.
 - A free quota renews only in its last 7 days; the server refuses an
   earlier renewal with a 409 (parent design).
 
@@ -145,20 +143,21 @@ SDK confirmed, never the one it attempted.
 
 `DeleteNotificationQuotaInput` has `Kind` (r), `Purge bool`, and
 `ExpectedQuotaID`; `DeleteSyntheticQuotaInput` has the last two. A row
-that is not live, and `Purge` on any row while the purge row is console,
-returns `ErrInvalidInput` naming the unsupported row before any request.
+that is not live or covered, and `Purge` on any row while the purge row
+is console, returns `ErrInvalidInput` naming the row before any request.
 
 1. Refuse read-only profiles and check `Kind` and the shape of
    `ExpectedQuotaID` before any request.
 2. Under the lock, read the quota and freeze the terms. A 404 returns the
-   not-found sentinel. Compare `ExpectedQuotaID` at once. Refuse with
-   `ErrInvalidInput` and no request unless status is `ACTIVE` with
-   `AutoRenew` false and `POC` false: the active row is the only evidenced
-   one, disable auto-renew first, and a POC quota's deletion semantics are
-   unknown. CREATING, IN-TRASH, ERROR, and unknown statuses send nothing.
+   not-found sentinel. Compare `ExpectedQuotaID` at once. Eligibility is
+   status `ACTIVE` with `AutoRenew` false and `POC` false (the only
+   evidenced row; disable auto-renew first; POC deletion is unknown). A
+   known ineligible state (`CREATING`, `IN-TRASH`, `ERROR`, or a flag set)
+   returns `ErrInvalidInput`; a status the SDK does not know returns the
+   parent's `monitor.ErrUnexpectedStatus`. Neither sends anything.
 3. Immediately before send, reread and require the same quota ID, package,
    status still `ACTIVE`, and the same flags; any change aborts without a
-   send.
+   send, with the same two error identities as step 2.
 4. Send `DELETE {kind}/quota` once with `Once`, accepting 204 (the recorded
    status) with an empty body. A 4xx or a failed dial returns that error;
    any other failure opens the delete record and returns
@@ -218,9 +217,9 @@ live checks; the current release only proves that `Purge` sends nothing.
 `SetNotificationQuotaAutoRenewInput` has `Kind` (r), `Enabled *bool` (r),
 `MaxPrice float64`, and `ExpectedQuotaID`; `SetSyntheticQuotaAutoRenewInput`
 has the last three. The period is always 1 month. A row that is not live
-returns `ErrInvalidInput` naming the unsupported row before any request;
-SMS enable is such a row until owner decision 12 is resolved with a live
-renewal quote.
+or covered returns `ErrInvalidInput` naming it before any request; Email
+and SMS enable are such rows until owner decision 12 is resolved with a
+live renewal quote.
 
 1. Refuse read-only profiles; check `Kind`, a nil `Enabled`, a finite
    nonnegative `MaxPrice`, and the shape of `ExpectedQuotaID` before any
@@ -238,19 +237,18 @@ renewal quote.
    quote and list price must not exceed `MaxPrice`, and a zero quote for a
    priced package is `ErrUnpriced`. A free quota quotes 0 and passes at the
    default 0. Disable needs no quote and works during a pricing outage.
-   No live SMS renewal quote exists, which is why SMS enable is deferred.
+   No live notification renewal quote exists, which is why enable is
+   deferred for Email and SMS.
 4. Eligibility differs from renewal on purpose: a free or POC quota is not
    refused locally. The server refuses a free quota with the recorded 400;
-   the SDK sends the request and returns that refusal as the
-   status-classified `BadRequest` `*APIError` whose operation names the
-   auto-renew call, with the peer message withheld; no local code is
-   derived from message text, so an unrelated 400 looks the same, and the
-   wiki tells a job that a 400 from `SetSyntheticQuotaAutoRenew` on a free
-   quota is the recorded refusal. No state changes and no record opens. On
-   a POC quota the answer is unverified, so the CLI prints a warning before
-   sending that the setting may be refused or ignored. This is the owner's
-   chosen send-and-report behavior. Every other check (identity, package,
-   quantity, status, guard) applies to free and POC quotas unchanged.
+   the SDK sends the request and returns the status-classified
+   `BadRequest` `*APIError` naming the auto-renew operation, message
+   withheld, no local code derived from message text, so an unrelated 400
+   looks the same and the error stays visible as one to investigate. The
+   wiki explains the free synthetic refusal and the CLI warns before
+   sending on a free or POC quota; neither suppresses the error. No state
+   changes and no record opens. This is the owner's send-and-report
+   choice; every other check applies to free and POC quotas unchanged.
 5. Immediately before send, reread and require the same quota ID, package,
    status, `POC`, the same `AutoRenew` and `AutoRenewPeriod` as the frozen
    baseline for both enable and disable, and for synthetic the same API
@@ -290,9 +288,10 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 | Case | Result | CLI code and exit |
 |-|-|-|
-| Bad `Kind`, nil `Enabled`, bad `MaxPrice`, mismatched `ExpectedQuotaID`, or a row that is not live | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Bad `Kind`, nil `Enabled`, bad `MaxPrice`, mismatched `ExpectedQuotaID`, or a row that is not live or covered | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
 | No quota of that kind | Not-found sentinel | `NotFound`, 4 |
-| Delete while status is not `ACTIVE`, or auto-renew or POC is on | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Delete on a known ineligible state (`CREATING`, `IN-TRASH`, `ERROR`, auto-renew or POC on) | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Delete on a status the SDK does not know | `monitor.ErrUnexpectedStatus`, no request | `UnexpectedStatus`, 1 |
 | Enable above the guard, or a zero quote for a priced package | `ErrPriceAboveMax`, `ErrUnpriced`, no request | `PriceAboveMax`, `Unpriced`, 1 |
 | Free quota auto-renew refused by the server | `*APIError` status 400, code `BadRequest`, operation set | `BadRequest`, 1 |
 | Sent but not settled, not confirmed, or purge uncertain | `dns.ErrNotSettled` with partial Output and `Stage` | `NotSettled`, 1 |
@@ -317,20 +316,21 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 ## Deterministic checks
 
-- Support: every row marked console or deferred, SMS usage read and SMS
-  enable included, returns `ErrInvalidInput` naming the row with zero
-  requests; the live rows proceed.
+- Support: every row marked console or deferred, SMS usage read and both
+  notification enables included, returns `ErrInvalidInput` naming the row
+  with zero requests; the live and covered rows proceed for both kinds.
 - Delete: `Purge` refused with zero requests; read-first with the 404
   case; `ExpectedQuotaID` compared right after the read and against an
   open record; zero mutation requests for every initial state other than
-  `ACTIVE` with both flags false (CREATING, IN-TRASH, ERROR, unknown,
-  auto-renew on, POC on); abort on a changed reread, including a status
-  that left `ACTIVE`; one `DELETE` under 204, 502, dropped connection, and
-  307; settle on 404 (live); an ERROR or intermediate status, a different
-  ID, or a different package never settles; the 60-second bound; an
-  unchanged read stays inconclusive and never closes the record as
-  rejected; `--yes` and read-only refusal; `Stage` values in partial
-  Output.
+  `ACTIVE` with both flags false, with `CREATING`, `IN-TRASH`, `ERROR`,
+  auto-renew on, and POC on returning `ErrInvalidInput` and an unknown
+  status returning `monitor.ErrUnexpectedStatus`; abort on a changed
+  reread with the same two identities, including a status that left
+  `ACTIVE`; one `DELETE` under 204, 502, dropped connection, and 307;
+  settle on 404 (live); an ERROR or intermediate status, a different ID,
+  or a different package never settles; the 60-second bound; an unchanged
+  read stays inconclusive and never closes the record as rejected; `--yes`
+  and read-only refusal; `Stage` values in partial Output.
 - Auto-renew: nil `Enabled` refused; `ExpectedQuotaID` compared before the
   no-op return; no-op at target; enable on an already-enabled quota with a
   period other than 1 refused before any quote, while a disabled quota
@@ -382,19 +382,19 @@ record; a completed delete followed by an uncertain purge leaving `Stage`
 2. Delete, done for an active SMS quota: ordered `sms5` under a 110000 VND
    cap, enabled and disabled auto-renew, deleted it, and read the kind
    path and `trash/quotas` until the 404 showed and trash stayed empty. No
-   purge was sent because nothing reached trash. Still open: the SMS
+   purge was sent because nothing reached trash. Still open: a notification
    renewal quote with `resourceId` for enable (decision 12, needing another
-   paid SMS purchase), Email delete and auto-renew (decision 11), synthetic
-   delete (no disposable synthetic quota exists), and purge, which needs
-   an expired quota that reached trash; a naturally lapsed, owner-approved
-   quota is the only source, and production monitoring is never expired
-   for it. Later probes follow the action budget policy above.
+   paid purchase), synthetic delete (no disposable synthetic quota exists),
+   and purge, which needs an expired quota that reached trash; a naturally
+   lapsed, owner-approved quota is the only source, and production
+   monitoring is never expired for it. Later probes follow the action
+   budget policy above.
 
 ## Release order
 
-The next release ships the live rows only: SMS create (with the SMS quota
-read and quote in the parent), SMS auto-renew disable, SMS delete of an
-active quota, and the synthetic auto-renew refusal; SMS usage read and SMS
-enable stay refused. Renewals follow the in-window synthetic renewal. SMS
-enable, Email rows, synthetic delete, and purge ship later, each after its
-own live check, or never.
+The next release ships the live and covered rows: SMS create (with the SMS
+quota read and quote in the parent), Email and SMS auto-renew disable,
+Email and SMS delete of an active quota, and the synthetic auto-renew
+refusal; the SMS usage read and both notification enables stay refused.
+Renewals follow the in-window synthetic renewal. Enable, synthetic delete,
+and purge ship later, each after its own live check, or never.
