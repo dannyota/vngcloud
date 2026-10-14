@@ -521,3 +521,165 @@ func TestMonitorReadsDecodeStatus(t *testing.T) {
 		}
 	}
 }
+
+type monitorRefreshTokens struct {
+	first, second string
+	calls         int
+}
+
+func (s *monitorRefreshTokens) Token(context.Context) (transport.Token, error) {
+	s.calls++
+	value := s.first
+	if s.calls > 1 {
+		value = s.second
+	}
+	return transport.Token{AccessToken: value, ExpiresAt: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+}
+
+func (*monitorRefreshTokens) Invalidate(string) {}
+
+func monitorRefreshClient(t *testing.T, first, second, target string, handler http.Handler) *Client {
+	t.Helper()
+	source := &monitorRefreshTokens{first: first, second: second}
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == target {
+			attempts++
+			want := second
+			if attempts == 1 {
+				want = first
+			}
+			if r.Header.Get("Authorization") != "Bearer "+want {
+				t.Error("unexpected attempt credential")
+			}
+			if attempts == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		if attempts != 2 || source.calls != 2 {
+			t.Errorf("attempts=%d token calls=%d, want 2 each", attempts, source.calls)
+		}
+	})
+	return New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+}
+
+func assertMonitorCredentialsAbsent(t *testing.T, out any, err error, credentials ...string) {
+	t.Helper()
+	encoded, marshalErr := json.Marshal(out)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	texts := []string{string(encoded), fmt.Sprintf("%+v", out)}
+	var inspect func(error)
+	inspect = func(cause error) {
+		if cause == nil {
+			return
+		}
+		texts = append(texts, cause.Error(), fmt.Sprintf("%+v", cause))
+		var api *core.APIError
+		if errors.As(cause, &api) {
+			texts = append(texts, api.Operation, api.Code, api.Message)
+		}
+		if joined, ok := cause.(interface{ Unwrap() []error }); ok {
+			for _, child := range joined.Unwrap() {
+				inspect(child)
+			}
+		} else {
+			inspect(errors.Unwrap(cause))
+		}
+	}
+	inspect(err)
+	for _, text := range texts {
+		for _, credential := range credentials {
+			if strings.Contains(text, credential) {
+				t.Error("SDK output or error retained a sent credential")
+			}
+		}
+	}
+}
+
+func TestQuotaRefreshCredentialRedaction(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"synthetic-token-A", "synthetic-token-B"},
+		{"synthetic-token-long", "synthetic-token"},
+		{"synthetic-token", "synthetic-token-long"},
+	} {
+		for _, result := range []string{"success", "error", "decode"} {
+			t.Run(pair[0]+"/"+pair[1]+"/"+result, func(t *testing.T) {
+				body := `[{"id":"free","name":` + jsonString(pair[0]+" "+pair[1]) + `,"amount":20}]`
+				status := http.StatusOK
+				if result == "error" {
+					status = http.StatusForbidden
+					body = `{"message":` + jsonString(pair[0]+" "+pair[1]) + `}`
+				}
+				if result == "decode" {
+					body = `[{"name":` + jsonString(pair[0]+" "+pair[1])
+				}
+				c := monitorRefreshClient(t, pair[0], pair[1], "/billing-api/v1/email/packages", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status); _, _ = w.Write([]byte(body)) }))
+				out, err := c.ListNotificationPackages(context.Background(), &ListNotificationPackagesInput{Kind: "Email"})
+				if result == "success" {
+					if err != nil || out == nil {
+						t.Fatalf("output=%v error=%v", out, err)
+					}
+					if out.Items[0].Name != "[redacted] [redacted]" {
+						t.Error("overlapping credentials were not completely redacted")
+					}
+				} else {
+					var api *core.APIError
+					if out != nil || !errors.As(err, &api) || api.StatusCode != status {
+						t.Fatalf("output=%v error=%v", out, err)
+					}
+				}
+				assertMonitorCredentialsAbsent(t, out, err, pair[0], pair[1])
+			})
+		}
+	}
+}
+
+func TestMonitorReadsOversizedStatus(t *testing.T) {
+	for name, read := range monitorReadFailures() {
+		for _, status := range []int{200, 401, 403, 404, 429, 500} {
+			t.Run(fmt.Sprintf("%s/%d", name, status), func(t *testing.T) {
+				calls := 0
+				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					calls++
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(`{"message":"private-body-canary","extra":"` + strings.Repeat("x", quotaMaxBody) + `"}`))
+				}))
+				err := read(c)
+				var api *core.APIError
+				if !errors.As(err, &api) || api.StatusCode != status || calls != 1 {
+					t.Fatalf("error=%v calls=%d", err, calls)
+				}
+				for code, sentinel := range map[int]error{401: core.ErrAuth, 403: core.ErrPermission, 404: core.ErrNotFound, 429: core.ErrRateLimited} {
+					if errors.Is(err, sentinel) != (status == code) {
+						t.Errorf("status %d lost sentinel %v", status, sentinel)
+					}
+				}
+				wantCode := core.ResolvedCode(status, "")
+				wantMessage := "quota response withheld"
+				if name == "alarm" {
+					wantMessage = "check alarm request failed; response withheld"
+				}
+				if status == 200 {
+					wantCode, wantMessage = "ResponseTooLarge", "quota response exceeded size limit"
+					if name == "alarm" {
+						wantCode, wantMessage = "ResponseLimitExceeded", "check alarm response exceeds safety limit"
+					}
+					if !errors.Is(err, transport.ErrBodyTooLarge) {
+						t.Error("oversized success lost body limit sentinel")
+					}
+				}
+				if api.Code != wantCode || api.Message != wantMessage {
+					t.Fatalf("code=%q message=%q", api.Code, api.Message)
+				}
+				assertMonitorCredentialsAbsent(t, nil, err, "private-body-canary")
+			})
+		}
+	}
+}

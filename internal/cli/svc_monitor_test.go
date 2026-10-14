@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1873,6 +1874,111 @@ func TestMonitorQuotaPreservesOpaqueTimestampStrings(t *testing.T) {
 					t.Fatalf("opaque value changed: %s", out.String())
 				}
 			})
+		}
+	}
+}
+
+func TestMonitorReadsRefreshCredentialsAcrossFormats(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"synthetic-token-A", "synthetic-token-B"},
+		{"synthetic-token-long", "synthetic-token"},
+		{"synthetic-token", "synthetic-token-long"},
+	} {
+		for _, command := range []string{"list-notification-packages", "get-check-alarm", "list-check-alarm-history"} {
+			for _, format := range []string{"json", "table", "text"} {
+				for _, query := range []bool{false, true} {
+					label := pair[0] + "/" + pair[1] + "/" + command + "/" + format
+					if query {
+						label += "/query"
+					}
+					t.Run(label, func(t *testing.T) {
+						withCleanEnv(t)
+						echo := pair[0] + " " + pair[1]
+						target := "/billing-api/v1/email/packages"
+						flags, expression := []string{"--kind", "Email"}, "Items[0].Name"
+						if command == "get-check-alarm" {
+							target = "/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-1"
+							flags, expression = []string{"--check-id", "chk-1"}, "Alarm.Locations[0].LocationName"
+						}
+						if command == "list-check-alarm-history" {
+							target = "/vmonitor-api/api/v1/alarms/synthetic/metrics/mona/alarm-loc-1/histories"
+							flags = []string{"--check-id", "chk-1", "--location-id", "loc-1", "--start", "2026-10-14T00:00:00Z", "--end", "2026-10-15T00:00:00Z"}
+							expression = "Items[0].OldState"
+						}
+						fixture := monitorReadFixture(t)
+						var clock atomic.Int64
+						clock.Store(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+						attempts := 0
+						opts := newFakeServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+							if r.URL.Path != target {
+								fixture.mux.ServeHTTP(w, r)
+								return
+							}
+							attempts++
+							want := pair[1]
+							if attempts == 1 {
+								want = pair[0]
+							}
+							if r.Header.Get("Authorization") != "Bearer "+want {
+								t.Error("unexpected attempt credential")
+							}
+							if attempts == 1 {
+								// Age the token past the service-account refresh cooldown.
+								clock.Add(60)
+								w.WriteHeader(http.StatusUnauthorized)
+								return
+							}
+							body := `[{"id":"free","name":"` + echo + `","amount":20}]`
+							if command != "list-notification-packages" {
+								name, replace := "GetCheckAlarm", "SYNTT-VN-HCM01"
+								if command == "list-check-alarm-history" {
+									name, replace = "ListCheckAlarmHistory", "UNDETERMINED"
+								}
+								data, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
+								if err != nil {
+									t.Error(err)
+									w.WriteHeader(500)
+									return
+								}
+								body = strings.ReplaceAll(string(data), replace, echo)
+							}
+							_, _ = w.Write([]byte(body))
+						}))
+						exchanges := 0
+						private := saCLITransport(func(*http.Request) (*http.Response, error) {
+							exchanges++
+							value := pair[0]
+							if exchanges > 1 {
+								value = pair[1]
+							}
+							body := `{"access_token":"` + value + `","token_type":"Bearer","expires_in":1800}`
+							return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+						})
+						withTestOptions(t, append(opts, vngcloud.WithServiceAccount(&vngcloud.ServiceAccountAuth{ClientID: "synthetic-client", ClientSecret: "synthetic-secret"}), core.WithServiceAccountTestTransport(private, func() time.Time { return time.Unix(clock.Load(), 0) }))...)
+						stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+						root := newRootCmd(strings.NewReader(""), stdout, stderr)
+						args := append([]string{"--region", "hcm-3", "monitor", command, "--output", format}, flags...)
+						if query {
+							args = append(args, "--query", expression)
+						}
+						err := execCmd(t, root, args)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if attempts != 2 || exchanges != 2 {
+							t.Fatalf("attempts=%d exchanges=%d, want 2 each", attempts, exchanges)
+						}
+						for _, value := range []string{pair[0], pair[1], "-long"} {
+							if strings.Contains(stdout.String(), value) || strings.Contains(stderr.String(), value) {
+								t.Error("CLI output retained a credential or overlap suffix")
+							}
+						}
+						if !strings.Contains(stdout.String(), "[redacted]") {
+							t.Error("CLI output omitted the redacted field")
+						}
+					})
+				}
+			}
 		}
 	}
 }

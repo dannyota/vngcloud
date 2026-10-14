@@ -141,10 +141,10 @@ func quotaResponseError(op string) error {
 // quotaRead suppresses routine captures and retains only fixed error metadata.
 func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...string) (json.RawMessage, error) {
 	var raw json.RawMessage
-	var credential string
+	var credentials []string
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: op, Method: http.MethodGet, URL: c.billingRoute(version, parts), OK: []int{http.StatusOK},
-		Sensitive: true, MaxBody: quotaMaxBody, WithholdMessage: "quota response withheld", SentCredential: &credential,
+		Sensitive: true, MaxBody: quotaMaxBody, WithholdMessage: "quota response withheld", SentCredentials: &credentials,
 	}, &raw)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
@@ -161,7 +161,7 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 				safe.Code = "InvalidResponse"
 			}
 			safe.Message = "quota response withheld"
-			safe.Err = monitorReadCause(safe.StatusCode, api.Err)
+			safe.Err = monitorReadCause(api.Err)
 			return nil, &safe
 		}
 		return nil, err
@@ -173,7 +173,7 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 	if decoder.Decode(&value) != nil {
 		return nil, quotaResponseError(op)
 	}
-	value = c.scrubQuotaStrings(value, credential)
+	value = c.scrubQuotaStrings(value, credentials)
 	raw, err = json.Marshal(value)
 	if err != nil {
 		return nil, quotaResponseError(op)
@@ -182,7 +182,7 @@ func (c *Client) quotaRead(ctx context.Context, op, version string, parts ...str
 }
 
 // Retain only fixed sentinels, as storage.objectAPIError does for withheld reads.
-func monitorReadCause(status int, cause error) error {
+func monitorReadCause(cause error) error {
 	causes := []error{errors.New("monitor: request cause withheld")}
 	for _, sentinel := range []error{
 		context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF,
@@ -194,16 +194,6 @@ func monitorReadCause(status int, cause error) error {
 			causes = append(causes, sentinel)
 		}
 	}
-	switch status {
-	case http.StatusUnauthorized:
-		causes = append(causes, core.ErrAuth)
-	case http.StatusForbidden:
-		causes = append(causes, core.ErrPermission)
-	case http.StatusNotFound:
-		causes = append(causes, core.ErrNotFound)
-	case http.StatusTooManyRequests:
-		causes = append(causes, core.ErrRateLimited)
-	}
 	return errors.Join(causes...)
 }
 
@@ -211,23 +201,23 @@ func monitorReadError(op string, status int, code, message string, cause error) 
 	if classified := core.ResolvedCode(status, ""); classified != "" {
 		code = classified
 	}
-	return &core.APIError{Operation: op, StatusCode: status, Code: code, Message: message, Err: monitorReadCause(status, cause)}
+	return &core.APIError{Operation: op, StatusCode: status, Code: code, Message: message, Err: monitorReadCause(cause)}
 }
 
-func (c *Client) scrubQuotaStrings(value any, credential string) any {
+func (c *Client) scrubQuotaStrings(value any, credentials []string) any {
 	switch v := value.(type) {
 	case string:
-		safe, _ := c.c.RedactError(v, "", credential)
+		safe, _ := c.c.RedactError(v, "", credentials...)
 		return safe
 	case []any:
 		for i := range v {
-			v[i] = c.scrubQuotaStrings(v[i], credential)
+			v[i] = c.scrubQuotaStrings(v[i], credentials)
 		}
 	case map[string]any:
 		safe := make(map[string]any, len(v))
 		for k, item := range v {
-			key, _ := c.c.RedactError(k, "", credential)
-			safe[key] = c.scrubQuotaStrings(item, credential)
+			key, _ := c.c.RedactError(k, "", credentials...)
+			safe[key] = c.scrubQuotaStrings(item, credentials)
 		}
 		return safe
 	}

@@ -483,3 +483,72 @@ func TestCheckAlarmRejectsInvalidFrequency(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckAlarmRefreshCredentialRedaction(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"synthetic-token-A", "synthetic-token-B"},
+		{"synthetic-token-long", "synthetic-token"},
+		{"synthetic-token", "synthetic-token-long"},
+	} {
+		for _, stage := range []string{"definition", "history"} {
+			for _, result := range []string{"success", "error", "decode"} {
+				t.Run(pair[0]+"/"+pair[1]+"/"+stage+"/"+result, func(t *testing.T) {
+					target := checkAlarmBase + "alarm-1"
+					if stage == "history" {
+						target = checkAlarmBase + "alarm-loc-1/histories"
+					}
+					echo := pair[0] + " " + pair[1]
+					definition := checkAlarmFixture(t, "GetCheckAlarm")
+					if stage == "definition" {
+						definition = strings.ReplaceAll(definition, "SYNTT-VN-HCM01", echo)
+					}
+					handler := checkAlarmHandler(t, definition, func(w http.ResponseWriter, _ *http.Request) {
+						body := strings.ReplaceAll(checkAlarmFixture(t, "ListCheckAlarmHistory"), "UNDETERMINED", echo)
+						_, _ = w.Write([]byte(body))
+					})
+					c := monitorRefreshClient(t, pair[0], pair[1], target, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Path == target && result != "success" {
+							if result == "error" {
+								w.WriteHeader(http.StatusForbidden)
+								_, _ = w.Write([]byte(`{"message":` + jsonString(echo) + `}`))
+							} else {
+								_, _ = w.Write([]byte(`{"data":{"status":{"status_updated_at":` + jsonString(echo) + `}}}`))
+							}
+							return
+						}
+						handler(w, r)
+					}))
+					var out any
+					var err error
+					if stage == "definition" {
+						out, err = c.GetCheckAlarm(context.Background(), &GetCheckAlarmInput{CheckID: "chk-1"})
+					} else {
+						out, err = c.ListCheckAlarmHistory(context.Background(), &ListCheckAlarmHistoryInput{CheckID: "chk-1", LocationID: "loc-1"})
+					}
+					if result == "success" {
+						if err != nil {
+							t.Fatal(err)
+						}
+						encoded, marshalErr := json.Marshal(out)
+						if marshalErr != nil {
+							t.Fatal(marshalErr)
+						}
+						if strings.Contains(string(encoded), "-long") {
+							t.Error("overlapping credential left a suffix")
+						}
+					} else {
+						var api *core.APIError
+						if !errors.As(err, &api) {
+							t.Fatalf("error=%v", err)
+						}
+						var parse *time.ParseError
+						if errors.As(err, &parse) {
+							t.Error("withheld response retained timestamp decoder cause")
+						}
+					}
+					assertMonitorCredentialsAbsent(t, out, err, pair[0], pair[1])
+				})
+			}
+		}
+	}
+}
