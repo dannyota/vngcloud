@@ -22,19 +22,19 @@ Ship the smallest independently useful slices, subject to owner decisions:
    verified quota reads, and the wiki correction.
 2. Email quota reads, quote, and free email order together. The order
    response and all four alert receipts are verified; the rest stays gated.
-3. Free Synthetic Test extension, then Email extension, independently as
-   their gates close. Synthetic expiry stops checks, so prioritize it.
-4. SMS writes and trash recovery with their own evidence; paid packages
-   ship with the order whenever `MaxPrice` covers them.
-5. Auto-renew, then delete and purge, under [quota
-   lifecycle](monitor-quotas-lifecycle.md), each after its live check.
+3. SMS reads, quote, and paid order, SMS auto-renew, and SMS delete of an
+   active quota: the rows the paid SMS live check evidenced.
+4. Free Synthetic Test extension after an in-window renewal (the server
+   allows a free renewal only in its last 7 days), then Email extension.
+5. Email auto-renew and delete, synthetic delete, and purge or recovery
+   under [quota lifecycle](monitor-quotas-lifecycle.md), each after its
+   own live check.
 
-The free order and all four receipts are verified; four emails against
-three logged transitions, and action accounting, stay open. No gate is waived.
+Four emails against three logged transitions stay open; no gate is waived.
 
 Out of scope: metric quotas, log quota renewal/resize, new or paid
 Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
-and a settings operation. Slack, Telegram, Webhook, and Teams have counters
+and a settings operation; Slack, Telegram, Webhook, and Teams have counters
 but no packages. Production quotas are never deleted for a test.
 
 ## Public surface
@@ -175,10 +175,9 @@ and ignores MaxPrice, MaxDaysLeft, and NoWait. Each named Output aliases
 no opaque properties or URLs. A quote is an estimate, never authorization.
 
 Validate finite nonnegative MaxPrice, nonnegative MaxDaysLeft, and expiry
-syntax before requests. Reject duration arithmetic overflow. Resolve a
-package once; an omitted PackageID selects exactly one present zero-price
-package. Unknown, duplicate, missing-price, or ambiguous candidates refuse
-before quote/order, after the necessary list read.
+syntax before requests; reject duration overflow. Resolve a package once:
+an omitted PackageID selects the single zero-price package; unknown,
+duplicate, unpriced, or ambiguous candidates refuse after the list read.
 
 **Order terms and quote mapping:** every write freezes one immutable set
 of order terms before any quote: kind, package ID, `monthPeriod` fixed at
@@ -214,14 +213,17 @@ Preparation reads packages and quota under the per-Client write lock. Create
 refuses an existing quota before quoting. Renew compares the read EndTime
 to ExpectedEndTime as instants; a mismatch is ErrInvalidInput with no
 quote or write. Positive MaxDaysLeft skips a further-away expiry with
-`Renewed: false` after the reads; zero allows early renewal.
+`Renewed: false` after the reads; zero allows early renewal. The server
+refuses a free quota's extension outside its last 7 days with 409 (live),
+a definite refusal with no state change, returned as an `*APIError` with
+the local code `RenewalTooEarly`; a scheduled job treats it as not yet and
+never retries, and `MaxDaysLeft` 7 avoids sending it.
 
-Refuse POC, auto-renewing, unknown-status, missing-identity, or invalid-expiry
-quotas before quoting. The console recovers only when expired AND IN-TRASH,
-otherwise extends; do not reduce that to status alone. Initially only
-evidenced ACTIVE extension is eligible; other-status or gated recovery
-cases refuse without a write. Recovery waits for a verified trash lookup
-contract; never invent a resource from an empty trash list.
+Refuse POC, auto-renewing, unknown-status, missing-identity, or
+invalid-expiry quotas before quoting. The console recovers only when
+expired AND IN-TRASH, otherwise extends; only evidenced ACTIVE extension
+is eligible, other-status or gated recovery cases refuse without a write,
+and recovery waits for a verified trash lookup contract.
 
 Immediately before send, reread and repeat the complete eligibility
 predicate on the fresh snapshot: quota identity, package, expiry equal to
@@ -233,9 +235,9 @@ or requote in a loop. No server precondition or price lock is known, so
 this narrows but cannot eliminate cross-client races or price changes.
 
 Send the evidenced body with `pay: true`, one month, and the fixed console
-redirect value. `Once: true` prevents retries on every status/error, token
-refresh resend, and redirects. Use it for every order, extension, and
-recovery, not merely NoRedirect. SDK and CLI add no outer write retries.
+redirect value, with `Once: true` on every order, extension, and recovery:
+no retry on any status or error, no token-refresh resend, no redirect, and
+no outer SDK or CLI retry.
 
 `CreateNotificationQuotaOutput` has `Quota *Quota`, `OrderID string`,
 `PaymentPending bool`. `RenewQuotaOutput`, aliased by both renewal Outputs,
@@ -368,33 +370,31 @@ the probes. File references name inspected code, not satisfied invariants.
 
 ## Owner decisions
 
-All ten are decided. Decisions 3 and 6 changed from the recommendation;
-the rest were approved as recommended. Approval replaces no wire evidence.
+Ten are decided (3 and 6 changed from the recommendation, the rest
+approved as recommended); 11 is proposed. Approval replaces no evidence.
 
-1. Release order: reads first, then free Email, then Synthetic and Email
-   extensions; SMS and recovery gated separately; lifecycle writes last.
-2. Time inputs: RFC 3339 strings on existing flags, no time.Time
-   reflection support.
-3. Price safety, changed: frozen order terms mapped by one builder per
-   write, and the higher of quote and list price as the local guard. Paid
-   packages are allowed whenever MaxPrice covers them; the account runs on
-   credit, so no debit or tax evidence gates a paid write.
-4. Renewal consent: required ExpectedEndTime and optional MaxDaysLeft; the
-   former refuses stale requests, the latter supports cron.
-5. Repetition: Once, the full eligibility re-check before send, and a
-   per-Client unresolved-attempt record keyed by operation and frozen terms
-   with the reconciliation rules above; callers serialize across processes.
-6. Scope, changed: quota delete, purge, and auto-renew are in scope after
-   the renewals, under [quota lifecycle](monitor-quotas-lifecycle.md), each
-   gated on its own live check; on a free or POC quota the SDK sends the
-   auto-renew setting and reports the server's answer with a warning.
-7. Output safety: small state/history views, no raw free-form text or
-   unseen usage shapes, and explicit local size bounds.
-8. Existing-quota create: refuse before quote/order; a second order's
-   effect is unknown and may charge again.
-9. History paging: ship history in release 1 with Items documented as the
-   server's returned records, paging and truncation unknown, and empty
-   Items proving nothing.
+1. Release order: reads, then free Email (both shipped), then the SMS rows
+   the paid live check evidenced, then renewals after an in-window
+   synthetic renewal, then the remaining lifecycle rows as evidenced.
+2. Time inputs: RFC 3339 strings on existing flags, no time.Time support.
+3. Price safety, changed: frozen terms mapped by one builder per write,
+   and the higher of quote and list price as the local guard. Paid
+   packages ship whenever MaxPrice covers them; no debit or tax gate.
+4. Renewal consent: required ExpectedEndTime, optional MaxDaysLeft for cron.
+5. Repetition: Once, the full re-check before send, and a per-Client
+   attempt record keyed by operation and frozen terms; callers serialize.
+6. Scope, changed: delete, purge, and auto-renew in scope under [quota
+   lifecycle](monitor-quotas-lifecycle.md), each row gated on its own
+   evidence; a free quota's auto-renew is refused by the server (400,
+   live) and the SDK reports that refusal rather than refusing locally.
+7. Output safety: small views, no raw text or unseen usage shapes, bounds.
+8. Existing-quota create: refuse before quote; a second order may charge.
+9. History paging: ship with Items documented as the server's returned
+   records, paging and truncation unknown, and empty Items proving nothing.
 10. Creation price source: the v2 quote alone with the period fixed at 1,
-    as the console buy page does, bounded by the list price; v1 returns
-    500 for free packages, so it cannot be the source.
+    bounded by the list price; v1 returns 500 for free packages.
+11. Email lifecycle rows, proposed: keep Email delete and Email auto-renew
+    gated on their own evidence despite the SMS evidence on the same API
+    shape. The only Email quota is the production one, and deleting or
+    flipping it to gather evidence would cut alerts. Recommended: keep
+    gated; the alternative ships them on the SMS evidence alone.

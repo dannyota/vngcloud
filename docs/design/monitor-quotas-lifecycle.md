@@ -1,75 +1,89 @@
 # vMonitor quota lifecycle: delete and auto-renew
 
 Status: Accepted as part of [check state and quotas](monitor-quotas.md);
-every path below stays gated on its own row of the support matrix.
+every path below ships only when its row of the support matrix is live.
 Nothing here approves a live run.
 
 Add quota deletion, purge from trash, and the auto-renew setting for the
 Email, SMS, and Synthetic Test quotas. The parent design owns the shared
 mechanics: frozen terms, the price guard, `Once`, the per-Client lock, the
 unresolved-attempt record, and the wait rules. [API evidence and
-checks](monitor-quotas-api.md) owns the console wire facts; this file owns
-the rules, the support matrix, checks, and live checks for these writes.
+checks](monitor-quotas-api.md) owns the order and renewal wire facts; this
+file owns the lifecycle wire evidence, the rules, the support matrix,
+checks, and live checks.
 
-## Wire facts and unknowns
+## Wire facts and evidence
 
-All paths are console code under `billing-api/v1` on the `Monitor` root;
-none has been sent. Success statuses, response bodies, and error shapes
-are unknown. The SDK accepts only the statuses the live check for that
-row recorded; it does not guess 200 or 204.
+All paths are under `billing-api/v1` on the `Monitor` root. The SDK
+accepts only the statuses recorded for a row; it never guesses one. The
+owner-approved live checks below were run by the manager, each write sent
+once, with the responses sanitized.
 
-| Write | Request | Unknown |
+| Write | Request | Evidence |
 |-|-|-|
-| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Status, body, whether the quota moves to trash or disappears, whether it spends a monthly notification action |
-| Purge | `DELETE trash/{kind}/quota`, no body, no ID | Status, body, whether a trash entry must exist first; the trash list item shape |
-| Auto-renew | `POST {kind}/quota/{id}/update-auto-renew` with `{"resourceId":<id>,"enabled":<bool>,"period":1}` | Status, body, behavior on a free or POC quota (the console hides the control), the nonzero `autoRenew` read encoding |
+| Auto-renew | `POST {kind}/quota/{id}/update-auto-renew` with `{"resourceId":<id>,"enabled":<bool>,"period":1}` | Live, paid SMS quota: enable and disable both 200 with an empty body; reads 3 s later showed `autoRenew` and `autoRenewPeriod` 1 and 1, then 0 and 0, which fixes the nonzero encoding as numeric 1 and `updatedAt` moving. Live, free synthetic quota: 400 `Resource quota with free package is not available for auto-renew setting`, no state change. Email and POC quotas: unverified |
+| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Live, ACTIVE paid SMS quota: 204 with an empty body, 404 `Not found sms quota` on the next read about 6 s later, and `trash/quotas` empty before and after. An active quota is removed outright with no trash entry. Email, synthetic, and expired quotas: unverified |
+| Purge | `DELETE trash/{kind}/quota`, no body, no ID | Console only. Designed for an expired quota that reached trash; whether expiry creates a trash entry, the item shape, and the purge response are unverified |
 
 The console shows auto-renew instead of renew for paid quotas and hides
-both for `isFree` and POC quotas. The central billing console's resource
-auto-renew, accepted in [prepaid resource auto-renew](auto-renew.md), is a
-different endpoint and is not used here.
+both for free and POC quotas; the server enforces the free case with the
+400 above. The central billing console's resource auto-renew, accepted in
+[prepaid resource auto-renew](auto-renew.md), is a different endpoint and
+is not used here. The paid SMS run showed a net balance change of 0 after
+the delete; whether the order debited and the delete refunded was not
+observed. Five notification billing actions in one month (two orders, two
+auto-renew changes, one delete) were not refused, so the three-a-month
+setting is not treated as a likely limit for these actions; what it
+counts stays unknown.
 
 ## Support matrix
 
 Each row is one operation on one kind. A row's implementation brief needs
 raw response evidence (status and sanitized body) and settlement evidence
-(the reads that followed, with timings) for that exact row. Evidence for
-one row never clears another: a refused Email enable says nothing about a
-Synthetic enable, a disable, or SMS, and a disposable SMS delete says
-nothing about a Synthetic delete.
+(the reads that followed, with timings) for that exact row, recorded in
+the table above. Evidence for one row never clears another, even on the
+same API shape: the SMS rows say nothing about Email, and an active-quota
+delete says nothing about an expired one.
 
 | Operation | Email | SMS | Synthetic |
 |-|-|-|-|
-| Enable auto-renew | console; live check 1 | console | console; live check 1 |
-| Disable auto-renew | console; live check 1 | console | console; live check 1 |
-| Delete | console; live check 2 on a disposable quota only | console; live check 2 | console; no disposable quota exists yet |
-| Purge | console; live check 2 | console; live check 2 | console; none |
+| Enable auto-renew | console | live | live refusal (400 on the free quota) |
+| Disable auto-renew | console | live | console; the free quota cannot enable |
+| Delete, active quota | console | live | console; no disposable quota exists |
+| Purge, expired quota | console | console | console |
 
-"console" means the wire shape is console code only and the row is not
-implementable. A row becomes implementable when the API sibling records
-its live response and settlement under a heading naming the row.
+"live" means the row ships; "live refusal" means the row ships as a
+documented definite refusal with no state change; "console" means the
+wire shape is console code only and the row is not implementable. The
+Email rows stay console under owner decision 11: the only Email quota on
+the account is the production one, and deleting or flipping it to gather
+evidence would cut alerts.
 
 ## Effects the wiki must state
 
-Expected effects, stated as expectations until a row's live check verifies
-them:
+Verified effects come only from a row's own live reads:
+
+- Deleting the active paid SMS quota removed it outright: the read was 404
+  about 6 s later and no trash entry appeared, so there was nothing to
+  purge. The wiki states this for SMS only.
+- Auto-renew on the free Synthetic Test quota is refused by the server
+  with a 400; the wiki says free quotas cannot auto-renew.
+- A free quota renews only in its last 7 days; the server refuses an
+  earlier renewal with a 409 (parent design).
+
+Expected effects, stated as expectations until their row is live:
 
 - Deleting the Synthetic Test quota is expected to stop every check from
-  running until a quota exists again. Whether check configuration survives
-  and whether the quota lands in trash are unverified; live check 2 cannot
-  verify this row, so the wiki says so until a disposable synthetic quota
-  exists.
-- Deleting the Email or SMS quota is expected to stop the alerts that
-  draw on that quota. An account whose Metric package grants a free
-  allowance (`freeEmailQuota` or `freeSmsQuota` above 0) may keep sending
-  from that allowance; the wiki tells users to read both sources.
-- Whether a delete spends one of the three monthly notification actions
-  is unknown and stays unknown until provider accounting shows it; message
-  usage counters never stand in for it.
-- Purge is expected to be final; a new order is then the only way back.
-
-Verified effects are added per row from the live check's own reads, never
-from console text or from another row.
+  running until a quota exists again; whether check configuration survives
+  is unverified, and no disposable synthetic quota exists to test it.
+- Deleting the Email quota is expected to stop the alerts that draw on it.
+  An account whose Metric package grants a free allowance
+  (`freeEmailQuota` or `freeSmsQuota` above 0) may keep sending from that
+  allowance; the wiki tells users to read both sources.
+- Purge is expected to be final for an expired quota in trash; a new order
+  is then the only way back. Whether a delete spends a monthly
+  notification action is unknown; five actions in a month were not
+  refused, and message usage counters never stand in for the accounting.
 
 ## Frozen terms, record, and partial Output
 
@@ -103,11 +117,11 @@ send, and again against an existing attempt record's quota ID before that
 record is reconciled; a mismatch returns `ErrInvalidInput`. It narrows the
 window in which a replacement quota could be acted on; the server has no
 conditional request, so a race between the final reread and the send
-remains. The delete and purge requests name no quota, and no lifecycle
-response has been captured, so whether a response identifies the affected
-quota is unverified and the actual target can remain unknown; the Output's
-quota ID is the intended snapshot, and comparing it afterwards with the
-SDK's own reads is retrospective detection, not proof or prevention.
+remains. The delete and purge requests name no quota, and the recorded
+responses carry no body, so no affected-resource identity has been
+verified and the actual target can remain unknown; the Output's quota ID
+is the intended snapshot, and comparing it afterwards with the SDK's own
+reads is retrospective detection, not proof or prevention.
 
 Partial Outputs carry `Quota *Quota` (the frozen read, the intended
 target, not proof of the affected resource), `Stage string` (`prepared`,
@@ -118,7 +132,9 @@ SDK confirmed, never the one it attempted.
 ## Delete
 
 `DeleteNotificationQuotaInput` has `Kind` (r), `Purge bool`, and
-`ExpectedQuotaID`; `DeleteSyntheticQuotaInput` has the last two.
+`ExpectedQuotaID`; `DeleteSyntheticQuotaInput` has the last two. A row
+that is not live, and `Purge` on any row while the purge row is console,
+returns `ErrInvalidInput` naming the unsupported row before any request.
 
 1. Refuse read-only profiles and check `Kind` and the shape of
    `ExpectedQuotaID` before any request.
@@ -129,34 +145,36 @@ SDK confirmed, never the one it attempted.
    unknown.
 3. Immediately before send, reread and require the same quota ID, package,
    status, and flags; any change aborts without a send.
-4. Send `DELETE {kind}/quota` once with `Once`, accepting only the recorded
-   statuses. A 4xx or a failed dial returns that error; any other failure
-   opens the delete record and returns `dns.ErrNotSettled` at `Stage`
-   `sent`.
-5. Settle by reading every 2 seconds for up to 60 seconds. The only
-   evidenced outcomes are: the kind read returns 404, or it returns the
-   same quota ID with status `IN-TRASH`. Any other change, such as an
-   intermediate or error status, a different quota ID, or a different
-   package, is not settlement; polling continues to the bound and then
-   returns `dns.ErrNotSettled` with the partial Output. Settlement sets
-   `Stage` `settled` and marks the delete phase complete; with `Purge`
-   false that retires the record, with `Purge` true the record stays.
+4. Send `DELETE {kind}/quota` once with `Once`, accepting 204 (the recorded
+   status) with an empty body. A 4xx or a failed dial returns that error;
+   any other failure opens the delete record and returns
+   `dns.ErrNotSettled` at `Stage` `sent`.
+5. Settle by reading every 2 seconds for up to 60 seconds. The evidenced
+   outcome for an active quota is a 404 on the kind read (live: about
+   6 s). The designed outcome for an expired quota is the same quota ID
+   with status `IN-TRASH`; it is unverified and ships only with its row.
+   Any other change, such as an intermediate or error status, a different
+   quota ID, or a different package, is not settlement; polling continues
+   to the bound and then returns `dns.ErrNotSettled` with the partial
+   Output. Settlement sets `Stage` `settled` and marks the delete phase
+   complete; with `Purge` false that retires the record, with `Purge` true
+   the record stays.
 6. With `Purge`, after settlement read `GET trash/quotas` once the live
    check has established its item shape. Trash membership is a client
    precondition only: the purge request names no quota, so it acts on
    whatever trash entry of that kind the server holds. Proceed only when
    the listing holds exactly one entry of that kind and its ID is the
-   frozen quota ID. No such entry (a free quota can leave trash on its
-   own) returns `Purged: false` at `Stage` `settled` with no purge sent;
-   more than one entry of that kind, or one with another ID, is an
-   ambiguous selection and returns `ErrInvalidInput` with no purge sent.
-   Then send `DELETE trash/{kind}/quota` once with `Once`, move the record
-   to stage `purge`, and read the trash list every 2 seconds for up to 60
-   seconds until the frozen ID is absent: `Purged: true`, `Stage` `purged`.
-   A purge 404 or any other non-accepted answer, or the bound, is
-   `dns.ErrNotSettled` at `Stage` `purge-sent`. A second entry can still
-   appear between the listing and the send; that kind-wide race has no
-   server-side guard and the wiki says so.
+   frozen quota ID. No such entry (an active quota leaves none, and a free
+   quota can leave trash on its own) returns `Purged: false` at `Stage`
+   `settled` with no purge sent; more than one entry of that kind, or one
+   with another ID, is an ambiguous selection and returns `ErrInvalidInput`
+   with no purge sent. Then send `DELETE trash/{kind}/quota` once with
+   `Once`, move the record to stage `purge`, and read the trash list every
+   2 seconds for up to 60 seconds until the frozen ID is absent:
+   `Purged: true`, `Stage` `purged`. A purge 404 or any other non-accepted
+   answer, or the bound, is `dns.ErrNotSettled` at `Stage` `purge-sent`. A
+   second entry can still appear between the listing and the send; that
+   kind-wide race has no server-side guard and the wiki says so.
 
 Reconciliation of an open record, by reads only: a record in the delete
 phase resolves to settled on either evidenced outcome; an unchanged read
@@ -180,7 +198,8 @@ the recovery is a read.
 
 `SetNotificationQuotaAutoRenewInput` has `Kind` (r), `Enabled *bool` (r),
 `MaxPrice float64`, and `ExpectedQuotaID`; `SetSyntheticQuotaAutoRenewInput`
-has the last three. The period is always 1 month.
+has the last three. The period is always 1 month. A row that is not live
+returns `ErrInvalidInput` naming the unsupported row before any request.
 
 1. Refuse read-only profiles; check `Kind`, a nil `Enabled`, a finite
    nonnegative `MaxPrice`, and the shape of `ExpectedQuotaID` before any
@@ -199,12 +218,15 @@ has the last three. The period is always 1 month.
    priced package is `ErrUnpriced`. A free quota quotes 0 and passes at the
    default 0. Disable needs no quote and works during a pricing outage.
 4. Eligibility differs from renewal on purpose: a free or POC quota is not
-   refused. The console hides the control there, so the server's answer is
-   unknown; the SDK sends the request and returns the server's answer, and
-   the CLI prints a warning before sending on a free or POC quota that the
-   setting may be refused or ignored. This is the owner's chosen behavior.
-   Every other check (identity, package, quantity, status, guard) applies
-   to free and POC quotas unchanged.
+   refused locally. The server refuses a free quota with the recorded 400;
+   the SDK sends the request and returns that refusal as an `*APIError`
+   with the fixed local code `AutoRenewNotAvailable` (status and message
+   matched against the recorded refusal, the message withheld), no state
+   changes, and no record opens. The CLI names the code and exits 1. On a
+   POC quota the answer is unverified, so the CLI prints a warning before
+   sending that the setting may be refused or ignored. This is the owner's
+   chosen send-and-report behavior. Every other check (identity, package,
+   quantity, status, guard) applies to free and POC quotas unchanged.
 5. Immediately before send, reread and require the same quota ID, package,
    status, `POC`, the same `AutoRenew` and `AutoRenewPeriod` as the frozen
    baseline for both enable and disable, and for synthetic the same API
@@ -213,16 +235,16 @@ has the last three. The period is always 1 month.
    aborts because another actor already changed the setting.
 6. Send `POST {kind}/quota/{id}/update-auto-renew` once with `Once`. The
    path ID is the frozen quota ID after `core.CheckPathID`; the body
-   repeats it as `resourceId`. Accept only the recorded statuses. A 4xx or a
-   failed dial returns that error; any other failure opens the record and
-   returns `dns.ErrNotSettled` at `Stage` `sent`.
+   repeats it as `resourceId`. Accept 200 (the recorded status) with an
+   empty body. A 4xx or a failed dial returns that error; any other failure
+   opens the record and returns `dns.ErrNotSettled` at `Stage` `sent`.
 7. Confirm by reading every 2 seconds for up to 30 seconds until the read
    shows the same quota ID and package with the target: enabled means
    `AutoRenew` true with `AutoRenewPeriod` 1, disabled means `AutoRenew`
-   false. A different quota ID or package never confirms, whatever its
-   setting. The bound returns `dns.ErrNotSettled`. A 2xx that never shows
-   the target is reported, not retried; on a free quota that is how the
-   SDK learns the server ignores the setting.
+   false with `AutoRenewPeriod` 0 (live: both within 3 s). A different
+   quota ID or package never confirms, whatever its setting. The bound
+   returns `dns.ErrNotSettled`. A 200 that never shows the target is
+   reported, not retried.
 
 Reconciliation of an open auto-renew record: the same quota and package
 showing the target resolves it as applied. The same quota showing the
@@ -244,12 +266,13 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 | Case | Result | CLI code and exit |
 |-|-|-|
-| Bad `Kind`, nil `Enabled`, bad `MaxPrice`, mismatched `ExpectedQuotaID` | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
+| Bad `Kind`, nil `Enabled`, bad `MaxPrice`, mismatched `ExpectedQuotaID`, or a row that is not live | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
 | No quota of that kind | Not-found sentinel | `NotFound`, 4 |
 | Delete while auto-renew or POC is on | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
 | Enable above the guard, or a zero quote for a priced package | `ErrPriceAboveMax`, `ErrUnpriced`, no request | `PriceAboveMax`, `Unpriced`, 1 |
+| Free quota auto-renew refused by the server | `*APIError`, code `AutoRenewNotAvailable` | `AutoRenewNotAvailable`, 1 |
 | Sent but not settled, not confirmed, or purge uncertain | `dns.ErrNotSettled` with partial Output and `Stage` | `NotSettled`, 1 |
-| Server refuses | The `*APIError` | 1, or 4 on 404 |
+| Server refuses otherwise | The `*APIError` | 1, or 4 on 404 |
 
 ## Threat notes
 
@@ -270,40 +293,45 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 ## Deterministic checks
 
-- Delete: read-first with the 404 case; `ExpectedQuotaID` compared right
-  after the read and against an open record; refusal on auto-renew or POC
-  with no request; abort on a changed reread; one `DELETE` under each
-  recorded status, 502, dropped connection, and 307; settle on 404 and on
-  same-ID `IN-TRASH`; an ERROR or intermediate status, a different ID, or a
-  different package never settles; the 60-second bound; an unchanged read
-  stays inconclusive and never closes the record as rejected; `Purge` sent
-  only after settlement and a trash listing with exactly one entry of that
-  kind bearing the frozen ID, skipped with `Purged: false` when absent,
-  refused as ambiguous with two entries or another ID, never after an
-  unsettled delete; purge 404 while listed is `NotSettled` at
-  `purge-sent`; no purge resend on any later call; a matching `Purge` call
-  continues from the reconciled stage while a changed `Purge` intent
-  returns `ErrInvalidInput`; an interruption after the delete settles and
-  before the first purge send (a failed trash read, an ambiguous listing,
-  a cancelled context) keeps the record at completed delete phase, and the
+- Delete: an Email or synthetic row, and `Purge` on any row, refused as
+  unsupported before any request; read-first with the 404 case;
+  `ExpectedQuotaID` compared right after the read and against an open
+  record; refusal on auto-renew or POC with no request; abort on a changed
+  reread; one `DELETE` under 204, 502, dropped connection, and 307; settle
+  on 404 (live) and, for the expired-row design, on same-ID `IN-TRASH`; an
+  ERROR or intermediate status, a different ID, or a different package
+  never settles; the 60-second bound; an unchanged read stays inconclusive
+  and never closes the record as rejected; `Purge` sent only after
+  settlement and a trash listing with exactly one entry of that kind
+  bearing the frozen ID, skipped with `Purged: false` when absent, refused
+  as ambiguous with two entries or another ID, never after an unsettled
+  delete; purge 404 while listed is `NotSettled` at `purge-sent`; no purge
+  resend on any later call; a matching `Purge` call continues from the
+  reconciled stage while a changed `Purge` intent returns
+  `ErrInvalidInput`; an interruption after the delete settles and before
+  the first purge send (a failed trash read, an ambiguous listing, a
+  cancelled context) keeps the record at completed delete phase, and the
   next matching `Purge` call resumes at purge preparation with a fresh
   trash read, returning neither not-found for the quota's 404 nor a second
   `DELETE`; each terminal outcome retires the record; `--yes` and read-only
   refusal; `Stage` values in partial Output.
-- Auto-renew: nil `Enabled` refused; `ExpectedQuotaID` compared before the
-  no-op return; no-op at target; enable on an already-enabled quota with a
-  period other than 1 refused before any quote, while a disabled quota
-  with period 0 proceeds through the normal guarded enable path; enable
-  quotes and guards on the frozen terms, disable
-  sends no quote; free and POC quotas proceed with the warning; reread
-  aborts on a package, quantity, status, flag, or period change for both
-  targets; one `POST` under each recorded status, 502, dropped connection,
-  and 307; confirm requires the same ID and package with the target and
-  `AutoRenewPeriod`; a replacement quota at the target never confirms; the
-  30-second bound; reconciliation outcomes applied and open, with an
-  opposite read never closing the record; an opposing call while open
-  returns `NotSettled` and, once resolved, `ErrInvalidInput` naming the
-  attempt; path ID from the read; read-only refusal; `Changed`.
+- Auto-renew: an Email row refused as unsupported before any request; nil
+  `Enabled` refused; `ExpectedQuotaID` compared before the no-op return;
+  no-op at target; enable on an already-enabled quota with a period other
+  than 1 refused before any quote, while a disabled quota with period 0
+  proceeds through the normal guarded enable path; enable quotes and
+  guards on the frozen terms, disable sends no quote; the free synthetic
+  refusal fixture decodes to `AutoRenewNotAvailable` with the message
+  withheld, no record opened, and no confirm reads; a POC quota proceeds
+  with the warning; reread aborts on a package, quantity, status, flag, or
+  period change for both targets; one `POST` under 200, 502, dropped
+  connection, and 307; confirm requires the same ID and package with the
+  target and `AutoRenewPeriod` (1 and 1, or 0 and 0, per the SMS fixtures);
+  a replacement quota at the target never confirms; the 30-second bound;
+  reconciliation outcomes applied and open, with an opposite read never
+  closing the record; an opposing call while open returns `NotSettled` and,
+  once resolved, `ErrInvalidInput` naming the attempt; path ID from the
+  read; read-only refusal; `Changed`.
 - Both: record identities include operation, kind, quota ID, and intent;
   a completed delete followed by an uncertain purge leaves `Stage`
   `purge-sent` and reconciles from the trash list only; Output is the
@@ -311,33 +339,29 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 ## Live checks
 
-1. Auto-renew flip, after owner approval naming the quota, on the
-   production free Synthetic Test or Email quota. Protocol: read the
-   baseline and require `AutoRenew` false, `POC` false, status `ACTIVE`,
-   else stop before any write. Send enable once and record status, body,
-   and timings. Read until the setting shows or 30 seconds pass. If the
-   read shows enabled, send disable once and read until it shows disabled;
-   that restores the baseline. A definite refusal response at send time
-   records the refusal and sends nothing more. A read that still shows
-   disabled, with or without an unchanged `UpdatedAt`, proves nothing:
-   treat the enable as inconclusive, send no disable blind, report the
-   quota ID and last read as unresolved, and let the manager read and, if
-   needed, restore by hand in the console. The same rule governs an
-   ambiguous disable. This check evidences only the rows it ran.
-2. Delete and purge need a disposable quota and separate owner approval:
-   order a free quota of a kind the account does not use for production
-   (for example `smsfree`), within the privately kept action ledger, read
-   it, delete it, read the kind path and `trash/quotas` until the outcome
-   is evidenced, purge it, and read the trash list again. Record each
-   status, body, settle timing, and the trash item shape. This evidences
-   the SMS delete and purge rows only; the Email and Synthetic delete rows
-   stay console until a disposable quota of that kind exists. The
-   production Email and Synthetic Test quotas are never deleted for a
-   test.
+1. Auto-renew flip, done. On the production free Synthetic Test quota the
+   enable was refused with the 400 above and no disable was sent; on the
+   disposable paid SMS quota the enable and disable both succeeded and
+   read back within 3 s. The protocol stands for any later row: validate
+   the baseline (`AutoRenew` false, `POC` false, `ACTIVE`) before any
+   write; a definite refusal records the refusal and sends nothing more; a
+   read still showing the old value proves nothing, so send no restoring
+   call blind, report the quota ID and last read as unresolved, and let
+   the manager read and, if needed, restore by hand in the console.
+2. Delete, done for an active SMS quota: ordered `sms5` under a 110000 VND
+   cap, enabled and disabled auto-renew, deleted it, and read the kind
+   path and `trash/quotas` until the 404 showed and trash stayed empty. No
+   purge was sent because nothing reached trash. Still open: Email delete
+   (gated under owner decision 11), synthetic delete (no disposable
+   synthetic quota exists), and purge, which needs an expired quota that
+   reached trash; a naturally lapsed, owner-approved quota is the only
+   source, and production monitoring is never expired for it.
 
 ## Release order
 
-Both ship after the renewals: auto-renew first for the rows live check 1
-evidenced, then delete and purge for the rows live check 2 evidenced.
-Each is one feature release with its SDK operations, commands, wiki text,
-and adversarial review; rows still marked console ship later or never.
+The next release ships the live rows only: SMS auto-renew enable and
+disable, SMS delete of an active quota, and the synthetic auto-renew
+refusal, together with SMS enablement in the parent (reads, quote, and
+order). Renewals follow the in-window synthetic renewal. Email rows,
+synthetic delete, and purge ship later, each after its own live check, or
+never.
