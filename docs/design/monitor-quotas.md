@@ -1,6 +1,6 @@
 # vMonitor check state and quotas
 
-Status: Proposed. This design approves no code, purchase, or live run.
+Status: Accepted; each write keeps its live gate, and no live run is approved.
 
 Expose synthetic check state and history, quota allowances and expiry,
 notification quota orders, and quota renewal through `monitor`. On the
@@ -24,18 +24,18 @@ Ship the smallest independently useful slices, subject to owner decisions:
    response and one In-alarm receipt are verified; the rest stays gated.
 3. Free Synthetic Test extension, then Email extension, independently as
    their gates close. Synthetic expiry stops checks, so prioritize it.
-4. SMS writes, paid notification writes, and trash recovery only with their
-   own evidence. Console similarity does not verify another kind or path.
+4. SMS writes and trash recovery with their own evidence; paid packages
+   ship with the order whenever `MaxPrice` covers them.
+5. Auto-renew, then delete and purge, under [quota
+   lifecycle](monitor-quotas-lifecycle.md), each after its live check.
 
 The free order response is verified; Up receipts, the extra usage count,
-billing-side zero debit, and action accounting are open. Recommend reads
-first and email right after; no gate is waived for a free order.
+and action accounting are open. No gate is waived for a free order.
 
-Out of scope: quota delete/purge, auto-renew changes, metric quotas, log
-quota renewal/resize, new or paid Synthetic Test orders, bundles,
-`pay: false`, checkout URLs, introspection, and a settings operation. Slack,
-Telegram, Webhook, and Teams have counters but no packages. Deletion is not
-an approved cleanup path; keep an ordered quota.
+Out of scope: metric quotas, log quota renewal/resize, new or paid
+Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
+and a settings operation. Slack, Telegram, Webhook, and Teams have counters
+but no packages. Production quotas are never deleted for a test.
 
 ## Public surface
 
@@ -204,8 +204,8 @@ of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
 quote and list price and return `ErrPriceAboveMax` if exceeded. List and
 quote must cover the same quantity and one-month term. Synthetic writes
 cover only the verified free package with zero detail and quote prices.
-Paid notification writes stay gated on debit/tax evidence; the higher
-observed price is conservative, not a proven all-in charge ceiling.
+Quotes are pre-VAT, so the actual debit can exceed the quote; a paid
+package is allowed whenever MaxPrice covers the higher value.
 
 ### Order and renewal execution
 
@@ -292,12 +292,12 @@ kind/path or POC/auto-renew eligibility uses ErrInvalidInput before send.
 ## CLI and errors
 
 Register each method's kebab-case command in `monitorOps`. Quotes and GETs
-are Read; creates and renewals are Write. Read-only flag/environment refusal
+are Read; creates, renewals, and auto-renew settings are Write; deletes are
+Write and Destructive, needing `--yes`. Read-only flag/environment refusal
 precedes config, and profile refusal follows config but precedes requests.
-No `--yes` is added: consent is finite `--max-price`, default 0, as for
-existing paid creates. Help and a stderr warning before a positive-budget
-write say `pay: true` may debit the balance and MaxPrice is a local guard,
-not a server cap. Do not prompt.
+Order and renewal consent is finite `--max-price`, default 0, as for
+existing paid creates; help and a stderr warning before a positive-budget
+write say `pay: true` debits the balance and MaxPrice is a local guard.
 
 String flags `--start`, `--end`, `--expected-end-time`, and `--kind`, int
 `--max-days-left`, float `--max-price`, bool `--no-wait`, and
@@ -368,33 +368,33 @@ the probes. File references name inspected code, not satisfied invariants.
 
 ## Owner decisions
 
-All remain proposed; approval cannot replace wire evidence.
+All ten are decided. Decisions 3 and 6 changed from the recommendation;
+the rest were approved as recommended. Approval replaces no wire evidence.
 
-1. Release order: recommend reads first, then free Email, then free
-   Synthetic extension and Email extension; gate SMS/paid/recovery separately.
-2. Time inputs: recommend RFC 3339 strings using existing flags instead of
-   adding generic time.Time reflection support.
-3. Price safety: recommend frozen order terms mapped by one builder per
-   write to its evidenced quote request and mutation body, the higher of
-   quote and list price as a local guard, and debit/tax evidence before
-   paid writes. Byte-identical bodies are unsupported and not required.
-4. Renewal consent: recommend required ExpectedEndTime and optional
-   MaxDaysLeft; the former refuses stale requests, the latter supports cron.
-5. Repetition: recommend Once, the full eligibility re-check before send,
-   and a per-Client unresolved-attempt record keyed by operation and frozen
-   terms with the reconciliation rules above; callers still serialize and
-   reconcile across processes.
-6. Scope: recommend keeping delete/purge and auto-renew out; no evidence
-   proves deletion consumes an action or free auto-renew works.
-7. Output safety: recommend small state/history views, omit raw free-form
-   text and unseen usage shapes, and enforce explicit local size bounds.
-8. Existing-quota create: recommend refusing before quote/order; a second
-   order's effect is unknown and may charge again.
-9. History paging: recommend shipping history in release 1 with Items
-   documented as the server's returned records, paging and truncation
-   unknown, and empty Items proving nothing; the alternative waits for a
-   multi-transition alarm before any history read ships.
-10. Creation price source: recommend the v2 quote alone with the period
-    fixed at 1, as the console buy page does, bounded by the list price;
-    the alternative also requires the v1 query quote to agree for paid
-    packages. v1 returns 500 for free packages, so it cannot be the source.
+1. Release order: reads first, then free Email, then Synthetic and Email
+   extensions; SMS and recovery gated separately; lifecycle writes last.
+2. Time inputs: RFC 3339 strings on existing flags, no time.Time
+   reflection support.
+3. Price safety, changed: frozen order terms mapped by one builder per
+   write, and the higher of quote and list price as the local guard. Paid
+   packages are allowed whenever MaxPrice covers them; the account runs on
+   credit, so no debit or tax evidence gates a paid write.
+4. Renewal consent: required ExpectedEndTime and optional MaxDaysLeft; the
+   former refuses stale requests, the latter supports cron.
+5. Repetition: Once, the full eligibility re-check before send, and a
+   per-Client unresolved-attempt record keyed by operation and frozen terms
+   with the reconciliation rules above; callers serialize across processes.
+6. Scope, changed: quota delete, purge, and auto-renew are in scope after
+   the renewals, under [quota lifecycle](monitor-quotas-lifecycle.md), each
+   gated on its own live check; on a free or POC quota the SDK sends the
+   auto-renew setting and reports the server's answer with a warning.
+7. Output safety: small state/history views, no raw free-form text or
+   unseen usage shapes, and explicit local size bounds.
+8. Existing-quota create: refuse before quote/order; a second order's
+   effect is unknown and may charge again.
+9. History paging: ship history in release 1 with Items documented as the
+   server's returned records, paging and truncation unknown, and empty
+   Items proving nothing.
+10. Creation price source: the v2 quote alone with the period fixed at 1,
+    as the console buy page does, bounded by the list price; v1 returns
+    500 for free packages, so it cannot be the source.

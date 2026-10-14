@@ -8,8 +8,9 @@ safety rules, and owner decisions. Nothing here authorizes a live call.
 
 The manager's sanitized response record comes from live calls using an
 SDK-issued IAM User bearer token without extra headers at the Monitor root,
-`https://vmonitor.console.greennode.ai/`. The only write sent was the free
-Email order the owner chose; every other write here is console code.
+`https://vmonitor.console.greennode.ai/`. The only quota write sent was
+the free Email order the owner chose; every other quota write here is
+console code.
 
 Console sources are public Angular bundles from that same root, read as
 untrusted text: uptime creation in chunk 478, billing flows in chunk 816,
@@ -171,7 +172,8 @@ retry loop. All paths below are relative to `billing-api/`.
   Bare result has optimumPrice, discountPercent, originalPrice,
   discountPrice, propertiesPrice[] with the same price keys plus name and
   description. emailfree quoted 0; email5k quoted 100000 against list
-  110000. Pre-VAT pricing is an inference, not a verified tax rule.
+  110000. Quotes are pre-VAT by inference; the actual debit can exceed
+  the quote, and no debit or tax evidence gates a paid write.
 - **Console Email renewal:** that same endpoint and body with
   `"resourceId":"<quota-id>"` added. SMS uses `v2/sms/prices/created-price`
   and the corresponding create or renewal body; neither SMS quote was sent.
@@ -212,13 +214,12 @@ Preserve both observed bodies; never relabel them as identical.
 
 All but the free Email create are **console only** under `billing-api/`,
 with unverified responses. For IAM users the console sets pay true and may
-open paymentUrl. The SDK must not open it. The configured base redirect is
-`https://vmonitor.console.vngcloud.vn/quota-usage/quota`; flows replace its
-last path with the appropriate page. Do not modernize its hostname by guess.
-
-Notification page: `https://vmonitor.console.vngcloud.vn/` plus
-`quota-usages/notification`. Synthetic page: the same origin plus
-`quota-usages/synthetic-test`. These are fixed body values, not fetched URLs.
+open paymentUrl; the SDK never opens it. Fixed `redirectUrl` body values,
+never fetched and with the hostname kept as the console has it:
+`https://vmonitor.console.vngcloud.vn/quota-usages/notification` for Email
+and SMS, and the same origin plus `quota-usages/synthetic-test` for
+synthetic (the console's base `quota-usage/quota` with its last path
+replaced).
 
 - **Live** create Email: `POST v1/email/quota`, body
   `{monthPeriod:1,packageId,redirectUrl:<notification-page>,pay:true}`,
@@ -248,10 +249,11 @@ Notification page: `https://vmonitor.console.vngcloud.vn/` plus
   may use different identity and expiry semantics; it remains gated.
 - Auto-renew `POST v1/{kind}/quota/{id}/update-auto-renew` sends
   `{resourceId,enabled,period:1}`. Console hides controls for isFree and POC;
-  this does not prove free auto-renew support. Out of scope.
-- Delete `DELETE v1/{kind}/quota` and `DELETE v1/trash/{kind}/quota` use
-  no body/ID. Introspect `POST v1/{kind}/quota/introspect` uses null body
-  and the console reads active. All remain out of scope.
+  the server's answer on such a quota and the response shape are unknown.
+- Delete `DELETE v1/{kind}/quota` and purge `DELETE v1/trash/{kind}/quota`
+  use no body/ID; responses are unknown. Both and auto-renew are in scope
+  under [quota lifecycle](monitor-quotas-lifecycle.md), which owns their
+  checks. Introspect `POST v1/{kind}/quota/introspect` stays out of scope.
 
 The setting 3 and a Basic log quota 409 suggest a three-actions-a-month
 notification budget; what it counts (orders, extension, recovery, delete,
@@ -365,36 +367,34 @@ file assignments, wiki generation, and acceptance order.
 The manager gets approval per run under
 [live data](../../instructions/live-data.md), naming account, resource,
 maximum cost, action consumption, and retention. A kept free quota is not
-disposable. No code brief consumes inferred schemas; SDK live verification
+disposable; no code brief consumes inferred schemas; SDK live verification
 after implementation needs separate approval.
 
-1. Read prerequisites: obtain existing raw fixtures and inspect all required
-   fields/types. The range, interval, reversed-range, empty-window, and
-   unknown-ID probes are done. Paging stays unknown until an alarm holds
-   more than one transition; the read ships with that documented limit
-   under owner decision 9. Do not rerun captured reads without need.
+1. Read prerequisites: done (raw fixtures, range, interval, reversed-range,
+   empty-window, and unknown-ID probes). Paging stays unknown until an
+   alarm holds more than one transition; the read ships with that limit
+   under owner decision 9.
 2. Pricing prerequisites: done for Email (v2 free and paid, v1 paid at
-   periods 1 and 3, v1 500 on free). Still open: the SMS v2 quotes and the
-   Email extension quote with `resourceId`. Do not try an order whose
-   quote mapping is unestablished.
+   periods 1 and 3, v1 500 on free). Open: the SMS v2 quotes and the Email
+   extension quote with `resourceId`; no order without its quote mapping.
 3. Free Email: done once, owner-chosen and kept; order, settlement, quota,
-   usage, and delivery are recorded above. Still open: billing-side
-   confirmation of zero debit and of the action budget, and the unexplained
-   fourth usage count. Do not order again on this account.
+   usage, and delivery are recorded above. Open: action-budget accounting
+   and the unexplained fourth usage count. Do not order again here.
 4. Free synthetic extension: approve one active-quota extension, quote it,
-   capture success response and old/new EndTime, identity, and settlement.
-   Verify month arithmetic and actual debit. Free Email extension follows
-   only with separate approval and a known remaining action budget.
-5. Recovery: wait for a naturally lapsed, owner-approved quota. Capture its
-   ordinary GET and trash listing before any recovery; establish resource
-   identity, quote, response, and settlement. No deliberate delete/expiry of
-   production monitoring to obtain evidence. An unevidenced branch stays out.
-6. SMS and paid operations: obtain kind-specific reads/quotes first and
-   explicit mutation/cost approval. Reconcile actual debit, tax, term, and
-   quantity against quote and list; never treat max(list, quote) as proven
-   protection without this. Confirm budget accounting without exhausting it.
+   capture the response, old/new EndTime, identity, settlement, and month
+   arithmetic. Free Email extension follows with separate approval.
+5. Recovery: wait for a naturally lapsed, owner-approved quota; capture
+   its GET and trash listing before any recovery, then identity, quote,
+   response, and settlement. Never expire production monitoring for this.
+6. SMS and paid operations: kind-specific reads and quotes first, then
+   explicit mutation approval naming the amount. Quotes are pre-VAT and the
+   guard is a local estimate; confirm budget accounting without exhausting
+   it.
+7. Auto-renew flip and delete: see [quota
+   lifecycle](monitor-quotas-lifecycle.md#live-checks); delete needs a
+   disposable quota and separate approval.
 
 No listed check is complete beyond the recorded responses. Open: every
-write response but the free Email create, SMS and extension quotes, zero
-and paid debit from billing, renewal arithmetic, trash recovery, monthly
-accounting, history paging and truncation, and the unexplained email count.
+write response but the free Email create, SMS and extension quotes,
+renewal arithmetic, trash recovery, monthly accounting, history paging and
+truncation, the unexplained email count, and both lifecycle writes.
