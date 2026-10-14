@@ -58,10 +58,18 @@ Password input follows these proposed rules:
 - Bound file and stdin input to 4096 bytes plus one overflow-detection
   byte. Remove exactly one final LF or CRLF. Preserve spaces and reject an
   empty result, embedded controls, invalid UTF-8, and overflow locally.
-- Refuse a terminal for stdin. Require EOF, refuse stdin shared with
-  `--cli-input-json`, and honor command cancellation. A pipe can stall
-  despite a byte cap: impose a 30-second input deadline and return a fixed
-  usage error without content. Test a pipe that never closes.
+- Refuse a terminal for stdin. Require EOF and honor command cancellation.
+  A pipe can stall despite a byte cap: impose a 30-second input deadline
+  and return a fixed usage error without content. Test a pipe that never
+  closes.
+- Run a `beforeInput` hook, a new `Op` field, as the first step of `runOp`,
+  before `--cli-input-json` or any other input is consumed. For
+  `create-user` it requires exactly one of the two password flags and,
+  with `--password-file -`, refuses any `--cli-input-json` value that
+  starts with `file://`, so stdin can never be shared with the JSON input.
+  The shared JSON file reader opens its path without blocking and refuses
+  a non-regular file, closing the stalled-pipe hang for every command.
+  Both checks run before read-only, which runs before any stdin read.
 - Clear owned byte buffers after use and release secret references early.
   Go strings, JSON serialization, HTTP buffers, and `Secret` can retain
   copies. Do not claim secure erasure or immunity to process-memory reads.
@@ -83,23 +91,22 @@ the shared helper follows parent symlinks and does not secure an
 attacker-writable directory. Use a private directory; Unix mode bits do not
 establish a Windows access-control guarantee.
 
-After a file failure, automatic cloud cleanup is allowed only when the create
-returned 201 and its own valid ID, exposed as `CreatedID`. Within a detached
-context bounded by the existing 10-second cleanup timeout, first GetUser that ID
-and require the requested username and `from: "iam"`. A target 404 means absent;
-any other failure or mismatch stops cleanup. Then call public DeleteUser with
-that ID. All guards still apply. If DeleteUser returns any 404, confirm absence
-with a fresh GetUser of CreatedID within that same timeout. Only that target
-read returning 404 proves cleanup; a dependency 404 does not. Never detach
-policies, remove memberships, or weaken a guard to make cleanup succeed.
+After a file failure, `create-user` runs no automatic cloud cleanup, unlike
+`create-service-account`. A cleanup would call `GetUser` and `DeleteUser`,
+whose guard reads share `iam/guard.go` and carry no request-local password
+redaction, `Sensitive` flag, or fixed error text; the transport captures their
+responses (`internal/transport/transport.go:587`) before the CLI could discard
+a cleanup error. Extending that privacy boundary across the whole guard graph
+is a shared change this slice does not make. Instead the CLI reports
+`SecretFileFailed` with `CreatedID` when the create returned one, otherwise
+the requested username, and the exact `delete-user --user-id <id> --yes`
+command. The orphan holds no policy or group, and its generated password
+exists nowhere once the process exits.
 
-With no `CreatedID`, an uncertain create, or a cleanup refusal or failure,
-report `SecretFileFailed` and the known ID or requested username for manual
-reconciliation. A list match, prefix, or supplied password does not prove this
-invocation created the user. Do not delete such a match automatically. No
-automatic cleanup runs merely because confirmation or output rendering failed
-after the password was saved. Process termination between creation and file
-persistence remains an unrecoverable-password risk; document it.
+A list match, prefix, or supplied password does not prove this invocation
+created the user; never delete such a match automatically. Process termination
+between creation and file persistence remains an unrecoverable-password risk;
+document it.
 
 ## Guards
 
@@ -130,10 +137,16 @@ DELETE. Refusals may perform reads but never a mutation.
 Self outranks every other applicable refusal. Privilege outranks in-use when the
 privilege reads can prove it. Missing policy data, invalid policy IDs,
 incomplete attachment pages, null group lists, and missing group `policies`
-never count as empty. Reuse the existing classification; do not replace it with
-managed-policy names. The user-group reader does not check group mode or
-membership fields like the full group reader does, but any membership still
-prevents this delete.
+never count as empty. Every read a delete depends on, including the target
+read, caller identity, the action list, each policy, and every attachment
+reader in `iam/guard.go`, validates the raw body with the
+[strict JSON rule](iam-users-api.md#bounds-and-strict-decoding) before
+decoding: a duplicate key, or two keys equal under case folding, refuses the
+delete. Go's decoder otherwise lets a later `data` or `DATA` member replace an
+earlier attachment list with an empty one. Reuse the existing classification;
+do not replace it with managed-policy names. The user-group reader does not
+check group mode or membership fields like the full group reader does, but any
+membership still prevents this delete.
 
 A service-account caller cannot be the target IAM user. It still needs
 classified identity and all target checks; this does not relax the existing
@@ -221,7 +234,8 @@ tests](iam-users-api.md#unit-tests).
    captures and decode text; `:174` withholds messages; `:196` can replace
    server codes; `:606` logs method, redacted path, status, and duration.
    Proposed create and its private confirmation requests must use those
-   controls and redact the submitted password, not just bearer tokens.
+   controls and redact the submitted password, not just bearer tokens;
+   `GetUser` sets `Sensitive`, and no cleanup request follows a create.
    Check nested escaped echoes, all error-chain nodes, and partial outputs.
    `secret.go:19` explicitly excludes `%p`, gob, and reflection from its
    guarantees. Never use those paths; raw request structs are not safe to
@@ -229,15 +243,17 @@ tests](iam-users-api.md#unit-tests).
    relevant outside the fixed-text create error boundary.
 2. **A hostile API peer sends malformed data.** Invariant: malformed
    identity or incomplete lists cannot authorize deletion or attribute a
-   password to a stranger. Severity: high for a wrong cleanup target;
+   password to a stranger. Severity: high for a wrong delete target;
    medium for memory exhaustion. `iam/caller.go:88` drops list totals;
    a private presence-aware decoder must check confirmation completeness.
    `iam/guard.go:240` and `:397` fail closed on incomplete attachments.
-   These shared reads currently omit byte caps. The
-   [bounded-read prerequisite](iam-users-api.md#bounds-and-cancellation)
+   These shared reads currently omit byte caps and decode with
+   `json.Unmarshal` (`internal/transport/transport.go:262`), where a later
+   duplicate or case-alias member replaces an earlier one. The
+   [bounds and strict-decoding prerequisite](iam-users-api.md#bounds-and-strict-decoding)
    must land before reuse. Check caps, wrong IDs, duplicate exact names,
-   missing keys, partial JSON, and failure propagation. Never let an
-   inferred console default satisfy a guard.
+   missing keys, duplicate and case-alias keys, partial JSON, and failure
+   propagation. Never let an inferred console default satisfy a guard.
 3. **An attacker redirects a request or changes an endpoint.** Invariant:
    no credentials cross the configured origin on redirect and TLS verifies
    the peer with the standard transport. Severity: high for password and
@@ -260,29 +276,35 @@ tests](iam-users-api.md#unit-tests).
    identity proof or per-file permission check. A writable profile or
    cache and same-user process compromise remain outside the guarantee.
    `internal/cli/secretfile.go:40` and `:80` protect exclusive creation,
-   not hostile parent replacement. Test input permissions, FIFO swaps,
+   not hostile parent replacement. `internal/cli/op.go:399` consumes
+   `--cli-input-json` before any guard, and `internal/cli/input.go:117`
+   opens its `file://` path with a byte cap but no regular-file check, so
+   a never-closing pipe stalls the command; the `beforeInput` hook and the
+   regular-file rule above close that. Test input permissions, FIFO swaps,
    destination collisions, write/sync/close/removal failures, cancellation,
-   and saved-password reporting. Do not silently widen shared file helpers.
+   a shared stdin, and saved-password reporting.
 5. **A concurrent actor or repeated caller triggers writes.** Invariant:
-   one create invocation sends at most one POST and cleanup touches only
-   a resource attributable to that invocation. Severity: high for deleting
-   another actor's user; medium for orphan identities or lost passwords.
+   one create invocation sends at most one POST and no delete the caller
+   did not request. Severity: high for deleting another actor's user;
+   medium for orphan identities or lost passwords.
    `internal/transport/transport.go:147` enforces `Once`;
    `internal/transport/errors.go:418` conservatively tracks `NotSent`,
    including custom transports. Check 401, 429, 5xx, redirects, dropped
    connections, and cancellation before and after send. DELETE retries
    use earlier guard reads, so concurrent attachments remain a race.
    `internal/cli/svc_iam.go:233` supplies the bounded detached cleanup
-   precedent. No prefix sweep, name-based automatic cleanup, hidden
-   detach, or repeated create is allowed. There is no quote to race;
-   creation still consumes quota and creates a sign-in principal.
+   precedent that `create-user` deliberately does not reuse. No prefix
+   sweep, automatic cleanup, hidden detach, or repeated create is allowed.
+   There is no quote to race; creation still consumes quota and creates a
+   sign-in principal.
 
 ## Wiki and release
 
 Ship SDK reads and writes, CLI, and user docs together after evidence, owner
 approval, implementation of the live tests, independent adversarial review, and
 authorized live verification. Review all code before any live run, including the
-live helpers. The manager owns Git and release gates. A read-only release first
+live helpers and the pre-code probe source, each by a separate reviewer with fix
+confirmation. The manager owns Git and release gates. A read-only release first
 is an alternative if write evidence stays gated.
 
 Update `docs/wiki/IAM.md`, `Services.md`, and `Configuration.md`; generate
@@ -320,14 +342,20 @@ All recommendations are proposals, not approvals.
    generated passwords, and explicit `CreatedID` provenance. Keep
    `ErrCreateUnconfirmed` for 201 followed by failed confirmation.
    Alternative: discard an uncertain password and force manual recovery.
-8. **Cleanup authority.** Recommend automatic cleanup only by a successful
-   create's own ID, with all delete guards. Name-only and uncertain cases
-   need manual reconciliation. Alternative: require supplied passwords
-   when the API cannot return an ID, avoiding generated-file rollback.
-9. **Shared bounds.** Recommend a separately briefed prerequisite for byte
-   caps on every existing guard dependency this feature uses. Alternative:
-   accept unbounded inherited reads explicitly; do not silently claim full
-   response bounds or widen this feature's implementation brief.
+8. **Cleanup authority.** Recommend no automatic cloud cleanup after a
+   secret-file failure: report `CreatedID` and the manual `delete-user`
+   command, as in [Secret file and cleanup](#secret-file-and-cleanup). The
+   orphan holds no rights and an unknown password. Alternative: automatic
+   cleanup by `CreatedID` behind an SDK-internal privacy boundary that
+   applies password redaction, capture suppression, and fixed errors to
+   every guard read, as a separately briefed shared change with
+   password-echo tests across the whole cleanup graph.
+9. **Shared bounds and strict decoding.** Recommend one separately briefed
+   prerequisite that adds byte caps and the strict JSON rule to every
+   existing guard dependency this feature uses, since oversized or
+   ambiguous responses will begin failing for existing guarded writes.
+   Alternative: accept the inherited reads explicitly; do not silently
+   claim bounds or strictness, or widen this feature's brief.
 10. **Error privacy.** Recommend fixed create error text and status-based
     codes, sacrificing server detail to prevent encoded password echoes.
     Preserve status, sentinels, and safe causes for programmatic handling.

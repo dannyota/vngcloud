@@ -19,18 +19,17 @@ has been verified for this design.
   [Quota chunk][quota] names `quotas/iam-user`. These are source-level
   inferences, not server response evidence. Bundles were read as text and
   never executed; runtime filenames are content-addressed evidence pins.
-- The [product documentation index][index] links
-  [User Accounts][product-users], [Create an IAM User Account][product-create],
-  and [Delete an IAM User Account][product-delete]. Those page bodies were
-  inaccessible during verification. Product-level claims about uniqueness,
-  free use, default-deny, and deletion recovery remain unverified here.
+- Product pages [User Accounts][product-users], [Create an IAM User
+  Account][product-create], and [Delete an IAM User Account][product-delete]
+  state the username and password rules, that a new user holds no policy and
+  is denied by default, that a name stays unique until deletion, and that
+  deletion is not recoverable. Product claims are not server evidence.
 
 [spec]: https://docs.api.greennode.ai/service-docs/accounts-api.html
 [main]: https://iam.console.greennode.ai/main.a0cfd100731832eb.js
 [users]: https://iam.console.greennode.ai/718.16d2630147e1e633.js
 [settings]: https://iam.console.greennode.ai/953.d8123c2354e6d86e.js
 [quota]: https://iam.console.greennode.ai/373.d55091d035f19fda.js
-[index]: https://docs.greennode.ai/llms.txt
 [product-users]: https://docs.greennode.ai/identity-and-access-management-iam/cac-loai-dinh-danh-iam/tai-khoan-user-accounts
 [product-create]: https://docs.greennode.ai/vstorage/object-storage/vstorage-hcm03/identity-and-access-management/managing-vstorage-access-account/iam-user-account/create-an-iam-user-account
 [product-delete]: https://docs.greennode.ai/vstorage/object-storage/vstorage-hcm03/identity-and-access-management/managing-vstorage-access-account/iam-user-account/delete-an-iam-user-account
@@ -112,7 +111,9 @@ use `vngcloud:"required"`; nil required inputs fail locally.
 ### Reads
 
 - `GetUserInput { UserID string }`, required and checked by
-  `core.CheckPathID`; `GetUserOutput { User UserDetail }`.
+  `core.CheckPathID`; `GetUserOutput { User UserDetail }`. The request
+  sets `Sensitive`, since whether a user object can carry a password-like
+  key is unverified; the probe records that.
 - `ListUsersInput` retains `Page int` and `Size int` and adds optional
   `Name string`; `ListUsersOutput` remains `core.List[User]`.
 - `UserDetail` embeds the existing `User` and adds `Enabled bool` and
@@ -226,8 +227,8 @@ Delete runs the [ordered guards](iam-users.md#guards), then sends DELETE with
 retry policy. Return an empty Output only on 204. A target 404 returns nil and
 `ErrNotFound`; 409 remains Conflict; every exhausted failure remains an error.
 Wrap guard dependency errors with a fixed read label without losing error
-identity. Cleanup must confirm target absence with a fresh GetUser after any
-delete error classified as 404; do not infer it from IsNotFound alone.
+identity. Every dependency read decodes under the strict rule below. No
+automatic delete follows a create in the SDK or the CLI.
 
 Use `errors.Is` for `ErrInvalidInput`, guard sentinels, create outcome
 sentinels, and context cancellation/deadline errors. Keep sanitized
@@ -237,14 +238,26 @@ Retryable; preserve safe underlying causes. Map 401 to `ErrAuth`, 403 to
 existing core mapping. CLI create-outcome handling precedes underlying status
 mapping, so an uncertain/accepted create always exits 1.
 
-### Bounds and cancellation
+### Bounds and strict decoding
 
 New create/delete responses cap at 64 KiB, get at 256 KiB, and lists at 4 MiB.
 Fail on overflow; never decode a truncated prefix. Confirmation performs at most
 one list and one get, or one get with CreatedID. No wait or eventual-consistency
 polling occurs. All SDK requests and guard reads use the caller's context;
-cancellation stops further reads and writes. Only CLI file-failure cleanup
-detaches, with its 10-second total limit.
+cancellation stops further reads and writes. Nothing runs on a detached
+context.
+
+Strict rule: decode the body into `json.RawMessage`, validate it, then decode
+the typed value. Validation rejects malformed JSON, trailing data, a duplicate
+key at any depth, and two keys in one object that are equal under Unicode
+case folding, since Go's struct decoding matches keys case-insensitively and
+lets a later member replace an earlier one. `internal/jsonresponse.Validate`
+rejects exact duplicates today; add `ValidateStrict` beside it for the
+case-fold rule and leave `Validate`'s callers unchanged. Apply the strict rule
+to the user get, the filtered list, the create response, and every read a
+delete depends on: `GetCallerIdentity`, `ListActions`, `GetPolicy`,
+`guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
+`guardGetGroupAttachments`, and `guardUserGroups`.
 
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
 per send, plus the existing single 401 refresh send, and at most 30 seconds per
@@ -252,12 +265,14 @@ backoff. The HTTP client timeout bounds each request; callers must set an
 overall context deadline for a multi-request operation. No new retry loop wraps
 the transport. Create remains one attempt.
 
-Existing caller, action, policy, and guard readers omit `MaxBody`. Before this
-feature's implementation, separately brief and review caps for
-`GetCallerIdentity`, `ListActions`, `GetPolicy`, and the HTTP reads in
-`iam/guard.go`: 256 KiB for single objects, 4 MiB for lists. Preserve their
-fail-closed classification and error identities. Oversized existing reads will
-begin failing; owner approval must cover that compatibility change. Do not
+Existing caller, action, policy, and guard readers omit `MaxBody` and the
+strict rule. Before this feature's SDK work, one separately briefed and
+reviewed prerequisite adds both to those readers in `iam/caller.go`,
+`iam/actions.go`, `iam/policies.go`, and `iam/guard.go`, with
+`internal/jsonresponse/keys.go` gaining `ValidateStrict`: 256 KiB for single
+objects, 4 MiB for lists. Preserve their fail-closed classification and error
+identities. Oversized or ambiguous existing reads will begin failing for every
+guarded write; owner approval must cover that compatibility change. Do not
 describe a capped user get as bounding the whole guard graph.
 
 ## Unit tests
@@ -289,24 +304,37 @@ in the [calls table](#calls), plus unexpected responses.
   empty action catalog; malformed policy patterns; null/short attachments.
   Assert zero mutations on refusal, not zero reads.
 - Test DELETE 204, 404, 409, retries ending in 404, exhausted 5xx, no
-  redirects, cancellation, and target versus dependency 404 cleanup rules.
+  redirects, cancellation, and dependency 404 labels.
+- Send zero DELETEs for each ambiguous dependency response: a duplicate
+  `data` or `totalItems`, a `DATA` or `TOTALITEMS` alias after the real
+  key, a duplicate `iamUsers`, `policies`, or `mode` in a group, a
+  duplicate `statements`, `effect`, or `actions` in a policy, a duplicate
+  `userId` or `userType` in the caller identity, a duplicate `data` in the
+  action list, and a duplicate `id` or `from` in the target user.
 - Canary-check stdout, stderr, debug, capture, every reachable error node,
   and supported fmt/slog/JSON paths. Include nested escaped password
   echoes in error codes/messages and success bodies; unsafe formatting is
   forbidden, not claimed safe. Confirm requests serialize the actual value.
 - CLI tests cover exactly-one flag, empty file, private file mode, symlinks,
   FIFO/device/directory refusal, terminal stdin, CRLF/spaces, overflow,
-  shared stdin, stalled input deadline, and cancellation. Read-only must
-  perform no input read or request; delete without `--yes` sends nothing.
+  stalled input deadline, and cancellation. `beforeInput` runs before any
+  `--cli-input-json` read: `--password-file -` with `file://` JSON exits 2
+  while stdin is a never-closing pipe; a FIFO at `file://` exits 2 for any
+  command; read-only refuses before any stdin read, proven by a stdin that
+  fails the test on `Read`; cancellation during a stalled stdin exits
+  within the deadline with no request. Delete without `--yes` sends nothing.
 - Inject file open/write/sync/close/removal failures. Check exclusive 0600
   creation, existing-file preservation, saved passwords on partial output,
-  cleanup only with CreatedID, no detach or name cleanup, bounded detached
-  context, refusal/409/target-404/dependency-404 handling, and exit precedence.
+  no request of any kind after a file failure, the `CreatedID` or username
+  and the `delete-user` command in the message, and exit precedence.
 
 ## Probes
 
 Only the manager may run probes, after owner approval naming the account,
-resources, sign-in scope, cost assumption, and cleanup authority. IAM is global.
+resources, sign-in scope, cost assumption, and cleanup authority, and after a
+separate adversarial review with fix confirmation of the credential-free probe
+source, which handles a password and creates and deletes a principal. IAM is
+global.
 This design grants no standing approval. Serialize the probe with other IAM
 writers in the test account. Use `vngcloud-probe-<8 hex>` names, precheck
 absence, and keep a private per-run ledger of returned IDs. A prefix alone never
@@ -345,32 +373,27 @@ mismatch must never expand cleanup scope.
 ### Fixture provenance
 
 Keep account-bearing raw reads only under the private output paths in [live
-data](../../instructions/live-data.md). No password-bearing response may be
-captured. Sanitize create bytes in memory before writing a fixture; if they
-contain a password, omit that response fixture and preserve the schema gate
-until an approved safe evidence method exists. Never substitute SDK output or a
-hand-built response for raw evidence.
+data](../../instructions/live-data.md). Sanitize create bytes in memory; if
+they contain a password, omit that fixture and keep the schema gate. Never
+substitute SDK output or a hand-built response for raw evidence.
 
 Fixtures are `get_user.json`, `list_users_filtered.json`, and, if safe,
 `create_user.json` under `testdata/iam/`. Provenance records method, path with
-placeholders, status, raw origin, removed sensitive values, and intentional
-model omissions. Use `<id>`, `<account>`, and `<secret>` or short synthetic IDs
-that pass path validation; retain structural keys and types. Validate JSON only
-for nonempty bodies. Record an empty HTTP body as such. The manager checks
-sanitation before workers receive fixtures. Re-review any contract changed by
-the probes.
+placeholders, status, raw origin, removed values, and intentional model
+omissions. Use `<id>`, `<account>`, and `<secret>` or short synthetic IDs that
+pass path validation; retain structural keys and types. Record an empty HTTP
+body as such. The manager checks sanitation before workers receive fixtures and
+re-reviews any contract the probes change.
 
 ## Live checks
 
 Implement and independently review live helpers before running them. Add GetUser
 and filtered ListUsers to the authorized read suite. Gate `TestLiveWriteIAMUser`
 on both `VNGCLOUD_LIVE_WRITE=1` and `VNGCLOUD_LIVE_IAM_USER=1`. Use a unique
-`vngcloud-live-<8 hex>` name and only resources recorded by this run. Never
-sweep all prefix users.
-
-Exercise generation, create, private temporary secret-file persistence, get,
-filtered list, self refusal with no DELETE, and guarded delete. Register cleanup
-before create using a ledger, but do not authorize a name-based delete. On
-uncertain ownership, report a leftover and stop. Remove temporary secrets on
-completion and emit only fixed labels, statuses, counts, and booleans.
-Compile-only checks are not live evidence.
+`vngcloud-live-<8 hex>` name and only resources recorded by this run; never
+sweep all prefix users. Exercise generation, create, private temporary
+secret-file persistence, get, filtered list, self refusal with no DELETE, and
+guarded delete. Register cleanup before create using a ledger, never a
+name-based delete; on uncertain ownership, report a leftover and stop. Remove
+temporary secrets on completion and emit only fixed labels, statuses, counts,
+and booleans. Compile-only checks are not live evidence.
