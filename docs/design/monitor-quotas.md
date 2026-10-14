@@ -3,25 +3,24 @@
 Status: Proposed. This design approves no code, purchase, or live run.
 
 Expose synthetic check state and history, quota allowances and expiry,
-notification quota orders, and quota renewal through `monitor`. Missing
-Email quota is a plausible cause of missing alerts, not a proven delivery
-failure diagnosis. No separate alarm or trigger creation step is missing.
-[API evidence and checks](monitor-quotas-api.md) owns the wire shapes,
-provenance, unknowns, and live gates.
+notification quota orders, and quota renewal through `monitor`. A missing
+Email quota is a plausible cause of missing alerts, not a proven one. No
+alarm or trigger creation step is missing. [API evidence and
+checks](monitor-quotas-api.md) owns wire shapes, provenance, and live gates.
 
 This extends [vMonitor](monitor.md) and [Alerts](monitor-alerts.md), follows
 [SDK and CLI](sdk-and-cli.md), [CLI](cli.md), and
 [write conventions](../adr/0002-write-api-conventions.md). The SDK stays
-standard-library only in `danny.vn/vngcloud/monitor`; the CLI calls only
-public SDK operations. No dependency or authentication change is needed.
+standard-library only; the CLI calls only public SDK operations. No
+dependency or authentication change is needed.
 
 ## Scope and release order
 
 Ship the smallest independently useful slices, subject to owner decisions:
 
-1. Check fields, alarm reads, verified quota reads, and the wiki correction.
-   History waits for its completeness and range checks; other reads need
-   not wait for it. These reads diagnose state and warn of quota expiry.
+1. Check fields, alarm reads, history, verified quota reads, and the wiki
+   correction. History ships with a documented completeness limit (owner
+   decision 9). These reads diagnose state and warn of quota expiry.
 2. Email quota reads, quote, and free email order together, once their
    evidence gates close. Do not delay this slice for SMS or paid pricing.
 3. Free Synthetic Test extension, then Email extension, independently as
@@ -30,34 +29,33 @@ Ship the smallest independently useful slices, subject to owner decisions:
    own evidence. Console similarity does not verify another kind or path.
 
 A first release including the email order would unblock delivery sooner,
-but exact-body pricing and write responses are unverified. Recommend reads
-first and email immediately after its gates close. No gate is waived for a
-free order. Only the manager performs owner-approved live checks.
+but write responses are unverified. Recommend reads first and email right
+after its gates close. No gate is waived for a free order.
 
 Out of scope: quota delete/purge, auto-renew changes, metric quotas, log
 quota renewal/resize, new or paid Synthetic Test orders, bundles,
-`pay: false`, checkout URLs, introspection, and a public settings operation.
-Slack, Telegram, Webhook, and Teams have counters but no package operations.
-Deletion is not an approved cleanup path; keep an ordered quota.
+`pay: false`, checkout URLs, introspection, and a settings operation. Slack,
+Telegram, Webhook, and Teams have counters but no packages. Deletion is not
+an approved cleanup path; keep an ordered quota.
 
 ## Public surface
 
 Every operation has `Method(ctx, *MethodInput) (*MethodOutput, error)` and
 operation name `monitor.Method`. Empty Inputs accept nil. Required fields
-carry `vngcloud:"required"`; optional fields are values unless stated.
-These are complete operations, not partial updates. All reads fail with nil
-Output on any failed component; writes have explicit partial outputs below.
+carry `vngcloud:"required"`; optional fields are values unless stated. All
+reads fail with nil Output on any failed component; writes have explicit
+partial outputs below.
 
 `Kind string` is required for notification operations. Constants
-`NotificationKindEmail` and `NotificationKindSMS` are `Email` and `SMS`.
-Match case insensitively and map to fixed `email` or `sms` path segments;
-other kinds fail before requests. Gate each kind's operation independently.
+`NotificationKindEmail` and `NotificationKindSMS` are `Email` and `SMS`,
+matched case insensitively and mapped to fixed `email` or `sms` path
+segments; other kinds fail before requests. Gate each kind independently.
 
-Validate caller path IDs with `core.CheckPathID` before any request.
-Validate response-derived path IDs before the next request, returning a
-body-free `*vngcloud.APIError` for invalid peer data. This is a path shape
-check, not UUID validation. Package IDs are opaque list values used only in
-bodies; paid Email IDs need not be UUIDs. Never follow response URLs.
+Validate caller path IDs with `core.CheckPathID` before any request and
+response-derived path IDs before the next request, returning a body-free
+`*vngcloud.APIError` for invalid peer data; this is a shape check, not UUID
+validation. Package IDs are opaque list values used only in bodies; paid
+Email IDs are not UUIDs. Never follow response URLs.
 
 ### Check state and history
 
@@ -96,9 +94,9 @@ to End minus 24 hours. Convert to epoch milliseconds; reject a range empty
 or reversed at that precision. No invented server maximum range is imposed.
 Validate optional LocationID as an ID; no matching location is NotFound.
 
-Fetch one history response per selected alarm sequentially using the check's
-positive `TestFrequency` in minutes. Missing or nonpositive frequency is an
-invalid response, not an invented interval of 1. Check cancellation between
+Fetch one history response per selected alarm sequentially, sending
+`interval` as the check's `TestFrequency` in minutes when positive and
+omitting it otherwise; live, it changed nothing. Check cancellation between
 requests. Validate alarm IDs before routing, and reject history whose
 `alarm_id` conflicts with the requested alarm. Merge and sort by Timestamp,
 LocationID, AlarmID, then ID. Identical timestamps remain separate events.
@@ -108,8 +106,14 @@ OldState, NewState string`, `Timestamp time.Time`, and
 `SubAlarms []CheckSubAlarmState`; the latter has `State string` and
 `CurrentValues []float64`. Omit raw Reason, metrics, reason_date, and
 subAlarmExpression. No raw response map escapes. A failed location returns
-no partial history. Unknown paging and interval behavior gate a claim of
-complete history and its release; do not silently truncate or invent pages.
+no partial history. Empty Items means no transition inside the window;
+history carries no state forward, so current state comes from
+`GetCheckAlarm`. Live, 90-day windows returned whole with no paging keys,
+but only one transition existed, so Items is documented as the transitions
+the server returned, complete only if the server does not page (owner
+decision 9); never truncate or invent pages. An unknown alarm ID gets 200
+and an empty list; an unknown definition ID gets 500, returned as that
+`*APIError`, never NotFound.
 
 ### Quota reads
 
@@ -135,8 +139,9 @@ Empty Inputs: `GetQuotaUsage`, `GetSyntheticQuota`,
 - `Quota` has `ID, Name, Type, Status, PackageID string`,
   `StartTime, EndTime, CreatedAt, UpdatedAt time.Time`,
   `AutoRenew, POC, System bool`, and `AutoRenewPeriod int` (months).
-  AutoRenew and POC decode observed numeric 0/1 only; unknown encodings
-  fail closed. Constants `QuotaStatusActive` and `QuotaStatusInTrash`
+  AutoRenew and POC decode numeric 0 (live) as false and numeric 1 as
+  true (inferred from console truthiness, gated on evidence); any other
+  encoding fails closed. Constants `QuotaStatusActive` and `QuotaStatusInTrash`
   describe known statuses; reads preserve other status strings.
 - `SyntheticQuotaDetail` has `API, Location, Email, SMS, Slack, Webhook,
   Telegram, Teams int`, `ClassName, TierName string`, and `Price *float64`.
@@ -148,11 +153,10 @@ Empty Inputs: `GetQuotaUsage`, `GetSyntheticQuota`,
   Nil Price means absent or null, never free. Arrays have no observed pages.
 
 Notification quota and usage success schemas remain inferred. Do not ship
-those reads based only on Email 404s. A quota-read 404 means NotFound;
-a create may proceed only on the verified kind-specific absence response,
-not an arbitrary 404 from another route, auth proxy, or usage read. A renewal
-404 never falls back to create. Missing synthetic quota directs the user to
-the console because synthetic creation is outside this design.
+those reads based only on Email 404s. A quota-read 404 means NotFound; a
+create proceeds only on the verified kind-specific absence response, not a
+404 from another route, auth proxy, or usage read. A renewal 404 never
+falls back to create. A missing synthetic quota points to the console.
 
 ### Quote and price contract
 
@@ -168,9 +172,8 @@ Each `QuoteCreateNotificationQuota`, `QuoteRenewNotificationQuota`, and
 and ignores MaxPrice, MaxDaysLeft, and NoWait. Each named Output aliases
 `QuotaQuote`: `PackageID string`, `Quantity, MonthPeriod int`,
 `ResourceID string`, `ExpectedEndTime *time.Time`,
-`OptimumPrice, ListPrice, GuardPrice float64`, and `Currency string` (VND).
-Do not return opaque quote properties or URLs. A standalone quote is an
-estimate, never reusable authorization; a write quotes again.
+`OptimumPrice, ListPrice, GuardPrice float64`, and `Currency string` (VND),
+no opaque properties or URLs. A quote is an estimate, never authorization.
 
 Validate finite nonnegative MaxPrice, nonnegative MaxDaysLeft, and expiry
 syntax before requests. Reject duration arithmetic overflow. Resolve a
@@ -178,46 +181,57 @@ package once; an omitted PackageID selects exactly one present zero-price
 package. Unknown, duplicate, missing-price, or ambiguous candidates refuse
 before quote/order, after the necessary list read.
 
-**Exact-body gate:** prepare one immutable order body and quote that same
-body, then guard and send it unchanged, as `CreateLogProject` does. The
-observed console quote and order bodies differ. Neither accepting a union
-of their fields nor pricing the full order body is verified. All writes
-stay blocked until the manager establishes a supported exact-body contract
-with the correct package, quantity, resource, period, pay, and redirect
-semantics. Never quietly drop fields to make the quote pass. If the API
-cannot support this, return to owner and independent design review.
+**Order terms and quote mapping:** every write freezes one immutable set
+of order terms before any quote: kind, package ID, `monthPeriod` fixed at
+1, and for a renewal the quota ID, its package, and the frozen expiry. One
+builder per write maps those terms to its quote request and its mutation
+body (ADR 0002 rule 8 asks for shared construction; live, no quote
+endpoint accepts a mutation body).
+
+| Write | Quote request (from the terms) | Mutation body |
+|-|-|-|
+| Email or SMS create | `POST v2/{kind}/prices/created-price` `{redirectUrl:"", packageId, quantity:1}`; live for free and paid email | `POST v1/{kind}/quota` `{monthPeriod:1, packageId, redirectUrl, pay:true}` |
+| Email or SMS extension | The same v2 call plus `resourceId:<quota>`; console only | `POST v1/{kind}/quota/extend-time` `{monthPeriod:1, redirectUrl, pay:true}` |
+| Synthetic extension | `POST v2/synthetic/prices/created-price` `{redirectUrl:"", packageId, quantity:<detail API>, resourceId}`; live, 0 | `POST v2/synthetic/quota/extend-time` `{redirectUrl, monthPeriod:1, pay:true}` |
+
+The v2 quote ignores the period; the v1 query quote
+(`?package_id=&month_period=`) prices paid packages per month but 500s on
+free ones. At period 1 both agree on a paid package, so v2 is the price
+source (owner decision 10). Never add a quote-only field to a mutation
+body, drop a field to make a quote pass, or send any period but 1.
 
 Missing/null/negative/nonfinite prices fail closed as body-free API errors.
 A zero quote for a positive list price is `monitor.ErrUnpriced`, an alias
 of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
-quote and applicable list price and return `ErrPriceAboveMax` if exceeded.
-List and quote must cover the same quantity and one-month term. Synthetic
-writes cover only the verified free package with zero detail and quote
-prices. Missing package or uncertain price units never fall back to quote
-alone. Paid notification writes remain gated on debit/tax evidence; the
-higher observed price is conservative, not a proven all-in charge ceiling.
+quote and list price and return `ErrPriceAboveMax` if exceeded. List and
+quote must cover the same quantity and one-month term. Synthetic writes
+cover only the verified free package with zero detail and quote prices.
+Paid notification writes stay gated on debit/tax evidence; the higher
+observed price is conservative, not a proven all-in charge ceiling.
 
 ### Order and renewal execution
 
 Preparation reads packages and quota under the per-Client write lock. Create
-refuses an existing quota before quoting. Renew reads the current quota and
-compares EndTime to ExpectedEndTime as instants; mismatch is ErrInvalidInput
-and no quote/write. Positive MaxDaysLeft skips when expiry is further away,
-returning `Renewed: false`; reads still occur. Zero allows early renewal.
+refuses an existing quota before quoting. Renew compares the read EndTime
+to ExpectedEndTime as instants; a mismatch is ErrInvalidInput with no
+quote or write. Positive MaxDaysLeft skips a further-away expiry with
+`Renewed: false` after the reads; zero allows early renewal.
 
 Refuse POC, auto-renewing, unknown-status, missing-identity, or invalid-expiry
-quotas before quoting. The console path rule is expired AND IN-TRASH for
-recovery, otherwise extension. Do not invert it to status alone. Initially
-only evidenced ACTIVE extension is eligible; inconsistent, other-status,
-or gated recovery cases refuse without a write. If trash is absent from
-ordinary GET, recovery waits for a verified trash lookup contract. Never
-invent a resource from an empty trash list or use a quota-read 404 to buy.
+quotas before quoting. The console recovers only when expired AND IN-TRASH,
+otherwise extends; do not reduce that to status alone. Initially only
+evidenced ACTIVE extension is eligible; other-status or gated recovery
+cases refuse without a write. Recovery waits for a verified trash lookup
+contract; never invent a resource from an empty trash list.
 
-Immediately before send, reread quota identity, package, expiry, and status;
-for synthetic also recheck quantity. A change, including expiry crossing
-the recovery boundary, aborts without send. Do not silently rebuild or
-requote in a loop. No server precondition or price lock is known, so this
-narrows but cannot eliminate cross-client races or quote-to-debit changes.
+Immediately before send, reread and repeat the complete eligibility
+predicate on the fresh snapshot: quota identity, package, expiry equal to
+the frozen terms, status, `POC` false, `AutoRenew` false, and for synthetic
+the quantity; for create, the verified absence response again. Any change,
+including a newly enabled auto-renew, a flag that no longer decodes, or
+expiry crossing the recovery boundary, aborts without send. Do not rebuild
+or requote in a loop. No server precondition or price lock is known, so
+this narrows but cannot eliminate cross-client races or price changes.
 
 Send the evidenced body with `pay: true`, one month, and the fixed console
 redirect value. `Once: true` prevents retries on every status/error, token
@@ -247,16 +261,20 @@ possible send, or failed wait returns partial Output and an error wrapping
 `*vngcloud.APIError` status; `errors.Is` retains cause and sentinel identity.
 Never imply a failed read proves that an order did not happen.
 
-Hold a context-aware per-Client lock across preparation, send, and settlement.
-Remember unresolved mutation attempts by quota kind for that Client,
-including NoWait until read reconciliation succeeds. Further writes for
-that kind only reconcile by reading; they never resend an unresolved body.
-A failed or inconclusive reconciliation keeps the block. A known rejection
-clears it. A confirmed prior result clears the block and returns that result
-without a new send. Separate clients/processes have no shared ledger:
-callers serialize per
-account/kind and persist the attempt and baseline before invoking a write.
-This is not an exactly-once guarantee.
+Hold a context-aware per-Client lock across preparation, send, and
+settlement. Record each unresolved attempt, NoWait included, under an
+identity of operation (create or renew), kind, and frozen terms (package;
+for a renewal also quota ID and the expiry it extended from) until a read
+reconciles it. While a record is open, every write on that kind reads
+first and never resends. A matching call clears the record on a confirmed
+outcome and returns it, clears it on a known rejection and returns the
+error, and on an inconclusive read keeps it and returns `ErrNotSettled`. A
+different call on that kind (other operation, package, or baseline expiry)
+reconciles the same way, but a confirmed prior outcome then yields
+`ErrInvalidInput` naming that attempt and the changed state, never a send
+or a fulfilled result; the caller rereads and decides. Separate
+clients/processes share no ledger: callers serialize per account/kind and
+persist attempt and baseline before a write. This is not exactly-once.
 
 After uncertainty, compare read-only quota identity, package, status, and
 expiry with the saved baseline and inspect billing in the console. A 404 or
@@ -266,11 +284,10 @@ bypass the block. Cleanup, a replacement purchase, and a second renewal need
 separate authority. The monthly action uncertainty is defined in the API
 sibling; an automatic job must not use failures as retry signals.
 
-All reads and quotes use the existing configured finite retry count; there
-is no additional outer retry loop. Context cancellation stops retries and
-fan-out. Size/fan-out or decode failures become body-free APIError values
-with fixed local codes, inspectable with errors.As; no public internal
-transport sentinel is required. Unknown quota status on a write wraps the
+Reads and quotes use the existing finite retry count with no outer retry
+loop; cancellation stops retries and fan-out. Size, fan-out, or decode
+failures become body-free APIError values with fixed local codes,
+inspectable with errors.As. Unknown quota status on a write wraps the
 existing `monitor.ErrUnexpectedStatus` (UnexpectedStatus/1); unsupported
 kind/path or POC/auto-renew eligibility uses ErrInvalidInput before send.
 
@@ -279,10 +296,10 @@ kind/path or POC/auto-renew eligibility uses ErrInvalidInput before send.
 Register each method's kebab-case command in `monitorOps`. Quotes and GETs
 are Read; creates and renewals are Write. Read-only flag/environment refusal
 precedes config, and profile refusal follows config but precedes requests.
-No `--yes` is added: consent is finite `--max-price`, default 0, following
-existing paid creates. Help and a stderr cost warning before a positive-
-budget write state that `pay: true` may debit the balance and that MaxPrice
-is a local estimate guard, not a server-enforced cap. Do not prompt.
+No `--yes` is added: consent is finite `--max-price`, default 0, as for
+existing paid creates. Help and a stderr warning before a positive-budget
+write say `pay: true` may debit the balance and MaxPrice is a local guard,
+not a server cap. Do not prompt.
 
 String flags `--start`, `--end`, `--expected-end-time`, and `--kind`, int
 `--max-days-left`, float `--max-price`, bool `--no-wait`, and
@@ -302,10 +319,9 @@ needs a list read; only locally invalid inputs promise zero requests.
 
 ## Threat analysis
 
-These are design constraints for separate adversarial review; every new
-path is unimplemented. [API checks](monitor-quotas-api.md#deterministic-checks)
-owns the required probes. Existing file references identify inspected code,
-not a claim that the proposed operations already satisfy these invariants.
+Design constraints for separate adversarial review; every new path is
+unimplemented. [API checks](monitor-quotas-api.md#deterministic-checks) owns
+the probes. File references name inspected code, not satisfied invariants.
 
 - **Leaked token or account data, high.** Debug logs omit body/query at
   `internal/transport/transport.go:564`, but captures at line 550 otherwise
@@ -340,13 +356,15 @@ not a claim that the proposed operations already satisfy these invariants.
   new files, permissions, or token reuse rules. They do not defeat an
   attacker running as the same user. Test refusal before any network call
   and retain cache identity/permission regressions; no cleanup uses secrets.
-- **Concurrent or repeated charge, high.** Existing quote-body reuse is at
-  `monitor/logprojects_write.go:128`; Once behavior is at
-  `internal/transport/transport.go:308` and line 403. Require the pricing
-  gate, expiry precondition, lock through settlement, unresolved-attempt
-  block, and caller serialization. Test delayed visibility, two callers,
-  repeated same expiry, NoWait, cancellation, and a lost response. No
-  idempotency key, atomic price guard, or cross-process lock is evidenced.
+- **Concurrent or repeated charge, high.** Existing one-builder quoting is
+  at `monitor/logprojects_write.go:128`; Once behavior is at
+  `internal/transport/transport.go:308` and line 403. Require the frozen
+  terms mapping, expiry precondition, full eligibility re-check before
+  send, lock through settlement, operation-bound unresolved-attempt record,
+  and caller serialization. Test delayed visibility, two callers, repeated
+  same expiry, flag flips during quoting, changed baselines, create versus
+  renew after an unresolved attempt, NoWait, cancellation, and a lost
+  response. No idempotency key, price lock, or cross-process lock exists.
 
 ## Owner decisions
 
@@ -356,16 +374,27 @@ All remain proposed; approval cannot replace wire evidence.
    Synthetic extension and Email extension; gate SMS/paid/recovery separately.
 2. Time inputs: recommend RFC 3339 strings using existing flags instead of
    adding generic time.Time reflection support.
-3. Price safety: recommend exact-body pricing as a hard gate, the higher
-   comparable price as a local guard, and debit/tax evidence before paid
-   writes. If identical bodies are unsupported, revise the design explicitly.
+3. Price safety: recommend frozen order terms mapped by one builder per
+   write to its evidenced quote request and mutation body, the higher of
+   quote and list price as a local guard, and debit/tax evidence before
+   paid writes. Byte-identical bodies are unsupported and not required.
 4. Renewal consent: recommend required ExpectedEndTime and optional
    MaxDaysLeft; the former refuses stale requests, the latter supports cron.
-5. Repetition: recommend Once plus a per-Client unresolved-attempt block;
-   callers still serialize and reconcile across processes.
+5. Repetition: recommend Once, the full eligibility re-check before send,
+   and a per-Client unresolved-attempt record keyed by operation and frozen
+   terms with the reconciliation rules above; callers still serialize and
+   reconcile across processes.
 6. Scope: recommend keeping delete/purge and auto-renew out; no evidence
    proves deletion consumes an action or free auto-renew works.
 7. Output safety: recommend small state/history views, omit raw free-form
    text and unseen usage shapes, and enforce explicit local size bounds.
 8. Existing-quota create: recommend refusing before quote/order; a second
    order's effect is unknown and may charge again.
+9. History paging: recommend shipping history in release 1 with Items
+   documented as complete only if the server does not page (90-day windows
+   returned whole, no paging keys); the alternative waits for a
+   multi-transition alarm.
+10. Creation price source: recommend the v2 quote alone with the period
+    fixed at 1, as the console buy page does, bounded by the list price;
+    the alternative also requires the v1 query quote to agree for paid
+    packages. v1 returns 500 for free packages, so it cannot be the source.

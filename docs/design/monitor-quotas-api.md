@@ -70,9 +70,20 @@ Result: `{"data": [...]}`. Each item has digit-string `id`, `metrics[]`,
 `subAlarmExpression`, `sub_alarm_state`, `current_values[]`.
 
 One transition per alarm was observed in a six-hour window:
-UNDETERMINED to ALARM and UNDETERMINED to OK. No 24-hour, seven-day,
-pagination, maximum-range, interval-effect, or multi-page check is recorded.
-Those checks are outstanding, not completed read verification.
+UNDETERMINED to ALARM and UNDETERMINED to OK.
+
+**Live range probe** on one alarm with one transition in the last day:
+24-hour, 7-day, and 90-day windows each returned 200 with that one item,
+so no maximum range appeared up to 90 days. `interval=1`, `interval=60`,
+and no `interval` returned the same item. A reversed range returned 200
+with an empty list; the design still refuses it locally. A window with no
+transition returned empty: history reports only transitions inside the
+window, never the state at its start. An unknown alarm UUID on
+`/histories` returned 200 with an empty list, not 404. An unknown
+definition UUID on the `mona/{id}` read returned 500 with a `timestamp`
+and `message`, not 404; the SDK passes that error through. Paging and
+truncation remain unknown: no alarm had more than one transition and the
+response carries no paging keys.
 
 ## Billing reads
 
@@ -107,7 +118,8 @@ specs, unit; specs says maximum emails per month. No operation exposes it.
 **Live synthetic quota:** `GET v1/synthetic/quota` returns id, name, type
 SYNTHETIC_TEST, status ACTIVE, packageId, startTime, endTime, createdAt,
 updatedAt, system false, autoRenew 0, autoRenewPeriod 0, poc 0. Time strings
-use RFC 3339 with +00:00. Nonzero flags and other statuses need evidence.
+use RFC 3339 with +00:00. The zero flag values are live evidence; a
+nonzero encoding is inferred from console truthiness and stays gated.
 `GET v1/synthetic/quota/usages` returns
 `{usage:{api,location,email,sms,slack,webhook,telegram,teams},description}`;
 description maps counter names to `{name,specs,unit}`.
@@ -153,11 +165,29 @@ retry loop. All paths below are relative to `billing-api/`.
   with query `month_period=1`, null body, returned 500. Do not use it.
 
 Similar price keys permit a private decoder patterned on the log project
-quote, but missing/null optimumPrice must never mean free. No evidence
-shows these quote endpoints accept the exact order bodies below, or that
-adding quote-only fields to an order is safe. The design's exact-body gate
-therefore blocks writes, including free writes. Preserve both observed
-bodies in evidence; do not relabel them as identical after sharing a helper.
+quote, but missing/null optimumPrice must never mean free.
+
+**Live quote probe** (quotes only, no order sent):
+
+- The v2 Email quote returned 500 for the create body
+  `{monthPeriod:1, packageId, redirectUrl, pay:true}`, free or paid. With
+  `quantity:1` added it returned 200; `monthPeriod` 1 or 3 priced the same
+  100000. The v2 quote ignores the period. `{redirectUrl:"", packageId,
+  quantity:1}` priced emailfree 0 and email5k 100000.
+- The v1 query quote `POST v1/email/prices/created-price?package_id=
+  <id>&month_period=<n>` with a null body returned, for email5k and period
+  1, `{originalCost 100000, discountCost 0, discountRatio 0.0,
+  discountPercent "0.00 %", totalCost 100000, packagePrice 100000,
+  originalPackagePrice 100000}`; period 3 returned totalCost 300000. It
+  returned 500 for emailfree and for smsfree, and 400 "The email package
+  does not exist." for an unknown package.
+- The v2 synthetic quote returned 400 "packageId: must not be null" for the
+  extension body `{redirectUrl, monthPeriod:1, pay:true}`.
+
+No quote endpoint accepts a mutation body. The design therefore maps one
+frozen set of terms to each quote request and mutation body; at period 1
+the v1 and v2 quotes agree on a paid package, and v2 is the price source.
+Preserve both observed bodies; never relabel them as identical.
 
 ## Console writes and unresolved semantics
 
@@ -229,8 +259,9 @@ Required fixture families, all decoded through the public SDK:
 - Composite usage, Email and SMS package lists, synthetic quota/detail/usage
   and package list, Email quota and usage 404s.
 - Email free and paid quote responses and synthetic renewal quote.
-- Gated per-kind quota/usage successes, exact-body quote responses, and
-  each create/extend/recover success. Never reuse Email proof for SMS.
+- Email v2 quotes for the free and a paid package, the v1 paid quote at
+  periods 1 and 3, gated per-kind quota/usage successes, and each
+  create/extend/recover success. Never reuse Email proof for SMS.
 
 Check required-key presence, not just json.Unmarshal success: null or empty
 bodies cannot be a zero-valued success. Sanitation must keep valid route IDs
@@ -263,12 +294,15 @@ file assignments, wiki generation, and acceptance order.
   quota/detail identities and absence versus unknown endpoint 404s.
 - Pricing: opaque package IDs, absent/null/negative/nonfinite prices,
   duplicate/unknown packages, ambiguous free default, invalid MaxPrice with
-  zero requests, and synthetic quantity from capacity. Freeze one body:
-  quote/order JSON equality, no mutated caller Input or later catalog read
-  changes it. Compare 100000 quote/110000 list at both budgets; free zero
-  passes and zero quote on a priced package is Unpriced. Standalone quote
-  ignores write-only controls and never sends an order.
-- Writes: every supported exact body and success status, 400/401/403/404/
+  zero requests, and synthetic quantity from capacity. Freeze one set of
+  terms: the builder's quote request and mutation body both derive from
+  it, `monthPeriod` is always 1, no mutated caller Input or later catalog
+  read changes either, and no quote-only field reaches a mutation body.
+  Decode the v2 response failing closed on a missing total. Compare 100000
+  quote/110000 list at both budgets; free zero passes and zero quote on a
+  priced package is Unpriced. Standalone quote ignores write-only controls
+  and never sends an order.
+- Writes: every supported mutation body and success status, 400/401/403/404/
   409/429, 500/502/503/504, dial failure, disconnect after send, cancellation,
   malformed/oversized 2xx, and every redirect including 307/308. Each makes
   at most one mutation attempt; 401 must not refresh and resend. Unseen
@@ -278,6 +312,9 @@ file assignments, wiki generation, and acceptance order.
   threshold, expiry crossing during quote, ACTIVE extension, expired AND
   IN-TRASH recovery only when gated evidence permits it. No creation on 404,
   no guessed trash lookup, and no POC/auto-renew/unknown-status mutation.
+  The pre-send reread repeats the whole predicate: a snapshot that changes
+  only `autoRenew` or `poc` during quoting, or whose flag stops decoding,
+  aborts with no send; for create, a quota appearing during quoting aborts.
 - Wait/uncertainty: selected package and identity checks, unchanged expiry
   despite ACTIVE, leaving trash without extension, delay, read error, hard
   deadline during a slow request, cancellation, NoWait, and paymentUrl.
@@ -286,6 +323,11 @@ file assignments, wiki generation, and acceptance order.
 - Concurrency: lock wait cancellation, delayed visibility, concurrent create
   versus renewal, two same-expiry renewals, repeated unresolved and NoWait
   calls, and read reconciliation that stays unknown. Assert no second send.
+  Attempt identity: after an unresolved renewal from E, a renewal with
+  baseline E1 and a create on that kind each reconcile first and, once the
+  prior renewal is confirmed, return ErrInvalidInput naming it, not
+  `Renewed: true` or a new send; a matching renewal from E returns the
+  confirmed outcome; an inconclusive read returns ErrNotSettled for both.
   A separate-client simulation documents the residual race, not a guarantee.
 - Security: sent tokens in successful strings, status/code/error text,
   malformed timestamp, nested JSON, paymentUrl, links, dimensions, and
@@ -308,13 +350,14 @@ private manager probes; after implementation, separately approve SDK live
 verification. Do not require an unimplemented SDK to produce its own inputs.
 
 1. Read prerequisites: obtain existing raw fixtures and inspect all required
-   fields/types. Outstanding history checks need approval for 24-hour and
-   seven-day multi-location ranges, interval comparisons, and paging or
-   truncation evidence. Do not rerun already captured reads without need.
-2. Pricing prerequisites: test quotes with the exact candidate create or
-   renewal body and establish its semantics for package, quantity, resource,
-   period, pay, and redirect. Acceptance alone does not prove all fields
-   affect price. Do not try an order if its pricing correspondence is unknown.
+   fields/types. The range, interval, reversed-range, empty-window, and
+   unknown-ID probes are done. Paging stays unknown until an alarm holds
+   more than one transition; the read ships with that documented limit
+   under owner decision 9. Do not rerun captured reads without need.
+2. Pricing prerequisites: done for Email (v2 free and paid, v1 paid at
+   periods 1 and 3, v1 500 on free). Still open: the SMS v2 quotes and the
+   Email extension quote with `resourceId`. Do not try an order whose
+   quote mapping is unestablished.
 3. Free Email: approve a single emailfree order using the evidenced body and
    fixed redirect. Do not waste a mutation testing omission of redirectUrl.
    Capture status, response, settled quota and usage, and debit if any. Keep
@@ -335,6 +378,6 @@ verification. Do not require an unimplemented SDK to produce its own inputs.
    protection without this. Confirm budget accounting without exhausting it.
 
 No listed check is declared complete beyond the responses in the evidence
-sections. Root-cause delivery, write response/status, exact-body pricing,
-paid debit, renewal arithmetic, trash lookup/recovery, monthly accounting,
-and history completeness remain open.
+sections. Root-cause delivery, write response/status, SMS and extension
+quotes, paid debit, renewal arithmetic, trash lookup/recovery, monthly
+accounting, and history paging remain open.
