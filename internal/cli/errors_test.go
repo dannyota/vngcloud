@@ -1010,3 +1010,23 @@ func TestMonitorQuotaLifecycleErrorIdentities(t *testing.T) {
 		}
 	}
 }
+
+func TestIAMResetOutcomeAndFilePrecedence(t *testing.T) {
+	for _, outcome := range []error{iam.ErrUserWriteUncertain, iam.ErrNotSettled} {
+		for _, status := range []int{401, 404} {
+			cause := &vngcloud.APIError{StatusCode: status}
+			err := errors.Join(outcome, cause)
+			want := "RequestFailed"
+			if errors.Is(outcome, iam.ErrNotSettled) {
+				want = "NotSettled"
+			}
+			if exitCode(err) != 1 || classify(err).Code != want {
+				t.Fatalf("wrong outcome precedence: %v", err)
+			}
+			fileErr := fmt.Errorf("wrapped: %w", resetPasswordFileError{msg: "persistence failed", outcome: err})
+			if exitCode(fileErr) != 1 || classify(fileErr).Code != "SecretFileFailed" || !errors.Is(fileErr, outcome) {
+				t.Fatal("file failure lost precedence or outcome")
+			}
+		}
+	}
+}

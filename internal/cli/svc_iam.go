@@ -50,6 +50,7 @@ import (
 var iamOps = []Op[iam.Client]{
 	Read("get-user", (*iam.Client).GetUser),
 	iamCreateUserOp(),
+	iamResetUserPasswordOp(),
 	Write("delete-user", (*iam.Client).DeleteUser, Destructive()),
 	Read[iam.Client, iam.GetCallerIdentityInput, iam.GetCallerIdentityOutput](
 		kebab("GetCallerIdentity"), (*iam.Client).GetCallerIdentity),

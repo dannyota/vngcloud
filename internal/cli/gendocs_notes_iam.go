@@ -211,3 +211,29 @@ const iamDeleteUserNote = "Requires --yes. Refuses the caller's own user (SelfCh
 const iamListUsersNote = "--name adds the server's observed case-insensitive substring filter; " +
 	"compare exact usernames and IDs before reconciliation. A name match proves current state only, " +
 	"never ownership of a create or its password. Paging remains one zero-based page, with default size 10000."
+
+const iamResetUserPasswordNote = "Requires --yes, --user-id, and exactly one of --password-file <path> " +
+	"(or - for stdin) and --secret-file <new-path>. Password cannot be supplied through argv or JSON. " +
+	"--password-length applies only to generation: 8 to 50, default 32, with uppercase, lowercase, digits, " +
+	"and @. Uses create-user's private regular-file and bounded stdin rules, including the 30-second " +
+	"deadline and refusal to share stdin with file:// JSON. Read-only refuses before password input. " +
+	"Refuses self (SelfChange), root or unknown callers and protected users (PrivilegedChange), and " +
+	"unproven IAM origin or mismatched target IDs (RequestFailed). Protection includes direct and group IAM " +
+	"write rights. Guard reads require permission and fail closed; checks and writes are not atomic. " +
+	"Sends at most one POST, with no confirmation, automatic sign-in, rollback, or cleanup. Accepted reset " +
+	"has no undo; treat the old password as unusable after acceptance and potentially unusable after an " +
+	"uncertain send. Session and token revocation remain unknown. Generated passwords are saved exclusively " +
+	"at mode 0600, including accepted response failures (NotSettled) and uncertain sends (RequestFailed). " +
+	"Both outcomes exit 1 before nested 401/404 errors. Generated success prints redacted Password and the " +
+	"saved SecretFile; supplied mode prints neither. Errors print no partial object and report whether the " +
+	"password was saved. SecretFileFailed retains outcome identity, sends no further request, and names " +
+	"manual reset-user-password --user-id <user-id> --secret-file <fresh-private-path> --yes recovery. " +
+	"Coordinate a deliberate new reset with the user and other administrators. Removal failure warns that " +
+	"a partial password file may remain. Use a trusted private directory; process termination before " +
+	"persistence can lose the generated password. See [IAM](IAM.md#reset-user-password)."
+
+func init() {
+	docOpNotes["iam reset-user-password"] = iamResetUserPasswordNote
+	docExampleOverride["iam reset-user-password"] = "vngcloud iam reset-user-password --user-id <user-id> " +
+		"--secret-file <private-directory>/password --yes"
+}

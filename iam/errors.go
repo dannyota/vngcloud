@@ -36,7 +36,9 @@ var ErrNoSecret = errors.New("iam: no client secret returned")
 // from Output.ClientSecret, or delete the account by Output.ServiceAccount.ID.
 var ErrCreateUnconfirmed = errors.New("iam: created but not confirmed by a read")
 
-// ErrNotSettled is returned by CreatePolicy, UpdatePolicy, CreateGroup, and
+// ErrNotSettled also reports accepted password reset response failures,
+// retaining any generated password without a confirmation read.
+// It is returned by CreatePolicy, UpdatePolicy, CreateGroup, and
 // UpdateGroup when their own write reached the server, but the read that
 // confirms it and fills in the rest of the Policy or Group failed. The write
 // already happened either way: Output still carries the resource's ID.
@@ -71,3 +73,7 @@ var ErrOriginNotIAM = errors.New("iam: refused: target IAM origin is unproven")
 // an attributable ID. A candidate proves no ownership; never retry or clean
 // it up automatically. Partial output retains any generated password.
 var ErrUserCreateUncertain = errors.New("iam: user create outcome is uncertain")
+
+// ErrUserWriteUncertain means an administration write may have reached the
+// server. Never repeat it automatically; retain any generated password.
+var ErrUserWriteUncertain = errors.New("iam: user write outcome is uncertain")

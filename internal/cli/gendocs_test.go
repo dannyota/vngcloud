@@ -1209,9 +1209,30 @@ func TestGenDocsIAMUserBase(t *testing.T) {
 			t.Errorf("missing IAM user guidance: %s", want)
 		}
 	}
-	for _, absent := range []string{"## reset-user-password", "## rename-user", "## enable-user-mfa", "## disable-user-mfa"} {
+	for _, absent := range []string{"## rename-user", "## enable-user-mfa", "## disable-user-mfa"} {
 		if strings.Contains(string(data), absent) {
 			t.Errorf("unreleased command: %s", absent)
 		}
+	}
+}
+
+func TestGenDocsIAMResetPassword(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-IAM.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := genDocsSection(t, string(data), "reset-user-password")
+	for _, want := range []string{"--yes", "--password-file", "--secret-file", "--password-length", "NotSettled", "fresh-private-path", "revocation remain unknown", "no further request"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	example := genDocsExampleBlock(t, section)
+	if !strings.Contains(example, "--secret-file <private-directory>/password --yes") {
+		t.Fatal("reset example missing generation or consent")
 	}
 }

@@ -93,6 +93,73 @@ bounded: get 256 KiB, list 4 MiB, and create/delete 64 KiB. Oversized bodies
 fail instead of decoding a truncated prefix. Public list paging and output
 remain unchanged. The [CLI reference](CLI-IAM.md#create-user) lists flags.
 
+## Reset user password
+
+`ResetUserPassword` takes `ResetUserPasswordInput` with a required `UserID`
+and either a supplied `Password` (`vngcloud.Secret`) or generation through
+`PasswordLength`. Empty `Password` selects generation with the same length
+and character rules as create. Supplied values are never returned.
+`ResetUserPasswordOutput.Password` retains only a generated password.
+Inspect both output and error, and save every non-empty generated value even
+when the SDK reports a partial outcome. Never log `Reveal()`.
+
+```sh
+vngcloud iam reset-user-password --user-id <user-id> \
+  --secret-file <private-directory>/password --yes
+vngcloud iam reset-user-password --user-id <user-id> --password-file - \
+  --yes < <private-directory>/password
+```
+
+Reset requires `--yes` and exactly one password source. `--password-length`
+is only for generation. File and stdin rules match create, including private
+regular files, the 4096-byte cap, a 30-second stdin deadline, and no password
+in argv or JSON. Read-only refuses before password input or generation.
+Generated success prints redacted `Password` and the saved `SecretFile`;
+supplied mode prints neither field. Errors print no partial object.
+
+The SDK validates input, then requires a classified caller and refuses its
+own IAM user before reading the target. The target must have the requested
+ID and `From == "iam"`. Reset also refuses users protected by direct or group
+policies granting IAM write rights. Root and unknown callers fail closed.
+Guard reads need permission; malformed or incomplete reads refuse the write.
+No flag bypasses guards. The server must authorize the reset, and guard
+checks and the write are not atomic.
+
+Reset sends at most one POST with a 64 KiB response cap. A clean 204 means
+acceptance. `iam.ErrNotSettled` means 204 was observed but response handling
+failed; `iam.ErrUserWriteUncertain` means the reset may have reached the
+server without confirmed acceptance. Both retain generated passwords and
+always exit 1, including with nested 401 or 404 errors. The CLI uses
+`NotSettled` and `RequestFailed`, respectively, and reports whether the
+password was saved. Definite 4xx rejection returns no password or file.
+
+The CLI saves a generated password on either partial outcome using the same
+exclusive private-file rules as create. `SecretFileFailed` preserves any
+outcome sentinel, distinguishes accepted from uncertain reset, and names the
+validated input user ID and a manual command with a fresh private path:
+
+```sh
+vngcloud iam reset-user-password --user-id <user-id> \
+  --secret-file <fresh-private-path> --yes
+```
+
+No request follows a persistence failure. Only a partial file created by this
+call is removed; failed removal warns that secret bytes may remain. An
+existing destination is never overwritten or removed. A saved password
+survives output-rendering failures. Process termination before persistence
+can lose the generated password. Use a trusted private directory and protect
+saved files; clearing buffers does not securely erase process memory.
+
+Accepted reset has no undo: treat the old password as unusable after
+acceptance and potentially unusable after an uncertain send. A user read
+cannot prove which password works. Coordinate any deliberate later reset
+with the user and other administrators because it invalidates another
+password. The tool never retries automatically, signs in as the target,
+rolls back, deletes the user, or changes profiles or token caches. Previously
+issued session and token revocation, forced password change, and MFA
+interaction remain unverified. Reset is not a session-revocation mechanism.
+See the [CLI reference](CLI-IAM.md#reset-user-password) for flags.
+
 ## Service account writes
 
 ```go
@@ -260,7 +327,7 @@ policy attached, or with a protected principal as a member.
 | `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account, or `DeleteGroup` targets a group with a member or a policy |
 | `iam.ErrNoSecret` | A create or reset response reported success but carried no client secret |
 | `iam.ErrCreateUnconfirmed` | A create succeeded but the read-back that confirms it failed |
-| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID |
+| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID. For `ResetUserPassword`, acceptance was observed but response handling failed; Output retains a generated password |
 
 None of these sentinels name the policy, statement, or action involved, and
 there is no way to turn any guard off; make such a change from the IAM

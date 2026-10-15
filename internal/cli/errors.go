@@ -200,6 +200,13 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	var resetFileErr resetPasswordFileError
+	if errors.As(err, &resetFileErr) {
+		return errorEnvelope{Code: "SecretFileFailed", Message: err.Error()}
+	}
+	if errors.Is(err, iam.ErrUserWriteUncertain) {
+		return errorEnvelope{Code: "RequestFailed", Message: err.Error()}
+	}
 	if errors.Is(err, iam.ErrUserCreateUncertain) || errors.Is(err, iam.ErrCreateUnconfirmed) || errors.Is(err, iam.ErrOriginNotIAM) {
 		return errorEnvelope{Code: "RequestFailed", Message: err.Error()}
 	}
@@ -555,6 +562,10 @@ func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.AP
 // credentials and every login failure exit 3. A not-found result exits 4.
 // Every remaining usage or config problem exits 2. Anything else exits 1.
 func exitCode(err error) int {
+	var resetFileErr resetPasswordFileError
+	if errors.As(err, &resetFileErr) || errors.Is(err, iam.ErrUserWriteUncertain) {
+		return 1
+	}
 	if errors.Is(err, iam.ErrUserCreateUncertain) || errors.Is(err, iam.ErrCreateUnconfirmed) || errors.Is(err, iam.ErrOriginNotIAM) {
 		return 1
 	}
