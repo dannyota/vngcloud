@@ -14,6 +14,10 @@ import (
 )
 
 type APIError struct {
+	// KeptObservedStatus marks only an opted-in response body read or close
+	// failure, whose mapped SDK sentinel must retain the sanitized cause.
+	KeptObservedStatus bool
+
 	Operation  string
 	StatusCode int
 	Code       string

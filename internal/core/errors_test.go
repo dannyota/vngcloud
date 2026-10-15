@@ -7,6 +7,8 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -237,5 +239,71 @@ func TestServiceAccountLoginErrorMessageAndUnwrap(t *testing.T) {
 	}
 	if ErrTokenCache.Error() != "vngcloud: token cache unavailable" || errors.Is(ErrTokenCache, ErrAuth) || errors.Is(ErrTokenCache, ErrInvalidConfig) || errors.Unwrap(ErrTokenCache) != nil {
 		t.Fatal("cache error exposes another cause")
+	}
+}
+
+func TestWrapTransportObservedCause(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 429, 201} {
+		for _, marked := range []bool{false, true} {
+			cause := &url.Error{Op: "read", URL: "http://localhost/", Err: context.Canceled}
+			terr := &transport.APIError{Operation: "iam.Read", StatusCode: status, Code: "Fixed", Message: "safe", Retryable: true, Err: cause, KeptObservedStatus: marked}
+			err := wrapTransportErr(terr)
+			var api *APIError
+			if !errors.As(err, &api) {
+				t.Fatalf("status %d: APIError lost", status)
+			}
+			sentinel := mapStatusError(status)
+			wantCause := marked || sentinel == nil
+			var network *url.Error
+			if errors.As(err, &network) != wantCause || errors.Is(err, context.Canceled) != wantCause {
+				t.Errorf("status %d, marked %t: cause mapping changed", status, marked)
+			}
+			if sentinel != nil && !errors.Is(err, sentinel) {
+				t.Errorf("status %d: sentinel lost", status)
+			}
+			if api.StatusCode != status || api.Code != terr.Code || api.Message != terr.Message || api.Operation != terr.Operation || api.Retryable != terr.Retryable {
+				t.Errorf("status %d: fields changed", status)
+			}
+			terr.Err = nil
+			var without *APIError
+			if !errors.As(wrapTransportErr(terr), &without) || !errors.Is(without.Err, sentinel) || errors.Unwrap(without.Err) != nil {
+				t.Errorf("status %d: nil cause mapping changed", status)
+			}
+		}
+	}
+}
+
+func TestWrapTransportOverflowChain(t *testing.T) {
+	for _, status := range []int{201, 401, 403, 404, 429} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("synthetic-body-canary"))
+		}))
+		for _, keep := range []bool{false, true} {
+			c := transport.New(transport.Config{HTTPClient: server.Client()})
+			got, terr := c.DoJSONStatus(context.Background(), transport.Request{URL: server.URL, OK: []int{201}, MaxBody: 1, KeepObservedStatus: keep}, nil)
+			if got != status {
+				t.Errorf("status = %d, want %d", got, status)
+			}
+			err := wrapTransportErr(terr)
+			if status == 201 {
+				if !errors.Is(err, transport.ErrBodyTooLarge) {
+					t.Errorf("error = %v, want overflow", err)
+				}
+				continue
+			}
+			var api *APIError
+			var transportAPI *transport.APIError
+			if !errors.As(terr, &transportAPI) || transportAPI.KeptObservedStatus {
+				t.Fatal("overflow marked as a body failure")
+			}
+			if !errors.As(err, &api) || api.StatusCode != status || !errors.Is(api.Err, mapStatusError(status)) || errors.Unwrap(api.Err) != nil {
+				t.Fatalf("overflow chain changed: %v", err)
+			}
+			if strings.Contains(err.Error(), "canary") {
+				t.Error("overflow leaked body")
+			}
+		}
+		server.Close()
 	}
 }

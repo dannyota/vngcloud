@@ -14,8 +14,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 type Token struct {
@@ -143,6 +141,17 @@ type Request struct {
 
 	StrictJSON bool // Reject duplicate keys and aliases for the same struct field.
 
+	// KeepObservedStatus retains the HTTP status on response body read or close
+	// failures. Unset requests keep status zero for those failures.
+	KeepObservedStatus bool
+
+	// AllowEmptyBody skips JSON validation and decoding for zero-byte success bodies.
+	AllowEmptyBody bool
+
+	// BodyWasEmpty is reset for each JSON call and reports an allowed empty body.
+	// The pointer belongs to one call and must not be shared.
+	BodyWasEmpty *bool
+
 	// BodyLimitOverridesStatus returns ErrBodyTooLarge on overflow even for
 	// HTTP errors. The observed status is still returned, so the caller can
 	// apply a contract that gives body overflow precedence over status mapping.
@@ -241,6 +250,9 @@ func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, e
 }
 
 func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client *http.Client) (int, error) {
+	if req.BodyWasEmpty != nil {
+		*req.BodyWasEmpty = false
+	}
 	if req.Method == "" {
 		req.Method = http.MethodGet
 	}
@@ -262,26 +274,7 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 	if !containsStatus(req.OK, statusCode) {
 		return statusCode, decodeError(req, statusCode, body)
 	}
-	if out != nil && (len(body) > 0 || req.StrictJSON) {
-		var err error
-		if req.StrictJSON {
-			err = jsonresponse.ValidateStrict(body, out)
-		}
-		if err == nil {
-			err = json.Unmarshal(body, out)
-		}
-		if err != nil {
-			if req.discovery {
-				return statusCode, &APIError{Operation: req.Operation, StatusCode: statusCode, Code: "InvalidResponse", Message: "response failed to decode; body withheld"}
-			}
-			if req.Sensitive {
-				// Sensitive responses withhold validation and decode error details.
-				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
-			}
-			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeDecodeError(err)}
-		}
-	}
-	return statusCode, nil
+	return decodeSuccessBody(req, statusCode, body, out)
 }
 
 // DoRaw sends req and returns the response's status, its Content-Type
@@ -327,8 +320,6 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 
 	statusCode, contentType, body, sent, err := c.send(ctx, req, client)
 	if err != nil {
-		// statusCode carries a real value only for ErrBodyTooLarge (see its
-		// doc comment); every other error path in send leaves it 0.
 		return statusCode, "", nil, err
 	}
 	if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {
@@ -533,10 +524,12 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
 		if readErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(readErr, req.redactValues())}
+			failure := bodyFailure(req, resp.StatusCode, readErr)
+			return failure.StatusCode, "", nil, sentToken, failure
 		}
 		if closeErr != nil {
-			return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: sanitizeNetworkError(closeErr, req.redactValues())}
+			failure := bodyFailure(req, resp.StatusCode, closeErr)
+			return failure.StatusCode, "", nil, sentToken, failure
 		}
 
 		// A non-idempotent request retries only on 429: the server has not

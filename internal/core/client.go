@@ -367,6 +367,8 @@ func wrapTransportErr(err error) error {
 	}
 	if apiErr.Err == nil {
 		apiErr.Err = terr.Err
+	} else if terr.KeptObservedStatus && terr.Err != nil {
+		apiErr.Err = errors.Join(apiErr.Err, terr.Err)
 	}
 	return apiErr
 }
