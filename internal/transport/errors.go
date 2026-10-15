@@ -400,14 +400,25 @@ func jsonEscapedForm(v string) string {
 // secret key. Normalizing punctuation and case also covers nested JSON text;
 // withholding the whole string avoids guessing where an untrusted value ends.
 func redactCredentialKeys(text string) string {
-	var key strings.Builder
+	const key = "clientsecret"
+	// Match the normalized stream without allocating a copy of peer text.
+	// The internal 'c' is the marker's only nonempty repeated prefix.
+	prefix := [len(key)]int{8: 1}
+	matched := 0
 	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			key.WriteRune(unicode.ToLower(r))
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			continue
 		}
-	}
-	if strings.Contains(key.String(), "clientsecret") {
-		return redactedText
+		r = unicode.ToLower(r)
+		for matched > 0 && r != rune(key[matched]) {
+			matched = prefix[matched-1]
+		}
+		if r == rune(key[matched]) {
+			matched++
+			if matched == len(key) {
+				return redactedText
+			}
+		}
 	}
 	return text
 }

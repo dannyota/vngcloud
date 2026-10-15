@@ -18,4 +18,4 @@ permission, cost, and resource gates still apply.
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
 - [ ] Bound the IAM user login page and token responses, which `internal/iamuser/login.go` reads with `io.ReadAll`; a hostile or broken sign-in host can exhaust memory. [Security rules](instructions/security.md).
-- [ ] Investigate intermittent `TestRedactionBoundedHTTPErrorCost` failures and make the bounded-work check deterministic without weakening its guarantee. [Test rules](instructions/testing.md#test-design).
+- [ ] Address the remaining scheduler sensitivity in `TestRedactionBoundedHTTPErrorCost`'s elapsed-time assertion without weakening the bounded-work guarantee. Credential-key normalization now has deterministic allocation regressions. [Test rules](instructions/testing.md#test-design).

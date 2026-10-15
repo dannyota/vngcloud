@@ -30,6 +30,9 @@
   learned by earlier guard requests before reusing them. This also prevents
   password-reset requests from putting a newly learned credential in the
   target URL.
+- Credential-key redaction scans large HTTP errors without allocating a
+  normalized copy of the response. Unicode matching, redacted output, error
+  identities, and the existing timing limit remain unchanged.
 - Live verification passed the Google enable/disable and no-op cycle,
   retained factor verification, attributable user deletion, and quota
   restoration. Password reset remained disabled for this run.
