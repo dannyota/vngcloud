@@ -115,5 +115,8 @@ generation, create, private temporary secret-file persistence, get, filtered
 list, self refusal with no DELETE, guarded delete, and only separately opted-in
 [administration live checks](iam-users-admin-api.md#live-checks) on the same
 user. Register cleanup before create using a ledger, never a name-based delete;
-on uncertain ownership, report a leftover and stop. Remove temporary secrets
+on uncertain ownership, report a leftover and stop. Cleanup deletes only this
+run's `CreatedID` through `DeleteUser`, with no attachment precheck: the server
+decides about attachments, and a 409 or any other failure is reported as a
+leftover, never retried by name. Remove temporary secrets
 and emit only fixed labels, statuses, counts, and booleans.
