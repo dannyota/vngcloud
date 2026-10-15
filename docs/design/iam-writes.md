@@ -129,21 +129,20 @@ No flag or Input field turns a guard off; such changes stay a console task.
 A guard read that comes back incomplete or unprovable refuses instead of
 guessing: an account action list naming no write action, or an attachment
 page whose item count does not match its own reported total, is treated as
-a failed read, never as evidence that nothing is privileged. A policy with
-no statements at all is privileged. So is each of these statements, since
-none proves the document safe: a null statement; a statement whose effect,
-compared case-insensitively, is neither `allow` nor `deny`; and an `allow`
-statement whose action list is missing, null, or empty. The shipped
-`statementsArePrivileged` still reads those as grants that match nothing;
-the correcting patch ships separately, with adversarial review, before any
-new guarded operation reuses the check. A group
-whose `mode` is not exactly `iam`, missing included, or whose own response
-carries a member-holding field besides `iamUsers`, is unprovable the same
-way: every guard that reads a group object refuses it outright (the
-user-groups list only feeds the privilege check), since the design
-excludes idp groups entirely (see [Non-goals](#non-goals)) and a member list
-under a name the guard does not recognize could otherwise hide a protected
-member.
+a failed read, never as evidence that nothing is privileged. Guard reads
+refuse duplicate keys and oversized bodies before decoding (see
+[bodies](iam-writes-api.md#bodies)). A policy with no statements is
+privileged, and so is each decoded statement that proves nothing safe: a
+null statement; an effect that, compared case-insensitively, is neither
+`allow` nor `deny`, including one the API has not defined yet; and an
+`allow` statement whose action list is missing, null, or empty. A `deny`
+statement is ignored. A group whose `mode` is not exactly `iam`, missing
+included, or whose own response carries a member-holding field besides
+`iamUsers`, is unprovable the same way: every guard that reads a group
+object refuses it outright (the user-groups list only feeds the privilege
+check), since the design excludes idp groups entirely (see
+[Non-goals](#non-goals)) and a member list under a name the guard does not
+recognize could otherwise hide a protected member.
 
 A caller whose own type is a service account (`user-sa` or `service-sa`)
 refuses every service-account-targeted write, not only one against its own

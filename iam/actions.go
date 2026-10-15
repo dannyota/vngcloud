@@ -27,10 +27,12 @@ func (c *Client) ListActions(ctx context.Context, in *ListActionsInput) (*ListAc
 	q.Set("product", "iam")
 	actions := []Action{}
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL([]string{"actions"}, q),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL([]string{"actions"}, q),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardListMaxBody,
 	}
 	if err := c.c.DoJSON(ctx, req, &actions); err != nil {
 		return nil, err
