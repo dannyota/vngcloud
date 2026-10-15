@@ -1,0 +1,23 @@
+{
+  "createdAt": 1760000000000,
+  "enabled": true,
+  "from": "iam",
+  "id": "00000000-0000-4000-8000-000000000001",
+  "lastUse": 1760000100000,
+  "twoFactorAuth": {
+    "email": {
+      "address": null,
+      "enabled": false,
+      "verified": false
+    },
+    "googleAuthenticator": {
+      "enabled": false,
+      "verified": false
+    },
+    "sms": {
+      "enabled": false,
+      "verified": false
+    }
+  },
+  "username": "vngcloud-probe-0000aaaa"
+}
