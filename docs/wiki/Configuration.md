@@ -101,6 +101,27 @@ that appears in neither file is an error naming it. The
 credentials file has no access token key: a static token comes only from
 `WithStaticToken` or `VNGCLOUD_ACCESS_TOKEN`.
 
+### IAM user profile
+
+An IAM user signs in with the root account email, its username, and its
+password. Creation grants no access by itself; attach the permitted policies
+or group memberships separately. Account MFA and other controls still apply;
+`create-user` enrols no factor.
+
+```sh
+vngcloud --profile agent configure set region <region>
+vngcloud --profile agent configure set root_email <root-email>
+vngcloud --profile agent configure set username <username>
+vngcloud --profile agent configure set password - \
+  < <private-directory>/password
+vngcloud --profile agent configure set read_only 1
+```
+
+Set `read_only` last because it refuses later configuration writes. Use a
+private, trusted directory for password input and generated output. See
+[IAM users](IAM.md#iam-users) for file permissions, uncertain create recovery,
+and the risk of losing a generated password before persistence.
+
 ### Service-account profile
 
 Create the account with a trusted IAM-user provisioner and a new private

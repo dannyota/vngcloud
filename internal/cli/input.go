@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"reflect"
 	"strings"
 )
@@ -114,11 +113,16 @@ func cliInputJSONBytes(raw string) ([]byte, error) {
 		return []byte(raw), nil
 	}
 
-	f, err := os.Open(path) //nolint:gosec // the path comes from a flag the operator typed, exactly like a shell command reading its own argument
+	f, err := openRegularFileNonBlocking(path)
 	if err != nil {
 		return nil, newUsageError("--cli-input-json: %s", err)
 	}
 	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, newUsageError("--cli-input-json: path must be a regular file")
+	}
 
 	limited := io.LimitReader(f, maxCLIInputJSONSize+1)
 	data, err := io.ReadAll(limited)

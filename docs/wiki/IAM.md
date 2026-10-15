@@ -3,13 +3,95 @@
 `iam` is `danny.vn/vngcloud/iam`, with its own `New(cfg)`. It reads caller
 identity, users, actions, policies, groups, and service accounts; see the
 [IAM section of Services](Services.md#iam) for that full read list. This
-page covers service account, policy, and group writes, the IAM resources
-this SDK writes here.
+page covers IAM user, service account, policy, and group writes.
 
 See [Storage Workload Access](Storage-Workload-Access.md) for a dedicated
 service account and attached S3 key for an application. Its IAM client secret
 authenticates management calls; the application S3 secret is separate.
 Bucket policies grant the attached key's bucket access.
+
+## IAM users
+
+`GetUser` takes a required `UserID` and returns `UserDetail`, including ID,
+username, origin (`From`), enabled state, and epoch-millisecond `CreatedAt`
+and `LastUse` (0 before first use). It omits contact and MFA factor values.
+`ListUsers` takes optional `Name`, `Page`, and `Size`, and returns one page
+under `Items`. The observed name filter matches case-insensitive substrings;
+compare exact usernames and IDs. A name match never proves creation ownership.
+
+```sh
+vngcloud iam get-user --user-id <user-id>
+vngcloud iam list-users --name <username>
+vngcloud iam create-user --username <username> \
+  --secret-file <private-directory>/password
+vngcloud iam create-user --username <username> --password-file - \
+  < <private-directory>/password
+vngcloud iam delete-user --user-id <user-id> --yes
+```
+
+Create requires exactly one password mode. Generation defaults to 32
+characters; `--password-length` accepts 8 to 50, with at least one uppercase
+letter, lowercase letter, digit, and `@`. Custom account password policy can
+still reject it. Supplied passwords use a private regular file or stdin,
+never argv or JSON. Files may be symlinks to trusted private files. Input
+allows at most 4096 bytes, removes one final LF or CRLF, preserves spaces,
+and rejects controls, invalid UTF-8, and empty values. Stdin refuses a
+terminal, requires EOF within 30 seconds, and honors cancellation. Stdin
+password input cannot share `file://` JSON input. All commands refuse a
+non-regular `file://` JSON file before reading it.
+
+The SDK generates when `CreateUserInput.Password` is empty and returns only
+generated values in `CreateUserOutput.Password`, a `vngcloud.Secret`.
+Supplied passwords are never returned. Inspect both output and error:
+`iam.ErrCreateUnconfirmed` retains a valid `CreatedID` from the accepted
+create, while `iam.ErrUserCreateUncertain` means ownership is unproven.
+`CandidateID`, when present, comes only from a name lookup and never proves
+ownership. Preserve any non-empty generated password through a private
+persistence path even when the SDK returns an error. Do not log `Reveal()`.
+
+The CLI saves generated passwords on success and on both partial outcomes,
+then releases its references. Success prints a redacted `Password` and the
+saved `SecretFile`; supplied mode prints no secret path. Errors print no
+partial success object and say whether the password was saved. Both create
+outcomes use `RequestFailed` and exit 1, including when a confirmation read
+failed with 401 or 404. Reconcile an uncertain outcome with
+`list-users --name` and other administrators. Do not retry, trust the password,
+reset a candidate, or delete a name match until ownership is established.
+Create sends at most one POST and never retries a password-policy rejection.
+
+The destination must be new, including no existing symlink. Persistence uses
+exclusive creation at mode 0600 and checks write, sync, and close failures.
+Only a partial file created by the call is removed; removal failure warns
+that secret bytes may remain. Use a trusted private directory: parent symlinks
+are followed, and Unix mode bits do not guarantee Windows access controls.
+`SecretFileFailed` sends no further cloud request. It names `CreatedID` when
+available, otherwise the requested username, and the manual
+`vngcloud iam delete-user --user-id <id> --yes` command after reconciliation.
+Process termination between create and persistence can lose the password.
+Saved passwords remain after confirmation or output-rendering failures.
+Go may retain copies in memory; buffer clearing is not secure erasure.
+
+Creation attaches no policies or groups. The caller needs server permission
+to create users; grant access separately with guarded policy attachment or
+group membership commands. Sign-in needs the root account email, new username,
+and password, plus any account controls. The tool configures no MFA factor
+and does not bypass MFA. See [Configuration](Configuration.md#iam-user-profile).
+Read-only refuses writes before password input, generation, or file creation.
+
+Delete requires `--yes` and a classified caller. It refuses the caller's own
+IAM user before reading the target, then requires a matching target ID and
+`From == "iam"`. Root and unknown callers fail closed. `ErrSelfChange` and
+`ErrPrivilegedChange` keep their CLI codes; `ErrOriginNotIAM` maps to
+`RequestFailed`. Delete has no privilege or attachment refusal; the server
+must authorize deletion and its 409 stays `Conflict`, with no automatic
+detach. Guard checks and deletion are not atomic. DELETE retains SDK retries;
+a final 404 is `NotFound`, not success. After an uncertain delete inspect the
+same ID with `get-user`, never a replacement username.
+
+Adding `ListUsersInput.Name` breaks unkeyed struct literals. Responses are
+bounded: get 256 KiB, list 4 MiB, and create/delete 64 KiB. Oversized bodies
+fail instead of decoding a truncated prefix. Public list paging and output
+remain unchanged. The [CLI reference](CLI-IAM.md#create-user) lists flags.
 
 ## Service account writes
 

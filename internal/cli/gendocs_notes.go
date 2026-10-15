@@ -369,6 +369,9 @@ const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE,
 // as a redaction rule that changes what an otherwise plain Read command
 // prints, or a guard that refuses a flag the table shows as a plain string.
 var docOpNotes = map[string]string{
+	"iam create-user":                         iamCreateUserNote,
+	"iam delete-user":                         iamDeleteUserNote,
+	"iam list-users":                          iamListUsersNote,
 	"monitor get-check-alarm":                 monitorGetCheckAlarmNote,
 	"monitor list-check-alarm-history":        monitorCheckHistoryNote,
 	"monitor get-quota-usage":                 monitorQuotaUsageNote,
@@ -650,6 +653,7 @@ var docExampleExtraFlag = map[string]string{
 // (svc_network_dhcp.go) each refuse their own command without --yes on
 // every call.
 var docExampleOverride = map[string]string{
+	"iam create-user": "vngcloud iam create-user --username <username> --secret-file <private-directory>/password",
 	"cdn update-web-accelerator": "vngcloud cdn update-web-accelerator --cdn-id <cdn-id> " +
 		"--cli-input-json file://changes.json",
 	"storage put-bucket-policy":          "vngcloud storage put-bucket-policy --project-id <project-id> --bucket <bucket> --policy file://policy.json",

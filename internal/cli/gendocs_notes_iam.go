@@ -183,3 +183,31 @@ const iamUserPolicyAttachGuardNote = "Refuses, before any request, with error co
 
 var iamAttachUserPolicyNote = iamUserPolicyAttachGuardNote
 var iamDetachUserPolicyNote = iamUserPolicyAttachGuardNote
+
+const iamCreateUserNote = "Requires exactly one of --password-file <path> (or - for stdin) and " +
+	"--secret-file <new-path>. Password cannot be supplied through argv or --cli-input-json. " +
+	"--password-length applies only to generation: 8 to 50 characters, default 32, with uppercase, " +
+	"lowercase, digits, and @. Input files must be regular and private on Unix; a symlink to one is allowed. " +
+	"Input is capped at 4096 bytes, removes one final LF or CRLF, preserves spaces, and rejects controls " +
+	"and invalid UTF-8. Stdin refuses a terminal, requires EOF within 30 seconds, honors cancellation, " +
+	"and cannot be combined with file:// JSON. Read-only refuses before password input. " +
+	"Generated passwords are saved exclusively at mode 0600, including uncertain and " +
+	"accepted-but-unconfirmed outcomes. Use a trusted private parent directory; parent symlinks are followed, " +
+	"and Unix modes do not guarantee Windows access controls. Password always prints redacted; SecretFile " +
+	"appears only after a generated password is saved. Errors print no partial output. " +
+	"RequestFailed exits 1 for either create outcome sentinel, even if confirmation failed with 401 or 404. " +
+	"An uncertain outcome does not establish password ownership: do not retry; reconcile with list-users --name " +
+	"and other administrators before trusting the password, resetting or deleting a candidate. " +
+	"SecretFileFailed sends no cleanup request and names manual delete-user --user-id <id> --yes recovery; " +
+	"a removal failure warns that a partial file may remain. Process termination before persistence can lose " +
+	"the generated password. Creation attaches no rights and configures no MFA. See [IAM](IAM.md#iam-users)."
+
+const iamDeleteUserNote = "Requires --yes. Refuses the caller's own user (SelfChange), root or unknown " +
+	"callers (PrivilegedChange), and an unproven IAM origin or mismatched ID (RequestFailed). " +
+	"Guard refusals may read but send no DELETE. No privilege or attachment guard applies; server 409 remains " +
+	"Conflict, without automatic detach. DELETE keeps SDK retries; a final 404 remains NotFound. " +
+	"After an uncertain delete, inspect the same ID with get-user. See [IAM](IAM.md#iam-users)."
+
+const iamListUsersNote = "--name adds the server's observed case-insensitive substring filter; " +
+	"compare exact usernames and IDs before reconciliation. A name match proves current state only, " +
+	"never ownership of a create or its password. Paging remains one zero-based page, with default size 10000."

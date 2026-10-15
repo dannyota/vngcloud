@@ -339,7 +339,8 @@ handling are on the [Container Registry](Container-Registry.md) page.
 ```go
 iamClient := iam.New(cfg)
 iamClient.GetCallerIdentity(ctx, nil)
-iamClient.ListUsers(ctx, in)                   // Page, Size
+iamClient.ListUsers(ctx, in)                   // Name, Page, Size
+iamClient.GetUser(ctx, in)                     // UserID (required)
 iamClient.ListActions(ctx, nil)
 iamClient.ListServiceAccounts(ctx, in)         // Name, Page, Size
 iamClient.GetServiceAccount(ctx, in)           // ServiceAccountID (required)
@@ -362,8 +363,9 @@ first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it
 can be read and attached, but never updated or deleted.
 
-`iam` also writes service accounts, policies, and groups; see
-[IAM](IAM.md) for `CreateServiceAccount`, `UpdateServiceAccount`,
+`iam` also creates and deletes IAM users and writes service accounts,
+policies, and groups; see
+[IAM](IAM.md) for `CreateUser`, `DeleteUser`, `CreateServiceAccount`, `UpdateServiceAccount`,
 `ResetServiceAccountSecret`, `DeleteServiceAccount`, `CreatePolicy`,
 `UpdatePolicy`, `DeletePolicy`, `AttachServiceAccountPolicy`,
 `DetachServiceAccountPolicy`, `AttachUserPolicy`, `DetachUserPolicy`,

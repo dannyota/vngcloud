@@ -45,6 +45,7 @@ type Op[C any] struct {
 	kind        opKind
 	destructive bool
 	guard       func(cmd *cobra.Command, in any) error
+	beforeInput func(cmd *cobra.Command) error
 	noFlag      map[string]bool
 	// optional holds Input fields whose vngcloud:"required" tag the CLI
 	// does not enforce for this op; see Optional.
@@ -392,6 +393,11 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 // runOp builds the Input, enforces every guard, and, once every guard has
 // passed, builds the Config and client and calls the operation.
 func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName string, newClient func(vngcloud.Config) *C, op Op[C], input any, bound []boundFlag) error {
+	if op.beforeInput != nil {
+		if err := op.beforeInput(cmd); err != nil {
+			return err
+		}
+	}
 	rawJSON, err := cmd.Flags().GetString("cli-input-json")
 	if err != nil {
 		return usageError{msg: err.Error()}

@@ -44,3 +44,40 @@ func TestReadInputFileFIFORefused(t *testing.T) {
 		t.Fatal("readInputFile blocked on a FIFO instead of refusing it")
 	}
 }
+
+func TestCLIInputJSONFIFORefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { var input struct{ Name string }; done <- applyCLIInputJSON("file://"+path, &input) }()
+	select {
+	case err := <-done:
+		if err == nil || exitCode(err) != 2 {
+			t.Fatal("FIFO JSON accepted")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("FIFO JSON stalled")
+	}
+}
+
+func TestCLIInputJSONFIFOUnrelatedCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := newSvcFixture(nil)
+	root, _, _ := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"iam", "list-actions", "--cli-input-json", "file://" + path})
+	done := make(chan error, 1)
+	go func() { done <- root.Execute() }()
+	select {
+	case err := <-done:
+		if err == nil || exitCode(err) != 2 || fixture.requestCount() != 0 {
+			t.Fatal("FIFO input not refused")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("unrelated command stalled on JSON FIFO")
+	}
+}

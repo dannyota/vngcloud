@@ -1194,3 +1194,24 @@ func TestGenDocsCopyObject(t *testing.T) {
 		}
 	}
 }
+
+func TestGenDocsIAMUserBase(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-IAM.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## get-user", "## create-user", "## delete-user", "--password-file", "--password-length", "--secret-file <private-directory>/password", "password ownership", "no cleanup request"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("missing IAM user guidance: %s", want)
+		}
+	}
+	for _, absent := range []string{"## reset-user-password", "## rename-user", "## enable-user-mfa", "## disable-user-mfa"} {
+		if strings.Contains(string(data), absent) {
+			t.Errorf("unreleased command: %s", absent)
+		}
+	}
+}

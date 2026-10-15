@@ -48,6 +48,9 @@ import (
 // with no members or policies, or changing only its name or description,
 // changes no one's rights.
 var iamOps = []Op[iam.Client]{
+	Read("get-user", (*iam.Client).GetUser),
+	iamCreateUserOp(),
+	Write("delete-user", (*iam.Client).DeleteUser, Destructive()),
 	Read[iam.Client, iam.GetCallerIdentityInput, iam.GetCallerIdentityOutput](
 		kebab("GetCallerIdentity"), (*iam.Client).GetCallerIdentity),
 	Read[iam.Client, iam.ListUsersInput, iam.ListUsersOutput](
