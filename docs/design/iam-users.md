@@ -172,7 +172,7 @@ exported SDK error marker or a synonym for `Retryable`.
 After an uncertain create, retain the generated password and reconcile with
 `list-users --name <username>`, comparing exact usernames and IDs. Neither a
 match nor an empty result proves which concurrent call won or whether a delayed
-create will appear. A 201 without a usable ID ends the same way: the SDK
+create will appear. A 201 without a valid ID ends the same way: the SDK
 reports any single exact-name match as `CandidateID` inside the uncertain
 outcome, never as a confirmed user, because another actor can delete and
 recreate the name between the create and the search. Do not retry, delete,
@@ -358,7 +358,8 @@ rescoping and awaits confirmation; decision 11 remains proposed. The
    decision 3 do not validate a supplied password.
 7. **Partial outcomes.** Decided: a new `ErrUserCreateUncertain`, retained
    generated passwords, and explicit `CreatedID` provenance, with
-   `ErrCreateUnconfirmed` for 201 followed by failed confirmation.
+   `ErrCreateUnconfirmed` only for a valid-ID 201 followed by failed
+   confirmation; every other 201 is uncertain.
 8. **Cleanup authority.** Decided: no automatic cloud cleanup after a
    secret-file failure; report `CreatedID` and the manual `delete-user` command,
    as in [Secret file and cleanup](#secret-file-and-cleanup).

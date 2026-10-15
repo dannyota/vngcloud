@@ -20,7 +20,8 @@ attachment calls. No live user response is verified for this design.
 - Product pages [User Accounts][product-users], [Create an IAM User
   Account][product-create], and [Delete an IAM User Account][product-delete]
   describe denied-by-default creation, password/name rules, name uniqueness,
-  and irreversible deletion; these are source claims, not server behavior.
+  and irreversible deletion: claims inherited from pages outside this research
+  scope, not server behavior.
 
 [spec]: https://docs.api.greennode.ai/service-docs/accounts-api.html
 [main]: https://iam.console.greennode.ai/main.a0cfd100731832eb.js
@@ -148,15 +149,15 @@ console's `Math.random`; the minimum length lacks the default's entropy.
   string; CandidateID string }`. Password holds only a locally generated value.
   CreatedID holds only a valid ID from this invocation's 201 response, never
   one found by list or get; CandidateID holds the single exact-name match found
-  after a 201 without a usable ID and never proves ownership.
+  after a 201 without an ID and never proves ownership.
 - `DeleteUserInput { UserID string }`, required and path-validated;
   `DeleteUserOutput {}`. No partial update fields or guard override exist.
 
 Validate before authentication or requests: Username is non-empty valid UTF-8,
 at most 4096 bytes, with no whitespace or controls; a supplied Password is valid
 UTF-8, at most 4096 bytes, with no controls, spaces preserved. Never quote
-invalid input. The server owns length, class, uniqueness, and policy checks.
-Never mutate the caller's Input while generating or clearing values.
+invalid input; the server owns length, class, uniqueness, and policy checks;
+never mutate the caller's Input while generating or clearing values.
 
 Create uses `DoJSONStatus`, `Once`, a per-call `NotSent`, `Sensitive`, `Redact`
 with the submitted password, `WithholdMessage` with fixed text, and a
@@ -170,7 +171,7 @@ sends `[redacted]`. Private confirmation requests use the same controls.
 | Definite 4xx rejection | Nil output; sanitized API error |
 | 201 with a valid ID and confirmed matching user | Output and nil error |
 | 201 with a valid ID but failed confirmation | Partial; unconfirmed |
-| 201 without a usable ID, whatever a name search finds | Partial; uncertain, with any CandidateID |
+| 201 without a valid ID: missing, empty, invalid, non-string, or credential-bearing | Partial; uncertain, with any CandidateID |
 | Any other possibly sent failure | Partial; uncertain |
 
 Use the observed status, not a nested provider error's status, to identify a
@@ -181,21 +182,22 @@ wins before status classification. `Retryable` alone does not prove no send,
 particularly with a custom RoundTripper. The transport today drops the
 observed status when the body read or close fails, except on overflow
 (`internal/transport/transport.go:526`), so such a 201 or 4xx is uncertain
-until the separately briefed observed-status transport prerequisite lands;
-then a 201 with a failed body read is unconfirmed and a 4xx stays rejected.
+until the separately briefed observed-status prerequisite lands; afterwards
+such a 201 is one without a valid ID and such a 4xx stays rejected.
 
 Partial output retains requested Username and generated Password; CreatedID
 comes only from a complete valid 201 object and survives confirmation failure.
-Use existing `ErrCreateUnconfirmed` only for known 201 acceptance, generalizing
-its service-account text without changing its identity or behavior, and new
-`ErrUserCreateUncertain` for unknown outcomes. Neither case triggers a second
-POST or an automatic SDK delete.
+Use existing `ErrCreateUnconfirmed` only for a 201 with a valid ID whose
+confirmation reads fail, generalizing its service-account text without changing
+its identity or behavior, and new `ErrUserCreateUncertain` for every other
+201 and every unknown outcome. Neither triggers a second POST or an SDK delete.
 
-After a valid 201 object with an ID, validate that ID and read it once. Require
+After a 201 with a valid string ID, validate that ID and read it once. Require
 returned ID to match case-insensitively, username to match exactly, and `from`
-to equal `iam`. An invalid/non-string ID is unconfirmed, never a fallback to a
-name search. An empty body or object with absent/empty ID permits one filtered
-list request, page 0, size 1000. Require non-null data and all paging keys, page
+to equal `iam`. An invalid, non-string, or credential-bearing ID is uncertain
+with no CandidateID and no search fallback. Only an empty body, or an object
+with an absent or empty ID, permits one filtered list request, page 0, size
+1000. Require non-null data and all paging keys, page
 0, positive pageSize <= 1000, totalItems equal to data length, length <=
 pageSize, and totalPages consistent with a complete single page (0 or 1 for
 empty, 1 otherwise). Reject duplicate IDs, more than one exact username,
@@ -238,10 +240,10 @@ causes. Map 401 to `ErrAuth`, 403 to `ErrPermission`, 404 to `ErrNotFound`, and
 
 ### Bounds and strict decoding
 
-New create/delete responses cap at 64 KiB, get at 256 KiB, and lists at 4 MiB.
-Fail on overflow; never decode a truncated prefix. Confirmation performs at most
-one list and one get, or one get with CreatedID. No polling occurs. All requests
-use the caller's context; cancellation stops further requests.
+New create/delete responses cap at 64 KiB, get at 256 KiB, and lists at 4 MiB;
+fail on overflow and never decode a truncated prefix. Confirmation performs at
+most one list and one get, or one get with CreatedID, with no polling. All
+requests use the caller's context; cancellation stops further requests.
 
 Strict rule: a request sets `transport.Request.StrictJSON`, and `doJSONStatus`
 then runs `jsonresponse.ValidateStrict(body, out)` before its own
@@ -249,13 +251,12 @@ then runs `jsonresponse.ValidateStrict(body, out)` before its own
 failure returns the existing sanitized decode error, or the withheld form under
 `Sensitive`; typed decoding never moves out of the transport, so
 `sanitizeDecodeError` keeps discarding every cause but fixed `encoding/json`
-kinds. `ValidateStrict` walks the body beside the target's static type
-and rejects malformed JSON, trailing data, an exact duplicate key in any object,
+kinds. `ValidateStrict` walks the body beside the target's static type and
+rejects malformed JSON, trailing data, an exact duplicate key in any object,
 and, only for an object decoded into a struct, two keys that `encoding/json`
-would assign to the same field, which it matches case-insensitively. Maps,
-interfaces, raw messages, and non-struct kinds get exact-duplicate rejection
-only, so distinct case-sensitive `Condition` map keys still decode. `Validate`
-and its callers stay unchanged.
+would assign to one field by its case-insensitive match. Maps, interfaces, raw
+messages, and non-struct kinds get exact-duplicate rejection only, so distinct
+case-sensitive `Condition` map keys still decode. `Validate` stays unchanged.
 
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
 per send, the existing single 401 refresh send, and at most 30 seconds per
@@ -275,8 +276,7 @@ accepted, the same prerequisite extends to `ListActions`, `GetPolicy`,
 `iam/policies.go`, and `iam/guard.go`: 256 KiB for single objects, 4 MiB for
 lists, preserving their fail-closed classification and error identities. An
 oversized or ambiguous `userinfo` response will begin failing for every guarded
-write; proposed decision 9 covers this change. A capped user get does not
-bound the whole guard graph.
+write; proposed decision 9 covers this change; a capped get bounds only itself.
 
 ## Unit tests
 
@@ -297,19 +297,20 @@ in the [calls table](#calls), plus unexpected responses.
 - Test every outcome-table branch with generated and supplied passwords, both
   sentinels via `errors.Is`, API errors via `errors.As`, and context identities.
   Test 201 with empty body, null/array/malformed JSON, missing, invalid, or
-  mismatched ID, failed confirmation, and duplicate matches. A name-only match
-  returns `ErrUserCreateUncertain` with CandidateID and no CreatedID, never a
+  mismatched ID, failed confirmation, and duplicate matches: only a valid ID
+  with failed confirmation is `ErrCreateUnconfirmed`; a missing, empty,
+  invalid, non-string (`{"id":17}`), or credential-bearing ID and a name-only
+  match are `ErrUserCreateUncertain`, CandidateID only for the last, never a
   nil error. A 201 `id`, or a list or get identity after a 401 refresh, that
-  equals a sent bearer token is refused with no follow-up request and no token
-  in any error node, output, or CLI line.
+  equals a sent bearer token is refused with no follow-up and no token in any
+  error node, output, or CLI line.
 - Exercise missing/null/negative/inconsistent list metadata, multi-page results,
   substring and case-only names, wrong get identity, caps, and public ListUsers
   compatibility without Name. Verify CreatedID provenance.
 - Test self before the target read; unknown/root caller; missing caller ID;
   service-account caller; non-iam, missing, null, and wrong-type origin;
   mismatched target ID; failed target read. Assert zero mutations on refusal,
-  not zero reads. An attached user is not refused locally; the server's 409
-  stays `Conflict`.
+  not zero reads. An attached user is not refused; its 409 stays `Conflict`.
 - Test DELETE 204, 404, 409, retries ending in 404, exhausted 5xx, no redirects,
   cancellation, and dependency 404 labels. Send zero DELETEs for a duplicate
   `userId` or `userType`, or a `USERID` alias after the real key, in the caller
@@ -372,8 +373,7 @@ policy or account security settings to make the probe pass.
 
 No probe deletes the caller, an attached user, or a pre-existing user. Delete
 409 meaning, custom policy breadth, concurrent races, and token revocation after
-deletion remain unverified; a read failure or name mismatch never expands
-cleanup scope.
+deletion stay unverified; a read failure or name mismatch never widens cleanup.
 
 ### Fixture provenance
 
