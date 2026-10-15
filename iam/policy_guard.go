@@ -308,6 +308,9 @@ func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller 
 // dedupes reads across one guard call; it is never shared across calls.
 func (c *Client) anyPolicyIDPrivileged(ctx context.Context, policyIDs []string, writeActionNames []string, seen map[string]*Policy, options ...userReadOptions) (bool, error) {
 	for _, id := range policyIDs {
+		if err := guardRequestOperands("iam.GetPolicy", []string{id}, options...); err != nil {
+			return false, err
+		}
 		policy, ok := seen[id]
 		if !ok {
 			got, err := c.getPolicy(ctx, &GetPolicyInput{PolicyID: id}, options...)

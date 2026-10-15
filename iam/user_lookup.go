@@ -155,6 +155,13 @@ func guardCachedResponse(op string, value any, options ...userReadOptions) error
 	return nil
 }
 
+func guardRequestOperands(op string, values []string, options ...userReadOptions) error {
+	if len(options) != 0 && options[0].guardContainsResponseCredential(reflect.ValueOf(values)) {
+		return fmt.Errorf("iam: %s: unsafe guard request identity", op)
+	}
+	return nil
+}
+
 func guardReadDecodeError(err error, options ...userReadOptions) error {
 	if len(options) != 0 {
 		return transport.SanitizeDecodeError(err)

@@ -77,10 +77,12 @@ only. For the test account it established create 201 `{"id"}`, the get and
 list shapes above, the case-insensitive substring filter, the empty result for
 an absent name, empty default attachments, the duplicate 400, delete 204 with
 404 on repeat and on get, and the quota shape with usage restored after each
-run. Sign-in as the new user through the SDK's IAM user login succeeded with
-no MFA challenge, the caller identity matched the created ID, and the get then
-carried `lastUse`. The [administration probes](iam-users-admin-api.md#probes)
-ran on the same user.
+base run. The Google-only probe has separate
+[cleanup and quota evidence](iam-users-admin-api.md#probes); it does not inherit
+that restoration claim. Sign-in as the new user through the SDK's IAM user login
+succeeded with no MFA challenge. The caller identity matched the created ID,
+and the get then carried `lastUse`. The base administration checks used that
+disposable user; the Google-only probe used its own user.
 
 Still unverified: delete 409 meaning, custom password-policy breadth,
 concurrent races, token revocation after deletion, and accounts with other
@@ -121,3 +123,41 @@ run's `CreatedID` through `DeleteUser`, with no attachment precheck: the server
 decides about attachments, and a 409 or any other failure is reported as a
 leftover, never retried by name. Remove temporary secrets
 and emit only fixed labels, statuses, counts, and booleans.
+
+### Google MFA live checks
+
+The Google branch uses test-only set-up and verify helpers on the attributable,
+identity-confirmed user. Reuse the reviewed probe's bounded in-memory enrolment
+and TOTP logic. Set-up sends once; verification allows at most two attempts,
+with only one next-window retry after the probe's definite 400 rejection, no
+retry after any other error, and context-bounded waiting. Refuse redirects.
+Never fetch the QR URL, persist the seed or code, sign in, alter policies, or
+enrol any other user.
+Suppress captures and arbitrary server text before set-up and on every later
+request, including cleanup and quota reads. Offline canaries cover unknown
+secret-bearing fields as well as the known seed, code, QR data, and credentials.
+
+After verification, require verified and enabled true. Exercise public SDK
+enable as a guarded no-op, disable as a mutation and then a no-op, enable as a
+mutation and then a no-op, and final disable as a mutation. Check Enabled and
+Changed, verification retention, and identity/origin after each step. A failure
+stops the sequence and leaves only attributable cleanup, never a repeat setup
+or blind mutation retry. No public enrolment method or command is added.
+
+Read the published IAM-user quota before create and after confirmed deletion
+through a test-only helper, never a new public SDK method. Require 200, strict
+JSON within 256 KiB, and explicit numeric usage and limit; refuse redirects.
+Compare usage in memory, emit only a restoration boolean, and fail the live
+check on an unavailable or unequal result. Keep quota comparison separate from
+DELETE/GET absence evidence. This helper and the Google branch require
+independent adversarial review and explicit run authority before execution.
+
+The independently reviewed helper passed authorized verification on its own
+disposable user. The IAM read suite passed user detail and filtered identity
+checks. The Google SDK cycle passed every mutation and no-op, retained verified
+state, and ended disabled. Guarded deletion and a subsequent get confirmed
+absence; the in-memory before/after quota comparison confirmed restoration.
+Reset remained disabled. The helper persisted no enrolment secret or code,
+and temporary password storage was removed. These checks establish this run's
+results without supplying an enrolled raw fixture or resolving the older
+probe's unavailable quota comparison.

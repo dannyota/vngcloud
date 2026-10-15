@@ -1,7 +1,9 @@
 package iam
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,6 +34,10 @@ func TestGetUserFixtures(t *testing.T) {
 			out, err := c.GetUser(context.Background(), &GetUserInput{UserID: "00000000-0000-4000-8000-000000000001"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			raw, marshalErr := json.Marshal(out.User)
+			if marshalErr != nil || !bytes.Contains(raw, []byte(`"twoFactorAuth":{"email":{"verified":false,"enabled":false},"googleAuthenticator":{"verified":false,"enabled":false}}`)) {
+				t.Fatalf("MFA state missing from decoded fixture: %s, %v", raw, marshalErr)
 			}
 			u := out.User
 			if u.ID != "00000000-0000-4000-8000-000000000001" || u.Username != "vngcloud-probe-0000aaaa" || u.CreatedAt != 1760000000000 || u.LastUse != tc.lastUse || !u.Enabled || u.From != "iam" {

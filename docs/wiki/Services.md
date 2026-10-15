@@ -360,12 +360,18 @@ including every service account call, runs on the dashboard host. Page
 numbers start at 0 in `iam`, as in `vks`: `Page: 0` is the
 first page, and a non-positive `Size` sends `vngcloud.DefaultPageSize`.
 
+`GetUser` exposes nullable MFA factor state, without factor secrets. Google
+MFA administration requires external enrolment and verified-enable state; see
+[IAM](IAM.md#google-mfa) for guards, consent, and recovery limits.
+
 `Policy.Managed()` reports whether a policy is one GreenNode manages: it
 can be read and attached, but never updated or deleted.
 
-`iam` also creates and deletes IAM users and writes service accounts,
+`iam` also creates and deletes IAM users, resets their passwords, administers
+existing verified Google MFA factors, and writes service accounts,
 policies, and groups; see
-[IAM](IAM.md) for `CreateUser`, `DeleteUser`, `CreateServiceAccount`, `UpdateServiceAccount`,
+[IAM](IAM.md) for `CreateUser`, `DeleteUser`, `ResetUserPassword`, `EnableUserMFA`,
+`DisableUserMFA`, `CreateServiceAccount`, `UpdateServiceAccount`,
 `ResetServiceAccountSecret`, `DeleteServiceAccount`, `CreatePolicy`,
 `UpdatePolicy`, `DeletePolicy`, `AttachServiceAccountPolicy`,
 `DetachServiceAccountPolicy`, `AttachUserPolicy`, `DetachUserPolicy`,

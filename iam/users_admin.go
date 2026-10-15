@@ -64,6 +64,9 @@ func (c *Client) ResetUserPassword(ctx context.Context, in *ResetUserPasswordInp
 		password = generated
 		opts.Redact = []string{password.Reveal()}
 	}
+	if opts.containsCredential(in.UserID) {
+		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
+	}
 	var sent []string
 	defer func() { clear(sent) }()
 	notSent := false
@@ -90,28 +93,34 @@ func (c *Client) ResetUserPassword(ctx context.Context, in *ResetUserPasswordInp
 }
 
 func (c *Client) guardUserAdministration(ctx context.Context, op, id string, opts userReadOptions) error {
-	if err := c.guardUserWrite(ctx, op, id, opts); err != nil {
-		return err
+	_, err := c.guardUserAdministrationTarget(ctx, op, id, opts)
+	return err
+}
+
+func (c *Client) guardUserAdministrationTarget(ctx context.Context, op, id string, opts userReadOptions) (*UserDetail, error) {
+	user, err := c.guardUserWriteTarget(ctx, op, id, opts)
+	if err != nil {
+		return nil, err
 	}
 	caller, err := c.guardCallerIdentity(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("%s: read caller identity: %w", op, err)
+		return nil, fmt.Errorf("%s: read caller identity: %w", op, err)
 	}
 	actions, err := c.guardWriteActionNames(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("%s: read write actions: %w", op, err)
+		return nil, fmt.Errorf("%s: read write actions: %w", op, err)
 	}
 	reason, err := c.userIsProtected(ctx, op, id, caller, actions, map[string]*Policy{}, opts)
 	if err != nil {
-		return fmt.Errorf("%s: read target protection: %w", op, err)
+		return nil, fmt.Errorf("%s: read target protection: %w", op, err)
 	}
 	switch reason {
 	case protectedBySelf:
-		return fmt.Errorf("%s: %w", op, ErrSelfChange)
+		return nil, fmt.Errorf("%s: %w", op, ErrSelfChange)
 	case protectedByPrivilege:
-		return fmt.Errorf("%s: %w", op, ErrPrivilegedChange)
+		return nil, fmt.Errorf("%s: %w", op, ErrPrivilegedChange)
 	}
-	return nil
+	return user, nil
 }
 
 // Unexpected success and redirect statuses also require a non-empty code,

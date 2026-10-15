@@ -34,7 +34,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
 | [IAM writes](iam-writes.md) | Accepted |
 | [IAM users](iam-users.md) | Accepted; base operations implemented |
-| [IAM user administration][user-admin] | Reset implemented; [MFA gate][mfa-gate] |
+| [IAM user administration][user-admin] | Reset and Google MFA implemented; [evidence and limits][mfa-gate] |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
 | [Encrypted volumes](encrypted-volumes.md) | Accepted |
@@ -60,4 +60,4 @@ Approval grants no live-run or policy authority.
 [object-ops]: storage-object-operations.md
 
 [user-admin]: iam-users-admin.md
-[mfa-gate]: iam-users-admin.md#owner-decisions
+[mfa-gate]: iam-users-admin-api.md#probes

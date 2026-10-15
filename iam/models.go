@@ -192,15 +192,28 @@ type User struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+// MFAFactor preserves unknown verification and activation state as nil.
+type MFAFactor struct {
+	Verified *bool `json:"verified"`
+	Enabled  *bool `json:"enabled"`
+}
+
+// UserMFA exposes factor state without contact or enrolment material.
+type UserMFA struct {
+	Email               *MFAFactor `json:"email"`
+	GoogleAuthenticator *MFAFactor `json:"googleAuthenticator"`
+}
+
 // UserDetail is a user get response. CreatedAt and LastUse hold epoch
 // milliseconds; LastUse is zero when the user has never signed in.
 type UserDetail struct {
-	ID        string `json:"id"`
-	Username  string `json:"username"`
-	CreatedAt int64  `json:"createdAt"`
-	Enabled   bool   `json:"enabled"`
-	From      string `json:"from"`
-	LastUse   int64  `json:"lastUse"`
+	ID        string   `json:"id"`
+	Username  string   `json:"username"`
+	CreatedAt int64    `json:"createdAt"`
+	Enabled   bool     `json:"enabled"`
+	From      string   `json:"from"`
+	LastUse   int64    `json:"lastUse"`
+	MFA       *UserMFA `json:"twoFactorAuth,omitempty"`
 }
 
 // Action is one row of the account's IAM action list (GET

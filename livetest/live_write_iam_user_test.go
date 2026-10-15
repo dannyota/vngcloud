@@ -8,10 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -193,6 +193,12 @@ func iamUserLock(dir string) (func(), error) {
 	return func() { _ = os.Remove(path) }, nil
 }
 
+// Every client shares these final options, including SDK cleanup guards that
+// do not mark their own requests sensitive. Never install a later output hook.
+func iamUserPrivateOptions(options ...vngcloud.LoadOption) []vngcloud.LoadOption {
+	return append(options, vngcloud.WithResponseCapture(nil), vngcloud.WithLogger(nil))
+}
+
 func TestLiveWriteIAMUser(t *testing.T) {
 	if !iamUserGates(os.Getenv("VNGCLOUD_LIVE_WRITE"), os.Getenv("VNGCLOUD_LIVE_IAM_USER")) {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_IAM_USER=1 after run authorization")
@@ -222,16 +228,34 @@ func TestLiveWriteIAMUser(t *testing.T) {
 	watch := &iamUserDeleteWatch{base: http.DefaultTransport}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	cfg, err := vngcloud.LoadConfig(ctx,
+	cfg, err := vngcloud.LoadConfig(ctx, iamUserPrivateOptions(
 		vngcloud.WithRegion("hcm-3"),
 		vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
 		vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
 		vngcloud.WithHTTPClient(&http.Client{Transport: watch, Timeout: 30 * time.Second}),
-	)
+	)...)
 	if err != nil {
 		t.Fatal("configuration failed")
 	}
 	client := iam.New(cfg)
+	googleEnabled := iamUserGoogleGates(os.Getenv("VNGCLOUD_LIVE_WRITE"),
+		os.Getenv("VNGCLOUD_LIVE_IAM_USER"), os.Getenv("VNGCLOUD_LIVE_IAM_USER_GOOGLE_MFA"))
+	google := newIAMUserGoogle(cfg)
+	t.Cleanup(google.clear)
+	var quotaBefore json.Number
+	quotaChecked := false
+	checkQuota := func(checkCtx context.Context) {
+		if !googleEnabled || quotaChecked || !ledger.Gone {
+			return
+		}
+		quotaChecked = true
+		after, ok := google.quota(checkCtx)
+		restored := ok && iamUserQuotaEqual(quotaBefore, after)
+		t.Logf("Google quota restored=%t", restored)
+		if !restored {
+			t.Error("Google quota restoration unconfirmed")
+		}
+	}
 	caller, err := client.GetCallerIdentity(ctx, nil)
 	if err != nil || caller.UserType != "iam-user" || caller.UserID == "" {
 		t.Fatal("IAM user caller required")
@@ -254,19 +278,32 @@ func TestLiveWriteIAMUser(t *testing.T) {
 				t.Error("private ledger persistence failed")
 			}
 		}()
-		if ledger.Gone || !ledger.Attempted {
+		if !ledger.Attempted {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
+		if ledger.Gone {
+			checkQuota(cleanupCtx)
 			return
 		}
 		if ledger.ID == "" || ledger.StopCleanup || ledger.DeleteAttempted {
 			t.Error("leftover unresolved; inspect private IAM user ledger; no automatic cleanup")
 			return
 		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cleanupCancel()
 		if !iamUserDeleteOwned(cleanupCtx, client, ledger) {
 			t.Error("owned user cleanup unresolved; inspect private IAM user ledger")
+			return
 		}
+		checkQuota(cleanupCtx)
 	})
+	if googleEnabled {
+		var ok bool
+		quotaBefore, ok = google.quota(ctx)
+		if !ok {
+			t.Fatal("Google quota baseline unavailable")
+		}
+	}
 	ledger.Attempted = true
 	if !save() {
 		ledger.StopCleanup = true
@@ -359,9 +396,21 @@ func TestLiveWriteIAMUser(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("google", func(t *testing.T) {
+		if !googleEnabled {
+			t.Skip("Google skipped; VNGCLOUD_LIVE_IAM_USER_GOOGLE_MFA=1 required after run authorization")
+		}
+		if !google.run(ctx, client, ledger) {
+			t.Fatal("Google verification stopped; only owned cleanup remains")
+		}
+		t.Log("Google verified=true SDK cycle=true final enabled=false")
+	}) {
+		return
+	}
 	if !iamUserDeleteOwned(ctx, client, ledger) {
 		t.Fatal("guarded delete unresolved; inspect private IAM user ledger")
 	}
+	checkQuota(ctx)
 	t.Log("create=true get=true filtered match count=1 delete=true absent=true")
 }
 
@@ -459,7 +508,7 @@ func TestIAMUserHarnessOwnedDelete(t *testing.T) {
 
 func TestIAMUserHarnessDeleteFailureLeftover(t *testing.T) {
 	for _, status := range []int{http.StatusConflict, http.StatusForbidden, http.StatusInternalServerError} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
 			deletes := 0
 			client := iam.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {

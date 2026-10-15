@@ -574,8 +574,9 @@ func TestGuardReadPrivacyConcurrentEdges(t *testing.T) {
 
 func TestGuardReadPrivacyConcurrentURLRedaction(t *testing.T) {
 	var logs lockedGuardLog
-	var captures atomic.Int32
+	var captures, requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
 		w.WriteHeader(403)
 	}))
 	defer server.Close()
@@ -584,15 +585,16 @@ func TestGuardReadPrivacyConcurrentURLRedaction(t *testing.T) {
 	for _, password := range []string{"first-password", "second-password"} {
 		wg.Go(func() {
 			_, err := c.guardPagedPolicySummaries(context.Background(), "iam.privateGuard", []string{"policies", password}, userReadOptions{Redact: []string{password}})
-			if !errors.Is(err, vngcloud.ErrPermission) {
-				t.Errorf("error identity lost: %v", err)
+			var api *vngcloud.APIError
+			if err == nil || errors.As(err, &api) {
+				t.Errorf("credential URL operand was not refused locally: %v", err)
 			}
 			assertUserErrorPrivate(t, err, "first-password", "second-password")
 		})
 	}
 	wg.Wait()
-	if strings.Contains(logs.String(), "first-password") || strings.Contains(logs.String(), "second-password") || captures.Load() != 0 {
-		t.Fatal("request-local URL redaction failed")
+	if strings.Contains(logs.String(), "first-password") || strings.Contains(logs.String(), "second-password") || captures.Load() != 0 || requests.Load() != 0 {
+		t.Fatal("request-local URL refusal failed")
 	}
 }
 

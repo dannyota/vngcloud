@@ -14,7 +14,8 @@ Bucket policies grant the attached key's bucket access.
 
 `GetUser` takes a required `UserID` and returns `UserDetail`, including ID,
 username, origin (`From`), enabled state, and epoch-millisecond `CreatedAt`
-and `LastUse` (0 before first use). It omits contact and MFA factor values.
+and `LastUse` (0 before first use). Nullable `MFA` exposes factor state;
+contact details and factor secrets are omitted.
 `ListUsers` takes optional `Name`, `Page`, and `Size`, and returns one page
 under `Items`. The observed name filter matches case-insensitive substrings;
 compare exact usernames and IDs. A name match never proves creation ownership.
@@ -159,6 +160,60 @@ rolls back, deletes the user, or changes profiles or token caches. Previously
 issued session and token revocation, forced password change, and MFA
 interaction remain unverified. Reset is not a session-revocation mechanism.
 See the [CLI reference](CLI-IAM.md#reset-user-password) for flags.
+
+## Google MFA
+
+`EnableUserMFA` and `DisableUserMFA` require `UserID` and `Method: "google"`.
+They administer an existing Google factor. Enrolment and possession
+verification stay with the user and an external trusted process; the SDK and
+CLI expose no setup or verify operation. Email MFA and rename are unavailable.
+No password, seed, code, or secret file is accepted by these commands.
+
+```sh
+vngcloud iam enable-user-mfa --user-id <user-id> --method google --yes
+vngcloud iam disable-user-mfa --user-id <user-id> --method google --yes
+```
+
+`GetUserOutput.User.MFA` is nullable and contains nullable `Email` and
+`GoogleAuthenticator` factors. Each factor has nullable `Verified` and
+`Enabled` booleans. Missing or null means unknown, not false. This read does
+not expose factor secrets or prove possession. Adding `UserDetail.MFA`
+breaks unkeyed struct literals.
+
+Both commands require `--yes`, including no-ops. Read-only refuses before any
+request. SDK guards classify the caller, refuse self, root or unknown callers,
+require the matching target ID and IAM origin, and refuse protected users
+with direct or group IAM write rights. Guard reads require permission and
+fail closed. No flag bypasses them. Unknown selected-factor state refuses
+both operations. Enable also requires `Verified == true`, even for a no-op.
+The server must authorize the change; guard checks and writes are not atomic.
+
+After all guards, matching state returns `Changed == false` without a POST.
+Otherwise the SDK sends one bodyless POST at most, without retry or redirect,
+and makes one logical confirmation read using the caller's context. A clean
+204 and matching confirmed state succeed; enable confirmation also requires
+verification. No polling, automatic repeat, rollback, or sign-in runs.
+Ordinary guard and confirmation reads retain configured transport retries.
+
+Success prints `Method`, nullable `Enabled`, and `Changed`. `Changed` means
+204 acceptance was observed, including when the SDK returns a partial error.
+`iam.ErrNotSettled` means acceptance was observed but response handling or
+confirmation failed. `iam.ErrUserWriteUncertain` means the send may have
+reached the server without confirmed acceptance. Inspect SDK output and
+error together; `Enabled` is nil when no trustworthy post-operation state is
+available. Definite 4xx rejections return no output. The CLI prints no partial
+object on error. Both outcome errors exit 1 ahead of nested 401/404 errors,
+using `NotSettled` and `RequestFailed`, respectively.
+
+Inspect `get-user` and coordinate with the user and other administrators
+before a deliberate repeat. A repeat reads state and guards again; another
+administrator can change state between reads and writes. Disabling MFA
+creates takeover risk. Enabling a factor the user cannot access creates
+lockout risk. Keep factor ownership and recovery external. Account-wide MFA
+effects, session and token revocation, and password-reset interaction remain
+unknown. These operations do not change profiles or token caches and do not
+promise session revocation. See the
+[CLI reference](CLI-IAM.md#enable-user-mfa) for flags.
 
 ## Service account writes
 
@@ -327,7 +382,7 @@ policy attached, or with a protected principal as a member.
 | `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account, or `DeleteGroup` targets a group with a member or a policy |
 | `iam.ErrNoSecret` | A create or reset response reported success but carried no client secret |
 | `iam.ErrCreateUnconfirmed` | A create succeeded but the read-back that confirms it failed |
-| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID. For `ResetUserPassword`, acceptance was observed but response handling failed; Output retains a generated password |
+| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID. For `ResetUserPassword`, acceptance was observed but response handling failed; Output retains a generated password. For Google MFA, acceptance was observed but response handling or confirmation failed |
 
 None of these sentinels name the policy, statement, or action involved, and
 there is no way to turn any guard off; make such a change from the IAM

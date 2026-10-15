@@ -106,7 +106,11 @@ credentials file has no access token key: a static token comes only from
 An IAM user signs in with the root account email, its username, and its
 password. Creation grants no access by itself; attach the permitted policies
 or group memberships separately. Account MFA and other controls still apply;
-`create-user` enrols no factor.
+`create-user` enrols no factor. Google MFA administration accepts no factor
+material and changes no profile or token cache. Keep factor ownership and
+recovery external; enabling an inaccessible factor risks lockout and disabling
+it risks takeover. Account-wide MFA effects and session or token revocation
+remain unknown. See [IAM](IAM.md#google-mfa).
 
 ```sh
 vngcloud --profile agent configure set region <region>

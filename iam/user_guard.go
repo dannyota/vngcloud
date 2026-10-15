@@ -12,16 +12,21 @@ import (
 // guardUserWrite checks caller classification, self, then target origin.
 // Privilege and attachment decisions remain with the server for delete.
 func (c *Client) guardUserWrite(ctx context.Context, op, id string, options ...userReadOptions) error {
+	_, err := c.guardUserWriteTarget(ctx, op, id, options...)
+	return err
+}
+
+func (c *Client) guardUserWriteTarget(ctx context.Context, op, id string, options ...userReadOptions) (*UserDetail, error) {
 	caller, err := c.requireClassifiedCaller(ctx, op, options...)
 	if err != nil {
-		return fmt.Errorf("%s: read caller identity: %w", op, err)
+		return nil, fmt.Errorf("%s: read caller identity: %w", op, err)
 	}
 	if caller.UserType == callerTypeIAMUser {
 		if core.CheckPathID(op, "UserID", caller.UserID) != nil {
-			return fmt.Errorf("%w: %s: caller identity is unusable", ErrPrivilegedChange, op)
+			return nil, fmt.Errorf("%w: %s: caller identity is unusable", ErrPrivilegedChange, op)
 		}
 		if strings.EqualFold(caller.UserID, id) {
-			return fmt.Errorf("%w: %s", ErrSelfChange, op)
+			return nil, fmt.Errorf("%w: %s", ErrSelfChange, op)
 		}
 	}
 	var credentials []string
@@ -37,15 +42,15 @@ func (c *Client) guardUserWrite(ctx context.Context, op, id string, options ...u
 	if err != nil {
 		var api *core.APIError
 		if !errors.As(err, &api) || api.StatusCode == 0 {
-			return fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
+			return nil, fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
 		}
-		return fmt.Errorf("%s: read target user: %w", op, err)
+		return nil, fmt.Errorf("%s: read target user: %w", op, err)
 	}
 	if err := guardCachedResponse(op, user, options...); err != nil {
-		return fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
+		return nil, fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
 	}
 	if core.CheckPathID(op, "UserID", user.ID) != nil || !strings.EqualFold(user.ID, id) || user.From != "iam" {
-		return fmt.Errorf("%w: %s: target identity or origin is unproven", ErrOriginNotIAM, op)
+		return nil, fmt.Errorf("%w: %s: target identity or origin is unproven", ErrOriginNotIAM, op)
 	}
-	return nil
+	return user, nil
 }

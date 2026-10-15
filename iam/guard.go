@@ -281,6 +281,9 @@ func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string
 // ambiguous page as "no more attachments" would silently stop protecting a
 // principal whose attachments the guard never fully saw.
 func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlParts []string, options ...userReadOptions) ([]PolicySummary, error) {
+	if err := guardRequestOperands(op, urlParts, options...); err != nil {
+		return nil, err
+	}
 	var resp pagedPolicySummaries
 	req := transport.Request{
 		Operation:  op,
@@ -321,6 +324,9 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 // against. It is a function, not a method, because a method cannot carry its
 // own type parameter.
 func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string, urlParts []string, options ...userReadOptions) ([]T, error) {
+	if err := guardRequestOperands(op, urlParts, options...); err != nil {
+		return nil, err
+	}
 	var items *[]T
 	req := transport.Request{
 		Operation:  op,
@@ -387,6 +393,9 @@ var guardGroupKnownFields = map[string]bool{
 // this check cannot confirm is in iam mode is refused outright, before its
 // own policies or members are ever read as evidence of anything.
 func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string, options ...userReadOptions) (policyIDs, userIDs []string, err error) {
+	if err := guardRequestOperands(op, []string{groupID}, options...); err != nil {
+		return nil, nil, err
+	}
 	var credentials []string
 	defer func() { clear(credentials) }()
 	if len(options) != 0 {

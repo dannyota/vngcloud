@@ -6,7 +6,8 @@ get, filtered list, generation, bounds, and strict decoding. The reviewed probe
 on the owner's test account verified reset acceptance, the no-factor MFA
 refusals and the target's factor shape ([fixture
 provenance](../../testdata/iam/user-provenance.md)).
-Verified-factor MFA transitions remain unverified.
+The Google probe establishes no-body transitions and retained verification;
+email transitions remain unverified.
 Source evidence does not close a raw-response gate or authorize a probe.
 
 ## Sources
@@ -51,13 +52,13 @@ required. The SDK requires a non-empty replacement password.
 | `reset-password` | `{"password": string}` | 204 | 204, empty body | Reset |
 | `activate-email` | None | 204 | 400 with no factor | Enable email |
 | `deactivate-email` | None | 204 | 400 with no factor | Disable email |
-| `activate-google` | None | 204 | 400 with no factor | Enable Google |
-| `deactivate-google` | None | 204 | 400 with no factor | Disable Google |
+| `activate-google` | None | 204 | 204 verified; 400 unenrolled | Enable Google |
+| `deactivate-google` | None | 204 | 204 verified; 400 unenrolled | Disable Google |
 | `set-up-email` | `{"email": string}` (email format) | 204 | Not probed | Excluded |
 | `send-verification-email` | None | 204 | Not probed | Excluded |
 | `verify-email` | `{"token": string}` (six digits) | 204 | Not probed | Excluded |
-| `set-up-google` | None | 200; schema absent | Not probed | Excluded |
-| `verify-google` | `{"token": string}` (six digits) | 204 | Not probed | Excluded |
+| `set-up-google` | None | 200; schema absent | 200 | Excluded |
+| `verify-google` | `{"token": string}` (six digits) | 204 | 204 | Excluded |
 
 The token pattern is `^\d{6}$`. Current-user reset and MFA paths remove the
 `{id}/` segment and publish the same statuses/bodies, except `verify-google` is
@@ -68,13 +69,15 @@ Reset returned 204 with a zero-byte body for passwords of 32, 8, and 50
 characters; a fresh sign-in with the new password succeeded and one with the
 old password failed. The four activate and deactivate paths each returned 400
 for a user with no factor set up: an unenrolled factor is a definite 4xx
-rejection, not a 204 no-op. MFA set-up, verification, and activation order is
-still inferred from path names and console state changes. Set-up can replace
-enrolment; do not treat it as a harmless read. Whether activation requires
-verification, deactivation preserves it, or an already-in-state request
-returns 204 or 409 is unknown. Conflict always remains `Conflict`. The proposed
-SDK sends no MFA body, following the spec; the console sends `{}`, a
-difference the no-factor 400 does not settle.
+rejection, not a 204 no-op. Google verification returned 204 and the next get
+showed `verified: true, enabled: true`. No-body activation while enabled,
+deactivation, reactivation, and final deactivation each returned 204; each
+following get retained `verified: true` and showed the requested enabled state.
+This establishes the SDK's no-body request for Google without testing the
+console's `{}` variant. Whether activation requires verification on the server
+and whether an already-disabled deactivation returns 204 remain unknown.
+Set-up can replace enrolment; it is never a harmless read. Conflict always
+remains `Conflict`; do not generalize these Google observations to email.
 
 Rename evidence for [decision 2](iam-users-admin.md#owner-decisions):
 `PUT accounts-api/v1/iam-users/{id}` with exactly
@@ -94,12 +97,14 @@ A user get carries `twoFactorAuth` with three factor objects
 (null), `enabled`, and `verified`; `googleAuthenticator` has `enabled` and
 `verified`; `sms` has `enabled`, `verified`, and one more null-valued key that
 the provenance withholds by name and the fixtures omit. Every boolean was
-`false` on a new user with no factor set up; no `true` boolean or non-null
-contact value has been observed. The caller `auth/userinfo` fixture holds
-`twoFactorAuth` as a boolean, so the caller decoder is not reused for the
-target. Strict decoding passes unknown keys, so the withheld key is harmless.
+`false` on a new user with no factor set up. The Google probe observed both
+booleans true after verification and activation, and verified true with enabled
+false after deactivation. No non-null contact value is evidenced. The caller
+`auth/userinfo` fixture holds `twoFactorAuth` as a boolean. The target uses a
+separate decoder. Strict decoding passes unknown keys, so the withheld key is
+harmless.
 
-Proposed additions, shipped by the MFA slice beside base `UserDetail`:
+MFA state types beside base `UserDetail`:
 
 - `MFAFactor { Verified *bool; Enabled *bool }`, with matching API tags.
 - `UserMFA { Email *MFAFactor; GoogleAuthenticator *MFAFactor }`.
@@ -235,9 +240,11 @@ exits 1.
 All administration sends and target/confirm reads set `Sensitive`, fixed
 `WithholdMessage` and non-empty status-based `ClassifyError`. Reset adds its
 whole-graph privacy above. Return no arbitrary server text from partial objects;
-MFA confirmation uses create's identity validation rules. Each guard read,
-send, and confirm read gets its own per-call `SentCredentials` slice, folded
-into an operation-local set under [create's credential
+MFA target and confirmation reads enforce the ID/origin/state rules above.
+Username presence, shape, and equality between reads are not required; strict
+decoding and credential-echo refusal still apply to returned usernames. Each
+guard, send, and confirm request gets its own per-call `SentCredentials` slice,
+folded into an operation-local set under [create's credential
 rule](iam-users-api.md#writes): an ID, username, or factor value that contains
 a collected credential or the submitted password is refused before it is
 retained, printed, or used in a follow-up request, and every other retained
@@ -281,8 +288,9 @@ errors, 429, unexpected statuses, and the outcome table.
   null/wrong-type/non-IAM origin, and mismatched IDs. Every refusal sends zero
   writes, including an already-in-state MFA operation.
 - MFA: decode `get_user.json` and `get_user_mfa.json` through the SDK to the
-  all-false factors, with an extra synthetic null key inside a factor; nil and
-  false are distinct through SDK fixture decoding and JSON output;
+  all-false factors, with an extra synthetic null key inside a factor. Use
+  explicitly synthetic responses for enrolled transitions, not invented raw
+  fixtures; nil and false are distinct through decoding and JSON output;
   missing/null factor or boolean refuses; enable unverified refuses before
   no-op; disable known enabled/unverified succeeds; duplicates and case aliases
   at every state level refuse. Test stale, missing, wrong-ID, non-IAM, and
@@ -317,21 +325,36 @@ the credential-free source. For an IAM-user caller it established:
 - MFA without enrolment: `activate-email`, `deactivate-email`,
   `activate-google`, and `deactivate-google` each returned 400.
 
-Not run: the pre-reset token check against `auth/userinfo`, because the probe
-stops its sign-in checks after the expected old-password refusal, so token
-survival after a reset is unknown; email and Google enrolment, so no
-verified-factor transition, verified-state retention, or `{}`-versus-no-body
-difference is evidenced. [Decision 8](iam-users-admin.md#owner-decisions) owns
-the approved Google probe scope and deferred email decision.
+The independently reviewed Google-only probe established this sequence on its
+own disposable user. Every state read returned 200:
 
-The Google probe must record state after verification, activation,
-deactivation, and a second activation of the now-disabled verified factor,
-with a get after each, including verified-state retention. Check the no-body POST
-against the console's `{}`. Keep the TOTP code and enrolment material in
-process memory, with no secret-bearing output or captures. Record only
-statuses, keys, types, and booleans, then return the evidence and any contract
-changes for independent review. No Google transition is established until
-that evidence exists; never extrapolate it to email.
+| Step | POST status | Google verified | Google enabled |
+|-|-|-|-|
+| Initial get | No POST | false | false |
+| Set-up | 200 | Not checked | Not checked |
+| Verify, then get | 204 | true | true |
+| No-body activate, then get | 204 | true | true |
+| No-body deactivate, then get | 204 | true | false |
+| No-body reactivate, then get | 204 | true | true |
+| Final no-body deactivate, then get | 204 | true | false |
+
+Set-up returned string keys `secret` and `qrCodeUrl`. Values stayed in memory,
+and the QR URL was never fetched. All recorded state comparisons passed. No
+post-set-up raw response or capture persisted under the reviewed privacy rule;
+these observations establish the booleans and statuses, not a complete enrolled
+response schema. Cleanup returned delete 204, repeat-delete 404, and target-get
+404. The ledger confirmed identity and origin and resolved the initial
+quarantine before mutation. Quota-after returned 200 with numeric usage and
+limit keys, but no retained comparison proves restoration equality.
+
+Not run: the pre-reset token check against `auth/userinfo`, so token survival
+after reset remains unknown; email enrolment and transitions; the console's
+`{}` request variant. [Decision 8](iam-users-admin.md#owner-decisions) owns the
+approved Google probe scope and deferred email decision. Recorded Google
+evidence and these documents passed independent review. The separate
+[Google helper verification](iam-users-checks.md#google-mfa-live-checks)
+confirmed its own cleanup and quota restoration; it does not recover the
+older probe's unavailable quota comparison.
 
 Every repeat keeps the [base probe rules](iam-users-checks.md#probes), holds
 secrets in memory, records locally classified codes rather than raw server
@@ -339,8 +362,9 @@ text, bounds sign-in attempts and stops on lockout or an MFA challenge, and
 changes no policy or account setting to make a step pass. A probe establishes
 its account and case, not all server behavior.
 
-Hard gates: chosen MFA transitions and state retention. Target schemas, reset
-acceptance and body handling, and reset guard privacy are established.
+The Google transition and state-retention evidence is recorded; email remains
+gated. Target schemas, reset acceptance and body handling, and reset guard
+privacy are established.
 Password-policy breadth, general 409 meanings, session
 revocation, and account-wide MFA effects remain documented unknowns; do not
 promise them or require risky policy changes to ship.
@@ -350,11 +374,14 @@ promise them or require risky policy changes to ship.
 `testdata/iam/get_user_mfa.json` rebuilds the get after the disposable user's
 sign-in: the unenrolled factor state plus `lastUse`, with the withheld `sms`
 key omitted, as [fixture provenance](../../testdata/iam/user-provenance.md)
-records. No enrolled-factor fixture exists, and the empty reset 204 needs none.
-A future fixture preserves structural keys/types, replaces contact
-values with `<account>` and IDs with `<id>`, records omissions, and stays out
-of `testdata/` if it holds a secret. Never use decoded SDK output as raw
-evidence. Workers receive only sanitized fixtures.
+records. No enrolled-factor raw fixture exists: the Google probe deliberately
+withheld all post-set-up raw responses. Keep the existing unenrolled fixtures
+for SDK decoding and use labeled synthetic responses for true, missing, null,
+and malformed factor state and deterministic transition tests. Never present
+those synthetic cases as enrolled raw captures or require secret-bearing
+responses to be stored. The empty reset and MFA 204s need no body fixture.
+Workers receive only sanitized fixtures; decoded SDK output is never raw
+evidence.
 
 ## Live checks
 
@@ -368,3 +395,6 @@ enabled branch operates only on its created user, cleans up attributable
 resources, and records actual coverage. Every branch is reviewed before
 execution and ships with its operation's SDK/CLI/wiki slice. Fixed labels,
 statuses, counts, and booleans only; compile-only checks are not live evidence.
+
+[Google live checks](iam-users-checks.md#google-mfa-live-checks) specify the
+test-only enrolment, public SDK cycle, privacy, and quota comparison.

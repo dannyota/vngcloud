@@ -3,14 +3,15 @@
 Status: Accepted. The owner decided the follow-ups under
 [Owner decisions](#owner-decisions). The [probe
 evidence](iam-users-admin-api.md#probes) closed the reset acceptance and
-target-shape gates; verified-factor MFA transitions stay gated. The approved
-probe scope is recorded in decision 8; this document grants no broader live
-call, sign-in, or cleanup authority.
+target-shape gates and established the Google transitions and retained
+verification. Google evidence and documents passed independent review;
+email remains gated. Decision 8 records the approved probe scope; this
+document grants no broader live call, sign-in, or cleanup authority.
 
-Administrator password reset is implemented; MFA enable and disable for IAM
-users remain proposed for the public `iam` package and CLI, beside [create and
-delete](iam-users.md). The caller acts on another user under the same root
-account; current-user credential changes stay out.
+Administrator password reset and Google MFA enable and disable are implemented
+in the public `iam` package and CLI, beside [create and delete](iam-users.md).
+The caller acts on another user under the same root account; current-user
+credential changes stay out.
 
 [API and checks](iam-users-admin-api.md) owns wire evidence, types, validation,
 outcomes, tests, and probes. [IAM users](iam-users.md) owns password input,
@@ -70,10 +71,12 @@ previously issued tokens. Probe sign-in needs separate owner approval.
 
 The API separates set-up, verify, activate, and deactivate. A user get carries
 `verified` and `enabled` for the email, Google Authenticator, and SMS factors;
-every value was false on a user with no factor set up, the activate and
-deactivate paths returned 400 for that user, and no verified or enabled factor
-has been observed. Console defaults never prove a factor exists, is verified,
-or is disabled. Unknown state is distinct from false under the [state
+every value was false on a user with no factor set up, and the activate and
+deactivate paths returned 400 for that user. The approved Google probe observed
+verification enabling the factor, no-body activation returning 204 while already
+enabled, and deactivation and reactivation retaining verification. Email
+transitions remain unverified. Console defaults never prove a factor exists, is
+verified, or is disabled. Unknown state is distinct from false under the [state
 model](iam-users-admin-api.md#state-model).
 
 Product scope is activate/deactivate of existing verified factors. The console
@@ -186,8 +189,8 @@ exit 3, target 404 exits 4, and permission errors exit 1. Reuse existing
 
 ## Threat analysis
 
-These are design obligations, not an independent review. MFA paths remain
-unimplemented; reset is implemented in `iam/users_admin.go`. [Shared
+These are design obligations, not an independent review. Google MFA is
+implemented in `iam/user_mfa.go`; reset is in `iam/users_admin.go`. [Shared
 threats](iam-users.md#threat-analysis) cover generation,
 input, and persistence; [checks](iam-users-admin-api.md#unit-tests) cover each
 path below.
@@ -309,8 +312,9 @@ association.
    recorded and reviewed; the email method stays blocked. Decision 3's product
    scope is unchanged: enable and disable of existing verified factors.
    Set-up and verify are probe-only, never SDK methods or product commands.
-   Probe source still needs independent review before the manager executes it
-   within the approved scope; this decision is not evidence of a transition.
+   Probe source requires independent review before manager execution within
+   the approved scope; the recorded probe passed that review. This decision
+   alone is not evidence of a transition.
 9. **Reset privacy prerequisite.** Recommend private request-local privacy
    controls throughout the reset guard graph before release. Alternative: defer
    reset. POST-only privacy does not meet the credential boundary.

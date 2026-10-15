@@ -216,12 +216,16 @@ func TestIAMUserDeleteConsentAndReads(t *testing.T) {
 }
 
 func TestIAMUserGoldenOutput(t *testing.T) {
-	out := &iam.CreateUserOutput{User: iam.UserDetail{ID: "user-2", Username: "new-user", From: "iam"}, CreatedID: "user-2"}
-	for _, format := range []string{"json", "table", "text"} {
-		checkGolden(t, "iam-create-user-"+format+".golden", format, "", out)
-		checkGolden(t, "iam-get-user-"+format+".golden", format, "User", &iam.GetUserOutput{User: out.User})
-	}
-	checkGolden(t, "iam-delete-user-json.golden", "json", "", &iam.DeleteUserOutput{})
+	t.Run("model", func(t *testing.T) {
+		out := &iam.CreateUserOutput{User: iam.UserDetail{ID: "user-2", Username: "new-user", From: "iam"}, CreatedID: "user-2"}
+		for _, format := range []string{"json", "table", "text"} {
+			checkGolden(t, "iam-create-user-"+format+".golden", format, "", out)
+			checkGolden(t, "iam-get-user-"+format+".golden", format, "User", &iam.GetUserOutput{User: out.User})
+		}
+	})
+	t.Run("delete", func(t *testing.T) {
+		checkGolden(t, "iam-delete-user-json.golden", "json", "", &iam.DeleteUserOutput{})
+	})
 }
 
 func TestIAMUserCreateFlagsRefused(t *testing.T) {
@@ -343,5 +347,61 @@ func TestIAMUserSavedPasswordSurvivesRenderingFailure(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), strings.TrimSuffix(string(data), "\n")) {
 		t.Fatal("password leaked through rendering error")
+	}
+}
+
+func TestIAMUserMFARendering(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mfa    *iam.UserMFA
+		google string
+	}{
+		{"absent", nil, ""},
+		{"unknown", &iam.UserMFA{GoogleAuthenticator: &iam.MFAFactor{}}, `"Enabled":null,"Verified":null`},
+		{"disabled", &iam.UserMFA{GoogleAuthenticator: &iam.MFAFactor{Verified: vngcloud.Ptr(true), Enabled: vngcloud.Ptr(false)}}, `"Enabled":false,"Verified":true`},
+		{"enrolled", &iam.UserMFA{GoogleAuthenticator: &iam.MFAFactor{Verified: vngcloud.Ptr(true), Enabled: vngcloud.Ptr(true)}}, `"Enabled":true,"Verified":true`},
+	} {
+		for _, format := range []string{"json", "table", "text"} {
+			t.Run(tc.name+"/"+format, func(t *testing.T) {
+				var buf bytes.Buffer
+				out := &iam.GetUserOutput{User: iam.UserDetail{ID: "user-1", MFA: tc.mfa}}
+				if err := renderOutput(&buf, format, "User", out, false); err != nil {
+					t.Fatal(err)
+				}
+				if format == "json" {
+					var got struct {
+						MFA *struct {
+							Email               any
+							GoogleAuthenticator *struct {
+								Verified *bool
+								Enabled  *bool
+							}
+						}
+					}
+					if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+						t.Fatal(err)
+					}
+					if tc.mfa == nil {
+						if got.MFA != nil {
+							t.Fatal("unknown state became known")
+						}
+						return
+					}
+					if got.MFA == nil || got.MFA.GoogleAuthenticator == nil || got.MFA.Email != nil {
+						t.Fatal("nullable factor lost")
+					}
+					factor := got.MFA.GoogleAuthenticator
+					want := tc.mfa.GoogleAuthenticator
+					if (factor.Enabled == nil) != (want.Enabled == nil) || (factor.Verified == nil) != (want.Verified == nil) {
+						t.Fatal("unknown boolean became known")
+					}
+					if want.Enabled != nil && (*factor.Enabled != *want.Enabled || *factor.Verified != *want.Verified) {
+						t.Fatal("factor state changed")
+					}
+				} else if tc.mfa != nil && !strings.Contains(buf.String(), tc.google) {
+					t.Fatalf("factor state absent from %s: %s", format, buf.String())
+				}
+			})
+		}
 	}
 }

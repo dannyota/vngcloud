@@ -237,3 +237,29 @@ func init() {
 	docExampleOverride["iam reset-user-password"] = "vngcloud iam reset-user-password --user-id <user-id> " +
 		"--secret-file <private-directory>/password --yes"
 }
+
+const iamUserMFANote = "Requires --yes, --user-id, and --method google. Only Google factor administration " +
+	"is supported; enable requires an existing verified factor, even for a no-op. Factor enrolment and " +
+	"possession verification stay external: this command accepts no password, seed, code, or secret file. " +
+	"Refuses self (SelfChange), root or unknown callers and protected users (PrivilegedChange), including " +
+	"direct and group IAM write rights. An unproven IAM origin, mismatched ID, unknown factor state, or " +
+	"unverified enable fails closed. Guard reads require permission and run before a no-op; read-only " +
+	"refuses before any request. Checks and writes are not atomic. After guards, matching state returns " +
+	"Changed=false without a mutation. Otherwise sends at most one bodyless POST and makes one logical " +
+	"confirmation read, without replay, rollback, sign-in, profile edits, or cache repair. Success prints " +
+	"Method, nullable Enabled, and Changed. Changed means a 204 was observed. NotSettled means acceptance " +
+	"was observed but response handling or confirmation failed; RequestFailed covers an uncertain send. " +
+	"Both outcomes exit 1 ahead of nested 401/404 errors and print no partial object. Inspect get-user and " +
+	"coordinate with the user and other administrators before deliberately repeating a change. Disabling " +
+	"MFA creates takeover risk; enabling a factor the user cannot access creates lockout risk. Account-wide " +
+	"MFA effects and session or token revocation remain unknown. See [IAM](IAM.md#google-mfa)."
+
+func init() {
+	for _, op := range []string{"enable-user-mfa", "disable-user-mfa"} {
+		docOpNotes["iam "+op] = iamUserMFANote
+		docExampleOverride["iam "+op] = "vngcloud iam " + op + " --user-id <user-id> --method google --yes"
+	}
+	docOpNotes["iam get-user"] = "Returns nullable MFA factor state under User.MFA, with Email and " +
+		"GoogleAuthenticator factors and nullable Verified and Enabled booleans. Missing or null means unknown, " +
+		"not false. Contact details and factor secrets are omitted. See [IAM](IAM.md#google-mfa)."
+}

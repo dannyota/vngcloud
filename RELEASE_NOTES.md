@@ -1,5 +1,39 @@
 # Release Notes
 
+## v0.87.0 - IAM User Google MFA
+
+- SDK `EnableUserMFA` and `DisableUserMFA`, and CLI `iam enable-user-mfa`
+  and `iam disable-user-mfa`, manage an existing Google Authenticator
+  factor. Both commands require `--user-id`, `--method google`, and
+  `--yes`. Factor set-up and verification, email MFA changes, and changes
+  to the caller's own user remain excluded.
+- Both operations refuse root or unknown callers, non-IAM targets, and
+  protected users with IAM write rights. All guards run before an
+  already-in-state no-op. Enable also requires a verified factor;
+  unavailable state refuses the operation.
+- Mutations send once and make one logical confirmation read. Output reports
+  `Method`, nullable confirmed `Enabled`, and `Changed`, which means this
+  call received 204.
+  Accepted but unsettled changes return `ErrNotSettled`; other possibly
+  sent outcomes return `ErrUserWriteUncertain`. Both exit 1 without an
+  automatic retry or rollback.
+- `UserDetail.MFA` exposes nullable email and Google factor state through
+  `GetUser`, without contact values, seeds, or QR data. Missing or null
+  state stays distinct from false. Enabling a factor can lock out a user;
+  disabling one can weaken account protection. Operators must establish
+  the intended user's control separately. Session revocation and
+  account-wide MFA effects remain unknown.
+- Compatibility: adding `UserDetail.MFA` breaks unkeyed `UserDetail`
+  literals. CLI get/create-user output gains an `MFA` field, including
+  null when absent; malformed factor state now fails user-detail decoding.
+- Guarded user administration rechecks retained identifiers against credentials
+  learned by earlier guard requests before reusing them. This also prevents
+  password-reset requests from putting a newly learned credential in the
+  target URL.
+- Live verification passed the Google enable/disable and no-op cycle,
+  retained factor verification, attributable user deletion, and quota
+  restoration. Password reset remained disabled for this run.
+
 ## v0.86.0 - IAM User Password Reset
 
 - SDK `ResetUserPassword` and CLI `iam reset-user-password --user-id --yes`

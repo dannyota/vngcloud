@@ -68,6 +68,9 @@ func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...u
 	if err := core.CheckPathID(op, "PolicyID", in.PolicyID); err != nil {
 		return nil, fmt.Errorf("%w: %s requires a valid PolicyID", core.ErrInvalidInput, op)
 	}
+	if err := guardRequestOperands(op, []string{in.PolicyID}, options...); err != nil {
+		return nil, err
+	}
 
 	var credentials []string
 	defer func() { clear(credentials) }()

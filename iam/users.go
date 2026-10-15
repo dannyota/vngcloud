@@ -33,6 +33,7 @@ type userDetailWire struct {
 	Enabled   bool        `json:"enabled"`
 	From      string      `json:"from"`
 	LastUse   epochMillis `json:"lastUse"`
+	MFA       *UserMFA    `json:"twoFactorAuth,omitempty"`
 }
 
 // userReadOptions carries operation-local privacy controls for confirmation
@@ -85,6 +86,9 @@ func (c *Client) getUser(ctx context.Context, op, id string, opts userReadOption
 	if opts.SentCredentials == nil {
 		opts.SentCredentials = &credentials
 	}
+	if opts.containsCredential(id) {
+		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
+	}
 	var resp *userDetailWire
 	var sent []string
 	defer func() { clear(sent) }()
@@ -103,7 +107,7 @@ func (c *Client) getUser(ctx context.Context, op, id string, opts userReadOption
 	}
 	user := &UserDetail{
 		ID: resp.ID, Username: resp.Username, CreatedAt: int64(resp.CreatedAt),
-		Enabled: resp.Enabled, From: resp.From, LastUse: int64(resp.LastUse),
+		Enabled: resp.Enabled, From: resp.From, LastUse: int64(resp.LastUse), MFA: resp.MFA,
 	}
 	if opts.containsResponseCredential(user) {
 		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
