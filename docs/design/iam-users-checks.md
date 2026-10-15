@@ -3,7 +3,7 @@
 Unit tests, probe evidence, fixture provenance, and live checks for [IAM
 users](iam-users.md). [IAM users: API](iam-users-api.md) owns the wire
 evidence and SDK contracts these checks enforce; [IAM user administration:
-API and checks](iam-users-admin-api.md) owns the reset, MFA, and rename
+API and checks](iam-users-admin-api.md) owns the reset and MFA
 checks that run on the same disposable user.
 
 ## Unit tests
@@ -99,8 +99,9 @@ alone never authorizes cleanup.
 `list_users_filtered.json` are synthetic rebuilds of the recorded keys, types,
 and booleans. A rebuild that keeps the withheld factor key matches the observed
 get lengths; the published files omit that key and are 11 bytes shorter, as
-[fixture provenance](../../testdata/iam/user-provenance.md) records. Raw create, reset, and rename bytes stayed in memory; only
-credential-free list, attachment, and quota bodies persisted privately. Tests
+[fixture provenance](../../testdata/iam/user-provenance.md) records. Raw
+user-write bytes stayed in memory; only credential-free list, attachment, and
+quota bodies persisted privately. Tests
 that build adversarial variants label them synthetic; an account-bearing raw
 read stays under the private paths in [live
 data](../../instructions/live-data.md) until the manager sanitizes it.

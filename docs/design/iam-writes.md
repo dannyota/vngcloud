@@ -36,9 +36,9 @@ live on their own.
 ## Non-goals
 
 - IAM user writes, except create and delete in [IAM users](iam-users.md)
-  and reset, rename, and MFA enable and disable in [IAM user
+  and reset and MFA enable and disable in [IAM user
   administration](iam-users-admin.md), each behind its own approval and
-  evidence gates. Account activate and deactivate, MFA set-up and
+  evidence gates. IAM user rename, account activate and deactivate, MFA set-up,
   verification, identity providers, IP allow lists, tags, and other access
   changes stay out. `ListUsers` remains a read for finding user IDs.
 - Service account activate and deactivate, trusted roots (cross-account

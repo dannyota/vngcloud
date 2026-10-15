@@ -33,8 +33,8 @@ code starts. Decisions with lasting trade-offs also get an
 | [vLB writes](lb-writes.md) | Accepted |
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
 | [IAM writes](iam-writes.md) | Accepted |
-| [IAM users](iam-users.md) | Accepted; create, delete, get, list, and reset evidenced |
-| [IAM user administration](iam-users-admin.md) | Accepted; reset evidenced; MFA and rename proposals pending |
+| [IAM users](iam-users.md) | Accepted; base operations implemented |
+| [IAM user administration][user-admin] | Reset implemented; [MFA gate][mfa-gate] |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
 | [Encrypted volumes](encrypted-volumes.md) | Accepted |
@@ -58,3 +58,6 @@ Approval grants no live-run or policy authority.
 [sa-evidence]: service-account-auth-api.md#recorded-live-results
 [sa-gates]: service-account-auth-api.md#open-evidence
 [object-ops]: storage-object-operations.md
+
+[user-admin]: iam-users-admin.md
+[mfa-gate]: iam-users-admin.md#owner-decisions

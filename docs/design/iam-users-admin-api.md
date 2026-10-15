@@ -4,9 +4,9 @@ Wire evidence and proposed contracts for [IAM user
 administration](iam-users-admin.md). [IAM users: API](iam-users-api.md) owns
 get, filtered list, generation, bounds, and strict decoding. The reviewed probe
 on the owner's test account verified reset acceptance, the no-factor MFA
-refusals, the rename refusal for an IAM-user caller, and the target's factor
-shape ([fixture provenance](../../testdata/iam/user-provenance.md)).
-Verified-factor MFA transitions and rename acceptance remain unverified.
+refusals and the target's factor shape ([fixture
+provenance](../../testdata/iam/user-provenance.md)).
+Verified-factor MFA transitions remain unverified.
 Source evidence does not close a raw-response gate or authorize a probe.
 
 ## Sources
@@ -17,9 +17,8 @@ Source evidence does not close a raw-response gate or authorize a probe.
   the administrator operations, error schema, or 409 meaning. Only GET and
   DELETE are published on `/v1/iam-users/{id}`.
 - [Console main bundle][main]: `resetUserPassword` posts `{password}`;
-  `editUsername` uses PUT on `/v1/iam-users/{id}` with `{username}`. `toggle2FA`
-  chooses `activate-` or `deactivate-` plus the factor name and posts `{}`.
-  No PATCH user rename is evidenced.
+  `toggle2FA` chooses `activate-` or `deactivate-` plus the factor name and
+  posts `{}`.
 - The probe runs, recorded under [calls](#calls), [state model](#state-model),
   and [probes](#probes): statuses, body lengths, key names, JSON types, and
   booleans for one IAM-user caller on the test account, with every password
@@ -77,8 +76,10 @@ returns 204 or 409 is unknown. Conflict always remains `Conflict`. The proposed
 SDK sends no MFA body, following the spec; the console sends `{}`, a
 difference the no-factor 400 does not settle.
 
-Rename: `PUT accounts-api/v1/iam-users/{id}` with exactly
-`{"username":"<account>"}` from `editUsername` returned 403 to the IAM-user
+Rename evidence for [decision 2](iam-users-admin.md#owner-decisions):
+`PUT accounts-api/v1/iam-users/{id}` with exactly
+`{"username":"<account>"}` from the [console main bundle][main] `editUsername`
+returned 403 to the IAM-user
 caller, with a top-level array of one object holding one string field. The
 account's IAM action list names no update or rename action ([fixture
 provenance](../../testdata/iam/user-provenance.md) lists the user actions).
@@ -123,10 +124,10 @@ verification. Both still run all caller and privilege guards first.
 
 All methods use `context.Context`, pointer Input, `(*Output, error)`, and
 `iam.<Method>` operation names in `danny.vn/vngcloud/iam`. Nil Inputs fail
-locally. UserID and required names/methods use `vngcloud:"required"`;
+locally. UserID and required methods use `vngcloud:"required"`;
 `core.CheckPathID` validates UserID before authentication or requests. There are
 no partial update fields or public guard overrides. Public additions preserve
-existing methods/import paths; `UserDetail` and MFA types are new.
+existing methods/import paths; the MFA types are new.
 
 ### Reset
 
@@ -167,9 +168,8 @@ unknown, because that check did not run.
 
 ### Reset privacy
 
-This is a separately briefed prerequisite under [decision
-9](iam-users-admin.md#owner-decisions), not an existing guard guarantee. Thread
-private per-operation request options through every reset-dependent reader:
+Reset implements [decision 9](iam-users-admin.md#owner-decisions) through
+private per-operation request options on every reset-dependent reader:
 caller identity, target get, action classification, direct policy summaries,
 user groups, and each `GetPolicy` read. Preserve existing guard semantics and
 caching; do not change client-global state or expose a bypass.
@@ -184,38 +184,20 @@ Auth/token providers keep their existing privacy contract; custom
 providers/transports are trusted code and cannot be made safe by this wrapper.
 No follow-up, cleanup, or diagnostic request follows the POST.
 
-Reset reaches `iam/guard.go:471`, `:186`, `:256`, `:427`, and
-`iam/policy_guard.go:269`; those reads currently lack these local options.
-Cold-cache and warm-cache tests must prove that options neither leak across
-concurrent calls nor weaken normal guards. If this graph cannot carry the
-controls safely, reset stays blocked. Sensitive `GetUser` alone is not enough.
-
-### Rename
-
-Blocked: the [PUT](#calls) returned 403 to an IAM-user caller and no IAM
-action covers it, so no accepted response contract exists and the [rename
-follow-up](iam-users-admin.md#owner-decisions) decides whether rename stays in
-scope. Proposed types, if a later root-login probe evidences acceptance:
-`RenameUserInput { UserID string; Username string }`, both required, and
-`RenameUserOutput { User UserDetail }`. Username follows create's shape rules.
-Send the PUT once with `Once` despite PUT's normal retries, only after
-evidence/re-review selects its exact `OK` status and response rules. Set the
-privacy controls described under shared bounds below.
-
-After evidenced acceptance, read once by ID. Matching ID, exact Username, and
-IAM origin confirm. A failed/mismatched read returns an output holding only the
-validated input ID and `ErrNotSettled`. A possibly sent failure returns nil and
-`ErrUserWriteUncertain`; do not attribute an unconfirmed name to the user. A
-definite 4xx retains its classification, including Conflict. Inspect the same ID
-manually; no list-based replacement, delete/create, profile rewrite, or
-token-cache mutation is allowed.
+The implemented graph starts at `iam/users_admin.go:47` and
+`iam/users_admin.go:95`, passing private options through `guardUserWrite`,
+`guardCallerIdentity`, `guardWriteActionNames`, and `userIsProtected`.
+`iam/users_admin_privacy_test.go` covers cold and warm caches, concurrent
+redaction, and guard privacy. Preserve these controls throughout the graph;
+sensitive `GetUser` alone is not enough.
 
 ### MFA
 
 - `DisableUserMFAInput { UserID string; Method string }` and
   `EnableUserMFAInput` with the same required fields. Method must be exactly
-  `email` or `google`, checked before any request; never interpolate another
-  string into a path. An unevidenced method must not ship as supported.
+  `google` for the first release, checked before any request; never interpolate
+  another string into a path. `email` stays blocked under [decision
+  8](iam-users-admin.md#owner-decisions); reject it locally until evidenced.
 - `DisableUserMFAOutput { Method string; Enabled *bool; Changed bool }` and
   `EnableUserMFAOutput` with the same fields. Enabled is the last confirmed
   post-operation state, nil when unavailable. Changed means this invocation
@@ -253,7 +235,7 @@ exits 1.
 All administration sends and target/confirm reads set `Sensitive`, fixed
 `WithholdMessage` and non-empty status-based `ClassifyError`. Reset adds its
 whole-graph privacy above. Return no arbitrary server text from partial objects;
-rename confirmation uses create's identity validation rules. Each guard read,
+MFA confirmation uses create's identity validation rules. Each guard read,
 send, and confirm read gets its own per-call `SentCredentials` slice, folded
 into an operation-local set under [create's credential
 rule](iam-users-api.md#writes): an ID, username, or factor value that contains
@@ -278,8 +260,7 @@ byte caps do not prove list completeness.
 
 Use synthetic canaries and `httptest`; no live calls. For each enabled path,
 test exact method/path/body, documented success, all 400/401/403/404/409/500
-errors, 429, unexpected statuses, and the outcome table. Rename tests wait for
-its response evidence, never a guessed success code or fixture.
+errors, 429, unexpected statuses, and the outcome table.
 
 - Reset: generated/supplied values serialize exactly; nil/invalid Input and
   conflicting length fail before reads; generation runs after guards; test the
@@ -312,7 +293,7 @@ its response evidence, never a guessed success code or fixture.
   custom transports. No replay, blind rollback, or cloud cleanup occurs. Race
   tests cover competing resets, opposite MFA writes, and changed privilege
   between read/send without claiming atomicity.
-- CLI: all four `--yes` rules, read-only before password consumption, JSON
+- CLI: all three `--yes` rules, read-only before password consumption, JSON
   secret exclusion, one password source, length restrictions, secret-file
   preflight and exclusive write/sync/close/removal failures. Distinguish
   accepted/uncertain and saved/lost, retain outcome identity under a file error,
@@ -323,8 +304,8 @@ its response evidence, never a guessed success code or fixture.
 
 The administration probe ran inside the [user
 probe](iam-users-checks.md#probes) on the same disposable user, between its
-create and delete, under owner approval naming each reset, MFA, and rename
-action and the sign-in scope, after adversarial review and fix confirmation of
+create and delete, under owner approval for its actions and sign-in scope,
+after adversarial review and fix confirmation of
 the credential-free source. For an IAM-user caller it established:
 
 - Reset: 204 with a zero-byte body for a generated 32-character password and
@@ -335,29 +316,21 @@ the credential-free source. For an IAM-user caller it established:
   after sign-in, with every boolean `false` and no factor set up.
 - MFA without enrolment: `activate-email`, `deactivate-email`,
   `activate-google`, and `deactivate-google` each returned 400.
-- Rename: the console PUT returned 403 with a one-object array body, and the
-  action list names no update action.
 
 Not run: the pre-reset token check against `auth/userinfo`, because the probe
 stops its sign-in checks after the expected old-password refusal, so token
-survival after a reset is unknown; email and Google enrolment, because no
-mailbox or in-memory Google enrolment was approved, so no verified-factor
-transition, verified-state retention, or `{}`-versus-no-body difference is
-evidenced; and any rename collision or old-name reuse. The remaining probes
-need their own approval under the [probe-scope and rename
-follow-ups](iam-users-admin.md#owner-decisions):
+survival after a reset is unknown; email and Google enrolment, so no
+verified-factor transition, verified-state retention, or `{}`-versus-no-body
+difference is evidenced. [Decision 8](iam-users-admin.md#owner-decisions) owns
+the approved Google probe scope and deferred email decision.
 
-1. Email cycle, only with an owner-controlled test mailbox: set up, send mail,
-   verify, activate, get, deactivate, get, reactivate, get. Check
-   verified-state retention and the no-body POST against the console's `{}`.
-   Never print the address or code.
-2. Google cycle, only with approved in-memory enrolment: the same transitions
-   with the TOTP secret and QR data in memory only; never fetch a returned QR
-   URL. If absent, defer that method rather than extrapolate from email.
-3. Rename, only through an approved root login on a disposable user: record
-   status and body schema, get by ID, and compare exact username and unchanged
-   ID. A filtered list can show the old name absent, not prove it reusable.
-   Collision, old-name reuse, and token checks need separate approval.
+The Google probe must record state after verification, activation, and
+deactivation, including verified-state retention. Check the no-body POST
+against the console's `{}`. Keep the TOTP code and enrolment material in
+process memory, with no secret-bearing output or captures. Record only
+statuses, keys, types, and booleans, then return the evidence and any contract
+changes for independent review. No Google transition is established until
+that evidence exists; never extrapolate it to email.
 
 Every repeat keeps the [base probe rules](iam-users-checks.md#probes), holds
 secrets in memory, records locally classified codes rather than raw server
@@ -365,9 +338,9 @@ text, bounds sign-in attempts and stops on lockout or an MFA challenge, and
 changes no policy or account setting to make a step pass. A probe establishes
 its account and case, not all server behavior.
 
-Hard gates: scoped guard privacy, chosen MFA transitions and state retention,
-and rename acceptance evidence. Target schemas and reset acceptance and body
-handling are closed. Password-policy breadth, general 409 meanings, session
+Hard gates: chosen MFA transitions and state retention. Target schemas, reset
+acceptance and body handling, and reset guard privacy are established.
+Password-policy breadth, general 409 meanings, session
 revocation, and account-wide MFA effects remain documented unknowns; do not
 promise them or require risky policy changes to ship.
 
@@ -376,23 +349,21 @@ promise them or require risky policy changes to ship.
 `testdata/iam/get_user_mfa.json` rebuilds the get after the disposable user's
 sign-in: the unenrolled factor state plus `lastUse`, with the withheld `sms`
 key omitted, as [fixture provenance](../../testdata/iam/user-provenance.md)
-records. No enrolled-factor or rename fixture exists, and the empty reset 204
-needs none. A future fixture preserves structural keys/types, replaces contact
+records. No enrolled-factor fixture exists, and the empty reset 204 needs none.
+A future fixture preserves structural keys/types, replaces contact
 values with `<account>` and IDs with `<id>`, records omissions, and stays out
 of `testdata/` if it holds a secret. Never use decoded SDK output as raw
 evidence. Workers receive only sanitized fixtures.
 
 ## Live checks
 
-Extend `TestLiveWriteIAMUser` with separately opt-in reset, email MFA, Google
-MFA, and rename branches, in addition to the two base gates. Use
-`VNGCLOUD_LIVE_IAM_USER_RESET=1`, `VNGCLOUD_LIVE_IAM_USER_EMAIL_MFA=1`,
-`VNGCLOUD_LIVE_IAM_USER_GOOGLE_MFA=1`, and `VNGCLOUD_LIVE_IAM_USER_RENAME=1`,
-respectively; a branch exists only once its operation ships. The manager's run
-brief must authorize each selected branch; unset means skipped, never
-implicitly approved. Each enabled branch operates only on its created user,
-cleans up attributable resources, and records actual coverage. A mailbox
-variable configures an approved email branch, not its authorization. Every
-branch is reviewed before execution and ships with its operation's SDK/CLI/wiki
-slice. Fixed labels, statuses, counts, and booleans only; compile-only checks
-are not live evidence.
+`TestLiveWriteIAMUser` has a reset branch gated by
+`VNGCLOUD_LIVE_IAM_USER_RESET=1`, in addition to the two base gates. Extend it
+with a Google MFA branch gated by `VNGCLOUD_LIVE_IAM_USER_GOOGLE_MFA=1` only
+once that operation ships. Email remains blocked under [decision
+8](iam-users-admin.md#owner-decisions). The manager's run brief must authorize
+each selected branch; unset means skipped, never implicitly approved. Each
+enabled branch operates only on its created user, cleans up attributable
+resources, and records actual coverage. Every branch is reviewed before
+execution and ships with its operation's SDK/CLI/wiki slice. Fixed labels,
+statuses, counts, and booleans only; compile-only checks are not live evidence.

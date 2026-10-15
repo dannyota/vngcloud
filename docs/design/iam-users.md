@@ -10,7 +10,7 @@ Add IAM user create and delete, `GetUser`, and `ListUsers.Name` to the public
 `iam` package and CLI. Service accounts already have `create-service-account
 --secret-file`. An IAM user is a separate sign-in identity under an existing
 root account, not a new root account. [IAM user
-administration](iam-users-admin.md) adds password reset, rename, and MFA enable
+administration](iam-users-admin.md) adds password reset and MFA enable
 and disable on top of the rules here.
 
 [API](iam-users-api.md) owns wire evidence, public types, validation, retries,
@@ -233,8 +233,8 @@ outcome sentinels print `RequestFailed`. Reuse `RequestFailed` and
 
 ## Threat analysis
 
-All user operations below are unimplemented. These are design constraints for
-independent adversarial review, not a review verdict. Evidence refers to
+These are design constraints for independent adversarial review of the
+implemented user operations, not a review verdict. Evidence refers to
 existing paths; required adversarial cases live in [unit
 tests](iam-users-checks.md#unit-tests).
 
@@ -335,7 +335,7 @@ All twelve decisions are decided. The
 [administration decisions](iam-users-admin.md#owner-decisions) are separate.
 
 1. **Scope.** Decided: create and delete with their supporting reads, plus
-   password reset, rename, and MFA enable and disable for IAM users under the
+   password reset and MFA enable and disable for IAM users under the
    [administration design](iam-users-admin.md). Tags, account activate and
    deactivate, IP allow lists, identity providers, and quota writes stay out.
 2. **Password source.** Decided: either supplied file/stdin or generated secret
@@ -382,4 +382,4 @@ All twelve decisions are decided. The
     standing approval from this document.
 12. **Release shape.** Decided: base SDK/CLI/wiki together after its gates, with
     verified reads first as fallback. Separate administration releases are
-    decided in that design, so rename need not block reset or MFA.
+    decided in that design.

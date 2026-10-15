@@ -1,13 +1,14 @@
 # IAM user administration design
 
-Status: Accepted. The owner accepted every recommendation under
-[Owner decisions](#owner-decisions); two proposed follow-ups there await the
-owner. The [probe evidence](iam-users-admin-api.md#probes) closed the reset
-acceptance and target-shape gates; verified-factor MFA transitions and rename
-stay gated. This document authorizes no live call, sign-in, or cleanup.
+Status: Accepted. The owner decided the follow-ups under
+[Owner decisions](#owner-decisions). The [probe
+evidence](iam-users-admin-api.md#probes) closed the reset acceptance and
+target-shape gates; verified-factor MFA transitions stay gated. The approved
+probe scope is recorded in decision 8; this document grants no broader live
+call, sign-in, or cleanup authority.
 
-Add administrator password reset, rename, and MFA enable and disable for IAM
-users to the public `iam` package and CLI, beside [create and
+Administrator password reset is implemented; MFA enable and disable for IAM
+users remain proposed for the public `iam` package and CLI, beside [create and
 delete](iam-users.md). The caller acts on another user under the same root
 account; current-user credential changes stay out.
 
@@ -16,29 +17,19 @@ outcomes, tests, and probes. [IAM users](iam-users.md) owns password input,
 generation, secret files, and the caller, self, and origin guards. Follow [write
 conventions](../adr/0002-write-api-conventions.md) and the [IAM guard
 model](iam-writes.md#guards). The SDK stays standard-library only; the CLI calls
-only the public SDK. No dependency is added. Every operation below is
-unimplemented.
+only the public SDK. No dependency is added.
 
 ## Scope
 
 - `ResetUserPassword`: published administrator password replacement.
-- `RenameUser`: the console PUT returned 403 to the probe's IAM-user caller,
-  and the account's IAM action list has no update action; which callers can
-  rename is unknown. Implementation remains blocked on the rename follow-up
-  under [Owner decisions](#owner-decisions).
 - `DisableUserMFA` and `EnableUserMFA`: published activate/deactivate paths for
-  `email` and `google`; each factor's state and transition evidence gates its
-  release separately.
+  `google` under [decision 8](#owner-decisions); `email` remains deferred.
+  Each factor's state and transition evidence gates its release separately.
 
 Exclude current-user reset and MFA, MFA set-up, verification and verification
 mail, account activate/deactivate, tags, IP allow lists, identity providers, and
 quota writes. Set-up can give an administrator control of the user's second
 factor. No SDK method or CLI fallback may invoke an excluded path.
-
-Rename's [evidence](iam-users-admin-api.md#calls) shows a refused request, not
-a server contract for any supported caller. Obtain authorized acceptance
-evidence and re-review before implementation. Never substitute delete followed
-by create: it changes the ID and loses credentials, policies, and memberships.
 
 ## Operations
 
@@ -75,25 +66,6 @@ coordinate it with the user and other administrators. A fresh sign-in is an
 optional manual diagnostic, never automatic recovery or proof of revocation of
 previously issued tokens. Probe sign-in needs separate owner approval.
 
-### Rename
-
-The PUT with `username` returned 403 to the IAM-user caller; its acceptance
-semantics remain unevidenced for every caller, and the SDK authenticates only
-IAM users and service accounts. The conditional contract sends once, then
-reads by ID once and requires the same ID and exact requested username. A failed
-or mismatched confirmation returns `ErrNotSettled` with only the ID; an
-uncertain send returns `ErrUserWriteUncertain`. Neither retries the write. A 409
-stays `Conflict`; no meaning beyond conflict is assumed.
-
-Profiles store `username`; cache keys include it but not the password
-(`internal/tokencache/cache.go:30`). The tool edits neither profiles nor cache
-files. An unchanged profile can still find its old token entry after a rename or
-reset. Whether the server accepts that token is unknown. Updating a profile's
-username selects a different cache key but does not erase the old entry or
-revoke its token. Update the affected profile and credential source before its
-next fresh sign-in; do not present a cache hit as rename validation. A later
-user reusing the old name makes stale credentials especially unsafe.
-
 ### MFA
 
 The API separates set-up, verify, activate, and deactivate. A user get carries
@@ -104,13 +76,15 @@ has been observed. Console defaults never prove a factor exists, is verified,
 or is disabled. Unknown state is distinct from false under the [state
 model](iam-users-admin-api.md#state-model).
 
-Recommend only activate/deactivate of existing factors. The console consumes
+Product scope is activate/deactivate of existing verified factors. The console
+consumes
 `secret` and `qrCodeUrl` from administrator Google set-up; an administrator
 running it obtains material sufficient to copy the user's time-based one-time
 password (TOTP) factor. Email set-up accepts an administrator-chosen mailbox,
 which can redirect the second factor. Verification proves access to that mailbox
 or secret, not that the intended user controls it. Both set-up flows stay
-excluded even if the caller has server permission.
+excluded from the product even if the caller has server permission. Decision 8
+authorizes a Google enrolment probe only, not product set-up or verify commands.
 
 Disabling MFA can complete an account takeover for someone who already knows the
 password. Enabling a factor can lock out a user or activate an attacker-enrolled
@@ -147,7 +121,7 @@ target or privilege reads. Target 404 remains `NotFound`; failed or ambiguous
 reads never authorize a write. Service-account callers cannot be the target IAM
 user but still need classification and target checks.
 
-Recommend the same additional protection for reset, rename, enable, and disable:
+Recommend the same additional protection for reset, enable, and disable:
 obtain `guardWriteActionNames`, call `userIsProtected` with a fresh
 per-operation policy map, and map protection to `ErrPrivilegedChange`.
 `iam/policy_guard.go:269` checks direct policies and every returned group's
@@ -161,7 +135,7 @@ this guard inherits both. Do not weaken unknown-action, malformed-statement,
 incomplete-page, or failed-read refusals.
 
 Resetting a protected user's password transfers its sign-in; disabling its MFA
-weakens it; renaming or enabling MFA can lock it out. This matches the purpose
+weakens it; enabling MFA can lock it out. This matches the purpose
 of `ResetServiceAccountSecret`'s guard (`iam/service_accounts_write.go:260`,
 `iam/guard.go:497`). Delete retains the owner's lighter self/origin rule. No
 override flag exists. Server permission is still necessary: checks and writes
@@ -179,9 +153,8 @@ run first under the shared `beforeInput` contract.
 | Command | Flags | Consent |
 |-|-|-|
 | `reset-user-password` | User ID and password source/length | `--yes` |
-| `rename-user` | `--user-id`, `--username` | `--yes` |
-| `disable-user-mfa` | `--user-id`, `--method email\|google` | `--yes` |
-| `enable-user-mfa` | `--user-id`, `--method email\|google` | `--yes` |
+| `disable-user-mfa` | `--user-id`, `--method google` | `--yes` |
+| `enable-user-mfa` | `--user-id`, `--method google` | `--yes` |
 
 Reset requires `--user-id` and exactly one of `--password-file` and
 `--secret-file`; `--password-length` is only for generation. It reuses create's
@@ -198,7 +171,7 @@ vngcloud iam disable-user-mfa --user-id <user-id> --method google --yes
 ```
 
 Reset prints a redacted generated `Password` and `SecretFile` only when saved;
-supplied mode prints neither. Rename prints the confirmed user. MFA prints
+supplied mode prints neither. MFA prints
 `Method`, nullable `Enabled`, and `Changed` under the API contract. Errors print
 no partial object. Recovery may name the validated user ID and local path, both
 account data for live-report sanitation.
@@ -213,25 +186,28 @@ exit 3, target 404 exits 4, and permission errors exit 1. Reuse existing
 
 ## Threat analysis
 
-These are design obligations, not an independent review. All new paths are
-unimplemented. [Shared threats](iam-users.md#threat-analysis) cover generation,
+These are design obligations, not an independent review. MFA paths remain
+unimplemented; reset is implemented in `iam/users_admin.go`. [Shared
+threats](iam-users.md#threat-analysis) cover generation,
 input, and persistence; [checks](iam-users-admin-api.md#unit-tests) cover each
-path below, including gated rename.
+path below.
 
 1. **Leaked credentials.** Invariant: reset secrets and bearer tokens reach no
    managed diagnostic or capture path. High severity: a guard failure or
    uncertain reset echoes a supplied password. Transport controls at
    `internal/transport/transport.go:170`, `:183`, `:202`, and `:596` protect
-   individual requests, not a graph. Extend private reset readers before reuse;
+   individual requests, not a graph. Preserve the private reset reader controls;
    withhold server text and suppress captures on every dependent read and send,
-   then make no recovery request. MFA and rename carry no password but use
+   then make no recovery request. MFA carries no password but uses
    sensitive reads/sends and fixed errors against hostile secret-bearing
    responses. A peer can also return a sent bearer token as an `id` or
    `username`; `Sensitive` does not sanitize decoded output, so the
    [credential rule](iam-users-admin-api.md#error-identity-and-bounds) refuses
    such values before retention or reuse. Test all error nodes, debug,
-   captures, partial output, and file-failure reporting. Set-up stays excluded
-   to avoid TOTP secret custody and attacker-mailbox enrolment.
+   captures, partial output, and file-failure reporting. Product set-up stays
+   excluded
+   to avoid TOTP secret custody and attacker-mailbox enrolment; the approved
+   probe keeps enrolment material in memory under decision 8.
 2. **Hostile API peer.** Invariant: malformed identities, policy lists, or
    factor state cannot authorize a write or forge confirmation. High severity:
    missing factor booleans default to false, or a truncated group list hides
@@ -243,7 +219,7 @@ path below, including gated rename.
    duplicates, caps, and
    misleading 204 bodies. A peer lying about its own state or membership cannot
    be defeated by a second read from it.
-3. **Redirected endpoint.** Invariant: reset, rename, and factor writes send
+3. **Redirected endpoint.** Invariant: reset and factor writes send
    once to the configured origin, with normal TLS verification. High severity:
    redirects steal a password or bearer token.
    `internal/transport/transport.go:440` refuses redirects under `Once`;
@@ -254,7 +230,7 @@ path below, including gated rename.
 4. **Local tampering.** Invariant: private reset files, bound caller identity,
    and no silent profile/cache edits on any operation. High severity: a writable
    parent swaps the destination, or an old cached token masks a failed fresh
-   sign-in after reset/rename/MFA changes. `internal/cli/secretfile.go:40`,
+   sign-in after reset/MFA changes. `internal/cli/secretfile.go:40`,
    `:80` protect exclusive creation, not hostile parents;
    `internal/core/load.go:175` checks credentials;
    `internal/tokencache/cache.go:43`, `:158` key and read cached tokens without
@@ -265,7 +241,7 @@ path below, including gated rename.
 5. **Concurrent or repeated writes.** Invariant: at most one mutation per
    administration invocation and no automatic cleanup or rollback. High
    severity: reset transfers sign-in or MFA disable assists takeover; medium
-   severity: concurrent reset loses a password or rename locks out a user.
+   severity: concurrent reset loses a password or MFA enable locks out a user.
    `internal/transport/transport.go:162` and `internal/transport/errors.go:420`
    supply `Once` and conservative `NotSent`; protection follows
    `iam/policy_guard.go:269`. Check 401, 429, 5xx, drops, cancellation,
@@ -277,16 +253,15 @@ path below, including gated rename.
 
 ## Wiki and release
 
-Create/delete may ship as the decided base release. Recommend separate reset,
-MFA, and rename slices after their own gates, each with SDK, CLI, wiki, reviewed
-live helpers, and authorized verification together. Reset need not wait for MFA
-or rename; evidenced MFA methods need not wait for rename or an unevidenced
-factor. No placeholder command or guessed method ships.
+Create/delete and reset are implemented. MFA ships separately after its own
+evidence gates, with SDK, CLI, wiki, reviewed live helpers, and authorized
+verification together. Apply the method gate in [decision 8](#owner-decisions).
+No placeholder command or guessed method ships.
 
 Update `docs/wiki/IAM.md`, `Services.md`, and `Configuration.md`; generate
 `CLI-IAM.md` through source notes. Document passwords and partial outputs,
 no-undo reset, manual recovery, guard permissions, MFA takeover/lockout risk,
-unknown token revocation, and profile changes. State that no factor is enrolled
+and unknown token revocation. State that no factor is enrolled
 and no cache is repaired automatically. Follow [release
 gates](iam-users.md#wiki-and-release); no publication bypass is authorized.
 
@@ -296,25 +271,15 @@ The owner accepted each recommendation below, including refinements of the
 first eight. None is covered by the create/delete decisions merely by
 association.
 
-1. **Privilege guard.** Recommend protected-user refusal for reset, rename, and
+1. **Privilege guard.** Recommend protected-user refusal for reset and
    both MFA operations, including direct and group IAM write rights.
    Alternative: self/origin only, accepting sign-in takeover and lockout
    exposure. Preserve delete's decided exception.
-2. **Rename evidence.** Recommend keeping implementation blocked until response
-   evidence establishes the console PUT contract and independent review accepts
-   it. Alternatives: wait for a published contract; drop rename.
-   Delete-and-create is never a fallback.
-   **Proposed follow-up, awaiting the owner.** The probe changed the options:
-   the PUT returned 403 to the probe's IAM-user caller, and the account's
-   action list names no rename action, so the observed caller could not
-   establish the contract; which callers can rename is unknown, and the SDK
-   authenticates only IAM users and service accounts. Recommend dropping
-   rename from scope: remove `RenameUser`, `rename-user`, the rename live
-   branch, and the profile-username guidance, and narrow [base decision
-   1](iam-users.md#owner-decisions) to match. Alternative: keep rename blocked
-   and run a later root-login probe on a disposable user, which puts root
-   credentials inside a probe, needs its own security review, and would
-   evidence an operation the SDK's supported logins cannot call.
+2. **Rename evidence.** Decided: drop IAM user rename from scope. The
+   [recorded refusal and missing action](iam-users-admin-api.md#calls) leave no
+   accepted contract for the SDK's supported callers. No rename SDK method,
+   CLI command, live branch, probe step, or profile-username guidance remains
+   proposed. Delete-and-create is never a fallback.
 3. **MFA subset.** Recommend enable/disable of existing email and Google
    factors. Alternatives: disable only; console-only recovery; add email
    set-up/verification with mailbox-takeover risk; add Google set-up with TOTP
@@ -323,32 +288,29 @@ association.
    `UserDetail.MFA`, no address, and nullable confirmed `Enabled` in operation
    outputs. Alternatives: keep state private; expose contact data with separate
    justification. Missing state must never become false.
-5. **Consent.** Recommend `--yes` on reset, rename, disable, and enable due to
+5. **Consent.** Recommend `--yes` on reset, disable, and enable due to
    sign-in impact. Alternative: no consent on enable under the general
    reversible-write rule. Neither permits a guard override.
-6. **Uncertain outcome sentinel.** Recommend `ErrUserWriteUncertain` for reset,
-   rename, and MFA, beside the decided `ErrUserCreateUncertain`. Alternative:
+6. **Uncertain outcome sentinel.** Recommend `ErrUserWriteUncertain` for reset
+   and MFA, beside the decided `ErrUserCreateUncertain`. Alternative:
    unify all user-write uncertainty before release. Keep `ErrNotSettled` for
    accepted writes with failed confirmation/response handling; never hide the
    outcome when persistence also fails.
 7. **Own credentials.** Recommend excluding all current-user reset/MFA paths.
    Alternative: a separate self-service design including cache and credential
    replacement, never reuse the administrator bypass.
-8. **Probe scope.** Recommend reset/state probes on a disposable user; email
-   transitions only with an explicitly approved test mailbox and enrolment flow.
-   Alternatives: approved in-memory Google set-up to evidence that factor; defer
-   Google release. Mailbox configuration alone is not approval, and no secret or
-   code enters output.
-   **Proposed follow-up, awaiting the owner.** The reset and state probes ran;
-   no mailbox was approved, so no verified-factor transition is evidenced for
-   either method. Recommend shipping no MFA write until one is:
-   `DisableUserMFA` and `EnableUserMFA` stay blocked while create, delete, and
-   reset ship. Alternatives: the owner provides a test mailbox for an email
-   enrolment probe (set up, verify, activate, deactivate, reactivate on a
-   disposable user), which evidences the email method only; or the owner
-   approves an in-memory Google enrolment probe that holds the TOTP secret in
-   process memory and never fetches the QR URL, which evidences the Google
-   method only. Each needs its own probe review and run authority.
+8. **Probe scope.** Decided: approve an in-memory Google Authenticator
+   enrolment probe on the disposable user: `set-up-google`, `verify-google`
+   with a TOTP code computed in memory, then activate and deactivate
+   transitions. The secret stays in process memory; neither it nor the QR URL
+   may be fetched into tooling, logged, or persisted. Never fetch the QR URL.
+   Email stays deferred because no mailbox is available. MFA ships the Google
+   method only once the [probe evidence](iam-users-admin-api.md#probes) is
+   recorded and reviewed; the email method stays blocked. Decision 3's product
+   scope is unchanged: enable and disable of existing verified factors.
+   Set-up and verify are probe-only, never SDK methods or product commands.
+   Probe source still needs independent review before the manager executes it
+   within the approved scope; this decision is not evidence of a transition.
 9. **Reset privacy prerequisite.** Recommend private request-local privacy
    controls throughout the reset guard graph before release. Alternative: defer
    reset. POST-only privacy does not meet the credential boundary.
