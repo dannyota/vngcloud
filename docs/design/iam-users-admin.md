@@ -143,21 +143,19 @@ Recommend the same additional protection for reset, rename, enable, and disable:
 obtain `guardWriteActionNames`, call `userIsProtected` with a fresh
 per-operation policy map, and map protection to `ErrPrivilegedChange`.
 `iam/policy_guard.go:269` checks direct policies and every returned group's
-policies. `iam/guard.go:181` refuses an empty action classification; its caller
-and action caches are per client. The shipped `statementsArePrivileged`
-(`iam/guard.go:135`) reads a null statement, an unknown effect, or an `allow`
-statement with a missing, null, or empty action list as a grant that matches
-nothing, so a policy of `{"statements":[null]}` leaves a user unprotected. The
-[fail-closed statement rule](iam-writes.md#rules) corrects that in a separate,
-adversarially reviewed patch that lands first; this guard depends on it. Do
-not weaken unknown-action, incomplete-page, or failed-read refusals. The
-[strict guard prerequisite](iam-users-api.md#bounds-and-strict-decoding) must
-cover the whole reachable graph before administration code.
+policies. `iam/guard.go:186` refuses an empty action classification; its caller
+and action caches are per client. `statementsArePrivileged` (`iam/guard.go:136`)
+treats a null statement, an unknown effect, and an `allow` statement with a
+missing, null, or empty action list as privileged under the [fail-closed
+statement rule](iam-writes.md#rules), and every read in that graph decodes
+strictly within its bound ([IAM writes: API](iam-writes-api.md#bodies)), so
+this guard inherits both. Do not weaken unknown-action, malformed-statement,
+incomplete-page, or failed-read refusals.
 
 Resetting a protected user's password transfers its sign-in; disabling its MFA
 weakens it; renaming or enabling MFA can lock it out. This matches the purpose
-of `ResetServiceAccountSecret`'s guard (`iam/service_accounts_write.go:268`,
-`iam/guard.go:467`). Delete retains the owner's lighter self/origin rule. No
+of `ResetServiceAccountSecret`'s guard (`iam/service_accounts_write.go:260`,
+`iam/guard.go:497`). Delete retains the owner's lighter self/origin rule. No
 override flag exists. Server permission is still necessary: checks and writes
 are not atomic, cached identity/actions can age, and the guard does not evaluate
 non-IAM privileges or prove absence of every escalation route. Recommend
@@ -215,7 +213,7 @@ path below, including gated rename.
 1. **Leaked credentials.** Invariant: reset secrets and bearer tokens reach no
    managed diagnostic or capture path. High severity: a guard failure or
    uncertain reset echoes a supplied password. Transport controls at
-   `internal/transport/transport.go:160`, `:174`, `:196`, and `:587` protect
+   `internal/transport/transport.go:170`, `:183`, `:202`, and `:596` protect
    individual requests, not a graph. Extend private reset readers before reuse;
    withhold server text and suppress captures on every dependent read and send,
    then make no recovery request. MFA and rename carry no password but use
@@ -229,28 +227,29 @@ path below, including gated rename.
 2. **Hostile API peer.** Invariant: malformed identities, policy lists, or
    factor state cannot authorize a write or forge confirmation. High severity:
    missing factor booleans default to false, or a truncated group list hides
-   privilege. `iam/guard.go:240`, `:397`, and `iam/policy_guard.go:269`
-   establish the existing fail-closed reads; `iam/caller.go:39` lacks the
-   proposed strict decoding and byte cap. Bound and strictly decode every
-   dependency; preserve unknown state and validate ID/origin again on
-   confirmation. Test nulls, wrong types, aliases, duplicates, caps, and
+   privilege. `iam/guard.go:256`, `:427`, and `iam/policy_guard.go:269`
+   establish the existing fail-closed, strictly decoded, bounded reads, and
+   `iam/caller.go:39` sets the same flag and cap. The new target and
+   factor-state reads must decode the same way; preserve unknown state and
+   validate ID/origin again on confirmation. Test nulls, wrong types, aliases,
+   duplicates, caps, and
    misleading 204 bodies. A peer lying about its own state or membership cannot
    be defeated by a second read from it.
 3. **Redirected endpoint.** Invariant: reset, rename, and factor writes send
    once to the configured origin, with normal TLS verification. High severity:
    redirects steal a password or bearer token.
-   `internal/transport/transport.go:429` refuses redirects under `Once`;
+   `internal/transport/transport.go:440` refuses redirects under `Once`;
    `internal/transport/redirect.go:11` checks scheme and host around hooks. Test
    301/302/303/307/308 and foreign-host guard and confirmation reads. Endpoint
    overrides and custom HTTP transports remain trusted caller code
-   (`internal/core/client.go:374`), not a provider-host allowlist.
+   (`internal/core/client.go:375`), not a provider-host allowlist.
 4. **Local tampering.** Invariant: private reset files, bound caller identity,
    and no silent profile/cache edits on any operation. High severity: a writable
    parent swaps the destination, or an old cached token masks a failed fresh
    sign-in after reset/rename/MFA changes. `internal/cli/secretfile.go:40`,
    `:80` protect exclusive creation, not hostile parents;
    `internal/core/load.go:175` checks credentials;
-   `internal/tokencache/cache.go:43`, `:157` key and read cached tokens without
+   `internal/tokencache/cache.go:43`, `:158` key and read cached tokens without
    proving server identity or revocation. Test collisions, file errors,
    cancellation, no configuration/cache mutation, and fresh-login isolation in
    any approved probe. Do not claim local cache invalidation revokes remote
@@ -259,7 +258,7 @@ path below, including gated rename.
    administration invocation and no automatic cleanup or rollback. High
    severity: reset transfers sign-in or MFA disable assists takeover; medium
    severity: concurrent reset loses a password or rename locks out a user.
-   `internal/transport/transport.go:147` and `internal/transport/errors.go:418`
+   `internal/transport/transport.go:162` and `internal/transport/errors.go:420`
    supply `Once` and conservative `NotSent`; protection follows
    `iam/policy_guard.go:269`. Check 401, 429, 5xx, drops, cancellation,
    privilege changes between read and send, and opposing MFA writes. A

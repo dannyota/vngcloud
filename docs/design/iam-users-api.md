@@ -181,7 +181,7 @@ reliable 201, and cancellation after a possible send are uncertain. `NotSent`
 wins before status classification. `Retryable` alone does not prove no send,
 particularly with a custom RoundTripper. The transport today drops the
 observed status when the body read or close fails, except on overflow
-(`internal/transport/transport.go:526`), so such a 201 or 4xx is uncertain
+(`internal/transport/transport.go:535`), so such a 201 or 4xx is uncertain
 until the separately briefed observed-status prerequisite lands; afterwards
 such a 201 is one without a valid ID and such a 4xx stays rejected.
 
@@ -245,38 +245,22 @@ fail on overflow and never decode a truncated prefix. Confirmation performs at
 most one list and one get, or one get with CreatedID, with no polling. All
 requests use the caller's context; cancellation stops further requests.
 
-Strict rule: a request sets `transport.Request.StrictJSON`, and `doJSONStatus`
-then runs `jsonresponse.ValidateStrict(body, out)` before its own
-`json.Unmarshal`, inside the same error path, so a validation or typed decode
-failure returns the existing sanitized decode error, or the withheld form under
-`Sensitive`; typed decoding never moves out of the transport, so
-`sanitizeDecodeError` keeps discarding every cause but fixed `encoding/json`
-kinds. `ValidateStrict` walks the body beside the target's static type and
-rejects malformed JSON, trailing data, an exact duplicate key in any object,
-and, only for an object decoded into a struct, two keys that `encoding/json`
-would assign to one field by its case-insensitive match. Maps, interfaces, raw
-messages, and non-struct kinds get exact-duplicate rejection only, so distinct
-case-sensitive `Condition` map keys still decode. `Validate` stays unchanged.
+Strict rule: the user get, the filtered list, and the create response set the
+existing `transport.Request.StrictJSON`, so `doJSONStatus` runs
+`jsonresponse.ValidateStrict(body, out)` before its own `json.Unmarshal`
+inside the same sanitized error path, including the withheld form under
+`Sensitive`. [IAM writes: API](iam-writes-api.md#bodies) records what
+`ValidateStrict` rejects (malformed JSON, trailing data, an empty body, exact
+duplicate keys at any depth, and struct-field case aliases, with map keys
+exact-duplicate only) and that every read a guard decision depends on,
+including `GetCallerIdentity` with its 256 KiB cap, already decodes this way.
+A capped get bounds only itself; the private confirmation decoders add their
+presence and identity checks on top.
 
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
 per send, the existing single 401 refresh send, and at most 30 seconds per
 backoff. The HTTP client timeout bounds each request; a multi-request operation
 needs a caller deadline. Create remains one attempt.
-
-Set `StrictJSON` on the user get, the filtered list, the create response, and
-`GetCallerIdentity`, the existing read every guarded user write needs, which
-today omits `MaxBody` and the strict rule. Before this feature's SDK work, one
-separately briefed and reviewed prerequisite adds `StrictJSON` to
-`internal/transport`, `ValidateStrict` to `internal/jsonresponse`, and both
-flags with a 256 KiB cap to `GetCallerIdentity` in `iam/caller.go`. If the
-[administration privilege guard](iam-users-admin.md#owner-decisions) is
-accepted, the same prerequisite extends to `ListActions`, `GetPolicy`,
-`guardPagedPolicySummaries`, `guardFetchAttachmentArray`,
-`guardGetGroupAttachments`, and `guardUserGroups` in `iam/actions.go`,
-`iam/policies.go`, and `iam/guard.go`: 256 KiB for single objects, 4 MiB for
-lists, preserving their fail-closed classification and error identities. An
-oversized or ambiguous `userinfo` response will begin failing for every guarded
-write; proposed decision 9 covers this change; a capped get bounds only itself.
 
 ## Unit tests
 

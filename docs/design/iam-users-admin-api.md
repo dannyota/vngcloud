@@ -134,7 +134,7 @@ Use the observed HTTP status, never a nested provider status. `NotSent` wins
 first. A 204 is acceptance even if response handling fails; preserve that fact
 and the generated password. Today the transport keeps the status only on
 overflow and reports 0 on a body read or close failure
-(`internal/transport/transport.go:526`), so that case is uncertain. The
+(`internal/transport/transport.go:535`), so that case is uncertain. The
 separately briefed observed-status transport prerequisite moves it to the
 `ErrNotSettled` row once it lands, and lets a 4xx with the same failure stay a
 rejection. Unexpected 2xx/3xx, 5xx, missing status, dropped connection, and
@@ -161,7 +161,7 @@ Auth/token providers keep their existing privacy contract; custom
 providers/transports are trusted code and cannot be made safe by this wrapper.
 No follow-up, cleanup, or diagnostic request follows the POST.
 
-Reset reaches `iam/guard.go:441`, `:181`, `:240`, `:397`, and
+Reset reaches `iam/guard.go:471`, `:186`, `:256`, `:427`, and
 `iam/policy_guard.go:269`; those reads currently lack these local options.
 Cold-cache and warm-cache tests must prove that options neither leak across
 concurrent calls nor weaken normal guards. If this graph cannot carry the

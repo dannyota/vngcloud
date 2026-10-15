@@ -105,7 +105,7 @@ After a file failure, `create-user` runs no automatic cloud cleanup, unlike
 `create-service-account`. A cleanup would call `GetUser` and `DeleteUser`, whose
 guard reads share `iam/guard.go` and carry no request-local password redaction,
 `Sensitive` flag, or fixed error text; the transport captures their responses
-(`internal/transport/transport.go:587`) before the CLI could discard a cleanup
+(`internal/transport/transport.go:596`) before the CLI could discard a cleanup
 error. Extending that privacy boundary across the whole guard graph is a shared
 change this slice does not make. Instead the CLI reports `SecretFileFailed` with
 `CreatedID` when the create returned one, otherwise the requested username, and
@@ -237,9 +237,9 @@ tests](iam-users-api.md#unit-tests).
 1. **An attacker reads leaked credentials.** Invariant: managed output paths
    never disclose passwords or tokens. Severity: high if a rejection echoes a
    password into an error code, message, capture, or confirmation result.
-   `internal/transport/transport.go:160` suppresses sensitive captures and
-   decode text; `:174` withholds messages; `:196` can replace server codes;
-   `:606` logs method, redacted path, status, and duration. Proposed create and
+   `internal/transport/transport.go:170` suppresses sensitive captures and
+   decode text; `:183` withholds messages; `:202` can replace server codes;
+   `:615` logs method, redacted path, status, and duration. Proposed create and
    its private confirmation requests must use those controls and redact the
    submitted password, not just bearer tokens; `GetUser` sets `Sensitive`, and
    no cleanup request follows a create. Check nested escaped echoes, all
@@ -251,26 +251,25 @@ tests](iam-users-api.md#unit-tests).
 2. **A hostile API peer sends malformed data.** Invariant: malformed identity or
    incomplete lists cannot authorize deletion or attribute a password to a
    stranger. Severity: high for a wrong delete target; medium for memory
-   exhaustion. `iam/caller.go:88` drops list totals; a private presence-aware
-   decoder must check confirmation completeness. The shared caller identity read
-   (`iam/caller.go:39`) currently omits a byte cap and decodes with
-   `json.Unmarshal` (`internal/transport/transport.go:262`), where a later
-   duplicate or case-alias member replaces an earlier one, so a crafted
-   `userinfo` could swap the `userId` the self check compares. The [bounds and
-   strict-decoding prerequisite][strict] must land before reuse, and typed
-   decoding stays inside the transport: `sanitizeDecodeError`
-   (`internal/transport/network_error.go:56`) keeps only fixed `encoding/json`
-   kinds, so the `strconv.NumError` that `iam/timestamp.go:48` builds from peer
-   text never reaches an error. Check caps, wrong IDs, duplicate exact names,
-   missing keys, duplicate and case-alias keys, canaries in timestamp and `root`
-   values, partial JSON, and failure propagation. Never let an inferred console
-   default satisfy a guard.
+   exhaustion. `iam/caller.go:87` drops list totals; a private presence-aware
+   decoder must check confirmation completeness. The caller identity read
+   (`iam/caller.go:39`) already sets `StrictJSON` and a 256 KiB cap, so a
+   later duplicate or case-alias `userId` member can no longer replace the one
+   the self check compares; the new user get, filtered list, and create
+   response must set the same flag and their own caps under the [strict
+   rule][strict]. Typed decoding stays inside the transport:
+   `sanitizeDecodeError` (`internal/transport/network_error.go:56`) keeps only
+   fixed `encoding/json` kinds, so the `strconv.NumError` that
+   `iam/timestamp.go:48` builds from peer text never reaches an error. Check
+   caps, wrong IDs, duplicate exact names, missing keys, duplicate and
+   case-alias keys, canaries in timestamp and `root` values, partial JSON, and
+   failure propagation. Never let an inferred console default satisfy a guard.
 3. **An attacker redirects a request or changes an endpoint.** Invariant: no
    credentials cross the configured origin on redirect and TLS verifies the peer
    with the standard transport. Severity: high for password and token theft.
    `internal/transport/redirect.go:11` checks scheme and host before and after
-   caller redirect hooks; `transport.go:429` refuses all redirects on `Once`.
-   `internal/core/client.go:374` accepts supplied HTTP clients and transports.
+   caller redirect hooks; `transport.go:440` refuses all redirects on `Once`.
+   `internal/core/client.go:375` accepts supplied HTTP clients and transports.
    Endpoint overrides, custom transports, credential providers, and TLS settings
    are trusted caller code, not a provider-host allowlist. Test foreign hosts,
    scheme changes, hook URL mutation, and no create replay. This slice adds no
@@ -282,8 +281,8 @@ tests](iam-users-api.md#unit-tests).
    when tampering redirects credentials or impersonates a different caller.
    `internal/core/load.go:175` checks opened credential files and Unix
    permissions; `internal/tokencache/cache.go:30` binds cache names to profile,
-   root email, username, and login endpoints. `:238` checks directory mode, but
-   `:157` reads cache files without an identity proof or per-file permission
+   root email, username, and login endpoints. `:243` checks directory mode, but
+   `:158` reads cache files without an identity proof or per-file permission
    check. A writable profile or cache and same-user process compromise remain
    outside the guarantee. `internal/cli/secretfile.go:40` and `:80` protect
    exclusive creation, not hostile parent replacement. `internal/cli/op.go:399`
@@ -296,12 +295,12 @@ tests](iam-users-api.md#unit-tests).
 5. **A concurrent actor or repeated caller triggers writes.** Invariant: one
    create invocation sends at most one POST and no delete the caller did not
    request. Severity: high for deleting another actor's user; medium for orphan
-   identities or lost passwords. `internal/transport/transport.go:147` enforces
-   `Once`; `internal/transport/errors.go:418` conservatively tracks `NotSent`,
+   identities or lost passwords. `internal/transport/transport.go:162` enforces
+   `Once`; `internal/transport/errors.go:420` conservatively tracks `NotSent`,
    including custom transports. Check 401, 429, 5xx, redirects, dropped
    connections, and cancellation before and after send. DELETE retries use the
    earlier target read, so a concurrent attachment or detachment is the server's
-   409 or success, never this tool's decision. `internal/cli/svc_iam.go:233`
+   409 or success, never this tool's decision. `internal/cli/svc_iam.go:228`
    supplies the bounded detached cleanup precedent that `create-user`
    deliberately does not reuse. No prefix sweep, automatic cleanup, hidden
    detach, or repeated create is allowed. There is no quote to race; creation
@@ -328,8 +327,7 @@ publication bypass is authorized.
 
 ## Owner decisions
 
-Decisions 1 to 8, 10, and 12 are decided. Decision 9 records the author's
-rescoping and awaits confirmation; decision 11 remains proposed. The
+Decisions 1 to 10 and 12 are decided; decision 11 remains proposed. The
 [administration decisions](iam-users-admin.md#owner-decisions) are separate.
 
 1. **Scope.** Decided: create and delete with their supporting reads, plus
@@ -363,14 +361,14 @@ rescoping and awaits confirmation; decision 11 remains proposed. The
 8. **Cleanup authority.** Decided: no automatic cloud cleanup after a
    secret-file failure; report `CreatedID` and the manual `delete-user` command,
    as in [Secret file and cleanup](#secret-file-and-cleanup).
-9. **Shared bounds and strict decoding.** Author-rescoped proposal: one
-   separately briefed prerequisite adds byte caps and the strict JSON rule to
-   the caller identity read, which every guarded write shares, and the new user
-   get carries both from the start. The attachment and policy readers join only
-   if [administration decision 1](iam-users-admin.md#owner-decisions) keeps the
-   privilege guard, and those operations need them. Shared-reader changes also
-   affect existing guarded writes. Confirm this compatibility scope;
-   administration guard privacy is a separate proposed prerequisite.
+9. **Shared bounds and strict decoding.** Decided: every read a guard
+   decision depends on, including the caller identity, decodes strictly and
+   within a bound through the transport's existing `StrictJSON` flag and
+   `jsonresponse.ValidateStrict`, as [IAM writes:
+   API](iam-writes-api.md#bodies) records. The new user get, filtered list,
+   and create response use the same mechanism with the caps in [bounds and
+   strict decoding][strict]. Administration guard privacy is a separate
+   proposed prerequisite.
 10. **Error privacy.** Decided: fixed create error text and status-based codes,
     sacrificing server detail to prevent encoded password echoes, while
     preserving status, sentinels, and safe causes.
