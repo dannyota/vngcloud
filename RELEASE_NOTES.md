@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.84.1 - IAM Guard Fails Closed on Malformed Statements
+
+- Fix: the IAM write guards now treat a malformed policy statement as
+  privileged instead of as granting nothing. A null statement, a statement
+  whose effect is neither `allow` nor `deny`, and an `allow` statement with
+  a missing, null, or empty action list each count as privileged. Before,
+  a policy holding only such statements left a protected user, group, or
+  service account unprotected.
+- Compatibility: guarded writes that read such a policy now refuse with
+  `PrivilegedChange` before any request. `create-policy` and
+  `update-policy` refuse a document with an `allow` statement that lists
+  no actions. A `deny` statement is still ignored.
+
 ## v0.84.0 - vMonitor SMS Orders and Quota Lifecycle
 
 - SMS quota reads, quotes, and orders now work with
