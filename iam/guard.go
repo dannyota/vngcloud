@@ -63,6 +63,9 @@ func stripIAMPrefix(action string) string {
 	return action
 }
 
+// Catalog entries name concrete actions, not wildcard policy patterns.
+var validCatalogActionName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*:[A-Za-z0-9]+$`)
+
 // writeActionNames returns the full "iam:<Action>" name of every write
 // action in actions, lower case, for matching against a policy statement's
 // action patterns. actions must already be filtered to product "iam", as
@@ -72,7 +75,7 @@ func writeActionNames(actions []Action) []string {
 	names := make([]string, 0, len(actions))
 	for _, a := range actions {
 		name := "iam:" + stripIAMPrefix(a.Action)
-		if !validActionPattern.MatchString(name) {
+		if !validCatalogActionName.MatchString(name) {
 			return nil
 		}
 		if isWriteLabel(a.Label) {

@@ -612,6 +612,11 @@ func TestGuardReadPrivacyContextIdentity(t *testing.T) {
 func TestGuardReadPrivacyCredentialResponses(t *testing.T) {
 	for _, edge := range privateGuardReads() {
 		for _, credential := range []string{"password-canary", "bearer-canary", "PASSWORD-CANARY", "BEARER-CANARY"} {
+			password, token := "password-canary", "bearer-canary"
+			if edge.name == "actions" {
+				password, token = "passwordcanary", "bearercanary"
+				credential = strings.ReplaceAll(credential, "-", "")
+			}
 			t.Run(edge.name+"/"+strconv.Itoa(len(credential)), func(t *testing.T) {
 				var logs lockedGuardLog
 				var captures atomic.Int32
@@ -643,11 +648,22 @@ func TestGuardReadPrivacyCredentialResponses(t *testing.T) {
 				}))
 				t.Cleanup(server.Close)
 				c := privateGuardClient(server, &logs, &captures)
-				err := edge.read(context.Background(), c, userReadOptions{Redact: []string{"password-canary"}})
+				if edge.name == "actions" {
+					cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken(token),
+						vngcloud.WithHTTPClient(server.Client()), vngcloud.WithRetry(0, 0),
+						vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{IAM: server.URL + "/"}),
+						vngcloud.WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))),
+						vngcloud.WithResponseCapture(func(vngcloud.ResponseCapture) { captures.Add(1) }))
+					if err != nil {
+						t.Fatal(err)
+					}
+					c = New(cfg)
+				}
+				err := edge.read(context.Background(), c, userReadOptions{Redact: []string{password}})
 				if err == nil {
 					t.Fatal("credential-bearing response accepted")
 				}
-				assertUserErrorPrivate(t, err, "password-canary", "bearer-canary")
+				assertUserErrorPrivate(t, err, password, token)
 				if captures.Load() != 0 || strings.Contains(logs.String(), credential) {
 					t.Fatal("credential-bearing response leaked")
 				}

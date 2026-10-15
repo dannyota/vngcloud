@@ -329,13 +329,13 @@ func TestPrivateGuardDerivedActionCredentials(t *testing.T) {
 		name, action, password, token string
 		accumulate                    bool
 	}{
-		{name: "password-case", action: "PASSWORD-CANARY", password: "password-canary"},
+		{name: "password-case", action: "PASSWORDCANARY", password: "passwordcanary"},
 		{name: "password-prefix", action: "CreatePolicy", password: "IAM:CREATEPOLICY"},
-		{name: "sent-case", action: "BEARER-CANARY"},
+		{name: "sent-case", action: "BEARERCANARY", token: "bearercanary"},
 		{name: "sent-prefix", action: "CreatePolicy", token: "IAM:CREATEPOLICY"},
 		{name: "accumulated-prefix", action: "CreatePolicy", token: "IAM:CREATEPOLICY", accumulate: true},
 		{name: "safe-action", action: "canary"},
-		{name: "accumulated-case", action: "BEARER-CANARY", accumulate: true},
+		{name: "accumulated-case", action: "BEARERCANARY", token: "bearercanary", accumulate: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var captures atomic.Int32

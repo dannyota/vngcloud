@@ -29,6 +29,10 @@ func TestResetUserPasswordGuardPrivacy(t *testing.T) {
 			}
 			for _, mode := range []string{"error", "malformed", "echo"} {
 				t.Run(strconv.FormatBool(warm)+"/"+edge.name+"/"+mode, func(t *testing.T) {
+					password := "password-canary"
+					if edge.name == "actions" && mode == "echo" {
+						password = "passwordcanary"
+					}
 					var posts, captures, hits atomic.Int32
 					var logs lockedGuardLog
 					armed := atomic.Bool{}
@@ -65,15 +69,15 @@ func TestResetUserPasswordGuardPrivacy(t *testing.T) {
 						captures.Store(0)
 					}
 					armed.Store(true)
-					out, err := c.ResetUserPassword(context.Background(), &ResetUserPasswordInput{UserID: "user-1", Password: "password-canary"})
+					out, err := c.ResetUserPassword(context.Background(), &ResetUserPasswordInput{UserID: "user-1", Password: vngcloud.Secret(password)})
 					if out != nil || err == nil || posts.Load() != 0 || hits.Load() != 1 || captures.Load() != 0 {
 						t.Fatalf("posts=%d hits=%d captures=%d err=%v", posts.Load(), hits.Load(), captures.Load(), err)
 					}
 					if mode == "error" && !errors.Is(err, vngcloud.ErrPermission) {
 						t.Fatal("guard error identity lost")
 					}
-					assertUserErrorPrivate(t, err, "password-canary", "bearer-canary", "arbitrary-server-text")
-					if strings.Contains(logs.String(), "password-canary") || strings.Contains(logs.String(), "bearer-canary") {
+					assertUserErrorPrivate(t, err, password, "bearer-canary", "arbitrary-server-text")
+					if strings.Contains(logs.String(), password) || strings.Contains(logs.String(), "bearer-canary") {
 						t.Fatal("credential logged")
 					}
 				})
@@ -231,7 +235,7 @@ func resetEchoBody(edge string) string {
 	case "target":
 		return `{"id":"user-1","from":"iam","username":"password-canary"}`
 	case "actions":
-		return `[{"action":"password-canary","label":"Write"}]`
+		return `[{"action":"passwordcanary","label":"Write"}]`
 	case "policy":
 		return `{"id":"policy-1","description":"password-canary","statements":[]}`
 	case "page":
