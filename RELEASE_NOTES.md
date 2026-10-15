@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.86.0 - IAM User Password Reset
+
+- SDK `ResetUserPassword` and CLI `iam reset-user-password --user-id --yes`
+  set a new password for another IAM user. Give exactly one of
+  `--password-file <path>` (or `-` for stdin) or `--secret-file <new-path>`.
+  With `--secret-file`, the CLI generates the password with the same rules
+  as `create-user` (32 characters by default, 8 to 50 with
+  `--password-length`, uppercase, lowercase, digits, and `@`) and saves it
+  at mode 0600.
+- Reset refuses your own user, root or unknown callers, a user whose origin
+  is not `iam`, and a protected user who holds IAM write rights directly or
+  through a group. Every read the guard makes withholds the password from
+  errors, captures, and logs.
+- Reset sends once and never retries. An accepted reset whose response
+  could not be read returns `ErrNotSettled`; any other possibly sent failure
+  returns the new `ErrUserWriteUncertain`. Both exit 1, and a generated
+  password stays saved in either case. There is no undo, and whether
+  existing sessions end after a reset is unknown.
+
 ## v0.85.0 - IAM User Create, Delete, and Reads
 
 - SDK `GetUser` and CLI `iam get-user --user-id` read one IAM user:
