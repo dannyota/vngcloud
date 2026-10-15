@@ -43,24 +43,32 @@ func (c *Client) GetCallerIdentity(ctx context.Context, in *GetCallerIdentityInp
 		return nil, err
 	}
 
+	var sent []string
+	defer func() { clear(sent) }()
 	var resp userInfoResponse
 	req := transport.Request{
-		Operation:  op,
-		Method:     http.MethodGet,
-		URL:        c.accountsURL([]string{"auth", "userinfo"}, nil),
-		OK:         []int{200},
-		StrictJSON: true,
-		MaxBody:    guardObjectMaxBody,
+		Operation:       op,
+		Method:          http.MethodGet,
+		URL:             c.accountsURL([]string{"auth", "userinfo"}, nil),
+		OK:              []int{200},
+		StrictJSON:      true,
+		MaxBody:         guardObjectMaxBody,
+		SentCredentials: &sent,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &GetCallerIdentityOutput{
+	out := &GetCallerIdentityOutput{
 		UserID:    resp.UserID,
 		UserType:  resp.UserType,
 		Username:  resp.Username,
 		AccountID: resp.AccountID,
-	}, nil
+	}
+	opts := userReadOptions{SentCredentials: &sent}
+	if opts.containsResponseCredential(out) {
+		return nil, fmt.Errorf("iam: %s: unsafe caller identity", op)
+	}
+	return out, nil
 }
 
 // ListUsersInput pages the account's IAM users. A non-positive Size sends
@@ -111,10 +119,9 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 		return nil, err
 	}
 	opts := userReadOptions{SentCredentials: &sent}
-	for _, row := range resp.Data {
-		if opts.containsCredential(row.ID, row.Username) {
-			return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
-		}
+	out := &ListUsersOutput{Items: resp.Data}
+	if opts.containsResponseCredential(out) {
+		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
 	}
-	return &ListUsersOutput{Items: resp.Data}, nil
+	return out, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"unicode"
 	"unicode/utf8"
 
@@ -71,22 +72,22 @@ func (c *Client) GetUser(ctx context.Context, in *GetUserInput) (*GetUserOutput,
 	if err := core.CheckPathID(op, "UserID", in.UserID); err != nil {
 		return nil, err
 	}
-	var sent []string
-	defer func() { clear(sent) }()
-	opts := userReadOptions{SentCredentials: &sent}
-	user, err := c.getUser(ctx, op, in.UserID, opts)
+	user, err := c.getUser(ctx, op, in.UserID, userReadOptions{})
 	if err != nil {
 		return nil, err
-	}
-	if opts.containsCredential(user.ID, user.Username) {
-		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
 	}
 	return &GetUserOutput{User: *user}, nil
 }
 
 func (c *Client) getUser(ctx context.Context, op, id string, opts userReadOptions) (*UserDetail, error) {
+	var credentials []string
+	defer func() { clear(credentials) }()
+	if opts.SentCredentials == nil {
+		opts.SentCredentials = &credentials
+	}
 	var resp *userDetailWire
 	var sent []string
+	defer func() { clear(sent) }()
 	req := opts.request(transport.Request{
 		Operation: op, Method: http.MethodGet,
 		URL: c.accountsURL([]string{"iam-users", id}, nil), OK: []int{200},
@@ -100,10 +101,49 @@ func (c *Client) getUser(ctx context.Context, op, id string, opts userReadOption
 	if resp == nil {
 		return nil, fmt.Errorf("iam: %s: missing user object", op)
 	}
-	return &UserDetail{
+	user := &UserDetail{
 		ID: resp.ID, Username: resp.Username, CreatedAt: int64(resp.CreatedAt),
 		Enabled: resp.Enabled, From: resp.From, LastUse: int64(resp.LastUse),
-	}, nil
+	}
+	if opts.containsResponseCredential(user) {
+		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
+	}
+	return user, nil
+}
+
+// User response models are acyclic. Walk exported fields and containers so
+// adding a response string cannot silently bypass credential refusal.
+func (o userReadOptions) containsResponseCredential(value any) bool {
+	return o.responseValueContainsCredential(reflect.ValueOf(value))
+}
+
+func (o userReadOptions) responseValueContainsCredential(value reflect.Value) bool {
+	switch value.Kind() {
+	case reflect.String:
+		return o.containsCredential(value.String())
+	case reflect.Pointer, reflect.Interface:
+		return !value.IsNil() && o.responseValueContainsCredential(value.Elem())
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			if value.Type().Field(i).IsExported() && o.responseValueContainsCredential(value.Field(i)) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < value.Len(); i++ {
+			if o.responseValueContainsCredential(value.Index(i)) {
+				return true
+			}
+		}
+	case reflect.Map:
+		iter := value.MapRange()
+		for iter.Next() {
+			if o.responseValueContainsCredential(iter.Key()) || o.responseValueContainsCredential(iter.Value()) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkUserName(op, field, value string) error {

@@ -53,7 +53,11 @@ func assertIAMReadErrorPrivate(t *testing.T, err error) {
 
 func TestIAMPublicUserEchoOutput(t *testing.T) {
 	for _, list := range []bool{false, true} {
-		for _, field := range []string{"id", "username"} {
+		fields := []string{"id", "username", "from"}
+		if list {
+			fields = []string{"id", "username", "createdAt"}
+		}
+		for _, field := range fields {
 			for _, echo := range []string{"direct", "old-after-refresh", "new-after-refresh"} {
 				for _, format := range []string{"json", "table", "text"} {
 					t.Run(strconv.FormatBool(list)+"/"+field+"/"+echo+"/"+format, func(t *testing.T) {
@@ -106,6 +110,56 @@ func TestIAMPublicUserEchoOutput(t *testing.T) {
 						}
 					})
 				}
+			}
+		}
+	}
+}
+
+func TestIAMCallerIdentityEchoOutput(t *testing.T) {
+	for _, field := range []string{"userId", "userType", "username"} {
+		for _, echo := range []string{"direct", "old-after-refresh", "new-after-refresh"} {
+			for _, format := range []string{"json", "table", "text"} {
+				t.Run(field+"/"+echo+"/"+format, func(t *testing.T) {
+					withCleanEnv(t)
+					withTestOptions(t, vngcloud.WithStaticToken("unused"))
+					calls := 0
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						calls++
+						if echo != "direct" && calls == 1 {
+							w.WriteHeader(http.StatusUnauthorized)
+							return
+						}
+						token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+						if echo == "old-after-refresh" {
+							token = "first-read-canary"
+						}
+						row := map[string]string{"userId": "caller", "userType": "iam-user", "username": "ordinary"}
+						row[field] = "prefix-" + token + "-suffix"
+						_ = json.NewEncoder(w).Encode(row)
+					}))
+					defer server.Close()
+					cfg := core.NewTestConfig("hcm-3", "", endpoints.Set{Dashboard: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: new(iamReadTokens)}))
+					var stdout, stderr bytes.Buffer
+					e := &env{flags: &globalFlags{}, stdin: strings.NewReader(""), stdout: &stdout, stderr: &stderr}
+					root := newTestRoot(e)
+					root.AddCommand(Service(e, "iam", "IAM", func(vngcloud.Config) *iam.Client { return iam.New(cfg) }, iamOps...))
+					root.SetArgs([]string{"iam", "get-caller-identity", "--region", "hcm-3", "--output", format})
+					err := root.Execute()
+					assertIAMReadErrorPrivate(t, err)
+					if strings.Contains(stdout.String()+stderr.String(), "read-canary") {
+						t.Fatal("credential reached CLI output")
+					}
+					if err == nil || stdout.Len() != 0 {
+						t.Fatal("credential-bearing caller rendered")
+					}
+					want := 1
+					if echo != "direct" {
+						want = 2
+					}
+					if calls != want {
+						t.Fatal("wrong request count")
+					}
+				})
 			}
 		}
 	}
