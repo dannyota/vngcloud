@@ -25,10 +25,9 @@
   caller's own user, root or unknown callers, and a user whose origin is not
   `iam` (`ErrOriginNotIAM`). The server decides about attached policies and
   groups; its 409 stays `Conflict`.
-- Behavior changes for every command: an `Op` can now refuse before
-  `--cli-input-json` is read, and a `file://` JSON input that is not a
-  regular file (a FIFO, a device, or a directory) now fails with exit 2
-  instead of waiting.
+- Behavior change for every command: a `--cli-input-json file://` path
+  that is not a regular file (a FIFO, a device, or a directory) now fails
+  with exit 2 instead of waiting.
 - Compatibility: unkeyed `ListUsersInput` literals no longer compile.
 
 ## v0.84.2 - Strict, Bounded IAM Guard Reads
