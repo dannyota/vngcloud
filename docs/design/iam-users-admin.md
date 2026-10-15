@@ -22,10 +22,10 @@ unimplemented.
 ## Scope
 
 - `ResetUserPassword`: published administrator password replacement.
-- `RenameUser`: the console PUT returned 403 to an IAM-user caller, and the
-  account's IAM action list has no update action, so rename is unavailable to
-  IAM-user callers and may be root-only. Implementation remains blocked on
-  the rename follow-up under [Owner decisions](#owner-decisions).
+- `RenameUser`: the console PUT returned 403 to the probe's IAM-user caller,
+  and the account's IAM action list has no update action; which callers can
+  rename is unknown. Implementation remains blocked on the rename follow-up
+  under [Owner decisions](#owner-decisions).
 - `DisableUserMFA` and `EnableUserMFA`: published activate/deactivate paths for
   `email` and `google`; each factor's state and transition evidence gates its
   release separately.
