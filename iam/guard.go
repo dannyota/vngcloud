@@ -128,11 +128,11 @@ func matchesWriteAction(pattern string, writeActionNames []string) bool {
 	return false
 }
 
-// statementsArePrivileged reports whether statements has any statement,
-// other than an explicit "deny", whose action pattern matches any name in
-// writeActionNames. No statements at all counts as privileged: there is
-// nothing to prove the document safe, so it is refused rather than waved
-// through. Resources and conditions are not read.
+// statementsArePrivileged reports whether statements cannot be proved safe:
+// no statements, an effect other than "allow" or "deny", an "allow" with no
+// actions, or an action pattern matching any name in writeActionNames counts
+// as privileged. Effects are compared case-insensitively. Explicit "deny"
+// statements are ignored. Resources and conditions are not read.
 func statementsArePrivileged(statements []Statement, writeActionNames []string) bool {
 	if len(statements) == 0 {
 		return true
@@ -140,6 +140,9 @@ func statementsArePrivileged(statements []Statement, writeActionNames []string) 
 	for _, stmt := range statements {
 		if strings.EqualFold(stmt.Effect, "deny") {
 			continue
+		}
+		if !strings.EqualFold(stmt.Effect, "allow") || len(stmt.Actions) == 0 {
+			return true
 		}
 		for _, pattern := range stmt.Actions {
 			if matchesWriteAction(pattern, writeActionNames) {
