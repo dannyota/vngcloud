@@ -1,19 +1,18 @@
 # IAM users design
 
-Status: Proposed. The owner decided scope, password sources, generation,
-delete rules, create guard, input validation, partial outcomes, cleanup
-authority, the prerequisite's scope, error privacy, and release shape under
-[Owner decisions](#owner-decisions); probe sign-in stays proposed.
-Independent design and plan review and the [evidence
-probes](iam-users-api.md#probes) gate implementation. This document authorizes
-no live call or cleanup.
+Status: Proposed. The owner decided scope, password sources, generation, delete
+rules, create guard, input validation, partial outcomes, cleanup authority,
+error privacy, and release shape under [Owner decisions](#owner-decisions);
+probe sign-in stays proposed. Independent design and plan review and the
+[evidence probes](iam-users-api.md#probes) gate implementation. This document
+authorizes no live call or cleanup.
 
 Add IAM user create and delete, `GetUser`, and `ListUsers.Name` to the public
 `iam` package and CLI. Service accounts already have `create-service-account
 --secret-file`. An IAM user is a separate sign-in identity under an existing
 root account, not a new root account. [IAM user
-administration](iam-users-admin.md) adds password reset, rename, and MFA
-enable and disable on top of the rules here.
+administration](iam-users-admin.md) adds password reset, rename, and MFA enable
+and disable on top of the rules here.
 
 [API and checks](iam-users-api.md) owns wire evidence, public types, validation,
 retries, partial outputs, and tests. Follow [write
@@ -24,15 +23,15 @@ dependency is added.
 
 ## Scope
 
-Create, delete, and the [administration
-operations](iam-users-admin.md#scope) are the proposed exceptions to the [IAM
-user write exclusion](iam-writes.md#non-goals). Account activate and
-deactivate, MFA set-up and verification, IP allow lists, tags,
-identity-provider management, and public quota operations stay out. Creation
-accepts no policies, groups, or access settings. Existing guarded attachment
-commands grant access separately. Do not promise that a new user can sign in
-until the password and account sign-in requirements are verified. This
-feature does not provision MFA or bypass account controls.
+Create, delete, and the [administration operations](iam-users-admin.md#scope)
+are the proposed exceptions to the [IAM user write
+exclusion](iam-writes.md#non-goals). Account activate and deactivate, MFA set-up
+and verification, IP allow lists, tags, identity-provider management, and public
+quota operations stay out. Creation accepts no policies, groups, or access
+settings. Existing guarded attachment commands grant access separately. Do not
+promise that a new user can sign in until the password and account sign-in
+requirements are verified. This feature does not provision MFA or bypass account
+controls.
 
 ## Credentials
 
@@ -42,16 +41,16 @@ request serialization and the secret-file write. The API sibling defines
 request-local redaction and error withholding; `Secret` alone does not protect a
 raw request body or a server echo.
 
-The SDK generates a password when `Password` is empty: 32 characters by
-default, or a caller-chosen `PasswordLength` from 8 to 50, always holding at
-least one upper-case letter, lower-case letter, digit, and the special
-character `@`, under the [specified alphabet](iam-users-api.md#generation)
-and cryptographic randomness. The same generator serves create and
-[reset](iam-users-admin.md#password-reset). Its rules do not validate a
-supplied password, which the SDK checks for shape only. Supplied passwords
-are never returned; generated passwords remain in the partial output even
-when the create outcome is uncertain. Custom policy rejection must not
-trigger regeneration or an automatic second create.
+The SDK generates a password when `Password` is empty: 32 characters by default,
+or a caller-chosen `PasswordLength` from 8 to 50, always holding at least one
+upper-case letter, lower-case letter, digit, and the special character `@`,
+under the [specified alphabet](iam-users-api.md#generation) and cryptographic
+randomness. The same generator serves create and
+[reset](iam-users-admin.md#password-reset). Its rules do not validate a supplied
+password, which the SDK checks for shape only. Supplied passwords are never
+returned; generated passwords remain in the partial output even when the create
+outcome is uncertain. Custom policy rejection must not trigger regeneration or
+an automatic second create.
 
 The CLI requires exactly one of `--password-file <path>` and `--secret-file
 <path>`. `--password-file -` reads stdin. `--password-length` is accepted only
@@ -63,34 +62,33 @@ after the existing read-only checks, rather than in its early guard hook.
 
 Password input follows these proposed rules:
 
-- Open a named file without blocking on a FIFO; inspect the opened file,
-  require a regular file, and on Unix refuse group or other permissions.
-  A symlink to a regular private file is allowed, matching credential input
-  conventions. The resolved file and its directories must be trusted.
-- Bound file and stdin input to 4096 bytes plus one overflow-detection
-  byte. Remove exactly one final LF or CRLF. Preserve spaces and reject an
-  empty result, embedded controls, invalid UTF-8, and overflow locally.
-- Refuse a terminal for stdin. Require EOF and honor command cancellation.
-  A pipe can stall despite a byte cap: impose a 30-second input deadline
-  and return a fixed usage error without content. Test a pipe that never
-  closes.
+- Open a named file without blocking on a FIFO; inspect the opened file, require
+  a regular file, and on Unix refuse group or other permissions. A symlink to a
+  regular private file is allowed, matching credential input conventions. The
+  resolved file and its directories must be trusted.
+- Bound file and stdin input to 4096 bytes plus one overflow-detection byte.
+  Remove exactly one final LF or CRLF. Preserve spaces and reject an empty
+  result, embedded controls, invalid UTF-8, and overflow locally.
+- Refuse a terminal for stdin. Require EOF and honor command cancellation. A
+  pipe can stall despite a byte cap: impose a 30-second input deadline and
+  return a fixed usage error without content. Test a pipe that never closes.
 - Run a `beforeInput` hook, a new `Op` field, as the first step of `runOp`,
-  before `--cli-input-json` or any other input is consumed. For
-  `create-user` it requires exactly one of the two password flags and,
-  with `--password-file -`, refuses any `--cli-input-json` value that
-  starts with `file://`, so stdin can never be shared with the JSON input.
-  The shared JSON file reader opens its path without blocking and refuses
-  a non-regular file, closing the stalled-pipe hang for every command.
-  Both checks run before read-only, which runs before any stdin read.
-- Clear owned byte buffers after use and release secret references early.
-  Go strings, JSON serialization, HTTP buffers, and `Secret` can retain
-  copies. Do not claim secure erasure or immunity to process-memory reads.
+  before `--cli-input-json` or any other input is consumed. For `create-user` it
+  requires exactly one of the two password flags and, with `--password-file -`,
+  refuses any `--cli-input-json` value that starts with `file://`, so stdin can
+  never be shared with the JSON input. The shared JSON file reader opens its
+  path without blocking and refuses a non-regular file, closing the stalled-pipe
+  hang for every command. Both checks run before read-only, which runs before
+  any stdin read.
+- Clear owned byte buffers after use and release secret references early. Go
+  strings, JSON serialization, HTTP buffers, and `Secret` can retain copies. Do
+  not claim secure erasure or immunity to process-memory reads.
 
 ### Secret file and cleanup
 
 Preflight the destination under the [existing secret-file
 contract](iam-writes.md#secret-file). After the SDK call, save a non-empty
-generated password even with an accepted-but- unconfirmed or uncertain outcome.
+generated password even with an accepted-but-unconfirmed or uncertain outcome.
 The error must distinguish those outcomes and state whether the file was saved;
 it must not claim the password belongs to a user found only by name.
 
@@ -104,16 +102,16 @@ attacker-writable directory. Use a private directory; Unix mode bits do not
 establish a Windows access-control guarantee.
 
 After a file failure, `create-user` runs no automatic cloud cleanup, unlike
-`create-service-account`. A cleanup would call `GetUser` and `DeleteUser`,
-whose guard reads share `iam/guard.go` and carry no request-local password
-redaction, `Sensitive` flag, or fixed error text; the transport captures their
-responses (`internal/transport/transport.go:587`) before the CLI could discard
-a cleanup error. Extending that privacy boundary across the whole guard graph
-is a shared change this slice does not make. Instead the CLI reports
-`SecretFileFailed` with `CreatedID` when the create returned one, otherwise
-the requested username, and the exact `delete-user --user-id <id> --yes`
-command. The orphan holds no policy or group, and its generated password
-exists nowhere once the process exits.
+`create-service-account`. A cleanup would call `GetUser` and `DeleteUser`, whose
+guard reads share `iam/guard.go` and carry no request-local password redaction,
+`Sensitive` flag, or fixed error text; the transport captures their responses
+(`internal/transport/transport.go:587`) before the CLI could discard a cleanup
+error. Extending that privacy boundary across the whole guard graph is a shared
+change this slice does not make. Instead the CLI reports `SecretFileFailed` with
+`CreatedID` when the create returned one, otherwise the requested username, and
+the exact `delete-user --user-id <id> --yes` command. The SDK attaches no
+rights; another actor may do so concurrently. A failed file removal can leave
+secret bytes, and process memory is not securely erased.
 
 A list match, prefix, or supplied password does not prove this invocation
 created the user; never delete such a match automatically. Process termination
@@ -130,29 +128,29 @@ CLI policy.
 
 `DeleteUser` validates the input ID, then performs these checks before sending
 DELETE. Refusals may perform reads but never a mutation. The same three checks
-open every [administration operation](iam-users-admin.md#guards).
+precede the proposed privilege guard on every [administration
+operation](iam-users-admin.md#guards).
 
-1. Require a classified caller through `requireClassifiedCaller`:
-   `iam-user`, `user-sa`, or `service-sa`. Root and unknown types return
-   `ErrPrivilegedChange`, because the self check cannot be evaluated. An
-   IAM caller with no usable ID fails closed.
-2. For an IAM caller, compare target and caller IDs case-insensitively.
-   Return `ErrSelfChange` before any target read.
-3. Read the target. Require the returned ID to match the requested ID and
-   `from` to equal `iam`; otherwise return `ErrOriginNotIAM`. Missing,
-   null, unreadable, or unknown origin fails closed the same way. A target
-   404 stays `NotFound`.
+1. Require a classified caller through `requireClassifiedCaller`: `iam-user`,
+   `user-sa`, or `service-sa`. Root and unknown types return
+   `ErrPrivilegedChange`, because the self check cannot be evaluated. An IAM
+   caller with no usable ID fails closed.
+2. For an IAM caller, compare target and caller IDs case-insensitively. Return
+   `ErrSelfChange` before any target read.
+3. Read the target. Require the returned ID to match the requested ID and `from`
+   to equal `iam`; otherwise return `ErrOriginNotIAM`. Missing, null,
+   unreadable, or unknown origin fails closed the same way. A target 404 stays
+   `NotFound`.
 
-Delete has no privilege or attachment refusal: the server decides about
-attached policies and group memberships, and its 409 stays `Conflict`, never
-success or an automatic detach. Deleting a user removes rights rather than
-transferring them, so the owner's IAM user is protected by the server's IAM
-write rights, not by this tool. Self outranks origin. The caller identity and
-the target read decode under the [strict JSON
-rule](iam-users-api.md#bounds-and-strict-decoding): a duplicate key, or two
-keys the decoder would assign to one struct field, refuses the delete, so a
-later `userId`, `id`, or `from` member can never replace the one the guard
-compared.
+Delete has no privilege or attachment refusal: the server decides about attached
+policies and group memberships, and its 409 stays `Conflict`, never success or
+an automatic detach. Deleting a user removes rights rather than transferring
+them, so the owner's IAM user is protected by the server's IAM write rights, not
+by this tool. Self outranks origin. The caller identity and the target read
+decode under the [strict JSON
+rule](iam-users-api.md#bounds-and-strict-decoding): a duplicate key, or two keys
+the decoder would assign to one struct field, refuses the delete, so a later
+`userId`, `id`, or `from` member can never replace the one the guard compared.
 
 A service-account caller cannot be the target IAM user. It still needs
 classified identity and the target checks; this does not relax the existing
@@ -233,83 +231,78 @@ independent adversarial review, not a review verdict. Evidence refers to
 existing paths; required adversarial cases live in [unit
 tests](iam-users-api.md#unit-tests).
 
-1. **An attacker reads leaked credentials.** Invariant: managed output
-   paths never disclose passwords or tokens. Severity: high if a rejection
-   echoes a password into an error code, message, capture, or confirmation
-   result. `internal/transport/transport.go:160` suppresses sensitive
-   captures and decode text; `:174` withholds messages; `:196` can replace
-   server codes; `:606` logs method, redacted path, status, and duration.
-   Proposed create and its private confirmation requests must use those
-   controls and redact the submitted password, not just bearer tokens;
-   `GetUser` sets `Sensitive`, and no cleanup request follows a create.
-   Check nested escaped echoes, all error-chain nodes, and partial outputs.
-   `secret.go:19` explicitly excludes `%p`, gob, and reflection from its
-   guarantees. Never use those paths; raw request structs are not safe to
-   format. The shared security policy's crafted-encoding limit remains
-   relevant outside the fixed-text create error boundary.
-2. **A hostile API peer sends malformed data.** Invariant: malformed
-   identity or incomplete lists cannot authorize deletion or attribute a
-   password to a stranger. Severity: high for a wrong delete target;
-   medium for memory exhaustion. `iam/caller.go:88` drops list totals;
-   a private presence-aware decoder must check confirmation completeness.
-   The shared caller identity read (`iam/caller.go:39`) currently omits a
-   byte cap and decodes with `json.Unmarshal`
-   (`internal/transport/transport.go:262`), where a later duplicate or
-   case-alias member replaces an earlier one, so a crafted `userinfo` could
-   swap the `userId` the self check compares. The [bounds and
+1. **An attacker reads leaked credentials.** Invariant: managed output paths
+   never disclose passwords or tokens. Severity: high if a rejection echoes a
+   password into an error code, message, capture, or confirmation result.
+   `internal/transport/transport.go:160` suppresses sensitive captures and
+   decode text; `:174` withholds messages; `:196` can replace server codes;
+   `:606` logs method, redacted path, status, and duration. Proposed create and
+   its private confirmation requests must use those controls and redact the
+   submitted password, not just bearer tokens; `GetUser` sets `Sensitive`, and
+   no cleanup request follows a create. Check nested escaped echoes, all
+   error-chain nodes, and partial outputs. `secret.go:19` explicitly excludes
+   `%p`, gob, and reflection from its guarantees. Never use those paths; raw
+   request structs are not safe to format. The shared security policy's
+   crafted-encoding limit remains relevant outside the fixed-text create error
+   boundary.
+2. **A hostile API peer sends malformed data.** Invariant: malformed identity or
+   incomplete lists cannot authorize deletion or attribute a password to a
+   stranger. Severity: high for a wrong delete target; medium for memory
+   exhaustion. `iam/caller.go:88` drops list totals; a private presence-aware
+   decoder must check confirmation completeness. The shared caller identity read
+   (`iam/caller.go:39`) currently omits a byte cap and decodes with
+   `json.Unmarshal` (`internal/transport/transport.go:262`), where a later
+   duplicate or case-alias member replaces an earlier one, so a crafted
+   `userinfo` could swap the `userId` the self check compares. The [bounds and
    strict-decoding prerequisite][strict] must land before reuse, and typed
-   decoding stays inside the transport:
-   `sanitizeDecodeError` (`internal/transport/network_error.go:56`) keeps
-   only fixed `encoding/json` kinds, so the `strconv.NumError` that
-   `iam/timestamp.go:48` builds from peer text never reaches an error. Check
-   caps, wrong IDs, duplicate exact names, missing keys, duplicate and
-   case-alias keys, canaries in timestamp and `root` values, partial JSON,
-   and failure propagation. Never let an inferred console default satisfy a
-   guard.
-3. **An attacker redirects a request or changes an endpoint.** Invariant:
-   no credentials cross the configured origin on redirect and TLS verifies
-   the peer with the standard transport. Severity: high for password and
-   token theft. `internal/transport/redirect.go:11` checks scheme and host
-   before and after caller redirect hooks; `transport.go:429` refuses
-   all redirects on `Once`. `internal/core/client.go:374` accepts supplied
-   HTTP clients and transports. Endpoint overrides, custom transports,
-   credential providers, and TLS settings are trusted caller code, not a
-   provider-host allowlist. Test foreign hosts, scheme changes, hook URL
-   mutation, and no create replay. This slice adds no endpoint or TLS
-   weakening switch and does not claim to secure malicious caller hooks.
-4. **A local attacker tampers with files or cached identity.** Invariant:
-   use private secret files and the configured caller's identity; never
-   cache the new user's password or sign in as it during normal create.
-   Severity: high when tampering redirects credentials or impersonates a
-   different caller. `internal/core/load.go:175` checks opened credential
-   files and Unix permissions; `internal/tokencache/cache.go:30` binds
-   cache names to profile, root email, username, and login endpoints.
-   `:238` checks directory mode, but `:157` reads cache files without an
-   identity proof or per-file permission check. A writable profile or
-   cache and same-user process compromise remain outside the guarantee.
-   `internal/cli/secretfile.go:40` and `:80` protect exclusive creation,
-   not hostile parent replacement. `internal/cli/op.go:399` consumes
-   `--cli-input-json` before any guard, and `internal/cli/input.go:117`
-   opens its `file://` path with a byte cap but no regular-file check, so
-   a never-closing pipe stalls the command; the `beforeInput` hook and the
+   decoding stays inside the transport: `sanitizeDecodeError`
+   (`internal/transport/network_error.go:56`) keeps only fixed `encoding/json`
+   kinds, so the `strconv.NumError` that `iam/timestamp.go:48` builds from peer
+   text never reaches an error. Check caps, wrong IDs, duplicate exact names,
+   missing keys, duplicate and case-alias keys, canaries in timestamp and `root`
+   values, partial JSON, and failure propagation. Never let an inferred console
+   default satisfy a guard.
+3. **An attacker redirects a request or changes an endpoint.** Invariant: no
+   credentials cross the configured origin on redirect and TLS verifies the peer
+   with the standard transport. Severity: high for password and token theft.
+   `internal/transport/redirect.go:11` checks scheme and host before and after
+   caller redirect hooks; `transport.go:429` refuses all redirects on `Once`.
+   `internal/core/client.go:374` accepts supplied HTTP clients and transports.
+   Endpoint overrides, custom transports, credential providers, and TLS settings
+   are trusted caller code, not a provider-host allowlist. Test foreign hosts,
+   scheme changes, hook URL mutation, and no create replay. This slice adds no
+   endpoint or TLS weakening switch and does not claim to secure malicious
+   caller hooks.
+4. **A local attacker tampers with files or cached identity.** Invariant: use
+   private secret files and the configured caller's identity; never cache the
+   new user's password or sign in as it during normal create. Severity: high
+   when tampering redirects credentials or impersonates a different caller.
+   `internal/core/load.go:175` checks opened credential files and Unix
+   permissions; `internal/tokencache/cache.go:30` binds cache names to profile,
+   root email, username, and login endpoints. `:238` checks directory mode, but
+   `:157` reads cache files without an identity proof or per-file permission
+   check. A writable profile or cache and same-user process compromise remain
+   outside the guarantee. `internal/cli/secretfile.go:40` and `:80` protect
+   exclusive creation, not hostile parent replacement. `internal/cli/op.go:399`
+   consumes `--cli-input-json` before any guard, and `internal/cli/input.go:117`
+   opens its `file://` path with a byte cap but no regular-file check, so a
+   never-closing pipe stalls the command; the `beforeInput` hook and the
    regular-file rule above close that. Test input permissions, FIFO swaps,
-   destination collisions, write/sync/close/removal failures, cancellation,
-   a shared stdin, and saved-password reporting.
-5. **A concurrent actor or repeated caller triggers writes.** Invariant:
-   one create invocation sends at most one POST and no delete the caller
-   did not request. Severity: high for deleting another actor's user;
-   medium for orphan identities or lost passwords.
-   `internal/transport/transport.go:147` enforces `Once`;
-   `internal/transport/errors.go:418` conservatively tracks `NotSent`,
+   destination collisions, write/sync/close/removal failures, cancellation, a
+   shared stdin, and saved-password reporting.
+5. **A concurrent actor or repeated caller triggers writes.** Invariant: one
+   create invocation sends at most one POST and no delete the caller did not
+   request. Severity: high for deleting another actor's user; medium for orphan
+   identities or lost passwords. `internal/transport/transport.go:147` enforces
+   `Once`; `internal/transport/errors.go:418` conservatively tracks `NotSent`,
    including custom transports. Check 401, 429, 5xx, redirects, dropped
-   connections, and cancellation before and after send. DELETE retries
-   use the earlier target read, so a concurrent attachment or detachment
-   is the server's 409 or success, never this tool's decision.
-   `internal/cli/svc_iam.go:233` supplies the bounded detached cleanup
-   precedent that `create-user` deliberately does not reuse. No prefix
-   sweep, automatic cleanup, hidden detach, or repeated create is allowed.
-   There is no quote to race; creation still consumes quota and creates a
-   sign-in principal.
+   connections, and cancellation before and after send. DELETE retries use the
+   earlier target read, so a concurrent attachment or detachment is the server's
+   409 or success, never this tool's decision. `internal/cli/svc_iam.go:233`
+   supplies the bounded detached cleanup precedent that `create-user`
+   deliberately does not reuse. No prefix sweep, automatic cleanup, hidden
+   detach, or repeated create is allowed. There is no quote to race; creation
+   still consumes quota and creates a sign-in principal.
 
 [strict]: iam-users-api.md#bounds-and-strict-decoding
 
@@ -332,57 +325,55 @@ publication bypass is authorized.
 
 ## Owner decisions
 
-Decisions 1 to 10 and 12 are decided; the owner changed 1, 3, 4, and 9 and
-accepted the others as recommended. Decision 11 remains proposed. The
+Decisions 1 to 8, 10, and 12 are decided. Decision 9 records the author's
+rescoping and awaits confirmation; decision 11 remains proposed. The
 [administration decisions](iam-users-admin.md#owner-decisions) are separate.
 
 1. **Scope.** Decided: create and delete with their supporting reads, plus
-   password reset, rename, and MFA enable and disable for IAM users under
-   the [administration design](iam-users-admin.md). Tags, account activate
-   and deactivate, IP allow lists, identity providers, and quota writes
-   stay out.
-2. **Password source.** Decided: either supplied file/stdin or generated
-   secret file, exactly one. Private input files on Unix and bounded stdin
-   waits are required.
-3. **Generation.** Decided: SDK generation defaulting to 32 characters,
-   with a caller-chosen length from 8 to 50, every value holding at least
-   one upper-case letter, lower-case letter, digit, and special character.
-   The owner prefers `@` because the console appears to hard-code the
-   specials it accepts; the manager read that as "the special class is `@`
-   only", recorded in [generation](iam-users-api.md#generation). The
-   owner may widen the set. A custom minimum above the chosen length may
-   reject the value; supply a compliant one without automatic retry.
-4. **Delete rules.** Decided: refuse only the caller's own user and a user
-   whose origin is not `iam`; root and unknown callers are refused because
-   the self check cannot be evaluated. The server decides about attached
-   policies and groups, and a 409 stays `Conflict`, never success or an
-   automatic detach.
-5. **Create guard.** Decided: no classified-caller guard, consistent with
-   other empty-principal creates, conditional on evidence of no initial
-   rights.
-6. **Input validation.** Decided: shape only, allowing password spaces;
-   console length and class rules stay informational, and the generator
-   rules of decision 3 do not validate a supplied password.
+   password reset, rename, and MFA enable and disable for IAM users under the
+   [administration design](iam-users-admin.md). Tags, account activate and
+   deactivate, IP allow lists, identity providers, and quota writes stay out.
+2. **Password source.** Decided: either supplied file/stdin or generated secret
+   file, exactly one. Private input files on Unix and bounded stdin waits are
+   required.
+3. **Generation.** Decided: SDK generation defaulting to 32 characters, with a
+   caller-chosen length from 8 to 50, every value holding at least one
+   upper-case letter, lower-case letter, digit, and special character. The owner
+   prefers `@` due to reported VNG hard-coding; the manager interprets that as
+   "the special class is `@` only", recorded in
+   [generation](iam-users-api.md#generation), not a console limitation. The
+   owner may widen the set. A custom minimum above the chosen length may reject
+   the value; supply a compliant one without automatic retry.
+4. **Delete rules.** Decided: refuse only the caller's own user and a user whose
+   origin is not `iam`; root and unknown callers are refused because the self
+   check cannot be evaluated. The server decides about attached policies and
+   groups, and a 409 stays `Conflict`, never success or an automatic detach.
+5. **Create guard.** Decided: no classified-caller guard, consistent with other
+   empty-principal creates, conditional on evidence of no initial rights.
+6. **Input validation.** Decided: shape only, allowing password spaces; console
+   length and class rules stay informational, and the generator rules of
+   decision 3 do not validate a supplied password.
 7. **Partial outcomes.** Decided: a new `ErrUserCreateUncertain`, retained
    generated passwords, and explicit `CreatedID` provenance, with
    `ErrCreateUnconfirmed` for 201 followed by failed confirmation.
 8. **Cleanup authority.** Decided: no automatic cloud cleanup after a
-   secret-file failure; report `CreatedID` and the manual `delete-user`
-   command, as in [Secret file and cleanup](#secret-file-and-cleanup).
-9. **Shared bounds and strict decoding.** Decided and rescoped: one
-   separately briefed prerequisite adds byte caps and the strict JSON rule
-   to the caller identity read, which every guarded write shares, and the
-   new user get carries both from the start. The attachment and policy
-   readers join only if [administration decision
-   1](iam-users-admin.md#owner-decisions) keeps the privilege guard, and
-   then for those operations. Oversized or ambiguous `userinfo` responses
-   will begin failing for existing guarded writes.
-10. **Error privacy.** Decided: fixed create error text and status-based
-    codes, sacrificing server detail to prevent encoded password echoes,
-    while preserving status, sentinels, and safe causes.
-11. **Probe sign-in and authority.** Proposed: a separate explicit approval
-    to sign in as the disposable user without persistent cache changes.
-    Confirm cost, quota, account controls, and cleanup authority per run;
-    do not infer standing approval from this document.
-12. **Release shape.** Decided: one release after all gates, with verified
-    reads first as the fallback if write evidence stays gated.
+   secret-file failure; report `CreatedID` and the manual `delete-user` command,
+   as in [Secret file and cleanup](#secret-file-and-cleanup).
+9. **Shared bounds and strict decoding.** Author-rescoped proposal: one
+   separately briefed prerequisite adds byte caps and the strict JSON rule to
+   the caller identity read, which every guarded write shares, and the new user
+   get carries both from the start. The attachment and policy readers join only
+   if [administration decision 1](iam-users-admin.md#owner-decisions) keeps the
+   privilege guard, and those operations need them. Shared-reader changes also
+   affect existing guarded writes. Confirm this compatibility scope;
+   administration guard privacy is a separate proposed prerequisite.
+10. **Error privacy.** Decided: fixed create error text and status-based codes,
+    sacrificing server detail to prevent encoded password echoes, while
+    preserving status, sentinels, and safe causes.
+11. **Probe sign-in and authority.** Proposed: a separate explicit approval to
+    sign in as the disposable user without persistent cache changes. Confirm
+    cost, quota, account controls, and cleanup authority per run; do not infer
+    standing approval from this document.
+12. **Release shape.** Decided: base SDK/CLI/wiki together after its gates, with
+    verified reads first as fallback. Separate administration releases remain
+    proposed in that design, so rename need not block reset or MFA.

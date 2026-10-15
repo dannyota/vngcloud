@@ -33,8 +33,8 @@ code starts. Decisions with lasting trade-offs also get an
 | [vLB writes](lb-writes.md) | Accepted |
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
 | [IAM writes](iam-writes.md) | Accepted |
-| [IAM users](iam-users.md) | Proposed; owner decisions recorded; evidence and guard bounds gated |
-| [IAM user administration](iam-users-admin.md) | Proposed; reset and MFA evidence gated; rename blocked on a path |
+| [IAM users](iam-users.md) | Proposed; decisions recorded; shared prerequisite and evidence gated |
+| [IAM user administration](iam-users-admin.md) | Proposed; admin choices gated; rename PUT in console, responses unverified |
 | [vServer network writes 2](vserver-network-writes-2.md) | Accepted |
 | [CLI usability](cli-usability.md) | Accepted |
 | [Encrypted volumes](encrypted-volumes.md) | Accepted |
