@@ -50,17 +50,27 @@ func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutp
 		return nil, err
 	}
 
-	var group Group
+	type fields Group
+	var group fields
+	resp := struct {
+		Root      flexibleRoot `json:"root"`
+		CreatedAt epochMillis  `json:"createdAt"`
+		*fields
+	}{fields: &group}
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL([]string{"groups", in.GroupID}, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL([]string{"groups", in.GroupID}, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardObjectMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &group); err != nil {
+	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &GetGroupOutput{Group: group}, nil
+	group.Root = string(resp.Root)
+	group.CreatedAt = int64(resp.CreatedAt)
+	return &GetGroupOutput{Group: Group(group)}, nil
 }
 
 // ListGroupPoliciesInput pages GroupID's attached policies. A non-positive

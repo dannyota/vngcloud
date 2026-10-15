@@ -64,17 +64,27 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 		return nil, err
 	}
 
-	var policy Policy
+	type fields Policy
+	var policy fields
+	resp := struct {
+		Root      flexibleRoot `json:"root"`
+		CreatedAt epochMillis  `json:"createdAt"`
+		*fields
+	}{fields: &policy}
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL([]string{"policies", in.PolicyID}, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL([]string{"policies", in.PolicyID}, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardObjectMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &policy); err != nil {
+	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &GetPolicyOutput{Policy: policy}, nil
+	policy.Root = string(resp.Root)
+	policy.CreatedAt = int64(resp.CreatedAt)
+	return &GetPolicyOutput{Policy: Policy(policy)}, nil
 }
 
 // ListPolicyAttachmentsInput identifies the policy whose attachments to

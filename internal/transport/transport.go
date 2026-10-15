@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 type Token struct {
@@ -139,6 +141,8 @@ type Request struct {
 	// HTTP error classification.
 	MaxBody int64
 
+	StrictJSON bool // Reject duplicate keys and aliases for the same struct field.
+
 	// BodyLimitOverridesStatus returns ErrBodyTooLarge on overflow even for
 	// HTTP errors. The observed status is still returned, so the caller can
 	// apply a contract that gives body overflow precedence over status mapping.
@@ -258,15 +262,20 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 	if !containsStatus(req.OK, statusCode) {
 		return statusCode, decodeError(req, statusCode, body)
 	}
-	if out != nil && len(body) > 0 {
-		if err := json.Unmarshal(body, out); err != nil {
+	if out != nil && (len(body) > 0 || req.StrictJSON) {
+		var err error
+		if req.StrictJSON {
+			err = jsonresponse.ValidateStrict(body, out)
+		}
+		if err == nil {
+			err = json.Unmarshal(body, out)
+		}
+		if err != nil {
 			if req.discovery {
 				return statusCode, &APIError{Operation: req.Operation, StatusCode: statusCode, Code: "InvalidResponse", Message: "response failed to decode; body withheld"}
 			}
 			if req.Sensitive {
-				// The underlying json error never quotes body content, but a
-				// Sensitive request withholds the body from its error on
-				// principle, rather than relying on that always staying true.
+				// Sensitive responses withhold validation and decode error details.
 				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
 			}
 			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeDecodeError(err)}

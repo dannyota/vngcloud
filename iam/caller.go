@@ -44,10 +44,12 @@ func (c *Client) GetCallerIdentity(ctx context.Context, in *GetCallerIdentityInp
 
 	var resp userInfoResponse
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.accountsURL([]string{"auth", "userinfo"}, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.accountsURL([]string{"auth", "userinfo"}, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardObjectMaxBody,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err

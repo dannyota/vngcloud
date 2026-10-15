@@ -208,6 +208,19 @@ func (c *Client) guardWriteActionNames(ctx context.Context) ([]string, error) {
 // than trust a response that claims otherwise.
 const maxGuardAttachmentPage = 10000
 
+const (
+	guardObjectMaxBody = 256 << 10
+	guardListMaxBody   = 4 << 20
+)
+
+// guardSummary keeps attachment IDs visible to strict validation instead of
+// hiding them behind the public summaries' custom JSON unmarshallers.
+type guardSummary struct {
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	CreatedAt epochMillis `json:"createdAt"`
+}
+
 // pagedPolicySummaries is the shape a paged policy-summary attachment list
 // decodes into for a guard read, shared by guardServiceAccountPolicySummaries
 // and guardUserPolicySummaries. Data and TotalItems are pointers so a key
@@ -216,9 +229,9 @@ const maxGuardAttachmentPage = 10000
 // rather than reading it as "no attachments". TotalPages is checked only
 // when the server sends it.
 type pagedPolicySummaries struct {
-	Data       *[]PolicySummary `json:"data"`
-	TotalItems *int             `json:"totalItems"`
-	TotalPages *int             `json:"totalPages"`
+	Data       *[]guardSummary `json:"data"`
+	TotalItems *int            `json:"totalItems"`
+	TotalPages *int            `json:"totalPages"`
 }
 
 // guardServiceAccountPolicySummaries reads every policy attached to
@@ -243,10 +256,12 @@ func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string
 func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlParts []string) ([]PolicySummary, error) {
 	var resp pagedPolicySummaries
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL(urlParts, pageQuery(0, maxGuardAttachmentPage)),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL(urlParts, pageQuery(0, maxGuardAttachmentPage)),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardListMaxBody,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
@@ -263,7 +278,11 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 	if resp.TotalPages != nil && *resp.TotalPages > 1 {
 		return nil, fmt.Errorf("iam: guard: %s: attachment list reports more than one page", op)
 	}
-	return *resp.Data, nil
+	summaries := make([]PolicySummary, len(*resp.Data))
+	for i, item := range *resp.Data {
+		summaries[i] = PolicySummary{ID: item.ID, Name: item.Name, CreatedAt: int64(item.CreatedAt)}
+	}
+	return summaries, nil
 }
 
 // guardFetchAttachmentArray decodes a bare JSON array response at urlParts
@@ -277,10 +296,12 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string, urlParts []string) ([]T, error) {
 	var items *[]T
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL(urlParts, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL(urlParts, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardListMaxBody,
 	}
 	if err := c.c.DoJSON(ctx, req, &items); err != nil {
 		return nil, err
@@ -299,7 +320,7 @@ func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string,
 // own callers, since a read command has no reason to refuse on an ambiguous
 // response the way a guard must.
 func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string) (*ListPolicyAttachmentsOutput, error) {
-	groups, err := guardFetchAttachmentArray[GroupSummary](ctx, c, op, []string{"policies", policyID, "groups"})
+	groups, err := guardFetchAttachmentArray[guardSummary](ctx, c, op, []string{"policies", policyID, "groups"})
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +332,11 @@ func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string
 	if err != nil {
 		return nil, err
 	}
-	return &ListPolicyAttachmentsOutput{Groups: groups, UserIDs: userIDs, ServiceAccountIDs: serviceAccountIDs}, nil
+	summaries := make([]GroupSummary, len(groups))
+	for i, item := range groups {
+		summaries[i] = GroupSummary{ID: item.ID, Name: item.Name, CreatedAt: int64(item.CreatedAt)}
+	}
+	return &ListPolicyAttachmentsOutput{Groups: summaries, UserIDs: userIDs, ServiceAccountIDs: serviceAccountIDs}, nil
 }
 
 // guardGroupKnownFields lists every top-level key a group response is
@@ -337,10 +362,12 @@ var guardGroupKnownFields = map[string]bool{
 func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string) (policyIDs, userIDs []string, err error) {
 	var raw map[string]json.RawMessage
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.policiesURL([]string{"groups", groupID}, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.policiesURL([]string{"groups", groupID}, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    guardObjectMaxBody,
 	}
 	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
 		return nil, nil, err
