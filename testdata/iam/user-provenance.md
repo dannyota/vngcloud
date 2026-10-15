@@ -26,8 +26,10 @@ for user calls and the IAM policies endpoint for attachment reads.
 `verified`. `sms` has `enabled`, `verified`, and one more key: a
 three-character key whose value was null, which the probe withheld by name.
 The fixtures omit that key. Both booleans were `false` for every factor on a
-new user. A rebuild of the recorded keys and types reproduces the observed
-body lengths exactly, 321 and 345 bytes.
+new user. A compact rebuild of the recorded keys and types, with a
+three-character placeholder for that key, matches the observed lengths
+exactly, 321 and 345 bytes; the published fixtures, without it, compact to 310
+and 334 bytes.
 
 Shapes recorded without a fixture:
 
@@ -48,6 +50,14 @@ Shapes recorded without a fixture:
 - DELETE `/iam-users/{id}` returned 204; a repeat DELETE and a GET then
   returned 404.
 - GET `/quotas/iam-user` returned `{"usage": <number>, "limit": <number>}`,
-  with the same values before and after each run.
+  with a limit of 20 and the same values before and after each run.
+- A sign-in as the new user through the SDK's IAM user login succeeded with no
+  MFA challenge, and the caller identity it returned matched the created ID.
+- A read of GET `actions?product=iam` on the test account returned 104 actions.
+  The user-related names were `CreateIamUser`, `DeleteIamUser`, `GetIamUser`,
+  `ListIamUsers`, `ChangeIamUserPassword`, `ActivateIamUser2FA`,
+  `DeactivateIamUser2FA`, `SetUpIamUser2FA`, `ActivateIamUserConsoleAccess`,
+  and `DeactivateIamUserConsoleAccess`, with no IAM user update or rename
+  action.
 
 Tests that build adversarial variants from these files label them synthetic.

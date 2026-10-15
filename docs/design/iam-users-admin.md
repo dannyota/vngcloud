@@ -305,8 +305,9 @@ association.
    it. Alternatives: wait for a published contract; drop rename.
    Delete-and-create is never a fallback.
    **Proposed follow-up, awaiting the owner.** The probe changed the options:
-   the PUT returned 403 to the IAM-user caller, and no IAM action covers a
-   rename, so IAM-user evidence cannot establish the contract, and the SDK
+   the PUT returned 403 to the probe's IAM-user caller, and the account's
+   action list names no rename action, so the observed caller could not
+   establish the contract; which callers can rename is unknown, and the SDK
    authenticates only IAM users and service accounts. Recommend dropping
    rename from scope: remove `RenameUser`, `rename-user`, the rename live
    branch, and the profile-username guidance, and narrow [base decision

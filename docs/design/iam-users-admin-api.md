@@ -80,13 +80,11 @@ difference the no-factor 400 does not settle.
 Rename: `PUT accounts-api/v1/iam-users/{id}` with exactly
 `{"username":"<account>"}` from `editUsername` returned 403 to the IAM-user
 caller, with a top-level array of one object holding one string field. The
-account's IAM action list (104 actions for product `iam`) names
-`CreateIamUser`, `DeleteIamUser`, `GetIamUser`, `ListIamUsers`,
-`ChangeIamUserPassword`, `ActivateIamUser2FA`, `DeactivateIamUser2FA`,
-`SetUpIamUser2FA`, `ActivateIamUserConsoleAccess`, and
-`DeactivateIamUserConsoleAccess`, and no update or rename action. Rename is
-unavailable to IAM-user callers and may be root-only; its success status, body
-handling, uniqueness behavior, and same-ID preservation stay unevidenced.
+account's IAM action list names no update or rename action ([fixture
+provenance](../../testdata/iam/user-provenance.md) lists the user actions).
+The probe caller, an IAM user, was refused; whether other callers can rename
+is unknown. The success status, body handling, uniqueness behavior, and
+same-ID preservation stay unevidenced.
 
 ## State model
 

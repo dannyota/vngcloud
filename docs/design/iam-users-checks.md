@@ -97,9 +97,9 @@ alone never authorizes cleanup.
 
 `testdata/iam/create_user.json`, `get_user.json`, `get_user_mfa.json`, and
 `list_users_filtered.json` are synthetic rebuilds of the recorded keys, types,
-and booleans that reproduce the observed body lengths, as [fixture
-provenance](../../testdata/iam/user-provenance.md) records with the omitted
-factor key. Raw create, reset, and rename bytes stayed in memory; only
+and booleans. A rebuild that keeps the withheld factor key matches the observed
+get lengths; the published files omit that key and are 11 bytes shorter, as
+[fixture provenance](../../testdata/iam/user-provenance.md) records. Raw create, reset, and rename bytes stayed in memory; only
 credential-free list, attachment, and quota bodies persisted privately. Tests
 that build adversarial variants label them synthetic; an account-bearing raw
 read stays under the private paths in [live
