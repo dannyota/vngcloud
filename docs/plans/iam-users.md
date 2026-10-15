@@ -1,6 +1,6 @@
 # IAM users implementation plan
 
-Ship the base create/delete SDK, CLI, and wiki together after their gates. Proposed administration slices are reset, MFA by evidenced method, and rename, each with SDK/CLI/wiki and reviewed helpers together after its own decisions, probes, and independent reviews. Reset and MFA can ship without rename. Rename has console PUT evidence but no verified response contract; implementation stays blocked. This plan authorizes no live call, credential access, cleanup, implementation of an unresolved schema, or publication bypass.
+Ship the base create/delete SDK, CLI, and wiki together after their gates. Administration slices are reset, MFA by evidenced method, and rename, each with SDK/CLI/wiki and reviewed helpers together after its own decisions, probes, and independent reviews. Reset and MFA can ship without rename. Rename has console PUT evidence but no verified response contract; implementation stays blocked. This plan authorizes no live call, credential access, cleanup, implementation of an unresolved schema, or publication bypass.
 
 ## Constraints
 

@@ -1,8 +1,9 @@
 # IAM user administration design
 
-Status: Proposed. [Owner decisions](#owner-decisions), independent design and
-plan review, and the [evidence probes](iam-users-admin-api.md#probes) gate
-implementation. This document authorizes no live call, sign-in, or cleanup.
+Status: Accepted. The owner accepted every recommendation under
+[Owner decisions](#owner-decisions). The
+[evidence probes](iam-users-admin-api.md#probes) gate implementation. This
+document authorizes no live call, sign-in, or cleanup.
 
 Add administrator password reset, rename, and MFA enable and disable for IAM
 users to the public `iam` package and CLI, beside [create and
@@ -15,7 +16,7 @@ generation, secret files, and the caller, self, and origin guards. Follow [write
 conventions](../adr/0002-write-api-conventions.md) and the [IAM guard
 model](iam-writes.md#guards). The SDK stays standard-library only; the CLI calls
 only the public SDK. No dependency is added. Every operation below is
-unimplemented, and every administration decision remains proposed.
+unimplemented.
 
 ## Scope
 
@@ -284,8 +285,9 @@ gates](iam-users.md#wiki-and-release); no publication bypass is authorized.
 
 ## Owner decisions
 
-Each recommendation below is a proposal, including refinements of the first
-eight. None is covered by the create/delete decisions merely by association.
+The owner accepted each recommendation below, including refinements of the
+first eight. None is covered by the create/delete decisions merely by
+association.
 
 1. **Privilege guard.** Recommend protected-user refusal for reset, rename, and
    both MFA operations, including direct and group IAM write rights.

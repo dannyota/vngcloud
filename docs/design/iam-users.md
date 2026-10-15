@@ -1,11 +1,10 @@
 # IAM users design
 
-Status: Proposed. The owner decided scope, password sources, generation, delete
-rules, create guard, input validation, partial outcomes, cleanup authority,
-error privacy, and release shape under [Owner decisions](#owner-decisions);
-probe sign-in stays proposed. Independent design and plan review and the
-[evidence probes](iam-users-api.md#probes) gate implementation. This document
-authorizes no live call or cleanup.
+Status: Accepted. The owner decided every item under
+[Owner decisions](#owner-decisions). The
+[evidence probes](iam-users-api.md#probes) gate implementation, and each probe
+run needs its own run authority. This document authorizes no live call or
+cleanup.
 
 Add IAM user create and delete, `GetUser`, and `ListUsers.Name` to the public
 `iam` package and CLI. Service accounts already have `create-service-account
@@ -24,7 +23,7 @@ dependency is added.
 ## Scope
 
 Create, delete, and the [administration operations](iam-users-admin.md#scope)
-are the proposed exceptions to the [IAM user write
+are the exceptions to the [IAM user write
 exclusion](iam-writes.md#non-goals). Account activate and deactivate, MFA set-up
 and verification, IP allow lists, tags, identity-provider management, and public
 quota operations stay out. Creation accepts no policies, groups, or access
@@ -128,7 +127,7 @@ CLI policy.
 
 `DeleteUser` validates the input ID, then performs these checks before sending
 DELETE. Refusals may perform reads but never a mutation. The same three checks
-precede the proposed privilege guard on every [administration
+precede the privilege guard on every [administration
 operation](iam-users-admin.md#guards).
 
 1. Require a classified caller through `requireClassifiedCaller`: `iam-user`,
@@ -327,7 +326,7 @@ publication bypass is authorized.
 
 ## Owner decisions
 
-Decisions 1 to 10 and 12 are decided; decision 11 remains proposed. The
+All twelve decisions are decided. The
 [administration decisions](iam-users-admin.md#owner-decisions) are separate.
 
 1. **Scope.** Decided: create and delete with their supporting reads, plus
@@ -368,14 +367,14 @@ Decisions 1 to 10 and 12 are decided; decision 11 remains proposed. The
    API](iam-writes-api.md#bodies) records. The new user get, filtered list,
    and create response use the same mechanism with the caps in [bounds and
    strict decoding][strict]. Administration guard privacy is a separate
-   proposed prerequisite.
+   prerequisite.
 10. **Error privacy.** Decided: fixed create error text and status-based codes,
     sacrificing server detail to prevent encoded password echoes, while
     preserving status, sentinels, and safe causes.
-11. **Probe sign-in and authority.** Proposed: a separate explicit approval to
-    sign in as the disposable user without persistent cache changes. Confirm
+11. **Probe sign-in and authority.** Decided: the owner approved signing in
+    as the disposable user without persistent cache changes. Confirm
     cost, quota, account controls, and cleanup authority per run; do not infer
     standing approval from this document.
 12. **Release shape.** Decided: base SDK/CLI/wiki together after its gates, with
-    verified reads first as fallback. Separate administration releases remain
-    proposed in that design, so rename need not block reset or MFA.
+    verified reads first as fallback. Separate administration releases are
+    decided in that design, so rename need not block reset or MFA.
