@@ -17,3 +17,4 @@ permission, cost, and resource gates still apply.
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
+- [ ] Reject duplicate and case-alias JSON keys and bound response size in every IAM guard read (caller identity, actions, policy get, attachment lists, user groups); a duplicate `actions`, `Actions`, or `statements` key can still hide a privileged grant, and policy reads are unbounded. [Guard rules](docs/design/iam-writes.md#rules).
