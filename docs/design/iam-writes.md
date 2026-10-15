@@ -126,9 +126,10 @@ such changes in the IAM console.
 A guard read that comes back incomplete or unprovable refuses instead of
 guessing: an account action list naming no write action, or an attachment
 page whose item count does not match its own reported total, is treated as
-a failed read, never as evidence that nothing is privileged. A policy with
-no statements at all is privileged. So is each of these statements, since
-none proves the document safe: a null statement; a statement whose effect,
+a failed read, never as evidence that nothing is privileged. These rules
+judge the decoded response; duplicate keys and response size are not yet
+checked. A policy with no statements is privileged, and so is each decoded
+statement that proves nothing safe: a null statement; an effect that,
 compared case-insensitively, is neither `allow` nor `deny`, including one
 the API has not defined yet; and an `allow` statement whose action list is
 missing, null, or empty. A `deny` statement is ignored. A group
