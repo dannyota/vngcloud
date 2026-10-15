@@ -26,13 +26,15 @@ var ErrPrivilegedChange = errors.New("iam: refused: target is protected")
 // value.
 var ErrNoSecret = errors.New("iam: no client secret returned")
 
-// ErrCreateUnconfirmed is returned by CreateServiceAccount, together with a
-// non-nil Output holding the new service account's ID and whatever client
-// secret the create response carried, when the create itself succeeded but
+// ErrCreateUnconfirmed is returned by CreateUser or CreateServiceAccount
+// after a valid create ID was returned but confirmation failed. It accompanies
+// a partial output retaining the created ID and any generated credential.
+// CreateServiceAccount retains its returned ID and client secret when
+// the create itself succeeded but
 // the read-back that fills in the rest of the ServiceAccount fields failed.
 // The account is real either way: the caller can still write --secret-file
 // from Output.ClientSecret, or delete the account by Output.ServiceAccount.ID.
-var ErrCreateUnconfirmed = errors.New("iam: service account created but not confirmed by a read")
+var ErrCreateUnconfirmed = errors.New("iam: created but not confirmed by a read")
 
 // ErrNotSettled is returned by CreatePolicy, UpdatePolicy, CreateGroup, and
 // UpdateGroup when their own write reached the server, but the read that
@@ -60,3 +62,12 @@ var ErrManagedPolicy = errors.New("iam: refused: policy is managed")
 // sentinel's own text stays generic; the wrapped error names the specific
 // reason.
 var ErrInUse = errors.New("iam: refused: resource in use")
+
+// ErrOriginNotIAM refuses a user write when target identity or IAM origin
+// cannot be established. No mutation has been sent.
+var ErrOriginNotIAM = errors.New("iam: refused: target IAM origin is unproven")
+
+// ErrUserCreateUncertain means creation may have reached the server without
+// an attributable ID. A candidate proves no ownership; never retry or clean
+// it up automatically. Partial output retains any generated password.
+var ErrUserCreateUncertain = errors.New("iam: user create outcome is uncertain")
