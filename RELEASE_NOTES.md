@@ -30,8 +30,9 @@
   with exit 2 instead of waiting.
 - Compatibility: unkeyed `ListUsersInput` literals no longer compile.
   `ListUsers` and `list-users` now cap a response at 4 MiB and refuse a
-  larger one, and they refuse a response whose user ID or username contains
-  a credential the request sent.
+  larger one. `ListUsers`, `GetUser`, and `GetCallerIdentity` (with
+  `get-caller-identity`) refuse a response in which any returned text field
+  contains a credential the request sent.
 
 ## v0.84.2 - Strict, Bounded IAM Guard Reads
 
