@@ -63,17 +63,18 @@ func (c *Client) GetCallerIdentity(ctx context.Context, in *GetCallerIdentityInp
 }
 
 // ListUsersInput pages the account's IAM users. A non-positive Size sends
-// core.DefaultPageSize, and Page 0 is the first page.
+// core.DefaultPageSize, and Page 0 is the first page. Name is an optional
+// server-side filter, sent without trimming or case normalization.
 type ListUsersInput struct {
 	Page int
 	Size int
+	Name string
 }
 
 type ListUsersOutput = core.List[User]
 
-// ListUsers lists the account's IAM users. It exists so a caller can find a
-// user ID; the design excludes IAM user writes entirely (they change who
-// can sign in).
+// ListUsers lists one page of the account's IAM users. The server has been
+// observed to match Name as a case-insensitive substring.
 func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersOutput, error) {
 	const op = "iam.ListUsers"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -83,14 +84,24 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 		in = &ListUsersInput{}
 	}
 
+	if err := checkUserName(op, "Name", in.Name); err != nil {
+		return nil, err
+	}
+	q := pageQuery(in.Page, in.Size)
+	if in.Name != "" {
+		q.Set("name", in.Name)
+	}
+
 	var resp struct {
 		Data []User `json:"data"`
 	}
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.accountsURL([]string{"iam-users"}, pageQuery(in.Page, in.Size)),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.accountsURL([]string{"iam-users"}, q),
+		OK:         []int{200},
+		MaxBody:    userListMaxBody,
+		StrictJSON: in.Name != "",
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err

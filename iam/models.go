@@ -192,6 +192,17 @@ type User struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+// UserDetail is a user get response. CreatedAt and LastUse hold epoch
+// milliseconds; LastUse is zero when the user has never signed in.
+type UserDetail struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	CreatedAt int64  `json:"createdAt"`
+	Enabled   bool   `json:"enabled"`
+	From      string `json:"from"`
+	LastUse   int64  `json:"lastUse"`
+}
+
 // Action is one row of the account's IAM action list (GET
 // actions?product=iam). Label is "List", "Read", "Write", or "Tagging"; an
 // unrecognized label is still a write action for the guard rules in
