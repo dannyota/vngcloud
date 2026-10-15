@@ -1,9 +1,10 @@
 # IAM user administration design
 
 Status: Accepted. The owner accepted every recommendation under
-[Owner decisions](#owner-decisions). The
-[evidence probes](iam-users-admin-api.md#probes) gate implementation. This
-document authorizes no live call, sign-in, or cleanup.
+[Owner decisions](#owner-decisions); two proposed follow-ups there await the
+owner. The [probe evidence](iam-users-admin-api.md#probes) closed the reset
+acceptance and target-shape gates; verified-factor MFA transitions and rename
+stay gated. This document authorizes no live call, sign-in, or cleanup.
 
 Add administrator password reset, rename, and MFA enable and disable for IAM
 users to the public `iam` package and CLI, beside [create and
@@ -21,8 +22,10 @@ unimplemented.
 ## Scope
 
 - `ResetUserPassword`: published administrator password replacement.
-- `RenameUser`: console-source PUT evidence exists; no published operation or
-  verified response contract. Implementation remains blocked.
+- `RenameUser`: the console PUT returned 403 to an IAM-user caller, and the
+  account's IAM action list has no update action, so rename is unavailable to
+  IAM-user callers and may be root-only. Implementation remains blocked on
+  the rename follow-up under [Owner decisions](#owner-decisions).
 - `DisableUserMFA` and `EnableUserMFA`: published activate/deactivate paths for
   `email` and `google`; each factor's state and transition evidence gates its
   release separately.
@@ -32,21 +35,22 @@ mail, account activate/deactivate, tags, IP allow lists, identity providers, and
 quota writes. Set-up can give an administrator control of the user's second
 factor. No SDK method or CLI fallback may invoke an excluded path.
 
-Rename's [source evidence](iam-users-admin-api.md#sources) identifies a
-candidate request, not a server contract. Obtain authorized response evidence
-and re-review before implementation. Never substitute delete followed by create:
-it changes the ID and loses credentials, policies, and memberships.
+Rename's [evidence](iam-users-admin-api.md#calls) shows a refused request, not
+a server contract for any supported caller. Obtain authorized acceptance
+evidence and re-review before implementation. Never substitute delete followed
+by create: it changes the ID and loses credentials, policies, and memberships.
 
 ## Operations
 
 ### Password reset
 
 `ResetUserPassword` submits a supplied or generated replacement password. The
-published success is 204 with no response schema. Treat the old password as
-unusable after acceptance and potentially unusable after an uncertain send.
-Actual old-password rejection, session and token revocation, forced password
-change, and MFA interaction remain unverified. No user read proves which
-password works; this operation is not a session-revocation mechanism.
+observed success is 204 with an empty body, after which the old password was
+refused and the new one signed in. Treat the old password as unusable after
+acceptance and potentially unusable after an uncertain send. Session and token
+revocation, forced password change, and MFA interaction remain unverified. No
+user read proves which password works; this operation is not a
+session-revocation mechanism.
 
 Reuse [create's credential rules](iam-users.md#credentials): default length 32,
 selectable 8 to 50, `Secret` inputs and outputs, private file or bounded stdin
@@ -73,8 +77,9 @@ previously issued tokens. Probe sign-in needs separate owner approval.
 
 ### Rename
 
-The candidate request is PUT with `username`; success statuses, error bodies,
-and server semantics remain gated. The conditional contract sends once, then
+The PUT with `username` returned 403 to the IAM-user caller; its acceptance
+semantics remain unevidenced for every caller, and the SDK authenticates only
+IAM users and service accounts. The conditional contract sends once, then
 reads by ID once and requires the same ID and exact requested username. A failed
 or mismatched confirmation returns `ErrNotSettled` with only the ID; an
 uncertain send returns `ErrUserWriteUncertain`. Neither retries the write. A 409
@@ -91,11 +96,13 @@ user reusing the old name makes stale credentials especially unsafe.
 
 ### MFA
 
-The API separates set-up, verify, activate, and deactivate. Caller userinfo
-publishes `verified` and `enabled` for email and Google Authenticator. Applying
-those fields to another user's get remains inference. Console defaults never
-prove a factor exists, is verified, or is disabled. Unknown state is distinct
-from false under the [state model](iam-users-admin-api.md#state-model).
+The API separates set-up, verify, activate, and deactivate. A user get carries
+`verified` and `enabled` for the email, Google Authenticator, and SMS factors;
+every value was false on a user with no factor set up, the activate and
+deactivate paths returned 400 for that user, and no verified or enabled factor
+has been observed. Console defaults never prove a factor exists, is verified,
+or is disabled. Unknown state is distinct from false under the [state
+model](iam-users-admin-api.md#state-model).
 
 Recommend only activate/deactivate of existing factors. The console consumes
 `secret` and `qrCodeUrl` from administrator Google set-up; an administrator
@@ -297,6 +304,16 @@ association.
    evidence establishes the console PUT contract and independent review accepts
    it. Alternatives: wait for a published contract; drop rename.
    Delete-and-create is never a fallback.
+   **Proposed follow-up, awaiting the owner.** The probe changed the options:
+   the PUT returned 403 to the IAM-user caller, and no IAM action covers a
+   rename, so IAM-user evidence cannot establish the contract, and the SDK
+   authenticates only IAM users and service accounts. Recommend dropping
+   rename from scope: remove `RenameUser`, `rename-user`, the rename live
+   branch, and the profile-username guidance, and narrow [base decision
+   1](iam-users.md#owner-decisions) to match. Alternative: keep rename blocked
+   and run a later root-login probe on a disposable user, which puts root
+   credentials inside a probe, needs its own security review, and would
+   evidence an operation the SDK's supported logins cannot call.
 3. **MFA subset.** Recommend enable/disable of existing email and Google
    factors. Alternatives: disable only; console-only recovery; add email
    set-up/verification with mailbox-takeover risk; add Google set-up with TOTP
@@ -321,6 +338,16 @@ association.
    Alternatives: approved in-memory Google set-up to evidence that factor; defer
    Google release. Mailbox configuration alone is not approval, and no secret or
    code enters output.
+   **Proposed follow-up, awaiting the owner.** The reset and state probes ran;
+   no mailbox was approved, so no verified-factor transition is evidenced for
+   either method. Recommend shipping no MFA write until one is:
+   `DisableUserMFA` and `EnableUserMFA` stay blocked while create, delete, and
+   reset ship. Alternatives: the owner provides a test mailbox for an email
+   enrolment probe (set up, verify, activate, deactivate, reactivate on a
+   disposable user), which evidences the email method only; or the owner
+   approves an in-memory Google enrolment probe that holds the TOTP secret in
+   process memory and never fetches the QR URL, which evidences the Google
+   method only. Each needs its own probe review and run authority.
 9. **Reset privacy prerequisite.** Recommend private request-local privacy
    controls throughout the reset guard graph before release. Alternative: defer
    reset. POST-only privacy does not meet the credential boundary.

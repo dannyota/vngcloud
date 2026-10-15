@@ -1,0 +1,119 @@
+# IAM users: checks
+
+Unit tests, probe evidence, fixture provenance, and live checks for [IAM
+users](iam-users.md). [IAM users: API](iam-users-api.md) owns the wire
+evidence and SDK contracts these checks enforce; [IAM user administration:
+API and checks](iam-users-admin-api.md) owns the reset, MFA, and rename
+checks that run on the same disposable user.
+
+## Unit tests
+
+Use synthetic canaries and `httptest`, never real credentials or live calls.
+Each operation tests its exact path, body/query, success status, and every error
+in the [calls table](iam-users-api.md#calls), plus unexpected responses.
+
+- Decode `create_user.json`, `get_user.json`, `get_user_mfa.json`, and
+  `list_users_filtered.json` through the SDK, plus an empty-bytes create and a
+  get with an extra synthetic null key inside a factor. Check both `createdAt`
+  forms, `LastUse` 0 when absent, and omitted, null, wrong-type, and duplicate
+  identity/metadata keys.
+- Check generator alphabet, default and chosen lengths, the 8 and 50 bounds, all
+  four classes, unbiased sampling, fresh values, entropy failure, cancellation,
+  bounded exhaustion, and the supplied-plus-length refusal; supplied-password
+  shape and immutable Input.
+- Count create POSTs for 401, 429, 500/502, all redirects, partial bodies, body
+  overflow, dropped connections, and cancellation before/after send. Distinguish
+  proven NotSent from custom-transport dial-shaped errors.
+- Test every outcome-table branch with generated and supplied passwords, both
+  sentinels via `errors.Is`, API errors via `errors.As`, and context identities.
+  Test 201 with empty body, null/array/malformed JSON, missing, invalid, or
+  mismatched ID, failed confirmation, duplicate matches, and the duplicate 400.
+  A zero-length body sets `BodyWasEmpty` and permits the lookup, as does `{}`;
+  whitespace only, `null`, an array, or malformed JSON is a withheld decode
+  failure with no lookup and no CandidateID. Only a valid ID with failed
+  confirmation is `ErrCreateUnconfirmed`; a missing, empty, invalid,
+  non-string (`{"id":17}`), or credential-bearing ID and a name-only match are
+  `ErrUserCreateUncertain`, CandidateID only for the last, never a nil error.
+  A 201 `id`, or a list or get identity after a 401 refresh, that equals a
+  sent bearer token is refused with no follow-up and no token in any error
+  node, output, or CLI line.
+- Exercise missing/null/negative/inconsistent list metadata, multi-page results,
+  substring and case-only names, wrong get identity, caps, and public ListUsers
+  compatibility without Name. Verify CreatedID provenance.
+- Test self before the target read; unknown/root caller; missing caller ID;
+  service-account caller; non-iam, missing, null, and wrong-type origin;
+  mismatched target ID; failed target read. Assert zero mutations on refusal,
+  not zero reads. An attached user is not refused; its 409 stays `Conflict`.
+- Test DELETE 204, 404, 409, retries ending in 404, exhausted 5xx, no redirects,
+  cancellation, and dependency 404 labels. Send zero DELETEs for a duplicate
+  `userId` or `userType`, or a `USERID` alias after the real key, in the caller
+  identity, and for a duplicate `id`, `username`, or `from` in the target user.
+- Put a canary in a `$numberLong` timestamp, a `root`, and a malformed strict
+  body on every strict read, and check that no SDK error node, `APIError` field,
+  or CLI stderr line carries it. Canary-check stdout, stderr, debug, capture,
+  every reachable error node, and supported fmt/slog/JSON paths, including
+  nested escaped password echoes in error codes/messages and success bodies;
+  unsafe formatting is forbidden, not claimed safe. Confirm requests serialize
+  the actual value.
+- CLI tests cover exactly-one flag, empty file, private file mode, symlinks,
+  FIFO/device/directory refusal, terminal stdin, CRLF/spaces, overflow, stalled
+  input deadline, and cancellation. `beforeInput` runs before any
+  `--cli-input-json` read: `--password-file -` with `file://` JSON exits 2 while
+  stdin is a never-closing pipe; a FIFO at `file://` exits 2 for any command;
+  read-only refuses before any stdin read, proven by a stdin that fails the test
+  on `Read`; cancellation during a stalled stdin exits within the deadline with
+  no request. Delete without `--yes` sends nothing.
+- Inject file open/write/sync/close/removal failures. Check exclusive 0600
+  creation, existing-file preservation, saved passwords on partial output, no
+  request of any kind after a file failure, the `CreatedID` or username and the
+  `delete-user` command in the message, and exit precedence.
+
+## Probes
+
+The base probe ran twice under owner approval, after adversarial review of its
+credential-free source, with `vngcloud-probe-<8 hex>` names, an in-memory
+password, a private ledger of returned IDs, and deletion of attributable IDs
+only. For the test account it established create 201 `{"id"}`, the get and
+list shapes above, the case-insensitive substring filter, the empty result for
+an absent name, empty default attachments, the duplicate 400, delete 204 with
+404 on repeat and on get, and the quota shape with usage restored after each
+run. Sign-in as the new user through the SDK's IAM user login succeeded with
+no MFA challenge, the caller identity matched the created ID, and the get then
+carried `lastUse`. The [administration probes](iam-users-admin-api.md#probes)
+ran on the same user.
+
+Still unverified: delete 409 meaning, custom password-policy breadth,
+concurrent races, token revocation after deletion, and accounts with other
+controls. A repeat run keeps the same rules: owner approval naming the account,
+resources, sign-in scope, cost assumption, and cleanup authority;
+serialization with other IAM writers; an absent-name precheck; no change to
+policy or account security settings; no deletion of the caller, an attached or
+pre-existing user, or an ID the ledger does not hold; no short-name or
+weak-password negatives, which custom policy may accept while creating extra
+identities; and a stop with a private leftover report on ambiguity. A prefix
+alone never authorizes cleanup.
+
+### Fixture provenance
+
+`testdata/iam/create_user.json`, `get_user.json`, `get_user_mfa.json`, and
+`list_users_filtered.json` are synthetic rebuilds of the recorded keys, types,
+and booleans that reproduce the observed body lengths, as [fixture
+provenance](../../testdata/iam/user-provenance.md) records with the omitted
+factor key. Raw create, reset, and rename bytes stayed in memory; only
+credential-free list, attachment, and quota bodies persisted privately. Tests
+that build adversarial variants label them synthetic; an account-bearing raw
+read stays under the private paths in [live
+data](../../instructions/live-data.md) until the manager sanitizes it.
+
+## Live checks
+
+Add GetUser and filtered ListUsers to the authorized read suite. Gate
+`TestLiveWriteIAMUser` on both `VNGCLOUD_LIVE_WRITE=1` and
+`VNGCLOUD_LIVE_IAM_USER=1`. Use a unique `vngcloud-live-<8 hex>` name and only
+resources recorded by this run; never sweep all prefix users. Exercise
+generation, create, private temporary secret-file persistence, get, filtered
+list, self refusal with no DELETE, guarded delete, and only separately opted-in
+[administration live checks](iam-users-admin-api.md#live-checks) on the same
+user. Register cleanup before create using a ledger, never a name-based delete;
+on uncertain ownership, report a leftover and stop. Remove temporary secrets
+and emit only fixed labels, statuses, counts, and booleans.

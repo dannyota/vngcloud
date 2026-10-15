@@ -1,10 +1,10 @@
 # IAM users design
 
 Status: Accepted. The owner decided every item under
-[Owner decisions](#owner-decisions). The
-[evidence probes](iam-users-api.md#probes) gate implementation, and each probe
-run needs its own run authority. This document authorizes no live call or
-cleanup.
+[Owner decisions](#owner-decisions). The [probe
+evidence](iam-users-checks.md#probes) closed the create, get, list, and delete
+schema gates on the test account; every later probe or live run needs its own
+run authority. This document authorizes no live call or cleanup.
 
 Add IAM user create and delete, `GetUser`, and `ListUsers.Name` to the public
 `iam` package and CLI. Service accounts already have `create-service-account
@@ -13,8 +13,9 @@ root account, not a new root account. [IAM user
 administration](iam-users-admin.md) adds password reset, rename, and MFA enable
 and disable on top of the rules here.
 
-[API and checks](iam-users-api.md) owns wire evidence, public types, validation,
-retries, partial outputs, and tests. Follow [write
+[API](iam-users-api.md) owns wire evidence, public types, validation, retries,
+and partial outputs; [checks](iam-users-checks.md) owns tests, probe evidence,
+fixtures, and live checks. Follow [write
 conventions](../adr/0002-write-api-conventions.md), the [IAM guard
 model](iam-writes.md#guards), and [CLI secret files](cli.md#secret-files). The
 SDK stays standard-library only; the CLI calls only the public SDK. No
@@ -27,10 +28,11 @@ are the exceptions to the [IAM user write
 exclusion](iam-writes.md#non-goals). Account activate and deactivate, MFA set-up
 and verification, IP allow lists, tags, identity-provider management, and public
 quota operations stay out. Creation accepts no policies, groups, or access
-settings. Existing guarded attachment commands grant access separately. Do not
-promise that a new user can sign in until the password and account sign-in
-requirements are verified. This feature does not provision MFA or bypass account
-controls.
+settings. Existing guarded attachment commands grant access separately. On the
+test account a new user signed in through the SDK's IAM user login with the
+generated password and no MFA challenge; an account with other controls can
+differ, so state the prerequisites rather than promise sign-in. This feature
+does not provision MFA or bypass account controls.
 
 ## Credentials
 
@@ -121,9 +123,10 @@ document it.
 
 `CreateUser` has no caller privilege guard, like `CreateServiceAccount` and
 `CreateGroup`; CLI read-only still applies. This relies on creation adding no
-permissions or memberships, which the probes must establish. The server must
-authorize creation. The SDK has no profile read-only boundary; read-only is a
-CLI policy.
+permissions or memberships: the probe found a new user with an empty
+direct-policy page and an empty group list. The server must authorize
+creation. The SDK has no profile read-only boundary; read-only is a CLI
+policy.
 
 `DeleteUser` validates the input ID, then performs these checks before sending
 DELETE. Refusals may perform reads but never a mutation. The same three checks
@@ -186,8 +189,10 @@ replacement by username. There is no asynchronous wait or polling loop.
 
 The inspected API has no quote or price field. Free IAM user management is an
 assumption to confirm before any live write, not proven by absence of pricing
-fields. Quota, permissions, cleanup authority, and account controls remain
-gates. No paid resource is created by this feature.
+fields. Creation consumes the account's IAM user quota, whose usage returned
+to its starting value after each probe run. Quota, permissions, cleanup
+authority, and account controls remain gates. No paid resource is created by
+this feature.
 
 ## CLI
 
@@ -231,7 +236,7 @@ outcome sentinels print `RequestFailed`. Reuse `RequestFailed` and
 All user operations below are unimplemented. These are design constraints for
 independent adversarial review, not a review verdict. Evidence refers to
 existing paths; required adversarial cases live in [unit
-tests](iam-users-api.md#unit-tests).
+tests](iam-users-checks.md#unit-tests).
 
 1. **An attacker reads leaked credentials.** Invariant: managed output paths
    never disclose passwords or tokens. Severity: high if a rejection echoes a

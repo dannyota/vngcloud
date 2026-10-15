@@ -2,9 +2,12 @@
 
 Wire evidence and proposed contracts for [IAM user
 administration](iam-users-admin.md). [IAM users: API](iam-users-api.md) owns
-get, filtered list, generation, bounds, and strict decoding. No live reset,
-rename, or MFA response has been verified. Source evidence does not close a
-raw-response gate or authorize a probe.
+get, filtered list, generation, bounds, and strict decoding. The reviewed probe
+on the owner's test account verified reset acceptance, the no-factor MFA
+refusals, the rename refusal for an IAM-user caller, and the target's factor
+shape ([fixture provenance](../../testdata/iam/user-provenance.md)).
+Verified-factor MFA transitions and rename acceptance remain unverified.
+Source evidence does not close a raw-response gate or authorize a probe.
 
 ## Sources
 
@@ -16,8 +19,11 @@ raw-response gate or authorize a probe.
 - [Console main bundle][main]: `resetUserPassword` posts `{password}`;
   `editUsername` uses PUT on `/v1/iam-users/{id}` with `{username}`. `toggle2FA`
   chooses `activate-` or `deactivate-` plus the factor name and posts `{}`.
-  These are source-level candidate requests, not observed server behavior. No
-  PATCH user rename is evidenced.
+  No PATCH user rename is evidenced.
+- The probe runs, recorded under [calls](#calls), [state model](#state-model),
+  and [probes](#probes): statuses, body lengths, key names, JSON types, and
+  booleans for one IAM-user caller on the test account, with every password
+  and body held in memory only.
 - [User-account chunk][users]: administrator `setupGoogleAuth` consumes `secret`
   and `qrCodeUrl` from `setupGoogleAuth2FA`. Treat both as secret material; do
   not fetch or render a QR URL in a probe. The console service also names
@@ -27,8 +33,7 @@ raw-response gate or authorize a probe.
 
 Bundles were read as text, never executed. Their model defaults do not prove
 wire presence. The spec's server is `https://iamapis.vngcloud.vn/accounts-api`;
-the SDK uses its existing Dashboard endpoint, whose behavior still needs
-verification.
+the SDK uses its existing Dashboard endpoint, which the probe exercised.
 
 [spec]: https://docs.api.greennode.ai/service-docs/accounts-api.html
 [main]: https://iam.console.greennode.ai/main.a0cfd100731832eb.js
@@ -42,53 +47,72 @@ below documents errors **400, 401, 403, 404, 409, 500**, including bodyless
 paths. The spec marks request bodies required where present but no body property
 required. The SDK requires a non-empty replacement password.
 
-| Suffix | Published body | Success | Use |
-|-|-|-|-|
-| `reset-password` | `{"password": string}` | 204 | Reset |
-| `activate-email` | None | 204 | Enable email |
-| `deactivate-email` | None | 204 | Disable email |
-| `activate-google` | None | 204 | Enable Google |
-| `deactivate-google` | None | 204 | Disable Google |
-| `set-up-email` | `{"email": string}` (email format) | 204 | Excluded |
-| `send-verification-email` | None | 204 | Excluded |
-| `verify-email` | `{"token": string}` (six digits) | 204 | Excluded |
-| `set-up-google` | None | 200; schema absent | Excluded |
-| `verify-google` | `{"token": string}` (six digits) | 204 | Excluded |
+| Suffix | Published body | Success | Observed | Use |
+|-|-|-|-|-|
+| `reset-password` | `{"password": string}` | 204 | 204, empty body | Reset |
+| `activate-email` | None | 204 | 400 with no factor | Enable email |
+| `deactivate-email` | None | 204 | 400 with no factor | Disable email |
+| `activate-google` | None | 204 | 400 with no factor | Enable Google |
+| `deactivate-google` | None | 204 | 400 with no factor | Disable Google |
+| `set-up-email` | `{"email": string}` (email format) | 204 | Not probed | Excluded |
+| `send-verification-email` | None | 204 | Not probed | Excluded |
+| `verify-email` | `{"token": string}` (six digits) | 204 | Not probed | Excluded |
+| `set-up-google` | None | 200; schema absent | Not probed | Excluded |
+| `verify-google` | `{"token": string}` (six digits) | 204 | Not probed | Excluded |
 
 The token pattern is `^\d{6}$`. Current-user reset and MFA paths remove the
 `{id}/` segment and publish the same statuses/bodies, except `verify-google` is
 absent as noted above. Account `activate` and `deactivate` are separate excluded
 paths: 204, errors 401/403/404/409/500, no documented 400.
 
-MFA set-up, verification, and activation order is inferred from path names and
-console state changes. Set-up can replace enrolment; do not treat it as a
-harmless read. Whether activation requires verification, deactivation preserves
-it, or already-in-state requests return 204 or 409 is unknown. Conflict always
-remains `Conflict`. The proposed SDK sends no MFA body, following the spec; the
-console sends `{}`, a difference to verify in probes.
+Reset returned 204 with a zero-byte body for passwords of 32, 8, and 50
+characters; a fresh sign-in with the new password succeeded and one with the
+old password failed. The four activate and deactivate paths each returned 400
+for a user with no factor set up: an unenrolled factor is a definite 4xx
+rejection, not a 204 no-op. MFA set-up, verification, and activation order is
+still inferred from path names and console state changes. Set-up can replace
+enrolment; do not treat it as a harmless read. Whether activation requires
+verification, deactivation preserves it, or an already-in-state request
+returns 204 or 409 is unknown. Conflict always remains `Conflict`. The proposed
+SDK sends no MFA body, following the spec; the console sends `{}`, a
+difference the no-factor 400 does not settle.
 
-Rename candidate: `PUT accounts-api/v1/iam-users/{id}` with exactly
-`{"username":"<account>"}` from `editUsername`. Statuses, body handling, error
-rules, uniqueness behavior, and same-ID preservation await evidence. Do not
-accept arbitrary 2xx responses or infer 204 from nearby operations.
+Rename: `PUT accounts-api/v1/iam-users/{id}` with exactly
+`{"username":"<account>"}` from `editUsername` returned 403 to the IAM-user
+caller, with a top-level array of one object holding one string field. The
+account's IAM action list (104 actions for product `iam`) names
+`CreateIamUser`, `DeleteIamUser`, `GetIamUser`, `ListIamUsers`,
+`ChangeIamUserPassword`, `ActivateIamUser2FA`, `DeactivateIamUser2FA`,
+`SetUpIamUser2FA`, `ActivateIamUserConsoleAccess`, and
+`DeactivateIamUserConsoleAccess`, and no update or rename action. Rename is
+unavailable to IAM-user callers and may be root-only; its success status, body
+handling, uniqueness behavior, and same-ID preservation stay unevidenced.
 
 ## State model
 
-Caller userinfo publishes `twoFactorAuth.email.{verified,enabled,address}` and
-`twoFactorAuth.googleAuthenticator.{verified,enabled}`. The booleans are not
-required by that schema. Applying it to another user's get is inference until a
-sanitized raw response establishes presence and types.
+A user get carries `twoFactorAuth` with three factor objects
+(`testdata/iam/get_user.json` and `get_user_mfa.json`): `email` has `address`
+(null), `enabled`, and `verified`; `googleAuthenticator` has `enabled` and
+`verified`; `sms` has `enabled`, `verified`, and one more null-valued key that
+the provenance withholds by name and the fixtures omit. Every boolean was
+`false` on a new user with no factor set up; no `true` boolean or non-null
+contact value has been observed. The caller `auth/userinfo` fixture holds
+`twoFactorAuth` as a boolean, so the caller decoder is not reused for the
+target. Strict decoding passes unknown keys, so the withheld key is harmless.
 
-Proposed additions, gated separately from base `UserDetail`:
+Proposed additions, shipped by the MFA slice beside base `UserDetail`:
 
 - `MFAFactor { Verified *bool; Enabled *bool }`, with matching API tags.
 - `UserMFA { Email *MFAFactor; GoogleAuthenticator *MFAFactor }`.
 - `UserDetail.MFA *UserMFA` with `json:"twoFactorAuth,omitempty"`. Nil means
-  absent or null, never "disabled" or "not enrolled".
+  absent or null, never "disabled" or "not enrolled". The user get's private
+  wire struct carries the factors, under the [wire-struct
+  rule](iam-users-api.md#reads), so case-alias detection covers them.
 - Omit address, SMS, TOTP secrets, and QR data. Keep safe structural presence in
   sanitized raw fixtures; contact values become `<account>`.
 
-Public output preserves missing/null booleans as nil. A private state reader
+Public output preserves missing/null booleans as nil, a defense against a
+server change, since the observed get carried both. A private state reader
 requires matching valid ID, `from: "iam"`, the selected factor, and explicit
 booleans before a mutation or no-op. Wrong types or ambiguous keys fail closed.
 Missing/null fields give a fixed `RequestFailed` state-unavailable error, with
@@ -117,30 +141,31 @@ existing methods/import paths; `UserDetail` and MFA types are new.
 
 Order: validate; guards with the privacy rules below; generate if needed;
 serialize the actual value in a private wire struct; send exactly
-`{"password":"<secret>"}`. Set `OK: 204`, `Once`, per-call `NotSent`, and the
-privacy controls. The write caps unexpected body bytes at 64 KiB and decodes no
-success object. No confirmation read or password sign-in follows.
+`{"password":"<secret>"}`. Set `OK: 204`, `Once`, per-call `NotSent`,
+`KeepObservedStatus`, and the privacy controls. The write caps unexpected body
+bytes at 64 KiB and decodes no success object; the observed success is a
+zero-byte body. No confirmation read or password sign-in follows.
 
 | Result | Output and error |
 |-|-|
 | Local validation, guard, entropy, or proven `NotSent` failure | Nil; safe cause |
 | Observed 4xx rejection, including oversized error body | Nil; safe API error |
 | Observed 204 with no transport/body error | Output; nil error |
-| Observed 204 with body overflow | Partial; `ErrNotSettled` |
-| 204 with a body read or close error, status lost | Partial; `ErrUserWriteUncertain` |
-| Other possibly sent outcome | Partial; `ErrUserWriteUncertain` |
+| Observed 204 with body overflow, read, or close failure | Partial; `ErrNotSettled` |
+| Other possibly sent outcome, including a lost status | Partial; `ErrUserWriteUncertain` |
 
 Use the observed HTTP status, never a nested provider status. `NotSent` wins
 first. A 204 is acceptance even if response handling fails; preserve that fact
-and the generated password. Today the transport keeps the status only on
-overflow and reports 0 on a body read or close failure
-(`internal/transport/transport.go:535`), so that case is uncertain. The
-separately briefed observed-status transport prerequisite moves it to the
-`ErrNotSettled` row once it lands, and lets a 4xx with the same failure stay a
-rejection. Unexpected 2xx/3xx, 5xx, missing status, dropped connection, and
-cancellation after possible send are uncertain. `Retryable` is not proof of no
-send. Neither the SDK nor CLI repeats a reset. A success proves acceptance, not
-that a concurrent actor has not reset again.
+and the generated password. The transport keeps the status through a body read
+or close failure only for a request that sets `KeepObservedStatus`
+(`internal/transport/body.go:38`); the reset sets it, so that 204 is
+`ErrNotSettled` and a 4xx with the same failure stays a rejection. Unexpected
+2xx/3xx, 5xx, missing status, dropped connection, and cancellation after
+possible send are uncertain. `Retryable` is not proof of no send. Neither the
+SDK nor CLI repeats a reset. A success proves acceptance, not that a
+concurrent actor has not reset again. The probe showed the old password
+refused after acceptance; whether a token issued before the reset survives is
+unknown, because that check did not run.
 
 ### Reset privacy
 
@@ -169,10 +194,13 @@ controls safely, reset stays blocked. Sensitive `GetUser` alone is not enough.
 
 ### Rename
 
-Blocked pending the [candidate's response contract](#calls). Proposed types:
+Blocked: the [PUT](#calls) returned 403 to an IAM-user caller and no IAM
+action covers it, so no accepted response contract exists and the [rename
+follow-up](iam-users-admin.md#owner-decisions) decides whether rename stays in
+scope. Proposed types, if a later root-login probe evidences acceptance:
 `RenameUserInput { UserID string; Username string }`, both required, and
 `RenameUserOutput { User UserDetail }`. Username follows create's shape rules.
-Send the candidate PUT once with `Once` despite PUT's normal retries, only after
+Send the PUT once with `Once` despite PUT's normal retries, only after
 evidence/re-review selects its exact `OK` status and response rules. Set the
 privacy controls described under shared bounds below.
 
@@ -198,20 +226,21 @@ token-cache mutation is allowed.
 Validate; run all guards; inspect the selected factor in the guard target read.
 Already in state returns known Enabled and `Changed: false`, without a send.
 Otherwise send the matching path with no body, `OK: 204`, `Once`, per-call
-`NotSent`, and privacy controls. Read once after 204; require the same ID/origin
-and complete selected-factor state. Enable confirmation also requires `Verified:
-true`. A matching state returns `Changed: true`.
+`NotSent`, `KeepObservedStatus`, and privacy controls. Read once after 204;
+require the same ID/origin and complete selected-factor state. Enable
+confirmation also requires `Verified: true`. A matching state returns
+`Changed: true`. The observed no-factor 400 is an ordinary 4xx rejection;
+enable never reaches it, since an unverified factor is refused before a send.
 
-Observed 204 with body overflow or absent/mismatched confirmation returns
-`ErrNotSettled`, `Changed: true`, and nil Enabled if no trustworthy
-confirmation exists (otherwise the freshly read Enabled). Never use the
-pre-write value as a confirmed result. A proven `NotSent` or observed 4xx
-returns nil with the safe cause; every other possibly sent outcome, including a
-204 whose status the transport lost on a body read or close failure, returns
-nil with `ErrUserWriteUncertain`, without a confirmation or second send; the
-observed-status prerequisite moves that case to `ErrNotSettled`. Manual
-repetition rechecks state and guards. A 409 is never converted to success, even
-when a later operator read finds the requested state.
+Observed 204 with body overflow, a body read or close failure, or an
+absent/mismatched confirmation returns `ErrNotSettled`, `Changed: true`, and
+nil Enabled if no trustworthy confirmation exists (otherwise the freshly read
+Enabled). Never use the pre-write value as a confirmed result. A proven
+`NotSent` or observed 4xx returns nil with the safe cause; every other possibly
+sent outcome returns nil with `ErrUserWriteUncertain`, without a confirmation
+or second send. Manual repetition rechecks state and guards. A 409 is never
+converted to success, even when a later operator read finds the requested
+state.
 
 ### Error identity and bounds
 
@@ -255,10 +284,11 @@ errors, 429, unexpected statuses, and the outcome table. Rename tests wait for
 its response evidence, never a guessed success code or fixture.
 
 - Reset: generated/supplied values serialize exactly; nil/invalid Input and
-  conflicting length fail before reads; generation runs after guards; test 204
-  with ignored body and response failures, fixed errors, all error nodes and API
-  fields, redacted output, supplied value never returned, no Input mutation, and
-  saved generated passwords on both outcome errors.
+  conflicting length fail before reads; generation runs after guards; test the
+  observed empty 204, a 204 with an ignored body, and response failures, fixed
+  errors, all error nodes and API fields, redacted output, supplied value never
+  returned, no Input mutation, and saved generated passwords on both outcome
+  errors.
 - Privacy: password/secret canaries on each guard edge, POST, debug, capture,
   nested escaped error codes/messages, and unsafe decode causes. Test cold and
   warm caches, concurrent requests with different redaction values, no retained
@@ -271,11 +301,14 @@ its response evidence, never a guessed success code or fixture.
   labels, empty actions, incomplete attachments, unreadable policy,
   null/wrong-type/non-IAM origin, and mismatched IDs. Every refusal sends zero
   writes, including an already-in-state MFA operation.
-- MFA: nil and false are distinct through SDK fixture decoding and JSON output;
+- MFA: decode `get_user.json` and `get_user_mfa.json` through the SDK to the
+  all-false factors, with an extra synthetic null key inside a factor; nil and
+  false are distinct through SDK fixture decoding and JSON output;
   missing/null factor or boolean refuses; enable unverified refuses before
   no-op; disable known enabled/unverified succeeds; duplicates and case aliases
   at every state level refuse. Test stale, missing, wrong-ID, non-IAM, and
-  unverified-enable confirmations and Changed/Enabled semantics.
+  unverified-enable confirmations, Changed/Enabled semantics, and the 400 from
+  a send.
 - Every send: count requests for 401, 429, 5xx, all redirect statuses, drops,
   body limits, cancellation before/after send, and dial-shaped errors from
   custom transports. No replay, blind rollback, or cloud cleanup occurs. Race
@@ -290,60 +323,65 @@ its response evidence, never a guessed success code or fixture.
 
 ## Probes
 
-Only the manager runs probes after explicit approval naming account, disposable
-user, cost assumption, cleanup, and each reset/MFA/rename action. Sign-in and
-factor enrolment need their own express scope. A mailbox variable or
-public-source research authorization grants none. Independent adversarial review
-and fix confirmation of credential-free probe code precedes execution. Run
-inside the [user probe](iam-users-api.md#probes), after create and before
-delete, serialized with other IAM writers. No pre-existing user, caller
-credential, or account setting may change.
+The administration probe ran inside the [user
+probe](iam-users-checks.md#probes) on the same disposable user, between its
+create and delete, under owner approval naming each reset, MFA, and rename
+action and the sign-in scope, after adversarial review and fix confirmation of
+the credential-free source. For an IAM-user caller it established:
 
-1. Reset with a generated default password, then approved supplied values of
-   length 8 and 50 satisfying the four classes. Keep secrets in memory; record
-   status, body presence/length, and locally classified error codes, never raw
-   server codes/text. A rejection does not authorize weakening policy. Test
-   invalid-policy responses offline, not by changing settings.
-2. If sign-in is approved, compare fresh old/new-password sign-ins in memory
-   without persistent cache, and separately check a pre-reset token against
-   userinfo. Bound attempts; a lockout/MFA challenge stops the probe. Record
-   booleans only. Successful cached auth does not prove a password works.
-3. Get the disposable user before enrolment and after each approved factor
-   transition. Record keys, types, absent/null states, verification and enabled
-   booleans. Missing state blocks MFA operations, not reset.
-4. If approved, probe activate/deactivate of both factors before set-up. Those
-   results prove only that case, not a verified-factor transition.
-5. With explicit email enrolment approval and an owner-controlled test mailbox,
-   set up, send mail, verify, activate, get, deactivate, get, then reactivate
-   and get. Check verified-state retention and no-body POSTs against the
-   console's `{}` variant. Never print address or code. Google enable/disable
-   needs an equivalent authorized transition cycle with the TOTP secret and QR
-   data in memory only; never fetch a returned QR URL. If absent, defer that
-   method rather than extrapolate from email.
-6. With explicit rename approval, probe the console PUT on the disposable ID,
-   record status/body schema, get by ID, and compare exact username and
-   unchanged ID. A filtered list can show the old name absent, not prove it is
-   reusable. Collision or old-name reuse needs separately approved extra writes.
-   Sign-in/token checks need the same separate approval.
-7. Delete only the attributable disposable ID under the base cleanup rules. No
-   reset/MFA failure expands cleanup to a pre-existing principal. Check a
-   pre-delete token only within approved sign-in scope.
+- Reset: 204 with a zero-byte body for a generated 32-character password and
+  supplied 8- and 50-character values satisfying the four classes; a fresh
+  sign-in with the new password succeeded and one with the old password
+  failed, recorded as booleans with no persistent cache.
+- Factor state: the [state model](#state-model) shape on the get before and
+  after sign-in, with every boolean `false` and no factor set up.
+- MFA without enrolment: `activate-email`, `deactivate-email`,
+  `activate-google`, and `deactivate-google` each returned 400.
+- Rename: the console PUT returned 403 with a one-object array body, and the
+  action list names no update action.
 
-Hard gates: target schemas, reset acceptance/body handling, scoped guard
-privacy, chosen MFA transitions/state retention, and rename method/status/
-response evidence. Password-policy breadth, general 409 meanings, session
-revocation, and account-wide MFA effects remain documented unknowns unless
-observed; do not promise them or require risky policy changes to ship. A probe
-establishes its account/case only, not all server behavior.
+Not run: the pre-reset token check against `auth/userinfo`, because the probe
+stops its sign-in checks after the expected old-password refusal, so token
+survival after a reset is unknown; email and Google enrolment, because no
+mailbox or in-memory Google enrolment was approved, so no verified-factor
+transition, verified-state retention, or `{}`-versus-no-body difference is
+evidenced; and any rename collision or old-name reuse. The remaining probes
+need their own approval under the [probe-scope and rename
+follow-ups](iam-users-admin.md#owner-decisions):
+
+1. Email cycle, only with an owner-controlled test mailbox: set up, send mail,
+   verify, activate, get, deactivate, get, reactivate, get. Check
+   verified-state retention and the no-body POST against the console's `{}`.
+   Never print the address or code.
+2. Google cycle, only with approved in-memory enrolment: the same transitions
+   with the TOTP secret and QR data in memory only; never fetch a returned QR
+   URL. If absent, defer that method rather than extrapolate from email.
+3. Rename, only through an approved root login on a disposable user: record
+   status and body schema, get by ID, and compare exact username and unchanged
+   ID. A filtered list can show the old name absent, not prove it reusable.
+   Collision, old-name reuse, and token checks need separate approval.
+
+Every repeat keeps the [base probe rules](iam-users-checks.md#probes), holds
+secrets in memory, records locally classified codes rather than raw server
+text, bounds sign-in attempts and stops on lockout or an MFA challenge, and
+changes no policy or account setting to make a step pass. A probe establishes
+its account and case, not all server behavior.
+
+Hard gates: scoped guard privacy, chosen MFA transitions and state retention,
+and rename acceptance evidence. Target schemas and reset acceptance and body
+handling are closed. Password-policy breadth, general 409 meanings, session
+revocation, and account-wide MFA effects remain documented unknowns; do not
+promise them or require risky policy changes to ship.
 
 ### Fixture provenance
 
-Under `testdata/iam/`, use manager-sanitized raw `get_user_mfa.json` and any
-safe `rename_user.json` get fixture. Empty 204 responses remain empty bytes with
-separate method/path/status provenance, never invented JSON. Preserve structural
-keys/types, replace contact values with `<account>` and IDs with `<id>`, and
-record omissions. If a response contains secrets, keep it out of fixtures and
-return the safe evidence method to review. Never use decoded SDK output as raw
+`testdata/iam/get_user_mfa.json` rebuilds the get after the disposable user's
+sign-in: the unenrolled factor state plus `lastUse`, with the withheld `sms`
+key omitted, as [fixture provenance](../../testdata/iam/user-provenance.md)
+records. No enrolled-factor or rename fixture exists, and the empty reset 204
+needs none. A future fixture preserves structural keys/types, replaces contact
+values with `<account>` and IDs with `<id>`, records omissions, and stays out
+of `testdata/` if it holds a secret. Never use decoded SDK output as raw
 evidence. Workers receive only sanitized fixtures.
 
 ## Live checks
@@ -352,10 +390,11 @@ Extend `TestLiveWriteIAMUser` with separately opt-in reset, email MFA, Google
 MFA, and rename branches, in addition to the two base gates. Use
 `VNGCLOUD_LIVE_IAM_USER_RESET=1`, `VNGCLOUD_LIVE_IAM_USER_EMAIL_MFA=1`,
 `VNGCLOUD_LIVE_IAM_USER_GOOGLE_MFA=1`, and `VNGCLOUD_LIVE_IAM_USER_RENAME=1`,
-respectively. The manager's run brief must authorize each selected branch; unset
-means skipped, never implicitly approved. Each enabled branch operates only on
-its created user, cleans up attributable resources, and records actual coverage.
-A mailbox variable configures an approved email branch, not its authorization.
-Every branch is reviewed before execution and ships with its operation's
-SDK/CLI/ wiki slice. Fixed labels, statuses, counts, and booleans only;
-compile-only checks are not live evidence.
+respectively; a branch exists only once its operation ships. The manager's run
+brief must authorize each selected branch; unset means skipped, never
+implicitly approved. Each enabled branch operates only on its created user,
+cleans up attributable resources, and records actual coverage. A mailbox
+variable configures an approved email branch, not its authorization. Every
+branch is reviewed before execution and ships with its operation's SDK/CLI/wiki
+slice. Fixed labels, statuses, counts, and booleans only; compile-only checks
+are not live evidence.
