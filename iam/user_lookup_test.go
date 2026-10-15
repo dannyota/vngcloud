@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -254,5 +255,30 @@ func TestUserReadPriorCredentialRedaction(t *testing.T) {
 	_, err := c.getUser(context.Background(), "iam.CreateUser", "user-1", userReadOptions{SentCredentials: &credentials})
 	if err == nil || strings.Contains(fmt.Sprintf("%+v", err), credentials[0]) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestGuardCredentialValidationAllocations(t *testing.T) {
+	response := reflect.ValueOf([]Action{{Action: "Read", Label: "Read", Resources: make([]string, 10000)}})
+	password := strings.Repeat("A", 4092) + "a9@z"
+	for _, source := range []string{"password", "sent-credential"} {
+		t.Run(source, func(t *testing.T) {
+			opts := userReadOptions{Redact: []string{password}}
+			if source == "sent-credential" {
+				sent := []string{password}
+				opts = userReadOptions{SentCredentials: &sent}
+			}
+			allocations := testing.AllocsPerRun(3, func() {
+				if opts.guardContainsResponseCredential(response) {
+					t.Fatal("non-colliding response refused")
+				}
+			})
+			// Folding credentials may allocate, but empty response strings must
+			// not trigger another credential allocation for every array entry.
+			if allocations > 16 {
+				t.Fatalf("credential validation allocated %.0f times; want at most 16", allocations)
+			}
+			t.Logf("credential validation allocations: %.0f", allocations)
+		})
 	}
 }
