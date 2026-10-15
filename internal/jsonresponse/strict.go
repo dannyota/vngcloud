@@ -13,11 +13,16 @@ import (
 
 // ValidateStrict rejects duplicate keys and keys that decode into the same
 // struct field. It follows target's static type without calling its methods.
-// Custom JSON unmarshallers receive only syntax and exact-duplicate checks.
+// Struct types with invalid JSON tag names are refused, even when absent
+// from the body. Custom JSON unmarshallers receive only syntax and
+// exact-duplicate checks.
 func ValidateStrict(raw []byte, target any) error {
 	if !json.Valid(raw) {
 		var value json.RawMessage
 		return json.Unmarshal(raw, &value)
+	}
+	if err := validateStrictType(reflect.TypeOf(target), make(map[reflect.Type]bool)); err != nil {
+		return err
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
@@ -41,6 +46,41 @@ func strictType(t reflect.Type) reflect.Type {
 			return t
 		}
 		t = t.Elem()
+	}
+	return nil
+}
+
+func validateStrictType(t reflect.Type, seen map[reflect.Type]bool) error {
+	t = strictType(t)
+	if t == nil || seen[t] {
+		return nil
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Array, reflect.Slice, reflect.Map:
+		return validateStrictType(t.Elem(), seen)
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			ft := f.Type
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if !f.IsExported() && (!f.Anonymous || ft.Kind() != reflect.Struct) {
+				continue
+			}
+			tag := f.Tag.Get("json")
+			if tag == "-" {
+				continue
+			}
+			name, _, _ := strings.Cut(tag, ",")
+			if name != "" && !validStrictTag(name) {
+				return errors.New("invalid JSON tag name in response type")
+			}
+			if err := validateStrictType(f.Type, seen); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -183,9 +223,6 @@ func collectStrictFields(t reflect.Type, index []int, ancestors map[reflect.Type
 			continue
 		}
 		name, _, _ := strings.Cut(tag, ",")
-		if !validStrictTag(name) {
-			name = ""
-		}
 		path := append(slices.Clone(index), i)
 		if name == "" && f.Anonymous && ft.Kind() == reflect.Struct {
 			collectStrictFields(ft, path, ancestors, fields)

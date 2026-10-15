@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
@@ -61,7 +62,7 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 		return nil, err
 	}
 	if err := core.CheckPathID(op, "PolicyID", in.PolicyID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s requires a valid PolicyID", core.ErrInvalidInput, op)
 	}
 
 	type fields Policy

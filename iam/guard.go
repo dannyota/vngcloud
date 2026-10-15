@@ -273,7 +273,7 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 		return nil, fmt.Errorf("iam: guard: %s: attachment list response had no totalItems field", op)
 	}
 	if len(*resp.Data) != *resp.TotalItems {
-		return nil, fmt.Errorf("iam: guard: %s: attachment list held %d of totalItems %d", op, len(*resp.Data), *resp.TotalItems)
+		return nil, fmt.Errorf("iam: guard: %s: attachment list item count does not match totalItems", op)
 	}
 	if resp.TotalPages != nil && *resp.TotalPages > 1 {
 		return nil, fmt.Errorf("iam: guard: %s: attachment list reports more than one page", op)
@@ -374,7 +374,7 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 	}
 	for key := range raw {
 		if !guardGroupKnownFields[key] {
-			return nil, nil, fmt.Errorf("iam: guard: %s: a group response held an unrecognized field %q", op, key)
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response held an unrecognized field", op)
 		}
 	}
 
