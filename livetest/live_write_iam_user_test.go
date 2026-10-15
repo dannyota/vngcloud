@@ -37,6 +37,27 @@ func TestIAMUserHarnessGates(t *testing.T) {
 	}
 }
 
+func TestIAMUserHarnessResetGate(t *testing.T) {
+	t.Setenv("VNGCLOUD_LIVE_IAM_USER_RESET", "")
+	if err := os.Unsetenv("VNGCLOUD_LIVE_IAM_USER_RESET"); err != nil {
+		t.Fatal("reset gate unset failed")
+	}
+	if iamUserResetGate() {
+		t.Fatal("reset enabled by default")
+	}
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", false}, {"0", false}, {"true", false}, {" 1", false}, {"1", true},
+	} {
+		t.Setenv("VNGCLOUD_LIVE_IAM_USER_RESET", tc.value)
+		if iamUserResetGate() != tc.want {
+			t.Fatal("reset gate mismatch")
+		}
+	}
+}
+
 func TestIAMUserHarnessLedger(t *testing.T) {
 	for _, tc := range []struct {
 		out  *iam.CreateUserOutput
@@ -75,6 +96,8 @@ func TestIAMUserHarnessSecretCleanup(t *testing.T) {
 }
 
 func iamUserGates(write, user string) bool { return write == "1" && user == "1" }
+
+func iamUserResetGate() bool { return os.Getenv("VNGCLOUD_LIVE_IAM_USER_RESET") == "1" }
 
 // Only the create response's ID grants cleanup authority. A filtered name
 // match never enters this ledger, even after a successful get.
@@ -297,6 +320,44 @@ func TestLiveWriteIAMUser(t *testing.T) {
 	if matches != 1 {
 		ledger.StopCleanup = true
 		t.Fatal("filtered identity ambiguous")
+	}
+	if !t.Run("reset", func(t *testing.T) {
+		if !iamUserResetGate() {
+			t.Skip("reset skipped; VNGCLOUD_LIVE_IAM_USER_RESET=1 required after run authorization")
+		}
+		secretPath := filepath.Join(t.TempDir(), "password")
+		reset, resetErr := client.ResetUserPassword(ctx, &iam.ResetUserPasswordInput{UserID: ledger.ID})
+		if reset != nil && reset.Password != "" {
+			// Persist partial output before handling an uncertain reset outcome.
+			if iamUserSaveSecret(secretPath, reset.Password) != nil {
+				ledger.StopCleanup = true
+				t.Fatal("reset secret persistence failed; inspect private IAM user ledger")
+			}
+			reset.Password = ""
+			t.Cleanup(func() {
+				if os.Remove(secretPath) != nil {
+					ledger.StopCleanup = true
+					t.Error("reset temporary secret removal failed")
+					return
+				}
+				t.Log("reset secret persisted=true removed=true")
+			})
+		} else if resetErr == nil {
+			ledger.StopCleanup = true
+			t.Fatal("reset generated secret missing")
+		}
+		if resetErr != nil {
+			t.Fatal("reset unconfirmed; inspect private IAM user ledger")
+		}
+		confirmed, confirmErr := client.GetUser(ctx, &iam.GetUserInput{UserID: ledger.ID})
+		if confirmErr != nil || !strings.EqualFold(confirmed.User.ID, ledger.ID) ||
+			confirmed.User.Username != ledger.Name || confirmed.User.From != "iam" {
+			ledger.StopCleanup = true
+			t.Fatal("reset user identity unconfirmed; inspect private IAM user ledger")
+		}
+		t.Log("reset=true get=true identity=true origin=true")
+	}) {
+		return
 	}
 	if !iamUserDeleteOwned(ctx, client, ledger) {
 		t.Fatal("guarded delete unresolved; inspect private IAM user ledger")
