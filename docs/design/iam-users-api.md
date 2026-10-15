@@ -159,9 +159,10 @@ UTF-8, at most 4096 bytes, with no controls, spaces preserved. Never quote
 invalid input; the server owns length, class, uniqueness, and policy checks;
 never mutate the caller's Input while generating or clearing values.
 
-Create uses `DoJSONStatus`, `Once`, a per-call `NotSent`, `Sensitive`, `Redact`
-with the submitted password, `WithholdMessage` with fixed text, and a
-`ClassifyError` returning fixed status-based codes, never raw server codes.
+Create uses `DoJSONStatus`, `Once`, a per-call `NotSent`, `StrictJSON` with
+`AllowEmptyBody` and a per-call `BodyWasEmpty`, `Sensitive`, `Redact` with the
+submitted password, `WithholdMessage` with fixed text, and a `ClassifyError`
+returning fixed status-based codes, never raw server codes.
 Serialize the password in a private wire struct; marshaling Secret directly
 sends `[redacted]`. Private confirmation requests use the same controls.
 
@@ -195,9 +196,11 @@ its identity or behavior, and new `ErrUserCreateUncertain` for every other
 After a 201 with a valid string ID, validate that ID and read it once. Require
 returned ID to match case-insensitively, username to match exactly, and `from`
 to equal `iam`. An invalid, non-string, or credential-bearing ID is uncertain
-with no CandidateID and no search fallback. Only an empty body, or an object
-with an absent or empty ID, permits one filtered list request, page 0, size
-1000. Require non-null data and all paging keys, page
+with no CandidateID and no search fallback. Only a zero-length body, reported
+through the [empty-body option](#bounds-and-strict-decoding), or a valid
+object with an absent or empty ID permits one filtered list request, page 0,
+size 1000; a strict or decode failure permits none. Require non-null data and
+all paging keys, page
 0, positive pageSize <= 1000, totalItems equal to data length, length <=
 pageSize, and totalPages consistent with a complete single page (0 or 1 for
 empty, 1 otherwise). Reject duplicate IDs, more than one exact username,
@@ -257,6 +260,16 @@ including `GetCallerIdentity` with its 256 KiB cap, already decodes this way.
 A capped get bounds only itself; the private confirmation decoders add their
 presence and identity checks on top.
 
+Empty-body option: under `Sensitive`, `ValidateStrict`'s rejection of a
+zero-length body is the same withheld error as malformed JSON, so the create
+request also sets `transport.Request.AllowEmptyBody` with a per-call
+`BodyWasEmpty *bool` (added by the transport prerequisite): with `StrictJSON`
+set, a success status whose body is zero bytes skips validation and decoding,
+leaves the target untouched, and sets the flag; any other body, including
+whitespace only, `null`, or an array, follows the strict sanitized path.
+Guard and confirmation reads never set the option, so they keep rejecting
+empty bodies; `{}` stays a decoded object with an absent ID.
+
 Reads and deletes retain configured transport retries: retryCount + 1 attempts
 per send, the existing single 401 refresh send, and at most 30 seconds per
 backoff. The HTTP client timeout bounds each request; a multi-request operation
@@ -281,13 +294,15 @@ in the [calls table](#calls), plus unexpected responses.
 - Test every outcome-table branch with generated and supplied passwords, both
   sentinels via `errors.Is`, API errors via `errors.As`, and context identities.
   Test 201 with empty body, null/array/malformed JSON, missing, invalid, or
-  mismatched ID, failed confirmation, and duplicate matches: only a valid ID
-  with failed confirmation is `ErrCreateUnconfirmed`; a missing, empty,
-  invalid, non-string (`{"id":17}`), or credential-bearing ID and a name-only
-  match are `ErrUserCreateUncertain`, CandidateID only for the last, never a
-  nil error. A 201 `id`, or a list or get identity after a 401 refresh, that
-  equals a sent bearer token is refused with no follow-up and no token in any
-  error node, output, or CLI line.
+  mismatched ID, failed confirmation, and duplicate matches. A zero-length
+  body sets `BodyWasEmpty` and permits the lookup, as does `{}`; whitespace
+  only, `null`, an array, or malformed JSON is a withheld decode failure with
+  no lookup and no CandidateID. Only a valid ID with failed confirmation is
+  `ErrCreateUnconfirmed`; a missing, empty, invalid, non-string (`{"id":17}`),
+  or credential-bearing ID and a name-only match are `ErrUserCreateUncertain`,
+  CandidateID only for the last, never a nil error. A 201 `id`, or a list or
+  get identity after a 401 refresh, that equals a sent bearer token is refused
+  with no follow-up and no token in any error node, output, or CLI line.
 - Exercise missing/null/negative/inconsistent list metadata, multi-page results,
   substring and case-only names, wrong get identity, caps, and public ListUsers
   compatibility without Name. Verify CreatedID provenance.
