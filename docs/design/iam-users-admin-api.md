@@ -324,8 +324,9 @@ verified-factor transition, verified-state retention, or `{}`-versus-no-body
 difference is evidenced. [Decision 8](iam-users-admin.md#owner-decisions) owns
 the approved Google probe scope and deferred email decision.
 
-The Google probe must record state after verification, activation, and
-deactivation, including verified-state retention. Check the no-body POST
+The Google probe must record state after verification, activation,
+deactivation, and a second activation of the now-disabled verified factor,
+with a get after each, including verified-state retention. Check the no-body POST
 against the console's `{}`. Keep the TOTP code and enrolment material in
 process memory, with no secret-bearing output or captures. Record only
 statuses, keys, types, and booleans, then return the evidence and any contract
