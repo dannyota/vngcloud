@@ -626,6 +626,32 @@ func testLiveIAM(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 			t.Fatalf("ListUsers: %v", err)
 		}
 		t.Logf("iam users: %d", len(res.Items))
+		if len(res.Items) == 0 {
+			t.Log("get and filtered list skipped: no users")
+			return
+		}
+		first := res.Items[0]
+		detail, err := client.GetUser(ctx, &iam.GetUserInput{UserID: first.ID})
+		if err != nil {
+			t.Fatal("GetUser failed")
+		}
+		if !strings.EqualFold(detail.User.ID, first.ID) || detail.User.Username != first.Username {
+			t.Fatal("GetUser identity mismatch")
+		}
+		filtered, err := client.ListUsers(ctx, &iam.ListUsersInput{Name: first.Username, Size: 1000})
+		if err != nil {
+			t.Fatal("filtered ListUsers failed")
+		}
+		matches := 0
+		for _, row := range filtered.Items {
+			if strings.EqualFold(row.ID, first.ID) && row.Username == first.Username {
+				matches++
+			}
+		}
+		if matches != 1 {
+			t.Fatal("filtered ListUsers identity mismatch")
+		}
+		t.Logf("user detail present=true filtered match count=%d", matches)
 	})
 	t.Run("actions", func(t *testing.T) {
 		res, err := client.ListActions(ctx, nil)

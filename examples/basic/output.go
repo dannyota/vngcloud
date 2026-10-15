@@ -14,6 +14,8 @@ import (
 const outputRoot = "examples/basic/output"
 
 var operationOutputPaths = map[string]string{
+	"iam.ListUsers":                              "iam/user",
+	"iam.GetUser":                                "iam/user_detail",
 	"project.ListProjects":                       "project/project",
 	"portal.GetUserInfo":                         "portal/user_info",
 	"portal.ListZones":                           "portal/zone",
