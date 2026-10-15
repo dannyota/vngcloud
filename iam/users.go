@@ -71,9 +71,15 @@ func (c *Client) GetUser(ctx context.Context, in *GetUserInput) (*GetUserOutput,
 	if err := core.CheckPathID(op, "UserID", in.UserID); err != nil {
 		return nil, err
 	}
-	user, err := c.getUser(ctx, op, in.UserID, userReadOptions{})
+	var sent []string
+	defer func() { clear(sent) }()
+	opts := userReadOptions{SentCredentials: &sent}
+	user, err := c.getUser(ctx, op, in.UserID, opts)
 	if err != nil {
 		return nil, err
+	}
+	if opts.containsCredential(user.ID, user.Username) {
+		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
 	}
 	return &GetUserOutput{User: *user}, nil
 }

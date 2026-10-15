@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
@@ -92,19 +93,28 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 		q.Set("name", in.Name)
 	}
 
+	var sent []string
+	defer func() { clear(sent) }()
 	var resp struct {
 		Data []User `json:"data"`
 	}
 	req := transport.Request{
-		Operation:  op,
-		Method:     http.MethodGet,
-		URL:        c.accountsURL([]string{"iam-users"}, q),
-		OK:         []int{200},
-		MaxBody:    userListMaxBody,
-		StrictJSON: in.Name != "",
+		Operation:       op,
+		Method:          http.MethodGet,
+		URL:             c.accountsURL([]string{"iam-users"}, q),
+		OK:              []int{200},
+		MaxBody:         userListMaxBody,
+		StrictJSON:      in.Name != "",
+		SentCredentials: &sent,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
+	}
+	opts := userReadOptions{SentCredentials: &sent}
+	for _, row := range resp.Data {
+		if opts.containsCredential(row.ID, row.Username) {
+			return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
+		}
 	}
 	return &ListUsersOutput{Items: resp.Data}, nil
 }

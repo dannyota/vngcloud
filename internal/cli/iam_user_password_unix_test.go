@@ -4,11 +4,16 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"danny.vn/vngcloud"
 )
 
 func TestIAMPasswordUnsafeFiles(t *testing.T) {
@@ -34,5 +39,47 @@ func TestIAMPasswordUnsafeFiles(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("FIFO stalled")
+	}
+}
+
+func TestIAMPasswordRealPipeBounds(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		t.Run(strconv.FormatBool(canceled), func(t *testing.T) {
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = r.Close(); _ = w.Close() }()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timeout := 40 * time.Millisecond
+			if canceled {
+				timeout = time.Minute
+			}
+			type result struct {
+				secret vngcloud.Secret
+				err    error
+			}
+			done := make(chan result, 1)
+			go func() { secret, err := readUserPassword(ctx, "-", r, timeout); done <- result{secret, err} }()
+			// A completed pipe write proves the reader started consuming real input.
+			if _, err := w.Write([]byte("password-pipe-canary")); err != nil {
+				t.Fatal(err)
+			}
+			if canceled {
+				timer := time.AfterFunc(40*time.Millisecond, cancel)
+				defer timer.Stop()
+			}
+			select {
+			case got := <-done:
+				if got.secret != "" || got.err == nil || exitCode(got.err) != 2 || strings.Contains(fmt.Sprintf("%+v", got.err), "password-pipe-canary") {
+					t.Fatal("unsafe input result")
+				}
+			case <-time.After(500 * time.Millisecond):
+				_ = w.Close()
+				<-done
+				t.Fatal("real pipe input exceeded its bound")
+			}
+		})
 	}
 }

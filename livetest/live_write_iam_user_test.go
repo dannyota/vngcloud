@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -315,14 +316,6 @@ func iamUserDeleteOwned(ctx context.Context, client *iam.Client, ledger *iamUser
 	if err != nil || !strings.EqualFold(got.User.ID, ledger.ID) || got.User.Username != ledger.Name || got.User.From != "iam" {
 		return false
 	}
-	policies, err := client.ListUserPolicies(ctx, &iam.ListUserPoliciesInput{UserID: ledger.ID, Size: 1000})
-	if err != nil || len(policies.Items) != 0 {
-		return false
-	}
-	groups, err := client.ListUserGroups(ctx, &iam.ListUserGroupsInput{UserID: ledger.ID})
-	if err != nil || len(groups.Items) != 0 {
-		return false
-	}
 	ledger.DeleteAttempted = true
 	if _, err = client.DeleteUser(ctx, &iam.DeleteUserInput{UserID: ledger.ID}); err != nil {
 		return false
@@ -383,10 +376,9 @@ func TestIAMUserHarnessOwnedDelete(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(r.URL.Path, "/auth/userinfo"):
 			_, _ = w.Write([]byte(`{"userId":"caller","userType":"iam-user"}`))
-		case strings.HasSuffix(r.URL.Path, "/policies"):
-			_, _ = w.Write([]byte(`{"data":[]}`))
-		case strings.HasSuffix(r.URL.Path, "/groups"):
-			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/policies"), strings.HasSuffix(r.URL.Path, "/groups"):
+			t.Error("cleanup queried attachments")
+			w.WriteHeader(http.StatusForbidden)
 		case strings.HasSuffix(r.URL.Path, "/iam-users/owned"):
 			if gone {
 				w.WriteHeader(http.StatusNotFound)
@@ -401,5 +393,34 @@ func TestIAMUserHarnessOwnedDelete(t *testing.T) {
 	ledger := &iamUserLedger{Name: "vngcloud-live-12345678", ID: "owned"}
 	if !iamUserDeleteOwned(context.Background(), client, ledger) || !ledger.Gone || deletes != 1 {
 		t.Fatal("owned cleanup failed")
+	}
+}
+
+func TestIAMUserHarnessDeleteFailureLeftover(t *testing.T) {
+	for _, status := range []int{http.StatusConflict, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			deletes := 0
+			client := iam.New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/iam-users/owned"):
+					deletes++
+					w.WriteHeader(status)
+				case strings.HasSuffix(r.URL.Path, "/auth/userinfo"):
+					_, _ = w.Write([]byte(`{"userId":"caller","userType":"iam-user"}`))
+				case strings.HasSuffix(r.URL.Path, "/iam-users/owned"):
+					_, _ = w.Write([]byte(`{"id":"owned","username":"created-name","from":"iam"}`))
+				default:
+					t.Error("cleanup queried attachments or searched by name")
+					w.WriteHeader(http.StatusForbidden)
+				}
+			})))
+			ledger := &iamUserLedger{ID: "owned", Name: "created-name"}
+			if iamUserDeleteOwned(context.Background(), client, ledger) || ledger.Gone || !ledger.DeleteAttempted || deletes != 1 {
+				t.Fatal("delete failure not retained as leftover")
+			}
+			if iamUserDeleteOwned(context.Background(), client, ledger) || deletes != 1 {
+				t.Fatal("cleanup retried leftover")
+			}
+		})
 	}
 }

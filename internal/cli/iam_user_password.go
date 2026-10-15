@@ -57,28 +57,23 @@ func readUserPassword(ctx context.Context, path string, stdin io.Reader, timeout
 		}
 		return readUserPasswordBytes(ctx, f)
 	}
-	if isTerminal(stdin) {
+	if isTerminalOverride != nil && isTerminalOverride(stdin) {
 		return "", newUsageError("--password-file - refuses a terminal")
+	}
+	if f, ok := stdin.(*os.File); ok {
+		// Fd switches Go-created pipes to blocking mode and breaks deadlines.
+		info, err := f.Stat()
+		if err != nil {
+			return "", newUsageError("--password-file: cannot inspect input")
+		}
+		if info.Mode()&os.ModeCharDevice != 0 {
+			return "", newUsageError("--password-file - refuses a terminal")
+		}
 	}
 	inputCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// Real stdin pipes use deadlines so cancellation also releases the read.
-	// A generic Reader cannot be interrupted; its fallback owns and clears its
-	// buffer when the read returns, even if the command has already canceled.
-	if f, ok := stdin.(*os.File); ok {
-		deadline, _ := inputCtx.Deadline()
-		if err := f.SetReadDeadline(deadline); err == nil {
-			finished := make(chan struct{})
-			stop := context.AfterFunc(inputCtx, func() { _ = f.SetReadDeadline(time.Now()); close(finished) })
-			defer func() {
-				if !stop() {
-					<-finished
-				}
-				_ = f.SetReadDeadline(time.Time{})
-			}()
-			return readUserPasswordBytes(inputCtx, f)
-		}
-	}
+	// Closing file input releases a blocked pipe read on cancellation. Generic
+	// readers cannot be interrupted; their goroutine clears the buffer on return.
 	type result struct {
 		secret vngcloud.Secret
 		err    error
@@ -95,6 +90,9 @@ func readUserPassword(ctx context.Context, path string, stdin io.Reader, timeout
 	case r := <-done:
 		return r.secret, r.err
 	case <-inputCtx.Done():
+		if f, ok := stdin.(*os.File); ok {
+			_ = f.Close()
+		}
 		return "", newUsageError("--password-file: input canceled or timed out")
 	}
 }
