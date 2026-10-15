@@ -126,15 +126,21 @@ success object. No confirmation read or password sign-in follows.
 | Local validation, guard, entropy, or proven `NotSent` failure | Nil; safe cause |
 | Observed 4xx rejection, including oversized error body | Nil; safe API error |
 | Observed 204 with no transport/body error | Output; nil error |
-| Observed 204 with response-read/limit error | Partial; `ErrNotSettled` |
+| Observed 204 with body overflow | Partial; `ErrNotSettled` |
+| 204 with a body read or close error, status lost | Partial; `ErrUserWriteUncertain` |
 | Other possibly sent outcome | Partial; `ErrUserWriteUncertain` |
 
 Use the observed HTTP status, never a nested provider status. `NotSent` wins
 first. A 204 is acceptance even if response handling fails; preserve that fact
-and the generated password. Unexpected 2xx/3xx, 5xx, missing status, dropped
-connection, and cancellation after possible send are uncertain. `Retryable` is
-not proof of no send. Neither the SDK nor CLI repeats a reset. A success proves
-acceptance, not that a concurrent actor has not reset again.
+and the generated password. Today the transport keeps the status only on
+overflow and reports 0 on a body read or close failure
+(`internal/transport/transport.go:526`), so that case is uncertain. The
+separately briefed observed-status transport prerequisite moves it to the
+`ErrNotSettled` row once it lands, and lets a 4xx with the same failure stay a
+rejection. Unexpected 2xx/3xx, 5xx, missing status, dropped connection, and
+cancellation after possible send are uncertain. `Retryable` is not proof of no
+send. Neither the SDK nor CLI repeats a reset. A success proves acceptance, not
+that a concurrent actor has not reset again.
 
 ### Reset privacy
 
@@ -196,12 +202,14 @@ Otherwise send the matching path with no body, `OK: 204`, `Once`, per-call
 and complete selected-factor state. Enable confirmation also requires `Verified:
 true`. A matching state returns `Changed: true`.
 
-Observed 204 with failed response handling or absent/mismatched confirmation
-returns `ErrNotSettled`, `Changed: true`, and nil Enabled if no trustworthy
+Observed 204 with body overflow or absent/mismatched confirmation returns
+`ErrNotSettled`, `Changed: true`, and nil Enabled if no trustworthy
 confirmation exists (otherwise the freshly read Enabled). Never use the
 pre-write value as a confirmed result. A proven `NotSent` or observed 4xx
-returns nil with the safe cause; every other possibly sent outcome returns nil
-with `ErrUserWriteUncertain`, without a confirmation or second send. Manual
+returns nil with the safe cause; every other possibly sent outcome, including a
+204 whose status the transport lost on a body read or close failure, returns
+nil with `ErrUserWriteUncertain`, without a confirmation or second send; the
+observed-status prerequisite moves that case to `ErrNotSettled`. Manual
 repetition rechecks state and guards. A 409 is never converted to success, even
 when a later operator read finds the requested state.
 
@@ -218,7 +226,13 @@ exits 1.
 All administration sends and target/confirm reads set `Sensitive`, fixed
 `WithholdMessage` and non-empty status-based `ClassifyError`. Reset adds its
 whole-graph privacy above. Return no arbitrary server text from partial objects;
-rename confirmation uses create's identity validation rules. Strict JSON and
+rename confirmation uses create's identity validation rules. Each guard read,
+send, and confirm read gets its own per-call `SentCredentials` slice, folded
+into an operation-local set under [create's credential
+rule](iam-users-api.md#writes): an ID, username, or factor value that contains
+a collected credential or the submitted password is refused before it is
+retained, printed, or used in a follow-up request, and every other retained
+text is sanitized against both sets. Strict JSON and
 byte caps apply to every guard dependency: 256 KiB single objects, 4 MiB lists,
 64 KiB write bodies. Do not decode a truncated prefix. A 204 body is ignored,
 bounded, and never captured, including with a custom client.
@@ -248,7 +262,10 @@ its response evidence, never a guessed success code or fixture.
 - Privacy: password/secret canaries on each guard edge, POST, debug, capture,
   nested escaped error codes/messages, and unsafe decode causes. Test cold and
   warm caches, concurrent requests with different redaction values, no retained
-  private options, and no request after persistence failure.
+  private options, and no request after persistence failure. A target or
+  confirm read whose `id` or `username` equals a sent bearer token, including
+  the token sent after a 401 refresh, is refused with no send, no follow-up,
+  and no token in any output, error node, or CLI line.
 - Guards: self before origin/privilege, root/unknown/missing caller ID,
   service-account caller with IAM target, direct/group privilege, unknown action
   labels, empty actions, incomplete attachments, unreadable policy,

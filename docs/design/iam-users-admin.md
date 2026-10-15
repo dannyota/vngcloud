@@ -144,10 +144,15 @@ obtain `guardWriteActionNames`, call `userIsProtected` with a fresh
 per-operation policy map, and map protection to `ErrPrivilegedChange`.
 `iam/policy_guard.go:269` checks direct policies and every returned group's
 policies. `iam/guard.go:181` refuses an empty action classification; its caller
-and action caches are per client. Do not weaken unknown-action,
-malformed-policy, incomplete-page, or failed-read refusals. The [strict guard
-prerequisite](iam-users-api.md#bounds-and-strict-decoding) must cover the whole
-reachable graph before administration code.
+and action caches are per client. The shipped `statementsArePrivileged`
+(`iam/guard.go:135`) reads a null statement, an unknown effect, or an `allow`
+statement with a missing, null, or empty action list as a grant that matches
+nothing, so a policy of `{"statements":[null]}` leaves a user unprotected. The
+[fail-closed statement rule](iam-writes.md#rules) corrects that in a separate,
+adversarially reviewed patch that lands first; this guard depends on it. Do
+not weaken unknown-action, incomplete-page, or failed-read refusals. The
+[strict guard prerequisite](iam-users-api.md#bounds-and-strict-decoding) must
+cover the whole reachable graph before administration code.
 
 Resetting a protected user's password transfers its sign-in; disabling its MFA
 weakens it; renaming or enabling MFA can lock it out. This matches the purpose
@@ -215,9 +220,12 @@ path below, including gated rename.
    withhold server text and suppress captures on every dependent read and send,
    then make no recovery request. MFA and rename carry no password but use
    sensitive reads/sends and fixed errors against hostile secret-bearing
-   responses. Test all error nodes, debug, captures, partial output, and
-   file-failure reporting. Set-up stays excluded to avoid TOTP secret custody
-   and attacker-mailbox enrolment.
+   responses. A peer can also return a sent bearer token as an `id` or
+   `username`; `Sensitive` does not sanitize decoded output, so the
+   [credential rule](iam-users-admin-api.md#error-identity-and-bounds) refuses
+   such values before retention or reuse. Test all error nodes, debug,
+   captures, partial output, and file-failure reporting. Set-up stays excluded
+   to avoid TOTP secret custody and attacker-mailbox enrolment.
 2. **Hostile API peer.** Invariant: malformed identities, policy lists, or
    factor state cannot authorize a write or forge confirmation. High severity:
    missing factor booleans default to false, or a truncated group list hides

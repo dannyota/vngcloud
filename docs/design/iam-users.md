@@ -172,9 +172,12 @@ exported SDK error marker or a synonym for `Retryable`.
 After an uncertain create, retain the generated password and reconcile with
 `list-users --name <username>`, comparing exact usernames and IDs. Neither a
 match nor an empty result proves which concurrent call won or whether a delayed
-create will appear. Do not retry, delete, reset, or claim a supplied password
-works merely because a name matches. Resolve ownership and current state before
-a deliberate new create.
+create will appear. A 201 without a usable ID ends the same way: the SDK
+reports any single exact-name match as `CandidateID` inside the uncertain
+outcome, never as a confirmed user, because another actor can delete and
+recreate the name between the create and the search. Do not retry, delete,
+reset, or claim a supplied password works merely because a name matches.
+Resolve ownership and current state before a deliberate new create.
 
 Delete uses existing idempotent DELETE retries, not `Once`. A repeated call
 re-runs guards; retries within one call do not. A retry ending in 404 returns

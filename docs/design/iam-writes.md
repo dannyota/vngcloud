@@ -4,10 +4,9 @@ Status: Accepted (2026-09-27). The owner approved every recommendation
 under [Owner decisions](#owner-decisions), with guard option (d).
 
 This design adds IAM service account, group, and policy writes to `iam`,
-with the reads they need and CLI commands. It is picks 9 and 10 of the
-[free writes survey](free-writes-survey.md). These calls change who can
-do what in the whole account, so most of the design is about what the
-tool refuses to do.
+with the reads they need and CLI commands: picks 9 and 10 of the [free
+writes survey](free-writes-survey.md). These calls change who can do what
+in the whole account, so most of the design is about refusals.
 
 It follows [ADR 0002](../adr/0002-write-api-conventions.md) for every
 write, and the `vngcloud.Secret` and `--secret-file` contract of
@@ -18,11 +17,10 @@ and live checks are in [IAM writes: checks](iam-writes-checks.md).
 
 ## Ownership
 
-[vStorage](storage.md) owns S3 keys (release S3, in `storage`) and keys
-for service accounts (S4, in `storage`). This design takes over the
-service account calls that do not involve S3; vStorage keeps S3 keys, the
-key attach, and the principal
-([vStorage: keys](storage-keys.md#service-account-keys)).
+[vStorage](storage.md) owns S3 keys (release S3) and service account keys
+(S4), both in `storage`. This design takes over the service account calls
+that do not involve S3; vStorage keeps S3 keys, the key attach, and the
+principal ([vStorage: keys](storage-keys.md#service-account-keys)).
 
 | Call | Owner |
 |-|-|
@@ -37,11 +35,10 @@ live on their own.
 
 ## Non-goals
 
-- IAM user writes, except create and delete proposed in
-  [IAM users](iam-users.md) and password reset, rename, and MFA enable and
-  disable proposed in [IAM user administration](iam-users-admin.md), each
-  subject to its approval and evidence gates. Password input and
-  generation belong there. Account activate and deactivate, MFA set-up and
+- IAM user writes, except create and delete in [IAM users](iam-users.md)
+  and reset, rename, and MFA enable and disable in [IAM user
+  administration](iam-users-admin.md), each behind its own approval and
+  evidence gates. Account activate and deactivate, MFA set-up and
   verification, identity providers, IP allow lists, tags, and other access
   changes stay out. `ListUsers` remains a read for finding user IDs.
 - Service account activate and deactivate, trusted roots (cross-account
@@ -58,11 +55,10 @@ live on their own.
 ### Threat
 
 The CLI runs for the owner and for AI agents. An IAM write can lock the
-owner out, for example by detaching the owner's admin policy, and can
-escalate the caller, for example by attaching a full-access policy to
-itself or to a service account whose secret it then holds. The root
-account can always repair IAM in the console, so a lockout costs time,
-not the account. An escalation can cost the account.
+owner out, for example by detaching the owner's admin policy, or escalate
+the caller, for example by attaching a full-access policy to itself or to a
+service account whose secret it holds. Root can always repair IAM in the
+console, so a lockout costs time; an escalation can cost the account.
 
 The server's IAM rights are the real boundary: a principal without IAM
 write rights cannot call these writes at all. The guards below stop
@@ -119,20 +115,28 @@ sends nothing and names the rule, never a policy document.
 `CreateServiceAccount`, `CreateGroup`, and `UpdateGroup` change no one's
 rights and have no guard beyond read-only.
 
-Taken together, the tool cannot create, grant, revoke, or edit IAM write
-rights, cannot change the caller's own rights, and cannot take a
-protected service account's secret. The owner's IAM user, which holds
-IAM write rights, is a protected principal wherever the tool runs.
+Taken together, through the policy, attachment, group, and service account
+writes in the table, the tool cannot create, grant, revoke, or edit IAM
+write rights, cannot change the caller's own rights, and cannot take a
+protected service account's secret. The owner's IAM user, which holds IAM
+write rights, is a protected principal for those writes. The decided
+[`DeleteUser` rule](iam-users.md#guards) is the exception: it refuses only
+the caller's own user and a non-`iam` origin, so the server's IAM rights
+alone decide whether a privileged user can be deleted.
 
-There is no flag or Input field that turns a guard off. The owner makes
-such changes in the IAM console.
+No flag or Input field turns a guard off; such changes stay a console task.
 
 A guard read that comes back incomplete or unprovable refuses instead of
 guessing: an account action list naming no write action, or an attachment
 page whose item count does not match its own reported total, is treated as
 a failed read, never as evidence that nothing is privileged. A policy with
-no statements at all is privileged, and any statement effect other than
-`deny` counts as a grant, including one the API has not defined yet. A group
+no statements at all is privileged. So is each of these statements, since
+none proves the document safe: a null statement; a statement whose effect,
+compared case-insensitively, is neither `allow` nor `deny`; and an `allow`
+statement whose action list is missing, null, or empty. The shipped
+`statementsArePrivileged` still reads those as grants that match nothing;
+the correcting patch ships separately, with adversarial review, before any
+new guarded operation reuses the check. A group
 whose `mode` is not exactly `iam`, missing included, or whose own response
 carries a member-holding field besides `iamUsers`, is unprovable the same
 way: every guard that reads a group object refuses it outright (the
@@ -152,8 +156,8 @@ checking whether that service account holds a privileged policy.
 
 A guard needs `GetCallerIdentity` and `ListActions` once per client, plus
 reads of each principal's attached policies and a `GetPolicy` per policy
-not yet read in that call. A user in a group with 30 policies costs about
-35 requests. IAM writes are rare, so the design accepts that.
+not yet read in that call: about 35 requests for a user in a group with
+30 policies. IAM writes are rare, so the design accepts that.
 
 ### What stays open
 
@@ -180,13 +184,12 @@ request it checks shape only:
   action and resource names (ADR 0002 rule 5).
 
 The CLI reads the document from `--document-file <path>`, a JSON object
-`{"statements": [...]}` in the form the console's JSON editor shows. It
-decodes with unknown fields refused, so an AWS-style document
-(`Version`, `Statement`, `Effect`) fails with exit 2 instead of reaching
-the server with no statements. Go's decoder matches keys without regard
-to case, so `get-policy` output with Go field names also decodes. The
-file is at most 64 KiB. `--cli-input-json` may set `Statements` too, since
-a policy is not a secret.
+`{"statements": [...]}` as the console's JSON editor shows it, decoding
+with unknown fields refused, so an AWS-style document (`Version`,
+`Statement`, `Effect`) fails with exit 2 instead of reaching the server
+with no statements. Go's decoder matches keys without regard to case, so
+`get-policy` output with Go field names also decodes. The file is at most
+64 KiB. `--cli-input-json` may set `Statements` too; a policy is no secret.
 
 The privileged check is the only part that reads action names, and it
 uses the server's own action list.
@@ -320,8 +323,8 @@ review. Each is numbered when it ships.
 
 I1 is read-only. I2 carries the secret handling and the guard code. I3
 adds the privileged check, and I4 the group and user paths. vStorage S4
-then adds only the service account key calls on top of I2. No release changes an
-existing method or command.
+then adds only the service account key calls on top of I2. No release
+changes an existing method or command.
 
 ## Owner decisions
 
@@ -329,13 +332,12 @@ existing method or command.
    create, and delete from vStorage S4; or vStorage keeps them and this
    design adds only update and reset. Recommend moving them: S4 waits
    for paid credit, and service accounts are free to check now.
-2. **Client secret.** vStorage decision 8 says the CLI never shows or
-   saves a service account's client secret. Options: require
-   `--secret-file` on create and reset; keep decision 8 and discard the
-   secret; make the file optional and discard without it. Recommend
-   require the file: OpenTofu and the external vStorage API use the
-   client ID and secret, and the file rules are already reviewed. This
-   replaces decision 8.
+2. **Client secret.** vStorage decision 8 says the CLI never shows or saves
+   a service account's client secret. Options: require `--secret-file` on
+   create and reset; keep decision 8 and discard the secret; make the file
+   optional and discard without it. Recommend require the file: OpenTofu
+   and the external vStorage API use the client ID and secret, and the file
+   rules are already reviewed. This replaces decision 8.
 3. **Reset secret.** Options: add `reset-service-account-secret` with
    `--yes` and `--secret-file`; leave it to the console. Recommend add
    it: it recovers a lost secret, and rotates one.
@@ -343,7 +345,7 @@ existing method or command.
    (c) (b) plus refusing privileged policies; (d) (c) plus protected
    principals and groups, as in [Rules](#rules). Recommend (d) with no
    override: IAM write rights become a console task, and the owner's
-   user is protected wherever the tool runs.
+   user is protected across every write in the table.
 5. **Non-IAM escalation.** Options: accept it and document that the
    server's rights are the boundary; refuse attaching a policy the
    caller does not itself hold, compared by ID. Recommend accept: the ID
@@ -369,20 +371,18 @@ existing method or command.
     policy; let the server decide. Recommend refuse: a group delete
     silently takes rights from its members.
 11. **Live attach and membership checks.** The survey's decision 3 kept
-    attaches and membership out of live tests. Options: (a) attach only
-    a read-only customer policy to a service account and a group the
-    test creates, and check membership only through its refusals and a
-    random user ID; (b) (a) plus a real add and remove of a spare IAM
-    user the owner creates in the console, named by
-    `VNGCLOUD_LIVE_IAM_USER_ID`; (c) no live attach. Recommend (a): the
-    only IAM user on the test account is the caller, which the guard
-    protects, and creating users is out of scope.
+    attaches and membership out of live tests. Options: (a) attach only a
+    read-only customer policy to a service account and a group the test
+    creates, and check membership only through its refusals and a random
+    user ID; (b) (a) plus a real add and remove of a spare IAM user the owner
+    creates in the console, named by `VNGCLOUD_LIVE_IAM_USER_ID`; (c) no live
+    attach. Recommend (a): the only IAM user on the test account is the
+    caller, which the guard protects, and creating users is out of scope.
 12. **Releases.** Recommend I1 to I4 in order, as above.
 
 ## Open questions
 
-- Whether a service account create returns the client secret, and the ID
-  form.
+- Whether a service account create returns the client secret, and the ID form.
 - Name rules and uniqueness for policies, groups, and service accounts,
   including whether `vngcloud-live-<8 hex>` is accepted.
 - Whether `PUT policies/{id}` without `statements` clears them, and
