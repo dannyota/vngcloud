@@ -183,8 +183,9 @@ wins before status classification. `Retryable` alone does not prove no send,
 particularly with a custom RoundTripper. The transport today drops the
 observed status when the body read or close fails, except on overflow
 (`internal/transport/transport.go:535`), so such a 201 or 4xx is uncertain
-until the separately briefed observed-status prerequisite lands; afterwards
-such a 201 is one without a valid ID and such a 4xx stays rejected.
+until the separately briefed observed-status prerequisite lands; the create
+sets its opt-in `KeepObservedStatus`, so such a 201 is one without a valid ID
+and such a 4xx stays rejected.
 
 Partial output retains requested Username and generated Password; CreatedID
 comes only from a complete valid 201 object and survives confirmation failure.
