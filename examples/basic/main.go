@@ -108,6 +108,7 @@ func main() {
 			if regionIndex == 0 {
 				showCDN(ctx, cfg, sdkOutputs)
 				showBilling(ctx, cfg, sdkOutputs)
+				showIAM(ctx, cfg, sdkOutputs)
 				showMonitor(ctx, cfg, sdkOutputs)
 				showMonitorLocations(ctx, cfg, sdkOutputs)
 				showMonitorChannels(ctx, cfg, sdkOutputs)
