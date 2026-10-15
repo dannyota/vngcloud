@@ -240,6 +240,16 @@ Models keep their API JSON tags; `_id` is dropped.
   replace the whole policy. `UpdateGroup` reads the group when `Name` is
   nil, because the `PATCH` requires `name`.
 - `UpdateServiceAccount` sends only non-nil fields.
+- Every read a guard decision depends on decodes strictly and within a
+  bound: caller identity, the action list, policy and group gets, policy
+  pages, attachment arrays, and a user's groups. Single objects cap at
+  256 KiB and lists at 4 MiB; an overflow fails without decoding a
+  prefix. Strict decoding rejects malformed JSON, trailing data, an exact
+  duplicate key in any object, and two keys that `encoding/json` would
+  assign to one struct field by its case-insensitive match. Map keys, such
+  as a `condition` holding both `Env` and `env`, get exact-duplicate
+  rejection only. A failure returns the transport's existing sanitized
+  decode error, and the guarded write refuses with no write sent.
 - Every update and create returns a read after the write. If that read
   fails, the error says the write happened; `CreateServiceAccount` also
   keeps a non-nil Output, carrying the create response's own ID and client
