@@ -38,6 +38,10 @@ type userInfoResponse struct {
 // service account. The guards in guard.go call this once per Client and
 // reuse the result.
 func (c *Client) GetCallerIdentity(ctx context.Context, in *GetCallerIdentityInput) (*GetCallerIdentityOutput, error) {
+	return c.getCallerIdentity(ctx, in)
+}
+
+func (c *Client) getCallerIdentity(ctx context.Context, in *GetCallerIdentityInput, options ...userReadOptions) (*GetCallerIdentityOutput, error) {
 	const op = "iam.GetCallerIdentity"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -55,7 +59,7 @@ func (c *Client) GetCallerIdentity(ctx context.Context, in *GetCallerIdentityInp
 		MaxBody:         guardObjectMaxBody,
 		SentCredentials: &sent,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.guardReadJSON(ctx, "caller identity", req, &resp, options...); err != nil {
 		return nil, err
 	}
 	out := &GetCallerIdentityOutput{

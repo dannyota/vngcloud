@@ -11,8 +11,8 @@ import (
 
 // guardUserWrite checks caller classification, self, then target origin.
 // Privilege and attachment decisions remain with the server for delete.
-func (c *Client) guardUserWrite(ctx context.Context, op, id string) error {
-	caller, err := c.requireClassifiedCaller(ctx, op)
+func (c *Client) guardUserWrite(ctx context.Context, op, id string, options ...userReadOptions) error {
+	caller, err := c.requireClassifiedCaller(ctx, op, options...)
 	if err != nil {
 		return fmt.Errorf("%s: read caller identity: %w", op, err)
 	}
@@ -24,7 +24,7 @@ func (c *Client) guardUserWrite(ctx context.Context, op, id string) error {
 			return fmt.Errorf("%w: %s", ErrSelfChange, op)
 		}
 	}
-	user, err := c.getUser(ctx, op, id, userReadOptions{})
+	user, err := c.getUser(ctx, op, id, guardUserReadOptions(options...))
 	if err != nil {
 		var api *core.APIError
 		if !errors.As(err, &api) || api.StatusCode == 0 {

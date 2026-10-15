@@ -126,3 +126,51 @@ func (c *Client) confirmUser(ctx context.Context, id, username string, opts user
 	}
 	return user, nil
 }
+
+// guardReadJSON applies privacy only to the current read. The zero-option path
+// retains the request's existing capture and error behavior.
+func (c *Client) guardReadJSON(ctx context.Context, label string, req transport.Request, out any, options ...userReadOptions) error {
+	if len(options) == 0 {
+		return c.c.DoJSON(ctx, req, out)
+	}
+	opts := guardUserReadOptions(options...)
+	var sent []string
+	defer func() { clear(sent) }()
+	err := c.c.DoJSON(ctx, opts.request(req, &sent), out)
+	opts.collect(sent)
+	if err != nil {
+		return fmt.Errorf("%s: read %s: %w", req.Operation, label, err)
+	}
+	if opts.containsResponseCredential(out) || (userReadOptions{Redact: sent}).containsResponseCredential(out) {
+		return fmt.Errorf("iam: %s: unsafe guard response", req.Operation)
+	}
+	return nil
+}
+
+func guardCachedResponse(op string, value any, options ...userReadOptions) error {
+	if len(options) != 0 && options[0].containsResponseCredential(value) {
+		return fmt.Errorf("iam: %s: unsafe cached guard response", op)
+	}
+	return nil
+}
+
+func guardReadDecodeError(err error, options ...userReadOptions) error {
+	if len(options) != 0 {
+		return transport.SanitizeDecodeError(err)
+	}
+	return err
+}
+
+func guardUserReadOptions(options ...userReadOptions) userReadOptions {
+	if len(options) != 0 {
+		opts := options[0]
+		if opts.WithholdMessage == "" {
+			opts.WithholdMessage = userWriteWithheld
+		}
+		if opts.ClassifyError == nil {
+			opts.ClassifyError = userWriteErrorCode
+		}
+		return opts
+	}
+	return userReadOptions{}
+}

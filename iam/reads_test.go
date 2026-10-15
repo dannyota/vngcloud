@@ -1,10 +1,18 @@
 package iam
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -359,4 +367,308 @@ func TestIAMPathIDRejection(t *testing.T) {
 			t.Fatalf("RemoveUserFromGroup(UserID=%q) err = %v, want ErrInvalidInput", id, err)
 		}
 	}
+}
+
+func TestGuardCallerPrivacyCapture(t *testing.T) {
+	captures := 0
+	c := New(testutil.NewConfigWithCapture(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"userId":"caller","userType":"iam-user"}`))
+	}), func(transport.Capture) { captures++ }))
+	if _, err := c.guardCallerIdentity(context.Background(), userReadOptions{WithholdMessage: userWriteWithheld, ClassifyError: userWriteErrorCode}); err != nil {
+		t.Fatal(err)
+	}
+	if captures != 0 {
+		t.Fatal("private caller read captured")
+	}
+}
+
+type privateGuardRead struct {
+	name, path, body string
+	read             func(context.Context, *Client, userReadOptions) error
+}
+
+func privateGuardReads() []privateGuardRead {
+	return []privateGuardRead{
+		{"caller", "/accounts-api/v1/auth/userinfo", `{"userId":"caller","userType":"iam-user"}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, err := c.guardCallerIdentity(ctx, o)
+			return err
+		}},
+		{"target", "/accounts-api/v1/iam-users/user-1", `{"id":"user-1","from":"iam"}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			return c.guardUserWrite(ctx, "iam.privateGuard", "user-1", o)
+		}},
+		{"actions", "/policies-api/v1/actions", `[{"action":"CreatePolicy","label":"Write"}]`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, err := c.guardWriteActionNames(ctx, o)
+			return err
+		}},
+		{"policy", "/policies-api/v1/policies/policy-1", `{"id":"policy-1","statements":[{"effect":"allow","actions":["vstorage:ListBuckets"]}]}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, err := c.anyPolicyIDPrivileged(ctx, []string{"policy-1"}, []string{"iam:createpolicy"}, map[string]*Policy{}, o)
+			return err
+		}},
+		{"page", "/policies-api/v1/user-attachments/iam-users/user-1/policies", `{"data":[],"totalItems":0,"totalPages":1}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, err := c.guardUserPolicySummaries(ctx, "iam.privateGuard", "user-1", o)
+			return err
+		}},
+		{"groups", "/policies-api/v1/user-attachments/iam-users/user-1/groups", `[{"id":"group-1","policies":[]}]`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, err := c.guardUserGroups(ctx, "iam.privateGuard", "user-1", o)
+			return err
+		}},
+		{"group-attachments", "/policies-api/v1/groups/group-1", `{"mode":"iam","policies":[],"iamUsers":[]}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+			_, _, err := c.guardGetGroupAttachments(ctx, "iam.privateGuard", "group-1", o)
+			return err
+		}},
+		{"policy-groups", "/policies-api/v1/policies/policy-1/groups", `[]`, privatePolicyAttachments},
+		{"policy-users", "/policies-api/v1/policies/policy-1/iam-users", `[]`, privatePolicyAttachments},
+		{"policy-service-accounts", "/policies-api/v1/policies/policy-1/service-accounts", `[]`, privatePolicyAttachments},
+	}
+}
+
+func privatePolicyAttachments(ctx context.Context, c *Client, o userReadOptions) error {
+	_, err := c.guardPolicyAttachments(ctx, "iam.privateGuard", "policy-1", o)
+	return err
+}
+
+func privateGuardBody(path string) string {
+	if path == "/policies-api/v1/policies" {
+		return `{"data":[]}`
+	}
+	for _, edge := range privateGuardReads() {
+		if edge.path == path {
+			return edge.body
+		}
+	}
+	return `[]`
+}
+
+func TestGuardReadPrivacyEdges(t *testing.T) {
+	for _, edge := range privateGuardReads() {
+		for _, status := range []int{200, 403, 404, 409, 429, 502} {
+			t.Run(edge.name+"/"+strconv.Itoa(status), func(t *testing.T) {
+				var captures atomic.Int32
+				var logs lockedGuardLog
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != edge.path {
+						_, _ = io.WriteString(w, privateGuardBody(r.URL.Path))
+						return
+					}
+					w.WriteHeader(status)
+					if status == 200 {
+						_, _ = io.WriteString(w, edge.body)
+					} else {
+						_, _ = io.WriteString(w, `{"code":"server-field","message":"{\"password\":\"password-canary\"}","error":"bearer-canary"}`)
+					}
+				}))
+				t.Cleanup(server.Close)
+				c := privateGuardClient(server, &logs, &captures)
+				err := edge.read(context.Background(), c, userReadOptions{Redact: []string{"password-canary"}})
+				if status == 200 {
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					var api *vngcloud.APIError
+					if !errors.As(err, &api) || api.StatusCode != status || api.Message != userWriteWithheld || api.Code != core.ResolvedCode(status, "") {
+						t.Fatalf("status or fixed error lost: %v", err)
+					}
+					assertUserErrorPrivate(t, err, "password-canary", "bearer-canary", "server-field")
+				}
+				if captures.Load() != 0 || strings.Contains(logs.String(), "password-canary") || strings.Contains(logs.String(), "bearer-canary") {
+					t.Fatal("private read leaked to capture or debug")
+				}
+			})
+		}
+	}
+}
+
+type lockedGuardLog struct {
+	sync.Mutex
+	bytes.Buffer
+}
+
+func (b *lockedGuardLog) Write(p []byte) (int, error) {
+	b.Lock()
+	defer b.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *lockedGuardLog) String() string {
+	b.Lock()
+	defer b.Unlock()
+	return b.Buffer.String()
+}
+
+func privateGuardClient(server *httptest.Server, logs io.Writer, captures *atomic.Int32) *Client {
+	return New(core.NewTestConfig("hcm-3", "", endpoints.Set{Dashboard: server.URL + "/", IAM: server.URL + "/"}, transport.New(transport.Config{
+		HTTPClient: server.Client(), TokenSource: privateGuardToken{},
+		Logger:  slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Capture: func(transport.Capture) { captures.Add(1) },
+	})))
+}
+
+func TestGuardReadPrivacyMalformedEdges(t *testing.T) {
+	for _, edge := range privateGuardReads() {
+		for _, body := range []string{`{"password-canary":`, edge.body + ` {"password-canary":true}`} {
+			t.Run(edge.name+"/"+strconv.Itoa(len(body)), func(t *testing.T) {
+				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					response := privateGuardBody(r.URL.Path)
+					if r.URL.Path == edge.path {
+						response = body
+					}
+					_, _ = io.WriteString(w, response)
+				}))
+				err := edge.read(context.Background(), c, userReadOptions{Redact: []string{"password-canary"}})
+				if err == nil {
+					t.Fatal("malformed guard response accepted")
+				}
+				assertUserErrorPrivate(t, err, "password-canary", "1e999")
+			})
+		}
+	}
+}
+
+type privateGuardToken struct{}
+
+func (privateGuardToken) Token(context.Context) (transport.Token, error) {
+	return transport.Token{AccessToken: "bearer-canary"}, nil
+}
+func (privateGuardToken) Invalidate(string) {}
+
+func TestGuardReadPrivacyConcurrentEdges(t *testing.T) {
+	for _, edge := range privateGuardReads() {
+		t.Run(edge.name, func(t *testing.T) {
+			var logs lockedGuardLog
+			var captures atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == edge.path {
+					w.WriteHeader(403)
+					_, _ = io.WriteString(w, `{"code":"first-password","message":"second-password"}`)
+					return
+				}
+				_, _ = io.WriteString(w, privateGuardBody(r.URL.Path))
+			}))
+			t.Cleanup(server.Close)
+			c := privateGuardClient(server, &logs, &captures)
+			var wg sync.WaitGroup
+			for _, password := range []string{"first-password", "second-password"} {
+				wg.Go(func() {
+					var sent []string
+					err := edge.read(context.Background(), c, userReadOptions{Redact: []string{password}, SentCredentials: &sent})
+					if !errors.Is(err, vngcloud.ErrPermission) {
+						t.Errorf("read identity lost: %v", err)
+					}
+					assertUserErrorPrivate(t, err, "first-password", "second-password")
+				})
+			}
+			wg.Wait()
+			if captures.Load() != 0 || strings.Contains(logs.String(), "password") {
+				t.Fatal("concurrent private read leaked")
+			}
+			if _, err := c.ListPolicies(context.Background(), nil); err != nil {
+				t.Fatal(err)
+			}
+			if captures.Load() != 1 {
+				t.Fatal("privacy escaped to a normal read")
+			}
+		})
+	}
+}
+
+func TestGuardReadPrivacyConcurrentURLRedaction(t *testing.T) {
+	var logs lockedGuardLog
+	var captures atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(403)
+	}))
+	defer server.Close()
+	c := privateGuardClient(server, &logs, &captures)
+	var wg sync.WaitGroup
+	for _, password := range []string{"first-password", "second-password"} {
+		wg.Go(func() {
+			_, err := c.guardPagedPolicySummaries(context.Background(), "iam.privateGuard", []string{"policies", password}, userReadOptions{Redact: []string{password}})
+			if !errors.Is(err, vngcloud.ErrPermission) {
+				t.Errorf("error identity lost: %v", err)
+			}
+			assertUserErrorPrivate(t, err, "first-password", "second-password")
+		})
+	}
+	wg.Wait()
+	if strings.Contains(logs.String(), "first-password") || strings.Contains(logs.String(), "second-password") || captures.Load() != 0 {
+		t.Fatal("request-local URL redaction failed")
+	}
+}
+
+func TestGuardReadPrivacyContextIdentity(t *testing.T) {
+	for _, edge := range privateGuardReads() {
+		t.Run(edge.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if err := edge.read(ctx, c, userReadOptions{}); !errors.Is(err, context.Canceled) {
+				t.Fatalf("context identity lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestGuardReadPrivacyCredentialResponses(t *testing.T) {
+	for _, edge := range privateGuardReads() {
+		for _, credential := range []string{"password-canary", "bearer-canary"} {
+			t.Run(edge.name+"/"+strconv.Itoa(len(credential)), func(t *testing.T) {
+				var logs lockedGuardLog
+				var captures atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body := privateGuardBody(r.URL.Path)
+					if r.URL.Path == edge.path {
+						switch edge.name {
+						case "caller":
+							body = `{"userId":"` + credential + `","userType":"iam-user"}`
+						case "target":
+							body = `{"id":"user-1","from":"iam","username":"` + credential + `"}`
+						case "actions":
+							body = `[{"action":"` + credential + `","label":"Write"}]`
+						case "policy":
+							body = `{"id":"policy-1","description":"` + credential + `"}`
+						case "page":
+							body = `{"data":[{"id":"` + credential + `"}],"totalItems":1}`
+						case "groups":
+							body = `[{"id":"group-1","policies":["` + credential + `"]}]`
+						case "group-attachments":
+							body = `{"mode":"iam","policies":["` + credential + `"],"iamUsers":[]}`
+						case "policy-groups":
+							body = `[{"id":"` + credential + `"}]`
+						default:
+							body = `["` + credential + `"]`
+						}
+					}
+					_, _ = io.WriteString(w, body)
+				}))
+				t.Cleanup(server.Close)
+				c := privateGuardClient(server, &logs, &captures)
+				err := edge.read(context.Background(), c, userReadOptions{Redact: []string{"password-canary"}})
+				if err == nil {
+					t.Fatal("credential-bearing response accepted")
+				}
+				assertUserErrorPrivate(t, err, "password-canary", "bearer-canary")
+				if captures.Load() != 0 || strings.Contains(logs.String(), credential) {
+					t.Fatal("credential-bearing response leaked")
+				}
+				if c.guardCaller != nil || len(c.guardWriteActions) != 0 {
+					if edge.name == "caller" || edge.name == "actions" {
+						t.Fatal("unsafe response cached")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGuardReadPrivacyLocalDecodeIdentity(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"mode":"iam","policies":[1e999],"iamUsers":[]}`)
+	}))
+	_, _, err := c.guardGetGroupAttachments(context.Background(), "iam.privateGuard", "group-1", userReadOptions{})
+	var mismatch *json.UnmarshalTypeError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("decode identity lost: %v", err)
+	}
+	assertUserErrorPrivate(t, err, "1e999")
 }

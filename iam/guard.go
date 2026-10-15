@@ -161,13 +161,16 @@ func policyIsPrivileged(p *Policy, writeActionNames []string) bool {
 
 // guardCallerIdentity returns the caller's identity, fetching it once per
 // Client and reusing the cached value after that.
-func (c *Client) guardCallerIdentity(ctx context.Context) (*GetCallerIdentityOutput, error) {
+func (c *Client) guardCallerIdentity(ctx context.Context, options ...userReadOptions) (*GetCallerIdentityOutput, error) {
 	c.guardMu.Lock()
 	defer c.guardMu.Unlock()
 	if c.guardCaller != nil {
+		if err := guardCachedResponse("iam.GetCallerIdentity", c.guardCaller, options...); err != nil {
+			return nil, err
+		}
 		return c.guardCaller, nil
 	}
-	caller, err := c.GetCallerIdentity(ctx, nil)
+	caller, err := c.getCallerIdentity(ctx, nil, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -183,13 +186,16 @@ func (c *Client) guardCallerIdentity(ctx context.Context) (*GetCallerIdentityOut
 // evidence that no policy can be privileged. A guarded write that let an
 // empty action list through would have every privileged-policy check
 // silently pass, turning every guard off at once.
-func (c *Client) guardWriteActionNames(ctx context.Context) ([]string, error) {
+func (c *Client) guardWriteActionNames(ctx context.Context, options ...userReadOptions) ([]string, error) {
 	c.guardMu.Lock()
 	defer c.guardMu.Unlock()
 	if len(c.guardWriteActions) > 0 {
+		if err := guardCachedResponse("iam.ListActions", c.guardWriteActions, options...); err != nil {
+			return nil, err
+		}
 		return c.guardWriteActions, nil
 	}
-	out, err := c.ListActions(ctx, nil)
+	out, err := c.listActions(ctx, nil, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -236,14 +242,14 @@ type pagedPolicySummaries struct {
 
 // guardServiceAccountPolicySummaries reads every policy attached to
 // serviceAccountID for a guard check; see guardPagedPolicySummaries.
-func (c *Client) guardServiceAccountPolicySummaries(ctx context.Context, op, serviceAccountID string) ([]PolicySummary, error) {
-	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "service-accounts", serviceAccountID, "policies"})
+func (c *Client) guardServiceAccountPolicySummaries(ctx context.Context, op, serviceAccountID string, options ...userReadOptions) ([]PolicySummary, error) {
+	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "service-accounts", serviceAccountID, "policies"}, options...)
 }
 
 // guardUserPolicySummaries reads every policy attached to userID for a
 // guard check; see guardPagedPolicySummaries.
-func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string) ([]PolicySummary, error) {
-	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "iam-users", userID, "policies"})
+func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string, options ...userReadOptions) ([]PolicySummary, error) {
+	return c.guardPagedPolicySummaries(ctx, op, []string{"user-attachments", "iam-users", userID, "policies"}, options...)
 }
 
 // guardPagedPolicySummaries reads a policy-attachment list at urlParts for a
@@ -253,7 +259,7 @@ func (c *Client) guardUserPolicySummaries(ctx context.Context, op, userID string
 // data does not match, or more than one totalPages. Reading a partial or
 // ambiguous page as "no more attachments" would silently stop protecting a
 // principal whose attachments the guard never fully saw.
-func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlParts []string) ([]PolicySummary, error) {
+func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlParts []string, options ...userReadOptions) ([]PolicySummary, error) {
 	var resp pagedPolicySummaries
 	req := transport.Request{
 		Operation:  op,
@@ -263,7 +269,7 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 		StrictJSON: true,
 		MaxBody:    guardListMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.guardReadJSON(ctx, "policy attachments", req, &resp, options...); err != nil {
 		return nil, err
 	}
 	if resp.Data == nil {
@@ -293,7 +299,7 @@ func (c *Client) guardPagedPolicySummaries(ctx context.Context, op string, urlPa
 // become nil either way, which is exactly the fail-open bug this guards
 // against. It is a function, not a method, because a method cannot carry its
 // own type parameter.
-func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string, urlParts []string) ([]T, error) {
+func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string, urlParts []string, options ...userReadOptions) ([]T, error) {
 	var items *[]T
 	req := transport.Request{
 		Operation:  op,
@@ -303,7 +309,7 @@ func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string,
 		StrictJSON: true,
 		MaxBody:    guardListMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &items); err != nil {
+	if err := c.guardReadJSON(ctx, "attachment array", req, &items, options...); err != nil {
 		return nil, err
 	}
 	if items == nil {
@@ -319,16 +325,16 @@ func guardFetchAttachmentArray[T any](ctx context.Context, c *Client, op string,
 // "no attachments". ListPolicyAttachments itself is left as it is for its
 // own callers, since a read command has no reason to refuse on an ambiguous
 // response the way a guard must.
-func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string) (*ListPolicyAttachmentsOutput, error) {
-	groups, err := guardFetchAttachmentArray[guardSummary](ctx, c, op, []string{"policies", policyID, "groups"})
+func (c *Client) guardPolicyAttachments(ctx context.Context, op, policyID string, options ...userReadOptions) (*ListPolicyAttachmentsOutput, error) {
+	groups, err := guardFetchAttachmentArray[guardSummary](ctx, c, op, []string{"policies", policyID, "groups"}, options...)
 	if err != nil {
 		return nil, err
 	}
-	userIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "iam-users"})
+	userIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "iam-users"}, options...)
 	if err != nil {
 		return nil, err
 	}
-	serviceAccountIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "service-accounts"})
+	serviceAccountIDs, err := guardFetchAttachmentArray[string](ctx, c, op, []string{"policies", policyID, "service-accounts"}, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +365,17 @@ var guardGroupKnownFields = map[string]bool{
 // included: the design excludes idp groups from every guard rule, so a group
 // this check cannot confirm is in iam mode is refused outright, before its
 // own policies or members are ever read as evidence of anything.
-func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string) (policyIDs, userIDs []string, err error) {
+func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID string, options ...userReadOptions) (policyIDs, userIDs []string, err error) {
+	var credentials []string
+	defer func() { clear(credentials) }()
+	if len(options) != 0 {
+		opts := guardUserReadOptions(options...)
+		if opts.SentCredentials == nil {
+			opts.SentCredentials = &credentials
+		}
+		options = []userReadOptions{opts}
+	}
+
 	var raw map[string]json.RawMessage
 	req := transport.Request{
 		Operation:  op,
@@ -369,7 +385,7 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 		StrictJSON: true,
 		MaxBody:    guardObjectMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
+	if err := c.guardReadJSON(ctx, "group attachments", req, &raw, options...); err != nil {
 		return nil, nil, err
 	}
 	for key := range raw {
@@ -381,7 +397,7 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 	var mode string
 	if v, ok := raw["mode"]; ok {
 		if err := json.Unmarshal(v, &mode); err != nil {
-			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable mode field: %w", op, err)
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable mode field: %w", op, guardReadDecodeError(err, options...))
 		}
 	}
 	if mode != "iam" {
@@ -391,7 +407,7 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 	var policyIDsPtr *[]string
 	if v, ok := raw["policies"]; ok {
 		if err := json.Unmarshal(v, &policyIDsPtr); err != nil {
-			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable policies field: %w", op, err)
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable policies field: %w", op, guardReadDecodeError(err, options...))
 		}
 	}
 	if policyIDsPtr == nil {
@@ -401,11 +417,14 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 	var userIDsPtr *[]string
 	if v, ok := raw["iamUsers"]; ok {
 		if err := json.Unmarshal(v, &userIDsPtr); err != nil {
-			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable iamUsers field: %w", op, err)
+			return nil, nil, fmt.Errorf("iam: guard: %s: a group response had an unreadable iamUsers field: %w", op, guardReadDecodeError(err, options...))
 		}
 	}
 	if userIDsPtr == nil {
 		return nil, nil, fmt.Errorf("iam: guard: %s: a group response had no iamUsers field", op)
+	}
+	if err := guardCachedResponse(op, []any{*policyIDsPtr, *userIDsPtr}, options...); err != nil {
+		return nil, nil, err
 	}
 	return *policyIDsPtr, *userIDsPtr, nil
 }
@@ -424,8 +443,8 @@ type guardUserGroupAttachments struct {
 // endpoint ListUserGroups uses, refusing when the group list itself is null
 // or missing, or when any group in it has a null or missing policies field;
 // see guardUserGroupAttachments.
-func (c *Client) guardUserGroups(ctx context.Context, op, userID string) ([]guardUserGroupAttachments, error) {
-	groups, err := guardFetchAttachmentArray[guardUserGroupAttachments](ctx, c, op, []string{"user-attachments", "iam-users", userID, "groups"})
+func (c *Client) guardUserGroups(ctx context.Context, op, userID string, options ...userReadOptions) ([]guardUserGroupAttachments, error) {
+	groups, err := guardFetchAttachmentArray[guardUserGroupAttachments](ctx, c, op, []string{"user-attachments", "iam-users", userID, "groups"}, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -468,8 +487,8 @@ func (c *Client) serviceAccountIsProtected(ctx context.Context, op, serviceAccou
 // request sent when the caller's user type is not one the guard can reason
 // about (see the design's Terms section: an unknown user type fails every
 // guarded write, whatever that write's own rule names).
-func (c *Client) requireClassifiedCaller(ctx context.Context, op string) (*GetCallerIdentityOutput, error) {
-	caller, err := c.guardCallerIdentity(ctx)
+func (c *Client) requireClassifiedCaller(ctx context.Context, op string, options ...userReadOptions) (*GetCallerIdentityOutput, error) {
+	caller, err := c.guardCallerIdentity(ctx, options...)
 	if err != nil {
 		return nil, err
 	}

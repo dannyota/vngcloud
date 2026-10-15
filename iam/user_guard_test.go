@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -199,5 +201,125 @@ func TestDeleteUserInputAndCancellation(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatal("local failure made request")
+	}
+}
+
+// exercisePrivateUserGuard composes the existing guards without sending a write.
+func exercisePrivateUserGuard(ctx context.Context, c *Client, id string, opts userReadOptions) error {
+	const op = "iam.privateGuard"
+	if err := c.guardUserWrite(ctx, op, id, opts); err != nil {
+		return err
+	}
+	caller, err := c.guardCallerIdentity(ctx, opts)
+	if err != nil {
+		return err
+	}
+	actions, err := c.guardWriteActionNames(ctx, opts)
+	if err != nil {
+		return err
+	}
+	reason, err := c.userIsProtected(ctx, op, id, caller, actions, map[string]*Policy{}, opts)
+	if err != nil {
+		return err
+	}
+	if reason == protectedBySelf {
+		return ErrSelfChange
+	}
+	if reason == protectedByPrivilege {
+		return ErrPrivilegedChange
+	}
+	return nil
+}
+
+func TestPrivateUserGuardColdWarmCaches(t *testing.T) {
+	for _, warm := range []bool{false, true} {
+		for _, dependency := range []string{"", "target", "page", "groups", "policy"} {
+			t.Run(strconv.FormatBool(warm)+"/"+dependency, func(t *testing.T) {
+				var callerReads, actionReads, policyReads, captures atomic.Int32
+				var logs lockedGuardLog
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					path := r.URL.Path
+					if strings.HasSuffix(path, "/auth/userinfo") {
+						callerReads.Add(1)
+					}
+					if strings.HasSuffix(path, "/actions") {
+						actionReads.Add(1)
+					}
+					if strings.HasSuffix(path, "/policies/policy-1") {
+						policyReads.Add(1)
+					}
+					for _, edge := range privateGuardReads() {
+						if edge.name == dependency && path == edge.path {
+							w.WriteHeader(404)
+							_, _ = w.Write([]byte(`{"code":"password-canary","message":"arbitrary-server-text"}`))
+							return
+						}
+					}
+					body := privateGuardBody(path)
+					if strings.HasSuffix(path, "/user-1/policies") {
+						body = `{"data":[{"id":"policy-1"}],"totalItems":1}`
+					}
+					if strings.HasSuffix(path, "/user-1/groups") {
+						body = `[{"id":"group-1","policies":["policy-1"]}]`
+					}
+					_, _ = w.Write([]byte(body))
+				}))
+				t.Cleanup(server.Close)
+				c := privateGuardClient(server, &logs, &captures)
+				if warm {
+					if _, err := c.guardCallerIdentity(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := c.guardWriteActionNames(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					captures.Store(0)
+				}
+				for range 2 {
+					err := exercisePrivateUserGuard(context.Background(), c, "user-1", userReadOptions{Redact: []string{"password-canary"}})
+					if dependency == "" && err != nil || dependency != "" && !errors.Is(err, vngcloud.ErrNotFound) {
+						t.Fatalf("guard result: %v", err)
+					}
+					assertUserErrorPrivate(t, err, "password-canary", "arbitrary-server-text")
+				}
+				wantActions := int32(1)
+				if dependency == "target" && !warm {
+					wantActions = 0
+				}
+				if callerReads.Load() != 1 || actionReads.Load() != wantActions || captures.Load() != 0 {
+					t.Fatalf("caller=%d actions=%d captures=%d", callerReads.Load(), actionReads.Load(), captures.Load())
+				}
+				if dependency == "" && policyReads.Load() != 2 {
+					t.Fatal("policy map must deduplicate within each call and refetch between calls")
+				}
+			})
+		}
+	}
+}
+
+func TestPrivateUserGuardPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		caller, target string
+		want           error
+		reads          int
+	}{
+		{`{"userId":"USER-1","userType":"iam-user"}`, ``, ErrSelfChange, 1},
+		{`{"userId":"caller","userType":"root-user"}`, ``, ErrPrivilegedChange, 1},
+		{`{"userId":"caller","userType":"unknown"}`, ``, ErrPrivilegedChange, 1},
+		{`{"userId":"caller","userType":"iam-user"}`, `{"id":"user-1","from":"idp"}`, ErrOriginNotIAM, 2},
+	} {
+		reads := 0
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reads++
+			body := tc.target
+			if strings.HasSuffix(r.URL.Path, "/auth/userinfo") {
+				body = tc.caller
+			}
+			_, _ = w.Write([]byte(body))
+		}))
+		err := exercisePrivateUserGuard(context.Background(), c, "user-1", userReadOptions{})
+		if !errors.Is(err, tc.want) || reads != tc.reads {
+			t.Fatalf("reads=%d err=%v", reads, err)
+		}
 	}
 }

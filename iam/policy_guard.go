@@ -266,12 +266,12 @@ func (c *Client) groupIsProtected(ctx context.Context, op, groupID string, calle
 // guard's fail-closed decode of the same endpoint ListUserGroups uses, so a
 // null or missing policies list refuses instead of being read as "no
 // policies"; it never recurses back into groupIsProtected itself.
-func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller *GetCallerIdentityOutput, writeActionNames []string, seen map[string]*Policy) (protectedReason, error) {
+func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller *GetCallerIdentityOutput, writeActionNames []string, seen map[string]*Policy, options ...userReadOptions) (protectedReason, error) {
 	if !isServiceAccountCallerType(caller.UserType) && strings.EqualFold(caller.UserID, userID) {
 		return protectedBySelf, nil
 	}
 
-	direct, err := c.guardUserPolicySummaries(ctx, op, userID)
+	direct, err := c.guardUserPolicySummaries(ctx, op, userID, options...)
 	if err != nil {
 		return notProtected, err
 	}
@@ -279,7 +279,7 @@ func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller 
 	for i, summary := range direct {
 		directIDs[i] = summary.ID
 	}
-	privileged, err := c.anyPolicyIDPrivileged(ctx, directIDs, writeActionNames, seen)
+	privileged, err := c.anyPolicyIDPrivileged(ctx, directIDs, writeActionNames, seen, options...)
 	if err != nil {
 		return notProtected, err
 	}
@@ -287,12 +287,12 @@ func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller 
 		return protectedByPrivilege, nil
 	}
 
-	groups, err := c.guardUserGroups(ctx, op, userID)
+	groups, err := c.guardUserGroups(ctx, op, userID, options...)
 	if err != nil {
 		return notProtected, err
 	}
 	for _, group := range groups {
-		privileged, err := c.anyPolicyIDPrivileged(ctx, *group.PolicyIDs, writeActionNames, seen)
+		privileged, err := c.anyPolicyIDPrivileged(ctx, *group.PolicyIDs, writeActionNames, seen, options...)
 		if err != nil {
 			return notProtected, err
 		}
@@ -306,16 +306,19 @@ func (c *Client) userIsProtected(ctx context.Context, op, userID string, caller 
 // anyPolicyIDPrivileged reports whether any policy in policyIDs is
 // privileged, reading each one not already in seen with GetPolicy. seen
 // dedupes reads across one guard call; it is never shared across calls.
-func (c *Client) anyPolicyIDPrivileged(ctx context.Context, policyIDs []string, writeActionNames []string, seen map[string]*Policy) (bool, error) {
+func (c *Client) anyPolicyIDPrivileged(ctx context.Context, policyIDs []string, writeActionNames []string, seen map[string]*Policy, options ...userReadOptions) (bool, error) {
 	for _, id := range policyIDs {
 		policy, ok := seen[id]
 		if !ok {
-			got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: id})
+			got, err := c.getPolicy(ctx, &GetPolicyInput{PolicyID: id}, options...)
 			if err != nil {
 				return false, err
 			}
 			policy = &got.Policy
 			seen[id] = policy
+		}
+		if err := guardCachedResponse("iam.GetPolicy", policy, options...); err != nil {
+			return false, err
 		}
 		if policyIsPrivileged(policy, writeActionNames) {
 			return true, nil

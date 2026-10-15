@@ -18,6 +18,10 @@ type ListActionsOutput = core.List[Action]
 // The guards in guard.go call this once per Client and reuse the result to
 // decide which policy statements are IAM write actions.
 func (c *Client) ListActions(ctx context.Context, in *ListActionsInput) (*ListActionsOutput, error) {
+	return c.listActions(ctx, in)
+}
+
+func (c *Client) listActions(ctx context.Context, in *ListActionsInput, options ...userReadOptions) (*ListActionsOutput, error) {
 	const op = "iam.ListActions"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -34,7 +38,7 @@ func (c *Client) ListActions(ctx context.Context, in *ListActionsInput) (*ListAc
 		StrictJSON: true,
 		MaxBody:    guardListMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &actions); err != nil {
+	if err := c.guardReadJSON(ctx, "action list", req, &actions, options...); err != nil {
 		return nil, err
 	}
 	return &ListActionsOutput{Items: actions}, nil

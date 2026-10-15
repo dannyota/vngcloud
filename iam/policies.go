@@ -57,12 +57,26 @@ type GetPolicyOutput struct {
 }
 
 func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyOutput, error) {
+	return c.getPolicy(ctx, in)
+}
+
+func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...userReadOptions) (*GetPolicyOutput, error) {
 	const op = "iam.GetPolicy"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
 	if err := core.CheckPathID(op, "PolicyID", in.PolicyID); err != nil {
 		return nil, fmt.Errorf("%w: %s requires a valid PolicyID", core.ErrInvalidInput, op)
+	}
+
+	var credentials []string
+	defer func() { clear(credentials) }()
+	if len(options) != 0 {
+		opts := guardUserReadOptions(options...)
+		if opts.SentCredentials == nil {
+			opts.SentCredentials = &credentials
+		}
+		options = []userReadOptions{opts}
 	}
 
 	type fields Policy
@@ -80,12 +94,16 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 		StrictJSON: true,
 		MaxBody:    guardObjectMaxBody,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.guardReadJSON(ctx, "policy", req, &resp, options...); err != nil {
 		return nil, err
 	}
 	policy.Root = string(resp.Root)
 	policy.CreatedAt = int64(resp.CreatedAt)
-	return &GetPolicyOutput{Policy: Policy(policy)}, nil
+	out := &GetPolicyOutput{Policy: Policy(policy)}
+	if err := guardCachedResponse(op, out, options...); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ListPolicyAttachmentsInput identifies the policy whose attachments to
