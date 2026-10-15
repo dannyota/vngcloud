@@ -127,8 +127,11 @@ A guard read that comes back incomplete or unprovable refuses instead of
 guessing: an account action list naming no write action, or an attachment
 page whose item count does not match its own reported total, is treated as
 a failed read, never as evidence that nothing is privileged. A policy with
-no statements at all is privileged, and any statement effect other than
-`deny` counts as a grant, including one the API has not defined yet. A group
+no statements at all is privileged. So is each of these statements, since
+none proves the document safe: a null statement; a statement whose effect,
+compared case-insensitively, is neither `allow` nor `deny`, including one
+the API has not defined yet; and an `allow` statement whose action list is
+missing, null, or empty. A `deny` statement is ignored. A group
 whose `mode` is not exactly `iam`, missing included, or whose own response
 carries a member-holding field besides `iamUsers`, is unprovable the same
 way: every guard that reads a group object refuses it outright (the
