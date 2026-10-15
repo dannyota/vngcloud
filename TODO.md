@@ -17,3 +17,4 @@ permission, cost, and resource gates still apply.
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
+- [ ] Bound the IAM user login page and token responses, which `internal/iamuser/login.go` reads with `io.ReadAll`; a hostile or broken sign-in host can exhaust memory. [Security rules](instructions/security.md).
