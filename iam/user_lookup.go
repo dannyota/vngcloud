@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
@@ -141,14 +142,14 @@ func (c *Client) guardReadJSON(ctx context.Context, label string, req transport.
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", req.Operation, label, err)
 	}
-	if opts.containsResponseCredential(out) || (userReadOptions{Redact: sent}).containsResponseCredential(out) {
+	if opts.guardContainsResponseCredential(reflect.ValueOf(out)) || (userReadOptions{Redact: sent}).guardContainsResponseCredential(reflect.ValueOf(out)) {
 		return fmt.Errorf("iam: %s: unsafe guard response", req.Operation)
 	}
 	return nil
 }
 
 func guardCachedResponse(op string, value any, options ...userReadOptions) error {
-	if len(options) != 0 && options[0].containsResponseCredential(value) {
+	if len(options) != 0 && options[0].guardContainsResponseCredential(reflect.ValueOf(value)) {
 		return fmt.Errorf("iam: %s: unsafe cached guard response", op)
 	}
 	return nil
@@ -173,4 +174,47 @@ func guardUserReadOptions(options ...userReadOptions) userReadOptions {
 		return opts
 	}
 	return userReadOptions{}
+}
+
+// Guard comparisons normalize identities and actions. Check case variants too,
+// without changing the credential rules for ordinary reads and confirmations.
+func (o userReadOptions) guardContainsResponseCredential(value reflect.Value) bool {
+	switch value.Kind() {
+	case reflect.String:
+		folded := strings.ToLower(value.String())
+		for _, secret := range o.Redact {
+			if secret != "" && strings.Contains(folded, strings.ToLower(secret)) {
+				return true
+			}
+		}
+		if o.SentCredentials != nil {
+			for _, secret := range *o.SentCredentials {
+				if secret != "" && strings.Contains(folded, strings.ToLower(secret)) {
+					return true
+				}
+			}
+		}
+	case reflect.Pointer, reflect.Interface:
+		return !value.IsNil() && o.guardContainsResponseCredential(value.Elem())
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			if value.Type().Field(i).IsExported() && o.guardContainsResponseCredential(value.Field(i)) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < value.Len(); i++ {
+			if o.guardContainsResponseCredential(value.Index(i)) {
+				return true
+			}
+		}
+	case reflect.Map:
+		iter := value.MapRange()
+		for iter.Next() {
+			if o.guardContainsResponseCredential(iter.Key()) || o.guardContainsResponseCredential(iter.Value()) {
+				return true
+			}
+		}
+	}
+	return false
 }

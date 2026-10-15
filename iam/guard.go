@@ -195,6 +195,16 @@ func (c *Client) guardWriteActionNames(ctx context.Context, options ...userReadO
 		}
 		return c.guardWriteActions, nil
 	}
+	var credentials []string
+	defer func() { clear(credentials) }()
+	if len(options) != 0 {
+		opts := guardUserReadOptions(options...)
+		if opts.SentCredentials == nil {
+			opts.SentCredentials = &credentials
+		}
+		options = []userReadOptions{opts}
+	}
+
 	out, err := c.listActions(ctx, nil, options...)
 	if err != nil {
 		return nil, err
@@ -202,6 +212,9 @@ func (c *Client) guardWriteActionNames(ctx context.Context, options ...userReadO
 	names := writeActionNames(out.Items)
 	if len(names) == 0 {
 		return nil, errors.New("iam: guard: refused: the account's IAM action list names no write action")
+	}
+	if err := guardCachedResponse("iam.ListActions", names, options...); err != nil {
+		return nil, err
 	}
 	c.guardWriteActions = names
 	return names, nil

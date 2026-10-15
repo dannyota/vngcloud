@@ -323,3 +323,108 @@ func TestPrivateUserGuardPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestPrivateGuardDerivedActionCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, action, password, token string
+		accumulate                    bool
+	}{
+		{name: "password-case", action: "PASSWORD-CANARY", password: "password-canary"},
+		{name: "password-prefix", action: "CreatePolicy", password: "IAM:CREATEPOLICY"},
+		{name: "sent-case", action: "BEARER-CANARY"},
+		{name: "sent-prefix", action: "CreatePolicy", token: "IAM:CREATEPOLICY"},
+		{name: "accumulated-prefix", action: "CreatePolicy", token: "IAM:CREATEPOLICY", accumulate: true},
+		{name: "safe-action", action: "canary"},
+		{name: "accumulated-case", action: "BEARER-CANARY", accumulate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var captures atomic.Int32
+			var logs lockedGuardLog
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `[{"action":%q,"label":"Write"}]`, tc.action)
+			}))
+			t.Cleanup(server.Close)
+			c := privateGuardClient(server, &logs, &captures)
+			if tc.token != "" {
+				cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken(tc.token),
+					vngcloud.WithHTTPClient(server.Client()), vngcloud.WithRetry(0, 0),
+					vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{IAM: server.URL + "/"}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				c = New(cfg)
+			}
+			opts := userReadOptions{Redact: []string{tc.password}}
+			var sent []string
+			if tc.accumulate {
+				opts.SentCredentials = &sent
+			}
+			names, err := c.guardWriteActionNames(context.Background(), opts)
+			if tc.name == "safe-action" {
+				// This action contains no credential before or after qualification.
+				if err != nil || len(names) != 1 {
+					t.Fatalf("safe action refused: %v", err)
+				}
+				return
+			}
+			if err == nil || names != nil || len(c.guardWriteActions) != 0 {
+				t.Fatal("credential-bearing action names returned or cached")
+			}
+			assertUserErrorPrivate(t, err, "bearer-canary", "BEARER-CANARY")
+			for _, secret := range []string{tc.password, tc.token} {
+				if secret != "" {
+					assertUserErrorPrivate(t, err, secret)
+				}
+			}
+			if tc.accumulate && len(sent) == 0 {
+				t.Fatal("sent credential not accumulated")
+			}
+		})
+	}
+}
+
+func TestPrivateGuardWarmCacheCollisions(t *testing.T) {
+	for _, cache := range []string{"caller", "actions"} {
+		for _, source := range []string{"password", "credential"} {
+			t.Run(cache+"/"+source, func(t *testing.T) {
+				var reads atomic.Int32
+				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					reads.Add(1)
+					body := `[{"action":"Later-Operation-Canary","label":"Write"}]`
+					if strings.HasSuffix(r.URL.Path, "/userinfo") {
+						body = `{"userId":"caller","userType":"iam-user","username":"Later-Operation-Canary"}`
+					}
+					_, _ = w.Write([]byte(body))
+				}))
+				read := func(opts userReadOptions) error {
+					if cache == "caller" {
+						_, err := c.guardCallerIdentity(context.Background(), opts)
+						return err
+					}
+					_, err := c.guardWriteActionNames(context.Background(), opts)
+					return err
+				}
+				benign := userReadOptions{Redact: []string{"earlier-operation-canary"}}
+				if err := read(benign); err != nil {
+					t.Fatal(err)
+				}
+				opts := userReadOptions{Redact: []string{"LATER-OPERATION-CANARY"}}
+				if source == "credential" {
+					sent := []string{"LATER-OPERATION-CANARY"}
+					opts = userReadOptions{SentCredentials: &sent}
+				}
+				err := read(opts)
+				if err == nil {
+					t.Fatal("cache hit ignored current operation credentials")
+				}
+				assertUserErrorPrivate(t, err, "LATER-OPERATION-CANARY", "Later-Operation-Canary", "later-operation-canary")
+				if err := read(benign); err != nil {
+					t.Fatal("collision changed the shared cache")
+				}
+				if reads.Load() != 1 {
+					t.Fatal("cache collision caused a refetch")
+				}
+			})
+		}
+	}
+}

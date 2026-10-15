@@ -24,6 +24,15 @@ func (c *Client) guardUserWrite(ctx context.Context, op, id string, options ...u
 			return fmt.Errorf("%w: %s", ErrSelfChange, op)
 		}
 	}
+	var credentials []string
+	defer func() { clear(credentials) }()
+	if len(options) != 0 {
+		opts := guardUserReadOptions(options...)
+		if opts.SentCredentials == nil {
+			opts.SentCredentials = &credentials
+		}
+		options = []userReadOptions{opts}
+	}
 	user, err := c.getUser(ctx, op, id, guardUserReadOptions(options...))
 	if err != nil {
 		var api *core.APIError
@@ -31,6 +40,9 @@ func (c *Client) guardUserWrite(ctx context.Context, op, id string, options ...u
 			return fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
 		}
 		return fmt.Errorf("%s: read target user: %w", op, err)
+	}
+	if err := guardCachedResponse(op, user, options...); err != nil {
+		return fmt.Errorf("%s: read target user: %w: %w", op, ErrOriginNotIAM, err)
 	}
 	if core.CheckPathID(op, "UserID", user.ID) != nil || !strings.EqualFold(user.ID, id) || user.From != "iam" {
 		return fmt.Errorf("%w: %s: target identity or origin is unproven", ErrOriginNotIAM, op)

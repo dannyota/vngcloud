@@ -611,7 +611,7 @@ func TestGuardReadPrivacyContextIdentity(t *testing.T) {
 
 func TestGuardReadPrivacyCredentialResponses(t *testing.T) {
 	for _, edge := range privateGuardReads() {
-		for _, credential := range []string{"password-canary", "bearer-canary"} {
+		for _, credential := range []string{"password-canary", "bearer-canary", "PASSWORD-CANARY", "BEARER-CANARY"} {
 			t.Run(edge.name+"/"+strconv.Itoa(len(credential)), func(t *testing.T) {
 				var logs lockedGuardLog
 				var captures atomic.Int32
