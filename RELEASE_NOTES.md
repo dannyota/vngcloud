@@ -18,10 +18,11 @@
   returns the new `ErrUserWriteUncertain`. Both exit 1, and a generated
   password stays saved in either case. There is no undo, and whether
   existing sessions end after a reset is unknown.
-- Fix for every guarded IAM write: an action catalog with a null row, a row
-  missing its action, or an action name that fails the name check now
-  refuses the write and is not cached. Before, such a catalog could make a
-  protected user read as unprivileged.
+- Fix for guarded IAM writes that read the action catalog (policy, group,
+  attachment, service-account, and password-reset guards): a catalog with a
+  null row, a row missing its action, a wildcard, or any name that is not a
+  concrete action now refuses the write and is not cached. Before, such a
+  catalog could make a protected user read as unprivileged.
 
 ## v0.85.0 - IAM User Create, Delete, and Reads
 
