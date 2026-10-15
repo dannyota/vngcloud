@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.85.0 - IAM User Create, Delete, and Reads
+
+- SDK `GetUser` and CLI `iam get-user --user-id` read one IAM user:
+  `CreatedAt`, `LastUse` (epoch milliseconds; `LastUse` stays 0 until the
+  user first signs in), `Enabled`, `From`, `ID`, and `Username`.
+  `ListUsersInput.Name` and `iam list-users --name` filter by the server's
+  case-insensitive substring match.
+- SDK `CreateUser` and CLI `iam create-user --username` create an IAM user
+  with no rights and no MFA. Give exactly one of `--password-file <path>`
+  (or `-` for stdin) or `--secret-file <new-path>`. With `--secret-file`,
+  the CLI generates the password, 32 characters by default (choose 8 to 50
+  with `--password-length`), always with uppercase, lowercase, digits, and
+  `@`, and saves it to a new file at mode 0600. A password is never taken
+  from argv or `--cli-input-json` and never printed.
+- Create sends once and never retries. An uncertain outcome returns
+  `ErrUserCreateUncertain` (exit 1) and keeps a generated password saved; a
+  user found only by name is reported as `CandidateID`, never as proof that
+  the password belongs to it. A confirmed create with failed confirmation
+  reads returns `ErrCreateUnconfirmed`. If saving the generated password
+  fails, the CLI sends no cleanup request and prints the exact `delete-user`
+  command.
+- SDK `DeleteUser` and CLI `iam delete-user --user-id --yes` refuse the
+  caller's own user, root or unknown callers, and a user whose origin is not
+  `iam` (`ErrOriginNotIAM`). The server decides about attached policies and
+  groups; its 409 stays `Conflict`.
+- Behavior changes for every command: an `Op` can now refuse before
+  `--cli-input-json` is read, and a `file://` JSON input that is not a
+  regular file (a FIFO, a device, or a directory) now fails with exit 2
+  instead of waiting.
+- Compatibility: unkeyed `ListUsersInput` literals no longer compile.
+
 ## v0.84.2 - Strict, Bounded IAM Guard Reads
 
 - Fix: every read an IAM write guard depends on now rejects a duplicate
