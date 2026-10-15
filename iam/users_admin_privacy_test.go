@@ -93,10 +93,10 @@ func TestResetUserPasswordWarmCacheCredentialRefusal(t *testing.T) {
 			}
 			body := resetGuardBody(r.URL.Path)
 			if cache == "caller" && strings.HasSuffix(r.URL.Path, "/userinfo") {
-				body = `{"userId":"caller","userType":"iam-user","username":"warm-canary"}`
+				body = `{"userId":"caller","userType":"iam-user","username":"warmcanary"}`
 			}
 			if cache == "actions" && strings.HasSuffix(r.URL.Path, "/actions") {
-				body = `[{"action":"warm-canary","label":"Write"}]`
+				body = `[{"action":"warmcanary","label":"Write"}]`
 			}
 			_, _ = io.WriteString(w, body)
 		}))
@@ -106,11 +106,11 @@ func TestResetUserPasswordWarmCacheCredentialRefusal(t *testing.T) {
 		if _, err := c.guardWriteActionNames(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		out, err := c.ResetUserPassword(context.Background(), &ResetUserPasswordInput{UserID: "user-1", Password: "WARM-CANARY"})
+		out, err := c.ResetUserPassword(context.Background(), &ResetUserPasswordInput{UserID: "user-1", Password: "WARMCANARY"})
 		if out != nil || err == nil || posts != 0 {
 			t.Fatal("cached credential authorized reset")
 		}
-		assertUserErrorPrivate(t, err, "warm-canary", "WARM-CANARY")
+		assertUserErrorPrivate(t, err, "warmcanary", "WARMCANARY")
 	}
 }
 

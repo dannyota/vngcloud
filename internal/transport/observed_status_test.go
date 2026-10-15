@@ -188,3 +188,67 @@ func TestObservedPreStatusUnchanged(t *testing.T) {
 		t.Fatalf("pre-status failure changed: status=%d error=%v", got, err)
 	}
 }
+
+type observedCancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b observedCancelBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+type observedInvalidationSource struct {
+	testTokenSource
+}
+
+func (*observedInvalidationSource) InvalidateContext(context.Context, string) error {
+	return fmt.Errorf("synthetic-invalidation-canary: %w", context.Canceled)
+}
+
+func TestObservedStatusInvalidationFailure(t *testing.T) {
+	for _, cancelOnClose := range []bool{false, true} {
+		for _, keep := range []bool{false, true} {
+			t.Run(fmt.Sprintf("cancel-on-close=%t/keep=%t", cancelOnClose, keep), func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				calls := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					calls++
+					w.WriteHeader(http.StatusUnauthorized)
+				}))
+				defer server.Close()
+				rt := observedRoundTripper(func(r *http.Request) (*http.Response, error) {
+					resp, err := server.Client().Transport.RoundTrip(r)
+					if err == nil && cancelOnClose {
+						resp.Body = observedCancelBody{ReadCloser: resp.Body, cancel: cancel}
+					}
+					return resp, err
+				})
+				source := &observedInvalidationSource{}
+				c := New(Config{HTTPClient: &http.Client{Transport: rt}, TokenSource: source, RetryCount: 3})
+				notSent := true
+				status, err := c.DoJSONStatus(ctx, Request{Operation: "test.Write", Method: http.MethodPost, URL: server.URL, OK: []int{204}, Once: true, KeepObservedStatus: keep, NotSent: &notSent}, nil)
+				if !errors.Is(err, context.Canceled) || notSent || calls != 1 || source.count.Load() != 1 {
+					t.Fatalf("cancellation=%t notSent=%t calls=%d tokens=%d", errors.Is(err, context.Canceled), notSent, calls, source.count.Load())
+				}
+				var api *APIError
+				if !keep {
+					if status != 0 || errors.As(err, &api) {
+						t.Fatalf("legacy behavior changed: status=%d error=%v", status, err)
+					}
+					return
+				}
+				if status != 401 || !errors.As(err, &api) || api.StatusCode != 401 || !api.KeptObservedStatus || api.Retryable {
+					t.Fatalf("observed rejection lost: status=%d error=%v", status, err)
+				}
+				var safe *safeNetworkError
+				if !errors.As(err, &safe) || strings.Contains(fmt.Sprintf("%+v %+v", api, safe), "canary") {
+					t.Fatal("invalidation cause was not sanitized")
+				}
+			})
+		}
+	}
+}

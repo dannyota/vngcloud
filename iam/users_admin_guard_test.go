@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -199,4 +200,50 @@ func TestResetUserPasswordPrivilegeChangesBeforeSend(t *testing.T) {
 	if out != nil || posts != 1 || !errors.Is(err, vngcloud.ErrPermission) {
 		t.Fatalf("concurrent change: %v", err)
 	}
+}
+
+type resetCancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b resetCancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+func TestResetUserPassword401InvalidationCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	posts, after := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if posts != 0 {
+			after++
+		}
+		_, _ = io.WriteString(w, resetGuardBody(r.URL.Path))
+	}))
+	defer server.Close()
+	rt := userWriteRoundTrip(func(r *http.Request) (*http.Response, error) {
+		resp, err := server.Client().Transport.RoundTrip(r)
+		if err == nil && r.Method == http.MethodPost {
+			resp.Body = resetCancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+		}
+		return resp, err
+	})
+	c := New(resetUserConfig(t, server, rt))
+	out, err := c.ResetUserPassword(ctx, &ResetUserPasswordInput{UserID: "user-1"})
+	var api *vngcloud.APIError
+	if out != nil || !errors.As(err, &api) || api.StatusCode != 401 || !errors.Is(err, vngcloud.ErrAuth) || !errors.Is(err, context.Canceled) || errors.Is(err, ErrUserWriteUncertain) {
+		t.Fatalf("definite rejection lost: partial=%t error=%v", out != nil, err)
+	}
+	if posts != 1 || after != 0 {
+		t.Fatalf("posts=%d requests after reset=%d", posts, after)
+	}
+	assertUserErrorPrivate(t, err, "bearer-canary")
 }

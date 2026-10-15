@@ -142,7 +142,8 @@ type Request struct {
 	StrictJSON bool // Reject duplicate keys and aliases for the same struct field.
 
 	// KeepObservedStatus retains the HTTP status on response body read or close
-	// failures. Unset requests keep status zero for those failures.
+	// failures and token invalidation failures for Once requests. Unset requests
+	// keep status zero for those failures.
 	KeepObservedStatus bool
 
 	// AllowEmptyBody skips JSON validation and decoding for zero-byte success bodies.
@@ -328,6 +329,9 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 			// resend. The caller gets this 401 back; a later call, Once or
 			// not, fetches a fresh token instead of reusing the rejected one.
 			if err := c.invalidateOnceContext(ctx, sent); err != nil {
+				if req.KeepObservedStatus {
+					return statusCode, "", nil, bodyFailure(req, statusCode, err)
+				}
 				return 0, "", nil, err
 			}
 			return statusCode, contentType, body, nil

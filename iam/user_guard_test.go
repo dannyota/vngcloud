@@ -390,9 +390,9 @@ func TestPrivateGuardWarmCacheCollisions(t *testing.T) {
 				var reads atomic.Int32
 				c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					reads.Add(1)
-					body := `[{"action":"Later-Operation-Canary","label":"Write"}]`
+					body := `[{"action":"LaterOperationCanary","label":"Write"}]`
 					if strings.HasSuffix(r.URL.Path, "/userinfo") {
-						body = `{"userId":"caller","userType":"iam-user","username":"Later-Operation-Canary"}`
+						body = `{"userId":"caller","userType":"iam-user","username":"LaterOperationCanary"}`
 					}
 					_, _ = w.Write([]byte(body))
 				}))
@@ -408,16 +408,16 @@ func TestPrivateGuardWarmCacheCollisions(t *testing.T) {
 				if err := read(benign); err != nil {
 					t.Fatal(err)
 				}
-				opts := userReadOptions{Redact: []string{"LATER-OPERATION-CANARY"}}
+				opts := userReadOptions{Redact: []string{"LATEROPERATIONCANARY"}}
 				if source == "credential" {
-					sent := []string{"LATER-OPERATION-CANARY"}
+					sent := []string{"LATEROPERATIONCANARY"}
 					opts = userReadOptions{SentCredentials: &sent}
 				}
 				err := read(opts)
 				if err == nil {
 					t.Fatal("cache hit ignored current operation credentials")
 				}
-				assertUserErrorPrivate(t, err, "LATER-OPERATION-CANARY", "Later-Operation-Canary", "later-operation-canary")
+				assertUserErrorPrivate(t, err, "LATEROPERATIONCANARY", "LaterOperationCanary", "lateroperationcanary")
 				if err := read(benign); err != nil {
 					t.Fatal("collision changed the shared cache")
 				}

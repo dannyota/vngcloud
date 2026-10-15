@@ -66,12 +66,17 @@ func stripIAMPrefix(action string) string {
 // writeActionNames returns the full "iam:<Action>" name of every write
 // action in actions, lower case, for matching against a policy statement's
 // action patterns. actions must already be filtered to product "iam", as
-// ListActions returns.
+// ListActions returns. Any unusable name invalidates the whole catalog,
+// including entries whose labels would otherwise exclude them from writes.
 func writeActionNames(actions []Action) []string {
 	names := make([]string, 0, len(actions))
 	for _, a := range actions {
+		name := "iam:" + stripIAMPrefix(a.Action)
+		if !validActionPattern.MatchString(name) {
+			return nil
+		}
 		if isWriteLabel(a.Label) {
-			names = append(names, strings.ToLower("iam:"+stripIAMPrefix(a.Action)))
+			names = append(names, strings.ToLower(name))
 		}
 	}
 	return names
