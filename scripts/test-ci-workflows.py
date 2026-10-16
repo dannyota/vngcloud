@@ -6,6 +6,7 @@ interpreter lacks it. Never install a parser or call GitHub from these tests.
 """
 
 import copy
+import importlib.util
 import fnmatch
 import json
 import os
@@ -21,14 +22,45 @@ HEAD = "${{ github.event.pull_request.head.sha || github.sha }}"
 TRUST = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
 TOKEN = "${{ (" + TRUST + ") && secrets.GITHUB_TOKEN || '' }}"
 FILES = ("ci", "semgrep", "tools", "wiki")
-IDENTITY = '''actual=$(git rev-parse HEAD)
+BASE_IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
+NOTICE = """TESTED_SHA="$actual" python3 - <<'PYTHON'
+import json
+import os
+import re
+
+record = {
+    "version": 2,
+    "repository": "dannyota/vngcloud",
+    "workflow": "WORKFLOW_PATH",
+    "job": "JOB_KEY",
+    "matrix": {},
+    "tested_sha": os.environ["TESTED_SHA"],
+    "run_id": int(os.environ["RUN_ID"]),
+    "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+    "workflow_ref": os.environ["WORKFLOW_REF"],
+    "workflow_sha": os.environ["WORKFLOW_SHA"],
+}
+assert all(re.fullmatch(r"[0-9a-f]{40}", record[key]) for key in ("tested_sha", "workflow_sha"))
+assert record["run_id"] > 0 and record["run_attempt"] > 0
+message = json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+assert len(message.encode("utf-8")) <= 2048
+message = message.replace("%", "%25").replace("\\r", "%0D").replace("\\n", "%0A")
+print("::notice title=vngcloud-source-identity::" + message)
+PYTHON"""
+
+
+def identity_script(name, job):
+    assertion, output = BASE_IDENTITY.split('echo "tested_sha=', 1)
+    notice = NOTICE.replace('WORKFLOW_PATH', '.github/workflows/' + name + '.yml').replace('JOB_KEY', job)
+    return assertion + notice + '\n' + 'echo "tested_sha=' + output
+
 SCAN = "semgrep ci --code --supply-chain --no-suppress-errors"
 TRUST_DIRECTORY = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"'
 GO_COMMANDS = {
-    "python3 scripts/test-ci-workflows.py", "go test -race ./...",
+    "python3 scripts/test-ci-workflows.py", "python3 scripts/test-ci-evidence.py", "go test -race ./...",
     "go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...",
     "go mod tidy\ngit diff --exit-code -- go.mod go.sum",
     "bash scripts/check-lengths.sh", "bash scripts/check-sdk-deps.sh",
@@ -119,9 +151,11 @@ def source_policy(name, workflow):
         identity = [s for s in job["steps"] if s.get("id") == "identity"]
         assert len(identity) == 1
         controls(identity[0])
-        assert identity[0]["run"].strip() == IDENTITY, "identity command"
+        assert identity[0]["run"].strip() == identity_script(name, job_id), "identity command"
         assert identity[0]["env"] == {"EXPECTED_SHA": HEAD, "RUN_ID": "${{ github.run_id }}",
-                                      "RUN_ATTEMPT": "${{ github.run_attempt }}"}
+                                      "RUN_ATTEMPT": "${{ github.run_attempt }}",
+                                      "WORKFLOW_REF": "${{ github.workflow_ref }}",
+                                      "WORKFLOW_SHA": "${{ github.workflow_sha }}"}
         assert job["steps"].index(checkout[0]) < job["steps"].index(identity[0])
         if name == "ci":
             assert job["outputs"] == {"tested_sha": "${{ steps.identity.outputs.tested_sha }}"}
@@ -144,7 +178,7 @@ def aggregate_policy(workflow):
 def scanner_policy(workflow):
     job = workflow["jobs"]["semgrep"]
     controls(job)
-    assert job["container"]["image"] == "semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3"
+    assert job["container"]["image"] == "semgrep/semgrep:1.181.0@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b"
     assert job["steps"][0]["with"]["fetch-depth"] == "0"
     trust = job["steps"][1]
     controls(trust)
@@ -252,9 +286,44 @@ class WorkflowTests(unittest.TestCase):
                             continue
                         for actual in ("head", "merge"):
                             result = shell(step["run"], PATH=temp + ":" + os.environ["PATH"],
-                                           EXPECTED_SHA="head", ACTUAL_SHA=actual, RUN_ID="1", RUN_ATTEMPT="1",
+                                           EXPECTED_SHA="a" * 40, ACTUAL_SHA="a" * 40 if actual == "head" else "b" * 40, RUN_ID="1", RUN_ATTEMPT="1",
+                                           WORKFLOW_SHA="c" * 40, WORKFLOW_REF="synthetic/ref",
                                            GITHUB_OUTPUT=temp + "/output", GITHUB_STEP_SUMMARY=temp + "/summary")
                             self.assertEqual(result.returncode == 0, actual == "head")
+
+    def test_notices_bind_fixed_jobs_and_direct_context(self):
+        for name, workflow in self.workflows.items():
+            for key, job in workflow['jobs'].items():
+                if key == 'required':
+                    continue
+                step = next(step for step in job['steps'] if step.get('id') == 'identity')
+                with tempfile.TemporaryDirectory() as temp:
+                    git = Path(temp) / 'git'
+                    git.write_text('#!/bin/sh\nprintf "%s\\n" "$ACTUAL_SHA"\n')
+                    git.chmod(0o700)
+                    ref = 'dannyota/vngcloud/.github/workflows/' + name + '.yml@refs/heads/percent%branch'
+                    result = shell(step['run'], PATH=temp + ':' + os.environ['PATH'],
+                        EXPECTED_SHA='a'*40, ACTUAL_SHA='a'*40, RUN_ID='17', RUN_ATTEMPT='2',
+                        WORKFLOW_REF=ref, WORKFLOW_SHA='b'*40,
+                        GITHUB_OUTPUT=temp+'/output', GITHUB_STEP_SUMMARY=temp+'/summary')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    lines = [line for line in result.stdout.splitlines() if line.startswith('::notice')]
+                    self.assertEqual(len(lines), 1)
+                    prefix = '::notice title=vngcloud-source-identity::'
+                    self.assertTrue(lines[0].startswith(prefix))
+                    message = lines[0][len(prefix):].replace('%0A', '\n').replace('%0D', '\r').replace('%25', '%')
+                    claim = json.loads(message)
+                    self.assertEqual(claim, dict(version=2, repository='dannyota/vngcloud',
+                        workflow='.github/workflows/'+name+'.yml', job=key, matrix={}, tested_sha='a'*40,
+                        run_id=17, run_attempt=2, workflow_ref=ref, workflow_sha='b'*40))
+                    self.assertLessEqual(len(message.encode()), 2048)
+                    for field in ('WORKFLOW_REF', 'WORKFLOW_SHA'):
+                        self.rejected(lambda w: source_policy(name, w), workflow,
+                            lambda w, f=field: next(step for step in w['jobs'][key]['steps']
+                            if step.get('id') == 'identity')['env'].update({f: 'submitted'}))
+        make = (ROOT / 'Makefile').read_text()
+        self.assertRegex(make, r'(?m)^check: .*ci-evidence-check')
+        self.assertIn('python3 scripts/test-ci-evidence.py', make)
 
     def test_semgrep_container_git_ownership(self):
         steps = self.workflows["semgrep"]["jobs"]["semgrep"]["steps"]
@@ -278,6 +347,7 @@ class WorkflowTests(unittest.TestCase):
                     summary = Path(temp) / ("summary-" + expected)
                     env.update(GIT_CONFIG_GLOBAL=str(config), GITHUB_WORKSPACE=str(ROOT),
                                EXPECTED_SHA=expected, RUN_ID="1", RUN_ATTEMPT="1",
+                               WORKFLOW_SHA="c" * 40, WORKFLOW_REF="synthetic/ref",
                                GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
                     for step in before_identity:
                         result = subprocess.run(["sh", "-e", "-c", step["run"]],
@@ -333,7 +403,7 @@ class WorkflowTests(unittest.TestCase):
         # Mutate only lint, so another job's valid identity cannot mask it.
         self.rejected(lambda w: source_policy("ci", w), ci,
                       lambda w: w["jobs"]["lint"]["steps"][1].update(
-                          run=IDENTITY.replace('test "$actual" = "$EXPECTED_SHA"',
+                          run=identity_script("ci", "lint").replace('test "$actual" = "$EXPECTED_SHA"',
                                                'test "$actual" = "$EXPECTED_SHA" || true')))
         make = (ROOT / "Makefile").read_text()
         self.assertRegex(make, r"(?m)^check: .*ci-workflows-check")
