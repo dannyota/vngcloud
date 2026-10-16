@@ -51,11 +51,40 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           actual=$(git rev-parse HEAD)
           test "$actual" = "$EXPECTED_SHA"
+          TESTED_SHA="$actual" python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+
+          record = {
+              "version": 2,
+              "repository": "dannyota/vngcloud",
+              "workflow": ".github/workflows/tools.yml",
+              "job": "outdated",
+              "matrix": {},
+              "tested_sha": os.environ["TESTED_SHA"],
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "workflow_ref": os.environ["WORKFLOW_REF"],
+              "workflow_sha": os.environ["WORKFLOW_SHA"],
+          }
+          assert all(re.fullmatch(r"[0-9a-f]{40}", record[key]) for key in ("tested_sha", "workflow_sha"))
+          assert record["run_id"] > 0 and record["run_attempt"] > 0
+          message = json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+          assert len(message.encode("utf-8")) <= 2048
+          message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::notice title=vngcloud-source-identity::" + message)
+          PYTHON
           echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
           printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deliberate duplicate notice proof
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: printf '::notice title=vngcloud-source-identity::{}\n'
       - run: bash scripts/tools-outdated.sh
         env:
           GH_TOKEN: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.GITHUB_TOKEN || '' }}
