@@ -82,6 +82,9 @@ jobs:
           PYTHON
           echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
           printf 'Tested SHA: %s; run: %s; attempt: %s\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deliberate evidence rejection proof
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: exit 1
       - run: bash scripts/tools-outdated.sh
         env:
           GH_TOKEN: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.GITHUB_TOKEN || '' }}
