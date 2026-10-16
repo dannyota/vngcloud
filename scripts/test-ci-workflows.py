@@ -178,7 +178,7 @@ def aggregate_policy(workflow):
 def scanner_policy(workflow):
     job = workflow["jobs"]["semgrep"]
     controls(job)
-    assert job["container"]["image"] == "semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3"
+    assert job["container"]["image"] == "semgrep/semgrep:1.181.0@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b"
     assert job["steps"][0]["with"]["fetch-depth"] == "0"
     trust = job["steps"][1]
     controls(trust)
