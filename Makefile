@@ -1,14 +1,17 @@
-.PHONY: help check ci-workflows-check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
+.PHONY: help check ci-workflows-check ci-evidence-check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
 
 SHELL := bash
 
 help: ## Show this help
 	@bash -c "grep '^[a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | sort | sed 's/:.*## /\t/'"
 
-check: test vet lint lengths-check ci-workflows-check ## Run every local check; run before each commit
+check: test vet lint lengths-check ci-workflows-check ci-evidence-check ## Run every local check; run before each commit
 
 ci-workflows-check: ## Check workflow triggers, source identity, and validation gates
 	@python3 scripts/test-ci-workflows.py
+
+ci-evidence-check: ## Check offline landing and release evidence rules
+	@python3 scripts/test-ci-evidence.py
 
 test: ## Run tests
 	@go test -race ./...

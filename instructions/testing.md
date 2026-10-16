@@ -29,7 +29,7 @@ CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, 
 
 ## Workflow triggers
 
-CI runs for every PR targeting master, every master push, and manual dispatch, including docs-only changes. It retains all existing checks and adds offline workflow regressions. `CI required` always evaluates the Go, lint, and security job results and their tested SHA; failed or skipped dependencies fail the aggregate. Every source-validation checkout selects the PR head or event SHA, disables persisted credentials, and asserts and records source identity.
+CI runs for every PR targeting master, every master push, and manual dispatch, including docs-only changes. It retains all existing checks and runs offline workflow and evidence regressions. `CI required` always evaluates the Go, lint, and security job results and their tested SHA; failed or skipped dependencies fail the aggregate. Every source-validation checkout selects the PR head or event SHA, disables persisted credentials, and asserts and records version-2 tested-source and workflow-source identity.
 
 |Workflow|Master PR and push paths|Other events|
 |-|-|-|
@@ -40,7 +40,7 @@ CI runs for every PR targeting master, every master push, and manual dispatch, i
 
 Wiki runs only read-only dry-runs for every event. CI also retains an unconditional Wiki preview. Publication is disabled while the validated-current-master publication gate is absent. No manual publishing fallback is allowed.
 
-Run `make ci-workflows-check` for offline regression tests and `actionlint .github/workflows/{ci,semgrep,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, fork token failures, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
+Run `make ci-workflows-check` and `make ci-evidence-check` for offline regression tests and `actionlint .github/workflows/{ci,semgrep,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, fork token failures, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
 
 ## Live verification
 
@@ -54,3 +54,10 @@ go vet -tags livewrite ./...
 ```
 
 Run `make live` or any other live verification only when the brief asks for live verification, including read-only runs. Only the manager performs authorized live verification under the [worktree credential rule](workflow.md#worktrees-and-parallel-work); workers report required live checks to the manager. `make live` calls the real API and needs `.env`; never read its values into context. Compilation is not live verification. Live writes also require the approvals, gates, serialization, and cleanup in [live data](live-data.md).
+
+
+## Evidence checker tests
+
+`python3 scripts/test-ci-evidence.py` uses synthetic records and stubbed HTTPS, Git, and CLI inputs. Local Python children exercise bounded Git pipe reads and cleanup. The suite never calls GitHub, invokes candidate workflow bytes, or accesses owner signing material. `make check` and mandatory CI run this suite. Fixtures cover exact-head evidence, conditional exclusions and manual recovery, optional review purposes, every retained attempt, failed independent validation, job/check/app association, strict numeric identities, source identity and immutable Git objects, private review records, signatures, signed internal tag names, release targets, complete pagination, redirects, separate stdout/stderr bounds, timeouts, cancellation, read errors, changed evidence, and runtime-token isolation. Post and release fixtures require saved pre-mode output and reject lost original evidence, changed source policy bindings, malformed retained input, and retained files inside the candidate.
+
+Real version-2 PR, master, full-rerun, and historical-source retention proofs remain manager gates under [executable evidence](workflow.md#executable-ci-evidence). Compare the checker inventory with complete API evidence before relying on it. The checker reports reviewed workflow assertions, not cryptographic execution attestation. Continue the manual evidence procedure during bootstrap; a fixture pass does not prove the real adapter, owner signatures, event delivery, or settings enforcement.
