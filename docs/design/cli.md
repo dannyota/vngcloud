@@ -69,6 +69,87 @@ The CLI reads the profile's `output` and `read_only` keys through
 profile's config section, or an empty string. It reads nothing else from the
 files itself, so profile selection has one implementation.
 
+## Unattended CI
+
+The supported first job is scheduled GitHub Actions renewal of the free
+Synthetic quota with a renew-only service account. Supply
+`VNGCLOUD_CLIENT_ID`, `VNGCLOUD_CLIENT_SECRET`, `VNGCLOUD_REGION`, and
+`VNGCLOUD_PROJECT_ID` through the job environment. Use no --profile,
+configure, stdin credentials, browser, or login command. Inject secrets at
+execution, never in argv or shell tracing. Keep VNGCLOUD_ACCESS_TOKEN,
+VNGCLOUD_PROFILE, config/credentials path overrides, and other credential
+sources unset so precedence cannot select another identity.
+
+Code inspection establishes the environment path: `internal/core/load.go:297`
+selects service-account credentials and validates without echoing values;
+missing default files are accepted at line 182. It still probes default
+files, and existing invalid files can fail loading. Use a clean runner.
+`internal/core/service_account_exchange.go:49` exchanges credentials lazily
+with no user interaction; its private fixed-host client rejects redirects,
+has no capture/browser hook, and retains no peer error text. Fixed exchange
+logs contain only start/finish and success. Credential formatting is
+redacted at `internal/core/service_account_auth.go:32`; token error fields
+are fixed at `internal/core/errors.go:181`. Product logs omit headers,
+body, and query at `internal/transport/transport.go:607`; quota projections
+scrub sent tokens and suppress captures at `monitor/quotas.go:184`.
+
+No pre-existing profile or credential file is required. This is not zero
+filesystem I/O: `internal/cli/config.go:34` enables the automatic token
+cache when a home exists, with 0600 files and a 0700 cache directory. Use
+an ephemeral writable home and do not upload the cache as a job artifact.
+Existing cache errors fail closed without interaction. A clean runner needs
+no auth flow change. Test the environment-only CLI path with empty stdin,
+no profiles, and synthetic auth/product endpoints. Check stdout, stderr,
+debug, errors, and partial results for client ID, secret, Basic header,
+and bearer canaries during failure and refresh.
+
+Install a pinned release with the supported Go toolchain:
+
+```sh
+GOSUMDB=sum.golang.org GOPRIVATE= GONOSUMDB= \
+  go install danny.vn/vngcloud/cmd/vngcloud@vX.Y.Z
+```
+
+Replace vX.Y.Z with the reviewed version, never latest. Keep checksum
+verification enabled for the module and dependencies; installation or
+checksum failure stops the job. The local `go help module-auth` describes
+hash verification and its environment controls. This verifies downloaded
+module content, not a release binary or build attestation. Release binaries
+and provenance attestations remain a later installation option.
+
+The [quota outcome contract][quota-outcomes] owns exact JSON, classes,
+send certainty, and exits. Required CLI changes: `internal/cli/op.go:496`
+currently prints only selected partial write errors; `internal/cli/main.go:15`
+prints only stderr on earlier failures. Add scoped result handling for both
+new writes, including recognized-command flag/input/config failures, and
+for partial quota-status reads. Add QuotaChanged and QuotaStatusIncomplete
+classification, preserve status for NotSettled, and keep other commands'
+output contracts unchanged. Never infer send certainty in CLI code; use
+SDK/transport evidence, except proven pre-SDK refusal. Refuse --query on
+these writes. No valid JSON after process termination is an unknown result.
+
+Require a short Monitor-Quotas wiki section containing the four variables,
+the outcome/exit table, and this sequence using a fresh expiry:
+
+```sh
+quota_json=$(vngcloud monitor get-synthetic-quota --output json) || exit $?
+expiry=$(printf '%s' "$quota_json" | jq -er '.Quota.EndTime') || exit $?
+vngcloud monitor renew-synthetic-quota --expected-end-time "$expiry" \
+  --max-days-left 7 --max-price 0 --output json
+```
+
+The wiki supplies JSON parsing and exit handling around the write, using
+no --no-wait. Pre/post status reads use `quota-status --kind synthetic`;
+this needs no Email/SMS permission or classes/settings request. Serialize
+jobs per account/kind, persist the baseline and a pending-attempt marker
+before invocation, and retain it on missing JSON or an unconfirmed result,
+including NotSettled. New processes have no SDK ledger. Schedules reconcile
+by reads or stop; they never blindly retry or purchase. Confirmed outcomes
+or proven no-effect refusals/skips close the marker. The outcome table requires
+no message parsing. This slice designs CI use, not a repository workflow.
+
+[quota-outcomes]: monitor-quota-coverage.md#machine-readable-write-outcomes
+
 ## Operation table
 
 Each service registers its operations in one table:
@@ -176,8 +257,11 @@ names the setting that turned it on, for example
 - The CLI checks the flag and variable before `LoadConfig`, and the profile
   key right after it. A `LoadConfig` error still wins, and no request has
   been sent either way.
-- SDK library calls ignore read-only. `Config.ProfileSetting` exposes the key,
-  but the SDK never acts on it.
+- SDK calls generally ignore read-only. Quota lifecycle writes and the new
+  synthetic recover/renew methods are exceptions: they check the loaded
+  profile's read_only key before requests, as `monitor/quotas_lifecycle.go:82`
+  does. True/1 refuses with ReadOnly; invalid values fail with InvalidConfig.
+  They do not inspect the CLI flag or VNGCLOUD_READ_ONLY themselves.
 
 Read-only guards against an agent's mistakes, not against a process that can
 edit `~/.vngcloud`. Such a process can remove the key. `configure` has its own

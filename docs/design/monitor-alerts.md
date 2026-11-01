@@ -322,8 +322,8 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
 - A read-only profile refuses every write, `send-channel-otp` included.
 - Deletes need `--yes`. A new channel has a new ID that every check and
   alarm must be pointed at again, and a deleted project loses its logs.
-- Check notifications come through `--cli-input-json`, as `Locations`
-  does; `update-check` takes scalar fields as flags.
+- Check notifications stay on `--cli-input-json`; no all-states channel flag.
+  JSON preserves separate state lists without new merge/precedence rules.
 - `create-channel` and `update-channel` refuse `--address` for `Webhook`
   and `Slack` with exit 2 and name `--cli-input-json file://channel.json`,
   as `configure` refuses a literal password: a webhook URL in argv reaches

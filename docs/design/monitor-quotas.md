@@ -16,34 +16,36 @@ standard-library only; the CLI calls only public SDK operations.
 
 ## Scope and release order
 
-Ship the smallest independently useful slices, subject to owner decisions:
+The code has check and quota reads, notification create/quote, notification
+auto-renew disable and active delete, and the synthetic auto-renew refusal.
+The next independently landable slices are:
 
-1. Check fields, alarm reads, history (with the owner decision 9 limit),
-   verified quota reads, and the wiki correction.
-2. Email quota reads, quote, and free email order together. The order
-   response and all four alert receipts are verified; the rest stays gated.
-3. SMS quota read, quote, and order; Email and SMS auto-renew disable and
-   active-quota delete (decision 11); enable deferred (decision 12).
-4. Free Synthetic Test extension after an in-window renewal (the server
-   allows a free renewal only in its last 7 days), then Email extension.
-5. Notification auto-renew enable, synthetic delete, and purge or recovery
-   under [quota lifecycle](monitor-quotas-lifecycle.md), each after its
-   own live check.
+1. [Catalog and status](monitor-quota-coverage.md#read-contracts).
+2. [Synthetic recovery](monitor-quota-coverage.md#synthetic-recovery).
+3. Synthetic renewal and its quote, using the contract below and the
+   [response policy](monitor-quota-coverage.md#unverified-write-responses).
+
+The owner authorizes building renewal before its first in-window live run.
+That manager-run check verifies success and arithmetic, not permission to
+implement. Email and SMS renewal and recovery remain deferred. Lifecycle
+rows retain their
+[support gates](monitor-quotas-lifecycle.md#support-matrix).
 
 Four emails against three logged transitions stay open; no gate is waived.
 
 Out of scope: metric quotas, log quota renewal/resize, new or paid
 Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
-and a settings operation; Slack, Telegram, Webhook, and Teams have counters
-but no packages. Production quotas are never deleted for a test.
+and a public settings operation; Slack, Telegram, Webhook, and Teams have
+counters but no packages. Telegram delivery prerequisites remain unknown.
+Production quotas are never deleted for a test.
 
 ## Public surface
 
 Every operation has `Method(ctx, *MethodInput) (*MethodOutput, error)` and
 operation name `monitor.Method`. Empty Inputs accept nil. Required fields
 carry `vngcloud:"required"`; optional fields are values unless stated. All
-reads fail with nil Output on any failed component; writes have explicit
-partial outputs below.
+reads fail with nil Output on any failed component except quota-status
+rows. New writes use the [outcome contract][quota-outcomes].
 
 `Kind string` is required for notification operations. Constants
 `NotificationKindEmail` and `NotificationKindSMS` are `Email` and `SMS`,
@@ -143,6 +145,8 @@ a decision or identity needs them. Empty Inputs: `GetQuotaUsage`,
   and `QuotaStatusInTrash` name known statuses; other strings pass through.
 - `SyntheticQuotaDetail` has `API, Location, Email, SMS, Slack, Webhook,
   Telegram, Teams int`, `ClassName, TierName string`, and `Price *float64`.
+  The additive [nullable view](monitor-quota-coverage.md#nullable-limits)
+  preserves null channel limits without changing those integer fields.
 - Both quota usage Outputs have `Usage QuotaUsageDetail`: `Counts
   UsageCounts` (synthetic), `Amount int` (notification, live `{amount}`),
   and `Descriptions map[string]UsageDescription{Name, Specs, Unit}`.
@@ -174,10 +178,12 @@ and ignores MaxPrice, MaxDaysLeft, and NoWait. Each named Output aliases
 `OptimumPrice, ListPrice, GuardPrice float64`, and `Currency string` (VND),
 no opaque properties or URLs. A quote is an estimate, never authorization.
 
-Validate finite nonnegative MaxPrice, nonnegative MaxDaysLeft, and expiry
-syntax before requests; reject duration overflow. Resolve a package once:
-an omitted PackageID selects the single zero-price package; unknown,
-duplicate, unpriced, or ambiguous candidates refuse after the list read.
+Writes validate finite nonnegative MaxPrice and nonnegative MaxDaysLeft
+before requests; reject duration overflow. Quotes and writes validate
+required fields and expiry syntax; quotes ignore write-only controls.
+Notification creates resolve a package once: an omitted PackageID selects
+the single zero-price entry; unknown, duplicate, unpriced, or ambiguous
+candidates refuse. Synthetic writes never resolve through the v1 list.
 
 **Order terms and quote mapping:** every write freezes one immutable set
 of order terms before any quote: kind, package ID, `monthPeriod` 1, and
@@ -189,7 +195,7 @@ rule 8 asks for shared construction; no quote accepts a mutation body).
 |-|-|-|
 | Email or SMS create | `POST v2/{kind}/prices/created-price` `{redirectUrl:"", packageId, quantity:1}`; live for free and paid email | `POST v1/{kind}/quota` `{monthPeriod:1, packageId, redirectUrl, pay:true}` |
 | Email or SMS extension | The same v2 call plus `resourceId:<quota>`; console only | `POST v1/{kind}/quota/extend-time` `{monthPeriod:1, redirectUrl, pay:true}` |
-| Synthetic extension | `POST v2/synthetic/prices/created-price` `{redirectUrl:"", packageId, quantity:<detail API>, resourceId}`; live, 0 | `POST v2/synthetic/quota/extend-time` `{redirectUrl, monthPeriod:1, pay:true}` |
+| Synthetic extension or recovery | `POST v2/synthetic/prices/created-price` `{redirectUrl:"", packageId, quantity:<detail API>, resourceId}`; live, 0 | `POST v2/synthetic/quota/extend-time` or `POST v2/trash/synthetic/quota` `{redirectUrl, monthPeriod:1, pay:true}` |
 
 The v2 quote ignores the period; the v1 query quote
 (`?package_id=&month_period=`) prices paid packages per month but 500s on
@@ -201,37 +207,49 @@ Missing/null/negative/nonfinite prices fail closed as body-free API errors.
 A zero quote for a positive list price is `monitor.ErrUnpriced`, an alias
 of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
 quote and list price and return `ErrPriceAboveMax` if exceeded. List and
-quote must cover the same quantity and one-month term. Synthetic writes
-cover only the verified free package with zero detail and quote prices.
+quote must cover the same quantity and one-month term. For synthetic,
+ListPrice is the identity-checked detail price, not a v1 catalog price.
+Renew/recover require Basic, API 10, location 1, and zero prices; freeze the
+quota PackageID and require detail equality. Quotes and read-back use that
+ID, never a v1 list ID. No package/class/settings read is needed.
 Email quotes are inferred pre-VAT in the API sibling, so the actual debit
 can exceed the quote; a paid package is allowed whenever MaxPrice covers.
 
 ### Order and renewal execution
 
-Preparation reads packages and quota under the per-Client write lock. Create
-refuses an existing quota before quoting. Renew compares the read EndTime
-to ExpectedEndTime as instants; a mismatch is ErrInvalidInput with no
-quote or write. Positive MaxDaysLeft skips a further-away expiry with
-`Renewed: false` after the reads; zero allows early renewal. A free quota's
-extension outside its last 7 days gets 409 (live), a definite refusal with
+Preparation reads quota and applicable price sources under the write lock.
+Create
+refuses an existing quota before quoting. Renew first reconciles any open
+attempt from retained terms. While unresolved, a guard mismatch preserves
+Sent and Stage unconfirmed, with NotSettled wrapping ErrQuotaChanged.
+With no unresolved attempt, compare EndTime to ExpectedEndTime as instants;
+a mismatch is ErrQuotaChanged with no quote or write. After eligibility
+checks, positive MaxDaysLeft skips a
+further-away expiry with `Renewed: false`, PreviousEndTime set, and Quota
+nil after the reads; OrderID is empty and PaymentPending false. Zero
+allows early renewal. A free synthetic quota's extension outside its last
+7 days gets 409 (live), a definite refusal with
 no state change, returned as the status-classified `Conflict` `*APIError`:
 visible, never retried; a job avoids it with `MaxDaysLeft` 7, not by
 suppressing 409s.
 
 Refuse POC, auto-renewing, unknown-status, missing-identity, or
-invalid-expiry quotas before quoting. The console recovers only when
-expired AND IN-TRASH, otherwise extends; only evidenced ACTIVE extension
-is eligible, other-status or gated recovery cases refuse without a write,
-and recovery waits for a verified trash lookup contract.
+invalid-expiry quotas before quoting. Renew accepts only ACTIVE with
+EndTime strictly after now. It never
+switches to recovery. Recovery has a separate
+[expected-ID contract](monitor-quota-coverage.md#synthetic-recovery) and
+uses the quota read, not an inferred trash item.
 
-Immediately before send, reread and repeat the complete eligibility
-predicate on the fresh snapshot: quota identity, package, expiry equal to
-the frozen terms, status, `POC` false, `AutoRenew` false, and for synthetic
-the quantity; for create, the verified absence response again. Any change,
-including a newly enabled auto-renew, a flag that no longer decodes, or
-expiry crossing the recovery boundary, aborts without send. Do not rebuild
-or requote in a loop. No server precondition or price lock is known, so
-this narrows but cannot eliminate cross-client races or price changes.
+Immediately before send, reread and repeat the complete eligibility predicate on
+the fresh snapshot: quota identity, package, expiry equal to the frozen terms,
+status, `POC` false, `AutoRenew` false; for synthetic, repeat detail class,
+location, price, and quantity checks. Create verifies absence again. Any change,
+including a newly
+enabled auto-renew or expiry crossing the recovery boundary, aborts without
+send. New synthetic writes use ErrQuotaChanged for changed terms; malformed peer
+data is an APIError. Create keeps its existing errors. Do not rebuild or requote
+in a loop. No server precondition or price lock is known, so this narrows but
+cannot eliminate cross-client races or price changes.
 
 Send the evidenced body with `pay: true`, one month, and the fixed console
 redirect value, with `Once: true` on every order, extension, and recovery:
@@ -239,13 +257,18 @@ no retry on any status or error, no token-refresh resend, no redirect, and
 no outer SDK or CLI retry.
 
 `CreateNotificationQuotaOutput` has `Quota *Quota`, `OrderID string`,
-`PaymentPending bool`. `RenewQuotaOutput`, aliased by both renewal Outputs,
-adds `PreviousEndTime time.Time`, `Renewed bool`. Renewed means confirmed
-new expiry, not merely sent. NoWait returns immediately after a valid
-response with Quota nil and Renewed false; it does not skip preparation.
-PaymentPending means paymentUrl was nonempty and differed from the sent
-redirectUrl (a free order echoes it). Then return partial Output with
-`dns.ErrNotSettled` and stop; never follow or expose that URL or reorder.
+`PaymentPending bool`. `RenewQuotaOutput`, aliased by both renewal Outputs, adds
+`PreviousEndTime *time.Time`, `Renewed bool`, and the outcome fields. Renewed
+means confirmed new expiry, not merely sent. NoWait returns immediately after a
+valid response with Quota nil and Renewed false; it does not skip preparation.
+For evidenced order envelopes, PaymentPending means paymentUrl was nonempty and
+differed from the sent redirectUrl (a free order echoes it). Then return partial
+Output with `dns.ErrNotSettled` and stop; never follow or expose that URL or
+reorder.
+
+Synthetic renewal and recovery use the
+[response policy](monitor-quota-coverage.md#unverified-write-responses);
+they never require the inferred order envelope.
 
 Otherwise wait with reads every 2 seconds under a 120-second child context
 bounded also by the caller's context. Create settles only on the selected
@@ -254,7 +277,8 @@ keeps polling (live: 404, CREATING at 3 s, ACTIVE at 5 to 6 s). Renewal
 needs the same quota/package, ACTIVE, and EndTime later than
 PreviousEndTime; trash exit alone is insufficient. NoWait skips the wait only.
 
-Pre-send errors return nil Output except the documented expiry skip.
+New synthetic writes return Output on every outcome under
+[the outcome contract][quota-outcomes]; existing create errors are unchanged.
 Definite 4xx refusal or a proven failed dial returns its sanitized error.
 Any other send failure, oversized/malformed success, cancellation after
 possible send, or failed wait returns partial Output and an error wrapping
@@ -271,8 +295,8 @@ outcome and returns it, clears it on a known rejection and returns the
 error, and on an inconclusive read keeps it and returns `ErrNotSettled`. A
 different call on that kind (other operation, package, or baseline expiry)
 reconciles the same way, but a confirmed prior outcome then yields
-`ErrInvalidInput` naming that attempt and the changed state, never a send
-or a fulfilled result; the caller rereads and decides. Separate
+`ErrQuotaChanged` for a guard mismatch, otherwise `ErrInvalidInput`, never
+a send or a fulfilled result; the caller rereads and decides. Separate
 clients/processes share no ledger: callers serialize per account/kind and
 persist attempt and baseline before a write. This is not exactly-once.
 
@@ -297,8 +321,9 @@ Register each method's kebab-case command in `monitorOps`. Quotes and GETs
 are Read; creates, renewals, and auto-renew settings are Write; deletes are
 Write and Destructive, needing `--yes`. Read-only flag/environment refusal
 precedes config, and profile refusal follows config but precedes requests.
-Order and renewal consent is finite `--max-price`, default 0, as for
-existing paid creates; help and a stderr warning before a positive-budget
+SDK order and renewal MaxPrice defaults to 0. New synthetic commands
+require [explicit consent](monitor-quota-coverage.md#cli-and-documentation).
+Help and a stderr warning before a positive-budget
 write say `pay: true` debits the balance and MaxPrice is a local guard.
 
 String flags `--start`, `--end`, `--expected-end-time`, and `--kind`, int
@@ -321,65 +346,82 @@ needs a list read; only locally invalid inputs promise zero requests.
 
 ## Threat analysis
 
-Design constraints for separate adversarial review; every new path is
-unimplemented. [API checks](monitor-quotas-api.md#deterministic-checks) owns
-the probes. File references name inspected code, not satisfied invariants.
+These are design constraints for independent review, not review findings
+or claims that the new paths are tested. Each model covers both recover
+and renew; their mutations are unimplemented.
 
-- **Leaked token or account data, high.** Debug logs omit body/query at
-  `internal/transport/transport.go:564`, but captures at line 550 otherwise
-  see raw bodies. New calls use Sensitive, WithholdMessage, bounded safe
-  codes, and sent-credential redaction on retained strings. Replace unknown
-  APIError.Code values with a fixed local code; WithholdMessage alone does
-  not hide them. Classify verified absence before withholding its message.
-  Omit links,
-  user_id, raw dimensions, free-form reason/expression text, and paymentUrl
-  from all public projections. Errors never quote peer data. Test success,
-  error, capture, partial Output, and CLI formatting paths. Private manager
-  captures require separate authorization and sanitation.
-- **Hostile peer, high.** `internal/transport/transport.go:514` reads without
-  limit when MaxBody is unset. Cap every new response at 1 MiB, history at
-  16 MiB per call and 32 MiB total, and alarm fan-out at 64. Fail explicitly
-  beyond local safety limits with nil read Output; never truncate. Validate
-  timestamps, numeric presence, IDs, envelope shape, and identity. A write
-  decode failure is uncertain. Test limits, malformed values, and errors.Is
-  and errors.As; protect aggregate memory as well as individual responses.
-- **Foreign endpoint or redirect, high.** Token attachment is at
-  `internal/transport/transport.go:439`; redirect origin checks run before
-  and after caller hooks in `internal/transport/redirect.go:11`. Route only
-  under configured Monitor, keep TLS validation, and use Once for writes.
-  Fixed redirectUrl is data, not a destination to visit. Explicit endpoint
-  overrides and custom transports are trusted caller inputs, not protected
-  from their author. Test foreign redirects, hook rewrites, and 307/308.
-- **Local profile/cache tampering, high.** Cache keys bind identity at
-  `internal/tokencache/cache.go:41`; directory checks are at line 238 and
-  credential writes use 0600 at `internal/cli/configfile.go:152`. Read-only
-  has pre-config and profile checks at `internal/cli/readonly.go:24` and
-  line 43. Reuse these without new files, permissions, or token reuse
-  rules; they do not defeat an attacker running as the same user. Test
-  refusal before any network call and keep cache identity regressions.
-- **Concurrent or repeated charge, high.** Existing one-builder quoting is
-  at `monitor/logprojects_write.go:128`; Once behavior is at
-  `internal/transport/transport.go:308` and line 403. Require the frozen
-  terms mapping, expiry precondition, full eligibility re-check before
-  send, lock through settlement, operation-bound unresolved-attempt record,
-  and caller serialization. Test delayed visibility, two callers, repeated
-  same expiry, flag flips during quoting, changed baselines, create versus
-  renew after an unresolved attempt, NoWait, cancellation, and a lost
-  response. No idempotency key, price lock, or cross-process lock exists.
+- **Leaked tokens, high.** An error or optional order string could echo
+  credentials into logs or partial Output. Existing suppression/redaction
+  is in `monitor/quotas.go:184`, `monitor/quotas_write.go:321`, and
+  `internal/transport/transport.go:594`; debug logging at line 607 omits
+  bodies and query strings. Reuse Sensitive, bounded decoding, withheld
+  messages, fixed codes, and operation-wide sent-token redaction through
+  later refreshes. Suppress routine captures; never retain payment URLs or
+  raw fields. Test echo strings in successes, malformed bodies, errors,
+  retained attempts, all CLI formats, query, and logs. Keep private raw
+  capture sanitation separate; nested escaped credentials retain the
+  security policy's documented limitation.
+- **Hostile API peer, high.** Malformed prices, flags, IDs, and timestamps
+  could bypass consent or fabricate settlement. The bounded reader at
+  `monitor/quotas.go:184`, shape decoder at line 282, and identity join at
+  `monitor/quotas_lifecycle.go:375` are existing paths. Preserve 1 MiB
+  bounds, required presence, integral counts, validated response path IDs,
+  and same-ID/package confirmation. Missing envelopes cannot manufacture
+  success; malformed possible-send responses retain the attempt. Test
+  bounds before allocation, invalid joins, cancellation, safe errors.Is
+  and errors.As, nil catalog versus partial status/write outputs. No raw maps,
+  links, account dimensions, or invented pages enter new projections.
+- **Foreign host, high.** A peer redirect or a caller redirect hook could
+  send credentials elsewhere or replay a mutation. Token attachment at
+  `internal/transport/transport.go:471`, origin checks before and after
+  hooks at `internal/transport/redirect.go:11`, and Once redirect refusal
+  at `internal/transport/transport.go:433` are existing defenses. Keep TLS
+  verification, fixed Monitor routes, and fixed redirectUrl as body data
+  only. Test every 3xx including 307/308, malicious links, and hook URL
+  rewrites; no foreign server receives a request. Explicit endpoint and
+  custom transport overrides remain trusted caller choices, not protection
+  against that caller.
+- **Local tampering, high.** A replaced profile/cache could select another
+  account or defeat read-only intent. Identity-bound cache keys at
+  `internal/tokencache/cache.go:41`, directory checks at line 242,
+  credential writes at `internal/cli/configfile.go:158`, and read-only
+  checks at `internal/cli/readonly.go:24` and line 43 remain authoritative.
+  Add no credential files or reuse rules. Retain 0600 files/0700 cache
+  directory and identity binding, and test CLI/profile/SDK read-only
+  refusal before requests. These controls do not defeat an attacker with
+  the same user privileges; ExpectedQuotaID/ExpectedEndTime are not account
+  authentication. Retain existing cache permission/identity tests.
+- **Concurrent or repeated charges, high.** Both mutations target the
+  account's current quota without a server condition. Price or resource
+  replacement after the final read remains possible. Existing attempt
+  reconciliation is `monitor/quotas_write.go:109`, mutation Once is at
+  line 168, and the hard wait is `monitor/quotas_wait.go:38`. Extend them
+  with operation-bound frozen identity, full pre-send reread, price guards,
+  and the same lock/ledger used by auto-renew. Test two callers, stale
+  guards, flag/quantity flips, changed operations, delayed visibility,
+  NoWait, and lost responses. At transport level verify Once overrides
+  status/dial/auth retries and HTTP replay, not just a mocked send count.
+  No cross-process lock, price lock, or idempotency key exists. Callers
+  serialize and persist baselines; no cleanup delete, replacement order,
+  or renewed attempt follows uncertainty without separate authority.
+
+Existing history bounds remain 16 MiB per response, 32 MiB per call, and
+64 alarms; quota responses remain capped at 1 MiB. Never truncate results.
 
 ## Owner decisions
 
-Eleven are decided (3 and 6 changed, 11 decided against the
-recommendation, the rest as recommended); 12 is proposed. Approval is no
-evidence.
+These decisions are accepted under owner direction. Approval is no
+evidence; unverified response bodies retain that label.
 
-1. Release order: reads and free Email (shipped), then SMS create, disable,
-   and delete, then renewals after an in-window synthetic renewal, then
-   the remaining rows as evidenced.
+1. Release order, changed under owner direction: build synthetic catalog,
+   status, recovery, and renewal now. The first renewal in the last 7 days
+   is the manager's live check; it no longer gates implementation.
+   Renewed still requires read-back. Email renewal is removed from the
+   implementation sequence; Email and SMS renewal and recovery stay deferred.
 2. Time inputs: RFC 3339 strings on existing flags, no time.Time support.
 3. Price safety, changed: frozen terms mapped by one builder per write,
-   and the higher of quote and list price as the local guard. Paid
-   packages ship whenever MaxPrice covers them; no debit or tax gate.
+   and the higher of quote and ListPrice as the local guard. Paid
+   notification packages ship when MaxPrice covers; synthetic stays free.
 4. Renewal consent: required ExpectedEndTime, optional MaxDaysLeft for cron.
 5. Repetition: Once, the full re-check before send, and a per-Client
    attempt record keyed by operation and frozen terms; callers serialize.
@@ -395,6 +437,14 @@ evidence.
     console path, identical bodies, matching live order responses and
     quota reads; only the unused v1 VAT treatment differs. Orders are not
     covered; each was verified on its own.
-12. Notification auto-renew enable, proposed: defer Email and SMS enable
-    until a live renewal quote with `resourceId` exists (never sent).
-    Recommended: defer; the alternative is another paid SMS purchase.
+12. Notification auto-renew enable: defer Email and SMS enable until a
+    live renewal quote with `resourceId` exists. No prerequisite purchase
+    is authorized. Synthetic free-package enable keeps its visible refusal.
+13. Recovery and read coverage use the contracts in
+    [quota coverage](monitor-quota-coverage.md); paid Synthetic orders stay
+    out until an ACTIVE class has a priced package and its write evidence.
+14. Defer a trash list until its item shape is evidenced; a count alone
+    cannot identify a quota. Keep check notification editing on JSON input,
+    as explained in [Alerts](monitor-alerts.md#cli).
+
+[quota-outcomes]: monitor-quota-coverage.md#machine-readable-write-outcomes
