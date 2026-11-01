@@ -103,7 +103,7 @@ vngcloud monitor create-log-project --name <name>
 
 Kind: Write.
 
-Orders one month of Email or SMS capacity with pay: true. Consent is finite nonnegative --max-price, default 0, without --yes. For Email, an omitted --package-id selects the unique zero-price package, emailfree (20 emails a month). MaxPrice is a local guard on the higher list/quote price, not a server cap. Email quotes are inferred pre-VAT; SMS VAT treatment is unverified; actual debit can exceed estimates. A positive budget prints a stderr warning. Read-only refuses before requests. --no-wait returns an unconfirmed Output with Quota nil. An uncertain result prints partial Output even with an error, ignoring --query. Serialize writes across processes per account/kind; reconcile with read-only quota reads and console billing. A stale 404 never authorizes a retry. Monthly action accounting is unknown. SMS orders need a listed package and sufficient --max-price. Renewal is unavailable. See Monitor Quotas.
+Orders one month of Email or SMS capacity with pay: true. Consent is finite nonnegative --max-price, default 0, without --yes. For Email, an omitted --package-id selects the unique zero-price package, emailfree (20 emails a month). MaxPrice is a local guard on the higher list/quote price, not a server cap. Email quotes are inferred pre-VAT; SMS VAT treatment is unverified; actual debit can exceed estimates. A positive budget prints a stderr warning. Read-only refuses before requests. --no-wait returns an unconfirmed Output with Quota nil. An uncertain result prints partial Output even with an error, ignoring --query. Serialize writes across processes per account/kind; reconcile with read-only quota reads and console billing. A stale 404 never authorizes a retry. Monthly action accounting is unknown. SMS orders need a listed package and sufficient --max-price. Notification renewal is unavailable. See Monitor Quotas.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -300,7 +300,7 @@ vngcloud monitor get-quota-usage --query Usage
 
 Kind: Read.
 
-Reads quota identity, status, expiry, AutoRenew, and package detail. Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable, renewal, and deletion remain unavailable.
+Reads quota identity, status, expiry, AutoRenew, and package detail. Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable and deletion remain unavailable. Guarded free recovery and renewal are available.
 
 No fields.
 
@@ -469,7 +469,7 @@ vngcloud monitor pause-check --check-id <check-id>
 
 Kind: Read.
 
---kind optionally selects synthetic, email, or sms, case insensitively; omitted means all three. Returns a sequential snapshot with one UTC AsOf, not permission to write. Synthetic uses only quota/detail reads, with detail price and class and an unknown package name. Notification price is the current list price, not a historical billed price. Missing quotas produce none rows and exit 0. Failed rows print partial output, ignore --query, and exit 1 as QuotaStatusIncomplete. Null means unknown; false and zero remain distinct. RenewWindowOpen describes only the evidenced free Synthetic timing window. NextSafeCommand uses read fallbacks until recovery and renewal commands are available; any later suggested write still needs explicit guards from a fresh read. Read-only settings allow this read.
+--kind optionally selects synthetic, email, or sms, case insensitively; omitted means all three. Returns a sequential snapshot with one UTC AsOf, not permission to write. Synthetic uses only quota/detail reads, with detail price and class and an unknown package name. Notification price is the current list price, not a historical billed price. Missing quotas produce none rows and exit 0. Failed rows print partial output, ignore --query, and exit 1 as QuotaStatusIncomplete. Null means unknown; false and zero remain distinct. RenewWindowOpen describes only the evidenced free Synthetic timing window. NextSafeCommand currently uses read fallbacks; recovery and renewal require explicit guards from a fresh read. Read-only settings allow this read.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -514,6 +514,56 @@ Estimates one month of Email or SMS capacity without ordering. An omitted --pack
 
 ```sh
 vngcloud monitor quote-create-notification-quota --kind Email
+```
+
+## quote-renew-synthetic-quota
+
+Kind: Read.
+
+Estimates one frozen month from the ACTIVE quota and identity-checked detail. Requires RFC 3339 ExpectedEndTime. Ignores MaxPrice, MaxDaysLeft, and NoWait; their flags are hidden. A quote never authorizes a write.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--expected-end-time` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `MaxDaysLeft` (via `--cli-input-json` only) | `int` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud monitor get-synthetic-quota
+```
+
+## recover-synthetic-quota
+
+Kind: Write.
+
+Requires an explicit identity guard and MaxPrice consent through flags or JSON, including zero. Only the evidenced free Basic package is supported, with POC and auto-renew off. Detail supplies the list price. Sends pay: true once without retries or auth resends; MaxPrice is a local guard, not a server cap. Read-only refuses before requests. No --yes or prompt. --query is refused. Every outcome prints Sent, Stage, Error, PreviousEndTime, Quota, OrderID, PaymentPending and the operation's confirmation boolean. Only same-ID/package ACTIVE read-back with a later expiry confirms. --no-wait leaves an open unconfirmed attempt. Uncertainty is NotSettled, exit 1, even over auth or NotFound. Serialize per account/kind and retain a durable pending marker. Reconcile with reads and console billing, never blind retries. See Monitor Quotas for the outcome and exit table. --expected-quota-id is required. Recovery requires expired IN-TRASH and starts a new term at recovery time.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--expected-quota-id` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor get-synthetic-quota
+```
+
+## renew-synthetic-quota
+
+Kind: Write.
+
+Requires an explicit identity guard and MaxPrice consent through flags or JSON, including zero. Only the evidenced free Basic package is supported, with POC and auto-renew off. Detail supplies the list price. Sends pay: true once without retries or auth resends; MaxPrice is a local guard, not a server cap. Read-only refuses before requests. No --yes or prompt. --query is refused. Every outcome prints Sent, Stage, Error, PreviousEndTime, Quota, OrderID, PaymentPending and the operation's confirmation boolean. Only same-ID/package ACTIVE read-back with a later expiry confirms. --no-wait leaves an open unconfirmed attempt. Uncertainty is NotSettled, exit 1, even over auth or NotFound. Serialize per account/kind and retain a durable pending marker. Reconcile with reads and console billing, never blind retries. See Monitor Quotas for the outcome and exit table. --expected-end-time is required as RFC 3339. ACTIVE future expiry is required. --max-days-left 7 avoids the visible early 409 Conflict.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--expected-end-time` | `string` | yes |
+| `--max-price` | `float64` |  |
+| `--max-days-left` | `int` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor get-synthetic-quota
 ```
 
 ## resume-check

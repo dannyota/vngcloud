@@ -289,6 +289,14 @@ func (c *Client) runQuotaLifecycle(ctx context.Context, in quotaLifecycleInput) 
 		}
 	}()
 	if attempt := c.quotaAttempts[in.kind]; attempt != nil {
+		if in.kind == "synthetic" && attempt.result.sent != "" {
+			expected := in.expectedID
+			if expected == "" {
+				expected = attempt.key.quotaID
+			}
+			_, err := c.reconcileSyntheticMutation(ctx, syntheticMutationInput{op: in.op, recover: true, expectedID: expected}, time.Time{}, attempt)
+			return nil, err
+		}
 		if err := lifecycleExpectedID(in.op, in.expectedID, attempt.key.quotaID); err != nil {
 			return nil, err
 		}
@@ -367,7 +375,7 @@ func (c *Client) runQuotaLifecycle(ctx context.Context, in quotaLifecycleInput) 
 	if err != nil {
 		return &attempt.result, err
 	}
-	delete(c.quotaAttempts, in.kind)
+	c.clearQuotaAttempt(in.kind)
 	attempt.result.stage = "settled"
 	attempt.result.changed = !in.delete
 	return &attempt.result, nil

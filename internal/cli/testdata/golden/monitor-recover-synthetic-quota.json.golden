@@ -1,0 +1,10 @@
+{
+  "Sent": "yes",
+  "Stage": "accepted",
+  "Error": null,
+  "PreviousEndTime": "2026-10-25T21:43:00Z",
+  "Quota": null,
+  "OrderID": "",
+  "PaymentPending": false,
+  "Recovered": false
+}

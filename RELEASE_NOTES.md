@@ -1,5 +1,33 @@
 # Release Notes
 
+## v0.89.0 - vMonitor Synthetic recovery and renewal
+
+- SDK `RenewSyntheticQuota` and `QuoteRenewSyntheticQuota`, and CLI
+  `monitor renew-synthetic-quota` and `monitor quote-renew-synthetic-quota`,
+  extend the free Synthetic Test quota. Renewal requires
+  `--expected-end-time` from a fresh read, skips with `Stage` `not-due`
+  outside a positive `--max-days-left`, and refuses a price above
+  `--max-price` (default 0) against the higher of quote and list price.
+  The server still refuses a free renewal outside its last 7 days with a
+  visible 409 `Conflict`.
+- SDK `RecoverSyntheticQuota` and CLI `monitor recover-synthetic-quota`
+  recover a lapsed quota from trash. It requires `--expected-quota-id` and
+  the same price guard, and starts a new term at recovery time.
+- Both writes send the mutation at most once, with no retry, auth resend,
+  or redirect. They re-check eligibility right before the send and confirm
+  only by read-back of the same quota and package, ACTIVE, with a later
+  end time.
+- For unattended use, both commands print one complete result on stdout,
+  even on refusal: `Sent` (`no`, `yes`, or `unknown`), `Stage`, and
+  `Error` (`Code`, `Operation`, `Status`), plus `Renewed` or `Recovered`.
+  `--query` is refused. `Sent` never reports `no` after a possible send,
+  including retained unresolved attempts and cancellation. The exit codes
+  and outcome rows are in the wiki's Unattended CI section.
+- New `monitor.ErrQuotaChanged` and CLI error class `QuotaChanged` mark a
+  stale expected end time or quota ID, refused before any send (exit 1).
+- The mutation response bodies are not verified live yet; success comes
+  only from the read-back. The first in-window renewal is the live check.
+
 ## v0.88.0 - vMonitor Synthetic catalog and quota status
 
 - SDK `ListSyntheticPackages` and CLI `monitor list-synthetic-packages`

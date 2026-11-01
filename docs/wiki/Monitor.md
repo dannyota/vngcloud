@@ -15,7 +15,8 @@ transition; a check created with no `Notifications` set alerts nobody.
 See [Monitor Alerts](Monitor-Alerts.md) for notification
 channels, log projects, and alarms. See
 [Monitor Quotas](Monitor-Quotas.md) for check alarm state, transition history,
-usage, synthetic catalogs, nullable channel limits, and quota status snapshots.
+usage, synthetic catalogs, nullable channel limits, quota status snapshots,
+and guarded synthetic recovery and renewal with CI outcomes.
 
 ## Setup
 

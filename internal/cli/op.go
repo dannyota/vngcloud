@@ -479,11 +479,31 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		}
 	}
 
+	if syntheticMutationOperation(serviceName, op.name) != "" {
+		if e.flags.query != "" {
+			return newUsageError("--query is unavailable for quota mutation outcomes")
+		}
+	}
 	client := newClient(cfg)
 	out, callErr := op.call(cmd, client, ctx, input)
 
 	if op.kind == kindWrite && logger != nil {
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)
+	}
+	if syntheticMutationOperation(serviceName, op.name) != "" {
+		if state, ok := ctx.Value(syntheticOutcomeContextKey{}).(*syntheticCLIOutcome); ok {
+			state.output = out
+			state.format = format
+		}
+		writer := &syntheticOutputWriter{Writer: e.stdout}
+		renderErr := renderOutput(writer, format, "", out, true)
+		if state, ok := ctx.Value(syntheticOutcomeContextKey{}).(*syntheticCLIOutcome); ok {
+			state.rendered = writer.attempted
+		}
+		if callErr != nil {
+			return callErr
+		}
+		return renderErr
 	}
 	if op.discovery && !isNilOutput(out) && (callErr == nil || errors.Is(callErr, pricing.ErrDiscoveryIncomplete)) {
 		key, _ := cmd.Flags().GetString("sort-by")

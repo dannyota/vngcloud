@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -301,5 +302,138 @@ func TestServiceAccountLoadErrorIdentity(t *testing.T) {
 				t.Fatal("loader error leaked secret")
 			}
 		})
+	}
+}
+
+func TestSyntheticQuotaCIEnvironmentOnlyAuth(t *testing.T) {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+		t.Run(command, func(t *testing.T) {
+			home := withCleanEnv(t)
+			for key, value := range map[string]string{"VNGCLOUD_CLIENT_ID": "ci-client-canary", "VNGCLOUD_CLIENT_SECRET": "ci-secret-canary", "VNGCLOUD_REGION": "hcm-3", "VNGCLOUD_PROJECT_ID": "ci-project"} {
+				t.Setenv(key, value)
+			}
+			exchanges := 0
+			auth := saCLITransport(func(r *http.Request) (*http.Response, error) {
+				exchanges++
+				id, secret, ok := r.BasicAuth()
+				if !ok || id != "ci-client-canary" || secret != "ci-secret-canary" {
+					t.Error("wrong credentials")
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"access_token":"ci-token-canary","token_type":"Bearer","expires_in":1800}`))}, nil
+			})
+			sends := 0
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/billing-api/v1/synthetic/quota":
+					raw, err := os.ReadFile("../../testdata/monitor/GetSyntheticQuotaInTrash.json")
+					if err != nil {
+						t.Error(err)
+					}
+					if command == "renew-synthetic-quota" {
+						raw = []byte(strings.ReplaceAll(strings.ReplaceAll(string(raw), "IN-TRASH", "ACTIVE"), "2026-10-25", "2500-12-01"))
+					}
+					_, _ = w.Write(raw)
+				case "/billing-api/v2/synthetic/quota-syn-1/quota-detail":
+					raw, err := os.ReadFile("../../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+					if err != nil {
+						t.Error(err)
+					}
+					_, _ = w.Write(raw)
+				case "/billing-api/v2/synthetic/prices/created-price":
+					_, _ = io.WriteString(w, `{"optimumPrice":0}`)
+				case "/billing-api/v2/trash/synthetic/quota":
+					sends++
+					w.WriteHeader(409)
+					_, _ = io.WriteString(w, `{"message":"ci-secret-canary"}`)
+				default:
+					t.Errorf("unexpected %s", r.URL)
+					w.WriteHeader(500)
+				}
+			})
+			opts := newFakeServer(t, handler)
+			opts = append(opts, core.WithServiceAccountTestTransport(auth, func() time.Time { return time.Unix(1700000000, 0) }), vngcloud.WithRetry(3, time.Millisecond))
+			withTestOptions(t, opts...)
+			args := []string{"monitor", command, "--max-price", "0", "--debug"}
+			if command == "recover-synthetic-quota" {
+				args = append(args, "--expected-quota-id", "quota-syn-1")
+			} else {
+				args = append(args, "--expected-end-time", "2500-12-01T21:43:00Z", "--max-days-left", "7")
+			}
+			var out, stderr bytes.Buffer
+			code := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
+			want := 0
+			if command == "recover-synthetic-quota" {
+				want = 1
+			}
+			if code != want || exchanges != 1 || sends != want {
+				t.Fatalf("exit=%d exchanges=%d sends=%d stdout=%s stderr=%s", code, exchanges, sends, &out, &stderr)
+			}
+			for _, canary := range []string{"ci-client-canary", "ci-secret-canary", "ci-token-canary", "Basic ", "Bearer "} {
+				if strings.Contains(out.String()+stderr.String(), canary) {
+					t.Fatalf("leaked %s", canary)
+				}
+			}
+			if runtime.GOOS != "windows" {
+				info, err := os.Stat(filepath.Join(home, ".vngcloud", "cache"))
+				if err != nil || info.Mode().Perm() != 0o700 {
+					t.Fatalf("cache directory: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSyntheticQuotaCIPreSendAuthAndCacheOutcomes(t *testing.T) {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+		for _, mode := range []string{"exchange", "cache"} {
+			t.Run(command+"/"+mode, func(t *testing.T) {
+				home := withCleanEnv(t)
+				for key, value := range map[string]string{"VNGCLOUD_CLIENT_ID": "ci-client-canary", "VNGCLOUD_CLIENT_SECRET": "ci-secret-canary", "VNGCLOUD_REGION": "hcm-3", "VNGCLOUD_PROJECT_ID": "ci-project"} {
+					t.Setenv(key, value)
+				}
+				if mode == "cache" {
+					if err := os.MkdirAll(filepath.Join(home, ".vngcloud"), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(home, ".vngcloud", "cache"), nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				exchanges := 0
+				auth := saCLITransport(func(*http.Request) (*http.Response, error) {
+					exchanges++
+					return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":"ci-secret-canary"}`))}, nil
+				})
+				productCalls := 0
+				opts := newFakeServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { productCalls++ }))
+				opts = append(opts, core.WithServiceAccountTestTransport(auth, func() time.Time { return time.Unix(1700000000, 0) }))
+				withTestOptions(t, opts...)
+				args := []string{"monitor", command, "--max-price", "0"}
+				if command == "recover-synthetic-quota" {
+					args = append(args, "--expected-quota-id", "quota-syn-1")
+				} else {
+					args = append(args, "--expected-end-time", "2500-12-01T00:00:00Z")
+				}
+				var out, stderr bytes.Buffer
+				code := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
+				var result struct {
+					Sent, Stage string
+					Error       struct {
+						Code, Operation string
+						Status          int
+					}
+				}
+				wantCode, wantExit, wantStatus, wantExchanges := "ServiceAccountLoginFailed", 3, 401, 1
+				if mode == "cache" {
+					wantCode, wantExit, wantStatus, wantExchanges = "TokenCacheFailed", 1, 0, 0
+				}
+				if json.Unmarshal(out.Bytes(), &result) != nil || code != wantExit || result.Sent != "no" || result.Stage != "preflight" || result.Error.Code != wantCode || result.Error.Status != wantStatus || exchanges != wantExchanges || productCalls != 0 {
+					t.Fatalf("exit=%d exchanges=%d product=%d stdout=%s stderr=%s", code, exchanges, productCalls, &out, &stderr)
+				}
+				if strings.Contains(out.String()+stderr.String(), "ci-secret-canary") {
+					t.Fatal("secret leaked")
+				}
+			})
+		}
 	}
 }

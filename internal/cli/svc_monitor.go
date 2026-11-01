@@ -110,6 +110,9 @@ import (
 // alarm gets a new ID. A read-only profile refuses all three, before any
 // request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
+	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RecoverSyntheticQuotaInput, monitor.RecoverSyntheticQuotaOutput]("recover-synthetic-quota", (*monitor.Client).RecoverSyntheticQuota)),
+	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.RenewSyntheticQuotaOutput]("renew-synthetic-quota", (*monitor.Client).RenewSyntheticQuota)),
+	Read[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.QuoteRenewSyntheticQuotaOutput]("quote-renew-synthetic-quota", (*monitor.Client).QuoteRenewSyntheticQuota, NoFlag("MaxPrice", "MaxDaysLeft", "NoWait")),
 	monitorQuotaView(Read[monitor.Client, monitor.ListSyntheticPackagesInput, monitor.ListSyntheticPackagesOutput](
 		"list-synthetic-packages", (*monitor.Client).ListSyntheticPackages)),
 	monitorQuotaView(Read[monitor.Client, monitor.GetQuotaStatusInput, monitor.GetQuotaStatusOutput](

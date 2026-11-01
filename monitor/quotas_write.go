@@ -25,6 +25,15 @@ type CreateNotificationQuotaOutput struct {
 type quotaWriteLock struct {
 	once  sync.Once
 	token chan struct{}
+	// Membership has a short lock so canceled callers can retain send evidence.
+	attemptMu         sync.Mutex
+	syntheticEvidence *quotaAttemptEvidence
+}
+
+type quotaAttemptEvidence struct {
+	key    quotaAttemptKey
+	sent   string
+	status int
 }
 
 func (l *quotaWriteLock) acquire(ctx context.Context) error {
@@ -72,6 +81,8 @@ func (key quotaAttemptKey) matches(other quotaAttemptKey) bool {
 }
 
 type quotaWriteResult struct {
+	sent           string
+	status         int
 	quota          *Quota
 	orderID        string
 	paymentPending bool
@@ -120,13 +131,13 @@ func (c *Client) reconcileQuotaAttempt(ctx context.Context, key quotaAttemptKey)
 		return &attempt.result, quotaUnsettled(key.operation, err), true
 	}
 	if resolution.rejected != nil {
-		delete(c.quotaAttempts, key.kind)
+		c.clearQuotaAttempt(key.kind)
 		return nil, resolution.rejected, true
 	}
 	if !resolution.confirmed {
 		return &attempt.result, quotaUnsettled(key.operation, nil), true
 	}
-	delete(c.quotaAttempts, key.kind)
+	c.clearQuotaAttempt(key.kind)
 	if !key.matches(attempt.key) {
 		return nil, fmt.Errorf("%s: prior %s attempt confirmed a changed quota state; reread before another write: %w", key.operation, attempt.key.operation, core.ErrInvalidInput), true
 	}
@@ -141,10 +152,15 @@ func (c *Client) reconcileQuotaAttempt(ctx context.Context, key quotaAttemptKey)
 }
 
 func (c *Client) recordQuotaAttempt(attempt *quotaAttempt) {
+	c.quotaMu.attemptMu.Lock()
+	defer c.quotaMu.attemptMu.Unlock()
 	if c.quotaAttempts == nil {
 		c.quotaAttempts = make(map[string]*quotaAttempt)
 	}
 	c.quotaAttempts[attempt.key.kind] = attempt
+	if attempt.key.kind == "synthetic" {
+		c.quotaMu.syntheticEvidence = &quotaAttemptEvidence{key: attempt.key, sent: attempt.result.sent, status: attempt.result.status}
+	}
 }
 
 func createQuotaOutput(result *quotaWriteResult) *CreateNotificationQuotaOutput {
@@ -312,7 +328,7 @@ func (c *Client) CreateNotificationQuota(ctx context.Context, in *CreateNotifica
 	if err != nil {
 		return createQuotaOutput(&result), err
 	}
-	delete(c.quotaAttempts, kind)
+	c.clearQuotaAttempt(kind)
 	result.quota = resolution.quota
 	return createQuotaOutput(&result), nil
 }
@@ -323,5 +339,15 @@ func (c *Client) scrubQuotaWriteResult(result *quotaWriteResult, credentials mon
 		for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
 			*field, _ = c.c.RedactError(*field, "", credentials...)
 		}
+	}
+}
+
+// Callers hold quotaMu; the short lock also protects early-error readers.
+func (c *Client) clearQuotaAttempt(kind string) {
+	c.quotaMu.attemptMu.Lock()
+	defer c.quotaMu.attemptMu.Unlock()
+	delete(c.quotaAttempts, kind)
+	if kind == "synthetic" {
+		c.quotaMu.syntheticEvidence = nil
 	}
 }

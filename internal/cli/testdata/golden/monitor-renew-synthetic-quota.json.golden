@@ -1,0 +1,14 @@
+{
+  "Sent": "yes",
+  "Stage": "unconfirmed",
+  "Error": {
+    "Code": "NotSettled",
+    "Operation": "monitor.RenewSyntheticQuota",
+    "Status": 200
+  },
+  "PreviousEndTime": "2026-10-25T21:43:00Z",
+  "Quota": null,
+  "OrderID": "",
+  "PaymentPending": false,
+  "Renewed": false
+}

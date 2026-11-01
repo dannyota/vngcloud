@@ -23,12 +23,28 @@ const monitorNotificationPackagesNote = "--kind accepts Email or SMS, case insen
 const monitorSyntheticQuotaNote = "Reads quota identity, status, expiry, AutoRenew, and package detail. " +
 	"Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. " +
 	"ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. " +
-	"Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable, renewal, and deletion remain unavailable."
+	"Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable and deletion remain unavailable. Guarded free recovery and renewal are available."
 
 const monitorSyntheticUsageNote = "Reads synthetic usage counters and their descriptions. " +
 	"Alert emails consume the Email quota, rather than the synthetic email counter. See Monitor Quotas."
 
 func init() {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+		docExampleOverride["monitor "+command] = "vngcloud monitor get-synthetic-quota"
+		docOpNotes["monitor "+command] = "Requires an explicit identity guard and MaxPrice consent through flags or JSON, including zero. " +
+			"Only the evidenced free Basic package is supported, with POC and auto-renew off. Detail supplies the list price. " +
+			"Sends pay: true once without retries or auth resends; MaxPrice is a local guard, not a server cap. " +
+			"Read-only refuses before requests. No --yes or prompt. --query is refused. " +
+			"Every outcome prints Sent, Stage, Error, PreviousEndTime, Quota, OrderID, PaymentPending and the operation's confirmation boolean. " +
+			"Only same-ID/package ACTIVE read-back with a later expiry confirms. --no-wait leaves an open unconfirmed attempt. " +
+			"Uncertainty is NotSettled, exit 1, even over auth or NotFound. Serialize per account/kind and retain a durable pending marker. " +
+			"Reconcile with reads and console billing, never blind retries. See Monitor Quotas for the outcome and exit table."
+	}
+	docOpNotes["monitor recover-synthetic-quota"] += " --expected-quota-id is required. Recovery requires expired IN-TRASH and starts a new term at recovery time."
+	docOpNotes["monitor renew-synthetic-quota"] += " --expected-end-time is required as RFC 3339. ACTIVE future expiry is required. --max-days-left 7 avoids the visible early 409 Conflict."
+	docOpNotes["monitor quote-renew-synthetic-quota"] = "Estimates one frozen month from the ACTIVE quota and identity-checked detail. Requires RFC 3339 ExpectedEndTime. Ignores MaxPrice, MaxDaysLeft, and NoWait; their flags are hidden. A quote never authorizes a write."
+	docExampleOverride["monitor quote-renew-synthetic-quota"] = "vngcloud monitor get-synthetic-quota"
+
 	docOpNotes["monitor list-synthetic-packages"] = "Lists class options and v1 packages separately, with their own identifiers. " +
 		"There is no evidenced join: class option prices stay unknown even when v1 free10 costs 0 VND. " +
 		"Disabled classes stay visible. Only the evidenced Basic option has auto-renew eligibility no; v1 eligibility stays unknown. " +
@@ -38,7 +54,7 @@ func init() {
 		"with detail price and class and an unknown package name. Notification price is the current list price, not a historical billed price. " +
 		"Missing quotas produce none rows and exit 0. Failed rows print partial output, ignore --query, and exit 1 as QuotaStatusIncomplete. " +
 		"Null means unknown; false and zero remain distinct. RenewWindowOpen describes only the evidenced free Synthetic timing window. " +
-		"NextSafeCommand uses read fallbacks until recovery and renewal commands are available; any later suggested write still needs explicit guards from a fresh read. " +
+		"NextSafeCommand currently uses read fallbacks; recovery and renewal require explicit guards from a fresh read. " +
 		"Read-only settings allow this read."
 	docExampleOverride["monitor quota-status"] = "vngcloud monitor quota-status --kind synthetic"
 
@@ -84,5 +100,5 @@ func init() {
 		"An uncertain result prints partial Output even with an error, ignoring --query. " +
 		"Serialize writes across processes per account/kind; reconcile with read-only quota reads and console billing. " +
 		"A stale 404 never authorizes a retry. Monthly action accounting is unknown. " +
-		"SMS orders need a listed package and sufficient --max-price. Renewal is unavailable. See Monitor Quotas."
+		"SMS orders need a listed package and sufficient --max-price. Notification renewal is unavailable. See Monitor Quotas."
 }
