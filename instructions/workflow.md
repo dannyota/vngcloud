@@ -28,7 +28,7 @@ Codex keeps `.codex/` read-only under `workspace-write`. A worker assigned role-
 
 Start with `git status --short`; existing changes belong to someone else unless assigned in the brief. Read the named authorities and inspect the code and tests before editing. Stop and report conflicting documents, overlapping ownership, or a missing decision. Do not invent a contract or widen the task.
 
-Reports list exact new, changed, and deleted files; commands run and their results; failed or skipped checks with reasons; and open items. Claim only checks that ran. The manager inspects each diff and runs required checks before accepting a report or starting dependent work. Worker reports support verification; they do not replace it.
+Reports list exact new, changed, and deleted files; commands run and their results; failed or skipped checks with reasons; and open items. Claim only checks that ran. The manager inspects each diff, confirms its file set matches the report with nothing outside owned paths, and runs required checks before accepting a report or starting dependent work. Worker reports support verification; they do not replace it.
 
 ## Working rules
 

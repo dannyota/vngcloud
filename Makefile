@@ -1,14 +1,22 @@
-.PHONY: help check ci-workflows-check test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
+.PHONY: help check ci-workflows-check scripts-test test vet lint fmt lengths-check hooks-install wiki-preview vuln tools-outdated semgrep semgrep-ci live live-write browser-creds gen-docs
 
 SHELL := bash
+
+# Preserve literal profile names from both the environment and command line.
+override PROFILE := $(value PROFILE)
+export PROFILE
 
 help: ## Show this help
 	@bash -c "grep '^[a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | sort | sed 's/:.*## /\t/'"
 
-check: test vet lint lengths-check ci-workflows-check ## Run every local check; run before each commit
+check: test vet lint lengths-check ci-workflows-check scripts-test ## Run every local check; run before each commit
 
 ci-workflows-check: ## Check workflow triggers, source identity, and validation gates
 	@python3 scripts/test-ci-workflows.py
+
+scripts-test: ## Test the Codex launcher and browser credential loading
+	@bash scripts/test/codex-agent-test.sh
+	@python3 -I scripts/test/browser_creds_test.py
 
 test: ## Run tests
 	@go test -race ./...
@@ -53,7 +61,7 @@ live-write: ## Run the gated live billing write test; needs owner approval per r
 gen-docs: ## Regenerate the CLI reference pages in docs/wiki/ from the operation tables
 	@go run ./cmd/vngcloud gen-docs docs/wiki
 
-browser-creds: ## Serve .env IAM User values once to scripts/browser-login.js for Playwright MCP
-	@python3 scripts/browser-creds.py
+browser-creds: ## Serve .env or PROFILE IAM User values once to scripts/browser-login.js for Playwright MCP
+	@python3 scripts/browser-creds.py $${PROFILE:+--profile "$$PROFILE"}
 
 .DEFAULT_GOAL := help

@@ -43,15 +43,15 @@ Direct user instructions and platform safety rules come first. Accepted decision
 
 ## AI agent definitions and routing
 
-Definitions live in [.claude/agents/](.claude/agents/) and [.codex/agents/](.codex/agents/). The role definitions are `designer`, `design_reviewer`, `implementer`, `troubleshooter`, and `code_reviewer`. Dispatch uses the routing below, with duties and brief-scoped ownership in [workflow](instructions/workflow.md#duties); role defaults do not select the dispatch model. Role files point here instead of repeating this table.
+Definitions live in [.claude/agents/](.claude/agents/) (the Fable `designer`) and [.codex/agents/](.codex/agents/) (the Codex `designer`, `design_reviewer`, `implementer`, `troubleshooter`, `code_reviewer`, and `explorer`), one file per role name. Codex jobs run through `scripts/codex-agent.sh`, which loads the role file and requires an explicit model and effort ([CLAUDE.md](CLAUDE.md#codex-dispatch)). Dispatch uses the routing below, with duties and brief-scoped ownership in [workflow](instructions/workflow.md#duties); role defaults do not select the dispatch model. Role files point here instead of repeating this table.
 
 |Work|Model and effort|
 |-|-|
-|Design|Fable high through `designer`, then `gpt-6-astra` high reviews and improves the same documents through `codex exec`; when Fable is unavailable, Astra high writes the design. Astra does design only.|
+|Design|Fable high through `designer`, then `gpt-6-astra` high through the Codex `designer` role reviews and improves the same documents; when Fable is unavailable, Astra high writes the design. Astra does design only.|
 |Planning and coordination workers|`gpt-6.1-sol` medium|
 |All code, scripts, workflows, and small code edits|`gpt-6.1-sol` medium through `implementer`|
 |Failing or flaky tests, CI failures, and root-cause debugging, fix included|`gpt-6.1-sol` xhigh through `troubleshooter`|
-|Exploration, searches, summaries, test execution, and mechanical non-code work|`gpt-6-luna` low|
+|Exploration, searches, summaries, test execution, and mechanical non-code work|`gpt-6-luna` low through `explorer`|
 |Every review and fix confirmation of designs, plans, and code, whoever wrote them|`gpt-6.1-sol` xhigh through `design_reviewer` or `code_reviewer`, as a separate job from the author|
 
 Claude designs, researches, and coordinates only. No worker or subagent runs on Sonnet or Opus. This restriction covers workers and subagents only; the owner chooses the main Claude Code session model. Set model and effort explicitly on every dispatch. A design author never implements that slice. A reviewer never fixes reviewed work and never reviews work it wrote; a worker's self-review never counts as review. The primary agent remains responsible for planning, briefs, worktrees, verification, Git, releases, and reports; it sends failure investigation to the troubleshooter instead of debugging itself.
