@@ -1,0 +1,14 @@
+{
+  "Sent": "no",
+  "Stage": "preflight",
+  "Error": {
+    "Code": "InvalidUsage",
+    "Operation": "monitor.CreateSyntheticQuota",
+    "Status": 0
+  },
+  "Quota": null,
+  "Created": false,
+  "OrderID": "",
+  "PaymentPending": false,
+  "SentAt": null
+}

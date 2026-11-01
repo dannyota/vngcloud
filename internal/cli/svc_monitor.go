@@ -110,6 +110,9 @@ import (
 // alarm gets a new ID. A read-only profile refuses all three, before any
 // request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
+	monitorSyntheticMutationOp(Write[monitor.Client, monitor.CreateSyntheticQuotaInput, monitor.CreateSyntheticQuotaOutput]("create-synthetic-quota", (*monitor.Client).CreateSyntheticQuota)),
+	Read[monitor.Client, monitor.CreateSyntheticQuotaInput, monitor.QuoteCreateSyntheticQuotaOutput]("quote-create-synthetic-quota", (*monitor.Client).QuoteCreateSyntheticQuota, NoFlag("MaxPrice", "NoWait")),
+	monitorSyntheticDeleteOp(),
 	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RecoverSyntheticQuotaInput, monitor.RecoverSyntheticQuotaOutput]("recover-synthetic-quota", (*monitor.Client).RecoverSyntheticQuota)),
 	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.RenewSyntheticQuotaOutput]("renew-synthetic-quota", (*monitor.Client).RenewSyntheticQuota)),
 	Read[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.QuoteRenewSyntheticQuotaOutput]("quote-renew-synthetic-quota", (*monitor.Client).QuoteRenewSyntheticQuota, NoFlag("MaxPrice", "MaxDaysLeft", "NoWait")),
@@ -387,7 +390,7 @@ func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
 	case "quota-status":
 		op.short = "Read sequential quota status; --kind selects synthetic, email, or sms; suggested writes require explicit guards from a fresh read"
 	case "list-synthetic-packages":
-		op.short = "List separate class options and v1 packages; class prices and v1 auto-renew eligibility stay unknown"
+		op.short = "List class options, class unit packages, and separate v1 packages; v1 auto-renew eligibility stays unknown"
 	}
 	return op
 }
@@ -597,6 +600,9 @@ func renderSyntheticCatalog(w io.Writer, format, query string, out *monitor.List
 		}
 	}
 	if err := monitorCoverageRows(w, format, rows); err != nil {
+		return err
+	}
+	if err := renderSyntheticClassPackages(w, format, out); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(w, "V1 packages (v1 id; no evidenced relationship to class packageId)"); err != nil {

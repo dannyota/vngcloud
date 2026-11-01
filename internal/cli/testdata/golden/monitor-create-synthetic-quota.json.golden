@@ -1,0 +1,10 @@
+{
+  "Sent": "yes",
+  "Stage": "accepted",
+  "Error": null,
+  "Quota": null,
+  "Created": false,
+  "OrderID": "",
+  "PaymentPending": false,
+  "SentAt": "2026-01-01T00:00:00Z"
+}

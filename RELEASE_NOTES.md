@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.90.0 - vMonitor Synthetic quota create and delete
+
+- SDK `CreateSyntheticQuota` and `QuoteCreateSyntheticQuota`, and CLI
+  `monitor create-synthetic-quota` and `monitor quote-create-synthetic-quota`,
+  order a free Synthetic Test quota when none exists. They require an
+  explicit class, package, and quantity (API tests), refuse paid classes,
+  price the order as unit price times quantity against `--max-price`
+  (default 0), never bundle paid notification packages, send once, and
+  confirm by read-back of an ACTIVE quota with the chosen package.
+- SDK `DeleteSyntheticQuota` and CLI `monitor delete-synthetic-quota` now
+  delete the quota instead of refusing. The command is destructive: it
+  needs `--yes` and `--expected-quota-id`, re-reads the quota first, sends
+  once, and settles when the quota read returns not found. Deleting the
+  Synthetic Test quota permanently deletes every synthetic check; help and
+  every output format say so. Purge stays unsupported.
+- `list-synthetic-packages` adds each class's unit packages (from the
+  class packages read), with unit price, units, and tier; this is the
+  package ID that create, renewal, and recovery use.
+- All three writes share the `Sent`, `Stage`, and `Error` outcome model and
+  exit table from v0.89.0.
+- Compatibility: `DeleteSyntheticQuotaInput.ExpectedQuotaID` is now
+  required, and a call that refused before can now delete. New fields on
+  `SyntheticQuotaClass` break unkeyed literals. The create response body is
+  not verified live; success comes only from the read-back.
+
 ## v0.89.0 - vMonitor Synthetic recovery and renewal
 
 - SDK `RenewSyntheticQuota` and `QuoteRenewSyntheticQuota`, and CLI

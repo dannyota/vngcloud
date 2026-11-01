@@ -17,15 +17,16 @@ import (
 func coverageFixture(t *testing.T, denied ...bool) *svcFixture {
 	t.Helper()
 	bodies := map[string]string{
-		"/billing-api/v2/synthetic/quota-class":              "ListSyntheticQuotaClasses",
-		"/billing-api/v1/synthetic/packages":                 "ListSyntheticPackages",
-		"/billing-api/v1/settings":                           "GetQuotaSettings",
-		"/billing-api/v1/synthetic/quota":                    "GetSyntheticQuota",
-		"/billing-api/v2/synthetic/quota-syn-1/quota-detail": "GetSyntheticQuotaDetailNullable",
-		"/billing-api/v1/email/quota":                        "GetNotificationQuotaEmail",
-		"/billing-api/v1/email/packages":                     "ListNotificationPackagesEmail",
-		"/billing-api/v1/sms/quota":                          "GetNotificationQuotaSMS",
-		"/billing-api/v1/sms/packages":                       "ListNotificationPackagesSMS",
+		"/billing-api/v2/synthetic/quota-class":                                               "ListSyntheticQuotaClasses",
+		"/billing-api/v2/synthetic/quota-class/e574cf4a-460b-48d8-a794-80367289a6c8/packages": "ListSyntheticClassPackages",
+		"/billing-api/v1/synthetic/packages":                                                  "ListSyntheticPackages",
+		"/billing-api/v1/settings":                                                            "GetQuotaSettings",
+		"/billing-api/v1/synthetic/quota":                                                     "GetSyntheticQuota",
+		"/billing-api/v2/synthetic/quota-syn-1/quota-detail":                                  "GetSyntheticQuotaDetailNullable",
+		"/billing-api/v1/email/quota":                                                         "GetNotificationQuotaEmail",
+		"/billing-api/v1/email/packages":                                                      "ListNotificationPackagesEmail",
+		"/billing-api/v1/sms/quota":                                                           "GetNotificationQuotaSMS",
+		"/billing-api/v1/sms/packages":                                                        "ListNotificationPackagesSMS",
 	}
 	handlers := map[string]func(http.ResponseWriter, *http.Request){}
 	for path, name := range bodies {
@@ -34,6 +35,10 @@ func coverageFixture(t *testing.T, denied ...bool) *svcFixture {
 			t.Fatal(err)
 		}
 		handlers[path] = jsonHandler(200, string(b))
+	}
+	// Disabled-class package arrays are synthetic mocks.
+	for _, id := range []string{"70b57f46-edaf-4f6f-9293-acf816a5b81d", "d8c1d829-205b-4ce4-9c1c-32756f748d25"} {
+		handlers["/billing-api/v2/synthetic/quota-class/"+id+"/packages"] = jsonHandler(200, "[]")
 	}
 	if len(denied) > 0 && denied[0] {
 		for _, kind := range []string{"email", "sms"} {
@@ -68,7 +73,7 @@ func TestMonitorCoverageCommandsReadOnly(t *testing.T) {
 				if !strings.Contains(stdout.String(), "Basic") {
 					t.Fatalf("output=%s", stdout)
 				}
-				want := 3
+				want := 6
 				if command == "quota-status" {
 					want = 2
 				}
@@ -122,7 +127,7 @@ func TestGoldenMonitorCoverage(t *testing.T) {
 		{Kind: "SMS", PackageName: "sms5", Status: "ACTIVE", AutoRenew: &yes, NextSafeCommand: "monitor get-notification-quota"},
 	}}
 	catalog := &monitor.ListSyntheticPackagesOutput{Items: []monitor.SyntheticQuotaClass{
-		{ID: "class-1", Name: "Basic", Status: "ACTIVE", Description: "Free class", Priority: 1, Options: []monitor.SyntheticClassOption{{PackageID: "class-package-1", Location: 1, MinAPI: 10, MaxAPI: 10, Step: 1, MonthPeriods: []int{1}, AutoRenewEligible: &no}}},
+		{ID: "class-1", Name: "Basic", Status: "ACTIVE", Description: "Free class", Priority: 1, Packages: []monitor.SyntheticClassPackage{{ID: "class-package-1", Name: "unit-package-free", TierName: "Unit Tier Free", TierID: 1001, API: 1, Location: 1, Price: &price}}, Options: []monitor.SyntheticClassOption{{PackageID: "class-package-1", Location: 1, MinAPI: 10, MaxAPI: 10, Step: 1, MonthPeriods: []int{1}, AutoRenewEligible: &no}}},
 		{ID: "class-2", Name: "Pro", Status: "DISABLED", Description: "Coming soon.", Priority: 2, Options: []monitor.SyntheticClassOption{}},
 	}, Packages: []monitor.SyntheticPackage{{ID: "v1-package-1", Name: "free10", TierID: 24, API: 10, Location: 1, Price: &price, MonthPeriods: []int{1}}}, MonthPeriods: []int{1, 3}, MaxMonthPeriodForFreeQuota: 1, PaymentMethod: "PRE-PAID"}
 	for _, tc := range []struct {
@@ -137,7 +142,7 @@ func TestGoldenMonitorCoverage(t *testing.T) {
 			}
 			name := "monitor-" + tc.name + "." + format + ".golden"
 			path := goldenPath(name)
-			if *updateGolden {
+			if *updateGolden && tc.name == "list-synthetic-packages" {
 				if err := os.WriteFile(path, stdout.Bytes(), 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -155,7 +160,7 @@ func TestGoldenMonitorCoverage(t *testing.T) {
 				t.Fatal(err)
 			}
 			queryPath := goldenPath("monitor-" + tc.name + "-query." + format + ".golden")
-			if *updateGolden {
+			if *updateGolden && tc.name == "list-synthetic-packages" {
 				if err := os.WriteFile(queryPath, stdout.Bytes(), 0o644); err != nil {
 					t.Fatal(err)
 				}

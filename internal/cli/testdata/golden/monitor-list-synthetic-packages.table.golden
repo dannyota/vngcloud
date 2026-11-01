@@ -6,6 +6,12 @@ Settings periods: [1 3]; free maximum: 1; payment: PRE-PAID
 | no                | Basic | class-1 | Free class   | 1        | 10      | 10      | [1]          | class-package-1 | unknown  | ACTIVE                 | 1       |
 | unknown           | Pro   | class-2 | Coming soon. | unknown  | unknown | unknown | []           | unknown         | unknown  | DISABLED (unavailable) | unknown |
 +-------------------+-------+---------+--------------+----------+---------+---------+--------------+-----------------+----------+------------------------+---------+
+Class unit packages (monthly VND per unit)
++-----+-------+---------+-----------------+----------+-------------------+--------+--------+----------------+--------------+
+| API | Class | ClassID | ID              | Location | Name              | Status | TierID | TierName       | UnitPriceVND |
++-----+-------+---------+-----------------+----------+-------------------+--------+--------+----------------+--------------+
+| 1   | Basic | class-1 | class-package-1 | 1        | unit-package-free | ACTIVE | 1001   | Unit Tier Free | 0            |
++-----+-------+---------+-----------------+----------+-------------------+--------+--------+----------------+--------------+
 V1 packages (v1 id; no evidenced relationship to class packageId)
 +-----+-------------------+--------------+----------+--------------+--------+----------+--------+
 | API | AutoRenewEligible | ID           | Location | MonthPeriods | Name   | PriceVND | TierID |

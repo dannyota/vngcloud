@@ -387,7 +387,7 @@ func mustSyntheticCLIFixture(t *testing.T, name string) []byte {
 }
 
 func TestSyntheticMutationPreflightConfigOutcomes(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "create-synthetic-quota"} {
 		for _, mode := range []string{"credentials", "config", "flag read only", "environment read only", "profile read only", "profile invalid"} {
 			t.Run(command+"/"+mode, func(t *testing.T) {
 				home := withCleanEnv(t)
@@ -395,9 +395,12 @@ func TestSyntheticMutationPreflightConfigOutcomes(t *testing.T) {
 				withTestOptions(t, opts...)
 				assertSyntheticCLILoopbackEndpoint(t)
 				args := []string{"monitor", command, "--region", "hcm-3", "--max-price", "0"}
-				if command == "recover-synthetic-quota" {
+				switch command {
+				case "create-synthetic-quota":
+					args = syntheticLifecycleCLIArgs(command)
+				case "recover-synthetic-quota":
 					args = append(args, "--expected-quota-id", "quota-syn-1")
-				} else {
+				default:
 					args = append(args, "--expected-end-time", "2500-12-01T00:00:00Z")
 				}
 				wantCode, wantExit := "NoCredentials", 3
@@ -718,6 +721,658 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 	}
 }
 
+func TestSyntheticCreateDeletePreSDK(t *testing.T) {
+	for _, command := range []string{"create-synthetic-quota", "delete-synthetic-quota"} {
+		for _, format := range []string{"json", "table", "text"} {
+			for _, flags := range [][]string{nil, {"--read-only"}, {"--query", "Stage"}, {"--cli-input-json", "{"}} {
+				t.Run(command+format+strings.Join(flags, ""), func(t *testing.T) {
+					withCleanEnv(t)
+					withTestOptions(t, syntheticCLITestOptions(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected pre-SDK request") }))...)
+					var out, stderr bytes.Buffer
+					args := append([]string{"monitor", command, "--output", format}, flags...)
+					code := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
+					if code != 2 || out.Len() == 0 {
+						t.Fatalf("exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+					}
+					if command == "delete-synthetic-quota" {
+						if !strings.Contains(out.String(), syntheticDeleteEffect) {
+							t.Fatalf("warning missing: %s", &out)
+						}
+					} else if format == "json" {
+						var v map[string]any
+						if json.Unmarshal(out.Bytes(), &v) != nil || len(v) != 8 || v["Sent"] != "no" || v["Created"] != false || v["SentAt"] != nil {
+							t.Fatalf("out=%s", &out)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSyntheticCreateDeleteCLITransport(t *testing.T) {
+	for _, command := range []string{"create-synthetic-quota", "quote-create-synthetic-quota", "delete-synthetic-quota"} {
+		for _, status := range []int{200, 201, 204, 301, 302, 303, 307, 308, 400, 401, 403, 404, 409, 429, 500, 502, 503, 504, -1} {
+			if command == "quote-create-synthetic-quota" && status != 200 {
+				continue
+			}
+			t.Run(fmt.Sprint(command, status), func(t *testing.T) {
+				withCleanEnv(t)
+				var sends, quotes atomic.Int32
+				fixture := func(name string) string {
+					b, e := os.ReadFile("../../testdata/monitor/" + name + ".json")
+					if e != nil {
+						t.Fatal(e)
+					}
+					return string(b)
+				}
+				quota := strings.ReplaceAll(fixture("GetSyntheticQuotaCreated"), "2026-12-01", "2501-12-01")
+				handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodDelete && r.URL.Path == "/billing-api/v1/synthetic/quota", r.Method == http.MethodPost && r.URL.Path == "/billing-api/v2/synthetic/quota":
+						sends.Add(1)
+						body, _ := io.ReadAll(r.Body)
+						if command == "create-synthetic-quota" {
+							var v map[string]any
+							if json.Unmarshal(body, &v) != nil || len(v) != 6 || v["quantity"] != float64(10) || v["pay"] != true || v["monthPeriod"] != float64(1) {
+								t.Errorf("body=%s", body)
+							}
+							if buy, ok := v["buyWith"].(map[string]any); !ok || len(buy) != 0 {
+								t.Errorf("body=%s", body)
+							}
+						} else if len(body) != 0 {
+							t.Errorf("delete body=%s", body)
+						}
+						if status < 0 {
+							conn, _, e := w.(http.Hijacker).Hijack()
+							if e != nil {
+								t.Error(e)
+								return
+							}
+							_ = conn.Close()
+							return
+						}
+						w.Header().Set("Location", "/must-not-follow")
+						w.WriteHeader(status)
+						// Success bodies are constructed from metadata, not raw fixtures.
+						if status != 200 && status != 204 {
+							_, _ = io.WriteString(w, `{"message":"peer-canary"}`)
+						}
+					case r.URL.Path == "/billing-api/v1/synthetic/quota":
+						if command == "delete-synthetic-quota" && sends.Load() == 0 {
+							_, _ = io.WriteString(w, quota)
+							return
+						}
+						w.WriteHeader(404)
+						_, _ = io.WriteString(w, fixture("GetSyntheticQuotaDeleted"))
+					case r.URL.Path == "/billing-api/v2/synthetic/quota-syn-2/quota-detail":
+						_, _ = io.WriteString(w, fixture("GetSyntheticQuotaCreatedDetail"))
+					case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
+						_, _ = io.WriteString(w, fixture("ListSyntheticQuotaClasses"))
+					case strings.HasSuffix(r.URL.Path, "/packages") && strings.Contains(r.URL.Path, "/quota-class/"):
+						_, _ = io.WriteString(w, fixture("ListSyntheticClassPackages"))
+					case r.URL.Path == "/billing-api/v1/settings":
+						_, _ = io.WriteString(w, fixture("GetQuotaSettings"))
+					case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
+						quotes.Add(1)
+						var v map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&v)
+						if len(v) != 4 || v["quantity"] != float64(10) || v["resourceId"] != nil || v["monthPeriod"] != nil {
+							t.Errorf("quote=%v", v)
+						}
+						_, _ = io.WriteString(w, fixture("QuoteCreateSyntheticQuota"))
+					default:
+						t.Errorf("unexpected %s %s", r.Method, r.URL)
+						w.WriteHeader(400)
+					}
+				})
+				server := httptest.NewServer(handler)
+				t.Cleanup(server.Close)
+				withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(server.Client())), vngcloud.WithStaticToken("synthetic-bearer-canary"), vngcloud.WithRetry(3, time.Millisecond))
+				args := []string{"monitor", command, "--region", "hcm-3", "--output", "json"}
+				if command == "delete-synthetic-quota" {
+					args = append(args, "--yes", "--expected-quota-id", "quota-syn-2")
+				} else {
+					args = append(args, "--class-id", "e574cf4a-460b-48d8-a794-80367289a6c8", "--package-id", "32b3743d-94b8-49ab-984d-bd7ec99b46f6", "--quantity", "10")
+					if command == "create-synthetic-quota" {
+						args = append(args, "--max-price", "0", "--no-wait")
+					}
+				}
+				var out, stderr bytes.Buffer
+				exit := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
+				var value map[string]any
+				if json.Unmarshal(out.Bytes(), &value) != nil {
+					t.Fatalf("exit=%d out=%s err=%s", exit, &out, &stderr)
+				}
+				if strings.Contains(out.String()+stderr.String(), "peer-canary") || strings.Contains(out.String()+stderr.String(), "synthetic-bearer-canary") {
+					t.Fatal("unsafe output")
+				}
+				if command == "quote-create-synthetic-quota" {
+					if exit != 0 || sends.Load() != 0 || quotes.Load() != 1 {
+						t.Fatalf("exit=%d sends=%d quotes=%d", exit, sends.Load(), quotes.Load())
+					}
+					return
+				}
+				if sends.Load() != 1 {
+					t.Fatalf("sends=%d", sends.Load())
+				}
+				success := (command == "create-synthetic-quota" && status == 200) || (command == "delete-synthetic-quota" && status == 204)
+				wantExit := 1
+				switch {
+				case success:
+					wantExit = 0
+				case status == 401:
+					wantExit = 3
+				case status == 404:
+					wantExit = 4
+				}
+				if exit != wantExit {
+					t.Fatalf("exit=%d want=%d out=%s err=%s", exit, wantExit, &out, &stderr)
+				}
+				if command == "delete-synthetic-quota" {
+					stage := "sent"
+					if success {
+						stage = "settled"
+					} else if status >= 400 && status < 500 {
+						stage = "prepared"
+					}
+					if len(value) != 4 || value["Effect"] != syntheticDeleteEffect || value["Stage"] != stage || value["Purged"] != false {
+						t.Fatalf("out=%s", &out)
+					}
+					if quotes.Load() != 0 {
+						t.Fatal("delete quoted")
+					}
+				} else {
+					sent, stage := "yes", "unconfirmed"
+					if status < 0 {
+						sent = "unknown"
+					}
+					if success {
+						stage = "accepted"
+					} else if status >= 400 && status < 500 {
+						stage = "refused"
+					}
+					if len(value) != 8 || value["Sent"] != sent || value["Stage"] != stage || value["Created"] != false || value["SentAt"] == nil {
+						t.Fatalf("out=%s", &out)
+					}
+					if !success {
+						meta := value["Error"].(map[string]any)
+						var env struct {
+							Error struct {
+								Code      string
+								Status    int
+								Operation string
+							}
+						}
+						_ = json.Unmarshal(stderr.Bytes(), &env)
+						if meta["Code"] != env.Error.Code || meta["Status"] != float64(env.Error.Status) || env.Error.Operation != "monitor.CreateSyntheticQuota" {
+							t.Fatalf("out=%s stderr=%s", &out, &stderr)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestSyntheticLifecycleGoldens(t *testing.T) {
+	sentAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		out  any
+	}{
+		{"create-synthetic-quota", &monitor.CreateSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: "yes", Stage: "accepted"}, SentAt: &sentAt}},
+		{"create-synthetic-quota-preflight", &monitor.CreateSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: "no", Stage: "preflight", Error: &monitor.QuotaOutcomeError{Code: "InvalidUsage", Operation: "monitor.CreateSyntheticQuota"}}}},
+		{"quote-create-synthetic-quota", &monitor.QuotaQuote{PackageID: "unit-package-1", Quantity: 10, MonthPeriod: 1, Currency: "VND"}},
+		{"delete-synthetic-quota", &monitor.DeleteSyntheticQuotaOutput{Stage: "settled"}},
+		{"delete-synthetic-quota-preflight", &monitor.DeleteSyntheticQuotaOutput{}},
+	}
+	for _, tc := range cases {
+		for _, format := range []string{"json", "table", "text"} {
+			t.Run(tc.name+format, func(t *testing.T) {
+				var out bytes.Buffer
+				if err := renderSyntheticCommand(&out, format, tc.out); err != nil {
+					t.Fatal(err)
+				}
+				path := goldenPath("monitor-" + tc.name + "." + format + ".golden")
+				if *updateGolden {
+					if err := os.WriteFile(path, out.Bytes(), 0644); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					want, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !bytes.Equal(want, out.Bytes()) {
+						t.Fatalf("got=%s want=%s", &out, want)
+					}
+				}
+			})
+		}
+	}
+}
+func TestSyntheticDeleteWarningAndQuoteFlags(t *testing.T) {
+	withCleanEnv(t)
+	root := newRootCmd(strings.NewReader(""), io.Discard, io.Discard)
+	cmd, _, err := root.Find([]string{"monitor", "delete-synthetic-quota"})
+	if err != nil || !strings.Contains(cmd.Short, syntheticDeleteEffect) {
+		t.Fatalf("cmd=%v err=%v", cmd, err)
+	}
+	for _, command := range []string{"quote-create-synthetic-quota"} {
+		cmd, _, err = root.Find([]string{"monitor", command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"max-price", "no-wait"} {
+			if flag := cmd.Flags().Lookup(name); flag != nil && !flag.Hidden {
+				t.Fatalf("quote exposes %s", name)
+			}
+		}
+	}
+	body, err := os.ReadFile("../../docs/wiki/Monitor-Quotas.md")
+	if err != nil || !bytes.Contains(body, []byte("permanently deletes every synthetic check")) {
+		t.Fatalf("wiki warning missing: %v", err)
+	}
+	if !strings.Contains(docOpNotes["monitor delete-synthetic-quota"], syntheticDeleteEffect) {
+		t.Fatal("generated source warning missing")
+	}
+}
+
+func syntheticLifecycleCLIArgs(command string) []string {
+	args := []string{"monitor", command, "--region", "hcm-3", "--output", "json"}
+	if command == "delete-synthetic-quota" {
+		return append(args, "--yes", "--expected-quota-id", "quota-syn-2")
+	}
+	return append(args, "--class-id", "e574cf4a-460b-48d8-a794-80367289a6c8", "--package-id", "32b3743d-94b8-49ab-984d-bd7ec99b46f6", "--quantity", "10", "--max-price", "0")
+}
+func TestSyntheticLifecycleCLISendFailures(t *testing.T) {
+	for _, command := range []string{"create-synthetic-quota", "delete-synthetic-quota"} {
+		for _, mode := range []string{"dial", "cancel before", "cancel after", "timeout"} {
+			t.Run(command+mode, func(t *testing.T) {
+				withCleanEnv(t)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var sends, dials, finalReads atomic.Int32
+				lastDial := int32(10)
+				if command == "delete-synthetic-quota" {
+					lastDial = 5
+				}
+				handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodDelete || r.Method == http.MethodPost && r.URL.Path == "/billing-api/v2/synthetic/quota":
+						sends.Add(1)
+						_, _ = io.Copy(io.Discard, r.Body)
+						if mode == "cancel after" {
+							cancel()
+						}
+						<-r.Context().Done()
+					case r.URL.Path == "/billing-api/v1/synthetic/quota":
+						if command == "create-synthetic-quota" {
+							w.WriteHeader(404)
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaDeleted"))
+						} else {
+							_, _ = io.WriteString(w, strings.ReplaceAll(string(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreated")), "2026-12-01", "2500-12-01"))
+						}
+					case strings.HasSuffix(r.URL.Path, "/quota-detail"):
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreatedDetail"))
+						if finalReads.Add(1) == 2 && mode == "cancel before" {
+							cancel()
+						}
+					case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
+					case strings.HasSuffix(r.URL.Path, "/packages"):
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+					case r.URL.Path == "/billing-api/v1/settings":
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
+						if finalReads.Add(1) == 2 && mode == "cancel before" {
+							cancel()
+						}
+					case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "QuoteCreateSyntheticQuota"))
+					default:
+						t.Errorf("unexpected %s", r.URL)
+						w.WriteHeader(400)
+					}
+				})
+				server := httptest.NewServer(handler)
+				t.Cleanup(server.Close)
+				dialer := new(net.Dialer)
+				rt := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+					if n := dials.Add(1); mode == "dial" && n == lastDial {
+						return nil, &net.OpError{Op: "dial", Net: network, Err: syscall.ECONNREFUSED}
+					}
+					return dialer.DialContext(ctx, network, address)
+				}}
+				if mode == "timeout" {
+					rt.ResponseHeaderTimeout = time.Second
+				}
+				t.Cleanup(rt.CloseIdleConnections)
+				withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(&http.Client{Transport: rt})), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRetry(3, time.Millisecond))
+				var out, stderr bytes.Buffer
+				exit := Main(ctx, syntheticLifecycleCLIArgs(command), strings.NewReader(""), &out, &stderr)
+				var v map[string]any
+				if json.Unmarshal(out.Bytes(), &v) != nil || exit != 1 {
+					t.Fatalf("exit=%d out=%s stderr=%s", exit, &out, &stderr)
+				}
+				before := mode == "dial" || mode == "cancel before"
+				count := int32(1)
+				if before {
+					count = 0
+				}
+				if sends.Load() != count {
+					t.Fatalf("sends=%d want=%d", sends.Load(), count)
+				}
+				if mode == "dial" && dials.Load() != lastDial {
+					t.Fatalf("dials=%d want=%d", dials.Load(), lastDial)
+				}
+				if command == "create-synthetic-quota" {
+					sent, stage, code := "unknown", "unconfirmed", "NotSettled"
+					if before {
+						sent, stage, code = "no", "preflight", "RequestFailed"
+					}
+					meta := v["Error"].(map[string]any)
+					if v["Sent"] != sent || v["Stage"] != stage || meta["Code"] != code {
+						t.Fatalf("out=%s", &out)
+					}
+				} else {
+					stage := "sent"
+					if before {
+						stage = "prepared"
+					}
+					if v["Stage"] != stage || v["Effect"] != syntheticDeleteEffect {
+						t.Fatalf("out=%s", &out)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestSyntheticCreateCLIReadbackOutcomes(t *testing.T) {
+	for _, mode := range []string{"confirmed", "malformed", "payment", "read forbidden", "price", "unpriced", "changed", "nonencodable"} {
+		t.Run(mode, func(t *testing.T) {
+			withCleanEnv(t)
+			var sends, quotes, reads atomic.Int32
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/billing-api/v1/synthetic/quota":
+					n := reads.Add(1)
+					if sends.Load() > 0 && mode == "read forbidden" {
+						w.WriteHeader(403)
+						return
+					}
+					if sends.Load() > 0 && (mode == "confirmed" || mode == "nonencodable") || mode == "changed" && n > 1 {
+						body := string(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreated"))
+						body = strings.ReplaceAll(body, "2026-11-01", "2500-11-01")
+						body = strings.ReplaceAll(body, "2026-12-01", "2500-12-01")
+						if mode == "nonencodable" {
+							var q map[string]any
+							if e := json.Unmarshal([]byte(body), &q); e != nil {
+								t.Error(e)
+							}
+							q["createdAt"] = "2501-01-01T00:00:00+24:00"
+							_ = json.NewEncoder(w).Encode(q)
+						} else {
+							_, _ = io.WriteString(w, body)
+						}
+						return
+					}
+					w.WriteHeader(404)
+					_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaDeleted"))
+				case "/billing-api/v2/synthetic/quota-syn-2/quota-detail":
+					_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreatedDetail"))
+				case "/billing-api/v2/synthetic/quota-class":
+					_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
+				case "/billing-api/v2/synthetic/quota-class/e574cf4a-460b-48d8-a794-80367289a6c8/packages":
+					body := string(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+					if mode == "unpriced" {
+						body = strings.ReplaceAll(body, `"price": 0.0`, `"price": 1`)
+					}
+					_, _ = io.WriteString(w, body)
+				case "/billing-api/v1/settings":
+					_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
+				case "/billing-api/v2/synthetic/prices/created-price":
+					quotes.Add(1)
+					if mode == "price" {
+						_, _ = io.WriteString(w, `{"optimumPrice":1}`)
+					} else {
+						_, _ = w.Write(mustSyntheticCLIFixture(t, "QuoteCreateSyntheticQuota"))
+					}
+				case "/billing-api/v2/synthetic/quota":
+					sends.Add(1)
+					switch mode {
+					case "malformed":
+						_, _ = io.WriteString(w, "{")
+					case "payment":
+						_, _ = io.WriteString(w, `{"paymentUrl":"https://peer-canary.invalid/pay"}`)
+					}
+				default:
+					t.Errorf("unexpected route %s", r.URL)
+					w.WriteHeader(400)
+				}
+			})
+			server := httptest.NewServer(handler)
+			t.Cleanup(server.Close)
+			withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(server.Client())), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRetry(3, time.Millisecond))
+			var out, stderr bytes.Buffer
+			exit := Main(context.Background(), syntheticLifecycleCLIArgs("create-synthetic-quota"), strings.NewReader(""), &out, &stderr)
+			var v struct {
+				Sent, Stage             string
+				Error                   *monitor.QuotaOutcomeError
+				Quota                   *monitor.Quota
+				Created, PaymentPending bool
+			}
+			if json.Unmarshal(out.Bytes(), &v) != nil {
+				t.Fatalf("out=%s", &out)
+			}
+			if mode == "confirmed" {
+				if exit != 0 || !v.Created || v.Stage != "confirmed" || v.Quota == nil || sends.Load() != 1 {
+					t.Fatalf("exit=%d out=%s stderr=%s", exit, &out, &stderr)
+				}
+				return
+			}
+			code, sent, stage, count := "NotSettled", "yes", "unconfirmed", int32(1)
+			switch mode {
+			case "price":
+				code, sent, stage, count = "PriceAboveMax", "no", "preflight", 0
+			case "unpriced":
+				code, sent, stage, count = "Unpriced", "no", "preflight", 0
+			case "changed":
+				code, sent, stage, count = "QuotaChanged", "no", "preflight", 0
+			}
+			if exit != 1 || v.Error == nil || v.Error.Code != code || v.Sent != sent || v.Stage != stage || v.Created || sends.Load() != count || quotes.Load() != 1 {
+				t.Fatalf("exit=%d out=%s stderr=%s sends=%d", exit, &out, &stderr, sends.Load())
+			}
+			if strings.Contains(out.String()+stderr.String(), "peer-canary") {
+				t.Fatal("URL leaked")
+			}
+		})
+	}
+}
+
+func invokeSyntheticLifecycleCLI(t *testing.T, ctx context.Context, client *monitor.Client, args []string) (map[string]any, error) {
+	t.Helper()
+	var out, stderr bytes.Buffer
+	e := &env{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr, flags: &globalFlags{region: "hcm-3", output: "json"}}
+	root := &cobra.Command{Use: "vngcloud", SilenceErrors: true, SilenceUsage: true}
+	root.PersistentFlags().StringVar(&e.flags.region, "region", "hcm-3", "")
+	root.PersistentFlags().StringVar(&e.flags.output, "output", "json", "")
+	root.PersistentFlags().BoolVar(&e.flags.yes, "yes", false, "")
+	root.SetOut(&out)
+	root.SetErr(&stderr)
+	root.AddCommand(Service(e, "monitor", "", func(vngcloud.Config) *monitor.Client { return client }, monitorOps...))
+	state := new(syntheticCLIOutcome)
+	root.SetArgs(args)
+	cmd, err := root.ExecuteContextC(context.WithValue(ctx, syntheticOutcomeContextKey{}, state))
+	if err != nil {
+		finishSyntheticCLI(&out, &stderr, cmd, syntheticCommandOperation(cmd), state, err)
+	}
+	var result map[string]any
+	if json.Unmarshal(out.Bytes(), &result) != nil {
+		t.Errorf("stdout=%s stderr=%s", &out, &stderr)
+	}
+	return result, err
+}
+func TestSyntheticLifecycleCLIRetainedAttempts(t *testing.T) {
+	for _, command := range []string{"create-synthetic-quota", "delete-synthetic-quota"} {
+		for _, unknown := range []bool{false, true} {
+			for _, mode := range []string{"matching", "changed", "unresolved"} {
+				t.Run(fmt.Sprintf("%s/%t/%s", command, unknown, mode), func(t *testing.T) {
+					withCleanEnv(t)
+					var sends, quotes atomic.Int32
+					ready := make(chan struct{})
+					handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						switch {
+						case r.Method == http.MethodDelete || r.Method == http.MethodPost && r.URL.Path == "/billing-api/v2/synthetic/quota":
+							sends.Add(1)
+							_, _ = io.Copy(io.Discard, r.Body)
+							if unknown {
+								conn, _, err := w.(http.Hijacker).Hijack()
+								if err != nil {
+									t.Error(err)
+									return
+								}
+								_ = conn.Close()
+								return
+							}
+							if command == "delete-synthetic-quota" {
+								w.WriteHeader(502)
+							}
+						case r.URL.Path == "/billing-api/v1/synthetic/quota":
+							if sends.Load() > 0 && mode == "unresolved" {
+								close(ready)
+								<-r.Context().Done()
+								return
+							}
+							if command == "create-synthetic-quota" && sends.Load() == 0 || command == "delete-synthetic-quota" && sends.Load() > 0 {
+								w.WriteHeader(404)
+								_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaDeleted"))
+								return
+							}
+							body := string(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreated"))
+							body = strings.ReplaceAll(body, "2026-11-01", "2500-11-01")
+							body = strings.ReplaceAll(body, "2026-12-01", "2500-12-01")
+							_, _ = io.WriteString(w, body)
+						case strings.HasSuffix(r.URL.Path, "/quota-detail"):
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaCreatedDetail"))
+						case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
+						case strings.HasSuffix(r.URL.Path, "/packages"):
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+						case r.URL.Path == "/billing-api/v1/settings":
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
+						case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
+							quotes.Add(1)
+							_, _ = w.Write(mustSyntheticCLIFixture(t, "QuoteCreateSyntheticQuota"))
+						default:
+							t.Errorf("unexpected %s", r.URL)
+							w.WriteHeader(400)
+						}
+					})
+					server := httptest.NewServer(handler)
+					t.Cleanup(server.Close)
+					withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(server.Client())), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRetry(3, time.Millisecond))
+					cfg, err := loadConfig(context.Background(), &env{flags: &globalFlags{region: "hcm-3"}}, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					client := monitor.New(cfg)
+					args := syntheticLifecycleCLIArgs(command)
+					if command == "create-synthetic-quota" {
+						args = append(args, "--no-wait")
+					}
+					// Keep the SDK client so the real command can reconcile its ledger.
+					first, err := invokeSyntheticLifecycleCLI(t, context.Background(), client, args)
+					if command == "create-synthetic-quota" && !unknown {
+						if err != nil || first["Stage"] != "accepted" {
+							t.Fatalf("first=%v err=%v", first, err)
+						}
+					} else if !errors.Is(err, dns.ErrNotSettled) {
+						t.Fatalf("first=%v err=%v", first, err)
+					}
+					secondArgs := slices.Clone(args)
+					if mode != "matching" {
+						if command == "create-synthetic-quota" {
+							secondArgs = append(secondArgs, "--quantity", "11")
+						} else {
+							secondArgs = append(secondArgs, "--expected-quota-id", "other")
+						}
+					}
+					var result map[string]any
+					if mode == "unresolved" {
+						ctx, cancel := context.WithCancel(context.Background())
+						defer cancel()
+						done := make(chan struct{})
+						go func() { result, err = invokeSyntheticLifecycleCLI(t, ctx, client, secondArgs); close(done) }()
+						<-ready
+						cancel()
+						<-done
+					} else {
+						result, err = invokeSyntheticLifecycleCLI(t, context.Background(), client, secondArgs)
+					}
+					wantQuotes := int32(0)
+					if command == "create-synthetic-quota" {
+						wantQuotes = 1
+					}
+					if sends.Load() != 1 || quotes.Load() != wantQuotes {
+						t.Fatalf("sends=%d quotes=%d", sends.Load(), quotes.Load())
+					}
+					switch mode {
+					case "matching":
+						stage := "settled"
+						if command == "create-synthetic-quota" {
+							stage = "confirmed"
+							if result["Created"] != true {
+								t.Fatalf("result=%v", result)
+							}
+						}
+						if err != nil || result["Stage"] != stage {
+							t.Fatalf("result=%v err=%v", result, err)
+						}
+						retiredArgs := slices.Clone(args)
+						if command == "create-synthetic-quota" {
+							retiredArgs = append(retiredArgs, "--class-id", "invalid/id")
+						} else {
+							retiredArgs = append(retiredArgs, "--expected-quota-id", "invalid/id")
+						}
+						retired, e := invokeSyntheticLifecycleCLI(t, context.Background(), client, retiredArgs)
+						if !errors.Is(e, vngcloud.ErrInvalidInput) || errors.Is(e, dns.ErrNotSettled) || exitCode(e) != 2 {
+							t.Fatalf("retired=%v err=%v", retired, e)
+						}
+						if command == "create-synthetic-quota" && retired["Sent"] != "no" || command == "delete-synthetic-quota" && retired["Stage"] != "" {
+							t.Fatalf("stale retired evidence: %v", retired)
+						}
+						if sends.Load() != 1 {
+							t.Fatal("retirement test sent another mutation")
+						}
+					case "changed":
+						if !errors.Is(err, vngcloud.ErrInvalidInput) || exitCode(err) != 2 {
+							t.Fatalf("result=%v err=%v", result, err)
+						}
+					case "unresolved":
+						if !errors.Is(err, dns.ErrNotSettled) || exitCode(err) != 1 {
+							t.Fatalf("result=%v err=%v", result, err)
+						}
+					}
+					if command == "create-synthetic-quota" && mode != "changed" {
+						sent := "yes"
+						if unknown {
+							sent = "unknown"
+						}
+						if result["Sent"] != sent {
+							t.Fatalf("result=%v", result)
+						}
+					}
+					if command == "delete-synthetic-quota" && result["Effect"] != syntheticDeleteEffect {
+						t.Fatalf("result=%v", result)
+					}
+				})
+			}
+		}
+	}
+}
+
 func assertSyntheticCLILoopbackEndpoint(t *testing.T) {
 	t.Helper()
 	opts := append(slices.Clone(testOptions), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRegion("hcm-3"))
@@ -914,5 +1569,102 @@ func TestSyntheticMutationTestClientRejectsNonLoopback(t *testing.T) {
 				t.Fatalf("non-loopback request reached base transport: calls=%d err=%v", calls, err)
 			}
 		})
+	}
+}
+
+func TestSyntheticCreateEncodingFailureFallback(t *testing.T) {
+	bad, err := time.Parse(time.RFC3339, "2501-01-01T00:00:00+24:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sent := range []string{"no", "yes", "unknown"} {
+		t.Run(sent, func(t *testing.T) {
+			out := &monitor.CreateSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: sent, Stage: "confirmed"}, Created: true, Quota: &monitor.Quota{EndTime: bad}, SentAt: &bad}
+			state := &syntheticCLIOutcome{output: out}
+			cmd := &cobra.Command{Use: "create-synthetic-quota"}
+			cmd.Flags().String("output", "json", "")
+			var stdout, stderr bytes.Buffer
+			finishSyntheticCLI(&stdout, &stderr, cmd, "monitor.CreateSyntheticQuota", state, errors.New("encoding failed"))
+			var record map[string]any
+			if json.Unmarshal(stdout.Bytes(), &record) != nil || len(record) != 8 || record["Sent"] != sent || record["Quota"] != nil || record["Created"] != false || record["SentAt"] != nil {
+				t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
+			}
+		})
+	}
+}
+
+func TestSyntheticDeleteEncodingFailureFallback(t *testing.T) {
+	bad, err := time.Parse(time.RFC3339, "2501-01-01T00:00:00+24:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []string{"prepared", "sent", "settled"} {
+		for _, format := range []string{"json", "table", "text"} {
+			t.Run(stage+format, func(t *testing.T) {
+				out := &monitor.DeleteSyntheticQuotaOutput{Quota: &monitor.Quota{EndTime: bad}, Stage: stage}
+				var stdout, stderr bytes.Buffer
+				writer := &syntheticOutputWriter{Writer: &stdout}
+				renderErr := renderSyntheticCommand(writer, format, out)
+				if renderErr == nil || writer.attempted {
+					t.Fatalf("attempted=%t err=%v", writer.attempted, renderErr)
+				}
+				state := &syntheticCLIOutcome{output: out, format: format}
+				cmd := &cobra.Command{Use: "delete-synthetic-quota"}
+				cmd.Flags().String("output", "json", "")
+				finishSyntheticCLI(&stdout, &stderr, cmd, "monitor.DeleteSyntheticQuota", state, renderErr)
+				if !strings.Contains(stdout.String(), syntheticDeleteEffect) {
+					t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
+				}
+				if format == "json" {
+					var record map[string]any
+					wantStage := stage
+					if stage == "settled" {
+						wantStage = "sent"
+					}
+					if json.Unmarshal(stdout.Bytes(), &record) != nil || len(record) != 4 || record["Stage"] != wantStage || record["Quota"] != nil || record["Purged"] != false {
+						t.Fatalf("stdout=%s", &stdout)
+					}
+				}
+				if stage != "prepared" && !strings.Contains(stderr.String(), `"NotSettled"`) {
+					t.Fatalf("stderr=%s", &stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestSyntheticCreateDeleteOutputAttemptTracking(t *testing.T) {
+	bad, err := time.Parse(time.RFC3339, "2501-01-01T00:00:00+24:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []any{&monitor.CreateSyntheticQuotaOutput{SentAt: &bad}, &monitor.DeleteSyntheticQuotaOutput{Quota: &monitor.Quota{EndTime: bad}}} {
+		for _, format := range []string{"json", "table", "text"} {
+			var stdout bytes.Buffer
+			writer := &syntheticOutputWriter{Writer: &stdout}
+			if e := renderSyntheticCommand(writer, format, out); e == nil || writer.attempted || stdout.Len() != 0 {
+				t.Fatalf("format=%s attempted=%t stdout=%s err=%v", format, writer.attempted, &stdout, e)
+			}
+		}
+	}
+	for _, command := range []string{"create-synthetic-quota", "delete-synthetic-quota"} {
+		var out any = &monitor.CreateSyntheticQuotaOutput{}
+		if command == "delete-synthetic-quota" {
+			out = &monitor.DeleteSyntheticQuotaOutput{}
+		}
+		for _, format := range []string{"json", "table", "text"} {
+			broken := new(syntheticBrokenOutput)
+			writer := &syntheticOutputWriter{Writer: broken}
+			renderErr := renderSyntheticCommand(writer, format, out)
+			if renderErr == nil || !writer.attempted || broken.calls != 1 {
+				t.Fatalf("calls=%d err=%v", broken.calls, renderErr)
+			}
+			state := &syntheticCLIOutcome{output: out, format: format, rendered: writer.attempted}
+			cmd := &cobra.Command{Use: command}
+			finishSyntheticCLI(broken, io.Discard, cmd, syntheticMutationOperation("monitor", command), state, renderErr)
+			if broken.calls != 1 {
+				t.Fatal("second stdout write after failed write")
+			}
+		}
 	}
 }

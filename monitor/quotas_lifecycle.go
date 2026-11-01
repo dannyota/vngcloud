@@ -41,7 +41,7 @@ type DeleteNotificationQuotaInput struct {
 }
 type DeleteSyntheticQuotaInput struct {
 	Purge           bool
-	ExpectedQuotaID string
+	ExpectedQuotaID string `vngcloud:"required"`
 }
 
 // DeleteQuotaOutput identifies the intended frozen quota. Settlement is a
@@ -159,14 +159,20 @@ func (c *Client) DeleteNotificationQuota(ctx context.Context, in *DeleteNotifica
 	return deleteQuotaOutput(result), err
 }
 
-// DeleteSyntheticQuota refuses before any request until deletion is evidenced.
+// DeleteSyntheticQuota permanently deletes every synthetic check with its
+// quota. ExpectedQuotaID guards the intended snapshot; the ID-less provider
+// request cannot prevent replacement races. Purge remains unsupported.
 func (c *Client) DeleteSyntheticQuota(ctx context.Context, in *DeleteSyntheticQuotaInput) (*DeleteSyntheticQuotaOutput, error) {
 	const op = "monitor.DeleteSyntheticQuota"
 	input := DeleteSyntheticQuotaInput{}
 	if in != nil {
 		input = *in
 	}
-	return nil, c.validateQuotaLifecycle(quotaLifecycleInput{op: op, kind: "synthetic", delete: true, purge: input.Purge, expectedID: input.ExpectedQuotaID})
+	result, err := c.runSyntheticDelete(ctx, quotaLifecycleInput{op: op, kind: "synthetic", delete: true, purge: input.Purge, expectedID: input.ExpectedQuotaID})
+	if result == nil {
+		result = new(quotaWriteResult)
+	}
+	return deleteQuotaOutput(result), err
 }
 func autoRenewQuotaOutput(result *quotaWriteResult) *SetQuotaAutoRenewOutput {
 	if result == nil {
@@ -386,6 +392,9 @@ func (c *Client) readSyntheticQuota(ctx context.Context, op string, credentials 
 		return nil, err
 	}
 	q, err := decodeQuota(op, raw)
+	if err == nil && (op == "monitor.CreateSyntheticQuota" || op == "monitor.QuoteCreateSyntheticQuota" || op == "monitor.DeleteSyntheticQuota") {
+		err = syntheticQuotaTimes(op, q)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -412,4 +421,130 @@ func (c *Client) readSyntheticQuota(ctx context.Context, op string, credentials 
 		*field, _ = c.c.RedactError(*field, "", (*credentials)...)
 	}
 	return &GetSyntheticQuotaOutput{Quota: q, Detail: d}, nil
+}
+
+func (c *Client) runSyntheticDelete(ctx context.Context, in quotaLifecycleInput) (out *quotaWriteResult, err error) {
+	out = new(quotaWriteResult)
+	defer func() {
+		if err != nil && out.stage != "sent" {
+			if _, key, _, ok := c.syntheticEarlyEvidence(); ok {
+				if in.expectedID != "" && core.CheckPathID(in.op, "ExpectedQuotaID", in.expectedID) == nil && in.expectedID != key.quotaID {
+					err = errors.Join(err, core.ErrInvalidInput)
+				}
+				out = &quotaWriteResult{stage: "sent"}
+				err = quotaUnsettled(in.op, err)
+			}
+		}
+	}()
+	if err = c.syntheticWriteProfile(in.op); err != nil {
+		return out, err
+	}
+	if in.expectedID == "" {
+		return out, fmt.Errorf("%s: ExpectedQuotaID is required: %w", in.op, core.ErrInvalidInput)
+	}
+	if err = core.CheckPathID(in.op, "ExpectedQuotaID", in.expectedID); err != nil {
+		return out, err
+	}
+
+	if in.purge {
+		return out, lifecycleUnsupported(in.op, "synthetic quota purge")
+	}
+	if err = c.quotaMu.acquire(ctx); err != nil {
+		return out, err
+	}
+	defer c.quotaMu.release()
+	credentials := new(monitorReadCredentials)
+	defer func() {
+		var api *core.APIError
+		if errors.As(err, &api) && api.Message == "quota credential safety limit exceeded" {
+			out.quota = nil
+			if a := c.quotaAttempts["synthetic"]; a != nil {
+				a.result.quota = nil
+				a.result.orderID = ""
+			}
+		}
+		c.scrubQuotaWriteResult(out, *credentials)
+		if a := c.quotaAttempts["synthetic"]; a != nil {
+			c.scrubQuotaWriteResult(&a.result, *credentials)
+		}
+	}()
+	if a := c.quotaAttempts["synthetic"]; a != nil {
+		if a.credentials != nil {
+			credentials = a.credentials
+		}
+		out = &quotaWriteResult{quota: copyLifecycleQuota(a.result.quota), stage: "sent"}
+		resolution, e := c.waitQuotaAttempt(ctx, in.op, a.reconcile, a.bound)
+		mismatch := in.expectedID != a.key.quotaID
+		if e != nil {
+			if mismatch {
+				e = errors.Join(e, core.ErrInvalidInput)
+			}
+			return out, quotaUnsettled(in.op, e)
+		}
+		c.clearQuotaAttempt("synthetic")
+		if mismatch || a.key.operation != in.op || a.key.purge != in.purge {
+			return new(quotaWriteResult), fmt.Errorf("%s: prior attempt changed intent: %w", in.op, core.ErrInvalidInput)
+		}
+		out.quota = copyLifecycleQuota(resolution.quota)
+		out.stage = "settled"
+		return out, nil
+	}
+	terms, err := c.readLifecycleTerms(ctx, in, credentials)
+	if err != nil {
+		return out, err
+	}
+	if err = lifecycleExpectedID(in.op, in.expectedID, terms.quota.ID); err != nil {
+		return out, err
+	}
+	if err = lifecycleDeleteEligible(in.op, terms.quota); err != nil {
+		return out, err
+	}
+	if !terms.quota.EndTime.After(c.now()) {
+		return out, fmt.Errorf("%s: delete requires unexpired quota: %w", in.op, core.ErrInvalidInput)
+	}
+	out.quota = copyLifecycleQuota(&terms.quota)
+	out.stage = "prepared"
+	fresh, err := c.readLifecycleTerms(ctx, in, credentials)
+	if err != nil {
+		return out, err
+	}
+	if err = lifecycleDeleteEligible(in.op, fresh.quota); err != nil {
+		return out, err
+	}
+	if !lifecycleSameTerms(terms, fresh) || !fresh.quota.EndTime.After(c.now()) {
+		return out, fmt.Errorf("%s: quota terms changed before send: %w", in.op, core.ErrInvalidInput)
+	}
+	if err = ctx.Err(); err != nil {
+		return out, err
+	}
+	a := &quotaAttempt{key: lifecycleAttemptKey(in, terms), credentials: credentials, bound: 60 * time.Second, result: *out}
+	a.reconcile = func(ctx context.Context) (quotaAttemptResolution, error) {
+		_, absent, e := c.readSyntheticQuotaPresence(ctx, in.op, credentials)
+		return quotaAttemptResolution{confirmed: absent, quota: copyLifecycleQuota(&terms.quota)}, e
+	}
+	raw, status, sendErr, notSent := c.quotaRequestOutcome(ctx, transport.Request{Operation: in.op, Method: http.MethodDelete, URL: c.billingRoute("v1", []string{"synthetic", "quota"}), OK: []int{204}, Once: true, KeepObservedStatus: true}, credentials)
+	if notSent || sendErr != nil && status >= 400 && status < 500 {
+		return out, sendErr
+	}
+	out.stage = "sent"
+	out.sent = "unknown"
+	if status > 0 {
+		out.sent = "yes"
+	}
+	out.status = status
+	a.result = *out
+	c.recordQuotaAttempt(a)
+	if sendErr != nil {
+		return out, quotaUnsettled(in.op, sendErr)
+	}
+	if len(raw) != 0 {
+		return out, quotaUnsettled(in.op, quotaResponseError(in.op))
+	}
+	_, err = c.waitQuotaAttempt(ctx, in.op, a.reconcile, a.bound)
+	if err != nil {
+		return out, err
+	}
+	c.clearQuotaAttempt("synthetic")
+	out.stage = "settled"
+	return out, nil
 }

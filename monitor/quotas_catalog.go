@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -23,6 +24,15 @@ type SyntheticQuotaClass struct {
 	ID, Name, Status, Description string
 	Priority                      int
 	Options                       []SyntheticClassOption
+	Packages                      []SyntheticClassPackage
+}
+
+// SyntheticClassPackage describes monthly units within its requested class.
+// A nil price is unknown; API and Location are units, not purchased capacity.
+type SyntheticClassPackage struct {
+	ID, Name, TierName    string
+	TierID, API, Location int
+	Price                 *float64
 }
 
 type SyntheticClassOption struct {
@@ -91,6 +101,27 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 	if o.invalid || !ok || len(periods) == 0 || out.MaxMonthPeriodForFreeQuota <= 0 {
 		return nil, quotaResponseError(op)
 	}
+	if len(out.Items) > 64 {
+		return nil, quotaResponseError(op)
+	}
+	slices.SortFunc(out.Items, compareSyntheticClasses)
+	// Validate the entire fan-out before using any peer ID as a path segment.
+	for _, class := range out.Items {
+		if core.CheckPathID(op, "ClassID", class.ID) != nil {
+			return nil, quotaResponseError(op)
+		}
+	}
+	for i := range out.Items {
+		class := &out.Items[i]
+		raw, err := reader.read(ctx, op, "v2", "synthetic", "quota-class", class.ID, "packages")
+		if err != nil {
+			return nil, err
+		}
+		class.Packages, err = decodeSyntheticClassPackages(op, raw)
+		if err != nil {
+			return nil, err
+		}
+	}
 	for i := range out.Packages {
 		p := &out.Packages[i]
 		if p.Price != nil {
@@ -113,6 +144,10 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 	for i := range out.Items {
 		p := &out.Items[i]
 		c.scrubCatalogText(&credentials, &p.ID, &p.Name, &p.Status, &p.Description)
+		for j := range p.Packages {
+			pkg := &p.Packages[j]
+			c.scrubCatalogText(&credentials, &pkg.ID, &pkg.Name, &pkg.TierName)
+		}
 		for j := range p.Options {
 			c.scrubCatalogText(&credentials, &p.Options[j].PackageID)
 		}
@@ -122,18 +157,7 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 		c.scrubCatalogText(&credentials, &p.ID, &p.Name)
 	}
 	c.scrubCatalogText(&credentials, &out.PaymentMethod)
-	slices.SortFunc(out.Items, func(a, b SyntheticQuotaClass) int {
-		if a.Priority < b.Priority {
-			return -1
-		}
-		if a.Priority > b.Priority {
-			return 1
-		}
-		if n := strings.Compare(a.Name, b.Name); n != 0 {
-			return n
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
+
 	slices.SortFunc(out.Packages, func(a, b SyntheticPackage) int {
 		if n := strings.Compare(a.Name, b.Name); n != 0 {
 			return n
@@ -281,4 +305,42 @@ func (r *quotaCompositeReader) read(ctx context.Context, op, version string, par
 	}
 	r.retained += len(raw)
 	return raw, nil
+}
+
+func compareSyntheticClasses(a, b SyntheticQuotaClass) int {
+	if a.Priority < b.Priority {
+		return -1
+	}
+	if a.Priority > b.Priority {
+		return 1
+	}
+	if n := strings.Compare(a.Name, b.Name); n != 0 {
+		return n
+	}
+	return strings.Compare(a.ID, b.ID)
+}
+
+func decodeSyntheticClassPackages(op string, raw json.RawMessage) ([]SyntheticClassPackage, error) {
+	entries, ok := quotaArray(raw)
+	if !ok {
+		return nil, quotaResponseError(op)
+	}
+	out := make([]SyntheticClassPackage, 0, len(entries))
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		o := quotaObjectOf(entry)
+		p := SyntheticClassPackage{ID: o.text("id", false), Name: o.text("name", false), TierName: o.text("tierName", false), TierID: o.integer("tierId", false), API: o.integer("api", false), Location: o.integer("location", false), Price: o.price()}
+		if o.invalid || p.ID == "" || seen[p.ID] || p.API <= 0 || p.Location <= 0 || p.TierID < 0 {
+			return nil, quotaResponseError(op)
+		}
+		seen[p.ID] = true
+		out = append(out, p)
+	}
+	slices.SortFunc(out, func(a, b SyntheticClassPackage) int {
+		if n := strings.Compare(a.Name, b.Name); n != 0 {
+			return n
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
 }

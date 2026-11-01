@@ -1,0 +1,6 @@
+{
+  "Quota": null,
+  "Stage": "",
+  "Purged": false,
+  "Effect": "Deleting this quota permanently deletes every synthetic check."
+}

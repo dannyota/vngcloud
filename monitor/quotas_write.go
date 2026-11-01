@@ -31,9 +31,11 @@ type quotaWriteLock struct {
 }
 
 type quotaAttemptEvidence struct {
-	key    quotaAttemptKey
-	sent   string
-	status int
+	sentAt    time.Time
+	hasSentAt bool
+	key       quotaAttemptKey
+	sent      string
+	status    int
 }
 
 func (l *quotaWriteLock) acquire(ctx context.Context) error {
@@ -59,6 +61,7 @@ func (l *quotaWriteLock) release() { <-l.token }
 // Additional baseline fields let extension and lifecycle writes share the ledger.
 type quotaAttemptKey struct {
 	operation       string
+	classID         string
 	kind            string
 	packageID       string
 	monthPeriod     int
@@ -82,6 +85,7 @@ func (key quotaAttemptKey) matches(other quotaAttemptKey) bool {
 
 type quotaWriteResult struct {
 	sent           string
+	sentAt         *time.Time
 	status         int
 	quota          *Quota
 	orderID        string
@@ -159,7 +163,12 @@ func (c *Client) recordQuotaAttempt(attempt *quotaAttempt) {
 	}
 	c.quotaAttempts[attempt.key.kind] = attempt
 	if attempt.key.kind == "synthetic" {
-		c.quotaMu.syntheticEvidence = &quotaAttemptEvidence{key: attempt.key, sent: attempt.result.sent, status: attempt.result.status}
+		evidence := &quotaAttemptEvidence{key: attempt.key, sent: attempt.result.sent, status: attempt.result.status}
+		if attempt.result.sentAt != nil {
+			evidence.sentAt = *attempt.result.sentAt
+			evidence.hasSentAt = true
+		}
+		c.quotaMu.syntheticEvidence = evidence
 	}
 }
 
@@ -350,4 +359,22 @@ func (c *Client) clearQuotaAttempt(kind string) {
 	if kind == "synthetic" {
 		c.quotaMu.syntheticEvidence = nil
 	}
+}
+
+func (c *Client) syntheticCreateEarlyEvidence() (*CreateSyntheticQuotaOutput, int, bool) {
+	c.quotaMu.attemptMu.Lock()
+	defer c.quotaMu.attemptMu.Unlock()
+	a := c.quotaMu.syntheticEvidence
+	if a == nil {
+		return nil, 0, false
+	}
+	sent := a.sent
+	if sent == "" {
+		sent = "unknown"
+	}
+	out := &CreateSyntheticQuotaOutput{QuotaMutationOutcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}}
+	if a.hasSentAt {
+		out.SentAt = copyQuotaTime(&a.sentAt)
+	}
+	return out, a.status, true
 }

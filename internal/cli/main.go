@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/monitor"
 )
 
@@ -48,6 +50,10 @@ func syntheticMutationOperation(service, command string) string {
 		return ""
 	}
 	switch command {
+	case "create-synthetic-quota":
+		return "monitor.CreateSyntheticQuota"
+	case "delete-synthetic-quota":
+		return "monitor.DeleteSyntheticQuota"
 	case "recover-synthetic-quota":
 		return "monitor.RecoverSyntheticQuota"
 	case "renew-synthetic-quota":
@@ -64,6 +70,8 @@ func syntheticCommandOperation(cmd *cobra.Command) string {
 }
 func syntheticOutcomeOf(out any) *monitor.QuotaMutationOutcome {
 	switch value := out.(type) {
+	case *monitor.CreateSyntheticQuotaOutput:
+		return &value.QuotaMutationOutcome
 	case *monitor.RecoverSyntheticQuotaOutput:
 		return &value.QuotaMutationOutcome
 	case *monitor.RenewSyntheticQuotaOutput:
@@ -73,13 +81,41 @@ func syntheticOutcomeOf(out any) *monitor.QuotaMutationOutcome {
 	}
 }
 func finishSyntheticCLI(stdout, stderr io.Writer, cmd *cobra.Command, op string, state *syntheticCLIOutcome, err error) {
+	if op == "monitor.DeleteSyntheticQuota" {
+		if !state.rendered {
+			format := state.format
+			if !validOutputFormats[format] {
+				format, _ = cmd.Flags().GetString("output")
+			}
+			if !validOutputFormats[format] {
+				format = outputJSON
+			}
+			out, _ := state.output.(*monitor.DeleteSyntheticQuotaOutput)
+			if out == nil {
+				out = new(monitor.DeleteSyntheticQuotaOutput)
+			}
+			safe := *out
+			safe.Quota = nil
+			if safe.Stage == "sent" || safe.Stage == "settled" {
+				safe.Stage = "sent"
+				err = fmt.Errorf("quota output unavailable; reconcile with reads: %w: %w", dns.ErrNotSettled, err)
+			}
+			safe.Purged = false
+			_ = renderSyntheticCommand(stdout, format, &safe)
+		}
+		printError(stderr, err)
+		return
+	}
 	outcome := syntheticOutcomeOf(state.output)
 	if outcome == nil {
 		env := classify(err)
 		outcome = &monitor.QuotaMutationOutcome{Sent: "no", Stage: "preflight", Error: &monitor.QuotaOutcomeError{Code: env.Code, Operation: op, Status: env.Status}}
-		if op == "monitor.RecoverSyntheticQuota" {
+		switch op {
+		case "monitor.CreateSyntheticQuota":
+			state.output = &monitor.CreateSyntheticQuotaOutput{QuotaMutationOutcome: *outcome}
+		case "monitor.RecoverSyntheticQuota":
 			state.output = &monitor.RecoverSyntheticQuotaOutput{QuotaMutationOutcome: *outcome}
-		} else {
+		default:
 			state.output = &monitor.RenewSyntheticQuotaOutput{QuotaMutationOutcome: *outcome}
 		}
 	}
@@ -141,6 +177,8 @@ func monitorSyntheticMutationOp(op Op[monitor.Client]) Op[monitor.Client] {
 		}
 		price := 0.0
 		switch value := in.(type) {
+		case *monitor.CreateSyntheticQuotaInput:
+			price = value.MaxPrice
 		case *monitor.RecoverSyntheticQuotaInput:
 			price = value.MaxPrice
 		case *monitor.RenewSyntheticQuotaInput:
@@ -179,6 +217,17 @@ func syntheticFallbackOutput(out any, op string) any {
 		outcome.Error = &monitor.QuotaOutcomeError{Code: "RequestFailed", Operation: op}
 	}
 	switch value := out.(type) {
+	case *monitor.CreateSyntheticQuotaOutput:
+		safe := *value
+		safe.QuotaMutationOutcome = outcome
+		safe.Quota = nil
+		safe.Created = false
+		if safe.SentAt != nil {
+			if _, err := safe.SentAt.MarshalJSON(); err != nil {
+				safe.SentAt = nil
+			}
+		}
+		return &safe
 	case *monitor.RecoverSyntheticQuotaOutput:
 		safe := *value
 		safe.QuotaMutationOutcome = outcome
@@ -204,4 +253,49 @@ func syntheticFallbackOutput(out any, op string) any {
 	default:
 		return out
 	}
+}
+
+const syntheticDeleteEffect = "Deleting this quota permanently deletes every synthetic check."
+
+func monitorSyntheticDeleteOp() Op[monitor.Client] {
+	op := Write[monitor.Client, monitor.DeleteSyntheticQuotaInput, monitor.DeleteSyntheticQuotaOutput]("delete-synthetic-quota", (*monitor.Client).DeleteSyntheticQuota, Destructive())
+	op.short = syntheticDeleteEffect + " Requires --yes and --expected-quota-id"
+	op.guard = func(cmd *cobra.Command, _ any) error {
+		if cmd.Flags().Changed("query") {
+			return newUsageError("--query is unavailable for synthetic quota deletion effects")
+		}
+		return nil
+	}
+	return op
+}
+func renderSyntheticCommand(w io.Writer, format string, out any) error {
+	if value, ok := out.(*monitor.DeleteSyntheticQuotaOutput); ok {
+		if value.Quota != nil {
+			q := value.Quota
+			for _, stamp := range []time.Time{q.StartTime, q.EndTime, q.CreatedAt, q.UpdatedAt} {
+				if _, err := stamp.MarshalJSON(); err != nil {
+					return err
+				}
+			}
+		}
+		return renderOutput(w, format, "", struct {
+			Quota  *monitorQuotaDisplay
+			Stage  string
+			Purged bool
+			Effect string
+		}{monitorLifecycleQuotaDisplay(value.Quota), value.Stage, value.Purged, syntheticDeleteEffect}, true)
+	}
+	return renderOutput(w, format, "", out, true)
+}
+func renderSyntheticClassPackages(w io.Writer, format string, out *monitor.ListSyntheticPackagesOutput) error {
+	if _, err := fmt.Fprintln(w, "Class unit packages (monthly VND per unit)"); err != nil {
+		return err
+	}
+	rows := []any{}
+	for _, class := range out.Items {
+		for _, p := range class.Packages {
+			rows = append(rows, map[string]any{"Class": class.Name, "ClassID": class.ID, "Status": class.Status, "ID": p.ID, "Name": p.Name, "API": p.API, "Location": p.Location, "TierID": p.TierID, "TierName": p.TierName, "UnitPriceVND": p.Price})
+		}
+	}
+	return monitorCoverageQuery(w, format, "", rows)
 }

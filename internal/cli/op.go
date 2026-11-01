@@ -496,7 +496,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			state.format = format
 		}
 		writer := &syntheticOutputWriter{Writer: e.stdout}
-		renderErr := renderOutput(writer, format, "", out, true)
+		renderErr := renderSyntheticCommand(writer, format, out)
 		if state, ok := ctx.Value(syntheticOutcomeContextKey{}).(*syntheticCLIOutcome); ok {
 			state.rendered = writer.attempted
 		}

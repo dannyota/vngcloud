@@ -1,0 +1,11 @@
+{
+  "PackageID": "unit-package-1",
+  "Quantity": 10,
+  "MonthPeriod": 1,
+  "ResourceID": "",
+  "ExpectedEndTime": null,
+  "OptimumPrice": 0,
+  "ListPrice": 0,
+  "GuardPrice": 0,
+  "Currency": "VND"
+}

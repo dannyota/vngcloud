@@ -151,3 +151,21 @@ func TestLifecycleProfileCheckBeforeUnsupportedSyntheticDelete(t *testing.T) {
 		})
 	}
 }
+
+func TestSyntheticCreateDeleteProfileReadOnly(t *testing.T) {
+	for _, value := range []string{"true", "1", "yes"} {
+		t.Run(value, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+			defer server.Close()
+			c := New(lifecycleProfileConfig(t, server, value))
+			_, err := c.CreateSyntheticQuota(context.Background(), syntheticCreateInput())
+			assertLifecycleProfileError(t, err, value == "yes", "monitor.CreateSyntheticQuota")
+			_, err = c.DeleteSyntheticQuota(context.Background(), &DeleteSyntheticQuotaInput{ExpectedQuotaID: "quota-syn-2"})
+			assertLifecycleProfileError(t, err, value == "yes", "monitor.DeleteSyntheticQuota")
+			if requests.Load() != 0 {
+				t.Fatalf("requests=%d", requests.Load())
+			}
+		})
+	}
+}

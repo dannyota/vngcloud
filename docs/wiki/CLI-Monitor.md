@@ -116,6 +116,24 @@ Orders one month of Email or SMS capacity with pay: true. Consent is finite nonn
 vngcloud monitor quote-create-notification-quota --kind Email
 ```
 
+## create-synthetic-quota
+
+Kind: Write.
+
+Requires --class-id, --package-id, --quantity, and explicit --max-price consent including zero. Only free Basic, one location, 10 API tests, and an absent quota are supported. Uses class unit price times quantity, never v1 prices. Sends one month with pay: true and buyWith {} once. MaxPrice is a local guard, not a server cap. Paid classes refuse. Every return prints Sent, Stage, Error, Quota, Created, OrderID, PaymentPending, SentAt. Only matching ACTIVE quota/detail read-back with StartTime at or after SentAt confirms. Clock skew can prevent confirmation; a concurrent matching create can satisfy it without order identity proof. --no-wait leaves an open unconfirmed attempt. --query refuses. Serialize writes and retain a durable pending marker; use read-only reconciliation after uncertainty. No raw create success body was retained.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--class-id` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `--quantity` | `int` | yes |
+| `--max-price` | `float64` |  |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud monitor list-synthetic-packages
+```
+
 ## delete-channel
 
 Kind: Write, destructive.
@@ -176,7 +194,7 @@ vngcloud monitor delete-log-project --log-project-id <log-project-id> --yes
 
 Kind: Write, destructive.
 
-Deletes an ACTIVE Email or SMS quota with auto-renew and POC off. Requires --yes; read-only refuses before requests. --expected-quota-id binds the intended snapshot, but the kind-wide server request has no conditional identity guard. Deleted quotas cannot be recovered by these commands. Purge and synthetic delete remain unavailable. Partial output includes Stage on uncertain errors. Reconcile with reads and console billing; never retry automatically. See Monitor Quotas.
+Deletes an ACTIVE Email or SMS quota with auto-renew and POC off. Requires --yes; read-only refuses before requests. --expected-quota-id binds the intended snapshot, but the kind-wide server request has no conditional identity guard. Deleted quotas cannot be recovered by these commands. Purge remains unavailable. Partial output includes Stage on uncertain errors. Reconcile with reads and console billing; never retry automatically. See Monitor Quotas.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -186,6 +204,21 @@ Deletes an ACTIVE Email or SMS quota with auto-renew and POC off. Requires --yes
 
 ```sh
 vngcloud monitor get-notification-quota --kind SMS
+```
+
+## delete-synthetic-quota
+
+Kind: Write, destructive.
+
+Deleting this quota permanently deletes every synthetic check. Requires --yes and --expected-quota-id. Only ACTIVE unexpired quotas with POC and auto-renew off are supported. Purge and --query refuse. Read-only refuses before requests. Every return prints Quota, Stage, Purged false, and Effect, including preflight errors. Sends the ID-less DELETE once and confirms only exact quota-route absence within 60 seconds. The target snapshot cannot prove which resource the server deleted; a replacement race remains. NotSettled retains the attempt. Never recreate checks or quota automatically; use read-only reconciliation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--purge` | `bool` |  |
+| `--expected-quota-id` | `string` | yes |
+
+```sh
+vngcloud monitor list-synthetic-packages
 ```
 
 ## get-alarm
@@ -300,7 +333,7 @@ vngcloud monitor get-quota-usage --query Usage
 
 Kind: Read.
 
-Reads quota identity, status, expiry, AutoRenew, and package detail. Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable and deletion remain unavailable. Guarded free recovery and renewal are available.
+Reads quota identity, status, expiry, AutoRenew, and package detail. Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; check monitor quota-status --kind synthetic and use monitor create-synthetic-quota for a free quota. Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable remains unavailable. Guarded free create, recovery, renewal, and destructive delete are available.
 
 No fields.
 
@@ -445,7 +478,7 @@ vngcloud monitor list-notification-packages --kind Email
 
 Kind: Read.
 
-Lists class options and v1 packages separately, with their own identifiers. There is no evidenced join: class option prices stay unknown even when v1 free10 costs 0 VND. Disabled classes stay visible. Only the evidenced Basic option has auto-renew eligibility no; v1 eligibility stays unknown. Settings periods are shown separately; known free periods are capped by the free maximum. Read-only settings allow this read.
+Lists class options, class unit packages, and v1 packages separately, with their own identifiers. Class Packages shows unit API, location, tier, and monthly unit price. Options join only by exact package ID within the class. There is no evidenced join: class option prices stay unknown even when v1 free10 costs 0 VND. Disabled classes stay visible. Only the evidenced Basic option has auto-renew eligibility no; v1 eligibility stays unknown. Settings periods are shown separately; known free periods are capped by the free maximum. Read-only settings allow this read.
 
 No fields.
 
@@ -514,6 +547,24 @@ Estimates one month of Email or SMS capacity without ordering. An omitted --pack
 
 ```sh
 vngcloud monitor quote-create-notification-quota --kind Email
+```
+
+## quote-create-synthetic-quota
+
+Kind: Read.
+
+Requires --class-id, --package-id, and --quantity. Estimates the selected free Basic package for one month after exact quota absence and class/package eligibility checks. Ignores MaxPrice and NoWait; their flags are hidden. Uses class unit prices, never v1 prices. Paid classes refuse. Read-only permits this quote; it never sends an order.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--class-id` | `string` | yes |
+| `--package-id` | `string` | yes |
+| `--quantity` | `int` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+| `NoWait` (via `--cli-input-json` only) | `bool` |  |
+
+```sh
+vngcloud monitor list-synthetic-packages
 ```
 
 ## quote-renew-synthetic-quota

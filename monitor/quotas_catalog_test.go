@@ -25,6 +25,15 @@ func catalogFixture(t *testing.T, classes, packages, settings string, after func
 	t.Helper()
 	bodies := []string{classes, packages, settings}
 	paths := []string{"/billing-api/v2/synthetic/quota-class", "/billing-api/v1/synthetic/packages", "/billing-api/v1/settings"}
+	// Disabled class responses are synthetic empty-array mocks, not live evidence.
+	for _, id := range []string{createClassID, "70b57f46-edaf-4f6f-9293-acf816a5b81d", "d8c1d829-205b-4ce4-9c1c-32756f748d25"} {
+		paths = append(paths, "/billing-api/v2/synthetic/quota-class/"+id+"/packages")
+		body := "[]"
+		if id == createClassID {
+			body = testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json")
+		}
+		bodies = append(bodies, body)
+	}
 	calls := 0
 	return newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls >= len(paths) || r.URL.Path != paths[calls] || r.Method != "GET" {
@@ -205,6 +214,9 @@ func TestSyntheticCatalogReadLimitsAndRetries(t *testing.T) {
 					return
 				}
 				body := bodies[r.URL.Path]
+				if strings.HasPrefix(r.URL.Path, "/billing-api/v2/synthetic/quota-class/") {
+					body = testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json")
+				}
 				if body == "" {
 					t.Errorf("unexpected route %s", r.URL.Path)
 					w.WriteHeader(400)
@@ -229,7 +241,7 @@ func TestSyntheticCatalogReadLimitsAndRetries(t *testing.T) {
 					t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
 				}
 			case "near-limit":
-				if err != nil || out == nil || calls != 3 {
+				if err != nil || out == nil || calls != 6 {
 					t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
 				}
 			}
@@ -254,6 +266,8 @@ func TestSyntheticCoverageCredentialSafety(t *testing.T) {
 					body = strings.ReplaceAll(classes, "Coming soon.", secret)
 				case "/billing-api/v1/synthetic/packages":
 					body = strings.ReplaceAll(packages, "free10", secret)
+				case "/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages", "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
+					body = testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json")
 				case "/billing-api/v1/settings":
 					body = strings.ReplaceAll(settings, "PRE-PAID", secret)
 				case "/billing-api/v1/synthetic/quota":
@@ -388,6 +402,10 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 					"/billing-api/v1/sms/quota":                          "GetNotificationQuotaSMS",
 					"/billing-api/v1/sms/packages":                       "ListNotificationPackagesSMS",
 				}
+				// These class-package responses are synthetic for disabled classes.
+				for _, id := range []string{createClassID, "70b57f46-edaf-4f6f-9293-acf816a5b81d", "d8c1d829-205b-4ce4-9c1c-32756f748d25"} {
+					fixtures["/billing-api/v2/synthetic/quota-class/"+id+"/packages"] = "ListSyntheticClassPackages"
+				}
 				bodies := make(map[string]string, len(fixtures))
 				for path, name := range fixtures {
 					bodies[path] = quotaBudgetPaddedBody(t, testutil.FixtureBody(t, "../testdata/monitor/"+name+".json"))
@@ -481,7 +499,7 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					components := 3
+					components := 6
 					if operation == "status" {
 						components = 6
 						if !status.Complete {

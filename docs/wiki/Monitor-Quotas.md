@@ -73,15 +73,15 @@ and message amounts. A missing price means unknown, never free: table
 and text views print `unknown`, and JSON prints `null`. A listed
 zero-price package does not grant an allowance automatically.
 
-`GetSyntheticQuota` returns quota identity, status, expiry, `AutoRenew`,
-and package capacity and price. Table and text timestamps show UTC.
-Synthetic quota expiry stops checks. A missing quota returns NotFound;
-inspect the quota in the console. Synthetic ordering and deletion remain unavailable. Auto-renew enable sends once and reports the free
-quota's server refusal as described below.
+`GetSyntheticQuota` returns identity, status, expiry, `AutoRenew`, capacity,
+and price. Table/text times show UTC. Expiry stops checks; absence is NotFound.
+Check with `monitor quota-status --kind synthetic`. Use
+[free create](#free-synthetic-create) (`monitor create-synthetic-quota`) or
+[guarded delete](#delete). Free auto-renew enable returns a server refusal.
 
 ## Synthetic catalogs and nullable limits
 
-`ListSyntheticPackages(ctx, nil)` returns class `Items` with `Options`,
+`ListSyntheticPackages(ctx, nil)` returns class `Items` with `Options` and unit `Packages`,
 a separate v1 `Packages` array, settings `MonthPeriods`,
 `MaxMonthPeriodForFreeQuota`, and `PaymentMethod`. Class option `PackageID`
 and v1 package `ID` belong to different catalogs. No join between them is
@@ -92,7 +92,14 @@ Class option prices stay unknown, while v1 prices come from their own
 entries. Thus the Basic class option has a null price even when v1 free10
 shows 0 VND. Disabled classes remain visible with their descriptions.
 Classes sort by priority, name, and ID; options sort by location and ID;
-v1 packages sort by name and ID.
+class unit packages and v1 packages sort by name and ID.
+
+Class `Packages` contains `SyntheticClassPackage` values with ID, name, tier,
+API/location units, and nullable monthly VND unit price. Join an option only
+by exact PackageID within its class. Unit API 1 differs from purchased API
+capacity 10. No join to v1 is implied. Package reads include disabled
+classes; a failed component returns no catalog. Fan-out is capped at 64
+classes as a client safety limit.
 
 Only the evidenced ACTIVE Basic option with one location and 10 API tests
 has `AutoRenewEligible: false` and known free periods capped by the settings
@@ -375,12 +382,53 @@ environment, or profile settings before requests. An uncertain result
 prints partial output, including `Stage` and the intended quota, even with
 an error. Reconcile with reads and the console; never retry automatically.
 
+## Free synthetic create
+
+`CreateSyntheticQuota` and `QuoteCreateSyntheticQuota` require ClassID,
+PackageID, and Quantity. Select them from `list-synthetic-packages` using
+class unit packages. Only the evidenced free Basic package with one
+location and quantity 10 is supported. A quota in any state refuses create;
+only the quota route's exact absence response permits it. Paid classes and
+bundled notification purchases remain unsupported.
+
+The CLI commands are `create-synthetic-quota` and
+`quote-create-synthetic-quota`, with required `--class-id`, `--package-id`,
+and `--quantity`. Create also requires explicit `--max-price`, including 0.
+The quote hides MaxPrice and NoWait and works read-only. Create sends
+`buyWith: {}`, one month, and `pay: true` once. ListPrice is class unit
+price times quantity; MaxPrice guards the higher of list and quote prices
+locally. It does not cap a server debit. Final rereads refuse changed terms.
+
+Every create result has Sent, Stage, Error, Quota, Created, OrderID,
+PaymentPending, and SentAt. The outcome and exit rules above apply.
+SentAt is the local UTC send boundary, not proof of transmission. Only
+ACTIVE quota/detail read-back with matching package, Basic capacity,
+StartTime >= SentAt, and EndTime > StartTime sets Created. Clock skew or
+coarse server timestamps can prevent confirmation. A concurrent matching
+create can satisfy this predicate without proof of order identity. No raw
+create success body was retained. `--no-wait` returns accepted without
+confirmation and leaves an open attempt. `--query` refuses. Serialize per
+account/kind, persist a pending marker, and reconcile by reads after an
+uncertain or missing result; another process has no ledger.
+
 ## Delete
+
+Deleting this quota permanently deletes every synthetic check.
+`delete-synthetic-quota` requires `--yes` and `--expected-quota-id`.
+`DeleteSyntheticQuota` keeps its existing Output alias and requires the
+expected ID. Only ACTIVE, unexpired quotas with auto-renew and POC off can
+be deleted. Purge, query, and read-only writes refuse before requests.
+Every return prints Quota, Stage, Purged false, and the fixed Effect warning,
+including preflight failures. The ID-less DELETE sends once; only the quota
+route's exact absence confirms settlement within 60 seconds. Detail 404,
+changed identity/status, and empty trash do not confirm. Channels survived
+the observed deletion. Recreating the quota restores neither checks nor
+check IDs. No automatic cleanup or recreation follows uncertainty.
+
 
 `delete-notification-quota` supports Email and SMS, requires `--yes`, and
 refuses read-only settings before requests. The quota must be ACTIVE with
-auto-renew and POC off; disable auto-renew first. Synthetic delete and
-purge remain unavailable.
+auto-renew and POC off; disable auto-renew first. Purge remains unavailable.
 
 The active SMS quota was removed outright, with a subsequent NotFound read
 and no trash entry. Email delete follows the same supported behavior.

@@ -2735,6 +2735,9 @@ func TestMonitorQuotaLifecycleControls(t *testing.T) {
 		{"set-synthetic-quota-auto-renew", nil, "InvalidUsage"},
 		{"set-synthetic-quota-auto-renew", []string{"--enabled=false"}, "InvalidUsage"},
 		{"delete-notification-quota", []string{"--kind", "Email"}, "InvalidUsage"},
+		{"delete-synthetic-quota", []string{"--expected-quota-id", "quota-syn-2"}, "InvalidUsage"},
+		{"delete-synthetic-quota", []string{"--yes"}, "InvalidUsage"},
+		{"delete-synthetic-quota", []string{"--yes", "--expected-quota-id", "quota-syn-2", "--purge"}, "InvalidUsage"},
 		{"delete-notification-quota", []string{"--kind", "SMS", "--yes", "--cli-input-json", `{"Purge":true}`}, "InvalidUsage"},
 	} {
 		t.Run(tc.command+strings.Join(tc.flags, ""), func(t *testing.T) {
@@ -2746,10 +2749,17 @@ func TestMonitorQuotaLifecycleControls(t *testing.T) {
 			}
 		})
 	}
+	found := false
 	for _, op := range monitorOps {
 		if op.name == "delete-synthetic-quota" {
-			t.Fatal("deferred synthetic delete registered")
+			found = true
+			if op.kind != kindWrite || !op.destructive {
+				t.Fatal("synthetic delete must be destructive Write")
+			}
 		}
+	}
+	if !found {
+		t.Fatal("synthetic delete is unavailable")
 	}
 }
 

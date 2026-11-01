@@ -1,0 +1,21 @@
+[
+  {
+    "id": "32b3743d-94b8-49ab-984d-bd7ec99b46f6",
+    "name": "unit-package-free",
+    "price": 0.0,
+    "location": 1,
+    "api": 1,
+    "tierId": 1001,
+    "tierName": "Unit Tier Free",
+    "email": 0,
+    "sms": 0,
+    "slack": null,
+    "webhook": null,
+    "telegram": null,
+    "teams": null,
+    "resourceId": null,
+    "classId": null,
+    "className": null,
+    "packageId": null
+  }
+]
