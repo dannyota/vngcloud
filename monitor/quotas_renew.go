@@ -34,6 +34,8 @@ type QuoteRenewSyntheticQuotaOutput = QuotaQuote
 
 type syntheticMutationInput struct {
 	op                      string
+	ensure, nilInput        bool
+	action                  string
 	recover                 bool
 	expectedID, expectedEnd string
 	maxPrice                float64
@@ -42,6 +44,7 @@ type syntheticMutationInput struct {
 }
 type syntheticMutationResult struct {
 	outcome                   QuotaMutationOutcome
+	action                    string
 	previous                  *time.Time
 	quota                     *Quota
 	orderID                   string
@@ -61,7 +64,7 @@ const syntheticQuotaRedirect = "https://vmonitor.console.vngcloud.vn/quota-usage
 
 func (t syntheticMutationTerms) key(in syntheticMutationInput) quotaAttemptKey {
 	q := t.quota
-	return quotaAttemptKey{operation: in.op, kind: "synthetic", packageID: q.PackageID, quotaID: q.ID, expectedEndTime: q.EndTime, monthPeriod: 1, status: q.Status, autoRenew: q.AutoRenew, autoRenewPeriod: q.AutoRenewPeriod, poc: q.POC, quantity: t.detail.API}
+	return quotaAttemptKey{operation: in.op, action: in.action, kind: "synthetic", packageID: q.PackageID, quotaID: q.ID, expectedEndTime: q.EndTime, monthPeriod: 1, status: q.Status, autoRenew: q.AutoRenew, autoRenewPeriod: q.AutoRenewPeriod, poc: q.POC, quantity: t.detail.API}
 }
 func (t syntheticMutationTerms) quoteBody() syntheticRenewQuoteBody {
 	return syntheticRenewQuoteBody{PackageID: t.quota.PackageID, Quantity: t.detail.API, ResourceID: t.quota.ID}
@@ -120,7 +123,7 @@ func (c *Client) syntheticTerms(ctx context.Context, in syntheticMutationInput, 
 }
 func (c *Client) syntheticEligible(in syntheticMutationInput, t syntheticMutationTerms, expiry time.Time) error {
 	q := t.quota
-	if (in.recover && q.ID != in.expectedID) || (!in.recover && !q.EndTime.Equal(expiry)) {
+	if (in.expectedID != "" && q.ID != in.expectedID) || (!in.recover && !q.EndTime.Equal(expiry)) {
 		return fmt.Errorf("%s: quota guard differs: %w", in.op, ErrQuotaChanged)
 	}
 	status := QuotaStatusActive
@@ -208,9 +211,12 @@ func syntheticRetainedResult(a *quotaAttempt) syntheticMutationResult {
 	if sent == "" {
 		sent = "unknown"
 	}
-	return syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}, previous: &end, orderID: a.result.orderID, paymentPending: a.result.paymentPending}
+	return syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}, action: a.key.action, previous: &end, orderID: a.result.orderID, paymentPending: a.result.paymentPending}
 }
 func syntheticGuardMismatch(in syntheticMutationInput, expiry time.Time, key quotaAttemptKey) bool {
+	if in.ensure {
+		return in.expectedID != "" && in.expectedID != key.quotaID
+	}
 	if in.recover {
 		return in.expectedID != key.quotaID
 	}
@@ -228,10 +234,10 @@ func (c *Client) reconcileSyntheticMutation(ctx context.Context, in syntheticMut
 	}
 	c.clearQuotaAttempt("synthetic")
 	if mismatch {
-		return syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: "no", Stage: "preflight"}}, fmt.Errorf("%s: %w", in.op, ErrQuotaChanged)
+		return syntheticInitialResult(in), fmt.Errorf("%s: %w", in.op, ErrQuotaChanged)
 	}
 	if in.op != a.key.operation {
-		return syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: "no", Stage: "preflight"}}, fmt.Errorf("%s: prior attempt changed intent: %w", in.op, core.ErrInvalidInput)
+		return syntheticInitialResult(in), fmt.Errorf("%s: prior attempt changed intent: %w", in.op, core.ErrInvalidInput)
 	}
 	result.quota = copyLifecycleQuota(resolution.quota)
 	result.confirmed = true
@@ -286,14 +292,14 @@ func decodeSyntheticMutation(op string, raw []byte) (quotaWriteResult, error) {
 }
 
 func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationInput) (result syntheticMutationResult, err error) {
-	result.outcome = QuotaMutationOutcome{Sent: "no", Stage: "preflight"}
+	result = syntheticInitialResult(in)
 	status := 0
 	defer func() {
 		if err != nil && result.outcome.Sent == "no" {
 			if retained, key, observed, ok := c.syntheticEarlyEvidence(); ok {
 				result = retained
 				status = observed
-				if guarded, guardErr := validateSyntheticMutation(in, false); guardErr == nil && syntheticGuardMismatch(in, guarded, key) {
+				if guarded, guardErr := validateSyntheticMutation(in, false); (in.ensure || guardErr == nil) && syntheticGuardMismatch(in, guarded, key) {
 					err = errors.Join(err, ErrQuotaChanged)
 				}
 				err = quotaUnsettled(in.op, err)
@@ -304,7 +310,12 @@ func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationI
 		}
 		result.outcome.Error = quotaOutcomeError(in.op, err, status)
 	}()
-	expiry, err := validateSyntheticMutation(in, true)
+	var expiry time.Time
+	if in.ensure {
+		err = validateSyntheticEnsure(in)
+	} else {
+		expiry, err = validateSyntheticMutation(in, true)
+	}
 	if err != nil {
 		return result, err
 	}
@@ -315,6 +326,13 @@ func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationI
 		return result, err
 	}
 	defer c.quotaMu.release()
+	result, status, err = c.runSyntheticMutationLocked(ctx, in, expiry)
+	return result, err
+}
+
+// runSyntheticMutationLocked owns preparation, sending, and settlement under quotaMu.
+func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMutationInput, expiry time.Time) (result syntheticMutationResult, status int, err error) {
+	result = syntheticInitialResult(in)
 	credentials := new(monitorReadCredentials)
 	defer func() {
 		var api *core.APIError
@@ -339,45 +357,52 @@ func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationI
 		}
 		result, err = c.reconcileSyntheticMutation(ctx, in, expiry, a)
 		status = a.result.status
-		return result, err
+		return result, status, err
 	}
 	terms, err := c.syntheticTerms(ctx, in, credentials)
 	if err != nil {
-		return result, err
+		return result, status, err
+	}
+	if in.ensure {
+		in, expiry, err = c.selectSyntheticAction(in, terms)
+		if err != nil {
+			return result, status, err
+		}
 	}
 	previous := terms.quota.EndTime
 	result.previous = &previous
 	if err = c.syntheticEligible(in, terms, expiry); err != nil {
-		return result, err
+		return result, status, err
 	}
-	if !in.recover && in.maxDays > 0 && terms.quota.EndTime.After(c.now().Add(time.Duration(in.maxDays)*24*time.Hour)) {
+	if !in.recover && (!in.ensure || *terms.detail.Price == 0) && in.maxDays > 0 && terms.quota.EndTime.After(c.now().Add(time.Duration(in.maxDays)*24*time.Hour)) {
 		result.outcome.Stage = "not-due"
-		return result, nil
+		return result, status, nil
 	}
+	result.action = in.action
 	quote, err := c.quoteSyntheticMutation(ctx, in.op, terms, credentials)
 	if err != nil {
-		return result, err
+		return result, status, err
 	}
 	if err = checkNotificationPrice(in.op, quote.ListPrice, quote.OptimumPrice, in.maxPrice); err != nil {
-		return result, err
+		return result, status, err
 	}
 	if quote.GuardPrice != 0 {
-		return result, lifecycleUnsupported(in.op, "paid synthetic quota")
+		return result, status, lifecycleUnsupported(in.op, "paid synthetic quota")
 	}
 	fresh, err := c.syntheticTerms(ctx, in, credentials)
 	if err != nil {
-		return result, err
+		return result, status, err
 	}
 	eligibilityErr := c.syntheticEligible(in, fresh, expiry)
 	var invalidResponse *core.APIError
 	if errors.As(eligibilityErr, &invalidResponse) {
-		return result, eligibilityErr
+		return result, status, eligibilityErr
 	}
 	if eligibilityErr != nil || !terms.key(in).matches(fresh.key(in)) || terms.detail.ClassName != fresh.detail.ClassName || terms.detail.Location != fresh.detail.Location || fresh.detail.Price == nil || *fresh.detail.Price != 0 {
-		return result, fmt.Errorf("%s: final quota terms changed: %w", in.op, ErrQuotaChanged)
+		return result, status, fmt.Errorf("%s: final quota terms changed: %w", in.op, ErrQuotaChanged)
 	}
 	if err = ctx.Err(); err != nil {
-		return result, err
+		return result, status, err
 	}
 	path := []string{"synthetic", "quota", "extend-time"}
 	if in.recover {
@@ -385,7 +410,7 @@ func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationI
 	}
 	raw, status, sendErr, notSent := c.quotaRequestOutcome(ctx, transport.Request{Operation: in.op, Method: http.MethodPost, URL: c.billingRoute("v2", path), Body: terms.body(), OK: []int{200}, Once: true, KeepObservedStatus: true}, credentials)
 	if notSent {
-		return result, syntheticNotSentError(sendErr)
+		return result, status, syntheticNotSentError(sendErr)
 	}
 	result.outcome.Sent = "unknown"
 	if status > 0 {
@@ -393,38 +418,38 @@ func (c *Client) runSyntheticMutation(ctx context.Context, in syntheticMutationI
 	}
 	if sendErr != nil && status >= 400 && status < 500 {
 		result.outcome.Stage = "refused"
-		return result, sendErr
+		return result, status, sendErr
 	}
 	result.outcome.Stage = "unconfirmed"
 	a := &quotaAttempt{key: terms.key(in), credentials: credentials, bound: quotaSettlementBound, reconcile: c.syntheticMutationReconciler(in, terms, credentials), result: quotaWriteResult{sent: result.outcome.Sent, status: status}}
 	c.recordQuotaAttempt(a)
 	if sendErr != nil {
-		return result, quotaUnsettled(in.op, sendErr)
+		return result, status, quotaUnsettled(in.op, sendErr)
 	}
 	decoded, err := decodeSyntheticMutation(in.op, raw)
 	if err != nil {
-		return result, quotaUnsettled(in.op, err)
+		return result, status, quotaUnsettled(in.op, err)
 	}
 	a.result.orderID = decoded.orderID
 	a.result.paymentPending = decoded.paymentPending
 	result.orderID = decoded.orderID
 	result.paymentPending = decoded.paymentPending
 	if result.paymentPending {
-		return result, quotaUnsettled(in.op, nil)
+		return result, status, quotaUnsettled(in.op, nil)
 	}
 	if in.noWait {
 		result.outcome.Stage = "accepted"
-		return result, nil
+		return result, status, nil
 	}
 	resolution, err := c.waitQuotaAttempt(ctx, in.op, a.reconcile, quotaSettlementBound)
 	if err != nil {
-		return result, err
+		return result, status, err
 	}
 	c.clearQuotaAttempt("synthetic")
 	result.quota = resolution.quota
 	result.confirmed = true
 	result.outcome.Stage = "confirmed"
-	return result, nil
+	return result, status, nil
 }
 
 func syntheticNotSentError(err error) error {
@@ -458,10 +483,18 @@ func (c *Client) syntheticEarlyEvidence() (syntheticMutationResult, quotaAttempt
 	if sent == "" {
 		sent = "unknown"
 	}
-	out := syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}}
+	out := syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}, action: a.key.action}
 	end := a.key.expectedEndTime
 	if _, err := end.MarshalJSON(); err == nil {
 		out.previous = &end
 	}
 	return out, a.key, a.status, true
+}
+
+func syntheticInitialResult(in syntheticMutationInput) syntheticMutationResult {
+	result := syntheticMutationResult{outcome: QuotaMutationOutcome{Sent: "no", Stage: "preflight"}}
+	if in.ensure {
+		result.action = "none"
+	}
+	return result
 }

@@ -54,6 +54,8 @@ func syntheticMutationOperation(service, command string) string {
 		return "monitor.CreateSyntheticQuota"
 	case "delete-synthetic-quota":
 		return "monitor.DeleteSyntheticQuota"
+	case "ensure-synthetic-quota":
+		return "monitor.EnsureSyntheticQuota"
 	case "recover-synthetic-quota":
 		return "monitor.RecoverSyntheticQuota"
 	case "renew-synthetic-quota":
@@ -71,6 +73,8 @@ func syntheticCommandOperation(cmd *cobra.Command) string {
 func syntheticOutcomeOf(out any) *monitor.QuotaMutationOutcome {
 	switch value := out.(type) {
 	case *monitor.CreateSyntheticQuotaOutput:
+		return &value.QuotaMutationOutcome
+	case *monitor.EnsureSyntheticQuotaOutput:
 		return &value.QuotaMutationOutcome
 	case *monitor.RecoverSyntheticQuotaOutput:
 		return &value.QuotaMutationOutcome
@@ -113,6 +117,8 @@ func finishSyntheticCLI(stdout, stderr io.Writer, cmd *cobra.Command, op string,
 		switch op {
 		case "monitor.CreateSyntheticQuota":
 			state.output = &monitor.CreateSyntheticQuotaOutput{QuotaMutationOutcome: *outcome}
+		case "monitor.EnsureSyntheticQuota":
+			state.output = &monitor.EnsureSyntheticQuotaOutput{QuotaMutationOutcome: *outcome, Action: "none"}
 		case "monitor.RecoverSyntheticQuota":
 			state.output = &monitor.RecoverSyntheticQuotaOutput{QuotaMutationOutcome: *outcome}
 		default:
@@ -179,6 +185,8 @@ func monitorSyntheticMutationOp(op Op[monitor.Client]) Op[monitor.Client] {
 		switch value := in.(type) {
 		case *monitor.CreateSyntheticQuotaInput:
 			price = value.MaxPrice
+		case *monitor.EnsureSyntheticQuotaInput:
+			price = value.MaxPrice
 		case *monitor.RecoverSyntheticQuotaInput:
 			price = value.MaxPrice
 		case *monitor.RenewSyntheticQuotaInput:
@@ -225,6 +233,18 @@ func syntheticFallbackOutput(out any, op string) any {
 		if safe.SentAt != nil {
 			if _, err := safe.SentAt.MarshalJSON(); err != nil {
 				safe.SentAt = nil
+			}
+		}
+		return &safe
+	case *monitor.EnsureSyntheticQuotaOutput:
+		safe := *value
+		safe.QuotaMutationOutcome = outcome
+		safe.Quota = nil
+		safe.Renewed = false
+		safe.Recovered = false
+		if safe.PreviousEndTime != nil {
+			if _, err := safe.PreviousEndTime.MarshalJSON(); err != nil {
+				safe.PreviousEndTime = nil
 			}
 		}
 		return &safe
@@ -298,4 +318,17 @@ func renderSyntheticClassPackages(w io.Writer, format string, out *monitor.ListS
 		}
 	}
 	return monitorCoverageQuery(w, format, "", rows)
+}
+func monitorEnsureSyntheticOp() Op[monitor.Client] {
+	op := monitorSyntheticMutationOp(Write[monitor.Client, monitor.EnsureSyntheticQuotaInput, monitor.EnsureSyntheticQuotaOutput]("ensure-synthetic-quota", (*monitor.Client).EnsureSyntheticQuota))
+	op.short = "Renew a due ACTIVE free Synthetic quota or recover it when expired in trash; --max-days-left defaults to 7; explicit --max-price required"
+	op.newInput = func() any { return &monitor.EnsureSyntheticQuotaInput{MaxDaysLeft: 7} }
+	op.extraFlags = func(cmd *cobra.Command) {
+		// Documentation probes extra flags without registering Input flags.
+		if flag := cmd.Flags().Lookup("max-days-left"); flag != nil {
+			flag.DefValue = "7"
+			_ = flag.Value.Set("7")
+		}
+	}
+	return op
 }

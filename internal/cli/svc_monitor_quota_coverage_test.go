@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +124,7 @@ func TestGoldenMonitorCoverage(t *testing.T) {
 	seconds := int64(-1)
 	end := now.Add(-time.Second)
 	status := &monitor.GetQuotaStatusOutput{AsOf: now, Complete: true, Items: []monitor.QuotaStatusRow{
-		{Kind: "Synthetic", ClassName: "Basic", Status: "IN-TRASH", Price: &price, EndTime: &end, TimeLeftSeconds: &seconds, AutoRenew: &no, RenewWindowOpen: &no, NextSafeCommand: "monitor get-synthetic-quota"},
+		{Kind: "Synthetic", ClassName: "Basic", Status: "IN-TRASH", Price: &price, EndTime: &end, TimeLeftSeconds: &seconds, AutoRenew: &no, RenewWindowOpen: &no, NextSafeCommand: "monitor recover-synthetic-quota"},
 		{Kind: "Email", Status: "none", NextSafeCommand: "monitor get-notification-quota"},
 		{Kind: "SMS", PackageName: "sms5", Status: "ACTIVE", AutoRenew: &yes, NextSafeCommand: "monitor get-notification-quota"},
 	}}
@@ -209,5 +211,74 @@ func TestMonitorQuotaStatusHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "fresh read") || fixture.requestCount() != 0 {
 		t.Fatalf("help=%s requests=%d", stdout, fixture.requestCount())
+	}
+}
+
+func TestMonitorEnsureSyntheticQuotaDocs(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(filepath.Join(dir, "CLI-Monitor.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(string(page), "\n## ensure-synthetic-quota\n")
+	if !ok {
+		t.Fatal("generated monitor reference is missing ensure-synthetic-quota")
+	}
+	section, _, _ = strings.Cut(section, "\n## ")
+	for _, row := range []string{
+		"| `--expected-quota-id` | `string` |  |",
+		"| `--max-price` | `float64` |  |",
+		"| `--max-days-left` | `int` |  |",
+		"| `--no-wait` | `bool` |  |",
+	} {
+		if count := strings.Count(section, row); count != 1 {
+			t.Errorf("generated flag row %q appears %d times, want once", row, count)
+		}
+	}
+	if !strings.Contains(section, "--max-days-left defaults to 7") {
+		t.Error("generated ensure reference is missing the seven-day default")
+	}
+}
+
+func TestQuotaStatusHumanTimeAndBlankError(t *testing.T) {
+	for _, tc := range []struct {
+		seconds int64
+		want    string
+	}{
+		{2589120, "29d 23h 12m"},
+		{-2589120, "expired 29d 23h 12m ago"},
+		{0, "expires now"},
+		{1, "0d 0h 0m"},
+		{-1, "expired 0d 0h 0m ago"},
+		{251578310400, "2911786d 0h 0m"},
+		{math.MaxInt64, "106751991167300d 15h 30m"},
+		{math.MinInt64, "expired 106751991167300d 15h 30m ago"},
+	} {
+		row := monitor.QuotaStatusRow{Kind: "Synthetic", Status: "ACTIVE", TimeLeftSeconds: &tc.seconds}
+		var out bytes.Buffer
+		if err := renderQuotaStatus(&out, "table", "", &monitor.GetQuotaStatusOutput{Items: []monitor.QuotaStatusRow{row}}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Fatalf("output=%s want=%s", &out, tc.want)
+		}
+		// Give every other nullable cell a value so unknown can only mean Error.
+		row.Price = new(float64)
+		row.AutoRenew = new(bool)
+		row.RenewWindowOpen = new(bool)
+		row.ClassName = "Basic"
+		row.PackageName = "free"
+		row.StartTime = new(time.Time)
+		row.EndTime = new(time.Time)
+		out.Reset()
+		if err := renderQuotaStatus(&out, "table", "", &monitor.GetQuotaStatusOutput{Items: []monitor.QuotaStatusRow{row}}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out.String(), "unknown") {
+			t.Fatalf("error must be blank: %s", &out)
+		}
 	}
 }

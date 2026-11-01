@@ -31,15 +31,19 @@ import (
 )
 
 func TestSyntheticMutationPreSDKOutcome(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
-		for _, flags := range [][]string{nil, {"--max-price", "0"}, {"--output", "invalid"}, {"--query", "Sent"}, {"--cli-input-json", "{"}, {"--max-price", "oops"}, {"--read-only"}} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota"} {
+		for _, flags := range [][]string{nil, {"--max-price", "0", "--query", "Sent"}, {"--output", "invalid"}, {"--query", "Sent"}, {"--cli-input-json", "{"}, {"--max-price", "oops"}, {"--read-only"}} {
 			t.Run(command+strings.Join(flags, " "), func(t *testing.T) {
 				withCleanEnv(t)
 				withTestOptions(t, syntheticCLITestOptions(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected pre-SDK request") }))...)
 				var out, stderr bytes.Buffer
 				code := Main(context.Background(), append([]string{"monitor", command}, flags...), strings.NewReader(""), &out, &stderr)
 				var value map[string]any
-				if json.Unmarshal(out.Bytes(), &value) != nil || len(value) != 8 || value["Sent"] != "no" || value["Stage"] != "preflight" || code != 2 {
+				fields := 8
+				if command == "ensure-synthetic-quota" {
+					fields = 10
+				}
+				if json.Unmarshal(out.Bytes(), &value) != nil || len(value) != fields || value["Sent"] != "no" || value["Stage"] != "preflight" || code != 2 {
 					t.Fatalf("exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 				}
 			})
@@ -48,7 +52,9 @@ func TestSyntheticMutationPreSDKOutcome(t *testing.T) {
 }
 
 func TestSyntheticMutationCLIRealTransport(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota/renew", "ensure-synthetic-quota/recover"} {
+		command, action, ensure := strings.Cut(command, "/")
+		recovery := command == "recover-synthetic-quota" || action == "recover"
 		for _, tc := range []struct {
 			name                         string
 			status                       int
@@ -58,6 +64,8 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 			price                        string
 			listPrice                    bool
 			waitStatus                   int
+			quoteStatus                  int
+			final                        string
 		}{
 			{name: "confirmed", status: 200, stage: "confirmed", sent: "yes", confirm: true},
 			{name: "accepted", status: 200, stage: "accepted", sent: "yes", noWait: true},
@@ -66,6 +74,9 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 			{name: "stale", status: 200, stage: "preflight", sent: "no", code: "QuotaChanged", exit: 1, stale: true},
 			{name: "bad request", status: 400, stage: "refused", sent: "yes", code: "BadRequest", exit: 1},
 			{name: "unauthorized", status: 401, stage: "refused", sent: "yes", code: "Unauthorized", exit: 3},
+			{name: "quote forbidden", quoteStatus: 403, stage: "preflight", sent: "no", code: "Forbidden", exit: 1},
+			{name: "final state", final: "state", stage: "preflight", sent: "no", code: "QuotaChanged", exit: 1},
+			{name: "replacement same expiry", final: "replacement", stage: "preflight", sent: "no", code: "QuotaChanged", exit: 1},
 			{name: "forbidden", status: 403, stage: "refused", sent: "yes", code: "Forbidden", exit: 1},
 			{name: "not found", status: 404, stage: "refused", sent: "yes", code: "NotFound", exit: 4},
 			{name: "early conflict", status: 409, stage: "refused", sent: "yes", code: "Conflict", exit: 1},
@@ -89,15 +100,15 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 			{name: "disconnect", status: -1, stage: "unconfirmed", sent: "unknown", code: "NotSettled", exit: 1},
 			{name: "not due", status: 200, stage: "not-due", sent: "no", skip: true},
 		} {
-			if command == "recover-synthetic-quota" && tc.skip {
+			if recovery && tc.skip {
 				continue
 			}
 			t.Run(command+"/"+tc.name, func(t *testing.T) {
 				withCleanEnv(t)
-				var sends, quotes atomic.Int32
+				var sends, quotes, reads atomic.Int32
 				baseline := "2500-12-01T05:19:45Z"
 				status := "ACTIVE"
-				if command == "recover-synthetic-quota" {
+				if recovery {
 					baseline = "2000-12-01T05:19:45Z"
 					status = "IN-TRASH"
 				}
@@ -116,6 +127,14 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 					switch r.URL.Path {
 					case "/billing-api/v1/synthetic/quota":
 						snapshot := maps.Clone(quota)
+						if reads.Add(1) == 2 {
+							if tc.final == "replacement" {
+								snapshot["id"] = "quota-syn-2"
+							}
+							if tc.final == "state" {
+								snapshot["status"] = map[bool]string{true: "ACTIVE", false: "IN-TRASH"}[recovery]
+							}
+						}
 						if sends.Load() > 0 && tc.waitStatus != 0 {
 							w.WriteHeader(tc.waitStatus)
 							return
@@ -125,7 +144,7 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 							snapshot["endTime"] = "2501-01-01T05:19:45Z"
 						}
 						_ = json.NewEncoder(w).Encode(snapshot)
-					case "/billing-api/v2/synthetic/quota-syn-1/quota-detail":
+					case "/billing-api/v2/synthetic/quota-syn-1/quota-detail", "/billing-api/v2/synthetic/quota-syn-2/quota-detail":
 						b, e := os.ReadFile("../../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
 						if e != nil {
 							t.Error(e)
@@ -133,15 +152,25 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 						if tc.listPrice {
 							b = bytes.ReplaceAll(b, []byte(`"price": 0.0`), []byte(`"price": 10`))
 						}
+						if strings.Contains(r.URL.Path, "quota-syn-2") {
+							b = bytes.ReplaceAll(b, []byte("quota-syn-1"), []byte("quota-syn-2"))
+						}
 						_, _ = w.Write(b)
 					case "/billing-api/v2/synthetic/prices/created-price":
 						quotes.Add(1)
+						if tc.quoteStatus != 0 {
+							w.WriteHeader(tc.quoteStatus)
+							return
+						}
 						price := tc.price
 						if price == "" {
 							price = `{"optimumPrice":0}`
 						}
 						_, _ = io.WriteString(w, price)
 					case "/billing-api/v2/trash/synthetic/quota", "/billing-api/v2/synthetic/quota/extend-time":
+						if strings.Contains(r.URL.Path, "trash") != recovery {
+							t.Errorf("wrong action route %s", r.URL.Path)
+						}
 						sends.Add(1)
 						_, _ = io.Copy(io.Discard, r.Body)
 						if tc.status == -1 {
@@ -169,18 +198,32 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 				t.Cleanup(server.Close)
 				withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(server.Client())), vngcloud.WithStaticToken("synthetic-bearer-canary"), vngcloud.WithRetry(3, time.Millisecond))
 				args := []string{"monitor", command, "--region", "hcm-3", "--max-price", "0", "--output", "json"}
-				if command == "recover-synthetic-quota" {
+				if recovery && !ensure {
 					id := "quota-syn-1"
 					if tc.stale {
 						id = "other"
 					}
 					args = append(args, "--expected-quota-id", id)
-				} else {
+				} else if !ensure {
 					end := baseline
 					if tc.stale {
 						end = "2500-12-02T05:19:45Z"
 					}
 					args = append(args, "--expected-end-time", end)
+				}
+				if ensure {
+					if recovery {
+						id := "quota-syn-1"
+						if tc.stale {
+							id = "other"
+						}
+						args = append(args, "--expected-quota-id", id)
+					} else {
+						args = append(args, "--max-days-left", "0")
+						if tc.stale {
+							args = append(args, "--expected-quota-id", "other")
+						}
+					}
 				}
 				if tc.skip {
 					args = append(args, "--max-days-left", "7")
@@ -191,12 +234,25 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 				var out, stderr bytes.Buffer
 				code := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
 				var value map[string]any
-				if json.Unmarshal(out.Bytes(), &value) != nil || len(value) != 8 || code != tc.exit || value["Sent"] != tc.sent || value["Stage"] != tc.stage {
+				fields := 8
+				if ensure {
+					fields = 10
+				}
+				if json.Unmarshal(out.Bytes(), &value) != nil || len(value) != fields || code != tc.exit || value["Sent"] != tc.sent || value["Stage"] != tc.stage {
 					t.Fatalf("exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 				}
 				confirmation := "Renewed"
-				if command == "recover-synthetic-quota" {
+				if recovery {
 					confirmation = "Recovered"
+				}
+				if ensure {
+					wantAction := action
+					if tc.stale || tc.skip {
+						wantAction = "none"
+					}
+					if value["Action"] != wantAction || value[map[bool]string{true: "Renewed", false: "Recovered"}[recovery]] != false {
+						t.Fatalf("outcome=%s", &out)
+					}
 				}
 				if value[confirmation] != tc.confirm || value["PaymentPending"] != (tc.name == "payment") || value["OrderID"] != "" {
 					t.Fatalf("outcome=%s", &out)
@@ -227,13 +283,16 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 					}
 				} else {
 					meta := value["Error"].(map[string]any)
-					expectedStatus := 0
+					expectedStatus := tc.quoteStatus
 					if tc.sent == "yes" {
 						expectedStatus = tc.status
 					}
 					expectedOperation := "monitor.RenewSyntheticQuota"
-					if command == "recover-synthetic-quota" {
+					if recovery {
 						expectedOperation = "monitor.RecoverSyntheticQuota"
+					}
+					if ensure {
+						expectedOperation = "monitor.EnsureSyntheticQuota"
 					}
 					if meta["Status"] != float64(expectedStatus) || meta["Operation"] != expectedOperation {
 						t.Fatalf("error metadata=%v", meta)
@@ -266,6 +325,7 @@ func TestSyntheticMutationGoldens(t *testing.T) {
 	}{
 		{"recover-synthetic-quota", &monitor.RecoverSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: "yes", Stage: "accepted"}, PreviousEndTime: &end}},
 		{"renew-synthetic-quota", &monitor.RenewSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: "yes", Stage: "unconfirmed", Error: &monitor.QuotaOutcomeError{Code: "NotSettled", Operation: "monitor.RenewSyntheticQuota", Status: 200}}, PreviousEndTime: &end}},
+		{"ensure-synthetic-quota", &monitor.EnsureSyntheticQuotaOutput{QuotaMutationOutcome: monitor.QuotaMutationOutcome{Sent: "yes", Stage: "refused", Error: &monitor.QuotaOutcomeError{Code: "Forbidden", Operation: "monitor.EnsureSyntheticQuota", Status: 403}}, Action: "recover", PreviousEndTime: &end}},
 		{"quote-renew-synthetic-quota", &monitor.QuotaQuote{PackageID: "32b3743d-94b8-49ab-984d-bd7ec99b46f6", ResourceID: "quota-syn-1", Quantity: 10, MonthPeriod: 1, ExpectedEndTime: &end, Currency: "VND"}},
 	} {
 		for _, format := range []string{"json", "table", "text"} {
@@ -292,7 +352,9 @@ func TestSyntheticMutationGoldens(t *testing.T) {
 }
 
 func TestSyntheticMutationCLISendFailures(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota/renew", "ensure-synthetic-quota/recover"} {
+		command, action, ensure := strings.Cut(command, "/")
+		recovery := command == "recover-synthetic-quota" || action == "recover"
 		for _, mode := range []string{"dial", "cancel before", "cancel after", "timeout"} {
 			t.Run(command+"/"+mode, func(t *testing.T) {
 				withCleanEnv(t)
@@ -305,7 +367,7 @@ func TestSyntheticMutationCLISendFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 				quota := strings.ReplaceAll(string(body), "2026-12-01T05:19:45.000+00:00", expiry)
-				if command == "recover-synthetic-quota" {
+				if recovery {
 					quota = string(mustSyntheticCLIFixture(t, "GetSyntheticQuotaInTrash"))
 				}
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -347,10 +409,13 @@ func TestSyntheticMutationCLISendFailures(t *testing.T) {
 				}
 				withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(hc)), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRetry(3, time.Millisecond))
 				args := []string{"monitor", command, "--region", "hcm-3", "--max-price", "0"}
-				if command == "recover-synthetic-quota" {
+				if recovery {
 					args = append(args, "--expected-quota-id", "quota-syn-1")
-				} else {
+				} else if command == "renew-synthetic-quota" {
 					args = append(args, "--expected-end-time", expiry)
+				}
+				if ensure {
+					args = append(args, "--max-days-left", "0")
 				}
 				var out, stderr bytes.Buffer
 				code := Main(ctx, args, strings.NewReader(""), &out, &stderr)
@@ -387,7 +452,7 @@ func mustSyntheticCLIFixture(t *testing.T, name string) []byte {
 }
 
 func TestSyntheticMutationPreflightConfigOutcomes(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "create-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "create-synthetic-quota", "ensure-synthetic-quota"} {
 		for _, mode := range []string{"credentials", "config", "flag read only", "environment read only", "profile read only", "profile invalid"} {
 			t.Run(command+"/"+mode, func(t *testing.T) {
 				home := withCleanEnv(t)
@@ -400,7 +465,7 @@ func TestSyntheticMutationPreflightConfigOutcomes(t *testing.T) {
 					args = syntheticLifecycleCLIArgs(command)
 				case "recover-synthetic-quota":
 					args = append(args, "--expected-quota-id", "quota-syn-1")
-				default:
+				case "renew-synthetic-quota":
 					args = append(args, "--expected-end-time", "2500-12-01T00:00:00Z")
 				}
 				wantCode, wantExit := "NoCredentials", 3
@@ -444,7 +509,7 @@ func TestSyntheticMutationPreflightConfigOutcomes(t *testing.T) {
 }
 
 func TestSyntheticMutationExplicitConsentAndPrecedence(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota"} {
 		for _, mode := range []string{"missing", "JSON zero", "file zero", "null", "flag wins", "negative flag", "query", "empty query", "positive warning", "guard flag wins"} {
 			t.Run(command+"/"+mode, func(t *testing.T) {
 				withCleanEnv(t)
@@ -522,7 +587,7 @@ type syntheticBrokenOutput struct{ calls int }
 
 func (w *syntheticBrokenOutput) Write([]byte) (int, error) { w.calls++; return 0, io.ErrClosedPipe }
 func TestSyntheticMutationRenderFailureDoesNotPrintAgain(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota"} {
 		t.Run(command, func(t *testing.T) {
 			withCleanEnv(t)
 			var sends atomic.Int32
@@ -551,9 +616,10 @@ func TestSyntheticMutationRenderFailureDoesNotPrintAgain(t *testing.T) {
 			}))
 			withTestOptions(t, append(opts, vngcloud.WithStaticToken("synthetic-token"))...)
 			args := []string{"monitor", command, "--region", "hcm-3", "--max-price", "0", "--no-wait"}
-			if command == "recover-synthetic-quota" {
+			switch command {
+			case "recover-synthetic-quota":
 				args = append(args, "--expected-quota-id", "quota-syn-1")
-			} else {
+			case "renew-synthetic-quota":
 				args = append(args, "--expected-end-time", "2500-12-01T05:19:45Z")
 			}
 			out := new(syntheticBrokenOutput)
@@ -567,7 +633,9 @@ func TestSyntheticMutationRenderFailureDoesNotPrintAgain(t *testing.T) {
 }
 
 func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota/renew", "ensure-synthetic-quota/recover"} {
+		command, action, ensure := strings.Cut(command, "/")
+		recovery := command == "recover-synthetic-quota" || action == "recover"
 		for _, unknown := range []bool{false, true} {
 			for _, mode := range []string{"unresolved mismatch", "confirmed mismatch", "confirmed matching"} {
 				t.Run(fmt.Sprintf("%s/%t/%s", command, unknown, mode), func(t *testing.T) {
@@ -576,7 +644,7 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 					ready := make(chan struct{})
 					baseline := "2500-12-01T05:19:45Z"
 					name := "GetSyntheticQuotaRecovered"
-					if command == "recover-synthetic-quota" {
+					if recovery {
 						baseline = "2000-10-25T21:43:00Z"
 						name = "GetSyntheticQuotaInTrash"
 					}
@@ -631,9 +699,12 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 					}
 					client := monitor.New(cfg)
 					args := []string{"monitor", command, "--max-price", "0", "--no-wait"}
-					if command == "recover-synthetic-quota" {
+					switch {
+					case ensure:
+						args = append(args, "--max-days-left", "0", "--expected-quota-id", "quota-syn-1")
+					case recovery:
 						args = append(args, "--expected-quota-id", "quota-syn-1")
-					} else {
+					default:
 						args = append(args, "--expected-end-time", baseline)
 					}
 					// Keep the public SDK client across service invocations to exercise its
@@ -652,7 +723,11 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 							finishSyntheticCLI(&out, &stderr, cmd, syntheticCommandOperation(cmd), state, callErr)
 						}
 						var result map[string]any
-						if json.Unmarshal(out.Bytes(), &result) != nil || len(result) != 8 {
+						fields := 8
+						if ensure {
+							fields = 10
+						}
+						if json.Unmarshal(out.Bytes(), &result) != nil || len(result) != fields {
 							t.Errorf("stdout=%s stderr=%s", &out, &stderr)
 						}
 						if callErr != nil {
@@ -679,7 +754,7 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 					secondArgs := slices.Clone(args)
 					if mode != "confirmed matching" {
 						secondArgs[len(secondArgs)-1] = "2500-12-02T00:00:00Z"
-						if command == "recover-synthetic-quota" {
+						if recovery || ensure {
 							secondArgs[len(secondArgs)-1] = "other"
 						}
 					}
@@ -705,6 +780,15 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 						wantStage, wantCode, wantExit = "unconfirmed", "NotSettled", 1
 					case "confirmed mismatch":
 						wantSent, wantStage, wantCode, wantExit = "no", "preflight", "QuotaChanged", 1
+					}
+					if ensure {
+						wantAction := action
+						if mode == "confirmed mismatch" {
+							wantAction = "none"
+						}
+						if result["Action"] != wantAction {
+							t.Fatalf("result=%v", result)
+						}
 					}
 					if result["Sent"] != wantSent || result["Stage"] != wantStage || exitCode(err) != wantExit || sends.Load() != 1 || quotes.Load() != 1 {
 						t.Fatalf("result=%v err=%v sends=%d quotes=%d", result, err, sends.Load(), quotes.Load())
@@ -970,7 +1054,7 @@ func TestSyntheticDeleteWarningAndQuoteFlags(t *testing.T) {
 			}
 		}
 	}
-	body, err := os.ReadFile("../../docs/wiki/Monitor-Quotas.md")
+	body, err := os.ReadFile("../../docs/wiki/Monitor-Synthetic-Quota.md")
 	if err != nil || !bytes.Contains(body, []byte("permanently deletes every synthetic check")) {
 		t.Fatalf("wiki warning missing: %v", err)
 	}
@@ -1455,15 +1539,18 @@ func TestSyntheticMutationEncodingFailureFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
+	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota", "ensure-synthetic-quota"} {
 		for _, sent := range []string{"no", "yes", "unknown"} {
 			t.Run(command+"/"+sent, func(t *testing.T) {
 				var output any
 				outcome := monitor.QuotaMutationOutcome{Sent: sent, Stage: "confirmed"}
 				q := &monitor.Quota{EndTime: bad}
-				if command == "recover-synthetic-quota" {
+				switch command {
+				case "ensure-synthetic-quota":
+					output = &monitor.EnsureSyntheticQuotaOutput{QuotaMutationOutcome: outcome, Action: "recover", Quota: q, Recovered: true}
+				case "recover-synthetic-quota":
 					output = &monitor.RecoverSyntheticQuotaOutput{QuotaMutationOutcome: outcome, Quota: q, Recovered: true}
-				} else {
+				default:
 					output = &monitor.RenewSyntheticQuotaOutput{QuotaMutationOutcome: outcome, Quota: q, Renewed: true}
 				}
 				state := &syntheticCLIOutcome{output: output}
@@ -1476,7 +1563,11 @@ func TestSyntheticMutationEncodingFailureFallback(t *testing.T) {
 				if sent == "no" {
 					stage, code = "preflight", "RequestFailed"
 				}
-				if json.Unmarshal(stdout.Bytes(), &record) != nil || len(record) != 8 || record["Sent"] != sent || record["Stage"] != stage || record["Quota"] != nil || record["Error"] == nil || record["Error"].(map[string]any)["Code"] != code {
+				fields := 8
+				if command == "ensure-synthetic-quota" {
+					fields = 10
+				}
+				if json.Unmarshal(stdout.Bytes(), &record) != nil || len(record) != fields || record["Sent"] != sent || record["Stage"] != stage || record["Quota"] != nil || record["Error"] == nil || record["Error"].(map[string]any)["Code"] != code {
 					t.Fatalf("stdout=%q stderr=%s", &stdout, &stderr)
 				}
 			})
@@ -1588,6 +1679,64 @@ func TestSyntheticCreateEncodingFailureFallback(t *testing.T) {
 			var record map[string]any
 			if json.Unmarshal(stdout.Bytes(), &record) != nil || len(record) != 8 || record["Sent"] != sent || record["Quota"] != nil || record["Created"] != false || record["SentAt"] != nil {
 				t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
+			}
+		})
+	}
+}
+
+func TestEnsureSyntheticQuotaCLIDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		send  bool
+		stale bool
+	}{
+		{name: "default"},
+		{name: "JSON default", flags: []string{"--cli-input-json", `{"MaxPrice":0}`}},
+		{name: "flag zero", flags: []string{"--max-days-left", "0"}, send: true},
+		{name: "JSON zero", flags: []string{"--cli-input-json", `{"MaxDaysLeft":0,"MaxPrice":0}`}, send: true},
+		{name: "flag overrides JSON", flags: []string{"--cli-input-json", `{"MaxDaysLeft":7}`, "--max-days-left", "0"}, send: true},
+		{name: "JSON guard before skip", flags: []string{"--cli-input-json", `{"ExpectedQuotaID":"other"}`}, stale: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCleanEnv(t)
+			var sends, quotes atomic.Int32
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/billing-api/v1/synthetic/quota":
+					body := strings.ReplaceAll(string(mustSyntheticCLIFixture(t, "GetSyntheticQuotaRecovered")), "2026-12-01T05:19:45.000+00:00", "2500-12-01T05:19:45Z")
+					_, _ = io.WriteString(w, body)
+				case "/billing-api/v2/synthetic/quota-syn-1/quota-detail":
+					_, _ = w.Write(mustSyntheticCLIFixture(t, "GetSyntheticQuotaDetailNullable"))
+				case "/billing-api/v2/synthetic/prices/created-price":
+					quotes.Add(1)
+					_, _ = io.WriteString(w, `{"optimumPrice":0}`)
+				case "/billing-api/v2/synthetic/quota/extend-time":
+					sends.Add(1)
+				default:
+					t.Errorf("unexpected route %s", r.URL.Path)
+					w.WriteHeader(400)
+				}
+			})
+			server := httptest.NewServer(handler)
+			t.Cleanup(server.Close)
+			withTestOptions(t, vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL + "/"}), vngcloud.WithHTTPClient(syntheticCLITestHTTPClient(server.Client())), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithRetry(3, time.Millisecond))
+			args := append([]string{"monitor", "ensure-synthetic-quota", "--region", "hcm-3", "--max-price", "0", "--no-wait"}, tc.flags...)
+			var out, stderr bytes.Buffer
+			code := Main(context.Background(), args, strings.NewReader(""), &out, &stderr)
+			var value monitor.EnsureSyntheticQuotaOutput
+			if err := json.Unmarshal(out.Bytes(), &value); err != nil {
+				t.Fatal(err)
+			}
+			wantStage, wantAction, wantCount, wantExit := "not-due", "none", int32(0), 0
+			if tc.send {
+				wantStage, wantAction, wantCount = "accepted", "renew", 1
+			}
+			if tc.stale {
+				wantStage, wantExit = "preflight", 1
+			}
+			if value.Stage != wantStage || value.Action != wantAction || sends.Load() != wantCount || quotes.Load() != wantCount || code != wantExit {
+				t.Fatalf("exit=%d out=%s stderr=%s sends=%d quotes=%d", code, &out, &stderr, sends.Load(), quotes.Load())
 			}
 		})
 	}

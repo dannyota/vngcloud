@@ -113,6 +113,7 @@ var monitorOps = []Op[monitor.Client]{
 	monitorSyntheticMutationOp(Write[monitor.Client, monitor.CreateSyntheticQuotaInput, monitor.CreateSyntheticQuotaOutput]("create-synthetic-quota", (*monitor.Client).CreateSyntheticQuota)),
 	Read[monitor.Client, monitor.CreateSyntheticQuotaInput, monitor.QuoteCreateSyntheticQuotaOutput]("quote-create-synthetic-quota", (*monitor.Client).QuoteCreateSyntheticQuota, NoFlag("MaxPrice", "NoWait")),
 	monitorSyntheticDeleteOp(),
+	monitorEnsureSyntheticOp(),
 	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RecoverSyntheticQuotaInput, monitor.RecoverSyntheticQuotaOutput]("recover-synthetic-quota", (*monitor.Client).RecoverSyntheticQuota)),
 	monitorSyntheticMutationOp(Write[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.RenewSyntheticQuotaOutput]("renew-synthetic-quota", (*monitor.Client).RenewSyntheticQuota)),
 	Read[monitor.Client, monitor.RenewSyntheticQuotaInput, monitor.QuoteRenewSyntheticQuotaOutput]("quote-renew-synthetic-quota", (*monitor.Client).QuoteRenewSyntheticQuota, NoFlag("MaxPrice", "MaxDaysLeft", "NoWait")),
@@ -642,15 +643,7 @@ func renderQuotaStatus(w io.Writer, format, query string, out *monitor.GetQuotaS
 		}
 		left := "unknown"
 		if row.TimeLeftSeconds != nil {
-			seconds := *row.TimeLeftSeconds
-			switch {
-			case seconds < 0:
-				left = fmt.Sprintf("expired %d seconds ago", -seconds)
-			case seconds == 0:
-				left = "expires now"
-			default:
-				left = fmt.Sprintf("%d seconds", seconds)
-			}
+			left = monitorQuotaTimeLeft(*row.TimeLeftSeconds)
 		}
 		start, end := "unknown", "unknown"
 		if row.StartTime != nil {
@@ -659,7 +652,11 @@ func renderQuotaStatus(w io.Writer, format, query string, out *monitor.GetQuotaS
 		if row.EndTime != nil {
 			end = monitorQuotaTime(*row.EndTime)
 		}
-		rows = append(rows, map[string]any{"Kind": row.Kind, "Class": class, "Package": pkg, "Status": row.Status, "PriceVND": row.Price, "StartUTC": start, "EndUTC": end, "TimeLeft": left, "AutoRenew": monitorEligibility(row.AutoRenew), "RenewWindowOpen": monitorEligibility(row.RenewWindowOpen), "NextSafeCommand": row.NextSafeCommand, "Error": row.Error})
+		var rowError any = ""
+		if row.Error != nil {
+			rowError = row.Error
+		}
+		rows = append(rows, map[string]any{"Kind": row.Kind, "Class": class, "Package": pkg, "Status": row.Status, "PriceVND": row.Price, "StartUTC": start, "EndUTC": end, "TimeLeft": left, "AutoRenew": monitorEligibility(row.AutoRenew), "RenewWindowOpen": monitorEligibility(row.RenewWindowOpen), "NextSafeCommand": row.NextSafeCommand, "Error": rowError})
 	}
 	data, err := encodeJSON(rows)
 	if err != nil {
@@ -670,4 +667,20 @@ func renderQuotaStatus(w io.Writer, format, query string, out *monitor.GetQuotaS
 		return err
 	}
 	return monitorCoverageRows(w, format, value)
+}
+
+func monitorQuotaTimeLeft(seconds int64) string {
+	if seconds == 0 {
+		return "expires now"
+	}
+	// Divide before negating so even MinInt64 has a defined magnitude.
+	minutes := seconds / 60
+	if minutes < 0 {
+		minutes = -minutes
+	}
+	left := fmt.Sprintf("%dd %dh %dm", minutes/1440, minutes%1440/60, minutes%60)
+	if seconds < 0 {
+		return "expired " + left + " ago"
+	}
+	return left
 }

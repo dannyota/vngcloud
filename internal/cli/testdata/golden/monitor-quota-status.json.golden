@@ -13,7 +13,7 @@
       "TimeLeftSeconds": -1,
       "AutoRenew": false,
       "RenewWindowOpen": false,
-      "NextSafeCommand": "monitor get-synthetic-quota",
+      "NextSafeCommand": "monitor recover-synthetic-quota",
       "Error": null
     },
     {

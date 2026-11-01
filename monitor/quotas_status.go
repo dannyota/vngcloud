@@ -128,6 +128,14 @@ func (c *Client) quotaStatusRow(ctx context.Context, op, kind string, asOf time.
 			windowEnd := asOf.Add(7 * 24 * time.Hour)
 			open := quota.Status == QuotaStatusActive && quota.EndTime.After(asOf) && !quota.EndTime.After(windowEnd)
 			row.RenewWindowOpen = &open
+			if !quota.POC && !quota.AutoRenew {
+				if open {
+					row.NextSafeCommand = "monitor renew-synthetic-quota"
+				}
+				if quota.Status == QuotaStatusInTrash && quota.EndTime.Before(asOf) {
+					row.NextSafeCommand = "monitor recover-synthetic-quota"
+				}
+			}
 		}
 	} else {
 		raw, readErr := reader.read(ctx, op, "v1", segment, "packages")

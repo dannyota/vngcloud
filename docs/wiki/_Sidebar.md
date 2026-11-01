@@ -18,6 +18,8 @@
 - [Load Balancer](LoadBalancer.md)
 - [Monitor](Monitor.md)
 - [Monitor Alerts](Monitor-Alerts.md)
+- [Monitor Quotas](Monitor-Quotas.md)
+- [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md)
 - [Monitor Log Alarms](Monitor-Log-Alarms.md)
 - [Network](Network.md)
 - [Network Route Tables](Network-RouteTables.md)

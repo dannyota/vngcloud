@@ -15,10 +15,10 @@ transition; a check created with no `Notifications` set alerts nobody.
 See [Monitor Alerts](Monitor-Alerts.md) for notification
 channels, log projects, and alarms. See
 [Monitor Quotas](Monitor-Quotas.md) for check alarm state, transition history,
-usage, synthetic catalogs, nullable channel limits, quota status snapshots,
-and guarded free synthetic create, recovery, and renewal with CI outcomes.
-Synthetic quota delete requires explicit consent: deleting the quota
-permanently deletes every synthetic check. See the quota guide before use.
+usage, synthetic catalogs, nullable channel limits, and quota status snapshots.
+See [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md) for free create,
+recovery, renewal, unattended ensure, CI outcomes, and
+[Synthetic deletion effects](Monitor-Synthetic-Quota.md#delete).
 
 ## Setup
 

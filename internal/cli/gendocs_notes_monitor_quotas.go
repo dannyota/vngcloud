@@ -24,7 +24,7 @@ const monitorSyntheticQuotaNote = "Reads quota identity, status, expiry, AutoRen
 	"Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. " +
 	"ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. " +
 	"A missing quota is NotFound; check monitor quota-status --kind synthetic and use monitor create-synthetic-quota for a free quota. " +
-	"Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable remains unavailable. Guarded free create, recovery, renewal, and destructive delete are available."
+	"Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable remains unavailable. Guarded free create, recovery, renewal, and destructive delete are available. See [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md)."
 
 const monitorSyntheticUsageNote = "Reads synthetic usage counters and their descriptions. " +
 	"Alert emails consume the Email quota, rather than the synthetic email counter. See Monitor Quotas."
@@ -39,16 +39,25 @@ func init() {
 			"Every outcome prints Sent, Stage, Error, PreviousEndTime, Quota, OrderID, PaymentPending and the operation's confirmation boolean. " +
 			"Only same-ID/package ACTIVE read-back with a later expiry confirms. --no-wait leaves an open unconfirmed attempt. " +
 			"Uncertainty is NotSettled, exit 1, even over auth or NotFound. Serialize per account/kind and retain a durable pending marker. " +
-			"Reconcile with reads and console billing, never blind retries. See Monitor Quotas for the outcome and exit table."
+			"Reconcile with reads and console billing, never blind retries. See [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md#unattended-ci) for the outcome and exit table."
 	}
+	docExampleOverride["monitor ensure-synthetic-quota"] = "vngcloud monitor ensure-synthetic-quota --max-days-left 7 --max-price 0 --output json"
+	docOpNotes["monitor ensure-synthetic-quota"] = "Selects renewal for ACTIVE future expiry or recovery for expired IN-TRASH from one fresh quota/detail read. " +
+		"Only the free Basic package with POC and auto-renew off is supported. Never creates, deletes, or switches actions on failure. " +
+		"--expected-quota-id is optional and checked before skips. --max-days-left defaults to 7, including omitted JSON; explicit zero permits early renewal and its visible 409. " +
+		"Explicit --max-price or JSON MaxPrice is required, including zero. pay: true may debit the balance; MaxPrice is a local guard. " +
+		"Read-only refuses before requests. No prompt or --yes; --query is refused. Sends once and shares renewal/recovery's lock and ledger. " +
+		"Every result includes Sent, Stage, Error, Action (none, renew, recover), PreviousEndTime, Quota, Renewed, Recovered, OrderID, PaymentPending. " +
+		"Only read-back confirms the selected action. --no-wait leaves an unconfirmed attempt. A renew-only identity gets Forbidden (exit 1) with Action recover on expired trash. " +
+		"Serialize jobs, persist a durable pending marker, and reconcile missing or unconfirmed output with reads before further writes. See [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md#synthetic-ensure)."
 	docOpNotes["monitor recover-synthetic-quota"] += " --expected-quota-id is required. Recovery requires expired IN-TRASH and starts a new term at recovery time."
 	docOpNotes["monitor renew-synthetic-quota"] += " --expected-end-time is required as RFC 3339. ACTIVE future expiry is required. --max-days-left 7 avoids the visible early 409 Conflict."
-	docOpNotes["monitor quote-renew-synthetic-quota"] = "Estimates one frozen month from the ACTIVE quota and identity-checked detail. Requires RFC 3339 ExpectedEndTime. Ignores MaxPrice, MaxDaysLeft, and NoWait; their flags are hidden. A quote never authorizes a write."
+	docOpNotes["monitor quote-renew-synthetic-quota"] = "Estimates one frozen month from the ACTIVE quota and identity-checked detail. Requires RFC 3339 ExpectedEndTime. Ignores MaxPrice, MaxDaysLeft, and NoWait; their flags are hidden. A quote never authorizes a write. See [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md#synthetic-recovery-and-renewal)."
 	docExampleOverride["monitor quote-renew-synthetic-quota"] = "vngcloud monitor get-synthetic-quota"
 
-	docOpNotes["monitor create-synthetic-quota"] = "Requires --class-id, --package-id, --quantity, and explicit --max-price consent including zero. Only free Basic, one location, 10 API tests, and an absent quota are supported. Uses class unit price times quantity, never v1 prices. Sends one month with pay: true and buyWith {} once. MaxPrice is a local guard, not a server cap. Paid classes refuse. Every return prints Sent, Stage, Error, Quota, Created, OrderID, PaymentPending, SentAt. Only matching ACTIVE quota/detail read-back with StartTime at or after SentAt confirms. Clock skew can prevent confirmation; a concurrent matching create can satisfy it without order identity proof. --no-wait leaves an open unconfirmed attempt. --query refuses. Serialize writes and retain a durable pending marker; use read-only reconciliation after uncertainty. No raw create success body was retained."
-	docOpNotes["monitor quote-create-synthetic-quota"] = "Requires --class-id, --package-id, and --quantity. Estimates the selected free Basic package for one month after exact quota absence and class/package eligibility checks. Ignores MaxPrice and NoWait; their flags are hidden. Uses class unit prices, never v1 prices. Paid classes refuse. Read-only permits this quote; it never sends an order."
-	docOpNotes["monitor delete-synthetic-quota"] = syntheticDeleteEffect + " Requires --yes and --expected-quota-id. Only ACTIVE unexpired quotas with POC and auto-renew off are supported. Purge and --query refuse. Read-only refuses before requests. Every return prints Quota, Stage, Purged false, and Effect, including preflight errors. Sends the ID-less DELETE once and confirms only exact quota-route absence within 60 seconds. The target snapshot cannot prove which resource the server deleted; a replacement race remains. NotSettled retains the attempt. Never recreate checks or quota automatically; use read-only reconciliation."
+	docOpNotes["monitor create-synthetic-quota"] = "Requires --class-id, --package-id, --quantity, and explicit --max-price consent including zero. Only free Basic, one location, 10 API tests, and an absent quota are supported. Uses class unit price times quantity, never v1 prices. Sends one month with pay: true and buyWith {} once. MaxPrice is a local guard, not a server cap. Paid classes refuse. Every return prints Sent, Stage, Error, Quota, Created, OrderID, PaymentPending, SentAt. Only matching ACTIVE quota/detail read-back with StartTime at or after SentAt confirms. Clock skew can prevent confirmation; a concurrent matching create can satisfy it without order identity proof. --no-wait leaves an open unconfirmed attempt. --query refuses. Serialize writes and retain a durable pending marker; use read-only reconciliation after uncertainty. No raw create success body was retained. See [free Synthetic create](Monitor-Synthetic-Quota.md#free-synthetic-create)."
+	docOpNotes["monitor quote-create-synthetic-quota"] = "Requires --class-id, --package-id, and --quantity. Estimates the selected free Basic package for one month after exact quota absence and class/package eligibility checks. Ignores MaxPrice and NoWait; their flags are hidden. Uses class unit prices, never v1 prices. Paid classes refuse. Read-only permits this quote; it never sends an order. See [free Synthetic create](Monitor-Synthetic-Quota.md#free-synthetic-create)."
+	docOpNotes["monitor delete-synthetic-quota"] = syntheticDeleteEffect + " Requires --yes and --expected-quota-id. Only ACTIVE unexpired quotas with POC and auto-renew off are supported. Purge and --query refuse. Read-only refuses before requests. Every return prints Quota, Stage, Purged false, and Effect, including preflight errors. Sends the ID-less DELETE once and confirms only exact quota-route absence within 60 seconds. The target snapshot cannot prove which resource the server deleted; a replacement race remains. NotSettled retains the attempt. Never recreate checks or quota automatically; use read-only reconciliation. See [Synthetic deletion](Monitor-Synthetic-Quota.md#delete)."
 	for _, command := range []string{"create-synthetic-quota", "quote-create-synthetic-quota", "delete-synthetic-quota"} {
 		docExampleOverride["monitor "+command] = "vngcloud monitor list-synthetic-packages"
 	}
@@ -61,7 +70,7 @@ func init() {
 		"with detail price and class and an unknown package name. Notification price is the current list price, not a historical billed price. " +
 		"Missing quotas produce none rows and exit 0. Failed rows print partial output, ignore --query, and exit 1 as QuotaStatusIncomplete. " +
 		"Null means unknown; false and zero remain distinct. RenewWindowOpen describes only the evidenced free Synthetic timing window. " +
-		"NextSafeCommand currently uses read fallbacks; recovery and renewal require explicit guards from a fresh read. " +
+		"NextSafeCommand suggests renewal inside the free window or recovery for expired free trash, only with POC and auto-renew off; otherwise it suggests reads. Suggested writes require explicit guards from a fresh read. Table/text time left uses days, hours and minutes; rows without errors have a blank Error cell. " +
 		"Read-only settings allow this read."
 	docExampleOverride["monitor quota-status"] = "vngcloud monitor quota-status --kind synthetic"
 

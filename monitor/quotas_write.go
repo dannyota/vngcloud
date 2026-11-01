@@ -62,6 +62,7 @@ func (l *quotaWriteLock) release() { <-l.token }
 type quotaAttemptKey struct {
 	operation       string
 	classID         string
+	action          string
 	kind            string
 	packageID       string
 	monthPeriod     int
@@ -111,6 +112,15 @@ type quotaAttempt struct {
 }
 
 func quotaUnsettled(op string, cause error) error {
+	var api *core.APIError
+	if errors.As(cause, &api) && api.Operation != op {
+		// A retained reconciler belongs to the original intent. Copy its safe
+		// metadata for this caller and keep every original cause for errors.Is.
+		safe := *api
+		safe.Operation = op
+		safe.Err = cause
+		cause = &safe
+	}
 	if cause == nil {
 		return fmt.Errorf("%s: quota attempt remains unresolved; reconcile reads and inspect billing before another write: %w", op, dns.ErrNotSettled)
 	}

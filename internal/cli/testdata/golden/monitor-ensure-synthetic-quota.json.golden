@@ -1,0 +1,16 @@
+{
+  "Sent": "yes",
+  "Stage": "refused",
+  "Error": {
+    "Code": "Forbidden",
+    "Operation": "monitor.EnsureSyntheticQuota",
+    "Status": 403
+  },
+  "Action": "recover",
+  "Quota": null,
+  "PreviousEndTime": "2026-10-25T21:43:00Z",
+  "Renewed": false,
+  "Recovered": false,
+  "OrderID": "",
+  "PaymentPending": false
+}

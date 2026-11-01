@@ -679,3 +679,23 @@ func TestNotificationUsageOmitsCounts(t *testing.T) {
 		t.Fatalf("output=%s err=%v", raw, err)
 	}
 }
+
+func TestQuotaUnsettledRebindsAPIErrorWithoutLosingCauses(t *testing.T) {
+	original := &core.APIError{Operation: "monitor.EnsureSyntheticQuota", StatusCode: 403, Code: "Forbidden", Message: "quota response withheld", Retryable: true, Err: core.ErrPermission}
+	snapshot := *original
+	custom := errors.New("safe test cause")
+	cause := errors.Join(original, custom, ErrQuotaChanged, context.Canceled)
+	err := quotaUnsettled("monitor.RenewSyntheticQuota", cause)
+	var api *core.APIError
+	if !errors.As(err, &api) || api == original || api.Operation != "monitor.RenewSyntheticQuota" || api.Code != original.Code || api.StatusCode != original.StatusCode || api.Message != original.Message || api.Retryable != original.Retryable {
+		t.Fatalf("api=%+v err=%v", api, err)
+	}
+	for _, sentinel := range []error{dns.ErrNotSettled, core.ErrPermission, ErrQuotaChanged, context.Canceled, custom} {
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("lost cause %v in %v", sentinel, err)
+		}
+	}
+	if !reflect.DeepEqual(*original, snapshot) || !errors.Is(original.Err, core.ErrPermission) {
+		t.Fatalf("mutated original error: %+v", original)
+	}
+}

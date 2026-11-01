@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.91.0 - vMonitor ensure-synthetic-quota
+
+- SDK `EnsureSyntheticQuota` and CLI `monitor ensure-synthetic-quota` keep
+  the free Synthetic Test quota alive from one command, for cron and CI.
+  From one fresh read it renews when the quota is ACTIVE inside
+  `--max-days-left` (CLI default 7), recovers when it is expired in trash,
+  skips when it is not due, and refuses anything else. It never creates or
+  deletes and never falls back from one action to another. It reuses the
+  renewal and recovery guards (`--max-price` default 0, optional
+  `--expected-quota-id`), sends once, and confirms by read-back.
+- The output adds `Action` to the shared `Sent`, `Stage`, and `Error`
+  outcome. An identity that may renew but not recover gets a clear
+  `Forbidden` refusal with `Action` `recover` and exit 1.
+- `quota-status` now suggests `monitor renew-synthetic-quota` or
+  `monitor recover-synthetic-quota` when one applies. Tables show time left
+  in days, hours, and minutes, and leave the error column blank on healthy
+  rows; JSON fields are unchanged.
+- When a call reconciles an earlier unresolved write on the same client,
+  its error now names the operation that was called.
+- The wiki moves Synthetic create, recovery, renewal, ensure, delete, and
+  the Unattended CI guidance to a new Monitor Synthetic Quota page.
+
 ## v0.90.0 - vMonitor Synthetic quota create and delete
 
 - SDK `CreateSyntheticQuota` and `QuoteCreateSyntheticQuota`, and CLI
