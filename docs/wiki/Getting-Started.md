@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Use Go 1.27.2 or later. Choose credentials that have permission for the read
+Use Go 1.27.3 or later. Choose credentials that have permission for the read
 you want to make, and select a region. Compute also needs a project: set one
 explicitly when more than one project matches the region.
 

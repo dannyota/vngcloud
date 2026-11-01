@@ -202,7 +202,9 @@ func TestServiceAccountCacheRejectedRestored(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(release)
-	<-done
+	if err := <-done; err == nil || err.Error() != "synthetic-stop" {
+		t.Fatalf("cache holder error %v, want synthetic-stop", err)
+	}
 	if source.rejected != "old" {
 		t.Fatal("pending rejection lost")
 	}
