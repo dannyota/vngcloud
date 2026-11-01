@@ -22,13 +22,26 @@ const monitorNotificationPackagesNote = "--kind accepts Email or SMS, case insen
 
 const monitorSyntheticQuotaNote = "Reads quota identity, status, expiry, AutoRenew, and package detail. " +
 	"Table/text timestamps show UTC and absent prices show unknown; JSON preserves SDK values. " +
-	"Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. " +
+	"ChannelLimits preserves null versus explicit zero; legacy integer limits collapse null to zero. Synthetic quota expiry stops checks. A missing quota is NotFound; inspect it in the console. " +
 	"Auto-renew enable sends once; the free quota returns BadRequest (400, exit 1). Disable, renewal, and deletion remain unavailable."
 
 const monitorSyntheticUsageNote = "Reads synthetic usage counters and their descriptions. " +
 	"Alert emails consume the Email quota, rather than the synthetic email counter. See Monitor Quotas."
 
 func init() {
+	docOpNotes["monitor list-synthetic-packages"] = "Lists class options and v1 packages separately, with their own identifiers. " +
+		"There is no evidenced join: class option prices stay unknown even when v1 free10 costs 0 VND. " +
+		"Disabled classes stay visible. Only the evidenced Basic option has auto-renew eligibility no; v1 eligibility stays unknown. " +
+		"Settings periods are shown separately; known free periods are capped by the free maximum. Read-only settings allow this read."
+	docOpNotes["monitor quota-status"] = "--kind optionally selects synthetic, email, or sms, case insensitively; omitted means all three. " +
+		"Returns a sequential snapshot with one UTC AsOf, not permission to write. Synthetic uses only quota/detail reads, " +
+		"with detail price and class and an unknown package name. Notification price is the current list price, not a historical billed price. " +
+		"Missing quotas produce none rows and exit 0. Failed rows print partial output, ignore --query, and exit 1 as QuotaStatusIncomplete. " +
+		"Null means unknown; false and zero remain distinct. RenewWindowOpen describes only the evidenced free Synthetic timing window. " +
+		"NextSafeCommand uses read fallbacks until recovery and renewal commands are available; any later suggested write still needs explicit guards from a fresh read. " +
+		"Read-only settings allow this read."
+	docExampleOverride["monitor quota-status"] = "vngcloud monitor quota-status --kind synthetic"
+
 	for _, command := range []string{"set-notification-quota-auto-renew", "delete-notification-quota"} {
 		docExampleOverride["monitor "+command] = "vngcloud monitor get-notification-quota --kind SMS"
 	}

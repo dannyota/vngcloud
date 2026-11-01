@@ -389,10 +389,11 @@ func (c *Client) readSyntheticQuota(ctx context.Context, op string, credentials 
 		return nil, err
 	}
 	o := quotaObjectOf(raw)
-	counts := o.counts(true)
+	limits := o.notificationLimits()
 	d := SyntheticQuotaDetail{
-		API: counts.API, Location: counts.Location, Email: counts.Email, SMS: counts.SMS,
-		Slack: counts.Slack, Webhook: counts.Webhook, Telegram: counts.Telegram, Teams: counts.Teams,
+		ChannelLimits: limits,
+		API:           o.integer("api", false), Location: o.integer("location", false), Email: quotaLimitValue(limits.Email), SMS: quotaLimitValue(limits.SMS),
+		Slack: quotaLimitValue(limits.Slack), Webhook: quotaLimitValue(limits.Webhook), Telegram: quotaLimitValue(limits.Telegram), Teams: quotaLimitValue(limits.Teams),
 		ClassName: o.text("className", false), TierName: o.text("tierName", true), Price: o.price(),
 	}
 	resourceID, packageID := o.text("resourceId", false), o.text("packageId", false)

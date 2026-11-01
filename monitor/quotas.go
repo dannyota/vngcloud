@@ -79,17 +79,22 @@ type Quota struct {
 	AutoRenewPeriod int       `json:"autoRenewPeriod"`
 }
 
+type SyntheticNotificationLimits struct {
+	Email, SMS, Slack, Webhook, Telegram, Teams *int
+}
+
 type SyntheticQuotaDetail struct {
-	API       int
-	Location  int
-	Email     int
-	SMS       int
-	Slack     int
-	Webhook   int
-	Telegram  int
-	Teams     int
-	ClassName string
-	TierName  string
+	ChannelLimits SyntheticNotificationLimits
+	API           int
+	Location      int
+	Email         int
+	SMS           int
+	Slack         int
+	Webhook       int
+	Telegram      int
+	Teams         int
+	ClassName     string
+	TierName      string
 	// Price is in VND. An absent or null price is unknown, not free.
 	Price *float64
 }

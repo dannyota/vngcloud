@@ -46,6 +46,9 @@ vngcloud monitor list-notification-packages --kind SMS
 vngcloud monitor get-synthetic-quota
 vngcloud monitor get-synthetic-quota --query Quota.EndTime
 vngcloud monitor get-synthetic-quota-usage
+vngcloud monitor list-synthetic-packages
+vngcloud monitor quota-status
+vngcloud monitor quota-status --kind synthetic
 ```
 
 The SDK exposes `GetQuotaUsage`, `ListNotificationPackages`,
@@ -76,6 +79,69 @@ Synthetic quota expiry stops checks. A missing quota returns NotFound;
 inspect the quota in the console. Synthetic ordering, renewal, and deletion
 remain unavailable. Auto-renew enable sends once and reports the free
 quota's server refusal as described below.
+
+## Synthetic catalogs and nullable limits
+
+`ListSyntheticPackages(ctx, nil)` returns class `Items` with `Options`,
+a separate v1 `Packages` array, settings `MonthPeriods`,
+`MaxMonthPeriodForFreeQuota`, and `PaymentMethod`. Class option `PackageID`
+and v1 package `ID` belong to different catalogs. No join between them is
+evidenced, even when names or limits resemble one another. Never substitute
+a v1 ID into a quota quote.
+
+Class option prices stay unknown, while v1 prices come from their own
+entries. Thus the Basic class option has a null price even when v1 free10
+shows 0 VND. Disabled classes remain visible with their descriptions.
+Classes sort by priority, name, and ID; options sort by location and ID;
+v1 packages sort by name and ID.
+
+Only the evidenced ACTIVE Basic option with one location and 10 API tests
+has `AutoRenewEligible: false` and known free periods capped by the settings
+maximum. Every v1 entry's eligibility stays unknown. Other options have
+unknown eligibility and empty periods; missing v1 prices also leave periods
+empty. Global settings periods do not imply that an option can be ordered.
+Catalog reads authorize no purchase.
+
+`SyntheticQuotaDetail.ChannelLimits` holds nullable `Email`, `SMS`, `Slack`,
+`Webhook`, `Telegram`, and `Teams` limits. JSON preserves null and explicit
+zero; table and text show null as `unknown`. The old integer fields remain
+available and collapse null to zero. Use `ChannelLimits` to distinguish them.
+Added fields preserve keyed literals and existing field types, but external
+unkeyed literals and exact JSON snapshots can need updates. A Telegram usage
+counter of zero and a null limit establish no delivery prerequisite.
+
+## Quota status snapshot
+
+`GetQuotaStatus(ctx, nil)` returns `AsOf`, `Items`, and `Complete`. Optional
+`Kind` selects synthetic, email, or sms case insensitively; an empty kind
+selects all three in that order. Invalid kinds fail before requests. These
+reads work with read-only flag, environment, and profile settings.
+
+Synthetic status reads only quota and identity-checked detail. Its price
+and class come from detail; its package name stays unknown. It never fetches
+a synthetic catalog. Notification status joins quota package IDs to the
+current notification list for names and prices; this is not a historical
+billed price. Unmatched packages remain unknown.
+
+Each present row preserves raw status, UTC start/end times, signed whole
+`TimeLeftSeconds`, nullable auto-renew, and nullable `RenewWindowOpen`.
+Negative time means expired; zero means expires now. The renewal window is
+known only for the evidenced free Basic synthetic quota and is open when
+ACTIVE with more than zero and at most seven days left. It describes timing
+only; POC and auto-renew still prevent renewal.
+
+A source quota NotFound becomes a `none` row with null quota data. All-none
+is a successful result with exit 0. A failed detail, package list, or other
+component makes its row `unavailable` with safe `Error` code, operation, and
+status. Other rows continue unless canceled. The SDK returns partial output
+and `monitor.ErrQuotaStatusIncomplete`; the CLI prints that output, ignores
+`--query` on this error path, and exits 1 with `QuotaStatusIncomplete` even
+when a component failed with authentication, NotFound, or cancellation.
+
+`NextSafeCommand` currently suggests the matching quota read. Recovery and
+renewal commands are not available yet. Any future suggested write still
+requires explicit guards from a fresh read. One UTC `AsOf` describes a
+sequential snapshot, not an atomic account view or authorization to write.
 
 ## Email allowances and consumption
 

@@ -15,6 +15,14 @@
     "AutoRenewPeriod": 0
   },
   "Detail": {
+    "ChannelLimits": {
+      "Email": 0,
+      "SMS": 0,
+      "Slack": null,
+      "Webhook": null,
+      "Telegram": null,
+      "Teams": null
+    },
     "API": 10,
     "Location": 1,
     "Email": 0,

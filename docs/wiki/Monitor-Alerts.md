@@ -112,7 +112,10 @@ does not grant an allowance or prove delivery. OTP quota accounting is
 unverified. Email quota reads, quotes, and orders are available; renewal
 arrives in a later release. See [Monitor Quotas](Monitor-Quotas.md) for
 ordering, price guards, reconciliation, and alert consumption.
-`Slack` and `Telegram` cost nothing extra.
+`quota-status` summarizes quotas; `list-synthetic-packages` keeps catalogs
+separate. Synthetic `ChannelLimits` preserves null versus zero. Telegram's
+zero usage or null limit establishes no delivery prerequisite.
+`Slack` and `Telegram` channels cost nothing extra.
 
 ### Creating, updating, and deleting channels
 

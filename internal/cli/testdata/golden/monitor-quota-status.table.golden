@@ -1,0 +1,8 @@
+As of 2026-10-20 00:00:00 UTC; complete: true (sequential snapshot)
++-----------+---------+-------------------------+---------+-----------+--------------------------------+---------+----------+-----------------+----------+----------+-----------------------+
+| AutoRenew | Class   | EndUTC                  | Error   | Kind      | NextSafeCommand                | Package | PriceVND | RenewWindowOpen | StartUTC | Status   | TimeLeft              |
++-----------+---------+-------------------------+---------+-----------+--------------------------------+---------+----------+-----------------+----------+----------+-----------------------+
+| no        | Basic   | 2026-10-19 23:59:59 UTC | unknown | Synthetic | monitor get-synthetic-quota    | unknown | 0        | no              | unknown  | IN-TRASH | expired 1 seconds ago |
+| unknown   | unknown | unknown                 | unknown | Email     | monitor get-notification-quota | unknown | unknown  | unknown         | unknown  | none     | unknown               |
+| yes       | unknown | unknown                 | unknown | SMS       | monitor get-notification-quota | sms5    | unknown  | unknown         | unknown  | ACTIVE   | unknown               |
++-----------+---------+-------------------------+---------+-----------+--------------------------------+---------+----------+-----------------+----------+----------+-----------------------+

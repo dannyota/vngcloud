@@ -1,0 +1,51 @@
+{
+  "AsOf": "2026-10-20T00:00:00Z",
+  "Items": [
+    {
+      "Kind": "Synthetic",
+      "ClassName": "Basic",
+      "PackageName": "",
+      "Status": "IN-TRASH",
+      "Quota": null,
+      "Price": 0,
+      "StartTime": null,
+      "EndTime": "2026-10-19T23:59:59Z",
+      "TimeLeftSeconds": -1,
+      "AutoRenew": false,
+      "RenewWindowOpen": false,
+      "NextSafeCommand": "monitor get-synthetic-quota",
+      "Error": null
+    },
+    {
+      "Kind": "Email",
+      "ClassName": "",
+      "PackageName": "",
+      "Status": "none",
+      "Quota": null,
+      "Price": null,
+      "StartTime": null,
+      "EndTime": null,
+      "TimeLeftSeconds": null,
+      "AutoRenew": null,
+      "RenewWindowOpen": null,
+      "NextSafeCommand": "monitor get-notification-quota",
+      "Error": null
+    },
+    {
+      "Kind": "SMS",
+      "ClassName": "",
+      "PackageName": "sms5",
+      "Status": "ACTIVE",
+      "Quota": null,
+      "Price": null,
+      "StartTime": null,
+      "EndTime": null,
+      "TimeLeftSeconds": null,
+      "AutoRenew": true,
+      "RenewWindowOpen": null,
+      "NextSafeCommand": "monitor get-notification-quota",
+      "Error": null
+    }
+  ],
+  "Complete": true
+}

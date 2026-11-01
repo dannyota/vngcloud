@@ -90,6 +90,10 @@ func checkItems(result *monitor.ListChecksOutput) []monitor.Check {
 }
 
 func showMonitorQuotas(ctx context.Context, client *monitor.Client, outputs *sdkOutputStore) {
+	catalog, err := client.ListSyntheticPackages(ctx, nil)
+	recordAccountOne(outputs, "monitor/synthetic_catalog", "monitor synthetic catalogs", catalog, err)
+	status, err := client.GetQuotaStatus(ctx, nil)
+	recordAccountOne(outputs, "monitor/quota_status", "monitor quota status", status, err)
 	usage, err := client.GetQuotaUsage(ctx, nil)
 	recordAccountOne(outputs, "monitor/quota_usage", "monitor quota usage", usage, err)
 	for _, kind := range []string{monitor.NotificationKindEmail, monitor.NotificationKindSMS} {

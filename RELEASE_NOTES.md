@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.88.0 - vMonitor Synthetic catalog and quota status
+
+- SDK `ListSyntheticPackages` and CLI `monitor list-synthetic-packages`
+  list every Synthetic Test class with its status, description, and
+  location options, plus the separate package list, with billing periods
+  and the free-quota period cap. The two package ID spaces stay separate;
+  unknown prices and auto-renew eligibility stay null, never false or 0.
+- SDK `GetQuotaStatus` and CLI `monitor quota-status` show Synthetic,
+  Email, and SMS quotas in one table: status, price, start and end in
+  UTC, time left, auto-renew, whether the renewal window is open, and a
+  safe next command. A missing quota shows as none. `--kind synthetic`
+  reads only the Synthetic quota and its detail, for least-privilege CI.
+  When an unfiltered read fails for one kind, the other rows still print,
+  the error class is `QuotaStatusIncomplete`, and the exit code is 1.
+- Both commands are reads and work under `--read-only`. They bound
+  retained response bodies across retries and refuse redirects.
+- Compatibility: `SyntheticQuotaDetail` gains `ChannelLimits`, which keeps
+  explicit 0 apart from null (unknown) per notification channel; the
+  existing integer fields are unchanged. This breaks unkeyed
+  `SyntheticQuotaDetail` literals, and `get-synthetic-quota` output gains
+  a `ChannelLimits` field.
+
 ## v0.87.0 - IAM User Google MFA
 
 - SDK `EnableUserMFA` and `DisableUserMFA`, and CLI `iam enable-user-mfa`

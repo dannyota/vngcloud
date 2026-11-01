@@ -1,0 +1,40 @@
+[
+  {
+    "id": "70b57f46-edaf-4f6f-9293-acf816a5b81d",
+    "name": "Pro (Coming soon)",
+    "type": "SYNTHETIC_TEST",
+    "description": "Coming soon.",
+    "status": "DISABLED",
+    "priority": 2
+  },
+  {
+    "id": "d8c1d829-205b-4ce4-9c1c-32756f748d25",
+    "name": "Enterprise (Coming soon)",
+    "type": "SYNTHETIC_TEST",
+    "description": "Coming soon.",
+    "status": "DISABLED",
+    "priority": 3
+  },
+  {
+    "id": "e574cf4a-460b-48d8-a794-80367289a6c8",
+    "name": "Basic",
+    "type": "SYNTHETIC_TEST",
+    "description": "Explore Synthetic Monitoring features with our free Basic Class.",
+    "status": "ACTIVE",
+    "priority": 1,
+    "config": {
+      "packages": "32b3743d-94b8-49ab-984d-bd7ec99b46f6",
+      "locations": [
+        {
+          "amount": 1,
+          "minApi": 10,
+          "maxApi": 10,
+          "step": 1,
+          "status": "ACTIVE",
+          "priority": "1",
+          "packageId": "32b3743d-94b8-49ab-984d-bd7ec99b46f6"
+        }
+      ]
+    }
+  }
+]

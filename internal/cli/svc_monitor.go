@@ -110,6 +110,10 @@ import (
 // alarm gets a new ID. A read-only profile refuses all three, before any
 // request, the same as every other Write op here.
 var monitorOps = []Op[monitor.Client]{
+	monitorQuotaView(Read[monitor.Client, monitor.ListSyntheticPackagesInput, monitor.ListSyntheticPackagesOutput](
+		"list-synthetic-packages", (*monitor.Client).ListSyntheticPackages)),
+	monitorQuotaView(Read[monitor.Client, monitor.GetQuotaStatusInput, monitor.GetQuotaStatusOutput](
+		"quota-status", (*monitor.Client).GetQuotaStatus)),
 	monitorQuotaView(Read[monitor.Client, monitor.GetNotificationQuotaInput, monitor.GetNotificationQuotaOutput](
 		kebab("GetNotificationQuota"), (*monitor.Client).GetNotificationQuota)),
 	monitorQuotaView(Read[monitor.Client, monitor.GetNotificationQuotaUsageInput, monitor.GetNotificationQuotaUsageOutput](
@@ -366,17 +370,33 @@ func refuseLiteralUpdateChannelAddress(cmd *cobra.Command, _ any) error {
 	return nil
 }
 
+func init() {
+	renameTable["GetQuotaStatus"] = "quota-status"
+}
+
 func newMonitorCmd(e *env) *cobra.Command {
 	return Service(e, "monitor", "vMonitor synthetic checks", monitor.New, monitorOps...)
 }
 
 func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
 	op.render = renderMonitorQuota
+	switch op.name {
+	case "quota-status":
+		op.short = "Read sequential quota status; --kind selects synthetic, email, or sms; suggested writes require explicit guards from a fresh read"
+	case "list-synthetic-packages":
+		op.short = "List separate class options and v1 packages; class prices and v1 auto-renew eligibility stay unknown"
+	}
 	return op
 }
 
 // JSON queries use SDK values; table/text queries use typed presentation values.
 func renderMonitorQuota(w io.Writer, format, query string, out any) error {
+	switch value := out.(type) {
+	case *monitor.ListSyntheticPackagesOutput:
+		return renderSyntheticCatalog(w, format, query, value)
+	case *monitor.GetQuotaStatusOutput:
+		return renderQuotaStatus(w, format, query, value)
+	}
 	if format == outputJSON {
 		if value, ok := out.(*monitor.GetNotificationQuotaUsageOutput); ok {
 			return renderOutput(w, format, query, monitorNotificationUsageView(value), false)
@@ -507,4 +527,138 @@ func monitorQuotaDisplayOf(q monitor.Quota) monitorQuotaDisplay {
 
 func monitorQuotaTime(value time.Time) string {
 	return value.UTC().Format("2006-01-02 15:04:05.999999999 UTC")
+}
+
+func monitorCoverageQuery(w io.Writer, format, query string, out any) error {
+	if format == outputJSON {
+		return renderOutput(w, format, query, out, false)
+	}
+	data, err := encodeJSON(out)
+	if err != nil {
+		return err
+	}
+	jp, err := compileQuery(query)
+	if err != nil {
+		return err
+	}
+	result, err := runQuery(jp, data)
+	if err != nil {
+		return &queryFailedError{err: err}
+	}
+	return monitorCoverageRows(w, format, result)
+}
+
+func monitorCoverageRows(w io.Writer, format string, value any) error {
+	value = monitorQuotaCells(value)
+	if format == outputTable {
+		return renderTable(w, value)
+	}
+	return renderText(w, value)
+}
+
+func monitorEligibility(value *bool) string {
+	if value == nil {
+		return "unknown"
+	}
+	if *value {
+		return "yes"
+	}
+	return "no"
+}
+
+func renderSyntheticCatalog(w io.Writer, format, query string, out *monitor.ListSyntheticPackagesOutput) error {
+	if format == outputJSON || query != "" {
+		return monitorCoverageQuery(w, format, query, out)
+	}
+	if _, err := fmt.Fprintf(w, "Class options (class packageId)\nSettings periods: %v; free maximum: %d; payment: %s\n", out.MonthPeriods, out.MaxMonthPeriodForFreeQuota, escapeControlChars(out.PaymentMethod)); err != nil {
+		return err
+	}
+	rows := []any{}
+	for _, class := range out.Items {
+		status := class.Status
+		if status != "ACTIVE" {
+			status += " (unavailable)"
+		}
+		options := class.Options
+		if len(options) == 0 {
+			options = []monitor.SyntheticClassOption{{MonthPeriods: []int{}}}
+		}
+		for _, option := range options {
+			row := map[string]any{"Class": class.Name, "ClassID": class.ID, "Status": status, "Description": class.Description, "PackageID": option.PackageID, "Location": option.Location, "MinAPI": option.MinAPI, "MaxAPI": option.MaxAPI, "Step": option.Step, "PriceVND": nil, "MonthPeriods": option.MonthPeriods, "AutoRenewEligible": monitorEligibility(option.AutoRenewEligible)}
+			if option.PackageID == "" {
+				for _, key := range []string{"PackageID", "Location", "MinAPI", "MaxAPI", "Step"} {
+					row[key] = nil
+				}
+			}
+			rows = append(rows, row)
+		}
+	}
+	if err := monitorCoverageRows(w, format, rows); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "V1 packages (v1 id; no evidenced relationship to class packageId)"); err != nil {
+		return err
+	}
+	rows = []any{}
+	for _, p := range out.Packages {
+		rows = append(rows, map[string]any{"ID": p.ID, "Name": p.Name, "TierID": p.TierID, "API": p.API, "Location": p.Location, "PriceVND": p.Price, "MonthPeriods": p.MonthPeriods, "AutoRenewEligible": monitorEligibility(p.AutoRenewEligible)})
+	}
+	// Convert pointers through the CLI encoder before building scalar cells.
+	data, err := encodeJSON(rows)
+	if err != nil {
+		return err
+	}
+	value, err := runQuery(nil, data)
+	if err != nil {
+		return err
+	}
+	return monitorCoverageRows(w, format, value)
+}
+
+func renderQuotaStatus(w io.Writer, format, query string, out *monitor.GetQuotaStatusOutput) error {
+	if format == outputJSON || query != "" {
+		return monitorCoverageQuery(w, format, query, out)
+	}
+	if _, err := fmt.Fprintf(w, "As of %s; complete: %t (sequential snapshot)\n", monitorQuotaTime(out.AsOf), out.Complete); err != nil {
+		return err
+	}
+	rows := []any{}
+	for _, row := range out.Items {
+		class, pkg := row.ClassName, row.PackageName
+		if class == "" {
+			class = "unknown"
+		}
+		if pkg == "" {
+			pkg = "unknown"
+		}
+		left := "unknown"
+		if row.TimeLeftSeconds != nil {
+			seconds := *row.TimeLeftSeconds
+			switch {
+			case seconds < 0:
+				left = fmt.Sprintf("expired %d seconds ago", -seconds)
+			case seconds == 0:
+				left = "expires now"
+			default:
+				left = fmt.Sprintf("%d seconds", seconds)
+			}
+		}
+		start, end := "unknown", "unknown"
+		if row.StartTime != nil {
+			start = monitorQuotaTime(*row.StartTime)
+		}
+		if row.EndTime != nil {
+			end = monitorQuotaTime(*row.EndTime)
+		}
+		rows = append(rows, map[string]any{"Kind": row.Kind, "Class": class, "Package": pkg, "Status": row.Status, "PriceVND": row.Price, "StartUTC": start, "EndUTC": end, "TimeLeft": left, "AutoRenew": monitorEligibility(row.AutoRenew), "RenewWindowOpen": monitorEligibility(row.RenewWindowOpen), "NextSafeCommand": row.NextSafeCommand, "Error": row.Error})
+	}
+	data, err := encodeJSON(rows)
+	if err != nil {
+		return err
+	}
+	value, err := runQuery(nil, data)
+	if err != nil {
+		return err
+	}
+	return monitorCoverageRows(w, format, value)
 }

@@ -122,6 +122,7 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | `CreateS3Key` | `create-s3-key` |
 | `DeleteS3Key` | `delete-s3-key` |
 | `DetachS3Key` | `detach-s3-key` |
+| `GetQuotaStatus` | `quota-status` |
 | `ListS3Keys` | `list-s3-keys` |
 | `NATID` | `nat-id` |
 | `NetworkACLID` | `network-acl-id` |

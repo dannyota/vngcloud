@@ -200,6 +200,9 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	if errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
+		return errorEnvelope{Code: "QuotaStatusIncomplete", Message: monitor.ErrQuotaStatusIncomplete.Error(), Operation: "monitor.GetQuotaStatus"}
+	}
 	var resetFileErr resetPasswordFileError
 	if errors.As(err, &resetFileErr) {
 		return errorEnvelope{Code: "SecretFileFailed", Message: err.Error()}
@@ -562,6 +565,9 @@ func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.AP
 // credentials and every login failure exit 3. A not-found result exits 4.
 // Every remaining usage or config problem exits 2. Anything else exits 1.
 func exitCode(err error) int {
+	if errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
+		return 1
+	}
 	var resetFileErr resetPasswordFileError
 	if errors.As(err, &resetFileErr) || errors.Is(err, iam.ErrUserWriteUncertain) {
 		return 1

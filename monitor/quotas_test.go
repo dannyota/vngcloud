@@ -733,3 +733,47 @@ func TestNotificationUsageFixtureOmitsCounts(t *testing.T) {
 		t.Fatalf("Counts serialized: %s", data)
 	}
 }
+
+// Nullable detail is a sanitized raw billing-api detail 200 from the live
+// console. Resource IDs are synthetic; explicit zero and null are preserved.
+func TestSyntheticNullableLimits(t *testing.T) {
+	for _, mode := range []string{"raw", "zero", "missing", "negative", "fractional"} {
+		t.Run(mode, func(t *testing.T) {
+			detail := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+			switch mode {
+			case "zero":
+				detail = strings.ReplaceAll(detail, `"telegram": null`, `"telegram": 0`)
+			case "missing":
+				detail = strings.ReplaceAll(detail, `"telegram": null,`, ``)
+			case "negative":
+				detail = strings.ReplaceAll(detail, `"email": 0`, `"email": -1`)
+			case "fractional":
+				detail = strings.ReplaceAll(detail, `"sms": 0`, `"sms": 0.5`)
+			}
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/billing-api/v1/synthetic/quota" {
+					testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuota.json")
+					return
+				}
+				_, _ = w.Write([]byte(detail))
+			}))
+			out, err := c.GetSyntheticQuota(context.Background(), nil)
+			if mode == "missing" || mode == "negative" || mode == "fractional" {
+				if out != nil || err == nil {
+					t.Fatalf("out=%+v err=%v", out, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := out.Detail
+			if d.Email != 0 || d.Telegram != 0 || d.ChannelLimits.Email == nil || *d.ChannelLimits.Email != 0 || d.ChannelLimits.Slack != nil {
+				t.Fatalf("detail=%+v", d)
+			}
+			if (d.ChannelLimits.Telegram == nil) != (mode == "raw") {
+				t.Fatalf("telegram=%v", d.ChannelLimits.Telegram)
+			}
+		})
+	}
+}

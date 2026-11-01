@@ -17,6 +17,7 @@ import (
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
+	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
@@ -225,13 +226,13 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 		newOutput:     func() any { return new(Out) },
 		call: func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {
 			out, err := method(client, ctx, in.(*In))
-			if err != nil {
+			if err != nil && !errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
 				return nil, err
 			}
-			if redact != nil {
+			if out != nil && redact != nil {
 				redact(out)
 			}
-			return out, nil
+			return out, err
 		},
 	}
 }
@@ -494,6 +495,14 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return callErr
 	}
 	if callErr != nil {
+		if op.kind == kindRead && errors.Is(callErr, monitor.ErrQuotaStatusIncomplete) && !isNilOutput(out) {
+			if op.render != nil {
+				_ = op.render(e.stdout, format, "", out)
+			} else {
+				_ = renderOutput(e.stdout, format, "", out, false)
+			}
+			return callErr
+		}
 		// A vDNS, network, compute, containerregistry, iam, or tagging write
 		// that reached the server still carries its Output: the resource's
 		// id, needed to clean up or check again later. --query is skipped

@@ -1,0 +1,14 @@
+{
+  "paymentMethod": "PRE-PAID",
+  "monthPeriods": [
+    1,
+    3,
+    6,
+    12,
+    24,
+    36
+  ],
+  "maxMonthPeriodForFreeQuota": 1,
+  "maxMonthlyResetNotificationBillingAction": 3,
+  "hidePeriod": true
+}

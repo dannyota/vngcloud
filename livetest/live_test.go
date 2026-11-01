@@ -1496,6 +1496,12 @@ func testLiveRegion(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 
 func testLiveMonitorQuotas(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
 	client := monitor.New(cfg)
+	if _, err := client.ListSyntheticPackages(ctx, nil); err != nil {
+		t.Fatalf("ListSyntheticPackages: %v", err)
+	}
+	if _, err := client.GetQuotaStatus(ctx, nil); err != nil {
+		t.Fatalf("GetQuotaStatus: %v", err)
+	}
 	if _, err := client.GetQuotaUsage(ctx, nil); err != nil {
 		t.Fatalf("GetQuotaUsage: %v", err)
 	}
