@@ -19,3 +19,12 @@ permission, cost, and resource gates still apply.
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
 - [ ] Bound the IAM user login page and token responses, which `internal/iamuser/login.go` reads with `io.ReadAll`; a hostile or broken sign-in host can exhaust memory. [Security rules](instructions/security.md).
 - [ ] Address the remaining scheduler sensitivity in `TestRedactionBoundedHTTPErrorCost`'s elapsed-time assertion without weakening the bounded-work guarantee. Credential-key normalization now has deterministic allocation regressions. [Test rules](instructions/testing.md#test-design).
+- [ ] Add flags to set a check's In-alarm, Up, and Undetermined channel lists on `create-check` and `update-check`; today only `--cli-input-json` attaches channels. [Check notifications](docs/design/monitor-alerts.md#check-notifications).
+- [ ] Document Telegram channel addresses in the wiki: a negative chat ID needs `--address=-<id>`, and a group upgraded to a supergroup gets a new `-100` ID, so the channel must be re-verified with a new OTP. [Channels](docs/design/monitor-alerts.md#channels).
+- [ ] Add a read of a check's per-location test results, so a user can see why one location alarms while another stays OK. [vMonitor](docs/design/monitor.md).
+- [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
+- [ ] Add vMonitor dashboard list, get, and delete for user dashboards; GreenNode creates one dashboard per resource and the console does not allow deleting those. [vMonitor](docs/design/monitor.md).
+- [ ] Quote a replacement or upgrade of an existing notification quota, and point `pricing get-quote` help at the vMonitor quote commands. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
+- [ ] Show a server's public address in one field or command; a floating IP sits in `InternalInterfaces[].FloatingIP` while `ExternalInterfaces` is empty. [Server reads](docs/design/server-services.md).
+- [ ] State each list command's output root (for example `Items`) in help and the wiki so `--query` expressions work the first time, and note that `get-server-console-log` returns only the current boot. [CLI](docs/design/cli.md).
+- [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
