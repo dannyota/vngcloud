@@ -12,10 +12,10 @@ Run every Codex job through the launcher; never hand-build a `codex exec` comman
 
 ```sh
 scripts/codex-agent.sh --model <m> --effort <e> [--no-git] <role> <dir> <brief-file> <report-file> > <scratchpad>/logs/<task>.log 2>&1
-scripts/codex-agent.sh --resume <session-id> --model <m> --effort <e> <role> <dir> <answer-file> <report-file> >> <scratchpad>/logs/<task>.log 2>&1
+scripts/codex-agent.sh --resume <session-id> --model <m> --effort <e> [--no-git] <role> <dir> <answer-file> <report-file> >> <scratchpad>/logs/<task>.log 2>&1
 ```
 
-The launcher requires model and effort, loads the role's developer instructions and sandbox from `<dir>/.codex/agents/<role>.toml` (or this repository's copy when `<dir>` has none), and feeds the brief on standard input. Briefs therefore need no appended role text. `workspace-write` roles get writable roots limited to `$HOME/.cache/go-build`, `$HOME/.cache/golangci-lint`, and `/tmp`, plus network access: race tests need loopback listeners, no loopback-only option exists, and `make check` writes those caches. Writes stay inside the worktree or disposable copy, those caches, and `/tmp`. Network access never authorizes unrelated calls; the [brief restrictions](instructions/workflow.md#briefs-and-reports) and [credential-free worktrees](instructions/workflow.md#worktrees-and-parallel-work) stay as defense in depth. `--no-git` adds `--skip-git-repo-check` for disposable copies.
+The launcher requires model and effort, loads the role's developer instructions and sandbox from `<dir>/.codex/agents/<role>.toml` (or this repository's copy when `<dir>` has none), and feeds the brief on standard input. Briefs therefore need no appended role text. `workspace-write` roles get writable roots limited to `$HOME/.cache/go-build`, `$HOME/.cache/golangci-lint`, and `/tmp`, plus network access: race tests need loopback listeners, no loopback-only option exists, and `make check` writes those caches. Writes stay inside the worktree or disposable copy, those caches, and `/tmp`. Network access never authorizes unrelated calls; the [brief restrictions](instructions/workflow.md#briefs-and-reports) and [credential-free worktrees](instructions/workflow.md#worktrees-and-parallel-work) stay as defense in depth. `--no-git` adds `--skip-git-repo-check` for disposable copies on both new and resumed runs.
 
 |Work|Role|Model and effort|Directory|
 |-|-|-|-|

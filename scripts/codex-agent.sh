@@ -50,8 +50,6 @@ if not re.fullmatch(r"[a-z_]+", role):
 if session is not None and not re.fullmatch(
         r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", session):
     fail("invalid session id")
-if session is not None and no_git:
-    fail("--no-git is only supported for new runs")
 directory = Path(directory).resolve()
 input_file = Path(input_file).resolve()
 report_file = Path(report_file).absolute()

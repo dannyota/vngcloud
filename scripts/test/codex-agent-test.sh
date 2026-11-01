@@ -90,9 +90,20 @@ assert args[:7] == ["exec", "resume", "12345678-1234-abcd-ABCD-1234567890ab", "-
 assert 'sandbox_mode="workspace-write"' in args
 assert "sandbox_workspace_write.network_access=true" in args
 assert "--sandbox" not in args and "-C" not in args
+assert "--skip-git-repo-check" not in args
 assert not any(a.startswith("developer_instructions=") for a in args)
 assert args[-3:] == ["-o", report, "-"]
 assert (pathlib.Path(tmp) / "cwd").read_text().strip() == work
+PY
+run --resume 12345678-1234-abcd-ABCD-1234567890ab --no-git code_reviewer "$tmp/copy" "$tmp/brief" "$report"
+python3 -I - "$tmp" <<'PY'
+import pathlib, sys
+tmp = pathlib.Path(sys.argv[1])
+args = (tmp / "argv").read_text().splitlines()
+assert args[:3] == ["exec", "resume", "12345678-1234-abcd-ABCD-1234567890ab"]
+assert "--skip-git-repo-check" in args
+assert "--sandbox" not in args and "-C" not in args
+assert (tmp / "cwd").read_text().strip() == str(tmp / "copy")
 PY
 run --resume 12345678-1234-abcd-ABCD-1234567890ab reader "$work" "$tmp/brief" "$report"
 check_caches "$GOCACHE" "$GOLANGCI_LINT_CACHE"
