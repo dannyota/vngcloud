@@ -47,14 +47,16 @@ Definitions live in [.claude/agents/](.claude/agents/) (the Fable `designer`) an
 
 |Work|Model and effort|
 |-|-|
-|Design|Fable high through `designer`, then `gpt-6-astra` high through the Codex `designer` role reviews and improves the same documents; when Fable is unavailable, Astra high writes the design. Astra does design only.|
+|Design|Fable high through `designer`, then `gpt-6-astra` high through the Codex `designer` role reviews and improves the same documents; when Fable is unavailable, Astra high writes the design. Astra otherwise only reviews complex code jobs, below.|
 |Planning and coordination workers|`gpt-6.1-sol` medium|
-|All code, scripts, workflows, and small code edits|`gpt-6.1-sol` medium through `implementer`|
+|Simple, bounded code, scripts, workflows, and small code edits|The latest Terra, now `gpt-6.1-terra`, xhigh through `implementer`|
+|Complex code jobs: spanning components, or touching a public contract, a migration, or a security-relevant path such as auth, credentials, or a write API; the manager decides which jobs count|The latest Sol, now `gpt-6.1-sol`, xhigh through `implementer`|
 |Failing or flaky tests, CI failures, and root-cause debugging, fix included|`gpt-6.1-sol` xhigh through `troubleshooter`|
 |Exploration, searches, summaries, test execution, and mechanical non-code work|`gpt-6-luna` low through `explorer`|
-|Every review and fix confirmation of designs, plans, and code, whoever wrote them|`gpt-6.1-sol` xhigh through `design_reviewer` or `code_reviewer`, as a separate job from the author|
+|Every review and fix confirmation of designs, plans, and simple code, whoever wrote them|The latest Sol, now `gpt-6.1-sol`, xhigh through `design_reviewer` or `code_reviewer`, as a separate job from the author|
+|Review and every fix confirmation of complex code jobs|`gpt-6-astra` high through `code_reviewer`, as a separate job with the source read-only, so no model reviews its own work|
 
-Claude designs, researches, and coordinates only. No worker or subagent runs on Sonnet or Opus. This restriction covers workers and subagents only; the owner chooses the main Claude Code session model. Set model and effort explicitly on every dispatch. A design author never implements that slice. A reviewer never fixes reviewed work and never reviews work it wrote; a worker's self-review never counts as review. The primary agent remains responsible for planning, briefs, worktrees, verification, Git, releases, and reports; it sends failure investigation to the troubleshooter instead of debugging itself.
+Claude designs, researches, and coordinates only. No worker or subagent runs on Sonnet or Opus. This restriction covers workers and subagents only; the owner chooses the main Claude Code session model. Set model and effort explicitly on every dispatch, always from this table; model names in plans or briefs written before a routing change are superseded by it. A design author never implements that slice. A reviewer never fixes reviewed work and never reviews work it wrote; a worker's self-review never counts as review. The primary agent remains responsible for planning, briefs, worktrees, verification, Git, releases, and reports; it sends failure investigation to the troubleshooter instead of debugging itself.
 
 ## Rules for every task
 

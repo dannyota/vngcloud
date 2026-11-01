@@ -48,7 +48,7 @@ A worker's worktree must never contain `.env` or other credentials. Only the man
 
 ## Reviews
 
-Review each design and plan independently before implementation. Review completed code once per plan or release after the last code task, then confirm fixes. Match review depth to risk; do not invent extra gates. Every review and fix confirmation runs on Sol xhigh under [routing](../AGENTS.md#ai-agent-definitions-and-routing), as a separate job from the author; a worker's self-review never counts.
+Review each design and plan independently before implementation. Review completed code once per plan or release after the last code task, then confirm fixes. Match review depth to risk; do not invent extra gates. Every review and fix confirmation runs as a separate job from the author on the reviewer model that [routing](../AGENTS.md#ai-agent-definitions-and-routing) assigns; a worker's self-review never counts.
 
 Auth, token handling, credential storage, every write API, and release workflows require adversarial review before landing or release. Follow the [security review scope](security.md#adversarial-review). Name confirmed invariants. Rank each finding by severity with a concrete failure scenario, `path:line`, and fix direction. State checks and what was not checked. A reviewer never reviews its own work or implements fixes to reviewed files.
 

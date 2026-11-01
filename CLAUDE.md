@@ -17,14 +17,16 @@ scripts/codex-agent.sh --resume <session-id> --model <m> --effort <e> [--no-git]
 
 The launcher requires model and effort, loads the role's developer instructions and sandbox from `<dir>/.codex/agents/<role>.toml` (or this repository's copy when `<dir>` has none), and feeds the brief on standard input. Briefs therefore need no appended role text. `workspace-write` roles get writable roots limited to `$HOME/.cache/go-build`, `$HOME/.cache/golangci-lint`, and `/tmp`, plus network access: race tests need loopback listeners, no loopback-only option exists, and `make check` writes those caches. Writes stay inside the worktree or disposable copy, those caches, and `/tmp`. Network access never authorizes unrelated calls; the [brief restrictions](instructions/workflow.md#briefs-and-reports) and [credential-free worktrees](instructions/workflow.md#worktrees-and-parallel-work) stay as defense in depth. `--no-git` adds `--skip-git-repo-check` for disposable copies on both new and resumed runs.
 
-|Work|Role|Model and effort|Directory|
-|-|-|-|-|
-|Design after Fable, or instead of it|`designer`|`gpt-6-astra` high|Owned worktree; network only for first-party sources the brief names|
-|Code, scripts, workflows|`implementer`|`gpt-6.1-sol` medium|Owned worktree|
-|Failures and root cause|`troubleshooter`|`gpt-6.1-sol` xhigh|Owned worktree|
-|Design and plan review|`design_reviewer`|`gpt-6.1-sol` xhigh|Source worktree, read-only|
-|Code review|`code_reviewer`|`gpt-6.1-sol` xhigh|Disposable copy, `--no-git`|
-|Exploration, summaries, test runs|`explorer`|`gpt-6-luna` low|Owned worktree|
+Pick each job's model and effort from [routing](AGENTS.md#ai-agent-definitions-and-routing), which separates simple from complex code jobs; this table maps work to roles and directories.
+
+|Work|Role|Directory|
+|-|-|-|
+|Design after Fable, or instead of it|`designer`|Owned worktree; network only for first-party sources the brief names|
+|Code, scripts, workflows|`implementer`|Owned worktree|
+|Failures and root cause|`troubleshooter`|Owned worktree|
+|Design and plan review|`design_reviewer`|Source worktree, read-only|
+|Code review and fix confirmation|`code_reviewer`|Disposable copy, `--no-git`; source read-only|
+|Exploration, summaries, test runs|`explorer`|Owned worktree|
 
 Each log header prints `session id: <id>`; resume with that ID to answer a worker's question. Every review starts as a new run, never a resumed author session. Fix confirmation may resume the reviewer's own session, since the reviewer did not write the fixes. A reviewer never fixes the reviewed source. Codex mounts `.codex/` read-only, so role-file changes follow the [scratchpad patch rule](instructions/workflow.md#briefs-and-reports).
 
