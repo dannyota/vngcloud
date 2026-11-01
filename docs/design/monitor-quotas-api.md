@@ -1,8 +1,7 @@
 # vMonitor check state and quotas: API evidence and checks
 
-This file owns wire evidence, fixture provenance, and checks for
-[check state and quotas](monitor-quotas.md). The design owns public types,
-safety rules, and owner decisions. Nothing here authorizes a live call.
+This owns base [quota](monitor-quotas.md) wire evidence, fixtures, and checks.
+The focused sibling owns new lifecycle evidence; neither approves live calls.
 
 ## Provenance and limits
 
@@ -10,8 +9,9 @@ The manager's sanitized response record comes from live calls at the
 Monitor root `https://vmonitor.console.greennode.ai/`, as the IAM User
 except where noted. Quota writes sent: the free Email order, the paid SMS
 run (order, auto-renew enable and disable, delete), and the early synthetic
-renewal attempt as the renew-only service account, and the IAM synthetic
-recovery described below. Unlisted write responses remain unverified.
+renewal attempt as the renew-only service account, and IAM synthetic
+recovery. The [synthetic lifecycle evidence][synthetic-evidence] adds IAM
+create, delete, and class packages. Unlisted write responses stay unverified.
 
 Console sources are public Angular bundles from that same root, read as
 untrusted text: uptime creation in chunk 478, billing flows in chunk 816,
@@ -20,10 +20,9 @@ classes and billing service methods. Older v1 and current v2 synthetic
 flows coexist; use the specified v2 renewal. This is first-party
 implementation evidence, not a published API guarantee.
 
-Labels mean **live** response status and shape, **console** code never
-sent, or **inferred** behavior established by neither. Evidence for one
-kind or principal never verifies another. Approval promotes no label;
-captures close each gate, and mock fixtures never close a live gate.
+Labels mean **live** captured facts, **console** code never sent, or
+**inferred** behavior established by neither. Kind/principal coverage stays
+explicit; approval and mock fixtures never close a live evidence gate.
 
 ## Check state and history
 
@@ -68,8 +67,7 @@ Result: `{"data": [...]}`. Each item has digit-string `id`, `metrics[]`,
 `new_state`, null `reason_date`, and `sub_alarms[]` with null
 `subAlarmExpression`, `sub_alarm_state`, `current_values[]`.
 
-One transition per alarm was observed in a six-hour window:
-UNDETERMINED to ALARM and UNDETERMINED to OK.
+A six-hour window showed one transition per alarm: UNDETERMINED to ALARM/OK.
 
 **Live range probe** on one alarm with one transition in the last day:
 24-hour, 7-day, and 90-day windows each returned 200 with that one item,
@@ -84,8 +82,8 @@ Paging and truncation stay unknown: one transition, no paging keys.
 
 ## Billing reads
 
-All paths below are relative to `billing-api/`. Successes listed as live
-were 200. Bare arrays have no observed pagination envelope.
+Billing paths are relative to `billing-api/`; listed live reads return 200.
+Bare arrays have no observed pagination envelope.
 
 **Live composite usage:** `GET v1/quotas/usages` returns logUsages[],
 metricUsages[], syntheticUsages[], emailUsages[], smsUsages[], freeEmailQuota,
@@ -161,7 +159,8 @@ the class-side packageId; detail.classId identifies Basic. No v1 ID join is
 evidenced. `GET v2/synthetic/packages` returns 404, not a fallback catalog.
 Basic is ACTIVE, priority 1, location amount 1, min/maxApi 10, step 1.
 Pro and Enterprise `(Coming soon)` are DISABLED, description `Coming soon.`,
-no config. No priced ACTIVE option is evidenced; v1 price is not its price.
+no config. Class packages now provide a separate unit-price source under
+[synthetic lifecycle evidence][synthetic-evidence]; v1 price is not its price.
 
 **Live settings:** `GET v1/settings` returns paymentMethod PRE-PAID,
 monthPeriods [1,3,6,12,24,36], maxMonthPeriodForFreeQuota 1,
@@ -198,8 +197,7 @@ retry loop. All paths below are relative to `billing-api/`.
 - **Live failed alternative:** `v1/synthetic/prices/time-extension-price`
   with query `month_period=1`, null body, returned 500. Do not use it.
 
-Similar price keys permit a private decoder patterned on the log project
-quote, but missing/null optimumPrice must never mean free.
+A shared private price decoder must never treat missing/null price as free.
 
 **Live quote probe** (quotes only, no order sent): the v2 Email quote
 returned 500 for the create body `{monthPeriod:1, packageId, redirectUrl,
@@ -222,9 +220,8 @@ Preserve both observed bodies; never relabel them as identical.
 
 ## Writes and unresolved semantics
 
-The free Email create, paid SMS create, and synthetic recovery have live
-write evidence under `billing-api/`; recovery's body is unverified. [Quota
-lifecycle](monitor-quotas-lifecycle.md#wire-facts-and-evidence) records the
+Email/SMS create and synthetic recovery have live evidence; recovery's
+response body is unverified. [Quota lifecycle][lifecycle-wire] records
 auto-renew and delete evidence. For IAM users the console sets pay true and
 may open paymentUrl; the SDK never opens it. Fixed `redirectUrl` body
 values, never fetched, hostname as the console has it:
@@ -250,8 +247,8 @@ and SMS, the same origin plus `quota-usages/synthetic-test` for synthetic.
   `{redirectUrl:<synthetic-page>,monthPeriod:1,pay:true}`.
   Use renewSyntheticOrderV2/recoverSyntheticOrderV2, not the v1 alternatives.
 - The console recovers when endTime has passed AND status is IN-TRASH;
-  otherwise it extends. The SDK exposes separate methods with the
-  parent and coverage eligibility guards, never an automatic fallback.
+  otherwise it extends. SDK ensure selects once under stricter eligibility;
+  standalone renewal/recovery never fall back to another operation.
 - **Live** early synthetic extension, sent as the renew-only service
   account 11 days before expiry, after the design's guards and a 0 quote:
   `POST v2/synthetic/quota/extend-time`
@@ -348,9 +345,12 @@ capture hooks; only the manager's private capture yields raw fixtures.
 
 ## Deterministic checks
 
-Use httptest, fake clock/sleep, synthetic credentials, and counted requests.
-No test calls GreenNode. Run focused tests and `make check`; the plan owns
-file assignments, wiki generation, and acceptance order.
+Use httptest, fake clock/sleep, synthetic credentials, and counted requests;
+never call GreenNode. Run focused tests and `make check`. Class packages,
+create/delete/ensure evidence and checks live in the focused sibling.
+
+[synthetic-evidence]: monitor-synthetic-lifecycle.md#wire-evidence-and-fixtures
+[lifecycle-wire]: monitor-quotas-lifecycle.md#wire-facts-and-evidence
 
 - Check fields: preserve run Status and existing create/update wire bodies;
   unknown monitor states survive; omitted additions decode empty; old keyed

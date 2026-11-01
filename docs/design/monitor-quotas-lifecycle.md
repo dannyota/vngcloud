@@ -10,7 +10,11 @@ mechanics: frozen terms, the price guard, `Once`, the per-Client lock, the
 unresolved-attempt record, and the wait rules. [API evidence and
 checks](monitor-quotas-api.md) owns the read, quote, order, and renewal
 wire facts; this file owns the lifecycle wire evidence, the rules, the
-support matrix for every operation, checks, and live checks.
+support matrix, checks, and live checks. The focused
+[synthetic lifecycle](monitor-synthetic-lifecycle.md) owns synthetic active
+delete's required guard, effects, outputs, and strengthened reconciliation.
+The generic delete protocol below applies to notifications; synthetic uses
+the focused contract where it differs. Auto-renew behavior stays unchanged.
 
 ## Wire facts and evidence
 
@@ -22,7 +26,7 @@ each write sent once, with the responses sanitized.
 | Write | Request | Evidence |
 |-|-|-|
 | Auto-renew | `POST {kind}/quota/{id}/update-auto-renew` with `{"resourceId":<id>,"enabled":<bool>,"period":1}` | Live, paid SMS quota: enable and disable both 200 with an empty body; reads 3 s later showed `autoRenew` and `autoRenewPeriod` 1 and 1, then 0 and 0, with `updatedAt` moving. The enable was sent without the design's renewal quote: the v2 quote with `resourceId` was never sent for SMS, and the quota is now deleted. Live, free synthetic quota: 400 `Resource quota with free package is not available for auto-renew setting`, no state change. Email: covered by the SMS disable evidence under owner decision 11; the free Email quota is expected to answer enable with the same 400. POC quotas: unverified |
-| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Live, ACTIVE paid SMS quota: 204 with an empty body, 404 `Not found sms quota` on the next read about 6 s later, and `trash/quotas` empty before and after. An active quota is removed outright with no trash entry. Email active quota: covered under owner decision 11. Synthetic and expired quotas: unverified |
+| Delete | `DELETE {email\|sms\|synthetic}/quota`, no body, no ID; targets the account's only quota of that kind | Live, ACTIVE paid SMS quota: 204 with an empty body, 404 `Not found sms quota` on the next read about 6 s later, and `trash/quotas` empty before and after. An active quota is removed outright with no trash entry. Email active quota: covered under owner decision 11. Synthetic active delete: [live evidence][synthetic-wire]; expired deletes remain unverified |
 | Purge | `DELETE trash/{kind}/quota`, no body, no ID | Console only. Designed for an expired quota that reached trash; natural synthetic expiry reaches IN-TRASH with a positive trash count; the item shape and purge response are unverified |
 
 The console shows auto-renew instead of renew for active paid quotas; the
@@ -57,16 +61,18 @@ auto-renew response says nothing about the quote that precedes an enable.
 |-|-|-|-|
 | Quota read | live | live | live |
 | Usage read | live | console; refused until evidenced | live |
-| Create quote and order | live (free) | live (paid) | not in scope |
+| Create quote and order | live (free) | live (paid) | free Basic: live quote, 200 order and read-back; response body unretained |
 | Enable auto-renew | deferred (decision 12); free-quota 400 expected | live response; deferred (decision 12) | live refusal (400 on the free quota) |
 | Disable auto-renew | covered by SMS evidence (decision 11) | live | console; the free quota cannot enable |
-| Delete, active quota | covered by SMS evidence (decision 11) | live | console; no disposable quota exists |
+| Delete, active quota | covered by SMS evidence (decision 11) | live | live 204 and absence; permanently deletes every synthetic check |
 | Renew | deferred | deferred | build now; quote and early 409 live, success unverified |
 | Recover, expired IN-TRASH | deferred | deferred | build now; live 200 and read-back, body unverified |
 | Purge, expired quota | console | console | console |
+| Ensure | out of scope | out of scope | composes renewal/recovery; never create/delete |
 
-The [coverage contracts](monitor-quota-coverage.md) define the synthetic
-renewal and recovery exceptions; they need no trash item lookup. Other
+The [coverage contracts](monitor-quota-coverage.md) define renewal/recovery;
+[synthetic lifecycle](monitor-synthetic-lifecycle.md) defines free create,
+active delete, and ensure. None needs a trash item lookup. Other
 "live" and "covered" rows ship; a "live refusal" ships as a documented
 definite refusal with no state change; "console" rows have console code
 only and are not implementable; a refused or deferred row returns
@@ -84,14 +90,14 @@ Verified effects come only from a row's own live reads:
 - Auto-renew on the free Synthetic Test quota is refused by the server
   with a 400; the wiki says the free synthetic quota cannot auto-renew and
   that the free Email quota is expected to answer the same.
-- A free synthetic quota renews only in its last 7 days; the server refuses an
-  earlier renewal with a 409 (parent design).
+- A free synthetic quota renews only in its last 7 days; earlier renewal
+  gets 409 (parent design).
+- Synthetic delete permanently deletes every synthetic check, with no
+  trash recovery. Channels survived. Creating a quota does not restore
+  checks. Help and output must carry the warning from the focused contract.
 
 Expected effects, stated as expectations until their row is live:
 
-- Deleting the Synthetic Test quota is expected to stop every check from
-  running until a quota exists again; whether check configuration survives
-  is unverified, and no disposable synthetic quota exists to test it.
 - Deleting the Email quota is expected to stop the alerts that draw on it.
   An account whose Metric package grants a free allowance
   (`freeEmailQuota` or `freeSmsQuota` above 0) may keep sending from that
@@ -147,8 +153,9 @@ SDK confirmed, never the one it attempted.
 
 ## Delete
 
-`DeleteNotificationQuotaInput` has `Kind` (r), `Purge bool`, and
-`ExpectedQuotaID`; `DeleteSyntheticQuotaInput` has the last two. A row
+`DeleteNotificationQuotaInput` has `Kind` (r), `Purge bool`, and optional
+`ExpectedQuotaID`. Synthetic uses the focused page's required-ID contract.
+A row
 that is not live or covered, and `Purge` on any row while the purge row
 is console, returns `ErrInvalidInput` naming the row before any request.
 
@@ -184,11 +191,10 @@ stays inconclusive, and the bound returns `dns.ErrNotSettled` again. A
 record closes as rejected only on a definite refusal response at send time
 or on authoritative provider evidence the manager records.
 
-The CLI commands `delete-notification-quota` and `delete-synthetic-quota`
-are Write and Destructive: `--yes` is required, `--purge` is accepted only
-once the purge row is live, `--expected-quota-id` binds the target, and a
-read-only profile refuses them before any request. Never retry after an
-ambiguous outcome; the recovery is a read.
+Both delete CLI commands are Write and Destructive with required `--yes`.
+Synthetic also requires `--expected-quota-id` and its check-deletion warning.
+`--purge` remains refused; read-only refuses before requests. Never retry an
+ambiguous outcome; reconcile by reading.
 
 ### Deferred: expired quotas and purge
 
@@ -293,6 +299,9 @@ command undoes them, so no `--yes`. `--enabled` must be explicit
 
 ## Errors
 
+These shared rows cover notifications and auto-renew. The focused synthetic
+page owns its active-delete output and uncertainty precedence.
+
 | Case | Result | CLI code and exit |
 |-|-|-|
 | Bad `Kind`, nil `Enabled`, bad `MaxPrice`, mismatched `ExpectedQuotaID`, or a row that is not live or covered | `ErrInvalidInput`, no request | `InvalidUsage`, 2 |
@@ -386,16 +395,12 @@ record; a completed delete followed by an uncertain purge leaving `Stage`
    more; a read still showing the old value proves nothing, so send no
    restoring call blind, report the quota ID and last read as unresolved,
    and let the manager read and, if needed, restore by hand in the console.
-2. Delete, done for an active SMS quota: ordered `sms5` under a 110000 VND
-   cap, enabled and disabled auto-renew, deleted it, and read the kind
-   path and `trash/quotas` until the 404 showed and trash stayed empty. No
-   purge was sent because nothing reached trash. Still open: a notification
-   renewal quote with `resourceId` for enable (decision 12, needing another
-   paid purchase), synthetic delete (no disposable synthetic quota exists),
-   and purge, which needs an expired quota that reached trash; a naturally
-   lapsed, owner-approved quota is the only source, and production
-   monitoring is never expired for it. Later probes follow the action
-   budget policy above.
+2. SMS active-delete evidence includes a guarded order, auto-renew changes,
+   delete, then quota absence and empty trash. Synthetic evidence is in the
+   [focused page][synthetic-wire]. Neither authorizes another deletion.
+   Notification enable still needs its resourceId renewal quote; purge
+   needs an expired, owner-approved quota in trash. Never force production
+   expiry or purchase a prerequisite. Later probes keep the action budget.
 
 ## Release order
 
@@ -405,5 +410,8 @@ Email and SMS delete of an active quota, and the synthetic auto-renew
 refusal; the SMS usage read and both notification enables stay refused.
 Synthetic recovery and renewal follow the
 [coverage sequence](monitor-quotas.md#scope-and-release-order), with an
-unverified response policy. Notification renewal/recovery, notification
-enable, synthetic delete, and purge retain their separate evidence gates.
+unverified response policy. Free create/class packages, active delete, then
+ensure follow under the focused contract. Notification renewal/recovery,
+notification enable, expired deletion, and purge keep their evidence gates.
+
+[synthetic-wire]: monitor-synthetic-lifecycle.md#wire-evidence-and-fixtures

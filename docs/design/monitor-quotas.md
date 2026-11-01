@@ -20,24 +20,22 @@ The code has check and quota reads, notification create/quote, notification
 auto-renew disable and active delete, and the synthetic auto-renew refusal.
 The next independently landable slices are:
 
-1. [Catalog and status](monitor-quota-coverage.md#read-contracts).
-2. [Synthetic recovery](monitor-quota-coverage.md#synthetic-recovery).
-3. Synthetic renewal and its quote, using the contract below and the
-   [response policy](monitor-quota-coverage.md#unverified-write-responses).
+1. [Catalog and nullable limits](monitor-quota-coverage.md#read-contracts).
+2. [Quota status](monitor-quota-coverage.md#getquotastatus).
+3. [Synthetic recovery](monitor-quota-coverage.md#synthetic-recovery).
+4. Synthetic renewal and quote under the contract below.
+5. [Class packages and create](monitor-synthetic-lifecycle.md).
+6. Synthetic active delete, then ensure, under that same focused contract.
 
-The owner authorizes building renewal before its first in-window live run.
-That manager-run check verifies success and arithmetic, not permission to
-implement. Email and SMS renewal and recovery remain deferred. Lifecycle
-rows retain their
-[support gates](monitor-quotas-lifecycle.md#support-matrix).
+Renewal implementation precedes its first in-window manager live check,
+which verifies success and arithmetic. Email/SMS renewal and recovery stay
+deferred under the [support gates](monitor-quotas-lifecycle.md#support-matrix).
 
-Four emails against three logged transitions stay open; no gate is waived.
-
-Out of scope: metric quotas, log quota renewal/resize, new or paid
-Synthetic Test orders, bundles, `pay: false`, checkout URLs, introspection,
-and a public settings operation; Slack, Telegram, Webhook, and Teams have
-counters but no packages. Telegram delivery prerequisites remain unknown.
-Production quotas are never deleted for a test.
+Out of scope: metric quotas, log quota renewal/resize, paid Synthetic
+orders, bundles, `pay: false`, checkout URLs, introspection, public settings,
+and synthetic purge. Slack, Telegram, Webhook, and Teams have counters but
+no packages. Telegram prerequisites remain unknown. Never delete production
+quotas for a test. The focused lifecycle page owns free create and ensure.
 
 ## Public surface
 
@@ -45,7 +43,8 @@ Every operation has `Method(ctx, *MethodInput) (*MethodOutput, error)` and
 operation name `monitor.Method`. Empty Inputs accept nil. Required fields
 carry `vngcloud:"required"`; optional fields are values unless stated. All
 reads fail with nil Output on any failed component except quota-status
-rows. New writes use the [outcome contract][quota-outcomes].
+rows. Recovery/renewal use the [outcome contract][quota-outcomes]; the
+focused lifecycle page owns create/delete/ensure Outputs.
 
 `Kind string` is required for notification operations. Constants
 `NotificationKindEmail` and `NotificationKindSMS` are `Email` and `SMS`,
@@ -208,7 +207,8 @@ A zero quote for a positive list price is `monitor.ErrUnpriced`, an alias
 of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
 quote and list price and return `ErrPriceAboveMax` if exceeded. List and
 quote must cover the same quantity and one-month term. For synthetic,
-ListPrice is the identity-checked detail price, not a v1 catalog price.
+renewal/recovery ListPrice is the identity-checked detail price, not a v1
+catalog price. Create uses the focused lifecycle page's unit-price rule.
 Renew/recover require Basic, API 10, location 1, and zero prices; freeze the
 quota PackageID and require detail equality. Quotes and read-back use that
 ID, never a v1 list ID. No package/class/settings read is needed.
@@ -246,10 +246,9 @@ status, `POC` false, `AutoRenew` false; for synthetic, repeat detail class,
 location, price, and quantity checks. Create verifies absence again. Any change,
 including a newly
 enabled auto-renew or expiry crossing the recovery boundary, aborts without
-send. New synthetic writes use ErrQuotaChanged for changed terms; malformed peer
-data is an APIError. Create keeps its existing errors. Do not rebuild or requote
-in a loop. No server precondition or price lock is known, so this narrows but
-cannot eliminate cross-client races or price changes.
+send. Synthetic orders/renewal/recovery use ErrQuotaChanged; malformed peer
+data is an APIError. Notification create keeps its errors. Never rebuild or
+requote in a loop. No server precondition or price lock removes the race.
 
 Send the evidenced body with `pay: true`, one month, and the fixed console
 redirect value, with `Once: true` on every order, extension, and recovery:
@@ -266,19 +265,19 @@ differed from the sent redirectUrl (a free order echoes it). Then return partial
 Output with `dns.ErrNotSettled` and stop; never follow or expose that URL or
 reorder.
 
-Synthetic renewal and recovery use the
-[response policy](monitor-quota-coverage.md#unverified-write-responses);
-they never require the inferred order envelope.
+Synthetic create, renewal, and recovery use the
+[response policy](monitor-quota-coverage.md#unverified-write-responses),
+without requiring an inferred order envelope.
 
 Otherwise wait with reads every 2 seconds under a 120-second child context
-bounded also by the caller's context. Create settles only on the selected
+bounded also by caller context. Notification create settles on the selected
 package at ACTIVE; a 404 or a CREATING read, whose `updatedAt` can be null,
 keeps polling (live: 404, CREATING at 3 s, ACTIVE at 5 to 6 s). Renewal
 needs the same quota/package, ACTIVE, and EndTime later than
 PreviousEndTime; trash exit alone is insufficient. NoWait skips the wait only.
 
-New synthetic writes return Output on every outcome under
-[the outcome contract][quota-outcomes]; existing create errors are unchanged.
+Recovery/renewal return Output under [the outcome contract][quota-outcomes];
+notification create errors stay unchanged. The focused page owns additions.
 Definite 4xx refusal or a proven failed dial returns its sanitized error.
 Any other send failure, oversized/malformed success, cancellation after
 possible send, or failed wait returns partial Output and an error wrapping
@@ -321,8 +320,8 @@ Register each method's kebab-case command in `monitorOps`. Quotes and GETs
 are Read; creates, renewals, and auto-renew settings are Write; deletes are
 Write and Destructive, needing `--yes`. Read-only flag/environment refusal
 precedes config, and profile refusal follows config but precedes requests.
-SDK order and renewal MaxPrice defaults to 0. New synthetic commands
-require [explicit consent](monitor-quota-coverage.md#cli-and-documentation).
+SDK MaxPrice defaults to 0. Synthetic uses [coverage consent][quota-consent]
+and [create/delete/ensure flags](monitor-synthetic-lifecycle.md#cli-and-cron).
 Help and a stderr warning before a positive-budget
 write say `pay: true` debits the balance and MaxPrice is a local guard.
 
@@ -413,11 +412,10 @@ Existing history bounds remain 16 MiB per response, 32 MiB per call, and
 These decisions are accepted under owner direction. Approval is no
 evidence; unverified response bodies retain that label.
 
-1. Release order, changed under owner direction: build synthetic catalog,
-   status, recovery, and renewal now. The first renewal in the last 7 days
-   is the manager's live check; it no longer gates implementation.
-   Renewed still requires read-back. Email renewal is removed from the
-   implementation sequence; Email and SMS renewal and recovery stay deferred.
+1. Build catalog, status, recovery, and renewal, then the focused lifecycle
+   extension. The manager's first in-window renewal checks live success,
+   not permission to implement. Renewed requires read-back; Email/SMS
+   renewal and recovery stay deferred.
 2. Time inputs: RFC 3339 strings on existing flags, no time.Time support.
 3. Price safety, changed: frozen terms mapped by one builder per write,
    and the higher of quote and ListPrice as the local guard. Paid
@@ -440,11 +438,13 @@ evidence; unverified response bodies retain that label.
 12. Notification auto-renew enable: defer Email and SMS enable until a
     live renewal quote with `resourceId` exists. No prerequisite purchase
     is authorized. Synthetic free-package enable keeps its visible refusal.
-13. Recovery and read coverage use the contracts in
-    [quota coverage](monitor-quota-coverage.md); paid Synthetic orders stay
-    out until an ACTIVE class has a priced package and its write evidence.
+13. [Quota coverage](monitor-quota-coverage.md) owns recovery and base reads;
+    [synthetic lifecycle](monitor-synthetic-lifecycle.md) owns class packages,
+    free create, active delete, and ensure. Paid classes require ACTIVE status,
+    a priced package, and their own evidence; purge stays gated.
 14. Defer a trash list until its item shape is evidenced; a count alone
     cannot identify a quota. Keep check notification editing on JSON input,
     as explained in [Alerts](monitor-alerts.md#cli).
 
 [quota-outcomes]: monitor-quota-coverage.md#machine-readable-write-outcomes
+[quota-consent]: monitor-quota-coverage.md#cli-and-documentation

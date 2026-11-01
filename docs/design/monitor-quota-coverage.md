@@ -18,10 +18,31 @@ have no observed pages. Each component uses the existing bounded, sensitive
 quota reader and normal finite read retries, with no outer retry. Check
 cancellation between sequential component reads.
 
-Cap each response at 1 MiB and each composite call at 8 MiB of response bodies,
-including successful bodies discarded on validation failure. Decode once per
-component, with no refetch loop. Fail explicitly before retaining data past the
-cap; no truncated result. Catalog failures return nil Output; quota-status has
+Cap each component response at 1 MiB (`MaxBody`). The 8 MiB composite
+budget counts retained component bodies, including bodies rejected by later
+validation; it is not a total network-byte or Go heap limit. Discarded retry
+bodies do not consume it. Decode each returned component once, without an
+outer refetch loop; refuse before retaining a body beyond the budget.
+Sequential decoding also bounds transient buffers; decoded objects and
+allocator overhead are not measured by this body budget.
+
+Each attempt is bounded independently. For A attempts, component body bytes
+are at most MaxBody times A for bodies within the cap. The existing oversize
+detector may read one extra byte per attempt, so its strict read bound is
+(MaxBody + 1) times A. Include the single auth-refresh resend: with retry
+count R, A is at most 2 times (R + 1). Set NoRedirect on these composite
+component requests so redirect hops cannot escape that accounting. This
+uses existing transport controls, not a shared transport change. Cancellation
+stops retries and remaining components. A future shared transport byte budget
+could cap total reads; it is not required here.
+
+Require `TestQuotaCompositeRetainedBodyBudgetWithRetries`: counted real
+transport bodies, positive retries, retryable failures then success, and a
+401 refresh case; assert per-attempt caps, attempt bounds, more than 8 MiB
+read while retained bodies stay within 8 MiB, and rejection before composite
+overflow. Include the oversize probe, cancellation, and nil catalog versus
+partial status results. This is a required new test, not a test-run claim.
+No truncated result. Catalog failures return nil Output; quota-status has
 the per-row partial-result contract below. Preserve safe
 `errors.As(*vngcloud.APIError)` metadata under the public operation name and
 `errors.Is` sentinels. No new dependency is needed.
@@ -76,8 +97,10 @@ The table has separate class-option and v1-package sections, labeled with
 ID source, class status/description, limits, price, periods, and eligibility.
 Disabled classes remain rows. JSON keeps Items and Packages separate and
 preserves nil prices/eligibility; --query and text use the same projection.
-Explain unknown class price even when v1 free10 shows 0. No priced ACTIVE
-class option is evidenced; catalog reads cannot authorize a paid write.
+Explain unknown option price even when v1 free10 shows 0. The additive
+[class packages](monitor-synthetic-lifecycle.md#class-packages) view supplies
+real unit prices in its own array. Options retain their existing
+meaning; catalog reads cannot authorize a paid write.
 
 ### GetQuotaStatus
 
@@ -222,8 +245,9 @@ call. Preserve the parent's cross-client limits and cleanup authority.
 
 ## Unverified write responses
 
-This policy applies only to new synthetic recovery and renewal. It does
-not loosen the evidenced notification create decoder. Recovery has a
+This policy applies to synthetic recovery, renewal, and
+[create](monitor-synthetic-lifecycle.md#create). It does not loosen the
+evidenced notification create decoder. Recovery has a
 recorded HTTP 200; renewal uses 200 as a provisional console-derived
 expectation until its in-window live check. Accept no other success status
 as a verified response contract. A 2xx never sets Recovered or Renewed.
@@ -250,9 +274,9 @@ cancellation.
 
 ## Machine-readable write outcomes
 
-Both new SDK write Outputs embed `QuotaMutationOutcome` with `Sent, Stage
-string` and `Error *QuotaOutcomeError`. QuotaOutcomeError has `Code,
-Operation string` and `Status int` (0 without an HTTP status); omit no
+Recovery and renewal Outputs embed `QuotaMutationOutcome` with
+`Sent, Stage string` and `Error *QuotaOutcomeError`. The error has
+`Code, Operation string` and `Status int` (0 without an HTTP status); omit no
 fields. Initialize Output before validation and return it on every error,
 with confirmation false and Quota nil until read-back. PreviousEndTime is
 null until a baseline exists. Error is null on success; otherwise it is a
@@ -311,8 +335,10 @@ matching expected guard always precedes a skip.
 These two commands emit the complete result on stdout even for preflight
 failure, plus the existing lowercase `error` envelope on stderr on error.
 The envelope code/status/operation must agree with Output.Error; include
-status 0 when no status exists. Every error also carries fixed safe text. Scope
-this behavior to these commands; do not change other write Outputs.
+status 0 when no status exists, with fixed safe text. Scope this behavior to
+recovery, renewal, and the new
+[create and ensure](monitor-synthetic-lifecycle.md#outcomes-and-errors)
+commands; existing notification write Outputs do not change.
 Refuse --query for them before any request so every JSON result retains
 outcome fields. Debug remains on stderr; scripts parse stdout, not logs.
 A killed process, broken stdout, or missing/invalid JSON is externally
@@ -339,9 +365,9 @@ owns environment auth, pinned installation, and wiki example obligations.
 
 Update Monitor-Quotas and linked Monitor/Monitor-Alerts guidance in the
 same implementation slice. Explain separate catalog ID spaces, unknown
-class prices and v1 eligibility, status's unknown package name, and detail
-price as the synthetic guard source. Explain disabled classes, nullable limits,
-recovery's new term, renewal's visible 409, required
+option prices and v1 eligibility, status's unknown package name, and detail
+price as the renewal/recovery guard source. Explain disabled classes,
+nullable limits, recovery's new term, renewal's visible 409, required
 consent/identity guards, NoWait, residual races, and read-only recovery
 from uncertainty. Extend examples with reads only. Generate CLI-Monitor
 and CLI from their source notes with `make gen-docs`; check generation
@@ -350,8 +376,11 @@ to generated pages. Additions keep existing imports and field semantics.
 
 ## Threat analysis
 
-The [parent threat analysis](monitor-quotas.md#threat-analysis) covers the
-new reads, write outcomes, unattended credentials, and both mutations.
+The [parent threat analysis](monitor-quotas.md#threat-analysis) covers these
+reads and recovery/renewal. The [synthetic lifecycle threats][synthetic-threats]
+cover class-package fan-out, create, delete, and ensure.
+
+[synthetic-threats]: monitor-synthetic-lifecycle.md#threat-analysis
 
 ## Deterministic coverage additions
 
