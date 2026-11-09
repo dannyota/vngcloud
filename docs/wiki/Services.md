@@ -140,6 +140,14 @@ computeClient.QuoteCreateServer(ctx, in)        // *compute.CreateServerInput
 already returned by server and server-group list APIs. They do not require
 extra API calls.
 
+Server reads and write results expose a derived `compute.Server.PublicIP`
+from internal floating addresses. CLI queries can select `Server.PublicIP`
+or `Items[].PublicIP`; standard Go JSON marshaling omits the field.
+Server read and rename responses are bounded at 8 MiB and reject unsafe
+partial data. Empty values do not prove that no IP is allocated. See
+[Public address](Compute-Servers.md#public-address) for derivation,
+credential protection, and strict-output/unkeyed-literal compatibility.
+
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
 `vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
 Server writes (`CreateServer`, `DeleteServer`, `StartServer`,
@@ -188,7 +196,8 @@ without ordering it; see
 ## Network
 
 `network` imports `compute` for the `compute.Server` model, since
-`ListServersBySecurityGroup` returns full server objects.
+`ListServersBySecurityGroup` returns full server objects with the same
+derived public address and bounded response handling.
 
 ```go
 networkClient := network.New(cfg)

@@ -42,6 +42,8 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 // a parameter here, unlike vDNS's, network's, and volume's own unexported
 // poll, whose shape this otherwise copies; only bound varies per operation.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
 	deadline := now().Add(bound)
 	for {
 		stop, err := step(ctx)
@@ -91,7 +93,9 @@ const (
 // it reads serverID with GetServer until its Status reaches ACTIVE or
 // ERROR; any other status, including a 404 (a server just created may not
 // be readable at once), keeps it polling.
-func (c *Client) waitServerActive(ctx context.Context, op, serverID string) (*Server, error) {
+func (c *Client) waitServerActive(ctx context.Context, op, serverID string) (result *Server, resultErr error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, op, &result, &resultErr)
 	var server *Server
 	err := poll(ctx, c.now, c.sleep, serverCreateBound,
 		func(ctx context.Context) (bool, error) {
@@ -126,7 +130,9 @@ func (c *Client) waitServerActive(ctx context.Context, op, serverID string) (*Se
 // waitServerStatus is StartServer and StopServer's post-toggle wait: it
 // reads serverID with GetServer until its Status reaches target or ERROR;
 // any other status keeps it polling.
-func (c *Client) waitServerStatus(ctx context.Context, op, serverID, target string) (*Server, error) {
+func (c *Client) waitServerStatus(ctx context.Context, op, serverID, target string) (result *Server, resultErr error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, op, &result, &resultErr)
 	var server *Server
 	err := poll(ctx, c.now, c.sleep, serverStartStopBound,
 		func(ctx context.Context) (bool, error) {
@@ -160,7 +166,9 @@ func (c *Client) waitServerStatus(ctx context.Context, op, serverID, target stri
 // sentAt (the reboot PUT's own send time), so a read that still shows the
 // pre-reboot ACTIVE state before REBOOTING even appears is not mistaken for
 // settled. ERROR fails the wait at once, at any time.
-func (c *Client) waitServerRebooted(ctx context.Context, op, serverID string, sentAt time.Time) (*Server, error) {
+func (c *Client) waitServerRebooted(ctx context.Context, op, serverID string, sentAt time.Time) (result *Server, resultErr error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, op, &result, &resultErr)
 	var server *Server
 	err := poll(ctx, c.now, c.sleep, serverRebootBound,
 		func(ctx context.Context) (bool, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -467,5 +468,55 @@ func TestResizeServer429SentOnce(t *testing.T) {
 	}
 	if writes.Load() != 1 {
 		t.Fatalf("writes = %d, want 1", writes.Load())
+	}
+}
+
+func TestRenameServerResponseSafetyAndRetries(t *testing.T) {
+	for _, tc := range []struct {
+		name, body  string
+		fail        bool
+		retryStatus int
+	}{
+		{"limit", strings.Repeat(" ", 8<<20-len(`{"data":{}}`)) + `{"data":{}}`, false, 0},
+		{"limit plus one", strings.Repeat(" ", (8<<20)+1-len(`{"data":{}}`)) + `{"data":{}}`, true, 0},
+		{"truncated", `{"data":{"name":"hostile-marker"}`, true, 0},
+		{"current credential", `{"data":{"name":"synthetic-token-001"}}`, true, 0},
+		{"earlier credential after refresh", `{"data":{"name":"\u0073ynthetic-token-001"}}`, true, 401},
+		{"refreshed credential", `{"data":{"name":"synthetic-token-002"}}`, true, 401},
+		{"normal PUT retry", `{"data":{"name":"web-2"}}`, false, 502},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sends atomic.Int32
+			c, logs, captures := newServerSecurityClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut {
+					t.Error("expected PUT")
+				}
+				body := decodeComputeBody(t, r)
+				if body["newName"] != "web-2" || len(body) != 1 {
+					t.Error("rename body changed")
+				}
+				if sends.Add(1) == 1 && tc.retryStatus != 0 {
+					w.WriteHeader(tc.retryStatus)
+					return
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}), 1)
+			out, err := c.RenameServer(context.Background(), &RenameServerInput{ServerID: "server-1", Name: "web-2"})
+			if tc.fail {
+				assertNoUnsafeServerOutput(t, out, err)
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			want := int32(1)
+			if tc.retryStatus != 0 {
+				want = 2
+			}
+			if sends.Load() != want {
+				t.Fatalf("sends=%d, want %d", sends.Load(), want)
+			}
+			if captures.Load() != 0 || strings.Contains(logs.String(), "synthetic-token-") {
+				t.Fatal("rename leaked credential")
+			}
+		})
 	}
 }

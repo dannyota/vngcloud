@@ -72,7 +72,8 @@
     "FlavorZoneID": "",
     "FlavorZones": null,
     "GPUMemory": null,
-    "HostGroupID": ""
+    "HostGroupID": "",
+    "PublicIP": ""
   },
   "MonthlyPrice": -372552
 }

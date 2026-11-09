@@ -466,3 +466,148 @@ func TestSentCredentialsResetEachCall(t *testing.T) {
 		})
 	}
 }
+
+// Synthetic credentials exercise the optional operation observer at the HTTP boundary.
+func TestCredentialObserverRefreshAndAbsent(t *testing.T) {
+	for _, observed := range []bool{false, true} {
+		t.Run(strconv.FormatBool(observed), func(t *testing.T) {
+			var sends int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				sends++
+				if sends == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+			client := New(Config{HTTPClient: srv.Client(), TokenSource: &longTokens{}})
+			ctx := context.Background()
+			var seen []string
+			if observed {
+				ctx = WithCredentialObserver(ctx, func(value string) ([]string, error) {
+					if value != "" {
+						seen = append(seen, value)
+					}
+					return seen, nil
+				})
+			}
+			if err := client.DoJSON(ctx, Request{URL: srv.URL}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if sends != 2 {
+				t.Fatalf("sends = %d, want 2", sends)
+			}
+			if observed && !slices.Equal(seen, []string{"synthetic-token-1", "synthetic-token-2"}) {
+				t.Fatalf("observed credentials = %v", seen)
+			}
+		})
+	}
+}
+
+func TestCredentialObserverExhaustionBeforeSend(t *testing.T) {
+	for _, refresh := range []bool{false, true} {
+		t.Run(strconv.FormatBool(refresh), func(t *testing.T) {
+			var sends int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				sends++
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer srv.Close()
+			exhausted := errors.New("synthetic observer exhaustion")
+			ctx := WithCredentialObserver(context.Background(), func(value string) ([]string, error) {
+				if value != "" && (!refresh || value == "synthetic-token-2") {
+					return nil, exhausted
+				}
+				return nil, nil
+			})
+			client := New(Config{HTTPClient: srv.Client(), TokenSource: &longTokens{}})
+			err := client.DoJSON(ctx, Request{URL: srv.URL}, nil)
+			if !errors.Is(err, exhausted) {
+				t.Fatalf("error = %v, want observer exhaustion", err)
+			}
+			want := 0
+			if refresh {
+				want = 1
+			}
+			if sends != want {
+				t.Fatalf("sends = %d, want %d", sends, want)
+			}
+		})
+	}
+}
+
+func TestCredentialObserverAcrossCallsProtectsErrorsAndCaptures(t *testing.T) {
+	var sends int
+	var captures int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sends++
+		if sends == 1 {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"synthetic-token-1","message":"\u0073ynthetic-token-1"}`))
+	}))
+	defer srv.Close()
+	var values []string
+	ctx := WithCredentialObserver(context.Background(), func(value string) ([]string, error) {
+		if value != "" {
+			values = append(values, value)
+		}
+		return values, nil
+	})
+	client := New(Config{HTTPClient: srv.Client(), TokenSource: &longTokens{}, Capture: func(Capture) { captures++ }})
+	if err := client.DoJSON(ctx, Request{URL: srv.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Force a distinct credential on the second SDK call.
+	client.token = Token{}
+	err := client.DoJSON(ctx, Request{URL: srv.URL}, nil)
+	var api *APIError
+	if !errors.As(err, &api) || api.StatusCode != 403 {
+		t.Fatalf("error=%v", err)
+	}
+	if strings.Contains(api.Code, "synthetic-token-") || strings.Contains(api.Message, "synthetic-token-") || captures != 0 {
+		t.Fatal("operation credential escaped redaction")
+	}
+}
+
+func TestCredentialObserverRawExhaustionBeforeSend(t *testing.T) {
+	var sends int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sends++ }))
+	defer srv.Close()
+	exhausted := errors.New("synthetic observer exhaustion")
+	ctx := WithCredentialObserver(context.Background(), func(value string) ([]string, error) {
+		if value != "" {
+			return nil, exhausted
+		}
+		return nil, nil
+	})
+	client := New(Config{HTTPClient: srv.Client(), TokenSource: &longTokens{}})
+	_, _, body, err := client.DoRaw(ctx, Request{URL: srv.URL})
+	if sends != 0 || len(body) != 0 || !errors.Is(err, exhausted) {
+		t.Fatalf("sends=%d, error=%v", sends, err)
+	}
+}
+
+func TestCredentialObserverDoesNotMutateRequestRedactions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	defer srv.Close()
+	redact := make([]string, 1, 4)
+	redact[0] = "synthetic-explicit-secret"
+	var values []string
+	ctx := WithCredentialObserver(context.Background(), func(value string) ([]string, error) {
+		if value != "" {
+			values = append(values, value)
+		}
+		return values, nil
+	})
+	client := New(Config{HTTPClient: srv.Client(), TokenSource: &longTokens{}})
+	if err := client.DoJSON(ctx, Request{URL: srv.URL, Redact: redact}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(redact[:cap(redact)], []string{"synthetic-explicit-secret", "", "", ""}) {
+		t.Fatal("observer changed caller-owned redactions")
+	}
+}

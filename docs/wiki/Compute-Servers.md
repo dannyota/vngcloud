@@ -8,6 +8,46 @@ This page assumes `cfg`, `ctx`, and `client := compute.New(cfg)` from
 [Compute's Setup](Compute.md#setup). [IDs for Create
 Server](IDs-for-Create-Server.md) shows how to find each ID below.
 
+## Public address
+
+Read one server's floating IP in one command:
+
+```sh
+vngcloud compute get-server --server-id <server-id> \
+  --query Server.PublicIP --output text
+vngcloud compute list-servers --query 'Items[].{ID:UUID,IP:PublicIP}'
+```
+
+The SDK exposes the same value as `out.Server.PublicIP` on `GetServer` and
+`out.Items[i].PublicIP` on `ListServers`. Server write results and their
+waits derive it by the same rule.
+
+`PublicIP` uses only `InternalInterfaces[].FloatingIP`. Every non-empty
+value must parse as a global unicast, non-private address without a zone,
+whitespace, or control characters. IPv4-mapped IPv6 is unmapped first.
+If those values identify one distinct address, the field holds its
+canonical spelling. Invalid or distinct addresses leave it empty.
+External Interfaces and an incoming top-level `publicIp` never supply it.
+The original interface fields stay unchanged. An empty `PublicIP` does
+not prove that no IP is allocated or attached.
+
+Server read and rename responses have an 8 MiB limit before capture or
+decoding. Oversized, malformed, or credential-reflecting responses return
+an error with no unsafe partial server. Operations track at most 256
+credentials across retries, refresh, and nested requests; exhaustion
+withholds output. Retained server results are rechecked against later
+credentials. Guarded operations suppress response captures, including
+nested quote calls. Existing safe partial results and error causes remain
+available when a wait fails. Reads retain finite retries; rename retains
+normal PUT retries, and actions and resize retain their single-send rules.
+
+CLI JSON, table, text, and queries use the Go field name `PublicIP`.
+Standard Go `encoding/json` marshaling omits it through `json:"-"`.
+Keyed struct literals remain compatible; strict CLI JSON consumers and
+external unkeyed `compute.Server` literals may need updates. The positive
+address fixture is schema-built, with documentation addresses, and is not
+a populated live capture.
+
 ## Server console logs
 
 `GetServerConsoleLog` reads boot and serial output without checking the

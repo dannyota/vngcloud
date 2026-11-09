@@ -1,16 +1,12 @@
 # Network
 
-`network` is `danny.vn/vngcloud/network`, with its own `New(cfg)`. It reads
-VPCs, subnets, WAN IPs, interfaces, virtual IPs, route tables, peerings,
-ACLs, interconnects, and endpoints; see [Services](Services.md#network) for
-that full read list. This page covers security groups and their rules, VPCs,
-subnets, and Private DNS, the network resources this SDK writes here. See
-[Network Route Tables](Network-RouteTables.md) for route tables and routes,
-[Network ACLs](Network-ACLs.md) for ACLs, their rules, and subnet associations,
-[Network DHCP Options](Network-DHCPOptions.md) for DHCP options sets, and
-[Network Virtual IPs](Network-VirtualIPs.md) for virtual IPs and public-IP price
-discovery through `ListNetworkPrices`. Servers, volumes, and floating IPs
-stay read-only.
+`network` is `danny.vn/vngcloud/network`, with its own `New(cfg)`. See
+[Services](Services.md#network) for reads. This page covers security groups,
+rules, VPCs, subnets, and Private DNS. See [Network Route
+Tables](Network-RouteTables.md), [Network ACLs](Network-ACLs.md),
+[Network DHCP Options](Network-DHCPOptions.md), and [Network Virtual
+IPs](Network-VirtualIPs.md), including `ListNetworkPrices` price discovery.
+Servers, volumes, and floating IPs stay read-only here.
 
 See [Network NAT](Network-NAT.md) for Public NAT inventory.
 See [Network VPN](Network-VPN.md) for VPN inventory with sites and tunnels.
@@ -67,12 +63,16 @@ rules, err := client.ListSecurityGroupRules(ctx, in)             // SecurityGrou
 allRules, err := client.ListAllSecurityGroupRules(ctx, nil)
 ```
 
-`SecurityGroup.System` is `true` for a project's default group, which
-allows all outbound traffic and inbound SSH, RDP, HTTP, HTTPS, and ICMP
-from anywhere. `ListSecurityGroups`' own `Name` filter matches by
-substring, not exactly: a search for `"web"` also finds `"webhook"`. Any
-code that must find one group by name lists and scans for an exact match
-itself.
+`ListServersBySecurityGroup` returns `compute.Server` rows. Use
+`--query 'Items[].PublicIP'` for their derived internal floating addresses.
+Empty does not prove absence. An 8 MiB response limit and credential
+checks prevent unsafe partial rows. Derivation and compatibility limits:
+[Public address](Compute-Servers.md#public-address).
+
+`SecurityGroup.System` marks the default group: all outbound traffic and
+inbound SSH, RDP, HTTP, HTTPS, and ICMP from anywhere. `ListSecurityGroups`
+filters `Name` by substring, so "web" also finds "webhook". To find one
+exact name, list groups and compare each name.
 
 ## Creating, updating, and deleting groups
 

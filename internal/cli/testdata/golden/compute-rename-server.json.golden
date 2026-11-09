@@ -72,6 +72,7 @@
     "FlavorZoneID": "",
     "FlavorZones": null,
     "GPUMemory": null,
-    "HostGroupID": ""
+    "HostGroupID": "",
+    "PublicIP": ""
   }
 }

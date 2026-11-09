@@ -179,3 +179,48 @@ func TestQuoteCreateServerRejectsBadBodyIDs(t *testing.T) {
 		t.Fatalf("DataDiskTypeID=/ err = %v, want ErrInvalidInput", err)
 	}
 }
+
+func TestCreateServerFallbackRecheckedAfterLaterCredential(t *testing.T) {
+	c, _, _ := newServerSecurityClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/price"):
+			_, _ = w.Write([]byte(quoteServerFixture))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers":
+			_, _ = w.Write([]byte(emptyListServersPage))
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"data":{"uuid":"synthetic-token-004"}}`))
+		default:
+			_, _ = w.Write([]byte(`{"data":`))
+		}
+	}), 0)
+	in := validCreateServerInput()
+	in.MaxPrice = 400000
+	out, err := c.CreateServer(context.Background(), in)
+	assertNoUnsafeServerOutput(t, out, err)
+}
+
+func TestCreateServerWaitRejectsUserDataReflection(t *testing.T) {
+	const userData = "synthetic-bootstrap-secret"
+	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/price"):
+			_, _ = w.Write([]byte(quoteServerFixture))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/project-1/servers":
+			_, _ = w.Write([]byte(emptyListServersPage))
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
+		default:
+			_, _ = w.Write([]byte(`{"data":{"name":"synthetic-bootstrap-secret","status":"ACTIVE"}}`))
+		}
+	})))
+	in := validCreateServerInput()
+	in.MaxPrice = 400000
+	in.SSHKeyID = ""
+	in.UserData = userData
+	out, err := c.CreateServer(context.Background(), in)
+	if err == nil || strings.Contains(err.Error(), userData) || (out != nil && strings.Contains(out.Server.Name, userData)) {
+		t.Fatal("user data escaped through server read")
+	}
+}

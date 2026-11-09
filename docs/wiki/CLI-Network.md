@@ -773,6 +773,17 @@ vngcloud network list-security-groups
 
 Kind: Read.
 
+PublicIP is the canonical floating address derived from internal interfaces.
+External Interfaces never supply it; empty or ambiguous values do not prove
+that no IP is allocated. Server read and rename responses are limited to
+8 MiB and reject unsafe partial data. Guarded operations suppress response
+captures, track up to 256 credentials, and recheck retained server output.
+CLI JSON adds PublicIP; strict JSON consumers may need updates. Standard Go
+JSON marshaling omits it, and external unkeyed Server literals may need
+updates. See [Public address](Compute-Servers.md#public-address).
+
+Select addresses with `--query 'Items[].PublicIP'`.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--security-group-id` | `string` | yes |

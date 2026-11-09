@@ -256,7 +256,13 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 	}
 
 	req.resetSentCredentials()
+	if err := req.observeCredential(ctx, ""); err != nil {
+		return 0, err
+	}
 	statusCode, _, body, err := c.doAuthenticated(ctx, req, client)
+	if observeErr := req.observeCredential(ctx, ""); observeErr != nil {
+		return statusCode, observeErr
+	}
 	if err != nil {
 		if errors.Is(err, ErrBodyTooLarge) && statusCode >= http.StatusBadRequest && !req.BodyLimitOverridesStatus {
 			// Classify from the status alone. The oversized body is discarded,
@@ -270,23 +276,6 @@ func (c *Client) doJSONStatus(ctx context.Context, req Request, out any, client 
 		return statusCode, decodeError(req, statusCode, body)
 	}
 	return decodeSuccessBody(req, statusCode, body, out)
-}
-
-// DoRaw sends req and returns the response's status, its Content-Type
-// header, and the raw body, without decoding JSON and without treating any
-// status as an error. It never rides a cookie: it sends req through a copy
-// of the underlying *http.Client with Jar cleared, so a caller-configured
-// cookie jar never reaches the request. The shared send path enforces
-// the SDK's same-scheme, same-host redirect rule even when the client is one
-// the caller supplied. It otherwise applies the same retry policy and, when
-// req.SkipAuth is not set, the same token handling as DoJSONStatus.
-func (c *Client) DoRaw(ctx context.Context, req Request) (int, string, []byte, error) {
-	if req.Method == "" {
-		req.Method = http.MethodGet
-	}
-	req.resetSentCredentials()
-	status, contentType, body, err := c.doAuthenticated(ctx, req, c.rawClient())
-	return status, contentType, body, err
 }
 
 // doAuthenticated attaches a token to req (unless req.SkipAuth is set),
@@ -484,6 +473,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 		credential := sentToken
 		if req.APIKey != "" {
 			credential = req.APIKey
+		}
+		if err := req.observeCredential(ctx, credential); err != nil {
+			return 0, "", nil, sentToken, err
 		}
 		req.recordSentCredential(credential)
 		start := time.Now()

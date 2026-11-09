@@ -1,0 +1,21 @@
+{
+  "_fixture": "Schema-built from InterfaceNetworkInterface, not captured live; synthetic IDs and documentation addresses.",
+  "data": {
+    "uuid": "server-1",
+    "name": "web-1",
+    "status": "ACTIVE",
+    "internalInterfaces": [{
+      "uuid": "nic-1",
+      "fixedIp": "192.0.2.2",
+      "floatingIp": "::ffff:192.0.2.1",
+      "floatingIpId": "wan-1",
+      "interfaceType": "INTERNAL",
+      "networkUuid": "network-1",
+      "subnetUuid": "subnet-1",
+      "portUuid": "port-1",
+      "serverUuid": "server-1",
+      "status": "ACTIVE"
+    }],
+    "externalInterfaces": []
+  }
+}

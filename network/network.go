@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -208,6 +209,28 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 
 // ListServersBySecurityGroup reads servers by security group.
 func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServersBySecurityGroupInput) (*ListServersBySecurityGroupOutput, error) {
+	const op = "network.ListServersBySecurityGroup"
+	invalid := func() error {
+		return &core.APIError{Operation: op, Code: "InvalidResponse", Message: "invalid server response; body withheld"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var credentials []string
+	ctx = transport.WithCredentialObserver(ctx, func(value string) ([]string, error) {
+		if value != "" {
+			found := false
+			for _, sent := range credentials {
+				found = found || sent == value
+			}
+			if !found {
+				if len(credentials) == 256 {
+					return nil, invalid()
+				}
+				credentials = append(credentials, value)
+			}
+		}
+		return append([]string(nil), credentials...), nil
+	})
 	if err := core.CheckRequired("network.ListServersBySecurityGroup", in); err != nil {
 		return nil, err
 	}
@@ -221,13 +244,22 @@ func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServers
 	var resp struct {
 		Data []compute.Server `json:"data"`
 	}
+	var raw json.RawMessage
 	if err := c.c.DoJSON(ctx, transport.Request{
+		MaxBody: 8 << 20, Sensitive: true, NoRedirect: true, WithholdMessage: "server response withheld",
 		Operation: "network.ListServersBySecurityGroup",
 		Method:    "GET",
 		URL:       c.networkURL([]string{projectID, "secgroups", in.SecurityGroupID, "servers"}, nil),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &raw); err != nil {
 		return nil, err
+	}
+	if natReflectsSentCredentials(raw, credentials) || json.Unmarshal(raw, &resp) != nil {
+		return nil, invalid()
+	}
+	encoded, err := json.Marshal(resp)
+	if err != nil || natReflectsSentCredentials(encoded, credentials) || natValueReflectsCredentials(reflect.ValueOf(resp), credentials) {
+		return nil, invalid()
 	}
 	return &ListServersBySecurityGroupOutput{Items: resp.Data}, nil
 }

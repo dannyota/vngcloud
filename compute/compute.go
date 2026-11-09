@@ -54,7 +54,11 @@ func New(cfg vngcloud.Config) *Client {
 type ListServersOutput = core.PagedList[Server]
 
 // ListServers reads servers.
-func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (*ListServersOutput, error) {
+func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (out *ListServersOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.ListServers", &out, &err)
+	ctx, cancel := context.WithTimeout(ctx, serverReadBound)
+	defer cancel()
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -64,7 +68,7 @@ func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (*ListSe
 		page, size = in.Page, in.Size
 	}
 	var resp listServersResponse
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.doServerJSON(ctx, transport.Request{
 		Operation: "compute.ListServers",
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "servers"}, core.PageQuery(page, size)),
@@ -81,7 +85,11 @@ type GetServerOutput struct {
 }
 
 // GetServer reads server.
-func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerOutput, error) {
+func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (out *GetServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.GetServer", &out, &err)
+	ctx, cancel := context.WithTimeout(ctx, serverReadBound)
+	defer cancel()
 	const op = "compute.GetServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -96,7 +104,7 @@ func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerO
 	var resp struct {
 		Data Server `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.doServerJSON(ctx, transport.Request{
 		Operation: op,
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "servers", in.ServerID}, nil),
@@ -469,8 +477,9 @@ func (p serverGroupPolicyResp) toPolicy() ServerGroupPolicy {
 // not need to import network to name Server.Zone's type.
 type Zone = core.NetworkZone
 
-// Server holds server data from the API.
-// See docs/design/vserver-paid-writes-api.md.
+// Server is a vServer instance, including its original network interfaces.
+// See docs/design/vserver-paid-writes-api.md and
+// docs/design/vserver-floating-ips-api.md.
 type Server struct {
 	BootVolumeID          string             `json:"bootVolumeId"`
 	CreatedAt             string             `json:"createdAt"`
@@ -508,6 +517,9 @@ type Server struct {
 	FlavorZones           any                `json:"flavorZones"`
 	GPUMemory             any                `json:"gpuMemory"`
 	HostGroupID           string             `json:"hostGroupId"`
+	// PublicIP is the canonical, unambiguous floating address from internal
+	// interfaces. Empty does not prove that no address is allocated.
+	PublicIP string `json:"-"`
 }
 
 // NetworkInterface holds network interface data from the API.

@@ -182,3 +182,27 @@ func TestNATRenewalRejectsBillingAliases(t *testing.T) {
 		})
 	}
 }
+
+// Synthetic JSON keeps unknown numbers valid without hiding later strings.
+func TestNATCredentialScannerPreservesNumbersAndRejectsIncompleteJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		unsafe     bool
+	}{
+		{"large number and escaped credential", `{"ignored":1e999,"name":"\u0073ynthetic-token"}`, true},
+		{"large number without credential", `{"ignored":1e999,"name":"safe"}`, false},
+		{"large negative number", `{"ignored":-1e999,"name":"\u0073ynthetic-token"}`, true},
+		{"incomplete container", `{"ignored":[1`, true},
+		{"incomplete string", `{"name":"safe`, true},
+		{"invalid token", `{"ignored":?}`, true},
+		{"empty body", ``, true},
+		{"multiple roots", `{} {}`, true},
+		{"valid empty object", `{}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := natReflectsCredential([]byte(tc.body), "synthetic-token"); got != tc.unsafe {
+				t.Fatalf("unsafe = %v, want %v", got, tc.unsafe)
+			}
+		})
+	}
+}

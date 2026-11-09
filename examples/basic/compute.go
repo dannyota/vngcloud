@@ -22,6 +22,16 @@ func showCompute(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 	})
 	record(outputs, cfg, "server/instance", "servers", servers, err)
 
+	if err == nil && len(servers) > 0 {
+		server, readErr := computeClient.GetServer(ctx, &compute.GetServerInput{ServerID: servers[0].UUID})
+		if readErr == nil {
+			// PublicIP is derived at decode; an empty value does not prove absence.
+			recordOne(outputs, cfg, "server/public_ip", "server public IP", server.Server.PublicIP, nil)
+		} else {
+			recordOne(outputs, cfg, "server/public_ip", "server public IP", "", readErr)
+		}
+	}
+
 	keys, err := collectPaged(vngcloud.DefaultPageSize, func(page, size int) ([]compute.SSHKey, int, error) {
 		out, err := computeClient.ListSSHKeys(ctx, &compute.ListSSHKeysInput{Page: page, Size: size})
 		if err != nil {

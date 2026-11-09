@@ -60,3 +60,21 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 	"--no-wait returns at once with only the new server's UUID and Name set.\n" +
 	"\n" +
 	serverEncryptionNote + "\n\n" + idsForCreateServerLink + "\n\n" + vserverDriftNote
+
+// computePublicIPNote describes the derived field shared by server outputs.
+const computePublicIPNote = "PublicIP is the canonical floating address derived from internal interfaces.\n" +
+	"External Interfaces never supply it; empty or ambiguous values do not prove\n" +
+	"that no IP is allocated. Server read and rename responses are limited to\n" +
+	"8 MiB and reject unsafe partial data. Guarded operations suppress response\n" +
+	"captures, track up to 256 credentials, and recheck retained server output.\n" +
+	"CLI JSON adds PublicIP; strict JSON consumers may need updates. Standard Go\n" +
+	"JSON marshaling omits it, and external unkeyed Server literals may need\n" +
+	"updates. See [Public address](Compute-Servers.md#public-address)."
+
+const computeGetServerPublicIPNote = computePublicIPNote + "\n\n" +
+	"Read the bare address with:\n\n```sh\n" +
+	"vngcloud compute get-server --server-id <server-id> \\\n" +
+	"  --query Server.PublicIP --output text\n```"
+
+const computeListServerPublicIPNote = computePublicIPNote + "\n\n" +
+	"Select addresses with `--query 'Items[].PublicIP'`."

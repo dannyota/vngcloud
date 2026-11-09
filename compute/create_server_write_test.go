@@ -192,8 +192,7 @@ func TestCreateServerUserDataIsSensitive(t *testing.T) {
 
 // TestCreateServerUserDataNeverCaptured checks that CreateServer's
 // Sensitive request never reaches the configured response-capture hook,
-// while the pre-order list, the quote, and the post-create read on the
-// same call still do.
+// along with every other response in the guarded operation.
 func TestCreateServerUserDataNeverCaptured(t *testing.T) {
 	const userData = "#!/bin/sh\necho supersecret"
 	var captured []transport.Capture
@@ -221,8 +220,8 @@ func TestCreateServerUserDataNeverCaptured(t *testing.T) {
 	if _, err := c.CreateServer(context.Background(), in); err != nil {
 		t.Fatalf("CreateServer() error = %v", err)
 	}
-	if len(captured) != 3 {
-		t.Fatalf("captured = %d, want 3 (list, quote, post-create read; the create POST itself must never be captured)", len(captured))
+	if len(captured) != 0 {
+		t.Fatalf("captured = %d, want 0 throughout the guarded operation", len(captured))
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(userData))
 	for _, cap := range captured {

@@ -67,7 +67,7 @@ func (c *Client) QuoteResizeServer(ctx context.Context, in *ResizeServerInput) (
 	if err != nil {
 		return nil, err
 	}
-	return c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
+	return c.serverQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceServer,
 		Action:       pricing.ActionResize,
 		ResourceInfo: info,
@@ -110,7 +110,9 @@ type ResizeServerOutput struct {
 // the read to run. NoWait returns at once instead, with Output.Server
 // holding the pre-resize read. Output retains the signed quote after an
 // ambiguous send or failed wait.
-func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*ResizeServerOutput, error) {
+func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (out *ResizeServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.ResizeServer", &out, &err)
 	const op = "compute.ResizeServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -138,7 +140,7 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 	if err != nil {
 		return nil, err
 	}
-	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
+	quote, err := c.serverQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceServer,
 		Action:       pricing.ActionResize,
 		ResourceInfo: info,
@@ -168,7 +170,7 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 		Once:      true,
 		NotSent:   &notSent,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := c.doServerJSON(ctx, req, nil); err != nil {
 		if notSent || is4xxAPIError(err) {
 			return nil, err
 		}
@@ -189,7 +191,9 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 // set: it reads serverID with GetServer until its Flavor.FlavorID reaches
 // wantFlavorID with Status ACTIVE or STOPPED (settled), or ERROR (failed);
 // any other outcome keeps it polling.
-func (c *Client) waitServerResized(ctx context.Context, op, serverID, wantFlavorID string) (*Server, error) {
+func (c *Client) waitServerResized(ctx context.Context, op, serverID, wantFlavorID string) (result *Server, resultErr error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, op, &result, &resultErr)
 	var server *Server
 	err := poll(ctx, c.now, c.sleep, serverResizeBound,
 		func(ctx context.Context) (bool, error) {

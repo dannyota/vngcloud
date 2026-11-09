@@ -1,9 +1,13 @@
 package compute
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"testing"
+
+	"danny.vn/vngcloud/internal/testutil"
 )
 
 func TestSanitizedServerInstanceFixture(t *testing.T) {
@@ -35,6 +39,9 @@ func TestSanitizedServerInstanceFixture(t *testing.T) {
 			t.Fatalf("expected server items for region fixture %+v", region)
 		}
 		first := region.Items[0]
+		if first.PublicIP != "" {
+			t.Fatal("empty-address fixture derived a public address")
+		}
 		if first.UUID == "" {
 			t.Fatal("expected server UUID field to decode")
 		}
@@ -90,5 +97,19 @@ func TestSanitizedServerStatusesFixtureNotLive(t *testing.T) {
 		if servers[i].Status != want {
 			t.Fatalf("servers[%d].Status = %q, want %q", i, servers[i].Status, want)
 		}
+	}
+}
+
+// The populated fixture is schema-built, not captured live.
+func TestSchemaBuiltServerFloatingIPFixtureThroughSDK(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/server/instance_floating_ip.json")
+	}))
+	out, err := c.GetServer(context.Background(), &GetServerInput{ServerID: "server-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicIPValue(t, out.Server) != "192.0.2.1" || out.Server.InternalInterfaces[0].FloatingIP != "::ffff:192.0.2.1" {
+		t.Fatal("fixture lost derived or original address")
 	}
 }

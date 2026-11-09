@@ -276,7 +276,7 @@ func (c *Client) QuoteCreateServer(ctx context.Context, in *CreateServerInput) (
 	if err != nil {
 		return nil, err
 	}
-	return c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
+	return c.serverQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceServer,
 		Action:       pricing.ActionCreate,
 		ResourceInfo: info,
@@ -340,7 +340,9 @@ type createServerResponse struct {
 // a read returned, falling back to one with only the new UUID and
 // Input.Name if no read ever succeeded. NoWait skips that wait and returns
 // at once with Output.Server holding only the new UUID and Input.Name.
-func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*CreateServerOutput, error) {
+func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *CreateServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.CreateServer", &out, &err)
 	const op = "compute.CreateServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -360,7 +362,7 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*Crea
 		return nil, err
 	}
 
-	quote, err := c.pricing.GetQuote(ctx, &pricing.GetQuoteInput{
+	quote, err := c.serverQuote(ctx, &pricing.GetQuoteInput{
 		ResourceType: pricing.ResourceServer,
 		Action:       pricing.ActionCreate,
 		ResourceInfo: info,
@@ -383,6 +385,7 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*Crea
 	// Code, and WithholdMessage replaces that Message outright, as defense
 	// in depth for whatever form Redact's exact-match scrubbing might miss.
 	userData := in.UserData.Reveal()
+	scope.addSecrets(userData, body.UserData)
 	var redact []string
 	var withhold string
 	if userData != "" {
@@ -406,7 +409,7 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (*Crea
 		// create a second time. A create must never be resent.
 		Once: true,
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	status, err := c.doServerJSONStatus(ctx, req, &resp)
 	if err != nil {
 		return nil, wrapAmbiguousServerCreateErr(op, err)
 	}
@@ -448,6 +451,8 @@ func wrapAmbiguousServerCreateErr(op string, err error) error {
 // and fails closed, refusing the create, when the account's own page
 // metadata cannot prove the walk saw every server.
 func (c *Client) refuseIfServerNameExists(ctx context.Context, op, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, serverReadBound)
+	defer cancel()
 	return core.CheckNoDuplicateName(op, "server", name,
 		func(s Server) string { return s.Name },
 		func(page int) (*core.PagedList[Server], error) {

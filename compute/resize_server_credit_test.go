@@ -104,6 +104,76 @@ func TestResizeServerCreditSuccessSynthetic(t *testing.T) {
 	}
 }
 
+func TestResizeServerCreditPublicIPAndResponseSafetySynthetic(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		noWait     bool
+		status     int
+		reflection bool
+	}{
+		{"settled", false, http.StatusAccepted, false},
+		{"no wait", true, http.StatusAccepted, false},
+		{"uncertain", false, http.StatusBadGateway, false},
+		{"uncertain no wait", true, http.StatusBadGateway, false},
+		{"unsafe retained output", true, http.StatusBadGateway, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gets, puts atomic.Int64
+			c, logs, captures := newServerSecurityClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeServerRequest(t, w, r,
+					func(w http.ResponseWriter, _ *http.Request) {
+						flavor, name := "flavor-1", "web"
+						if gets.Add(1) > 1 {
+							flavor = "flavor-2"
+						}
+						if tc.reflection {
+							name = "synthetic-token-003"
+						}
+						_, _ = fmt.Fprintf(w, `{"data":{"uuid":"server-1","name":%q,"status":"ACTIVE","flavor":{"flavorId":%q},"internalInterfaces":[{"floatingIp":"::ffff:192.0.2.1"}]}}`, name, flavor)
+					},
+					func(w http.ResponseWriter, _ *http.Request) {
+						_, _ = w.Write([]byte(serverResizeCreditSynthetic))
+					},
+					func(w http.ResponseWriter, _ *http.Request) {
+						puts.Add(1)
+						w.WriteHeader(tc.status)
+						_, _ = w.Write([]byte(`{"message":"synthetic-token-001 synthetic-token-003"}`))
+					})
+			}), 3)
+			in := validResizeServerInput()
+			in.NoWait = tc.noWait
+			out, err := c.ResizeServer(context.Background(), in)
+			wantFlavor, wantGets := "flavor-1", int64(1)
+			if !tc.noWait && tc.status == http.StatusAccepted {
+				wantFlavor, wantGets = "flavor-2", 2
+			}
+			if puts.Load() != 1 || gets.Load() != wantGets {
+				t.Fatalf("puts = %d, gets = %d, want 1, %d", puts.Load(), gets.Load(), wantGets)
+			}
+			if tc.reflection {
+				assertNoUnsafeServerOutput(t, out, err)
+			} else if out == nil || out.MonthlyPrice != -180797 || out.Server.PublicIP != "192.0.2.1" || out.Server.Flavor.FlavorID != wantFlavor {
+				t.Fatalf("out = %+v, err = %v, want signed credit and public address", out, err)
+			}
+			if tc.status == http.StatusAccepted {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				var apiErr *vngcloud.APIError
+				if !errors.Is(err, ErrNotSettled) || !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status {
+					t.Fatalf("err = %v, want unsettled resize and original API status", err)
+				}
+			}
+			assertSafeServerCauseTree(t, err, "synthetic-token-001")
+			assertSafeServerCauseTree(t, err, "synthetic-token-003")
+			if strings.Contains(logs.String(), "synthetic-token-") || captures.Load() != 0 {
+				t.Fatal("operation leaked a credential to logs or captures")
+			}
+		})
+	}
+}
+
 func TestResizeServerCreditFailuresSynthetic(t *testing.T) {
 	for _, status := range []int{400, 401, 404, 409, 429, 500, 502, 307, 308, 0} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {

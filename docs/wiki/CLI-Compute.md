@@ -141,6 +141,22 @@ vngcloud compute delete-ssh-key --ssh-key-id <ssh-key-id> --yes
 
 Kind: Read.
 
+PublicIP is the canonical floating address derived from internal interfaces.
+External Interfaces never supply it; empty or ambiguous values do not prove
+that no IP is allocated. Server read and rename responses are limited to
+8 MiB and reject unsafe partial data. Guarded operations suppress response
+captures, track up to 256 credentials, and recheck retained server output.
+CLI JSON adds PublicIP; strict JSON consumers may need updates. Standard Go
+JSON marshaling omits it, and external unkeyed Server literals may need
+updates. See [Public address](Compute-Servers.md#public-address).
+
+Read the bare address with:
+
+```sh
+vngcloud compute get-server --server-id <server-id> \
+  --query Server.PublicIP --output text
+```
+
 | Flag | Type | Required |
 |-|-|-|
 | `--server-id` | `string` | yes |
@@ -352,6 +368,17 @@ vngcloud compute list-server-security-groups
 ## list-servers
 
 Kind: Read.
+
+PublicIP is the canonical floating address derived from internal interfaces.
+External Interfaces never supply it; empty or ambiguous values do not prove
+that no IP is allocated. Server read and rename responses are limited to
+8 MiB and reject unsafe partial data. Guarded operations suppress response
+captures, track up to 256 credentials, and recheck retained server output.
+CLI JSON adds PublicIP; strict JSON consumers may need updates. Standard Go
+JSON marshaling omits it, and external unkeyed Server literals may need
+updates. See [Public address](Compute-Servers.md#public-address).
+
+Select addresses with `--query 'Items[].PublicIP'`.
 
 | Flag | Type | Required |
 |-|-|-|

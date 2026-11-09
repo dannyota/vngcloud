@@ -78,16 +78,18 @@ type StopServerOutput struct {
 
 // StopServer drives ServerID to STOPPED. See StartServer; the two share one
 // implementation with the roles of the current and target status reversed.
-func (c *Client) StopServer(ctx context.Context, in *StopServerInput) (*StopServerOutput, error) {
+func (c *Client) StopServer(ctx context.Context, in *StopServerInput) (out *StopServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.StopServer", &out, &err)
 	const op = "compute.StopServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	out, err := c.toggleServerStatus(ctx, op, in.ServerID, in.NoWait, serverStatusStopped, serverStatusActive, "stop")
-	if out == nil {
+	toggled, err := c.toggleServerStatus(ctx, op, in.ServerID, in.NoWait, serverStatusStopped, serverStatusActive, "stop")
+	if toggled == nil {
 		return nil, err
 	}
-	return &StopServerOutput{Server: out.Server, Changed: out.Changed}, err
+	return &StopServerOutput{Server: toggled.Server, Changed: toggled.Changed}, err
 }
 
 // toggleServerStatus is StartServer and StopServer's shared implementation.
@@ -95,7 +97,9 @@ func (c *Client) StopServer(ctx context.Context, in *StopServerInput) (*StopServ
 // stop); from is the only status the toggle is sent from (STOPPED for
 // start, ACTIVE for stop); action names the PUT's path segment ("start" or
 // "stop").
-func (c *Client) toggleServerStatus(ctx context.Context, op, serverID string, noWait bool, target, from, action string) (*StartServerOutput, error) {
+func (c *Client) toggleServerStatus(ctx context.Context, op, serverID string, noWait bool, target, from, action string) (out *StartServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, op, &out, &err)
 	if err := core.CheckPathID(op, "ServerID", serverID); err != nil {
 		return nil, err
 	}
@@ -122,7 +126,7 @@ func (c *Client) toggleServerStatus(ctx context.Context, op, serverID string, no
 		OK:        []int{202},
 		Once:      true,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := c.doServerJSON(ctx, req, nil); err != nil {
 		if is4xxAPIError(err) {
 			return nil, err
 		}
@@ -168,7 +172,9 @@ type RebootServerOutput struct {
 // the bound running out, or a read or a sleep failing, wraps ErrNotSettled.
 // NoWait returns at once instead, with Output.Server holding the
 // pre-reboot read.
-func (c *Client) RebootServer(ctx context.Context, in *RebootServerInput) (*RebootServerOutput, error) {
+func (c *Client) RebootServer(ctx context.Context, in *RebootServerInput) (out *RebootServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.RebootServer", &out, &err)
 	const op = "compute.RebootServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -197,7 +203,7 @@ func (c *Client) RebootServer(ctx context.Context, in *RebootServerInput) (*Rebo
 		OK:        []int{202},
 		Once:      true,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	if err := c.doServerJSON(ctx, req, nil); err != nil {
 		if is4xxAPIError(err) {
 			return nil, err
 		}
@@ -235,7 +241,9 @@ type RenameServerOutput struct {
 // RenameServer renames a server. Rename is free and keeps the transport's
 // normal PUT retries. The response carries the server directly, so there is
 // no wait.
-func (c *Client) RenameServer(ctx context.Context, in *RenameServerInput) (*RenameServerOutput, error) {
+func (c *Client) RenameServer(ctx context.Context, in *RenameServerInput) (out *RenameServerOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.RenameServer", &out, &err)
 	const op = "compute.RenameServer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -258,7 +266,7 @@ func (c *Client) RenameServer(ctx context.Context, in *RenameServerInput) (*Rena
 		Body:      renameServerBody{NewName: in.Name},
 		OK:        []int{200},
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.doServerJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
 	return &RenameServerOutput{Server: resp.Data}, nil
