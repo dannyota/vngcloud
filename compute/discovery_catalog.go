@@ -98,6 +98,10 @@ func (d *flavorDiscovery) consoleCatalog(project string, zone flavorDiscoveryZon
 			}
 			op = "compute.ListFamilyFlavors"
 			scope := zone.ID + "/" + family.Key + "/" + platform
+			if family.Key == "gpu" {
+				d.note("excluded-family", scope, "GPU family flavors are excluded; GPU reference selection and pricing remain unverified.")
+				continue
+			}
 			err = d.flavors(op, d.client.computeURL("v1", []string{project, "flavors", "families", family.Key, "platforms", platform}, url.Values{"zoneId": {zone.ID}}), "", zone, family.Key, family.Value, platform, "console-family", in)
 			if err != nil {
 				if !d.record(op, scope, err) || d.stop(err) {

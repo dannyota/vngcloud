@@ -125,7 +125,7 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 		}
 	}
 	if len(d.out.Items) == 0 && len(d.errs) == 0 {
-		d.note("unmatched-scope", "compute", "No flavor matches the requested catalog scope and exact filters.")
+		d.note("unmatched-scope", "compute", "No supported flavor matches the requested catalog scope and exact filters.")
 	}
 	if !slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.ZoneEnabled != nil && *row.ZoneEnabled }) {
 		return d.finish()

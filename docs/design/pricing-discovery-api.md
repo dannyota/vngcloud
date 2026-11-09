@@ -151,8 +151,9 @@ GPU has empty `types`. Flavors have no row-to-type join; name segments are
 `standard`, `general`, `highcpu`, `highmem`. Some carry `-n10` without changing
 CPU or memory. No exact, tested name parser exists; preserve returned names.
 
-In HCM03-1C, family/platform reads return plain arrays: code-s2 has 33 flavors,
-code-s has 37, code-a and all GPU platforms are empty. Flavor fields include
+The committed HCM03-1C code-s2 sample has 33 flavors. A manager structural
+diagnostic, with its zone ID withheld, reports 33 code-s2, 39 code-s, 35 code-a,
+and eight `gpu`/`code-g` rows in plain arrays. Flavor fields include
 numeric `cpu`, `memory`, `gpu`, `gpuMemory`, `bandwidth`, `remainingVms`; string
 `flavorId`, `flavorZoneId`, `name`, `group`, `cpuPlatformDescription`,
 `bandwidthUnit`, `metaData`; boolean `isSoldOut`; and array `flavorZones`. In
@@ -163,6 +164,15 @@ not establish GB or GiB. Each row in the committed
 [flavor fixture](../../testdata/compute/discovery_family_flavors.json) has
 JSON-string `metaData` with a nonempty string array `imageTypeSupport`,
 including `Ubuntu`; `Flavor.Metadata` retains the string.
+
+The GPU diagnostic includes `g1-standard-4x16-1rtx2080ti` with CPU 4, memory 16,
+and GPU 1. The
+[synthetic GPU fixture](../../testdata/compute/discovery_gpu_flavors.json) uses
+the reported public names and CPU/memory/GPU counts; IDs, capacity, metadata,
+and other values are invented. This is structural evidence, not a raw capture
+or GPU reference/quote evidence. GPU family scopes are recorded as exclusions
+before flavor reads under the
+[visibility rule](pricing-discovery.md#composition-and-visibility).
 
 Both custom paths return empty arrays in every zone. The product envelope
 contains `errorCode`, `errorMsg`, `extra`, and 69 `flavorZones` entries with
@@ -319,13 +329,13 @@ candidates, null-licence exclusion, and independence from image-zone metadata.
 Test exact support matches; case mismatches, unsupported images, and unusable
 metadata/list shapes must yield unknown rows without quotes.
 
-Only three flavors have quote evidence. Remaining legacy branches, populated
-custom/GPU catalogs, reference selection outside the observed zone, and
-encrypted 24/36-month quotes are unverified. RAM needs a first-party byte
-definition; no price probe proves GiB. Bandwidth tariff and unit, object egress
-conflicts, and negotiated discount or credit eligibility need first-party
-clarification. NAT remains governed by its Hanoi evidence; this scope requires
-no NAT, order, or account-data calls.
+Only three CPU flavors have quote evidence. Remaining legacy branches,
+populated custom catalogs, GPU reference/quote contracts, selection outside the
+observed zone, and encrypted 24/36-month quotes are unverified. RAM needs a
+first-party byte definition; no price probe proves GiB. Bandwidth tariff and
+unit, object egress conflicts, and negotiated discount or credit eligibility
+need first-party clarification. NAT remains governed by its Hanoi evidence;
+this scope requires no NAT, order, or account-data calls.
 
 ## Response security
 

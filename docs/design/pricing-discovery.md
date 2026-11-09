@@ -20,8 +20,8 @@ older billing text saying every quote sends `create`.
 Provisioning, checkout, renewals, promotions, balance and resource inventory,
 and eligibility reads are excluded. This catalog reserves no price or capacity.
 Windows, marketplace licensing, non-vServer GPU services, and negotiated
-contracts are excluded. Returned GPU families remain visible without inferred
-prices. The helpers do not estimate a complete architecture.
+contracts are excluded. Console GPU families are recorded as exclusions without
+flavor rows or prices. The helpers do not estimate a complete architecture.
 
 ## SDK surface
 
@@ -124,6 +124,13 @@ flavor-zone lists, and `flavors/customs`, labelled `custom` or `unclassified`.
 Report known excluded counts and scope. No name blacklist, partner-name
 heuristic, guessed IDs, or privilege bypass. Non-public branches retain the
 [fixture gates](pricing-discovery-api.md#remaining-checks).
+
+For each selected `gpu` family/platform pair, skip the flavor read and add an
+`excluded-family` note scoped to zone/family/platform. GPU reference selection
+and pricing remain unverified; never return or quote GPU rows, even with
+`IncludeNonPublic`. This expected exclusion leaves `Complete=true` when all
+supported reads and quotes succeed. Malformed catalogs that are read still fail
+under the normal error rules. Do not invent row counts for unread catalogs.
 
 Keep distinct `(zone, flavor-zone, flavor-ID, family, platform)` rows;
 deduplicate exact duplicate tuples only. Memoize identical quote bodies within

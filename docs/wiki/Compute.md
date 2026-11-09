@@ -119,9 +119,13 @@ visibility. Family types do not establish a flavor-to-type join. Disabled zones
 remain `inapplicable` without quotes. Sold-out rows remain visible unless
 `AvailableOnly` requests rows that are not sold out and have positive remaining
 VMs. Catalog visibility and remaining VMs promise no sale eligibility or future
-capacity. `IncludeNonPublic` reads product and custom catalogs; populated custom
-and GPU branches remain gated on matching fixtures. Conflicting legacy zone IDs
-fail rather than being reassigned. `ExcludedGroups` remains nil when the product
+capacity. GPU family catalogs are excluded before flavor reads; `Metadata.Notes`
+records each selected zone/family/platform scope with topic `excluded-family`.
+No GPU rows, references, or prices are returned. Expected GPU exclusions keep
+`Complete=true` when supported discovery succeeds. `IncludeNonPublic` reads
+product and custom catalogs but does not enable GPU support. Populated custom
+branches remain gated on matching fixtures. Conflicting legacy zone IDs fail
+rather than being reassigned. `ExcludedGroups` remains nil when the product
 catalog was not read.
 
 `Reference` records a supported unlicensed Ubuntu image and a bounded 3000 IOPS
