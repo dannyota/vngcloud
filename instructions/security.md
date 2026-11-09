@@ -21,7 +21,7 @@ The SDK is standard-library only under [Go](go.md#toolchain-and-package-boundari
 
 ## Tools and scanners
 
-Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.tool-versions) holds tool versions; `go.mod` mirrors the Go pin. Pin Actions by SHA with a version comment. The weekly Tools workflow runs `make tools-outdated` and fails when a pin is behind. Update the pins and the owner's laptop tools in one commit that week.
+Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.tool-versions) holds tool versions; `go.mod` mirrors the Go pin. Pin Actions by SHA with a version comment. The Tools workflow runs `make tools-outdated` weekly and on PRs that touch pins, workflows, or `go.mod`; it fails when any pin is behind, even one the PR does not touch, so bump that pin in the same PR. Update the pins and the owner's laptop tools in one commit that week. GitHub Actions run from a repository allowlist with SHA pinning required; add a new action to the allowlist (`gh api -X PUT repos/dannyota/vngcloud/actions/permissions/selected-actions`) before landing a workflow that uses it.
 
 `govulncheck`, full-history gitleaks, and gosec through golangci-lint run in CI. CodeQL analyzes Go on master pushes, weekly, and on manual dispatch under [workflow triggers](testing.md#workflow-triggers). Its findings alert through GitHub code scanning; CodeQL is outside `CI required` and is not a merge or release gate. Keep the other scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
 

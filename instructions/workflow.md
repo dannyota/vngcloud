@@ -26,6 +26,10 @@ Every worker brief forbids network calls other than those the task's checks need
 
 Codex keeps `.codex/` read-only under `workspace-write`. A worker assigned role-file changes returns a proposed patch in the private scratchpad for the manager to inspect and apply. Do not widen permissions or bypass the sandbox to edit protected files. This procedure applies only to brief-owned changes; reviewers never prepare or apply source fixes.
 
+Give standing answers for routine ambiguity in every brief, for example: pick the safer reading, list the choice in the report, and stop only for a contract change or an edit outside owned paths. Name generous but explicit owned paths; most stops come from a needed file outside them.
+
+When a worker needs live evidence it cannot reach, it writes a read-only diagnostic in the private scratchpad (public SDK, a product-transport allowlist, sanitized stdout) and stops; the manager reads and runs it, then resumes the worker with the output. Diagnostics record unexpected response shapes instead of stopping on them. A diagnostic that needs `internal/` packages or `examples/basic/output/` lives and runs inside a checkout.
+
 Start with `git status --short`; existing changes belong to someone else unless assigned in the brief. Read the named authorities and inspect the code and tests before editing. Stop and report conflicting documents, overlapping ownership, or a missing decision. Do not invent a contract or widen the task.
 
 Reports list exact new, changed, and deleted files; commands run and their results; failed or skipped checks with reasons; and open items. Claim only checks that ran. The manager inspects each diff, confirms its file set matches the report with nothing outside owned paths, and runs required checks before accepting a report or starting dependent work. Worker reports support verification; they do not replace it.
@@ -77,6 +81,8 @@ Only the manager changes Git state. Workers never add, commit, stash, reset, che
 5. Land with `git push origin <head>:master` using the owner's approved admin bypass. Never force-push or delete master, even when bypass permissions would allow it. Delete the completed slice branch after landing. Dependent slices follow release order and this same ancestry and CI gate.
 6. Wait for every applicable master-push validation run on the landed head. Confirm master still names that head and Wiki publication remains disabled. Serialize landings through this check; a failed post-landing run blocks the next slice and tags.
 7. After landing and after any tag, read available reviews and comments on the landed work, including Copilot's, and fix or answer concrete findings. Do not wait for later reviews or block post-landing work because a review-only run is absent, pending, failed, or unavailable. Handle this repository's GitHub notification threads, including read ones, whenever working with GitHub. List threads with `gh api 'notifications?all=true&per_page=100' --paginate` and filter to repository `dannyota/vngcloud`. Each failed-run thread needs its cause fixed or explained, naming the cause. Close each handled thread as done with `gh api -X DELETE notifications/threads/<id>`; HTTP 204 means done. Never use PATCH, which only marks a thread read. `all=true` still lists done threads because the API has no done filter; repeat the listing with `all=false` to check unread work and trust the 204 instead of expecting done threads to disappear. Leave unresolved threads open and touch only this repository's threads.
+
+When two slices change the same files, squash-merge the later branch onto current master, resolve conflicts once (code by an implementer, documents by a designer), split the result into commits by path, and send the resolution to independent review.
 
 Fix red CI forward at once. Tags and feature scope follow [release](release.md).
 

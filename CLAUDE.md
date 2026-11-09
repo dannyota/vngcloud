@@ -31,9 +31,7 @@ Pick each job's model and effort from [routing](AGENTS.md#ai-agent-definitions-a
 Each log header prints `session id: <id>`; resume with that ID to answer a worker's question. Every review starts as a new run, never a resumed author session. Fix confirmation may resume the reviewer's own session, since the reviewer did not write the fixes. A reviewer never fixes the reviewed source. Codex mounts `.codex/` read-only, so role-file changes follow the [scratchpad patch rule](instructions/workflow.md#briefs-and-reports).
 
 - `-o` overwrites `<report-file>`; copy the report before a resume. Briefs end with "Return the complete report as your final message"; the Fable `designer` subagent cannot write report files either.
-- Give standing answers in briefs ("pick the safer reading, list it in the report; stop only for a contract change or an edit outside owned paths"); without them Terra stops once per small question.
 - Parallel jobs: `(scripts/codex-agent.sh ...; echo done > <scratchpad>/logs/<task>.done) &`, then wait with one background until-loop on the `.done` files; a bare `&` gives no completion notice.
-- Live evidence: the worker writes a read-only diagnostic in the scratchpad (public SDK, `replace` to its worktree, product-transport allowlist, sanitized stdout) and stops; the manager reads and runs it, then resumes the worker with the output. Diagnostics record unexpected shapes instead of stopping. Ones that use `internal/` or `examples/basic/output/` live and run inside a checkout.
 
 ## Build-capable code review
 
@@ -58,11 +56,7 @@ Use a private scratchpad directory for briefs, temporary files, review copies, a
 
 - The Bash tool runs zsh: `$var` does not word-split, globs that match nothing abort the command, and a word starting with `=` expands to a command path. `sed` is GNU sed, so `sed -i ''` fails. Write multi-step scripts to the scratchpad and run them with `bash`.
 - Codex sandboxes cannot write the Go module cache, and macOS puts the default `GOCACHE` under `~/Library/Caches`, outside the writable roots. The launcher points `GOCACHE` and `GOLANGCI_LINT_CACHE` at the writable caches; before a Go worker starts, run `go mod download all` in the worktree, then `git restore go.sum`, which the download rewrites.
-- Local tools must match `.tool-versions`; a newer local golangci-lint reports findings CI does not. `Tools` runs on PRs touching pins, workflows, or `go.mod` and fails when any pin is behind, even an unrelated one; bump that pin in the same PR.
+- Local tools must match `.tool-versions`; a newer local golangci-lint reports findings CI does not. [Security](instructions/security.md#tools-and-scanners) owns pin and Actions allowlist rules.
 - Wait on a PID, a file, or a background-task notification, never on `pgrep -f '<pattern>'`, which matches its own command line.
 - Fable can stop mid-run at its usage limit (HTTP 429). Check the worktree for partial edits, then send the same brief to the Codex `designer` role.
 - Playwright MCP writes files only under the repository or `.playwright-mcp/`; it refuses the scratchpad. [Live data](instructions/live-data.md) covers sign-in and captures.
-- Actions run from an allowlist with SHA pinning: add a new action to `repos/dannyota/vngcloud/actions/permissions/selected-actions` (`gh api -X PUT`) before landing a workflow that uses it.
-- `RELEASE_NOTES.md` has the 450-line cap: move the oldest tag range to `docs/release-notes-archive-v0.X9.md`, and write wiki links there as `wiki/...`, not `docs/wiki/...`.
-- Two slices on the same files: `git merge --squash` the later branch onto current master, resolve conflicts once (code by the implementer, docs by the designer), then split commits by path.
-- No `.env` here: sign Playwright in with `make browser-creds PROFILE=default`. For a console API, read the app's own `Authorization` header inside `browser_run_code_unsafe` (`page.on('request')`) and use it there; never return the token.
