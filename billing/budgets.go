@@ -39,6 +39,7 @@ func (c *Client) ListBudgets(ctx context.Context, in *ListBudgetsInput) (*ListBu
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets"}, q),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &budgets); err != nil {
 		return nil, err
@@ -73,6 +74,7 @@ func (c *Client) GetBudget(ctx context.Context, in *GetBudgetInput) (*GetBudgetO
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID}, nil),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &budget); err != nil {
 		return nil, err
@@ -102,6 +104,7 @@ func (c *Client) GetCurrentPeriodCost(ctx context.Context, in *GetCurrentPeriodC
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", "cost", "overview"}, nil),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &cost); err != nil {
 		return nil, err
@@ -134,6 +137,7 @@ func (c *Client) ListBudgetThresholds(ctx context.Context, in *ListBudgetThresho
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "thresholds"}, nil),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &thresholds); err != nil {
 		return nil, err
@@ -173,6 +177,7 @@ func (c *Client) ListBudgetAlerts(ctx context.Context, in *ListBudgetAlertsInput
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "alerts"}, q),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &alerts); err != nil {
 		return nil, err

@@ -114,6 +114,7 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v2", "cost-explorer", "overview"}, q),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
@@ -221,6 +222,7 @@ func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInp
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"gateway", "api", "v2", "cost-explorer", "resources"}, q),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
@@ -281,6 +283,7 @@ func (c *Client) GetBalances(ctx context.Context, in *GetBalancesInput) (*GetBal
 		Method:    http.MethodGet,
 		URL:       c.route([]string{"navbar", "balances", "v1"}, nil),
 		OK:        []int{200},
+		MaxBody:   8 << 20,
 	}
 	if err := c.doBalances(ctx, req, &balances); err != nil {
 		return nil, err
