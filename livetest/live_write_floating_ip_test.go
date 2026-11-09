@@ -69,12 +69,7 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 	if cfg.Region() != "hcm-3" || !core.ClientOf(cfg).UsesIAMUserLogin() {
 		t.Fatal("requires IAM user login in hcm-3")
 	}
-	r := &floatingIPRun{
-		t: t, compute: compute.New(cfg), network: network.New(cfg), volume: volume.New(cfg),
-		billing: billing.New(cfg), guard: guard, capture: capture, name: name,
-		ledger: &floatingIPLedger{ids: map[string]string{}, seen: map[string]map[string]bool{}, baseline: map[string]map[string]bool{}, attempted: map[string]bool{}},
-	}
-	capture.observe = r.observe
+	r := newFloatingIPRun(t, cfg, guard, capture, name)
 	before := r.balance(ctx)
 	t.Cleanup(func() {
 		cleanupDeadline := time.Now().Add(10 * time.Minute)
@@ -109,62 +104,83 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 		r.ledger.blocked = true
 		t.Fatal("pre-order capture failed; cleanup needs reconciliation")
 	}
+	if err := r.purchase(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	r.checkDebit(ctx, before)
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	if err := r.waitForConsoleRelease(ctx, ticker.C); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newFloatingIPRun(t *testing.T, cfg vngcloud.Config, guard *floatingIPTransport, capture *floatingIPCapture, name string) *floatingIPRun {
+	return &floatingIPRun{
+		t: t, compute: compute.New(cfg), network: network.New(cfg), volume: volume.New(cfg),
+		billing: billing.New(cfg), guard: guard, capture: capture, name: name,
+		ledger: &floatingIPLedger{ids: map[string]string{}, seen: map[string]map[string]bool{}, baseline: map[string]map[string]bool{}, attempted: map[string]bool{}},
+	}
+}
+
+func (r *floatingIPRun) purchase(ctx context.Context, input *compute.CreateServerInput) error {
 	r.serverAttempted = true
 	for _, kind := range []string{"server", "volume", "floating IP"} {
 		r.ledger.attempted[kind] = true
 	}
-	guard.arm(http.MethodPost, "/servers")
+	r.guard.arm(http.MethodPost, "/servers")
 	created, createErr := r.compute.CreateServer(ctx, input)
-	guard.disarm()
+	r.guard.disarm()
 	if created != nil {
 		r.rememberServer(created.Server)
+		if err := r.capture.saveSDK("compute.CreateServer", created); err != nil {
+			return err
+		}
 	}
 	if createErr != nil || created == nil || r.ledger.blocked {
 		r.ledger.blocked = true
-		t.Fatal("server create failed or is uncertain; do not repeat the order")
+		return errors.New("server create failed or is uncertain; do not repeat the order")
 	}
 	if !floatingIPPriceOK(created.MonthlyPrice) || created.MonthlyPrice > input.MaxPrice {
 		r.ledger.blocked = true
-		t.Fatal("server estimate failed the approved price guard")
+		return errors.New("server estimate failed the approved price guard")
 	}
-	read, err := r.compute.GetServer(ctx, &compute.GetServerInput{ServerID: r.ledger.ids["server"]})
-	if read != nil {
-		r.rememberServer(read.Server)
-	}
+	read, err := r.getServer(ctx, r.ledger.ids["server"])
 	if err != nil || read == nil || r.ledger.blocked {
-		t.Fatal("created-server read or ownership confirmation failed")
+		return errors.New("created-server read or ownership confirmation failed")
 	}
 	s := read.Server
 	rows, err := r.wan(ctx)
-	if err != nil || s.Status != "ACTIVE" || s.Name != name || r.ledger.ids["volume"] == "" ||
-		!floatingIPLinked(s, rows, r.ledger.ids["floating IP"], r.interfaceID, input.VPCID, input.SubnetID) || capture.failed ||
-		capture.saved["compute.CreateServer"] == 0 || capture.saved["compute.GetServer"] == 0 || capture.saved["network.ListWANIPs"] == 0 {
+	if err != nil || s.Status != "ACTIVE" || s.Name != r.name || r.ledger.ids["volume"] == "" ||
+		!floatingIPLinked(s, rows, r.ledger.ids["floating IP"], r.interfaceID, input.VPCID, input.SubnetID) || r.capture.failed ||
+		r.capture.decoded["compute.CreateServer"] == 0 || r.capture.decoded["compute.GetServer"] == 0 || r.capture.saved["network.ListWANIPs"] == 0 {
 		r.ledger.blocked = true
-		t.Fatal("server/WAN linkage or raw capture failed; manager reconciliation required")
+		return errors.New("server/WAN linkage or private evidence failed; manager reconciliation required")
 	}
-	t.Log("step 2: server/WAN linkage passed")
-	r.checkDebit(ctx, before)
+	r.t.Log("step 2: server/WAN linkage passed")
+	return nil
+}
 
-	t.Log("Release the run-owned floating IP in the console now; this test waits for its absence.")
+func (r *floatingIPRun) waitForConsoleRelease(ctx context.Context, ticks <-chan time.Time) error {
+	r.t.Log("Release the run-owned floating IP in the console now; this test waits for its absence.")
 	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer waitCancel()
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-waitCtx.Done():
-			t.Fatal("console release timed out or was canceled; server deletion refused")
-		case <-ticker.C:
+			return errors.New("console release timed out or was canceled; server deletion refused")
+		case <-ticks:
 		}
 		rows, err := r.wan(waitCtx)
-		if err != nil || capture.failed {
-			t.Fatal("console release inventory failed; server deletion refused")
+		if err != nil || r.capture.failed {
+			return errors.New("console release inventory failed; server deletion refused")
 		}
 		if !slices.ContainsFunc(rows, func(row network.WANIP) bool { return row.UUID == r.ledger.ids["floating IP"] }) {
 			r.released = true
 			delete(r.ledger.ids, "floating IP")
-			t.Log("console release: absence passed")
-			break
+			r.t.Log("console release: absence passed")
+			return nil
 		}
 	}
 }
@@ -239,6 +255,9 @@ func (l *floatingIPLedger) clean(ctx context.Context, steps []floatingIPCleanupS
 		return false
 	}
 	for _, step := range steps {
+		if l.blocked {
+			return false
+		}
 		if id := l.ids[step.kind]; id != "" {
 			if ctx.Err() != nil || step.remove(ctx, id) != nil {
 				l.blocked = true
@@ -249,7 +268,7 @@ func (l *floatingIPLedger) clean(ctx context.Context, steps []floatingIPCleanupS
 			delete(l.attempted, step.kind)
 		}
 	}
-	return true
+	return !l.blocked
 }
 
 // The permit is consumed before sending, including a failed dial or redirect.
@@ -297,16 +316,13 @@ type floatingIPCapture struct {
 	failed      bool
 	wanComplete bool
 	saved       map[string]int
-	observe     func(vngcloud.ResponseCapture)
+	decoded     map[string]int
 }
 
 func (c *floatingIPCapture) hook(response vngcloud.ResponseCapture) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.count++
-	if c.observe != nil {
-		c.observe(response)
-	}
 	if response.Operation == "network.ListWANIPs" {
 		var page struct {
 			Rows  json.RawMessage `json:"listData"`
@@ -342,6 +358,31 @@ func (c *floatingIPCapture) hook(response vngcloud.ResponseCapture) {
 	}
 }
 
+// Sensitive SDK operations suppress raw captures. Keep their safe returned
+// models separate from raw evidence; neither file format establishes ownership.
+func (c *floatingIPCapture) saveSDK(operation string, output any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+	data, err := json.Marshal(struct {
+		Operation string `json:"operation"`
+		SDK       any    `json:"sdk"`
+	}{operation, output})
+	if err == nil {
+		path := filepath.Join(c.dir, fmt.Sprintf("%04d-%s-sdk.json", c.count, operation))
+		err = os.WriteFile(path, data, 0o600)
+	}
+	if err != nil {
+		c.failed = true
+		return errors.New("private decoded SDK output save failed")
+	}
+	if c.decoded == nil {
+		c.decoded = map[string]int{}
+	}
+	c.decoded[operation]++
+	return nil
+}
+
 type floatingIPRun struct {
 	t                 *testing.T
 	compute           *compute.Client
@@ -357,43 +398,12 @@ type floatingIPRun struct {
 	vpcs              []network.VPC
 }
 
-// Capture accepted IDs before the SDK starts its create wait. Inventory
-// responses never supply ownership, and error responses never authorize it.
-func (r *floatingIPRun) observe(response vngcloud.ResponseCapture) {
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return
+func (r *floatingIPRun) getServer(ctx context.Context, id string) (*compute.GetServerOutput, error) {
+	out, err := r.compute.GetServer(ctx, &compute.GetServerInput{ServerID: id})
+	if out != nil {
+		r.rememberServer(out.Server)
 	}
-	var created struct {
-		Data struct {
-			ID   json.RawMessage `json:"id"`
-			UUID string          `json:"uuid"`
-		} `json:"data"`
-	}
-	switch response.Operation {
-	case "network.CreateVPC", "network.CreateSubnet", "network.CreateSecurityGroup", "compute.ImportSSHKey", "compute.CreateServer":
-		if json.Unmarshal(response.Body, &created) != nil {
-			return
-		}
-		kind := map[string]string{
-			"network.CreateVPC": "vpc", "network.CreateSubnet": "subnet", "network.CreateSecurityGroup": "group",
-			"compute.ImportSSHKey": "key", "compute.CreateServer": "server",
-		}[response.Operation]
-		id := created.Data.UUID
-		if kind == "vpc" || kind == "key" {
-			if json.Unmarshal(created.Data.ID, &id) != nil {
-				return
-			}
-		}
-		r.ledger.remember(kind, id)
-	case "compute.GetServer":
-		var read struct {
-			Data compute.Server `json:"data"`
-		}
-		if r.serverAttempted && json.Unmarshal(response.Body, &read) == nil &&
-			read.Data.UUID != "" && read.Data.UUID == r.ledger.ids["server"] {
-			r.rememberServer(read.Data)
-		}
-	}
+	return out, errors.Join(err, r.capture.saveSDK("compute.GetServer", out))
 }
 
 func (r *floatingIPRun) quote(ctx context.Context, input *compute.CreateServerInput) {
@@ -864,7 +874,7 @@ func (r *floatingIPRun) deleteServer(ctx context.Context, id string) error {
 			return errors.New("unexpected server volume; ownership uncertain")
 		}
 	}
-	read, err := r.compute.GetServer(ctx, &compute.GetServerInput{ServerID: id})
+	read, err := r.getServer(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -879,6 +889,8 @@ func (r *floatingIPRun) deleteServer(ctx context.Context, id string) error {
 	}
 	r.guard.arm(http.MethodDelete, "/servers/"+id)
 	defer r.guard.disarm()
+	// The SDK reads GetServer again before DELETE. State can change between
+	// our pre-delete check, that SDK read, and DELETE; this window is accepted.
 	deleted, err := r.compute.DeleteServer(ctx, &compute.DeleteServerInput{ServerID: id, DeleteVolumes: false})
 	if deleted != nil {
 		for _, volumeID := range append(slices.Clone(deleted.KeptVolumeIDs), deleted.DeletedVolumeIDs...) {
@@ -891,7 +903,7 @@ func (r *floatingIPRun) deleteServer(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.compute.GetServer(ctx, &compute.GetServerInput{ServerID: id})
+	_, err = r.getServer(ctx, id)
 	return floatingIPAbsent(err)
 }
 
