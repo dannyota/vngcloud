@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.93.0 - Server public address
+
+- Server reads (`compute get-server`, `list-servers`,
+  `network list-servers-by-security-group`, and every write that returns
+  a server) now show `PublicIP`: the server's floating IP, taken from its
+  internal interfaces, so `--query Server.PublicIP --output text` answers
+  "what is this server's public address" in one command. It is empty when
+  the server has no valid public floating address; an empty value does not
+  prove that no IP is allocated.
+- Compatibility: `compute.Server` gains the `PublicIP` field, which breaks
+  unkeyed `compute.Server{...}` literals, and CLI JSON for servers gains a
+  `PublicIP` key. The SDK's own JSON encoding of `Server` is unchanged
+  (`json:"-"`).
+- Server responses are bounded at 8 MiB, and server reads and writes
+  refuse a response that echoes a credential the operation sent, without
+  returning the response. Redacted errors keep their identity for
+  `errors.Is`, and expose `*APIError` through `errors.As` only when it
+  holds no credential.
+- The response scanner shared with NAT reads now fails closed on JSON it
+  cannot scan completely.
+
 ## v0.92.0 - Resize quote credits
 
 - `compute quote-resize-server` (SDK `QuoteResizeServer`) and
