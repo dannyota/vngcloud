@@ -1,218 +1,383 @@
 # Billing history: API evidence and checks
 
-Evidence for [billing history](billing-history.md); the design owns the
-rules. Each statement is marked as a published contract, console evidence
-(sanitized raw responses captured from the GreenNode console signed in as
-the IAM user), inference, or missing. Nothing below is live-verified
-through the SDK yet.
+[Billing history](billing-history.md) owns public types, limits, decisions,
+and release order. No new method is implemented. Console evidence below
+comes from the manager's sanitized shape summary, not raw-response files.
+It establishes observations, not fixture provenance or a published schema.
+No SDK-token probe has run for these endpoints.
 
 ## Sources
 
-| Source | Kind | Establishes |
-|-|-|-|
-| [Credit history page guide][credit-doc] | Published | Records every credit wallet balance change; filters by day and by description keyword; three actions: Deposit balance, Refund balance, Buy resource; columns Date, Action, Description, Amount, Balance (balance after the action); PDF export |
-| [Payment history page guide][payment-doc] | Published | Columns Transaction ID, Payment type, Payment gateway, Payment date, Details, Amount (VND); gateways Momo, ZaloPay, credit balance; payment types Payment service, Payment bill, Buy Bandwidth, Deposit, Deposit Trial, Advanced; filters by day, gateway, and keyword |
-| [vConsole guide][vconsole-doc] | Published | Page URLs `/credit-history` and `/payment-history` on `dashboard.console.greennode.ai` |
-| [Payment overview][payment-overview] | Published | Payment history records the amount at payment time for several resources; a prepaid payment appears there at once |
-| [Product updates 2026][vat] | Published | From 1 March 2026 wallet credits are displayed and deducted pre-VAT; top-up credits equal the amount divided by 110 percent; before that date amounts included VAT |
-| Console capture, credit history | Console evidence | Request shape, envelope, paging block, and row fields below |
-| Console capture, payment history | Console evidence | Same for payments |
-| [Billing design](billing.md#shared-rules) | Existing contract | Envelope, `Billing` endpoint, money and date rules, IAM User 403 on `/v1/credits` |
+- Published: [payment overview][payment-overview] says a payment can cover
+  multiple resources and distinguishes payment history from invoice
+  history. It does not specify these gateway endpoints or row types.
+- Published: [wallet display rules][vat] describe pre-VAT credit display,
+  top-up conversion, and deductions. They do not establish whether these
+  APIs normalize older history. Preserve reported values without conversion.
+- Unverified source claims: the Vietnamese [credit guide][credit-doc] and
+  [payment guide][payment-doc] could not be retrieved for this check. The
+  claimed action names, filters, gateway names, and six payment type labels
+  must not serve as wire-contract evidence. No numeric mapping depends on
+  those labels being published.
+- Console observation: authenticated GETs to transactions and payments on
+  the Billing host succeeded using the IAM user's bearer token. An
+  unauthenticated transactions fetch returned 401; the supplied summary
+  does not establish a separate unauthenticated payments result.
+- Console observation: fields and example enum values below. Account
+  counts, amounts, dates, identifiers, and private capture paths are omitted.
+  The summary reports two balance checkpoints, not every adjacent ledger
+  equation. Raw responses and full reconciliation remain missing.
+- Existing contract: [billing](billing.md#shared-rules) owns envelope and
+  monetary conventions; [billing endpoints](billing.md#endpoints) owns the
+  global Billing base and account scope. Cost explorer has a different
+  pagination shape and provides no history paging evidence.
 
-[credit-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-tin-dung
-[payment-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-thanh-toan
-[vconsole-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole
 [payment-overview]: https://docs.greennode.ai/billing-management/experience-with-billing-and-payment/payment
 [vat]: https://docs.greennode.ai/overview/product-updates-all/2026
-
-The published guides are in Vietnamese; the English payment overview does
-not describe the credit history page. No published document names the
-gateway paths, the field names, or the numeric codes.
+[credit-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-tin-dung
+[payment-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-thanh-toan
 
 ## Requests
 
-Both reads are `GET` on the `Billing` host, the same host the budgets API
-uses, with the bearer token in `Authorization`. A request without the
-header returned 401 in the console. No body, no project ID, no region.
+Both operations send GET with no body, project ID, region parameter,
+keyword filter, or payment gateway filter. Authentication comes from the
+configured shared SDK client, never from an Input field.
 
-| Operation | Path and query (console evidence) |
+| Operation | Path under `Billing` |
 |-|-|
-| `ListTransactions` | `gateway/api/v1/transactions?pageNumber=1&pageSize=10&dateStart=01/09/2026&dateEnd=10/11/2026` |
-| `ListPayments` | `gateway/api/v1/payments?pageNumber=1&pageSize=10&dateStart=01/09/2026&dateEnd=10/11/2026` |
+| `ListTransactions` | `gateway/api/v1/transactions` |
+| `ListPayments` | `gateway/api/v1/payments` |
 
-- `pageNumber` is 1-based (console evidence: the first page is 1).
-- `dateStart` and `dateEnd` are `DD/MM/YYYY`. The SDK converts from the
-  public `YYYY-MM-DD` after `core.CheckDate`.
-- The console filters by description keyword and, for payments, by gateway.
-  Their query parameters were not captured; the SDK sends neither. Missing.
-- Whether `dateStart` or `dateEnd` may be omitted, whether the bounds are
-  inclusive, which day the server uses, the default and maximum `pageSize`,
-  and the response to a `pageNumber` past the last page are missing; see
-  [open evidence](#open-evidence).
+Observed query keys: `pageNumber=1`, `pageSize=10`, `dateStart`, `dateEnd`.
+Date strings use `DD/MM/YYYY`; encode slashes through `url.Values`, not
+string concatenation. Public inputs use `YYYY-MM-DD`. The captured first
+page request is 1-based; response numbering, later pages, ordering,
+server defaults, maxima, omission semantics, and date inclusivity are
+unverified. A returned UTC timestamp does not establish UTC filtering.
+
+History requests set `OK: []int{200}`, `MaxBody: 8 << 20`,
+`NoRedirect: true`, and a fixed `WithholdMessage`. Retain sent credentials
+across retries for sanitation. Use a scoped history helper calling the
+shared core client's `DoJSONStatus` with its own credential collector and
+presence-aware envelope decoding. Billing's `doRaw` classifies budget
+messages, `do` accepts empty bodies, and `finishEnvelope` ignores
+`WithholdMessage`. Those defaults are unsuitable for history. Do not weaken
+or silently change existing billing methods.
+
+No new wait or application retry loop exists. Shared GET retries cover
+network failures and HTTP 429/502/503/504, not every 5xx; one 401 recovery
+may refresh authentication. With retry count R, the SDK send loops permit
+at most `2*(R+1)` attempts per page, excluding authentication requests and
+Go's internal connection replay. Defaults use R=3; a sleep is at most 30
+seconds. The design's whole-operation deadline also bounds this activity.
+Use caller cancellation throughout and never retry the complete walk.
 
 ## Response envelope and paging
 
-Console evidence, both endpoints:
+Observed structure, with types rather than invented captured values:
 
-```json
-{"code":200,"message":"Success","data":{
-  "content":[...],
-  "pageable":{"totalPages":3,"totalElements":25,"size":10,"number":1}}}
+```text
+code: number, message: string, data: object
+  content: array of row objects
+  pageable: object
+    totalPages: integer
+    totalElements: integer
+    size: integer
+    number: integer
 ```
 
-`code` and `message` follow the
-[billing envelope](billing.md#response-envelope). `content` holds the rows.
-`pageable.number` was 1 on the first page in the
-capture, which suggests it echoes the 1-based `pageNumber`; the SDK confirms
-the base with the verification call before returning `Page`. The example
-counts above are the shape only; the account's real counts stay private.
+The manager's summary gives no actual `pageable.number` value. Do not claim
+that the first response number is 1 or 0 until the probe compares pages.
+There is no published or raw evidence of a stable sort or snapshot token.
+
+For history, HTTP 200 must contain a `code` key, a non-null `data` object,
+a non-null `content` array, and all four non-null integer metadata fields.
+Preserve accepted envelope code representations (numeric, numeric string,
+and null); envelope failures use [error rules](#error-statuses). Empty
+body, missing envelope, or missing data is `InvalidResponse`, not an empty
+wallet. Unknown JSON fields are allowed and retained in raw fixtures.
+
+Use presence-aware private wire structs so zero and false cannot mask
+missing/null fields. Require positive returned size no larger than the
+requested size, nonnegative totals, and the verified response number for
+the requested page. A silently clamped positive size is usable; freeze it
+for the walk and compute page counts from it. Reject inconsistent counts,
+more rows than size, duplicate IDs within a page, and integer overflow.
+A single page can advertise more than 100 pages; only `All` rejects a
+well-formed total exceeding its walk bound.
+
+The empty and beyond-last-page metadata rules are unresolved. Record the
+observed exact forms here before implementing their normalization. Never
+accept a null/missing `content` as empty by default. If real empty responses
+use null, return for an explicit contract update and independent review.
 
 ## Transaction row
 
-Console evidence, over one hundred rows across one month. Inference
-is marked.
+Observed shapes; numeric code meaning remains an inference from text and
+direction, not a published enum:
 
-| Wire field | Type | Evidence | SDK field |
-|-|-|-|-|
-| `transactionID` | int | Transaction number | `ID` |
-| `transactionType` | int | 1 on rows described as buying credits, 2 on rows starting `[REFUND]`, 5 on rows starting `[CREATE]`, `[RENEW]`, `[RESIZE]`, or `[RECOVER]`. Mapping 1 = Deposit balance, 2 = Refund balance, 5 = Buy resource is inference from those descriptions and the three published actions | `TypeCode`, `Type` |
-| `transactionValue` | float | VND, never negative in the capture | `Amount` |
-| `cumulativeValue` | float | Wallet balance after the row; the capture reconciled across the month | `Balance` |
-| `creditStatus` | bool | True on type 1 and 2 rows, false on type 5 rows | `Direction` |
-| `sourceReference` | string | A payment or bill number as a string | `SourceReference` |
-| `description` | string | Free text with resource product, type, name, ID, and period | `Description` |
-| `createTimeStamp` | string | ISO 8601 with offset, such as `2026-01-15T07:00:00.000+00:00` | `CreatedAt` |
-| `userServiceReference` | null | Null in every row; type unknown | Omitted |
-| `invoiceId` | null | Null in every row; type unknown | Omitted |
+| Wire field | Observed type | SDK field |
+|-|-|-|
+| `transactionID` | integer | `ID int64` |
+| `transactionType` | integer | `TypeCode int`, derived `Type` |
+| `creditStatus` | boolean | Derived `Direction` |
+| `transactionValue` | number, nonnegative in sample | `Amount float64` |
+| `cumulativeValue` | number | `Balance float64` |
+| `sourceReference` | string | `SourceReference string` |
+| `description` | string | `Description string` |
+| `createTimeStamp` | string with UTC offset | `CreatedAt string` |
+| `userServiceReference`, `invoiceId` | null | Unmodeled |
 
-Codes 3 and 4 never appeared. The SDK decodes any other code with an empty
-`Type`; `GetSpend` reports such rows under `Other` and in `ByType`.
+All modeled fields must be present and non-null, with the observed JSON
+type. Require positive IDs, finite amounts/balances, nonnegative amounts,
+and a parseable offset-bearing timestamp. Empty description/reference is
+allowed. Raw numeric codes survive; no string-to-number coercion applies.
+Codes 1 and 2 were credits; code 5 was a debit. Descriptions associate them
+with credit purchase, refund, and resource charge respectively. Preserve
+`TypeCode` even after deriving names; unknown codes have empty `Type`.
+
+The summary identifies `[CREATE]`, `[RENEW]`, `[RESIZE]`, `[RECOVER]`, and
+`[REFUND]` tags and describes resource names/IDs inside free text. It does
+not supply full sanitized raw rows pinning a grammar. Never parse those
+fragments for resource grouping. No evidence establishes monotonic IDs
+within identical timestamps, negative amounts, or null balances.
 
 ## Payment row
 
-Console evidence, several dozen rows in the same range.
+| Wire field | Observed type/value | SDK field |
+|-|-|-|
+| `paymentID` | integer | `ID int64` |
+| `transactionID` | identifier string | `TransactionID string` |
+| `payGate` | string, `use_balance` | `Gateway string` |
+| `paymentStatus` | string, `"1"`; meaning unknown | `Status string` |
+| `paymentAmount` | number | `Amount float64` |
+| `paymentType` | integer, `8084`; meaning unknown | `TypeCode int` |
+| `description` | string | `Description string` |
+| `createTimeStamp` | string; exact syntax missing | `CreatedAt string` |
 
-| Wire field | Type | Evidence | SDK field |
-|-|-|-|-|
-| `paymentID` | int | Payment number | `ID` |
-| `transactionID` | string | Identifier text; sensitive | `TransactionID` |
-| `payGate` | string | `use_balance` on every sampled row | `Gateway` |
-| `paymentStatus` | string | `"1"` on every sampled row; meaning unverified | `Status` |
-| `paymentAmount` | float | VND | `Amount` |
-| `paymentType` | int | `8084` on the sampled rows; the published payment type names have no observed code | `TypeCode` |
-| `description` | string | Free text | `Description` |
-| `createTimeStamp` | string | Timestamp | `CreatedAt` |
-| `payGateTransactionID`, `payGateName`, `bankCode`, `bankName`, `merchantCode`, `actualAmount`, `paymentRefID`, `paymentOptions`, `executorID`, `executorName` | null | Null in the sample | Omitted |
+Require modeled fields with their observed types, positive ID, and finite
+nonnegative amount. The timestamp parser requires an offset-bearing value;
+its exact raw form is a probe gate. Unknown gateway/status/type values stay
+raw. Do not assign names from the unverified guide labels.
 
-A payment paid from the wallet also appears as a type 5 transaction; the
-capture did not join the two by reference, so the SDK does not claim that
-`Payment.TransactionID` equals a `Transaction.SourceReference`. Missing.
+The following were null and remain unmodeled: `payGateTransactionID`,
+`payGateName`, `bankCode`, `bankName`, `merchantCode`, `actualAmount`,
+`paymentRefID`, `paymentOptions`, `executorID`, `executorName`. The summary
+does not establish that a payment row joins a wallet row. Do not assert
+reference equality or use payments to reconcile wallet spending.
 
 ## Error statuses
 
-| Status | Evidence | SDK result |
-|-|-|-|
-| 401 without a token | Console evidence (browser fetch) | Transport refreshes once; then `ErrAuth`, code `Unauthorized` |
-| 403 | Missing for these paths; `/v1/credits` returned 403 to the IAM User | `ErrPermission`, code `Forbidden`, exit 1 |
-| 400 on a bad date or size | Missing | `*APIError` with the server's code, exit 1 |
-| 2xx with envelope `code` outside 200 to 299 | Not observed; existing billing rule | `*APIError` with that code |
-| 429, 5xx | Not observed | Transport read retry policy, then `*APIError` |
+No published status table exists for these paths. Only the transactions
+unauthenticated 401 is observed. Other rows below specify deterministic
+handling under the existing transport contract, not captured behavior.
 
-The verification call records each status it meets; fixtures pin them.
-A date the server rejects is expected to be a 400, but the SDK checks the
-public format first, so a malformed date never reaches the server.
+| Case | History result; CLI exit |
+|-|-|
+| Local input validation | Wrap `ErrInvalidInput`; 2, zero requests |
+| HTTP 400 | `APIError`, status-derived `BadRequest`; 1 |
+| HTTP 401 after recovery | `APIError`, `ErrAuth`, `Unauthorized`; 3 |
+| HTTP 403 | `APIError`, `ErrPermission`, `Forbidden`; 1 |
+| HTTP 404 | `APIError`, `ErrNotFound`, `NotFound`; 1 |
+| HTTP 429 exhausted | `APIError`, `ErrRateLimited`, `Throttled`; 1 |
+| HTTP 500/502/503/504 exhausted | `APIError`, `ServerError`; 1 |
+| Unexpected 2xx or any 3xx | `APIError`, `InvalidResponse`; 1 |
+| Other 4xx/5xx | `APIError`, safe status-derived code; 1 |
+| HTTP 200, failing numeric envelope code | `APIError`, decimal code; 1 |
+| Unsupported envelope code or malformed data | `InvalidResponse`; 1 |
+| Walk bound or changed coverage | `ErrHistoryIncomplete`; 1 |
+| Context canceled/deadline | Preserve context identity; 1 |
+
+Preserve HTTP status, Operation, safe cause chain, and transport Retryable.
+History withholds peer messages and arbitrary peer codes, including budget
+not-found text. Numeric failing envelope codes do not become HTTP status
+sentinels: an HTTP 200 envelope code 403 remains status 200, code `403`.
+Never turn an envelope failure into a successful empty output.
+
+For 2xx body overflow, return `*vngcloud.APIError` with
+`Code: "InvalidResponse"`, fixed text, observed status, and underlying
+`transport.ErrBodyTooLarge`. That internal sentinel is testable internally;
+public callers use `errors.As` and `Code`. Oversized HTTP 4xx/5xx bodies
+retain status-based identity per `DoJSONStatus`; do not claim they wrap the
+size sentinel. Malformed JSON uses `SanitizeDecodeError`, preserving safe
+JSON error types for `errors.As` without original values or exported fields.
+`errors.Is` must preserve context cancellation/deadline errors. All failures
+return nil Output and print no report on stdout.
 
 ## Free verification call
 
-Read-only, free, manager-run, before implementation of the list reads.
-The SDK has no public raw request, so the manager runs a throwaway program
-under a git-ignored path inside the module that uses the shared transport
-with the IAM user profile, as [live data](../../instructions/live-data.md)
-allows for throwaway live programs, and deletes it afterwards. Raw bodies go
-under `examples/basic/output/raw/billing/`; nothing from them enters chat.
-Each request below is one `GET`; record status, envelope code, `pageable`,
-and row count only.
+This is a manager-run read-only probe specification, not authorization or
+an existing executable. It requires an explicitly approved account/profile
+and run. No worker reads credentials or makes these calls. No purchases,
+policy changes, activation, synthetic transactions, or resource cleanup are
+permitted to obtain witnesses. Only temporary probe files are removed.
 
-| Step | Request | Settles |
-|-|-|-|
-| 1 | `transactions?pageNumber=1&pageSize=10&dateStart=<30 days ago>&dateEnd=<tomorrow>` | IAM-user access with the SDK's token; baseline rows |
-| 2 | Same with `pageSize=100`, then `pageSize=500` | Default and cap; `pageable.size` echo or a 400 |
-| 3 | Same as 1 without `dateEnd`, then without both dates | Whether dates may be omitted |
-| 4 | `dateStart` and `dateEnd` both set to the date of a known row | Inclusive bounds and the server's day |
-| 5 | `pageNumber=0`, then `pageNumber` past the last page | 1-based confirmation and the empty-page shape |
-| 6 | `payments` for steps 1 and 3 | Same facts for payments; any other `payGate` or `paymentType` value |
-| 7 | Steps 1 and 6 with the service-account profile | Service-account access or 403 |
+### Runner and bounds
 
-Step 4 also decides the "through today" rule in
-[dates](billing-history.md#dates). The results are recorded here, replacing
-the missing marks, and in the implementation plan.
+The manager prepares a temporary Go program under an already git-ignored
+path inside the module, with no public SDK bypass added to the CLI. Load
+`vngcloud.LoadConfig(ctx, vngcloud.WithProfile("default"),
+vngcloud.WithRegion("hcm-3"), vngcloud.WithRetry(0, 0))`; `default` is the
+captured IAM-user profile and region is only a Config requirement. Confirm
+this explicit profile is the approved identity; if not, substitute the
+approved IAM-user profile as a recorded runner argument. Never print its
+contents, copy a token, or inspect `.env`. Use no endpoint overrides,
+custom transports, debug logger, or response-capture hook.
+
+Use `core.ClientOf(cfg).RouteURL` with `routes.ProductBilling` and the path
+segments above, then `core.ClientOf(cfg).DoRaw`. Set GET, `Once=true`,
+`NoRedirect=true`, `MaxBody=8<<20`, and fixed withheld error text. This
+allows shared token acquisition but no application resend on 401. Record a
+401 as a failure; do not silently refresh into a positive probe result.
+One request has a 20-second context; the run has a ten-minute context and
+at most 64 history GETs, serially, with no reruns. Stop at the first 401,
+403, 429, 5xx, redirect, malformed body, size overflow, or deadline. Expected
+400s on exploratory size/date/page variants are recorded without retries.
+
+Write each raw body with its observed status under private
+`examples/basic/output/raw/billing/`, wrapped under `body` per live-data
+rules. Use mode 0600 files and a private directory; never overwrite a
+capture. Save request parameters and per-step results privately without
+headers. Print only step labels and pass/fail, never IDs, values, bodies,
+errors, or private paths. The summary is not a fixture. Remove the temporary
+program after the run; captures remain private for manager sanitation.
+
+### Exact request sequence
+
+Freeze `N = time.Now().UTC()` once. Let D be N's UTC calendar date,
+S = D minus 90 calendar days, E = D plus 2 calendar days. Format all probe
+query dates with `02/01/2006`. These broad exploratory bounds deliberately
+make no claim about the eventual public date contract.
+
+Run the following for transactions, then independently for payments:
+
+1. GET page 1, size 10, start S, end E. Require HTTP/envelope success and
+   record required field presence/types, metadata, and timestamp syntax.
+2. Repeat page 1 at size 100 then 500, holding dates fixed. Candidate C
+   qualifies only with HTTP/envelope success, `pageable.size == C`, coherent
+   metadata, and all rows decodable. A 400 or clamped size does not qualify.
+   Choose the largest qualifying candidate from 10, 100, 500. This proves
+   the SDK cap, never the upstream maximum. If none qualifies, keep gated.
+3. Using size 10 and S/E, request page 2, page 0, and page P+1, where P is
+   the baseline `totalPages`. Page 2 must be nonempty to prove the response
+   number base and distinct IDs. Record exact page-0 and beyond-end forms,
+   including 400 if returned. Do not assume an empty wallet proves paging.
+4. With page 1 and size 10, omit only `dateEnd`, then omit both dates.
+   Record success/error and private row membership. This is evidence only;
+   the chosen SDK rule always sends explicit bounds.
+5. Walk S/E using the proved size from step 2, within the run budget and
+   design consistency limits. Stop rather than declare success on drift.
+   Preserve raw pages. Privately select the latest row older than two UTC
+   days with timestamp UTC hour at least 17. This witness has different
+   UTC and UTC+07:00 dates. Ties select the smallest ID. No witness means
+   the timezone gate stays open; do not generate a transaction.
+6. Let U be that witness's UTC date and L its UTC+07:00 date. For each
+   distinct d in {U,L}, GET these `(dateStart,dateEnd)` pairs at page 1
+   with the proved size: `(d-1,d)`, `(d,d)`, `(d,d+1)`, `(d+1,d+1)`.
+   Walk each successful result to completion to test witness membership;
+   absence on page 1 alone proves nothing. Reuse identical requests within
+   this step. Record memberships by ID privately and check all returned
+   timestamps. Require exactly one consistent candidate calendar and
+   boundary interpretation across rows; ambiguity keeps the gate open.
+7. Query `(E+1,E+2)` at page 1 and the proved size as a candidate empty
+   range. If it contains rows, it is not empty evidence. A 400 is also not
+   empty evidence. Record the exact successful empty shape if available.
+
+The candidate zones are hypotheses to distinguish, not the only possible
+zones. Witnesses away from midnight cannot establish exact midnight
+inclusivity. If the results do not distinguish whole-day inclusive bounds
+from midnight cutoffs, obtain first-party documentation or additional
+existing boundary witnesses in another approved run. Never choose a rule
+by majority or infer it from the console's local display.
+
+Stop when any budget is exhausted and list each unresolved step. Record
+per endpoint: proved cap, numbering/empty convention, timestamp syntax,
+date filtering zone, and inclusive-public-to-wire conversion. Each fact
+needs raw request/response provenance; update this document before coding.
+Service-account probing is optional and needs a separately approved profile
+and run; repeat baseline only. Do not create credentials or widen policy.
 
 ## Fixtures
 
-Sanitized raw responses in `testdata/billing/`, captured by the steps
-above and decoded through the SDK in tests:
+Manager-sanitized raw responses go in `testdata/billing/` and must decode
+through the eventual public SDK methods in tests. Never reconstruct them
+from this summary, tables, SDK output, or hand-built expected values.
 
-| Fixture | From |
-|-|-|
-| `ListTransactions.json` | Step 1, first page, at least one row of each known type |
-| `ListTransactionsPage2.json` | Step 1 with `pageNumber=2`, for the walk test |
-| `ListTransactionsEmpty.json` | Step 5, the past-the-end page |
-| `ListPayments.json` | Step 6, first page |
+- `ListTransactions.json` and `ListTransactionsPage2.json`: consecutive
+  coherent pages. Add separate raw-derived fixtures for each observed known
+  code if one page does not contain all three; no requirement forces live
+  purchases or refunds to populate a page.
+- `ListTransactionsEmpty.json`: successful empty range, distinct from any
+  beyond-last-page fixture. Add a beyond-page fixture if that result is 200.
+- `ListPayments.json`, `ListPaymentsPage2.json`, and
+  `ListPaymentsEmpty.json`: independent evidence for that endpoint.
 
-Sanitize every value under the
-[live data rules](../../instructions/live-data.md#sanitizing-fixtures):
-`transactionID`, `paymentID`, `sourceReference`, and `transactionID` strings
-become `<id>` or short synthetic numbers; descriptions keep their leading
-tag and structure but replace names and IDs with `<name>` and `<id>`;
-amounts become round synthetic values that still reconcile, so the
-`GetSpend` balance test holds; timestamps keep their format with synthetic
-dates. Keep every null field so a later type change is visible.
+Keep private provenance mapping operation, exact query, status, auth mode,
+raw capture, and sanitizer transformations. Public fixture notes contain
+only operation, field shape, and synthetic-data status. Retain nulls and
+unknown fields. Replace identifiers consistently with numeric or string
+synthetic IDs of the same JSON type. Replace names, IDs, hostnames, and
+other account fragments inside descriptions and references. Replace money
+and timestamps consistently, preserving offset syntax and intended ledger
+relations. Redact credentials before any public artifact. Label adversarial
+and arithmetic fixtures synthetic; they do not establish upstream behavior.
 
-After the owner approves the read-only run, `make live` gains
-`ListTransactions` and `ListPayments` for the last 30 days with `Size` 10,
-logging only row counts.
+Both reads join `make live` after implementation. Use a fixed-at-run-start
+30-calendar-day range through today under the verified conversion, page 1,
+`Size=min(10, endpoint cap)`, `All=false`, bounded context, and counts-only
+logs. They still require manager live-run authorization. Capture and compare
+raw versus SDK examples privately under [live data][live-data].
+
+[live-data]: ../../instructions/live-data.md#adding-or-fixing-an-api
 
 ## Deterministic checks
 
-Each check is a unit test with an `httptest` server or a fixture; none
-calls the real API.
+Use `httptest`, injected clocks, raw-derived fixtures, and explicitly
+synthetic hostile bodies. No unit test contacts a cloud endpoint.
 
-| Check | Expect |
-|-|-|
-| Query for `StartDate` `2026-10-01`, `EndDate` `2026-11-09`, `Page` 2, `Size` 50 | `pageNumber=2&pageSize=50&dateStart=01/10/2026&dateEnd=09/11/2026` |
-| Empty `EndDate` | The verified rule: no `dateEnd`, or the clock-derived date |
-| `StartDate` after `EndDate`, bad format, empty `StartDate` | `ErrInvalidInput`, zero requests |
-| `Size` 0 and `Size` above the cap | The default and the cap on the wire |
-| Fixture decode, transactions | `Type`, `Direction`, `Amount`, `Balance`, `CreatedAt` per row; code 7 gives empty `Type` and `TypeCode` 7 |
-| Fixture decode, payments | `Gateway` `use_balance`, `Status` `"1"`, `TypeCode` 8084 |
-| Body of 8 MiB plus one byte | `*APIError` wrapping `transport.ErrBodyTooLarge`, no Output |
-| `totalPages` negative, or above `maxHistoryPages` with `All` | `InvalidResponse` or `ErrHistoryIncomplete`, no Output |
-| `All` over two pages where page 2 repeats one ID from page 1 | One copy; `TotalItem` from page 2; `Page` 1, `TotalPage` 1 |
-| `All` where the merged count differs from `totalElements` | `ErrHistoryIncomplete`, no Output |
-| `All` where page 2 returns 403 | `ErrPermission` through `errors.Is`, `*APIError` through `errors.As`, one request for page 2 |
-| Context cancelled after page 1 | `context.Canceled` in the chain, no page 3 request |
-| `GetSpend` over shuffled rows | Sums, `NetSpend`, `OpeningBalance`, `ClosingBalance`, `Reconciled` true |
-| `GetSpend` with one row's `Balance` off by 1 VND | `Reconciled` false, sums unchanged |
-| `GetSpend` with an unknown code | `Other` signed by `Direction`, `ByType` row with empty `Type` |
-| `GetSpend` over an empty range | Zero values, `Reconciled` true, nil error |
-| Error envelope whose message holds the bearer token | Message and code redacted; `ErrHistoryIncomplete` not involved |
-| CLI `list-transactions --all` with a mismatched count | stderr `{"error":{"code":"HistoryIncomplete",...}}`, exit 1, empty stdout |
-| CLI `get-spend --output table` | One summary row then `ByType` rows; `--query NetSpend --output text` prints one number |
-| CLI read-only profile | All three commands run |
+- Assert both exact paths, empty body, escaped wire dates, page/size, no
+  project/region/filter keys, and read-only CLI access without consent.
+- Nil Input, invalid/leap/zero-padded dates, reversed ranges, converted-date
+  overflow, and `All` with `Page>1`: invalid input, zero authentication/GETs.
+- Empty end uses one clock read in the proved zone across midnight/pages;
+  host local zone changes nothing. Check UTC versus local date transitions.
+- Decode every field through the SDK. Missing/null false/zero fields,
+  wrong types, negative amounts, bad offsets, overflow, empty body,
+  unenveloped body, and null data/content/metadata fail with no Output.
+- Exercise each error-table row on both endpoints, including HTTP 200
+  failing envelopes. Assert `errors.Is`, `errors.As`, status, fixed message,
+  code, Retryable, stdout emptiness, and absence of peer values in chains.
+- Test body overflow on 200, 403, and 503 separately. Assert request-size,
+  cumulative-byte, page, row, time, and cancellation bounds; exactly-at-limit
+  succeeds. Cancel during authentication, retries, paging, and aggregation.
+- Multi-page success, empty range, beyond-end form, wrong page numbers,
+  duplicate/conflicting IDs, changed total/size, short middle/final page,
+  negative/huge metadata, and late HTTP failure: no silently partial result.
+- Spend: shuffled offset-equivalent instants, ties, single row, no rows,
+  signed unknown types in both directions, known-type direction mismatch,
+  refunded charges, compensated sums, and reconciliation tolerance edges.
+- Inject token canaries across 401 recovery and concurrent token rotation,
+  descriptions/IDs in peer errors, nested decode fields, and runtime query
+  errors. Verify all output formats, queries, logs, and error fields; only
+  intended account data reaches successful stdout. Escape terminal controls.
+- CLI: default columns omit descriptions/references; explicit queries keep
+  roots; spend renders two tables only without query, null balances as none,
+  and `--query NetSpend --output text` as a scalar. No render error emits a
+  partial report. Check generated-doc freshness and matching wiki guidance.
+- Reuse local transport/profile tests for redirect/downgrade/hook refusal,
+  TLS verification, explicit-profile isolation, and credential permissions.
+  Assert no write, quote, account fallback, or cleanup request occurs.
 
 ## Open evidence
 
-- IAM-user access through the SDK token: console evidence only; step 1.
-- Service-account access: missing; step 7.
-- `pageSize` default and cap: missing; step 2.
-- `pageable.number` base and the empty-page shape: step 5.
-- Omitted dates and bound inclusivity: missing; steps 3 and 4.
-- Transaction codes 3 and 4, and the exact description formats: missing;
-  no derived `Action` or product grouping until a fixture shows them.
-- Payment gateway values for Momo and ZaloPay, payment type codes for the
-  six published names, `paymentStatus` values, and the ten null payment
-  fields: missing; the SDK keeps raw values and omits the null fields.
-- The join between a payment and its wallet transaction: missing.
-- Whether `transactionValue` can be negative or `cumulativeValue` can be
-  null: not observed; `GetSpend` treats a negative amount as a reconciling
-  input and reports `Reconciled` false when the ledger does not add up.
+Implementation waits for SDK IAM-user access, both endpoints' proved caps,
+response numbering and coherent multi-page/empty raw fixtures, payment
+timestamp syntax, exact date zone and boundary conversion. `GetSpend` also
+waits for raw known-code rows and their direction/amount semantics. A probe
+that lacks suitable existing rows leaves the relevant gate unresolved.
+
+Nonblocking unknowns remain explicit: service-account permissions, new
+transaction codes, unmodeled null fields, payment type/status/gateway
+meanings, reference joins, description grammar, historical VAT basis, equal
+instant ledger ordering, and snapshot guarantees. No document move, owner
+decision, or approval turns these into verified facts.

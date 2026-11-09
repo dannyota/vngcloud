@@ -9,7 +9,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [SDK and CLI](sdk-and-cli.md) | Approved |
 | [CLI](cli.md) | Approved |
 | [Billing and pricing](billing.md) | Approved |
-| [Billing history](billing-history.md) | Proposed; wallet transactions, payments, and spend summary; [page size, date bound, and access evidence](billing-history-api.md#open-evidence) gated |
+| [Billing history][history] | Decisions accepted; implementation gated |
 | [CDN IP ranges](cdn.md) | Approved |
 | [vCDN API](cdn-api.md) | Accepted |
 | [vCDN CLI and releases](cdn-cli.md) | Accepted |
@@ -66,3 +66,9 @@ Approval grants no live-run or policy authority.
 [mfa-gate]: iam-users-admin-api.md#probes
 
 [floating]: vserver-floating-ips.md#releases
+
+[history]: billing-history.md#owner-decisions
+
+Billing history covers wallet transactions, payments, and a spend summary.
+Its [API evidence gates](billing-history-api.md#open-evidence) and independent
+design review remain required before implementation.

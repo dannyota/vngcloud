@@ -1,400 +1,374 @@
 # Billing History Design
 
-Status: Proposed. Owner decisions and evidence gates are listed at the end;
-approval of this document authorizes no live run.
+The seven [owner decisions](#owner-decisions) are accepted. Implementation
+remains gated by [API evidence](billing-history-api.md#open-evidence) and
+independent design and implementation-plan review. All paths below are
+proposed unless identified as existing. This document authorizes no live
+run, purchase, activation, or cleanup.
 
-This design adds credit wallet history and payment history reads to the
-`billing` package and CLI, plus one spend summary that answers "what did we
-spend since I bought credits" in a single command. It also ranks
-improvements to the existing billing commands. Wire evidence, field tables,
-error statuses, fixtures, and deterministic checks live in
-[billing history API](billing-history-api.md).
+Add wallet transactions, payments, and a one-command spend summary to
+`danny.vn/vngcloud/billing` and the CLI. Preserve the existing package,
+imports, methods, flags, output shapes, and cost explorer contracts. The
+SDK remains standard-library only; no new dependency is needed. The CLI
+calls only public SDK methods. Wire evidence, probes, fixtures, and checks
+have one home in [billing history API](billing-history-api.md).
 
-It builds on [billing](billing.md): same package, same `Billing` endpoint,
-same envelope decoder, same money and date rules. Cost explorer decoding
-belongs to a separate fix and is out of scope here; only CLI follow-ups for
-after that fix appear in [a later section](#after-the-cost-explorer-fix).
+## Scope and evidence
 
-## Goals
+The manager's sanitized console summary establishes authenticated reads
+on the Billing host, row shapes, and observed transaction codes. It is not
+an archived raw-response fixture or a published API contract. It does not
+prove paging stability, boundary semantics, or complete reconciliation.
+The [source register](billing-history-api.md#sources) separates published
+material, console observations, inference, and missing evidence.
 
-- List credit wallet transactions and payments for a date range, with typed
-  rows and a bounded way to read every row.
-- Summarize spend for a range: purchases, charges, refunds, net spend, and
-  opening and closing balance.
-- Keep the auth facts in [billing](billing.md) consistent with the evidence.
+These paths differ from `/v1/credits`, whose IAM-user 403 remains recorded
+in [billing](billing.md#deferred). Console IAM-user access does not prove
+SDK-token or service-account access. A denied service account remains a
+permission error; never switch identity or widen policy automatically.
 
-## Non-goals
-
-- Invoices (`/v1/billings`), credits (`/v1/credits`), orders, and the PDF
-  export the console offers.
-- Parsing product, resource type, or resource ID out of free-text
-  descriptions; the format is not captured, see [descriptions](#descriptions).
-- Any write. Every operation here is a read.
-
-## Evidence summary
-
-Published guides describe the credit history page (every wallet balance
-change; actions Deposit balance, Refund balance, Buy resource) and the
-payment history page (transaction ID, payment type, gateway, date, details,
-amount in VND). The console calls `GET gateway/api/v1/transactions` and
-`GET gateway/api/v1/payments` on the `Billing` host with the IAM user's
-bearer token and the budgets envelope. Field names, numeric codes, and the
-paging block are console evidence, not a published contract, and the code
-mapping is inference from row descriptions; the
-[API document](billing-history-api.md#sources) marks each one.
-
-## Auth facts
-
-[Billing](billing.md#deferred) recorded that credits return 403 to IAM
-Users. That fact stands for `/v1/credits`. The transactions and payments
-endpoints answered 200 to the IAM user's token in the console, and 401
-without a token. The SDK has not sent that token to these paths yet, so the
-first [free verification call](billing-history-api.md#free-verification-call)
-must confirm it before implementation. Service-account access is untested;
-a 403 keeps `ErrPermission` and exit 1 as
-[service-account auth](service-account-auth.md#errors-and-secret-handling)
-defines, and the wiki states it as unverified until a run shows otherwise.
+Invoices, orders, PDFs, writes, description parsing, and joins between
+payments and wallet transactions are out of scope. Payment totals are not
+added to wallet charges: they may describe the same economic activity.
+Cost explorer decoding belongs to a separate slice.
 
 ## SDK surface
 
-All three operations live in `billing`, follow
-`Method(ctx, *Input) (*Output, error)`, and call `do` from
-`billing/billing.go`, so envelope codes, redaction, and the not-found
-mapping behave as for budgets. Each request sets `MaxBody` to 8 MiB, as
-server reads do; the current billing reads set none and
-[gain it as an improvement](#ranked-improvements).
+Each method uses `Method(ctx, *Input) (*Output, error)` on `billing.Client`.
+The new list outputs embed `core.PagedList[T]`, as existing billing lists
+do; callers use the exported output names without importing `internal`.
+History uses the shared client, route builder, authentication, transport,
+and envelope rules, with the stricter history checks below. Do not change
+existing billing behavior to make these methods work.
 
 ### Dates
 
-Public inputs stay `YYYY-MM-DD` strings checked by `core.CheckDate`, the
-format every other billing date uses. The SDK converts to the wire form
-`DD/MM/YYYY` after the check, so callers never see the wire format and the
-CLI keeps one date format. `StartDate` after `EndDate` is `ErrInvalidInput`
-before any request.
+`StartDate` is required; `EndDate` is optional. Both are strict
+`YYYY-MM-DD` calendar strings checked with `core.CheckDate`. Nil Input,
+missing start, invalid dates, or start after the effective end return
+`ErrInvalidInput` before authentication or network activity. Do not mutate
+the caller's Input. Dates carry no time of day or caller-local time zone.
 
-`StartDate` is required. `EndDate` is optional: empty means "through
-today". How the SDK expresses that on the wire depends on the
-[date gate](billing-history-api.md#open-evidence): omit `dateEnd` if the
-API accepts its absence, otherwise send the UTC calendar date of now plus
-one day, or plus two days when the bound proves exclusive. The chosen rule
-is deterministic, uses the SDK's injected clock in tests, and is recorded in
-the API document once verified. Whether the server filters by UTC or by its
-local day is unknown; the wiki says so.
+Both public endpoints are inclusive calendar days in the service's
+verified filtering zone. That zone is an implementation gate, not assumed
+from the timestamp offset or the console display. Empty `EndDate` means
+today in that zone, resolved once per invocation. Inject a package-private
+clock into the date resolver in tests; the current billing client has no
+shared public clock option. All pages reuse the resolved range.
 
-### ListTransactions
+Send explicit bounds, converting dates to `DD/MM/YYYY` with `url.Values`.
+Use the verified wire boundary conversion, including a one-calendar-day
+advance only if an exclusive upper bound is proved. Never guess an extra
+day, omit the end opportunistically, or use `24*time.Hour` calendar math.
+Reject an unrepresentable converted bound before sending. Record the exact
+zone and conversion in the API document before implementation.
+
+`CreatedAt` retains the wire string and offset. Parse with
+`time.RFC3339Nano` for comparisons; never sort timestamps lexically. The
+observed transaction timestamps carry UTC offsets while the console shows
+local time. Neither proves which calendar the date filters use. The CLI
+keeps explicit offsets and never silently uses the machine's local zone.
+
+### ListTransactions and ListPayments
+
+Both exported Input types contain these fields:
 
 | Field | Type | Rule |
 |-|-|-|
-| `StartDate` | string | (r) `YYYY-MM-DD` |
-| `EndDate` | string | Optional; see [dates](#dates) |
-| `Page` | int | 1-based; nonpositive selects page 1 |
-| `Size` | int | Nonpositive sends the default in the API document |
-| `All` | bool | Read every page; see [paging](#paging) |
+| `StartDate` | string | Required, with `vngcloud:"required"` |
+| `EndDate` | string | Optional; resolved by [dates](#dates) |
+| `Page` | int | Nonpositive means 1 |
+| `Size` | int | Nonpositive or above the verified cap means the cap |
+| `All` | bool | Start at 1; reject `Page > 1` before requests |
 
-`ListTransactionsOutput` is `core.PagedList[Transaction]`. A `Transaction`
-holds:
+The cap and default are the largest size proved for each endpoint by the
+bounded probe. They may differ; `GetSpend` uses the transactions cap. This
+is an SDK limit, not a claim about the server's maximum. No history list
+uses the cost explorer's size limit without evidence.
 
-| Field | Type | Source |
+`ListTransactionsOutput` embeds `core.PagedList[Transaction]`.
+`Transaction` contains:
+
+| Field | Go type | Meaning |
 |-|-|-|
-| `ID` | int64 | `transactionID` |
-| `Type` | string | Derived from `transactionType`: `PURCHASE` (1), `REFUND` (2), `CHARGE` (5); empty for any other code |
-| `TypeCode` | int | `transactionType` as sent, so an unknown code stays visible |
-| `Direction` | string | `CREDIT` when `creditStatus` is true, `DEBIT` when false |
-| `Amount` | float64 | `transactionValue`, VND, never negative |
-| `Balance` | float64 | `cumulativeValue`, the wallet balance after this row |
-| `SourceReference` | string | `sourceReference`, a payment or bill number |
-| `Description` | string | `description`, free text |
-| `CreatedAt` | string | `createTimeStamp` as sent, ISO 8601 with offset |
+| `ID` | int64 | Transaction identifier |
+| `Type` | string | Derived name, or empty for an unknown code |
+| `TypeCode` | int | Raw transaction code |
+| `Direction` | string | `CREDIT` or `DEBIT` from `creditStatus` |
+| `Amount`, `Balance` | float64 | Amount and balance after the row |
+| `SourceReference` | string | Opaque payment or bill reference |
+| `Description` | string | Sensitive free text |
+| `CreatedAt` | string | Timestamp with offset |
 
-The package exports `TransactionPurchase`, `TransactionRefund`,
-`TransactionCharge`, `DirectionCredit`, and `DirectionDebit`. `Type` names
-the three published actions in the order deposit, refund, buy resource;
-the numeric mapping is inference, so `TypeCode` stays beside it. A code the
-SDK does not know decodes with an empty `Type`; no row fails the list.
-`userServiceReference` and `invoiceId` were null in every observed row and
-are omitted until a capture shows a value, so adding them later breaks no
-caller.
+Export `TransactionPurchase = "PURCHASE"`, `TransactionRefund = "REFUND"`,
+`TransactionCharge = "CHARGE"`, `DirectionCredit = "CREDIT"`, and
+`DirectionDebit = "DEBIT"`. Codes 1, 2, and 5 map to the respective types;
+this mapping is observed and inferred, not a published numeric enum.
+`TypeCode` always survives. Unknown codes do not fail a list.
 
-### ListPayments
-
-Same Input fields as `ListTransactions`. `ListPaymentsOutput` is
-`core.PagedList[Payment]`. A `Payment` holds `ID` (`paymentID`),
-`TransactionID` (`transactionID`, a string), `Gateway` (`payGate`),
-`Status` (`paymentStatus`, a string as sent), `Amount` (`paymentAmount`),
-`TypeCode` (`paymentType`), `Description`, and `CreatedAt`. The package
-exports `GatewayBalance` for the one observed gateway, `use_balance`.
-The published Momo and ZaloPay gateways and the six published payment types
-have no observed wire values, so the SDK adds no constants or derived
-`Type` for them; the raw `Gateway`, `Status`, and `TypeCode` stay visible.
-The ten fields that were null in every observed row are omitted until a
-capture shows them.
+`ListPaymentsOutput` embeds `core.PagedList[Payment]`. `Payment` contains
+`ID int64`, `TypeCode int`, `Amount float64`, and string fields
+`TransactionID`, `Gateway`, `Status`, `Description`, `CreatedAt`.
+Export only the observed `GatewayBalance = "use_balance"`. Do not infer a
+payment status name, derived payment type, or a reference join. Fields
+observed only as null stay unmodeled; the API document lists them.
 
 ### Paging
 
-The API pages with 1-based `pageNumber`, `pageSize`, and a `pageable`
-block holding `totalPages`, `totalElements`, `size`, and `number`. The
-public `Page` is the API's `pageNumber`; the SDK returns `number + 1` as
-`Page` only if the free read shows `number` is 0-based, otherwise it
-returns `number`. The API document records which.
+Single-page mode preserves server metadata, converting its verified page
+base to public 1-based `Page`. `PageSize` is the returned size, not row
+count. Empty `Items` is a non-nil empty slice. Validate the required
+metadata, content, and rows before returning anything. Empty and
+past-the-end wire conventions must be captured before coding.
 
-`All` makes one operation read every page. It is a bounded walk inside the
-SDK, not a CLI loop, because `GetSpend` needs the same walk and a loop in
-the CLI would duplicate it:
+`All` uses a sequential walk, with no goroutines or automatic restarts:
 
-1. Request page 1 with the caller's `Size`, or the default.
-2. Continue while `Page < TotalPage`, at most `maxHistoryPages` (100)
-   pages. Every page uses the same dates and size.
-3. Drop a row whose `ID` an earlier page already returned; a row that lands
-   during the walk shifts later pages.
-4. Return `Items` in API order with `Page` 1, `PageSize` set to the row
-   count, `TotalPage` 1, and `TotalItem` from the last page.
+1. Resolve dates and size once, request page 1, and freeze `totalPages`,
+   `totalElements`, and returned size. Validate integers before arithmetic
+   or allocation; never allocate from peer totals.
+2. Request consecutive pages only. Require the expected page number,
+   unchanged totals and size, and the exact expected row count on each
+   page. Validate `totalPages` against ceiling division of total and size,
+   using overflow-safe arithmetic and the verified empty convention.
+3. Reject every duplicate ID within or across pages, including identical
+   rows. Do not discard duplicates and call the walk complete. A duplicate
+   within one page is malformed; one across pages means an incomplete walk.
+4. Return success only if unique row count equals the frozen total. Keep
+   API order. Aggregate metadata is `Page=1`, `TotalPage=1`, and
+   `PageSize=TotalItem=len(Items)`, including zero for an empty walk.
 
-The walk fails closed: when the bound stops it before the last page, or the
-final row count differs from the last page's `totalElements`, it returns no
-Output and an error wrapping `billing.ErrHistoryIncomplete`, so a caller
-never treats a partial wallet history as complete. A rerun usually
-succeeds; a wallet with more rows than the bound needs a narrower range. An
-`*APIError` on any page returns that error unchanged. Page metadata that
-cannot be trusted, such as a negative `totalPages`, is an `*APIError` with
-code `InvalidResponse` and the body withheld, as `ListCostResources` does
-at `billing/cost.go:191`.
+Limits: 100 pages, 8 MiB per response, and 32 MiB cumulative successful raw
+response bodies per walk. Count bytes before retaining decoded rows; the
+row limit is also at most 100 times the verified size. Do not preallocate
+that product. The whole invocation, including authentication and retries,
+has a two-minute context deadline or the caller's earlier deadline. Check
+cancellation before requests and during row processing and aggregation.
+
+A well-formed page advertising more than the walk bounds, changed totals,
+repeated pages, duplicates across pages, or a short walk returns
+`ErrHistoryIncomplete` and nil Output. Malformed fields return
+`InvalidResponse`. An API, context, or decode failure on any page also
+returns nil Output, retaining its error identity, not an additional
+incomplete sentinel. No partial rows or sums escape.
+
+These checks detect many changes, not snapshot isolation. A replacement
+that preserves counts and evades duplicate checks can remain invisible.
+There is no observed snapshot token or stable ordering guarantee. The wiki
+must state that a complete walk is not an atomic account snapshot; a
+narrower range may help but cannot guarantee success.
 
 ### GetSpend
 
-`GetSpend(ctx, *GetSpendInput)` takes `StartDate` (r) and `EndDate`, walks
-every transaction page as `All` does, sorts rows by `CreatedAt` then `ID`,
-and returns:
+`GetSpendInput` contains required `StartDate string` and optional
+`EndDate string`. It uses the same complete transaction walk. Its exported
+`GetSpendOutput` fields are:
 
-| Field | Type | Meaning |
+| Field | Go type | Meaning |
 |-|-|-|
-| `StartDate`, `EndDate` | string | The range as sent, `YYYY-MM-DD` |
-| `Purchases` | float64 | Sum of `Amount` where `Type` is `PURCHASE` |
-| `Refunds` | float64 | Sum where `Type` is `REFUND` |
-| `Charges` | float64 | Sum where `Type` is `CHARGE` |
-| `Other` | float64 | Signed sum of rows with an empty `Type`: credits add, debits subtract |
-| `NetSpend` | float64 | `Charges - Refunds` |
-| `OpeningBalance` | float64 | The earliest row's `Balance` reversed by its own `Amount` and `Direction` |
-| `ClosingBalance` | float64 | The latest row's `Balance` |
-| `Reconciled` | bool | True when every consecutive pair of rows satisfies `Balance = previous Balance ± Amount` within 0.5 VND |
-| `Transactions` | int | Row count |
-| `ByType` | []SpendGroup | One `{Type, TypeCode, Direction, Count, Amount}` per distinct `TypeCode`, API codes ascending |
+| `StartDate`, `EndDate` | string | Effective inclusive public dates |
+| `Purchases`, `Refunds`, `Charges` | float64 | Known-type amount sums |
+| `Other` | float64 | Unknown-type credits minus unknown-type debits |
+| `NetSpend` | float64 | `Charges - Refunds`; excludes `Other` |
+| `OpeningBalance`, `ClosingBalance` | *float64 | Ledger range boundaries |
+| `Reconciled` | bool | Observed ordered balance checks pass |
+| `Transactions` | int | Number of rows |
+| `ByType` | []SpendGroup | Groups ordered by code, then direction |
 
-`Other` and `Reconciled` exist so an unknown code or a gap in the wallet
-ledger shows up instead of silently distorting `NetSpend`. A range with no
-rows returns zero sums, zero balances, `Reconciled` true, and no error; the
-CLI prints it, and the wiki says that a zero closing balance with zero rows
-means "no rows", not "empty wallet". Grouping is by what the API states,
-`TypeCode`; grouping by product or resource type waits for
-[description evidence](#descriptions).
+`SpendGroup` has `Type string`, `TypeCode int`, `Direction string`,
+`Count int`, and `Amount float64`. Group by `(TypeCode, Direction)` so an
+unknown code used in both directions cannot acquire a misleading label.
+Amounts in groups are unsigned; `Other` uses direction explicitly.
 
-`GetSpend` belongs in the SDK rather than only in the CLI. The CLI calls one
-SDK operation per command, as [CLI](cli.md#commands) sets, and
-`storage.GetProjectAutoRenew` and pricing discovery already place joined
-reads in the SDK. An SDK method also serves the owner's agents that use the
-Go module directly. The alternative, a CLI-only command that loops over
-`ListTransactions`, would need the same bounded walk in a second place and
-a CLI-only command precedent the layout does not have.
+Known purchases and refunds must be credits; known charges must be debits.
+A contradiction, negative amount, missing amount/balance/direction, or
+invalid timestamp is `InvalidResponse`, never silently a zero value.
+The same structural checks apply to list rows. Unknown integer codes and
+negative finite balances are allowed. Reject non-finite decoded values or
+non-finite intermediate sums. Use compensated float64 summation; round
+only when formatting, following existing billing money representation.
 
-Amounts are VND as the API reports them. [Published updates][vat] state
-that wallet credits and deductions are pre-VAT from 1 March 2026 and
-VAT-included before; the SDK does not convert either way, and the wiki
-states it.
+Order by parsed instant then ascending ID for deterministic calculations.
+Increasing ID as ledger order for equal instants is unproved: if any
+instants tie, return sums but nil boundary balances and `Reconciled=false`.
+Otherwise reverse the first row's signed amount to obtain opening balance
+and take the last row's balance as closing balance. Check each adjacent
+balance and the final opening-plus-signed-total equation with absolute
+tolerance 0.5 VND. A failed arithmetic check sets `Reconciled=false`; it
+never changes totals or conceals an incomplete walk. This flag establishes
+only arithmetic consistency, not completeness or accounting accuracy.
 
-[vat]: https://docs.greennode.ai/overview/product-updates-all/2026
+An empty range returns zero sums and count, empty `ByType`, nil balances,
+and `Reconciled=false`. No observed row means no evidence of wallet
+balance. All credits and debits, including unknown types, participate in
+reconciliation. The summary never parses descriptions or calls payments,
+balances, pricing, or cost explorer.
 
-### Descriptions
+Wallet credits use the API's reported monetary basis. Published
+[wallet display rules](billing-history-api.md#sources) describe pre-VAT
+credits and deductions, but do not establish historical API normalization.
+Do not convert VAT or equate credits purchased to tax-inclusive cash paid.
 
-`Description` is free text that carries resource names, IDs, products, and
-periods. The SDK returns it as sent, and it is account data under
-[live data](../../instructions/live-data.md): fixtures replace names and IDs
-with placeholders, and no error message echoes it. The observed leading
-tags (`[CREATE]`, `[RENEW]`, `[RESIZE]`, `[RECOVER]`, `[REFUND]`) and the
-`Resource <product> - <type> ...` fragment are not captured verbatim, so
-this release derives nothing from them. A later slice may add an `Action`
-field and product grouping once a sanitized fixture pins the exact formats;
-until then, `--query "Items[?contains(Description, 'vserver')]"` filters
-rows without the SDK guessing.
+### Descriptions and output safety
+
+Descriptions, references, IDs, timestamps, and amounts are account data.
+SDK outputs expose them for authorized callers; raw description structure
+is not a stable contract. Do not derive actions, products, resource types,
+or IDs from it. Redact all credentials observed across sends from returned
+string fields, including unknown gateway/status strings. Retain credential
+observations within the new history helper; never expose the observation
+set. Ordinary account data remains available on the requested success path.
+
+Errors, debug output, runtime query failures, and test failure messages
+must contain neither peer text nor account values. History error messages
+use fixed text; preserve only safe numeric envelope codes or status-derived
+codes. The existing envelope helper alone does not meet that contract.
+Capture hooks intentionally receive raw bodies and remain a trusted,
+opt-in caller boundary, never enabled by ordinary commands or CI.
 
 ### Errors
 
-| Case | Result |
-|-|-|
-| Missing `StartDate`, bad date, `StartDate` after `EndDate` | `ErrInvalidInput`, no request, exit 2 |
-| 401 after the transport's one retry | `ErrAuth`, exit 3 |
-| 403 (service account, or a policy that denies billing) | `ErrPermission`, code `Forbidden`, exit 1 |
-| Envelope `code` outside 200 to 299 on an HTTP 2xx | `*APIError` with that code, exit 1 |
-| Bound hit or row count mismatch under `All` or in `GetSpend` | `ErrHistoryIncomplete`, no Output, CLI code `HistoryIncomplete`, exit 1 |
-| Untrusted page metadata, body over 8 MiB, undecodable body | `*APIError`, code `InvalidResponse` or the transport's error, exit 1 |
+Define `ErrHistoryIncomplete` once in `internal/core`, with aliases in
+`billing` and `vngcloud`. This avoids the root-to-service import cycle.
+Return `*vngcloud.APIError{Code: "HistoryIncomplete", Err: sentinel}` with
+fixed text and `Retryable=false`. `errors.Is` works through wrapping and
+`errors.As` reaches the public API error. CLI code is `HistoryIncomplete`,
+exit 1. Do not alias a sentinel owned by another service.
 
-`ErrHistoryIncomplete` is a new sentinel in `billing`, re-exported from
-`vngcloud.go` like `ErrPriceAboveMax`. The CLI code `HistoryIncomplete`
-joins the class list in [CLI errors](cli.md#errors-and-exit-codes) in the
-slice that implements it. Each other documented status is checked with a
-fixture per the [API document](billing-history-api.md#error-statuses).
+All history errors return nil Output. The [error rules][history-errors]
+define status and cause handling, including cancellation, body limits, and
+sanitized decode causes. Extend the CLI classifier without changing
+existing command classifications.
+
+[history-errors]: billing-history-api.md#error-statuses
 
 ## CLI
 
-| Command | Kind | Notes |
-|-|-|-|
-| `billing list-transactions` | Read | `--start-date` (r), `--end-date`, `--page`, `--size`, `--all` |
-| `billing list-payments` | Read | Same flags |
-| `billing get-spend` | Read | `--start-date` (r), `--end-date`; `--query` root is the Output itself |
+| Command | Derived flags |
+|-|-|
+| `billing list-transactions` | `--start-date`, `--end-date`, `--page` |
+| `billing list-payments` | Same, plus `--size` and `--all` on both lists |
+| `billing get-spend` | `--start-date`, `--end-date` |
 
-Flags derive from the Input fields, so `StartDate` becomes `--start-date`
-as on the cost commands, and `All` becomes `--all`. The owner's example
-`--since` is a rename choice; see [decisions](#owner-decisions). Every
-command runs under a read-only profile. The `billing` service description
-becomes "Budgets, cost, balances, and history".
+All commands are reads, work with read-only profiles, and need no `--yes`
+or prompt. The service description becomes "Budgets, cost, balances, and
+history". `--start-date` is required; no `--since` alias is added.
 
-Output follows [list output shape](cli-usability.md#list-output-shape):
-JSON has `Items` plus page metadata; `table` and `text` show the rows. Table
-views, the pattern `list-resources` uses in `internal/cli/svc_billing.go`,
-pick the columns:
+JSON and queries keep the exported Output shape; list query roots are
+`Items` plus metadata, and spend queries start at the Output. Successful
+JSON and text can contain account data. Help says so explicitly. Default
+transaction tables show `CreatedAt`, `Type`, `TypeCode`, `Direction`,
+`Amount`, `Balance`; payment tables show `CreatedAt`, `Gateway`, `Status`,
+`TypeCode`, `Amount`. Descriptions and references require JSON, text, or an
+explicit query rather than occupying default tables.
 
-- `list-transactions`: `CreatedAt`, `Type`, `Direction`, `Amount`,
-  `Balance`, `SourceReference`, `Description`.
-- `list-payments`: `CreatedAt`, `Gateway`, `Status`, `TypeCode`, `Amount`,
-  `Description`.
-- `get-spend`: one row of the sums and balances, then `ByType` rows under
-  `table` only when `--query` is empty, as table views already do.
+`get-spend` table output contains one summary table and a separate `ByType`
+table only without a query. Use a command renderer; existing table views
+only project one value and do not implement multiple tables. Unknown
+balances print `none`. JSON encodes them as null. Query failures use fixed
+`QueryFailed` text, exit 1, no underlying peer-bearing error, and empty
+stdout, following `internal/cli/svc_compute_console_log.go:20`. Escape
+terminal control characters in all formats. Buffer rendering before stdout
+so query or formatting failure cannot emit a partial financial report.
 
-Help text for each command states the `YYYY-MM-DD` date format, that
-`--end-date` defaults to today, that amounts are VND as reported, the
-`--query` root, and that `--all` fails rather than print a partial history.
-`gen-docs` writes them to `docs/wiki/CLI-Billing.md`, and the
-`Billing-and-Pricing.md` page gains a "Wallet history" section with the
-spend example, the pre-VAT note, and the unverified service-account access.
+Update `gen-docs` sources and regenerate `docs/wiki/CLI-Billing.md` when
+implementing. Update `Billing-and-Pricing.md` in that same slice with the
+spend example, effective date zone, bounds, output privacy, VAT limits,
+unknown balances, paging consistency limits, and unverified service-account
+access. Add CLI error documentation. No generated wiki edits occur here.
 
 ## Ranked improvements
 
-Each item is one slice. The first three do not depend on the cost explorer
-fix; items under [after the cost explorer fix](#after-the-cost-explorer-fix)
-wait for it.
+Separate briefs own these changes; none is implied implementation scope:
 
-1. Bound every `billing` read with `MaxBody` 8 MiB. `billing/budgets.go`,
-   `billing/cost.go`, and `billing/resources.go` set none, while
-   `pricing/pricing.go:144` sets 1 MiB; a hostile host can send an
-   unbounded body to a read. Pure hardening, no surface change.
-2. State the `--query` root in every billing command's help and wiki
-   entry: `Balances`, `Budget`, `PeriodCost`, `Threshold`, and `Items` for
-   lists. Today only the generated example line shows it. This is the
-   billing part of the open TODO item on output roots.
-3. Add table views for `list-budgets` (name, type, period, limit, actual
-   cost, percentage, status) and `get-balances` (one row, with `null`
-   printed as `none` so an absent balance is not read as zero). Both tables
-   print every struct field today; the budget table has 22 columns.
-4. List the allowed values in help for `create-budget --period-type`,
-   `--type`, and `--status`, and for `create-budget-threshold
-   --threshold-type`, from the exported constants. The server rejects a
-   wrong value with a 400 after a round trip.
-5. Render `list-resources` epoch-millisecond timestamps as ISO 8601 in the
-   table view only; JSON keeps the raw numbers. The current note tells the
-   user to convert them by hand.
-6. Add `ListBudgetsInput.Status` validation (`ACTIVE` or `PAUSED`) before
-   the request, consistent with the date and UUID checks, so a typo exits 2
-   without a call.
+1. Bound existing billing reads with `MaxBody`; `billing/cost.go:86` and
+   `billing/budgets.go` currently omit it. Preserve existing output shapes
+   and test the new limit. This is an observable hardening change.
+2. Explain query roots in all billing help and generated wiki examples.
+3. Add compact budget and balance tables; show absent balances as `none`.
+4. List exported enum values in budget and threshold flag help. Runtime
+   enum rejection needs its own approval under ADR 0002's server-owned
+   value-validation rule, so do not add it incidentally.
+5. Render resource epoch milliseconds as offset-bearing times in tables;
+   keep JSON numbers unchanged.
 
 ### After the cost explorer fix
 
-- Give `get-cost-overview` and `list-cost-resources` the same optional
-  `EndDate` rule as history, so "this month so far" needs one date.
-- Add `All` to `ListCostResources` with the same bounded walk and
-  `ErrHistoryIncomplete`, replacing the manual page loop the wiki shows.
-- Add table views for both cost commands once their decoded shape is
-  settled.
+Cost tables, optional end dates, and automatic cost paging need separate
+contracts against that endpoint's verified shape and filtering rules.
+Do not transplant history bounds or `ErrHistoryIncomplete` into cost
+explorer, or edit its design section as part of this work.
 
-## Security
+## Security obligations
 
-Every operation is a read with no body, no path parameter, and no new
-credential path. The five threat models traced through the proposed paths,
-with existing code where it already exists:
+These are design constraints for independent review, not a review verdict.
 
-- Leaked tokens. Requests reuse `do` in `billing/billing.go:137-140`, which
-  collects sent credentials and redacts them from envelope errors; decode
-  errors pass `transport.SanitizeDecodeError`. The transport logs method,
-  path, status, and duration, never the query string or body
-  ([logging](sdk-and-cli.md#logging)), so dates never reach logs either.
-  Descriptions reach stdout because the user asked for them; they never
-  enter an error message. Severity if broken: high. Check: a fixture whose
-  description equals the bearer token must not appear in any error.
-- Hostile responses. New: `MaxBody` 8 MiB on each request; `totalPages`,
-  `totalElements`, and `number` validated as non-negative and `totalPages`
-  bounded by `maxHistoryPages` before any loop; unknown codes decode to an
-  empty `Type`; `ErrHistoryIncomplete` instead of partial sums. Existing:
-  envelope code mapping in `billing/billing.go:96-121`. Severity: medium
-  (memory, wrong totals). Checks: oversized body, negative and huge
-  `totalPages`, shifting pages, mismatched `totalElements`.
-- Foreign host. The `Billing` endpoint is the dashboard host, and the shared
-  transport keeps TLS verification on and refuses cross-host redirects
-  ([security](../../instructions/security.md#secure-defaults)); an endpoint
-  override moves the whole package, never one operation. No new path.
-- Tampered local files. No new file, cache, or profile key. The token cache
-  and credential file rules in [SDK and CLI](sdk-and-cli.md#token-cache) are
-  unchanged.
-- Repeated or concurrent callers. No write exists. `All` and `GetSpend`
-  send at most 100 GETs per call; the transport's read retry policy applies
-  per page and no page is retried by the walk itself. A charge landing
-  mid-walk is detected by the `totalElements` comparison and ID
-  deduplication rather than double counted. Severity: low.
+- Leaked tokens or account text: high impact if a peer echoes credentials
+  or descriptions into errors. Existing `billing/billing.go:135` tracks
+  sent credentials for envelope errors; `internal/transport/transport.go:593`
+  logs no query/body. `billing/billing.go:112` still takes peer messages,
+  and `internal/cli/render.go:59` can retain query errors. Proposed history
+  sanitization and rendering above must cover errors, unwrap chains,
+  successful string fields, retries, and partial results. Test canaries in
+  all these paths. Raw captures remain private and require sanitation.
+- Hostile peer: medium impact from memory exhaustion or incorrect totals.
+  `billing/billing.go:143` accepts empty bodies, and missing/null fields can
+  decode to zero. Proposed presence-aware decoding, byte/page/time limits,
+  duplicate rejection, and nil-on-error outputs prevent these from becoming
+  valid history. Test malformed envelopes and metadata, overflow, repeated
+  pages, unknown codes, cancellation, and the full error matrix.
+- Foreign host: high impact if credentials reach another origin. Existing
+  `internal/transport/redirect.go:11` checks scheme and host before and
+  after caller redirect hooks; `transport.go:454` attaches bearer tokens.
+  Use fixed history routes and set `NoRedirect=true`. Default TLS verifies
+  certificates. Endpoint overrides and arbitrary caller transports are
+  trusted configuration, not a host allowlist or an enforced TLS guarantee;
+  never let response data select a host. Test foreign redirects, downgrade,
+  rewriting hooks, and untrusted certificates with local servers.
+- Tampered local files: high impact from token theft or identity swapping.
+  Existing `internal/core/load.go:175` checks credential file type/mode;
+  `internal/tokencache/cache.go:29` binds IAM cache keys to identity and
+  login endpoints, but `cache.go:157` reads existing tokens without the
+  service-account strict checks at `service_account.go:81`. Proposed reads
+  add no files or cache path and must preserve explicit-profile isolation.
+  Check profile precedence, insecure credentials, cache isolation, and
+  canceled token acquisition. The legacy IAM-cache read gap is outside this
+  slice; do not claim resistance to a local actor able to replace it.
+- Concurrent or repeated paid writes: low direct impact because these paths
+  only issue GETs. No quote, price acceptance, write retry, or cleanup path
+  exists. A concurrent writer can shift pages; the consistency limits above
+  apply. `internal/transport/transport.go:405` owns retry attempts; history
+  adds no retry loop. Test that only the two allowed GET paths are reached
+  and that incomplete reads never trigger purchase, policy change, or
+  cleanup. A spend summary cannot authorize a paid write.
 
-These are design obligations for the independent review, not a verdict.
+## Release order and alternatives
 
-## Testing
+First obtain the manager-run evidence and independent design review; then
+review an implementation plan. Implement the list methods, focused CLI
+renderers, fixtures, examples, wiki, and both live reads together. Release
+`GetSpend` only once known-type raw fixtures and date/paging gates support
+its calculations. Hardening/help improvements can ship separately.
 
-Sanitized raw [fixtures](billing-history-api.md#fixtures) decoded through
-the SDK, request and walk tests, `GetSpend` tests, CLI golden tests, and
-the `make live` reads are listed in the
-[API document](billing-history-api.md#deterministic-checks). Every unit
-test uses an `httptest` server or a fixture and never calls the real API.
-
-## Release order
-
-1. Hardening and help: improvements 1 and 2, no public surface change.
-2. `ListTransactions` and `ListPayments` with `All`, fixtures, wiki
-   sections, and release notes, after the verification call clears the
-   gates.
-3. `GetSpend` and its CLI command, once step 2 has a live-confirmed
-   fixture, because its sums depend on the type mapping.
-4. Improvements 3 to 6 in any order, then the cost explorer follow-ups
-   after that fix lands.
+SDK aggregation avoids duplicate CLI paging and serves Go callers. A
+CLI-only loop would split the error and completeness contract. Fail-closed
+walking sacrifices partial results for reliable failure signaling; snapshot
+accuracy remains limited by the upstream API. Unknown codes remain visible
+instead of rejecting future types. Monetary floats preserve existing SDK
+conventions at the cost of finite precision; this is not an invoice engine.
 
 ## Owner decisions
 
-The manager holds delegated authority for these; each names options and a
-recommendation.
+The manager accepted all seven choices under delegated owner authority:
 
-1. Flag names: derived `--start-date` and `--end-date`, or `Since` and
-   `Until` Input fields giving `--since` and `--until` on `get-spend`.
-   Recommend the derived names, so every billing date flag matches and no
-   rename table entry is needed; help text says "since".
-2. `EndDate` optional with the "through today" rule, or required as on the
-   cost commands. Recommend optional: the owner's question is always "since
-   a date until now", and the rule is deterministic once the date gate
-   resolves.
-3. `GetSpend` in the SDK or CLI only. Recommend SDK, for the reasons in
-   [GetSpend](#getspend).
-4. Fail closed on an incomplete walk with no Output, or return partial rows
-   plus the error as `monitor.GetQuotaStatus` does. Recommend fail closed:
-   a partial ledger yields wrong balances, and a narrower range always
-   works.
-5. Derive `Type` names from the published actions (`PURCHASE`, `REFUND`,
-   `CHARGE`) or expose only `TypeCode`. Recommend both, as specified; the
-   wiki marks the numeric mapping as inferred from descriptions until the
-   fixture capture confirms all three codes.
-6. Default `Size` and the cap, after the verification call reports what the
-   API accepts. Recommend the largest size that returns 200 with a matching
-   `pageable.size`, capped there as `ListCostResources` caps at 200.
-7. Whether `make live` adds the two reads. Recommend yes; both are free and
-   log only counts.
+1. Derive `--start-date` and `--end-date` from Inputs for consistent flags.
+2. Optional `EndDate` means through today; wire semantics remain gated.
+3. Put `GetSpend` in the SDK for one reusable aggregation contract.
+4. Fail closed on incomplete walks with nil Output.
+5. Expose derived transaction `Type` and raw `TypeCode` together.
+6. Set each default size and cap to the largest size the probe proves.
+7. Add both reads to `make live`; inclusion does not authorize execution.
 
-## Evidence gates
-
-Implementation of step 2 waits for the
-[free verification call](billing-history-api.md#free-verification-call) to
-settle: IAM-user access through the SDK's token, page size default and cap,
-`pageNumber` base and the `number` base in `pageable`, `dateEnd` omission
-and bound inclusivity, and the shape of an empty page. Service-account
-access, Momo and ZaloPay gateway values, payment type codes, and the ten
-null payment fields stay open and are listed in
-[open evidence](billing-history-api.md#open-evidence). No gate here
-authorizes a purchase, a write, or cleanup.
+No accepted choice requires reopening. Additional safety constraints in
+this design still require independent review. Unresolved wire facts stay
+in [open evidence](billing-history-api.md#open-evidence); approval does not
+upgrade inference or sanitized summaries to raw fixture evidence.
