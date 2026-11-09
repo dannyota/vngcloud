@@ -1,0 +1,134 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "content": [
+      {
+        "transactionID": 410058,
+        "transactionType": 5,
+        "transactionValue": 96000.0,
+        "cumulativeValue": 7285000.0,
+        "sourceReference": "300012",
+        "userServiceReference": "500013",
+        "invoiceId": 72025,
+        "description": "Synthetic transaction 1",
+        "createTimeStamp": "2024-11-11T12:47:51.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410055,
+        "transactionType": 5,
+        "transactionValue": 252500.0,
+        "cumulativeValue": 7381000.0,
+        "sourceReference": "300011",
+        "userServiceReference": "500014",
+        "invoiceId": 72027,
+        "description": "Synthetic transaction 2",
+        "createTimeStamp": "2024-11-11T12:47:49.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410052,
+        "transactionType": 1,
+        "transactionValue": 318500.0,
+        "cumulativeValue": 7633500.0,
+        "sourceReference": "300010",
+        "userServiceReference": null,
+        "invoiceId": null,
+        "description": "Synthetic transaction 3",
+        "createTimeStamp": "2024-11-11T12:40:39.000+00:00",
+        "creditStatus": true
+      },
+      {
+        "transactionID": 410049,
+        "transactionType": 5,
+        "transactionValue": 219000.0,
+        "cumulativeValue": 7315000.0,
+        "sourceReference": "300009",
+        "userServiceReference": "500006",
+        "invoiceId": 72023,
+        "description": "Synthetic transaction 4",
+        "createTimeStamp": "2024-11-05T01:36:20.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410046,
+        "transactionType": 5,
+        "transactionValue": 95000.0,
+        "cumulativeValue": 7534000.0,
+        "sourceReference": "300008",
+        "userServiceReference": "500005",
+        "invoiceId": 72021,
+        "description": "Synthetic transaction 5",
+        "createTimeStamp": "2024-11-04T01:35:21.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410043,
+        "transactionType": 5,
+        "transactionValue": 240000.0,
+        "cumulativeValue": 7629000.0,
+        "sourceReference": "300007",
+        "userServiceReference": "500004",
+        "invoiceId": 72019,
+        "description": "Synthetic transaction 6",
+        "createTimeStamp": "2024-11-04T01:35:15.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410040,
+        "transactionType": 5,
+        "transactionValue": 107000.0,
+        "cumulativeValue": 7869000.0,
+        "sourceReference": "300006",
+        "userServiceReference": "500012",
+        "invoiceId": 72017,
+        "description": "Synthetic transaction 7",
+        "createTimeStamp": "2024-11-03T06:54:53.000+00:00",
+        "creditStatus": false
+      },
+      {
+        "transactionID": 410037,
+        "transactionType": 2,
+        "transactionValue": 111000.0,
+        "cumulativeValue": 7976000.0,
+        "sourceReference": null,
+        "userServiceReference": "500001",
+        "invoiceId": 72015,
+        "description": "Synthetic transaction 8",
+        "createTimeStamp": "2024-11-03T06:53:58.000+00:00",
+        "creditStatus": true
+      },
+      {
+        "transactionID": 410034,
+        "transactionType": 2,
+        "transactionValue": 84500.0,
+        "cumulativeValue": 7865000.0,
+        "sourceReference": null,
+        "userServiceReference": "500010",
+        "invoiceId": 72011,
+        "description": "Synthetic transaction 9",
+        "createTimeStamp": "2024-11-03T05:20:01.000+00:00",
+        "creditStatus": true
+      },
+      {
+        "transactionID": 410031,
+        "transactionType": 5,
+        "transactionValue": 335500.0,
+        "cumulativeValue": 7780500.0,
+        "sourceReference": "300005",
+        "userServiceReference": "500001",
+        "invoiceId": 72015,
+        "description": "Synthetic transaction 10",
+        "createTimeStamp": "2024-11-03T05:19:44.000+00:00",
+        "creditStatus": false
+      }
+    ],
+    "pageable": {
+      "totalPages": 13,
+      "totalElements": 130,
+      "size": 10,
+      "number": 1
+    }
+  }
+}

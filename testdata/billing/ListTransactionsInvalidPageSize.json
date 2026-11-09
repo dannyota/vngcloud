@@ -1,0 +1,11 @@
+{
+  "code": 400,
+  "message": "Request is invalid",
+  "data": [
+    {
+      "type": "Max_value",
+      "field": "pageSize",
+      "errorMsg": "Page size must be less than 50 "
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "content": [],
+    "pageable": {
+      "totalPages": 8,
+      "totalElements": 74,
+      "size": 10,
+      "number": 9
+    }
+  }
+}
