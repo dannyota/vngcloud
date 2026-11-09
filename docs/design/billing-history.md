@@ -225,7 +225,13 @@ SDK outputs expose them for authorized callers; raw description structure
 is not a stable contract. Apply string sanitation to non-nil pointers too.
 Do not derive actions, products, resource types,
 or IDs from it. Redact all credentials observed across sends from returned
-string fields, including unknown gateway/status strings. Retain credential
+string fields, including unknown gateway/status strings, matching verbatim
+and JSON-escaped forms without regard to letter case. If any sent
+credential could be read as a number, fail closed with `InvalidResponse`
+before returning Output, as quotes do; real bearer tokens are long opaque
+strings. Redaction targets accidental reflection. A peer that deliberately
+encodes, splits, or transforms a token it issued is outside this boundary,
+since no output filter can detect every encoding. Retain credential
 observations within the new history helper; never expose the observation
 set. Ordinary account data remains available on the requested success path.
 
