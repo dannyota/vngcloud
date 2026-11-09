@@ -205,12 +205,12 @@ Only the manager runs these under a separate read-only brief following
 
 ## Live run
 
-L4 scope/cap is not run authorization. Each approval names account,
-`hcm-3`, enabled zone, mode, resources, and cleanup under the accepted cap.
-Require quote evidence and cleanup before purchase. Set `VNGCLOUD_LIVE_WRITE=1`,
-`VNGCLOUD_LIVE_FLOATING_IP=1`, and `VNGCLOUD_LIVE_MAX_VND=467800` in a
-manager-owned test with a 60 min timeout. Each run needs new approval;
-never reuse consent or raise the cap.
+L4 scope/cap is not run authorization. Each approval names account, region
+(`hcm-3`, or `han-1` while the HCM VPC quota is full), enabled zone, mode,
+resources, and cleanup under the cap. Require quote evidence and cleanup
+before purchase. Set `VNGCLOUD_LIVE_WRITE=1`, `VNGCLOUD_LIVE_FLOATING_IP=1`,
+and `VNGCLOUD_LIVE_MAX_VND=467800` in a manager-owned test with a 60 min
+timeout. Each run needs new approval; never reuse consent or raise the cap.
 
 Buy one `s2-general-1x2` server with a 20 GB SSD root selected by its
 verified zone-specific `RootDiskTypeID`, and one IP through create
