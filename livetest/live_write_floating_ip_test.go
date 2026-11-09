@@ -652,34 +652,42 @@ func (r *floatingIPRun) spec(ctx context.Context, zone string) (*compute.CreateS
 	if input.ImageID == "" {
 		return nil, errors.New("Ubuntu 24.04 image unavailable in selected region or zone")
 	}
-	// Catalog parents can name a disabled zone. Read SSD children directly;
+	// Catalog parents can name a disabled zone. Read the chosen class directly;
 	// the successful server quote verifies this type in the selected zone.
 	typeZones, err := r.volume.ListVolumeTypeZones(ctx, nil)
 	if err != nil {
 		return nil, errors.New("disk catalog read failed")
 	}
+	class := "NVME"
+	for _, tz := range typeZones.Items {
+		if strings.EqualFold(tz.Name, "SSD") {
+			class = "SSD"
+			break
+		}
+	}
 	requested := os.Getenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID")
 	for _, tz := range typeZones.Items {
-		if !strings.EqualFold(tz.Name, "SSD") {
+		if !strings.EqualFold(tz.Name, class) {
 			continue
 		}
 		types, err := r.volume.ListVolumeTypes(ctx, &volume.ListVolumeTypesInput{VolumeTypeZoneID: tz.ID})
 		if err != nil {
-			return nil, errors.New("SSD type read failed")
+			return nil, fmt.Errorf("%s type read failed", class)
 		}
 		for _, vt := range types.Items {
 			if vt.IOPS != 3000 || vt.MinSize > 20 || vt.MaxSize < 20 || (requested != "" && requested != vt.ID) {
 				continue
 			}
 			if input.RootDiskTypeID != "" && input.RootDiskTypeID != vt.ID {
-				return nil, errors.New("SSD selection is ambiguous; set VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID")
+				return nil, fmt.Errorf("%s selection is ambiguous; set VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID", class)
 			}
 			input.RootDiskTypeID = vt.ID
 		}
 	}
 	if input.RootDiskTypeID == "" {
-		return nil, errors.New("3000 IOPS SSD root type missing in selected region or zone")
+		return nil, fmt.Errorf("3000 IOPS %s root type missing in selected region or zone", class)
 	}
+	r.t.Logf("root disk: %s, 3000 IOPS", class)
 	return input, nil
 }
 

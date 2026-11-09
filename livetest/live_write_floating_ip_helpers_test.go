@@ -143,18 +143,55 @@ func TestFloatingIPHarnessHanoiEnabledZone(t *testing.T) {
 }
 
 func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
+	const nvmeMatches = `{"volumeTypes":[{"id":"nvme-1","iops":3000,"minSize":1,"maxSize":25000},{"id":"nvme-fast","iops":60000,"minSize":1,"maxSize":25000}]}`
+	const nvmeAmbiguous = `{"volumeTypes":[{"id":"nvme-1","iops":3000,"minSize":1,"maxSize":25000},{"id":"nvme-2","iops":3000,"minSize":1,"maxSize":25000}]}`
 	for _, tc := range []struct {
-		name        string
-		flavor, ssd bool
-		want        string
+		name                string
+		flavor, ssd, nvme   bool
+		ssdTypes, nvmeTypes string
+		selector, wantID    string
+		want                string
 	}{
-		{"missing flavor", false, true, "s2-general-1x2 missing in selected region or zone"},
-		{"missing SSD", true, false, "3000 IOPS SSD root type missing in selected region or zone"},
-		{"available", true, true, ""},
+		{name: "missing flavor", ssd: true, want: "s2-general-1x2 missing in selected region or zone"},
+		{name: "neither class exists", flavor: true, want: "3000 IOPS NVME root type missing in selected region or zone"},
+		{name: "SSD available", flavor: true, ssd: true, wantID: "ssd-1"},
+		{name: "SSD preferred over NVME", flavor: true, ssd: true, nvme: true, wantID: "ssd-1"},
+		{
+			name: "SSD zone without match forbids NVME", flavor: true, ssd: true, nvme: true,
+			ssdTypes: `{"volumeTypes":[]}`, want: "3000 IOPS SSD root type missing in selected region or zone",
+		},
+		{name: "NVME 3000 only without SSD zone", flavor: true, nvme: true, wantID: "nvme-1"},
+		{
+			name: "NVME has no 3000 match", flavor: true, nvme: true,
+			nvmeTypes: `{"volumeTypes":[{"id":"nvme-fast","iops":60000,"minSize":1,"maxSize":25000}]}`,
+			want:      "3000 IOPS NVME root type missing in selected region or zone",
+		},
+		{
+			name: "NVME size excludes 20", flavor: true, nvme: true,
+			nvmeTypes: `{"volumeTypes":[{"id":"nvme-1","iops":3000,"minSize":21,"maxSize":25000}]}`,
+			want:      "3000 IOPS NVME root type missing in selected region or zone",
+		},
+		{
+			name: "NVME ambiguity refused", flavor: true, nvme: true, nvmeTypes: nvmeAmbiguous,
+			want: "NVME selection is ambiguous; set VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID",
+		},
+		{
+			name: "exact NVME selector resolves ambiguity", flavor: true, nvme: true,
+			nvmeTypes: nvmeAmbiguous, selector: "nvme-2", wantID: "nvme-2",
+		},
+		{
+			name: "NVME selector is case sensitive", flavor: true, nvme: true, selector: "NVME-1",
+			want: "3000 IOPS NVME root type missing in selected region or zone",
+		},
+		{name: "exact SSD selector", flavor: true, ssd: true, nvme: true, selector: "ssd-1", wantID: "ssd-1"},
+		{
+			name: "selector cannot bypass SSD preference", flavor: true, ssd: true, nvme: true, selector: "nvme-1",
+			want: "3000 IOPS SSD root type missing in selected region or zone",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID", "")
-			writes := 0
+			t.Setenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID", tc.selector)
+			writes, nvmeReads := 0, 0
 			guard := newFloatingIPTransport("han-1")
 			guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
 				if req.Method != http.MethodGet {
@@ -173,12 +210,30 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 				case "/v1/project-1/images/os":
 					body = `{"images":[{"id":"image-1","imageVersion":"Ubuntu 24.04","licence":false,"packageLimit":{"diskSize":20}}]}`
 				case "/v1/project-1/volume_type_zones":
-					body = `{"volumeTypeZones":[]}`
-					if tc.ssd {
-						body = `{"volumeTypeZones":[{"id":"vtz-1","name":"SSD"}]}`
+					zones := []map[string]string{}
+					// NVME comes first to catch selection based on catalog order.
+					if tc.nvme {
+						zones = append(zones, map[string]string{"id": "nvme-zone-1", "name": "NVME"})
 					}
+					if tc.ssd {
+						zones = append(zones, map[string]string{"id": "vtz-1", "name": "SSD"})
+					}
+					data, err := json.Marshal(map[string]any{"volumeTypeZones": zones})
+					if err != nil {
+						return nil, err
+					}
+					body = string(data)
 				case "/v1/project-1/vtz-1/volume_types":
 					body = `{"volumeTypes":[{"id":"ssd-1","iops":3000,"minSize":1,"maxSize":5000,"zoneId":"HAN01-1B"}]}`
+					if tc.ssdTypes != "" {
+						body = tc.ssdTypes
+					}
+				case "/v1/project-1/nvme-zone-1/volume_types":
+					nvmeReads++
+					body = nvmeMatches
+					if tc.nvmeTypes != "" {
+						body = tc.nvmeTypes
+					}
 				default:
 					t.Errorf("unexpected catalog request: %s", req.URL.Path)
 					return nil, errors.New("unexpected catalog request")
@@ -196,7 +251,7 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 			r := newFloatingIPRun(t, cfg, guard, &floatingIPCapture{dir: t.TempDir()}, "vngcloud-live-fip-1234abcd")
 			input, err := r.spec(context.Background(), "HAN01-1B")
 			if tc.want == "" {
-				if err != nil || input == nil || input.FlavorID != "flavor-1" || input.RootDiskTypeID != "ssd-1" || input.ZoneID != "HAN01-1B" {
+				if err != nil || input == nil || input.FlavorID != "flavor-1" || input.RootDiskTypeID != tc.wantID || input.ZoneID != "HAN01-1B" {
 					t.Fatalf("regional catalog selection failed: %v", err)
 				}
 			} else if err == nil || err.Error() != tc.want || input != nil {
@@ -204,6 +259,9 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 			}
 			if writes != 0 || len(r.ledger.attempted) != 0 {
 				t.Fatal("missing regional prerequisites permitted a write")
+			}
+			if tc.ssd && nvmeReads != 0 {
+				t.Fatal("NVME was read despite an SSD type zone being present")
 			}
 		})
 	}
