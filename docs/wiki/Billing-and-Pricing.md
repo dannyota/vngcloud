@@ -210,6 +210,11 @@ if balances.Balances.Cash != nil {
 }
 ```
 
+Cost, balance, budget, threshold, and alert reads accept responses up to
+8 MiB. A larger 2xx response returns `InvalidResponse` with its HTTP
+status; a larger 4xx or 5xx response keeps its status-based error but is
+not retried and does not refresh the token.
+
 ## Prepaid resources
 
 `ListResources(ctx, nil)` reads the unfiltered central resource list across

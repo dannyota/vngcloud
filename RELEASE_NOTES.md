@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.93.3 - Bounded billing reads
+
+- The eight billing reads (`get-cost-overview`, `list-cost-resources`,
+  `get-balances`, `list-budgets`, `get-budget`, `get-current-period-cost`,
+  `list-budget-thresholds`, and `list-budget-alerts`) now refuse response
+  bodies over 8 MiB. An oversized 2xx response returns `InvalidResponse`
+  with its HTTP status and no body text; an oversized 4xx or 5xx response
+  keeps its status-based error but fails without retry or token refresh.
+- Responses within the limit, budget writes, and output shapes are
+  unchanged.
+
 ## v0.93.2 - Cost explorer overview fix
 
 - `billing get-cost-overview` (SDK `GetCostOverview`) showed every
