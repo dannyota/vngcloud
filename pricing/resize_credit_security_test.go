@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/transport"
@@ -46,11 +48,9 @@ func TestGetQuoteCredentialEchoSynthetic(t *testing.T) {
 			})
 			c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{Portal: srv.URL + "/"}, tc))
 			out, err := c.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceServer, Action: ActionResize})
-			if status == 200 && (err != nil || out == nil || out.OptimumPrice != 100) {
-				t.Fatalf("out = %+v, err = %v", out, err)
-			}
-			if status == 400 && (err == nil || out != nil) {
-				t.Fatalf("out = %+v, err = %v", out, err)
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) {
+				t.Fatalf("out = %+v, err = %v, want nil and APIError", out, err)
 			}
 			encoded, marshalErr := json.Marshal(out)
 			if marshalErr != nil {

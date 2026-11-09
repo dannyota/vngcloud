@@ -276,6 +276,37 @@ func TestGetQuoteNullPriceIsError(t *testing.T) {
 	}
 }
 
+func TestGetQuoteOptionalTotalsSynthetic(t *testing.T) {
+	for _, field := range []string{"originalPrice", "discountPrice", "discountPercent"} {
+		for _, null := range []bool{false, true} {
+			name := field + "/absent"
+			body := map[string]any{"optimumPrice": 100, "originalPrice": 200, "discountPrice": 100, "discountPercent": 50}
+			delete(body, field)
+			if null {
+				name = field + "/null"
+				body[field] = nil
+			}
+			t.Run(name, func(t *testing.T) {
+				client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if err := json.NewEncoder(w).Encode(body); err != nil {
+						t.Error(err)
+					}
+				}))
+				out, err := client.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceSnapshot})
+				if err != nil || out == nil || out.OptimumPrice != 100 {
+					t.Fatalf("out = %+v, err = %v, want valid optimum", out, err)
+				}
+				value := map[string]float64{
+					"originalPrice": out.OriginalPrice, "discountPrice": out.DiscountPrice, "discountPercent": out.DiscountPercent,
+				}[field]
+				if value != 0 {
+					t.Errorf("%s = %v, want existing zero default", field, value)
+				}
+			})
+		}
+	}
+}
+
 // TestGetQuoteNegativePriceIsError checks that a negative optimumPrice
 // refuses rather than decoding as-is: a paid write's guard
 // (quoted > MaxPrice) would otherwise compare a negative price below any

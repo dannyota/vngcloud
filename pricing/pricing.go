@@ -4,6 +4,7 @@ package pricing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -128,7 +129,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		action = ActionCreate
 	}
 
-	var resp quoteResponse
+	var raw json.RawMessage
 	var sentCredentials []string
 	req := transport.Request{
 		Operation: op,
@@ -142,12 +143,17 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		OK:              []int{200},
 		Idempotent:      true,
 		MaxBody:         1 << 20,
+		Sensitive:       true,
 		SentCredentials: &sentCredentials,
 	}
-	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return nil, &core.APIError{Operation: op, Message: "quote response exceeds 1 MiB", Err: err}
 		}
+		return nil, err
+	}
+	resp, err := decodeQuoteResponse(op, raw, sentCredentials)
+	if err != nil {
 		return nil, err
 	}
 

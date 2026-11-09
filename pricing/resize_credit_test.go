@@ -110,7 +110,7 @@ func TestGetQuoteResponseBoundSynthetic(t *testing.T) {
 				}), func(transport.Capture) { captured++ }))
 				out, err := c.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceServer, Action: ActionResize})
 				if size == 1<<20 && status == 200 {
-					if err != nil || out == nil || out.OptimumPrice != 100 || captured != 1 {
+					if err != nil || out == nil || out.OptimumPrice != 100 || captured != 0 {
 						t.Fatalf("out = %+v, err = %v, captures = %d", out, err, captured)
 					}
 					return
@@ -164,11 +164,14 @@ func TestGetQuoteServerResizeCreditFixture(t *testing.T) {
 		t.Fatal("raw fixture exceeds pricing response limit")
 	}
 	var raw struct {
-		OptimumPrice    *float64 `json:"optimumPrice"`
-		OriginalPrice   float64  `json:"originalPrice"`
-		DiscountPrice   float64  `json:"discountPrice"`
-		DiscountPercent float64  `json:"discountPercent"`
-		Properties      []struct {
+		OptimumPrice         *float64        `json:"optimumPrice"`
+		OriginalPrice        float64         `json:"originalPrice"`
+		DiscountPrice        float64         `json:"discountPrice"`
+		DiscountPercent      float64         `json:"discountPercent"`
+		ArtifactPrices       json.RawMessage `json:"artifactPrices"`
+		OriginalCurrentPrice json.RawMessage `json:"originalCurrentPrice"`
+		OriginalNewPrice     json.RawMessage `json:"originalNewPrice"`
+		Properties           []struct {
 			Name            string   `json:"name"`
 			Description     string   `json:"description"`
 			OptimumPrice    float64  `json:"optimumPrice"`
@@ -182,6 +185,11 @@ func TestGetQuoteServerResizeCreditFixture(t *testing.T) {
 	}
 	if raw.OptimumPrice == nil || *raw.OptimumPrice >= 0 {
 		t.Fatal("fixture must contain a negative numeric optimumPrice")
+	}
+	// These raw fields have no public model. Keep their original JSON types
+	// and values in the evidence instead of replacing it with SDK output.
+	if string(raw.ArtifactPrices) != "null" || string(raw.OriginalCurrentPrice) != "737880" || string(raw.OriginalNewPrice) != "85140" {
+		t.Fatal("raw fixture lost unknown quote fields")
 	}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
 	out, err := c.GetQuote(context.Background(), &GetQuoteInput{ResourceType: ResourceServer, Action: ActionResize})
