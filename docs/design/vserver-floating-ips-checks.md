@@ -3,10 +3,9 @@
 Status: Owner decisions accepted; evidence and independent review gates open.
 See [vServer floating IPs](vserver-floating-ips.md).
 
-These are implementation and independent-review obligations, not results
-of this design pass. The [API](vserver-floating-ips-api.md) owns evidence
-classes and missing contracts. Unit checks use `httptest`, synthetic
-identities, documentation addresses, and injected clocks, never the cloud.
+These are implementation and review obligations; the
+[API](vserver-floating-ips-api.md) owns evidence. Unit checks use `httptest`,
+synthetic IDs, documentation addresses, and injected clocks, not the cloud.
 
 ## Fixture provenance
 
@@ -86,17 +85,18 @@ only the envelope, never row shape or attachment state.
   `ListAllSecurityGroupRules`, which does not establish full membership.
 - Reject TCP ingress covering 22, 234, 3389, or 3490 from either `/0`.
   Test alternate CIDR spelling, two `/1` rules in separate groups,
-  overlapping ranges, IPv4 and IPv6 independently, unknown direction,
-  unknown protocol, all-port ranges, missing fields, invalid ranges,
-  malformed CIDRs, and remote groups. Integer wire ports are not strings.
-- Narrow prefixes, known egress, UDP/ICMP, and TCP ranges excluding the
-  listed ports pass this specific test. Do not infer guest hardening.
-  `AllowOpenLogin` bypasses exposure refusal only; permission, identity,
-  response-limit, attachment, and price failures still stop the write.
-- Recheck before send: membership, interface, or rules changed since the
-  first check refuses. Interleave a rule change after the final read to
-  demonstrate the unavoidable race; do not assert zero exposure under
-  concurrent changes. No group or guest mutation is an SDK side effect.
+  overlapping ranges, IPv4 and IPv6 separately, unknown direction or
+  protocol, `any` and `TCP`/`tcp` casing, `any` with a partial range, null
+  ports or prefixes, invalid ranges, malformed CIDRs, and a CIDR rule with
+  `remoteGroupId`. Wire ports are integers.
+- Narrow prefixes, known egress, and TCP ranges excluding the listed ports
+  pass; this infers no guest hardening. `AllowOpenLogin` bypasses exposure
+  refusal only; permission, identity, response-limit, attachment, and
+  price failures still stop the write.
+- Recheck before send: changed membership, interface, or rules refuse.
+  Interleave a rule change after the final read to show the unavoidable
+  race; never assert zero exposure under concurrent changes. No group or
+  guest mutation is an SDK side effect.
 
 ### R3
 
@@ -199,9 +199,9 @@ Only the manager runs these under a separate read-only brief following
    paging envelope. No row claim follows from an empty list.
 4. Once R3 exists, bad-ID get must fail before requests and a synthetic
    well-formed absent ID must return `NotFound` only after a complete walk.
-5. Group-rule reads verify the unpaged `data` array, field presence, and
-   protocol/port encodings used by the guard. Never modify the account's
-   default group or send a public create to demonstrate its exposure.
+5. Group-rule reads verified the unpaged `data` array and the guard's
+   [encodings](vserver-floating-ips-api.md#security-group-rules). Never
+   modify the default group or create publicly to show its exposure.
 
 ## Live run
 

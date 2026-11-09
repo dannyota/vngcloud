@@ -63,16 +63,15 @@ rules, err := client.ListSecurityGroupRules(ctx, in)             // SecurityGrou
 allRules, err := client.ListAllSecurityGroupRules(ctx, nil)
 ```
 
-`ListServersBySecurityGroup` returns `compute.Server` rows. Use
-`--query 'Items[].PublicIP'` for their derived internal floating addresses.
-Empty does not prove absence. An 8 MiB response limit and credential
-checks prevent unsafe partial rows. Derivation and compatibility limits:
+`ListServersBySecurityGroup` returns `compute.Server` rows. Query addresses
+with `--query 'Items[].PublicIP'`; empty does not prove absence. See
 [Public address](Compute-Servers.md#public-address).
 
-`SecurityGroup.System` marks the default group: all outbound traffic and
-inbound SSH, RDP, HTTP, HTTPS, and ICMP from anywhere. `ListSecurityGroups`
-filters `Name` by substring, so "web" also finds "webhook". To find one
-exact name, list groups and compare each name.
+Group and rule reads have 8 MiB response and 30 s limits, suppress captures,
+and reject credential reflections. `ListSecurityGroups` matches names by
+substring, so compare exact names yourself. `SecurityGroup.System` marks
+the default group, whose broad rules can trigger the public-create guard:
+[Floating IP create](Compute-Servers.md#floating-ip-create).
 
 ## Creating, updating, and deleting groups
 

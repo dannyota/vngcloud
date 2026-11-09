@@ -9,6 +9,9 @@ import (
 
 func showCompute(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	computeClient := compute.New(cfg)
+	// QuoteCreateServer accepts AttachFloatingIP for a conservative server-plus-IP
+	// estimate. Find verified zone, flavor, image, and disk IDs before quoting;
+	// this inventory example never creates a public server.
 
 	flavorPrices, err := computeClient.ListFlavorPrices(ctx, &compute.ListFlavorPricesInput{Family: "general-purpose", Platform: "code-s2", Name: "s2-general-1x2", MaxRequests: 100})
 	recordOne(outputs, cfg, "server/flavor_prices", "flavor prices", flavorPrices, err)

@@ -33,7 +33,7 @@ func TestCreateServerLoginBodies(t *testing.T) {
 				"name": "web-1", "zoneId": "zone-1", "flavorId": "flavor-1", "imageId": "image-1",
 				"networkId": "vpc-1", "subnetId": "subnet-1", "securityGroup": []any{"sg-1"},
 				"rootDiskSize": float64(20), "rootDiskTypeId": "voltype-1",
-				"encryptionVolume": false, "isEnableAutoRenew": false,
+				"encryptionVolume": false, "isEnableAutoRenew": false, "attachFloating": false,
 			}
 			if login == "user-data" {
 				in.SSHKeyID = ""

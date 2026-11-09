@@ -1038,3 +1038,19 @@ func TestIAMResetOutcomeAndFilePrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenLoginSharedMappingAndSettlementPrecedence(t *testing.T) {
+	if !errors.Is(compute.ErrOpenLogin, network.ErrOpenLogin) || !errors.Is(network.ErrOpenLogin, compute.ErrOpenLogin) {
+		t.Fatal("service exposure errors must share identity")
+	}
+	for _, sentinel := range []error{compute.ErrOpenLogin, network.ErrOpenLogin} {
+		err := fmt.Errorf("refused: %w", sentinel)
+		if classify(err).Code != "OpenLogin" || exitCode(err) != 1 {
+			t.Fatalf("incorrect exposure mapping: %v", err)
+		}
+		uncertain := errors.Join(compute.ErrNotSettled, err)
+		if classify(uncertain).Code != "NotSettled" || exitCode(uncertain) != 1 {
+			t.Fatal("exposure cause overrode settlement")
+		}
+	}
+}
