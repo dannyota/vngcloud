@@ -95,6 +95,14 @@ func TestIAMPolicyLookupHelpAndDocs(t *testing.T) {
 				t.Fatal(err)
 			}
 			section := genDocsSection(t, string(page), tc.command)
+			if tc.command == "get-user" {
+				if strings.Contains(stdout.String(), "[IAM](IAM.md#google-mfa)") || !strings.Contains(stdout.String(), "See the IAM wiki page.") {
+					t.Error("help should reference the IAM wiki in plain text")
+				}
+				if !strings.Contains(section, "[IAM](IAM.md#google-mfa)") {
+					t.Error("wiki section should retain the IAM link")
+				}
+			}
 			for _, want := range tc.wants {
 				if !strings.Contains(stdout.String(), want) {
 					t.Errorf("help missing %q", want)

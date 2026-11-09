@@ -121,7 +121,8 @@ func newIAMCmd(e *env) *cobra.Command {
 	for _, child := range cmd.Commands() {
 		switch child.Name() {
 		case "get-service-account", "list-service-accounts", "get-user", "list-users":
-			child.Long = docOpNotes["iam "+child.Name()]
+			child.Long = strings.ReplaceAll(docOpNotes["iam "+child.Name()],
+				"See [IAM](IAM.md#google-mfa).", "See the IAM wiki page.")
 		}
 	}
 	return cmd

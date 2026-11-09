@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -151,16 +152,46 @@ type svcFixture struct {
 
 func newSvcFixture(routes map[string]func(w http.ResponseWriter, r *http.Request)) *svcFixture {
 	f := &svcFixture{mux: http.NewServeMux()}
+	router := http.NewServeMux()
 	for path, handler := range routes {
-		h := handler
-		f.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			f.mu.Lock()
-			f.requests = append(f.requests, reqRecord{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery})
-			f.mu.Unlock()
-			h(w, r)
-		})
+		router.HandleFunc(path, handler)
 	}
+	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.requests = append(f.requests, reqRecord{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery})
+		f.mu.Unlock()
+		router.ServeHTTP(w, r)
+	})
 	return f
+}
+
+func TestSvcFixtureRecordsMatchedAndUnmatchedRequests(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/matched": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	})
+	for _, tc := range []struct {
+		method string
+		target string
+		status int
+	}{
+		{http.MethodPost, "/matched?a=1", http.StatusNoContent},
+		{http.MethodGet, "/unmatched?b=2", http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		fixture.mux.ServeHTTP(response, httptest.NewRequestWithContext(context.Background(), tc.method, tc.target, nil))
+		if response.Code != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.target, response.Code, tc.status)
+		}
+	}
+	if got := fixture.requestCount(); got != 2 {
+		t.Errorf("request count = %d, want 2", got)
+	}
+	if method, ok := fixture.methodFor("/unmatched"); !ok || method != http.MethodGet {
+		t.Errorf("unmatched method = %q, present = %v", method, ok)
+	}
+	if query, ok := fixture.queryFor("/unmatched"); !ok || query != "b=2" {
+		t.Errorf("unmatched query = %q, present = %v", query, ok)
+	}
 }
 
 func (f *svcFixture) requestCount() int {

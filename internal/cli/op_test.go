@@ -307,6 +307,39 @@ func TestOpDestructiveWithoutYesRefusesWithZeroRequests(t *testing.T) {
 	}
 }
 
+func TestConfirmationReasonRequiresDestructive(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("expected registration to reject a reason without Destructive")
+		}
+	}()
+	_ = Write("fake-delete", (*fakeClient).FakeDelete, ConfirmationReason("grants permissions"))
+}
+
+func TestConfirmationReasonOptionOrders(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []writeOption
+	}{
+		{"reason first", []writeOption{ConfirmationReason("grants permissions"), Destructive()}},
+		{"destructive first", []writeOption{Destructive(), ConfirmationReason("grants permissions")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newFakeHarness(t)
+			root := newTestRoot(h.e)
+			op := Write("fake-delete", (*fakeClient).FakeDelete, tc.opts...)
+			root.AddCommand(Service(h.e, "fake", "test", h.newClient, op))
+			err := execCmd(t, root, []string{"fake", "fake-delete", "--id", "x"})
+			if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "fake fake-delete grants permissions; pass --yes to confirm") {
+				t.Errorf("unexpected refusal: %v", err)
+			}
+			if got := atomic.LoadInt32(&h.calls); got != 0 {
+				t.Errorf("calls = %d, want 0", got)
+			}
+		})
+	}
+}
+
 func TestOpDestructiveWithYesSucceeds(t *testing.T) {
 	h := newFakeHarness(t)
 	root := newTestRoot(h.e)

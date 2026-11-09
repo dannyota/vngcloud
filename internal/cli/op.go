@@ -67,11 +67,12 @@ type Op[C any] struct {
 
 // writeOption configures a Write operation.
 type writeOption struct {
-	destructive   bool
-	confirmReason string
-	guard         func(cmd *cobra.Command, in any) error
-	redact        func(out any)
-	noFlag        map[string]bool
+	destructive      bool
+	confirmReason    string
+	confirmReasonSet bool
+	guard            func(cmd *cobra.Command, in any) error
+	redact           func(out any)
+	noFlag           map[string]bool
 	// globalProject is set by WriteGlobalProjectID.
 	globalProject string
 }
@@ -80,8 +81,10 @@ type writeOption struct {
 // it fails with exit code 2 and names --yes unless --yes is given.
 func Destructive() writeOption { return writeOption{destructive: true} }
 
-// ConfirmationReason changes the refusal text for a confirmed write.
-func ConfirmationReason(reason string) writeOption { return writeOption{confirmReason: reason} }
+// ConfirmationReason changes the refusal text for a Destructive write.
+func ConfirmationReason(reason string) writeOption {
+	return writeOption{confirmReason: reason, confirmReasonSet: true}
+}
 
 // Guard adds a check that runs on a Write operation's merged Input, after
 // --cli-input-json and every flag are applied but before any request: fn
@@ -246,6 +249,7 @@ func Read[C, In, Out any](name string, method func(*C, context.Context, *In) (*O
 // command is refused before a client is built.
 func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*Out, error), opts ...writeOption) Op[C] {
 	var redact func(out any)
+	var hasConfirmReason bool
 	op := Op[C]{
 		name:       name,
 		methodName: funcName(method),
@@ -260,6 +264,7 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 		if o.confirmReason != "" {
 			op.confirmReason = o.confirmReason
 		}
+		hasConfirmReason = hasConfirmReason || o.confirmReasonSet
 		if o.guard != nil {
 			op.guard = o.guard
 		}
@@ -275,6 +280,9 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 			}
 			op.noFlag[f] = true
 		}
+	}
+	if hasConfirmReason && !op.destructive {
+		panic("cli: " + name + " has ConfirmationReason without Destructive")
 	}
 	op.call = func(_ *cobra.Command, client *C, ctx context.Context, in any) (any, error) {
 		out, err := method(client, ctx, in.(*In))
