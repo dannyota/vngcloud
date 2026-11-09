@@ -1,5 +1,29 @@
 # Release Notes
 
+## v0.92.0 - Resize quote credits
+
+- `compute quote-resize-server` (SDK `QuoteResizeServer`) and
+  `pricing get-quote --action resize` now return a server downsize quote.
+  GreenNode prices a downsize as a negative prorated credit, which the SDK
+  used to refuse as an invalid price. `OptimumPrice` and `MonthlyPrice` are
+  signed: a negative value is a credit, and JSON, table, and text output
+  show the minus sign. Create quotes still refuse a negative price, and a
+  missing, null, NaN, or infinite price is still refused for every action.
+- `compute resize-server` (SDK `ResizeServer`) now lets a quoted credit
+  pass at every valid `--max-price`, including the default 0; a quote of
+  exactly 0 still fails as unpriced. `--max-price` bounds the quote, not
+  the final charge: the resize request carries no price, so if the server
+  or prices change between the quote and the send, a quoted credit can
+  become a charge.
+- `volume resize-volume` still refuses a quote at or below 0 and now names
+  the amount.
+- A resize that fails before its request is sent, for example while
+  getting a token, now returns no Output and the original error instead of
+  reporting an accepted but unsettled write.
+- Quote responses are bounded at 1 MiB.
+- Bool flag help shows `[=true|false]` and invalid flag values give
+  shorter errors, from pflag v1.1.0; usage errors still exit 2.
+
 ## v0.91.2 - Clearer IAM permission confirmations
 
 - Policy attach and detach for service accounts, users, and groups, and
