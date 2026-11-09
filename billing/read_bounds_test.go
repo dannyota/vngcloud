@@ -274,6 +274,46 @@ func TestBillingReadRetryWithinLimit(t *testing.T) {
 	}
 }
 
+func TestBillingReadOversized503DoesNotRetry(t *testing.T) {
+	for _, tc := range billingReadTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := testutil.FixtureBody(t, "../testdata/billing/"+tc.fixture+".json")
+			var calls atomic.Int32
+			client := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, paddedBillingBody(`{"code":null,"message":"synthetic-peer-canary"}`, billingReadTestLimit+1))
+					return
+				}
+				_, _ = io.WriteString(w, fixture)
+			})))
+			out, err := tc.call(context.Background(), client)
+			var api *vngcloud.APIError
+			if calls.Load() != 1 || out != nil || !errors.As(err, &api) {
+				t.Fatal("oversized 503 retried, returned output, or lost APIError")
+			}
+			if api.Operation != "billing."+tc.name || api.StatusCode != 503 || api.Code != "ServerError" || api.Message != "Service Unavailable" || !api.Retryable || errors.Is(err, transport.ErrBodyTooLarge) {
+				t.Error("oversized 503 lost status-based classification")
+			}
+		})
+	}
+}
+
+func TestBillingReadOversizedRedirect(t *testing.T) {
+	body := paddedBillingBody(`{"code":200,"message":"synthetic-peer-canary","data":null}`, billingReadTestLimit+1)
+	for _, tc := range billingReadTestCases() {
+		for _, status := range []int{300, 301, 302, 307, 308} {
+			t.Run(tc.name+"/"+strconv.Itoa(status), func(t *testing.T) {
+				out, err := tc.call(context.Background(), billingReadBodyClient(t, tc, status, body))
+				var api *vngcloud.APIError
+				if out != nil || !errors.Is(err, transport.ErrBodyTooLarge) || errors.As(err, &api) || vngcloud.ErrorCode(err) != "" {
+					t.Error("oversized redirect changed the existing body-limit error classification")
+				}
+			})
+		}
+	}
+}
+
 func TestBillingHelperBodyOverflow(t *testing.T) {
 	for _, helper := range []string{"doRaw", "do", "doBalances"} {
 		for _, status := range []int{200, 201, 206} {

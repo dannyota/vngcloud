@@ -57,7 +57,7 @@ func (c *Client) doRaw(ctx context.Context, req transport.Request) (json.RawMess
 		return ""
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
-	if req.MaxBody > 0 && errors.Is(err, transport.ErrBodyTooLarge) {
+	if req.MaxBody > 0 && status/100 == 2 && errors.Is(err, transport.ErrBodyTooLarge) {
 		err = &core.APIError{
 			Operation:  req.Operation,
 			StatusCode: status,
