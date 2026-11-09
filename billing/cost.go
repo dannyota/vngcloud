@@ -125,6 +125,9 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 		EndDate:   data.EndDate,
 		GroupBy:   data.GroupBy,
 	}
+	if data.Series != nil && len(data.Series) == 0 {
+		out.Series = []CostSeries{}
+	}
 	for _, series := range data.Series {
 		if series.grouped {
 			out.GroupedSeries = append(out.GroupedSeries, series.group)

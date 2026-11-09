@@ -31,14 +31,14 @@ func TestGetCostOverviewCaptured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Summary.CurrentCost != 271980 || out.Summary.ForecastCost != 928081 || out.Summary.ActiveCount != 3 {
-		t.Fatalf("unexpected summary: %+v", out.Summary)
+	if out.Summary.CurrentCost != 360 || out.Summary.LastPeriodCost != 400 || out.Summary.ChangePercent != -10 || out.Summary.ForecastCost != 1200 || out.Summary.ActiveCount != 12 {
+		t.Fatal("summary does not match the synthetic fixture values")
 	}
 	var costs []float64
 	for _, row := range out.Summary.Breakdown {
 		costs = append(costs, row.Cost)
 	}
-	if want := []float64{263118, 8862, 0}; !reflect.DeepEqual(costs, want) {
+	if want := []float64{270, 90, 0}; !reflect.DeepEqual(costs, want) {
 		t.Errorf("breakdown costs = %v, want %v from value", costs, want)
 	}
 	for _, point := range out.Series {
@@ -50,8 +50,8 @@ func TestGetCostOverviewCaptured(t *testing.T) {
 		t.Errorf("legacy Series = %+v, want nil for a grouped response", out.Series)
 	}
 	wantBreakdown := []CostBreakdown{
-		{Key: "vserver", Cost: 263118, Percent: 96.74},
-		{Key: "vstorage", Cost: 8862, Percent: 3.26},
+		{Key: "vserver", Cost: 270, Percent: 75},
+		{Key: "vstorage", Cost: 90, Percent: 25},
 		{Key: "vmonitor", Cost: 0, Percent: 0},
 	}
 	if !reflect.DeepEqual(out.Summary.Breakdown, wantBreakdown) {
@@ -66,18 +66,18 @@ func TestGetCostOverviewCaptured(t *testing.T) {
 			{Date: "2026-11-09", Cost: 0},
 		}},
 		{Key: "vserver", Color: "#11B895", Points: []CostSeriesPoint{
-			{Date: "2026-11-01", Cost: 29928}, {Date: "2026-11-02", Cost: 29928},
-			{Date: "2026-11-03", Cost: 29928}, {Date: "2026-11-04", Cost: 29928},
-			{Date: "2026-11-05", Cost: 29928}, {Date: "2026-11-06", Cost: 29928},
-			{Date: "2026-11-07", Cost: 29928}, {Date: "2026-11-08", Cost: 29929},
-			{Date: "2026-11-09", Cost: 23693},
+			{Date: "2026-11-01", Cost: 20}, {Date: "2026-11-02", Cost: 25},
+			{Date: "2026-11-03", Cost: 30}, {Date: "2026-11-04", Cost: 35},
+			{Date: "2026-11-05", Cost: 40}, {Date: "2026-11-06", Cost: 45},
+			{Date: "2026-11-07", Cost: 35}, {Date: "2026-11-08", Cost: 25},
+			{Date: "2026-11-09", Cost: 15},
 		}},
 		{Key: "vstorage", Color: "#5B5AA8", Points: []CostSeriesPoint{
-			{Date: "2026-11-01", Cost: 1008}, {Date: "2026-11-02", Cost: 1008},
-			{Date: "2026-11-03", Cost: 1008}, {Date: "2026-11-04", Cost: 1008},
-			{Date: "2026-11-05", Cost: 1008}, {Date: "2026-11-06", Cost: 1008},
-			{Date: "2026-11-07", Cost: 1008}, {Date: "2026-11-08", Cost: 1008},
-			{Date: "2026-11-09", Cost: 798},
+			{Date: "2026-11-01", Cost: 5}, {Date: "2026-11-02", Cost: 10},
+			{Date: "2026-11-03", Cost: 15}, {Date: "2026-11-04", Cost: 10},
+			{Date: "2026-11-05", Cost: 5}, {Date: "2026-11-06", Cost: 15},
+			{Date: "2026-11-07", Cost: 10}, {Date: "2026-11-08", Cost: 15},
+			{Date: "2026-11-09", Cost: 5},
 		}},
 	}
 	if !reflect.DeepEqual(out.GroupedSeries, wantGroups) {
@@ -152,6 +152,39 @@ func TestGetCostOverviewGroupedIntervals(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestGetCostOverviewSeriesSerialization(t *testing.T) {
+	for _, tc := range []struct {
+		name, data, wantSeries string
+	}{
+		{"empty", `{"series":[]}`, `[]`},
+		{"absent", `{}`, `null`},
+		{"null", `{"series":null}`, `null`},
+		{"legacy points", `{"series":[{"date":"2026-11-01","cost":12.5}]}`, `[{"date":"2026-11-01","cost":12.5}]`},
+		{"grouped", `{"series":[{"key":"vserver","points":[]}]}`, `null`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"code":200,"data":%s}`, tc.data)
+			}))
+			out, err := client.GetCostOverview(context.Background(), &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(fields["Series"]); got != tc.wantSeries {
+				t.Fatalf("serialized Series = %s, want %s", got, tc.wantSeries)
+			}
+		})
 	}
 }
 

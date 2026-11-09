@@ -219,7 +219,7 @@ string, so one odd row does not fail the list.
 | `CostBreakdown` | `Key` reads `key`; `Cost` reads `value`; `Percent` reads `percent`. A present `value`, including zero or null, overrides legacy `cost`. JSON output keeps the `cost` field name. |
 | `CostSeriesGroup` | `Key`, `Color`, and `Points` read `key`, `color`, and `points`. `GroupedSeries` retains group and point order, including sparse groups. |
 | `CostSeriesPoint` | `Date` reads the unparsed `x` bucket string; `Cost` reads numeric `y`. No aggregation or padding. |
-| Legacy `Series` | Keeps `[]CostSeries` with `Date`/`Cost` for flat `date`/`cost` responses. Grouped responses populate `GroupedSeries` and leave `Series` nil. Existing fields and types remain; flat responses have no live evidence. |
+| Legacy `Series` | Keeps `[]CostSeries` with `Date`/`Cost` for flat `date`/`cost` responses. An explicit empty array stays empty; absent/null stays nil. Grouped responses populate `GroupedSeries` and leave `Series` nil. Existing fields and types remain; flat responses have no live evidence. |
 | `CostResource` | `ResourceID`, `ResourceName`, `ResourceType`, `Product`, `Cost`, `DailyAverage`, `StartDate`. `Cost` reads only `totalCost`, the API's range total; `DailyAverage` reads `dailyAvg`. Omit `region` and `userId`. |
 | Resource page size | Non-positive `Size` or a value above 200 sends 200; the API rejects larger sizes with HTTP 400. |
 | Resource pagination | Non-positive `Page` selects 1; send `Page - 1`, return `pagination.page + 1`, and retain other metadata. Callers loop to `TotalPage`; one capped API does not establish a lasting helper contract. |
@@ -229,7 +229,7 @@ string, so one odd row does not fail the list.
 | Source | Observation |
 |-|-|
 | Manager's Playwright capture | Console IAM user's own HTTP 200 product/daily request for `2026-11-01` through `2026-11-09`. |
-| [Sanitized raw fixture](../../testdata/billing/GetCostOverviewCaptured.json) | Keeps product keys, colors, bucket dates, amounts, and deferred `table`; no account identifiers. The SDK ignores `table`. `GetCostOverview.json` is legacy synthetic data, not wire evidence. |
+| [Sanitized raw fixture](../../testdata/billing/GetCostOverviewCaptured.json) | Preserves the captured shape, product keys, colors, dates, numeric types, zeros, and deferred `table`. All amounts, percentages, and counts are synthetic; row and column totals and percentages agree. The SDK ignores `table`. `GetCostOverview.json` is legacy synthetic data, not wire evidence. |
 | Manager's SDK diagnostic | For `2026-10-09` through `2026-11-09`, product/resource-type grouping with daily/weekly/monthly shares the breakdown and grouped-point shapes. Resource-type groups can be sparse. |
 | API refusals | All hourly requests and all resource-ID groupings returned HTTP 400 with `code: null`: six refusals in 12 combinations, before success decoding. Messages were withheld; reasons and shorter-range behavior are unverified. No SDK limits follow from these observations. |
 
