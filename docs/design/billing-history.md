@@ -51,8 +51,8 @@ the caller's Input. Dates carry no time of day or caller-local time zone.
 
 Both public bounds are inclusive calendar days in fixed UTC+07:00, the
 manager's accepted filtering-zone choice for Asia/Ho_Chi_Minh. This is an
-observed fit, not a published or uniquely proved zone; UTC+08:00 also fits
-the probe. [Recorded evidence](billing-history-api.md#recorded-live-evidence)
+observed fit, not a published or uniquely proved zone; UTC+08:00 fits the
+selected witnesses but not every returned row. [Recorded evidence](billing-history-api.md#recorded-live-evidence)
 keeps that ambiguity and exact-midnight evidence limits explicit.
 
 Empty `EndDate` means today in UTC+07:00, resolved once per invocation.

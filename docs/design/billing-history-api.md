@@ -61,13 +61,13 @@ Page 0 and omitted date bounds also yield validation errors inside HTTP
 checks the envelope before attempting to decode success `data`.
 
 Date membership fits inclusive `dateStart` and exclusive `dateEnd` under
-UTC+07:00 or UTC+08:00; UTC is excluded. Exact-midnight membership and a
-unique filtering zone are not proved. The manager accepts UTC+07:00 for
-implementation as an observed fit, not a published rule, with the
-[public-date conversion](billing-history.md#dates). The structured summary's
-unresolved-zone labels describe evidence limits, not an implementation
-veto. First-party confirmation remains desirable but is not a release gate
-under this decision. No approval upgrades this fit to verified uniqueness.
+UTC+07:00 for every returned row; UTC+08:00 fits only the selected witnesses;
+UTC fails. Exact-midnight membership and a unique filtering zone are not proved.
+The manager accepts UTC+07:00 for implementation as an observed fit, not a
+published rule, with the [public-date conversion](billing-history.md#dates). The
+structured summary's unresolved-zone labels describe evidence limits, not an
+implementation veto. First-party confirmation is desirable, not a release gate.
+No approval upgrades this fit to verified uniqueness.
 
 ## Requests
 
