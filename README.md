@@ -1,7 +1,7 @@
 # vngcloud
 
 [![CI](https://github.com/dannyota/vngcloud/actions/workflows/ci.yml/badge.svg)](https://github.com/dannyota/vngcloud/actions/workflows/ci.yml)
-[![Semgrep](https://github.com/dannyota/vngcloud/actions/workflows/semgrep.yml/badge.svg)](https://github.com/dannyota/vngcloud/actions/workflows/semgrep.yml)
+[![CodeQL](https://github.com/dannyota/vngcloud/actions/workflows/codeql.yml/badge.svg)](https://github.com/dannyota/vngcloud/actions/workflows/codeql.yml)
 [![Go Reference](https://pkg.go.dev/badge/danny.vn/vngcloud.svg)](https://pkg.go.dev/danny.vn/vngcloud)
 [![Release](https://img.shields.io/github/v/release/dannyota/vngcloud)](https://github.com/dannyota/vngcloud/releases)
 [![Go version](https://img.shields.io/github/go-mod/go-version/dannyota/vngcloud)](go.mod)
@@ -183,6 +183,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks. Report security
 problems privately through [SECURITY.md](SECURITY.md). Live tests and their
 helpers live in [`livetest/`](livetest/); see the compile-only commands in
 [CONTRIBUTING.md](CONTRIBUTING.md#live-api-data).
+
+CI runs full-history gitleaks, govulncheck, and gosec through golangci-lint.
+CodeQL reports Go findings as code-scanning alerts and is not a merge gate.
 
 Licensed under [Apache 2.0](LICENSE).
 

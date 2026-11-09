@@ -315,7 +315,7 @@ func (s *encryptionS3) deleteObjects(ctx context.Context, bucket string, keys []
 	// MD5 is only the XML checksum for the selected S3 Content-MD5 header.
 	// SigV4 separately hashes and authenticates the request with SHA256/HMAC-SHA256.
 	// Header contract: https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html
-	sum := md5.Sum(payload) //nolint:gosec // S3 requires MD5 for this wire checksum. // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+	sum := md5.Sum(payload) //nolint:gosec // S3 requires MD5 for this wire checksum.
 	_, body := s.require(ctx, "POST", bucket, "", url.Values{"delete": {""}}, http.Header{"Content-MD5": {base64.StdEncoding.EncodeToString(sum[:])}, "Content-Type": {"application/xml"}}, payload, 200)
 	var result struct {
 		XMLName xml.Name

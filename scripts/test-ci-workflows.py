@@ -20,13 +20,11 @@ ROOT = Path(__file__).resolve().parent.parent
 HEAD = "${{ github.event.pull_request.head.sha || github.sha }}"
 TRUST = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
 TOKEN = "${{ (" + TRUST + ") && secrets.GITHUB_TOKEN || '' }}"
-FILES = ("ci", "semgrep", "tools", "wiki")
+FILES = ("ci", "codeql", "tools", "wiki")
 IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
-SCAN = "semgrep ci --code --supply-chain --no-suppress-errors"
-TRUST_DIRECTORY = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"'
 GO_COMMANDS = {
     "python3 scripts/test-ci-workflows.py", "go test -race ./...",
     "go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...",
@@ -96,6 +94,7 @@ def triggered(workflow, name, paths):
 
 def source_policy(name, workflow):
     assert workflow["permissions"] == {"contents": "read"}
+    assert "pull_request_target" not in workflow["on"]
     assert "env" not in workflow
     assert workflow["concurrency"] == {
         "group": f"{name}-${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}",
@@ -104,7 +103,11 @@ def source_policy(name, workflow):
         assert "strategy" not in job, "unexpected matrix"
         assert int(job["timeout-minutes"]) > 0
         assert "environment" not in job
-        assert "env" not in job and "permissions" not in job
+        assert "env" not in job
+        if name == "codeql":
+            assert job["permissions"] == {"contents": "read", "security-events": "write"}
+        else:
+            assert "permissions" not in job
         controls(job, ("${{ always() }}",) if job_id == "required" else (None,))
         for step in job["steps"]:
             if "uses" in step:
@@ -141,24 +144,28 @@ def aggregate_policy(workflow):
     return step["run"]
 
 
-def scanner_policy(workflow):
-    job = workflow["jobs"]["semgrep"]
-    controls(job)
-    assert job["container"]["image"] == "semgrep/semgrep:1.183.0@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0"
-    assert job["steps"][0]["with"]["fetch-depth"] == "0"
-    trust = job["steps"][1]
-    controls(trust)
-    assert set(trust) == {"name", "run"}
-    assert trust["run"].strip() == TRUST_DIRECTORY, "checkout trust scope"
-    assert job["steps"][2]["id"] == "identity", "trust before identity"
-    step = job["steps"][-1]
-    controls(step)
-    assert step["env"] == {"TRUSTED_SOURCE": "${{ " + TRUST + " }}",
-                            "SEMGREP_APP_TOKEN": "${{ secrets.SEMGREP_APP_TOKEN }}"}
-    assert "env" not in job
-    assert all("SEMGREP_APP_TOKEN" not in s.get("env", {}) for s in job["steps"][:-1])
-    assert step["run"].strip().splitlines()[-1] == SCAN, "scanner failure suppression"
-    return step["run"]
+def codeql_policy(workflow):
+    source_policy("codeql", workflow)
+    assert workflow["on"] == {"push": {"branches": ["master"]},
+                              "schedule": [{"cron": "0 3 * * 1"}],
+                              "workflow_dispatch": ""}
+    assert set(workflow["jobs"]) == {"analyze"}
+    job = workflow["jobs"]["analyze"]
+    steps = job["steps"]
+    assert len(steps) == 6
+    for step in steps:
+        controls(step)
+    setup = steps[2]
+    assert setup["uses"].startswith("actions/setup-go@")
+    assert setup["with"]["go-version-file"] == "go.mod"
+    init, build, analyze = steps[3:]
+    assert init["uses"].startswith("github/codeql-action/init@")
+    assert init["with"] == {"languages": "go", "build-mode": "manual"}
+    assert build["run"].strip() == "go build ./..."
+    assert build["env"] == {"GOPROXY": "https://proxy.golang.org", "GOTOOLCHAIN": "local"}
+    assert analyze["uses"] == init["uses"].replace("/init@", "/analyze@")
+    assert analyze["with"] == {"category": "/language:go"}
+    assert "secrets." not in json.dumps(workflow)
 
 
 def ci_gates(workflow):
@@ -198,7 +205,8 @@ class WorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         global YAML_PYTHON
         YAML_PYTHON = parser_python()
-        cls.texts = {name: (ROOT / f".github/workflows/{name}.yml").read_text() for name in FILES}
+        cls.texts = {name: (ROOT / f".github/workflows/{name}.yml").read_text()
+                     for name in FILES if (ROOT / f".github/workflows/{name}.yml").is_file()}
         cls.workflows = {name: parse(text) for name, text in cls.texts.items()}
 
     def rejected(self, policy, original, mutate):
@@ -210,9 +218,13 @@ class WorkflowTests(unittest.TestCase):
     def test_triggers_and_source_controls(self):
         for name, workflow in self.workflows.items():
             source_policy(name, workflow)
-            self.assertEqual(set(workflow["on"]), {"push", "pull_request", "workflow_dispatch"}
-                             | ({"schedule"} if name == "tools" else set()))
-            for event in ("push", "pull_request"):
+            events = {"push", "workflow_dispatch"}
+            if name != "codeql":
+                events.add("pull_request")
+            if name in ("tools", "codeql"):
+                events.add("schedule")
+            self.assertEqual(set(workflow["on"]), events)
+            for event in events & {"push", "pull_request"}:
                 self.assertEqual(workflow["on"][event]["branches"], ["master"])
         self.assertEqual(self.workflows["tools"]["on"]["schedule"], [{"cron": "0 1 * * 1"}])
         for event in ("push", "pull_request"):
@@ -223,22 +235,25 @@ class WorkflowTests(unittest.TestCase):
             parse("permissions:\n  contents: read\n  contents: write\n")
 
     def test_event_path_matrix(self):
-        cases = [(["nat/nat.go"], {"ci", "semgrep"}), (["README.md"], {"ci"}),
+        cases = [(["nat/nat.go"], {"ci"}), (["README.md"], {"ci"}),
                  (["docs/wiki/Home.md"], {"ci", "wiki"}),
-                 ([".tool-versions"], {"ci", "semgrep", "tools"}),
-                 (["go.sum"], {"ci", "semgrep", "tools"}),
-                 ([".github/workflows/wiki.yml"], set(FILES)),
-                 (["docs/example.json"], {"ci", "semgrep"}), (["LICENSE"], {"ci"}),
-                 (["nested/LICENSE"], {"ci", "semgrep"}),
-                 (["scripts/test-ci-workflows.py"], {"ci", "semgrep", "tools"}),
-                 (["scripts/test-wiki-publication.py"], {"ci", "semgrep", "wiki"}),
-                 (["scripts/ci-evidence.py"], {"ci", "semgrep", "wiki"})]
+                 ([".tool-versions"], {"ci", "tools"}),
+                 (["go.sum"], {"ci", "tools"}),
+                 ([".github/workflows/wiki.yml"], {"ci", "tools", "wiki"}),
+                 ([".github/workflows/codeql.yml"], {"ci", "tools"}),
+                 (["docs/example.json"], {"ci"}), (["LICENSE"], {"ci"}),
+                 (["nested/LICENSE"], {"ci"}),
+                 (["scripts/test-ci-workflows.py"], {"ci", "tools"}),
+                 (["scripts/test-wiki-publication.py"], {"ci", "wiki"}),
+                 (["scripts/ci-evidence.py"], {"ci", "wiki"})]
         for event in ("push", "pull_request"):
             for paths, expected in cases:
+                if event == "push":
+                    expected = expected | {"codeql"}
                 self.assertEqual({n for n, w in self.workflows.items() if triggered(w, event, paths)}, expected)
         for name, workflow in self.workflows.items():
             self.assertTrue(triggered(workflow, "workflow_dispatch", ["README.md"]))
-            self.assertEqual(triggered(workflow, "schedule", []), name == "tools")
+            self.assertEqual(triggered(workflow, "schedule", []), name in ("tools", "codeql"))
 
     def test_every_identity_command_rejects_merge_checkout(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -255,68 +270,6 @@ class WorkflowTests(unittest.TestCase):
                                            EXPECTED_SHA="head", ACTUAL_SHA=actual, RUN_ID="1", RUN_ATTEMPT="1",
                                            GITHUB_OUTPUT=temp + "/output", GITHUB_STEP_SUMMARY=temp + "/summary")
                             self.assertEqual(result.returncode == 0, actual == "head")
-
-    def test_semgrep_container_git_ownership(self):
-        steps = self.workflows["semgrep"]["jobs"]["semgrep"]["steps"]
-        identity = next(s for s in steps if s.get("id") == "identity")
-        before_identity = steps[1:steps.index(identity)]
-        with tempfile.TemporaryDirectory() as temp:
-            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-            env.update(GIT_CONFIG_GLOBAL=str(Path(temp) / "gitconfig"),
-                       GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_COUNT="0")
-            actual = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
-                                    capture_output=True, text=True, check=True).stdout.strip()
-            env["GIT_TEST_ASSUME_DIFFERENT_OWNER"] = "1"
-            untrusted = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
-                                       capture_output=True, text=True)
-            self.assertEqual(untrusted.returncode, 128)
-            self.assertIn("detected dubious ownership", untrusted.stderr)
-            for expected in (actual, "0" * 40):
-                with self.subTest(expected=expected):
-                    config = Path(temp) / ("config-" + expected)
-                    output = Path(temp) / ("output-" + expected)
-                    summary = Path(temp) / ("summary-" + expected)
-                    env.update(GIT_CONFIG_GLOBAL=str(config), GITHUB_WORKSPACE=str(ROOT),
-                               EXPECTED_SHA=expected, RUN_ID="1", RUN_ATTEMPT="1",
-                               GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
-                    for step in before_identity:
-                        result = subprocess.run(["sh", "-e", "-c", step["run"]],
-                                                cwd=ROOT, env=env, capture_output=True, text=True)
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                    result = subprocess.run(["sh", "-e", "-c", identity["run"]],
-                                            cwd=ROOT, env=env, capture_output=True, text=True)
-                    if expected == actual:
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(output.read_text(), f"tested_sha={actual}\n")
-                        self.assertEqual(summary.read_text(),
-                                         f"Tested SHA: {actual}; run: 1; attempt: 1\n")
-                    else:
-                        self.assertEqual(result.returncode, 1, result.stderr)
-                        self.assertFalse(output.exists())
-                        self.assertFalse(summary.exists())
-                    trusted = subprocess.run(["git", "config", "--global", "--get-all",
-                                              "safe.directory"], cwd=ROOT, env=env,
-                                             capture_output=True, text=True, check=True)
-                    self.assertEqual(trusted.stdout.splitlines(), [str(ROOT)])
-                    later = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, env=env,
-                                           capture_output=True, text=True, check=True)
-                    self.assertEqual(later.stdout.strip(), actual)
-                    other = dict(env, GIT_CONFIG_GLOBAL=str(Path(temp) / "other-config"),
-                                 GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="safe.directory",
-                                 GIT_CONFIG_VALUE_0=temp)
-                    rejected = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
-                                              env=other, capture_output=True, text=True)
-                    self.assertEqual(rejected.returncode, 128)
-                    self.assertIn("detected dubious ownership", rejected.stderr)
-            broken = dict(env, GIT_CONFIG_GLOBAL=temp, EXPECTED_SHA=actual,
-                          GITHUB_OUTPUT=str(Path(temp) / "broken-output"),
-                          GITHUB_STEP_SUMMARY=str(Path(temp) / "broken-summary"))
-            script = "\n".join(s["run"] for s in before_identity + [identity])
-            result = subprocess.run(["sh", "-e", "-c", script], cwd=ROOT, env=broken,
-                                    capture_output=True, text=True)
-            self.assertEqual(result.returncode, 128, result.stderr)
-            self.assertFalse(Path(broken["GITHUB_OUTPUT"]).exists())
-            self.assertFalse(Path(broken["GITHUB_STEP_SUMMARY"]).exists())
 
     def test_ci_commands_and_mutations(self):
         ci = self.workflows["ci"]
@@ -371,59 +324,44 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(shell(script, NEEDS_JSON=json.dumps(needs), EXPECTED_SHA="head").returncode == 0, accepted)
         self.assertNotEqual(shell(script, NEEDS_JSON="{", EXPECTED_SHA="head").returncode, 0)
 
-    def scan_result(self, script, trusted, token, exit_code):
+    def test_workflow_inventory(self):
+        self.assertEqual({p.stem for p in (ROOT / ".github/workflows").glob("*.yml")}, set(FILES))
+
+    def test_codeql_controls_and_mutations(self):
+        self.assertIn("codeql", self.workflows, "Missing CodeQL workflow")
+        workflow = self.workflows["codeql"]
+        codeql_policy(workflow)
+        checkout = workflow["jobs"]["analyze"]["steps"][0]
+        self.assertEqual(checkout["uses"], self.workflows["ci"]["jobs"]["go"]["steps"][0]["uses"])
+        mutants = [lambda w: w["permissions"].update(contents="write"),
+                   lambda w: w["on"].update(pull_request_target={}),
+                   lambda w: w["on"].update(pull_request={"branches": ["master"]}),
+                   lambda w: w["on"]["schedule"][0].update(cron="0 1 * * 1"),
+                   lambda w: w["jobs"]["analyze"]["permissions"].update(actions="write"),
+                   lambda w: w["jobs"]["analyze"]["permissions"].pop("contents"),
+                   lambda w: w["jobs"]["analyze"]["permissions"].pop("security-events"),
+                   lambda w: w["jobs"]["analyze"]["steps"][0]["with"].update({"persist-credentials": "true"}),
+                   lambda w: w["jobs"]["analyze"]["steps"][3].update(uses="github/codeql-action/init@v4"),
+                   lambda w: w["jobs"]["analyze"]["steps"][3]["with"].update(languages="javascript"),
+                   lambda w: w["jobs"]["analyze"]["steps"][4].update(run="true"),
+                   lambda w: w["jobs"]["analyze"]["steps"][-1].update({"continue-on-error": "true"})]
+        for mutate in mutants:
+            self.rejected(codeql_policy, workflow, mutate)
+
+    def test_action_pin_checker(self):
+        checker = ROOT / "scripts/check-workflow-pins.py"
+        self.assertTrue(checker.is_file(), "Missing workflow pin checker")
+        result = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = self.texts["codeql"]
         with tempfile.TemporaryDirectory() as temp:
-            scanner = Path(temp) / "semgrep"
-            scanner.write_text('#!/bin/sh\ntouch "$SCAN_MARKER"\nexit "$SCAN_EXIT"\n')
-            scanner.chmod(0o700)
-            marker = Path(temp) / "scanned"
-            result = shell(script, TRUSTED_SOURCE=trusted, SEMGREP_APP_TOKEN=token,
-                           SCAN_MARKER=str(marker), SCAN_EXIT=str(exit_code), PATH=temp + ":" + os.environ["PATH"])
-            return result, marker.exists()
-
-    def test_semgrep_failure_trust_and_mutations(self):
-        workflow = self.workflows["semgrep"]
-        self.assertNotIn("--secrets", workflow["jobs"]["semgrep"]["steps"][-1]["run"].split())
-        script = scanner_policy(workflow)
-        for trusted, token, expected in (("true", "synthetic", 0), ("true", "", 1),
-                                         ("false", "synthetic", 1), ("false", "", 1)):
-            result, scanned = self.scan_result(script, trusted, token, 0)
-            self.assertEqual(result.returncode, expected)
-            self.assertEqual(scanned, expected == 0)
-            if trusted == "false":
-                self.assertIn("same-repository branch", result.stderr)
-            elif not token:
-                self.assertIn("requires SEMGREP_APP_TOKEN", result.stderr)
-        result, scanned = self.scan_result(script, "true", "synthetic", 23)
-        self.assertTrue(scanned)
-        self.assertEqual(result.returncode, 23)
-        # The same failing stub exposes the formerly accepted shell suppression.
-        self.assertEqual(self.scan_result(script.rstrip() + " || true\n", "true", "synthetic", 23)[0].returncode, 0)
-        for field, value in (("run", script.rstrip() + " || true\n"), ("continue-on-error", "true"),
-                             ("if", "github.event_name == 'push'"), ("shell", "bash {0}")):
-            self.rejected(scanner_policy, workflow, lambda w, f=field, v=value: w["jobs"]["semgrep"]["steps"][-1].update({f: v}))
-        self.rejected(scanner_policy, workflow,
-                      lambda w: w["jobs"]["semgrep"]["steps"][-1]["env"].update(TRUSTED_SOURCE="${{ true }}"))
-        for field, value in (("continue-on-error", "true"), ("if", "github.event_name == 'push'")):
-            self.rejected(scanner_policy, workflow,
-                          lambda w, f=field, v=value: w["jobs"]["semgrep"].update({f: v}))
-
-    def test_semgrep_checkout_trust_controls(self):
-        workflow = self.workflows["semgrep"]
-        scanner_policy(workflow)
-        for field, value in (("run", 'git config --global --add safe.directory "*"'),
-                             ("run", TRUST_DIRECTORY.replace('"$GITHUB_WORKSPACE"', '"/__w"')),
-                             ("run", TRUST_DIRECTORY.replace("--global", "--local")),
-                             ("run", TRUST_DIRECTORY + " || true"),
-                             ("continue-on-error", "true"), ("if", "${{ success() }}"),
-                             ("shell", "bash {0}"), ("env", {"GITHUB_WORKSPACE": "*"})):
-            self.rejected(scanner_policy, workflow,
-                          lambda w, f=field, v=value: w["jobs"]["semgrep"]["steps"][1].update({f: v}))
-        self.rejected(scanner_policy, workflow,
-                      lambda w: w["jobs"]["semgrep"]["steps"].pop(1))
-        self.rejected(scanner_policy, workflow,
-                      lambda w: w["jobs"]["semgrep"]["steps"].insert(
-                          2, w["jobs"]["semgrep"]["steps"].pop(1)))
+            path = Path(temp) / "codeql.yml"
+            for changed in (text, re.sub(r"(codeql-action/init)@[0-9a-f]{40}", r"\1@v4", text),
+                            re.sub(r"(codeql-action/init@[0-9a-f]{40}) # v[0-9.]+", r"\1", text),
+                            re.sub(r"(codeql-action/analyze@)[0-9a-f]{40}", r"\g<1>" + "0" * 40, text)):
+                path.write_text(changed)
+                result = subprocess.run([sys.executable, str(checker), str(path)], capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, changed == text, result.stdout + result.stderr)
 
     def test_tools_fork_token_and_unauthenticated_script(self):
         step = self.workflows["tools"]["jobs"]["outdated"]["steps"][-1]
@@ -436,13 +374,22 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual("synthetic" if event != "pull_request" or same_repo else "", expected)
         pins = dict(line.split() for line in (ROOT / ".tool-versions").read_text().splitlines() if line.strip())
         responses = {"https://go.dev/dl/?mode=json": [{"version": "go" + pins["golang"]}],
-                     "https://pypi.org/pypi/semgrep/json": {"info": {"version": pins["semgrep"]}},
                      "https://proxy.golang.org/golang.org/x/vuln/@latest": {"Version": "v" + pins["govulncheck"]}}
         for repo, pin in (("golangci/golangci-lint", "golangci-lint"), ("gitleaks/gitleaks", "gitleaks")):
             responses[f"https://api.github.com/repos/{repo}/releases/latest"] = {"tag_name": "v" + pins[pin]}
         for text in self.texts.values():
             for repo, version in re.findall(r'uses: ([^@ ]+)@[0-9a-f]{40} # v([0-9.]+)', text):
-                responses[f"https://api.github.com/repos/{repo}/releases/latest"] = {"tag_name": "v" + version}
+                repo = "/".join(repo.split("/")[:2])
+                if repo == "github/codeql-action":
+                    codeql_url = f"https://api.github.com/repos/{repo}/releases?per_page=100"
+                    responses[codeql_url] = [
+                        {"tag_name": "codeql-bundle-v2.99.0"},
+                        {"tag_name": "v3.99.0"},
+                        {"tag_name": "v5.0.0", "prerelease": True},
+                        {"tag_name": "v6.0.0", "draft": True},
+                        {"tag_name": "v" + version}]
+                else:
+                    responses[f"https://api.github.com/repos/{repo}/releases/latest"] = {"tag_name": "v" + version}
         with tempfile.TemporaryDirectory() as temp:
             curl = Path(temp) / "curl"
             curl.write_text(f'#!{sys.executable}\nimport json, os, sys\n'
@@ -456,6 +403,12 @@ class WorkflowTests(unittest.TestCase):
                            PATH=temp + ":" + os.environ["PATH"])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("tools-outdated: all pins current", result.stdout)
+            self.assertEqual(result.stdout.count("current: github/codeql-action "), 1)
+            responses[codeql_url].append({"tag_name": "v99.0.0"})
+            result = shell(step["run"], GH_TOKEN="", MOCK_RESPONSES=json.dumps(responses),
+                           PATH=temp + ":" + os.environ["PATH"])
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.stdout.count("outdated: github/codeql-action "), 1)
 
     def test_wiki_has_no_publication_path(self):
         workflow = self.workflows["wiki"]

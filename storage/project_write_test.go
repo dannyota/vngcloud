@@ -137,8 +137,7 @@ func (s *projectWriteServer) handler(t *testing.T) http.Handler {
 		if replacement, ok := s.overrides[r.URL.Query().Get("keys")]; ok {
 			body = replacement
 		}
-		// Loopback SDK replies JSON-quote query keys or use test-owned project fixtures.
-		_, _ = w.Write([]byte(body)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
+		_, _ = w.Write([]byte(body))
 	})
 }
 

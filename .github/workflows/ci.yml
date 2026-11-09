@@ -1,6 +1,6 @@
 name: CI
 
-# Mandatory jobs run in parallel. Semgrep has its own path-filtered workflow.
+# Mandatory jobs run in parallel.
 # Tool versions come from .tool-versions; scripts/tools-outdated.sh and the
 # Tools workflow keep them current.
 on:

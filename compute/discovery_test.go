@@ -24,8 +24,7 @@ func flavorDiscoveryHandler(t *testing.T, overrides map[string]string, quote fun
 	t.Helper()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if raw, ok := overrides[r.URL.Path]; ok {
-			// The path selects test-owned JSON overrides on a loopback SDK server.
-			_, _ = w.Write([]byte(raw)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint
+			_, _ = w.Write([]byte(raw))
 			return
 		}
 		var file string

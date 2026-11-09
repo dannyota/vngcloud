@@ -84,7 +84,7 @@ func CheckRequiredFields(op string, in any, fields ...string) error {
 	v := reflect.ValueOf(in)
 	for _, name := range fields {
 		// SDK callers supply literal field names; input values cannot select them.
-		f, ok := v.Type().Elem().FieldByName(name) // nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
+		f, ok := v.Type().Elem().FieldByName(name)
 		if !ok {
 			return fmt.Errorf("%w: %s: %s has no field %s", ErrInvalidInput, op, v.Type().Elem().Name(), name)
 		}

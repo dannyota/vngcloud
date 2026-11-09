@@ -21,11 +21,11 @@ Every write API needs tests for its request body, success response, and each doc
 |Wiki change|Inspect `Page-Name.md` links; use `make wiki-preview` for publication layout|
 |Dependency or Go version change|`make vuln`|
 |Tool pins|`make tools-outdated`, under [tool policy](security.md#tools-and-scanners)|
-|Local Semgrep check|`make semgrep`; CI runs the connected scan under [security](security.md#tools-and-scanners)|
+|Workflow change|`make ci-workflows-check` and the actionlint command below|
 |Document move or rewrite|`git diff --check`, `bash scripts/check-lengths.sh`, source-to-destination coverage, and local link/anchor inspection|
 |Release|Green CI on the exact commit under [release](release.md#release-gates)|
 
-CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, vulnerability scans, and full-history gitleaks. Full-history gitleaks scans secrets. Eligible PRs, master pushes, and manual runs execute connected Semgrep Pro Code and Supply Chain scans under the trigger rules below. Keep these gates. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required validation run does not pass. Review-only work is optional and cannot replace or waive an actual validation run.
+CI also checks both live-tag vet passes, tidy no-op, SDK dependency boundaries, Windows/macOS vet, generated-doc freshness, wiki preview, govulncheck, full-history gitleaks, and gosec through golangci-lint. Keep these gates. CodeQL reports Go findings as code-scanning alerts under the trigger rules below; it is not part of `CI required`, a required validation run, or a merge or release gate. The manager checks exact-head results under [landing](workflow.md#landing-a-slice); a failed, skipped, cancelled, missing, or pending required validation run does not pass. Review-only work is optional and cannot replace or waive an actual validation run.
 
 ## Workflow triggers
 
@@ -34,13 +34,13 @@ CI runs for every PR targeting master, every master push, and manual dispatch, i
 |Workflow|Master PR and push paths|Other events|
 |-|-|-|
 |CI|All paths|Manual|
-|Semgrep|Any change other than Markdown or root `LICENSE`|Manual always scans|
+|CodeQL|All master pushes; no PR runs|Monday 03:00 UTC and manual|
 |Tools|`.tool-versions`, `go.mod`, `go.sum`, workflows, `scripts/tools-outdated.sh`, `scripts/test-tools-outdated.py`, `scripts/check-workflow-pins.py`, `scripts/test-ci-workflows.py`|Weekly schedule and manual|
 |Wiki|`docs/wiki/**`, `scripts/wiki-sync.sh`, `scripts/test-wiki-publication.py`, `.github/workflows/wiki.yml`, `scripts/ci-evidence.py`, `scripts/test-ci-evidence.py`|Manual read-only preview|
 
 Wiki runs only read-only dry-runs for every event. CI also retains an unconditional Wiki preview. Publication is disabled while the validated-current-master publication gate is absent. No manual publishing fallback is allowed.
 
-Run `make ci-workflows-check` for offline regression tests and `actionlint .github/workflows/{ci,semgrep,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, fork token failures, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
+Run `make ci-workflows-check` for offline regression tests and `actionlint .github/workflows/{ci,codeql,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, SHA pins and version comments, exact permissions, checkout credentials, fork token controls, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery, CodeQL uploads, or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
 
 ## Live verification
 

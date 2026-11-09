@@ -21,11 +21,11 @@ The SDK is standard-library only under [Go](go.md#toolchain-and-package-boundari
 
 ## Tools and scanners
 
-Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.tool-versions) holds tool versions; `go.mod` and the Semgrep image tag in [semgrep.yml](../.github/workflows/semgrep.yml) mirror the relevant pins. Pin Actions by SHA with a version comment. The weekly Tools workflow runs `make tools-outdated` and fails when a pin is behind. Update the pins, the owner's laptop tools, and the Semgrep image digest in one commit that week.
+Stay on the latest Go, tool, and GitHub Action releases. [`.tool-versions`](../.tool-versions) holds tool versions; `go.mod` mirrors the Go pin. Pin Actions by SHA with a version comment. The weekly Tools workflow runs `make tools-outdated` and fails when a pin is behind. Update the pins and the owner's laptop tools in one commit that week.
 
-`govulncheck`, gitleaks, and Semgrep run in CI. Full-history gitleaks scans secrets. Connected Semgrep Pro checks Code (static application security testing, SAST) and Supply Chain (software composition analysis, SCA) for eligible PRs, master pushes, and manual runs under [workflow triggers](testing.md#workflow-triggers). `make semgrep` is the local offline scan command. Keep scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
+`govulncheck`, full-history gitleaks, and gosec through golangci-lint run in CI. CodeQL analyzes Go on master pushes, weekly, and on manual dispatch under [workflow triggers](testing.md#workflow-triggers). Its findings alert through GitHub code scanning; CodeQL is outside `CI required` and is not a merge or release gate. Keep the other scanner gates and fix findings; [release](release.md#release-gates) owns the blocking gate.
 
-Suppress only a verified false positive. For Semgrep, put `// nosemgrep: <full-rule-id>` on the flagged line using the full ID from `semgrep --json`; short IDs do not match. Put the reason in an adjacent comment. [Go](go.md#formatting-and-comments) owns the zero-lint and same-line `nolint` reason rules.
+Suppress only a verified false positive with a reason. Keep gitleaks allowlists in `.gitleaks.toml`. [Go](go.md#formatting-and-comments) owns the zero-lint and same-line `nolint` reason rules.
 
 ## Adversarial review
 
@@ -43,4 +43,4 @@ Name confirmed invariants, evidence limits, and untested paths. Neither a move n
 
 Validation workflows default to `contents: read`, disable persisted checkout credentials, assert the tested source SHA, and use no approval environment. Wiki has only read-only previews, no publisher, write permission, or publishing token. Manual Wiki publication is forbidden until the validated-current-master gate is enabled.
 
-Semgrep retains the existing repository token only in its scanner step. The step rejects fork PRs and missing tokens explicitly before scanning; the manager can inspect and promote a fork to a reviewed same-repository branch. A trusted branch writer can alter the token-bearing workflow. The token is not isolated from every PR author, and no Semgrep approval environment is used. Connected Code and Supply Chain scans remain required when triggered; remote finding-policy enforcement requires separate connected evidence.
+CodeQL uses the workflow's GitHub token with job permissions limited to `contents: read` and `security-events: write` for code-scanning uploads. It needs no repository secret and has no PR trigger.

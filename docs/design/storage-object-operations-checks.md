@@ -175,8 +175,9 @@ mutation and credential code needs independent adversarial review of races,
 resends, ambiguous outcomes, endpoint trust, output leaks, and limits. An
 author's self-review does not count. Run the repository's required checks when
 implementation begins and before the manager commits, with exact-commit release
-evidence. Release security products remain gitleaks secrets plus Semgrep
-Code/SAST and Supply Chain/SCA; add no separate Secrets product gate.
+evidence. Full-history gitleaks, govulncheck, and golangci-lint, including gosec,
+remain release gates. CodeQL reports Go findings through code-scanning alerts
+and is not a merge or release gate.
 
 [signing]: https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sig-v4-header-based-auth.html
 [evidence]: storage-object-operations-api.md#evidence-gates

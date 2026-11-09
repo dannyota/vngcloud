@@ -18,7 +18,7 @@ Every exported symbol, every exported field of an operation Input type, and ever
 
 Follow Google Go style and the repository's `golangci-lint` configuration. `make fmt` uses `golangci-lint fmt` with `gofmt` and `gci`; import groups are standard library, other imports, then `danny.vn/vngcloud`. Do not add a separate `goimports` dependency.
 
-Keep `golangci-lint` at zero issues. A justified `//nolint:<linter>` needs its reason on the same line. [Security](security.md#tools-and-scanners) owns Semgrep suppression rules.
+Keep `golangci-lint`, including gosec, at zero issues. A justified `//nolint:<linter>` needs its reason on the same line. [Security](security.md#tools-and-scanners) owns the scanner and suppression rules.
 
 Non-test Go files stay at or under 700 lines, with the existing generated-file and fixture exemptions. Split by topic into sibling files in the same package.
 

@@ -64,8 +64,12 @@ turned off.
 
 - The SDK packages use only the Go standard library. The command adds cobra,
   go-jmespath, and x/term, and CI checks that no SDK package imports them.
-- CI runs govulncheck, gitleaks, and Semgrep. Tools and Actions are pinned
-  and kept on their latest releases.
+- CI runs govulncheck, full-history gitleaks, and gosec through golangci-lint.
+  Their findings block releases. Tools and Actions are pinned and kept on
+  their latest releases.
+- CodeQL analyzes Go on master pushes, weekly, and on manual dispatch. Its
+  findings alert through GitHub code scanning; it is not a merge or release
+  gate.
 - Every commit and release tag is signed.
 
 Report a security problem privately, as described in
