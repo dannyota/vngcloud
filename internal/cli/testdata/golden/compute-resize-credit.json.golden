@@ -1,0 +1,24 @@
+{
+  "OptimumPrice": -372552,
+  "OriginalPrice": 368940,
+  "DiscountPrice": 0,
+  "DiscountPercent": 0,
+  "Properties": [
+    {
+      "Name": "INSTANCE TYPE",
+      "Description": "s2-general-1x2",
+      "OptimumPrice": 283800,
+      "MonthlyPrice": 283800,
+      "CurrentPrice": 567600,
+      "DiscountPercent": 0
+    },
+    {
+      "Name": "CES",
+      "Description": "\u003cflavor-id\u003e",
+      "OptimumPrice": 85140,
+      "MonthlyPrice": 85140,
+      "CurrentPrice": 170280,
+      "DiscountPercent": 0
+    }
+  ]
+}

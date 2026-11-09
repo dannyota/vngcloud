@@ -97,8 +97,8 @@ type ResizeServerOutput struct {
 //
 // The resize PUT is sent at most once (transport.Request.Once), per ADR
 // 0003: a resend would act on the flavor read this call already took,
-// which only grows staler. A 4xx response proves the server never acted
-// and is returned as is; any other failure returns an error wrapping
+// which only grows staler. A proven pre-send failure or a 4xx response
+// returns its error unchanged; any other failure returns an error wrapping
 // ErrNotSettled naming GetServer as the read that confirms what actually
 // happened, since ResizeServer itself, a paid write, must never be the
 // suggested recovery for an ambiguous failure.
@@ -158,6 +158,7 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 	if err != nil {
 		return nil, err
 	}
+	var notSent bool
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPut,
@@ -165,9 +166,10 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 		Body:      body,
 		OK:        []int{202},
 		Once:      true,
+		NotSent:   &notSent,
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		if is4xxAPIError(err) {
+		if notSent || is4xxAPIError(err) {
 			return nil, err
 		}
 		return &ResizeServerOutput{Server: current.Server, MonthlyPrice: quote.OptimumPrice}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)

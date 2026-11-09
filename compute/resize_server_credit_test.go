@@ -310,3 +310,114 @@ func TestResizeServerSignedZeroRefusedSynthetic(t *testing.T) {
 		})
 	}
 }
+
+// A zero token expiry forces acquisition before each request, so the third
+// acquisition belongs to the PUT after the pre-read and quote have completed.
+type resizeCreditPreSendTokens struct {
+	calls   atomic.Int64
+	failure error
+	cancel  context.CancelFunc
+}
+
+func (s *resizeCreditPreSendTokens) Token(context.Context) (transport.Token, error) {
+	if s.calls.Add(1) == 3 {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return transport.Token{}, s.failure
+	}
+	return transport.Token{AccessToken: "synthetic-resize-token"}, nil
+}
+
+func (*resizeCreditPreSendTokens) Invalidate(string) {}
+
+func TestResizeServerCreditTokenFailureBeforeSendSynthetic(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure error
+		cancel  bool
+	}{
+		{"acquisition", errors.New("synthetic token acquisition failure"), false},
+		{"provider APIError", &vngcloud.APIError{Operation: "synthetic.Token", StatusCode: 503}, false},
+		{"cancellation", context.Canceled, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var reads, quotes, puts atomic.Int64
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeServerRequest(t, w, r,
+					func(w http.ResponseWriter, _ *http.Request) {
+						reads.Add(1)
+						_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+					},
+					func(w http.ResponseWriter, _ *http.Request) {
+						quotes.Add(1)
+						_, _ = w.Write([]byte(serverResizeCreditSynthetic))
+					},
+					func(w http.ResponseWriter, _ *http.Request) {
+						puts.Add(1)
+						w.WriteHeader(http.StatusAccepted)
+					})
+			}))
+			defer srv.Close()
+			source := &resizeCreditPreSendTokens{failure: tc.failure}
+			if tc.cancel {
+				source.cancel = cancel
+			}
+			clientTransport := transport.New(transport.Config{HTTPClient: srv.Client(), TokenSource: source})
+			c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VServer: srv.URL + "/", Portal: srv.URL + "/"}, clientTransport))
+			out, err := c.ResizeServer(ctx, validResizeServerInput())
+			if reads.Load() != 1 || quotes.Load() != 1 || puts.Load() != 0 || source.calls.Load() != 3 {
+				t.Fatalf("reads = %d, quotes = %d, puts = %d, token calls = %d", reads.Load(), quotes.Load(), puts.Load(), source.calls.Load())
+			}
+			if out != nil || errors.Is(err, ErrNotSettled) || !errors.Is(err, source.failure) {
+				t.Fatalf("out = %+v, err = %v, want nil Output and original acquisition error", out, err)
+			}
+			var providerErr *vngcloud.APIError
+			if errors.As(source.failure, &providerErr) {
+				var apiErr *vngcloud.APIError
+				if !errors.As(err, &apiErr) || apiErr != providerErr {
+					t.Fatalf("err = %v, want original provider APIError", err)
+				}
+			}
+		})
+	}
+}
+
+func TestResizeServerCreditProvenFailedDialSynthetic(t *testing.T) {
+	var refuseDial atomic.Bool
+	var failedDials, puts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeServerRequest(t, w, r,
+			func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+			},
+			func(w http.ResponseWriter, _ *http.Request) {
+				refuseDial.Store(true)
+				_, _ = w.Write([]byte(serverResizeCreditSynthetic))
+			},
+			func(w http.ResponseWriter, _ *http.Request) {
+				puts.Add(1)
+				w.WriteHeader(http.StatusAccepted)
+			})
+	}))
+	defer srv.Close()
+	tr := srv.Client().Transport.(*http.Transport).Clone()
+	tr.DisableKeepAlives = true
+	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if refuseDial.Load() {
+			failedDials.Add(1)
+			return nil, &net.OpError{Op: "dial", Net: network, Err: errors.New("synthetic dial refusal")}
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	defer tr.CloseIdleConnections()
+	tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: tr}, RetryCount: 3, RetryInterval: time.Millisecond})
+	c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VServer: srv.URL + "/", Portal: srv.URL + "/"}, tc))
+	out, err := c.ResizeServer(context.Background(), validResizeServerInput())
+	var apiErr *vngcloud.APIError
+	if out != nil || errors.Is(err, ErrNotSettled) || !errors.As(err, &apiErr) || puts.Load() != 0 || failedDials.Load() != 1 {
+		t.Fatalf("out = %+v, err = %v, puts = %d, failed dials = %d", out, err, puts.Load(), failedDials.Load())
+	}
+}

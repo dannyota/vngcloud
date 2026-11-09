@@ -1,35 +1,65 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"danny.vn/vngcloud/compute"
-	"danny.vn/vngcloud/pricing"
 )
 
-// Synthetic credit total only; the raw server credit response is not captured.
+// Synthetic credit total for cases without a matching captured response.
 const cliResizeCreditSynthetic = `{"optimumPrice":-180797}`
 
-func TestResizeQuoteReadOnlyCreditSynthetic(t *testing.T) {
+func resizeCreditQuoteFixture(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile("../../testdata/pricing/GetQuoteServerResizeCredit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// Compare command stdout directly: rendering a separate model would not
+// exercise the command's fixture decoding, query, or output wiring.
+func checkResizeCreditCommandGolden(t *testing.T, name string, got []byte) {
+	t.Helper()
+	path := goldenPath(name)
+	if *updateGolden {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("%s: got:\n%s\nwant:\n%s", name, got, want)
+	}
+}
+
+func TestResizeQuoteReadOnlyCredit(t *testing.T) {
+	captured := resizeCreditQuoteFixture(t)
 	for _, cmd := range []struct {
-		name     string
-		args     []string
-		requests int
+		name      string
+		args      []string
+		requests  int
+		quoteBody string
 	}{
-		{"compute", []string{"compute", "quote-resize-server", "--server-id", "server-1", "--flavor-id", "flavor-2"}, 1},
-		{"volume", []string{"volume", "quote-resize-volume", "--volume-id", "volume-1", "--size", "20"}, 2},
-		{"loadbalancer", []string{"loadbalancer", "quote-resize-load-balancer", "--load-balancer-id", "lb-1", "--package-id", "pkg-2"}, 1},
-		{"pricing", []string{"pricing", "get-quote", "--resource-type", "server", "--action", "resize"}, 1},
+		{"compute", []string{"compute", "quote-resize-server", "--server-id", "server-1", "--flavor-id", "flavor-2"}, 1, captured},
+		{"volume", []string{"volume", "quote-resize-volume", "--volume-id", "volume-1", "--size", "20"}, 2, cliResizeCreditSynthetic},
+		{"loadbalancer", []string{"loadbalancer", "quote-resize-load-balancer", "--load-balancer-id", "lb-1", "--package-id", "pkg-2"}, 1, cliResizeCreditSynthetic},
+		{"pricing", []string{"pricing", "get-quote", "--resource-type", "server", "--action", "resize"}, 1, captured},
 	} {
 		for _, format := range []string{"json", "table", "text"} {
 			t.Run(cmd.name+"/"+format, func(t *testing.T) {
 				fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-					"/v1/price":                   jsonHandler(200, cliResizeCreditSynthetic),
+					"/v1/price":                   jsonHandler(200, cmd.quoteBody),
 					"/v2/proj-1/volumes/volume-1": jsonHandler(200, `{"data":{"uuid":"volume-1","status":"AVAILABLE","size":10,"volumeTypeId":"type-1"}}`),
 				})
 				root, stdout, stderr := newSvcRoot(t, fixture)
@@ -38,10 +68,14 @@ func TestResizeQuoteReadOnlyCreditSynthetic(t *testing.T) {
 				if err := root.ExecuteContext(context.Background()); err != nil {
 					t.Fatalf("quote: %v (stderr=%s)", err, stderr)
 				}
-				if !strings.Contains(stdout.String(), "-180797") || fixture.requestCount() != cmd.requests {
+				if fixture.requestCount() != cmd.requests {
 					t.Fatalf("stdout = %q, requests = %d", stdout, fixture.requestCount())
 				}
-				checkGolden(t, cmd.name+"-resize-credit-synthetic."+format+".golden", format, "", &pricing.GetQuoteOutput{OptimumPrice: -180797, Properties: []pricing.PriceProperty{}})
+				prefix := cmd.name + "-resize-credit"
+				if cmd.name == "volume" || cmd.name == "loadbalancer" {
+					prefix += "-synthetic"
+				}
+				checkResizeCreditCommandGolden(t, prefix+"."+format+".golden", stdout.Bytes())
 			})
 		}
 	}
@@ -65,13 +99,14 @@ func TestPricingCreateCreditRefusedSynthetic(t *testing.T) {
 	}
 }
 
-func TestComputeResizeCreditConsentSynthetic(t *testing.T) {
+func TestComputeResizeCreditConsent(t *testing.T) {
+	captured := resizeCreditQuoteFixture(t)
 	for _, mode := range []string{"success", "no-wait", "missing-yes", "read-only", "failed-wait"} {
 		for _, format := range []string{"json", "table", "text"} {
 			t.Run(mode+"/"+format, func(t *testing.T) {
 				var puts atomic.Int64
 				fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
-					"/v1/price": jsonHandler(200, cliResizeCreditSynthetic),
+					"/v1/price": jsonHandler(200, captured),
 					"/v2/proj-1/servers/server-1": func(w http.ResponseWriter, _ *http.Request) {
 						flavor, status := "flavor-1", "ACTIVE"
 						if puts.Load() > 0 {
@@ -110,11 +145,11 @@ func TestComputeResizeCreditConsentSynthetic(t *testing.T) {
 					}
 					return
 				}
-				if err != nil || puts.Load() != 1 || !strings.Contains(stdout.String(), "-180797") {
+				if err != nil || puts.Load() != 1 || !strings.Contains(stdout.String(), "-372552") {
 					t.Fatalf("err = %v, puts = %d, stdout = %q", err, puts.Load(), stdout)
 				}
 				if mode == "success" {
-					checkGolden(t, "compute-resize-server-credit-synthetic."+format+".golden", format, "", &compute.ResizeServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE"}, MonthlyPrice: -180797})
+					checkResizeCreditCommandGolden(t, "compute-resize-server-credit."+format+".golden", stdout.Bytes())
 				}
 			})
 		}

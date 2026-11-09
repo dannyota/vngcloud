@@ -38,7 +38,7 @@
       "BandwidthUnit": "",
       "CPU": 0,
       "CPUPlatformDescription": "",
-      "FlavorID": "",
+      "FlavorID": "flavor-2",
       "FlavorZoneID": "",
       "GPU": 0,
       "Group": "",
@@ -74,5 +74,5 @@
     "GPUMemory": null,
     "HostGroupID": ""
   },
-  "MonthlyPrice": -180797
+  "MonthlyPrice": -372552
 }

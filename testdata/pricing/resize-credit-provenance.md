@@ -12,7 +12,6 @@ sent.
 Sanitizing replaced the one identifier in the body, a flavor ID in the
 `CES` row's `description`, with `<flavor-id>`. Every price, key, and other
 value is unchanged, including fields the SDK does not decode
-(`originalCurrentPrice`, `originalNewPrice`, `artifactPrices`, and each
-row's `currentPrice`). The capture method, the evidence it supports, and
+(`originalCurrentPrice`, `originalNewPrice`, and `artifactPrices`). The capture method, the evidence it supports, and
 what it leaves unknown are in
 [vServer paid writes: API](../../docs/design/vserver-paid-writes-api.md#resize-credits).
