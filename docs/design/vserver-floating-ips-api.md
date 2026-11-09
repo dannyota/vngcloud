@@ -289,21 +289,20 @@ suppression, and finite retries; no new capture/order is authorized.
 ## Credit-history decision procedure
 
 A manager credit-history console capture records this read, not a publication:
-`GET https://dashboard.console.greennode.ai/gateway/api/v1/transactions`
-with `pageNumber` (1-based), `pageSize`, `dateStart`, and `dateEnd`; dates use
-`DD/MM/YYYY`. The console sends the IAM user's bearer in `Authorization`;
-a request without it returned 401. The observed envelope has `code:200`,
+`GET https://dashboard.console.greennode.ai/gateway/api/v1/transactions` with
+`pageNumber` (1-based), `pageSize`, `dateStart`, and `dateEnd`; dates use
+`DD/MM/YYYY`. The console sends the IAM user's bearer in `Authorization`; a
+request without it returned 401. The observed envelope has `code:200`,
 `message:"Success"`, and a `data.content` row array; `data.pageable` has integer
 `totalPages`, `totalElements`, `size`, and `number`. Rows have integer
 `transactionID`/`transactionType`, VND `transactionValue`/`cumulativeValue`,
 string `description`, string or null `sourceReference`, offset
 `createTimeStamp`, boolean `creditStatus` (true adds, false subtracts;
-`transactionValue` is non-negative). `userServiceReference`/`invoiceId` were
-null in the console sample and populated (string, integer) in an SDK probe;
-their meanings stay unverified.
-Keep descriptions/raw rows private. A billing history read is designed
-separately. Use approved console reads, never token extraction or CLI/harness
-bypasses. Posting delay/full paging are unverified; capture is not SDK testing.
+`transactionValue` >= 0). `userServiceReference`/`invoiceId` were null in the
+console sample, populated (string, integer) in an SDK probe; meanings
+unverified. Keep descriptions/raw rows private. A billing history read is
+designed separately. Use approved reads, never token extraction or CLI bypasses.
+Posting delay and full paging are unverified.
 
 Verify access/full paging before purchase. Capture baseline, then create,
 each detach, any reattach, IP deletion, and server deletion; extend the same
