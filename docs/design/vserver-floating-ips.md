@@ -1,6 +1,6 @@
 # vServer Floating IPs Design
 
-Status: Base [decisions](#owner-decisions) accepted; pricing revision proposed.
+Status: [Owner decisions](#owner-decisions) accepted; evidence/review gates open.
 
 Public addresses are opt-in, off by default. Require explicit security
 groups, a conservative monthly quote, `MaxPrice` defaulting to zero, and
@@ -35,11 +35,11 @@ includes the IP with no extra charge, or adds an Elastic IP charge.
 [Console/ledger evidence](vserver-floating-ips-api.md#billing) supports
 inclusion; the standalone quote does not decide the create charge.
 
-Recommended owner decision: keep the server-plus-IP sum until the
+Accepted owner decision: keep the server-plus-IP sum until the
 [credit-history decision](vserver-floating-ips-api.md#credit-history-decision-procedure).
 Label the IP line provisional. This may refuse a cheaper create but avoids
 omitting a possible charge. Server-only pricing risks understatement;
-blocking implementation adds no evidence. Manager approval is delegated.
+blocking implementation adds no evidence. See [acceptance](#owner-decisions).
 
 The 347,800 + 120,000 = 467,800 VND example is a conservative reference,
 not an expected debit. Keep that gross quote cap even if prices rise.
@@ -353,7 +353,7 @@ with `make gen-docs`: `CLI-Compute.md`, `CLI-Network.md`,
 ## Releases
 
 R1 ships free bounded reads with schema/synthetic checks. R2 needs R1,
-quote fixtures, pricing approval, the guard, and create/billing/cleanup
+quote fixtures, independent fix confirmation, guard, and create/billing/cleanup
 evidence from [L4](vserver-floating-ips-checks.md#live-run), then the
 price correction above if inclusion is confirmed, before its tag.
 R2 can ship before R3 only with a verified, manager-approved console cleanup
@@ -373,7 +373,7 @@ its quote, charge, orphan behavior, and separate live run are established.
 
 ## Owner decisions
 
-Base decisions accepted by the manager under delegated owner authority:
+Decisions accepted by the manager under delegated owner authority:
 
 1. Use derived `Server.PublicIP` for list and query use; External
    Interface addresses stay outside it to keep the mapping evidence-based.
@@ -384,14 +384,14 @@ Base decisions accepted by the manager under delegated owner authority:
 4. Use floating IP names in `network`, keeping existing WAN APIs
    unchanged to preserve callers and service ownership.
 5. Keep the existing quote Output type, checked sums, and labeled fallback
-   properties. The proposed price interpretation is in [Cost](#cost).
+   properties. The accepted price interpretation is in [Cost](#cost).
 6. Use one-IP L4 with a 467,800 VND gross quote cap; defer auto-allocation
    to avoid another purchase. Evidence gates and manager run-time approval
    naming account, region, cleanup method, and mode still apply.
 
-Proposed: approve [Cost](#cost) and its
-[pre-tag correction](#quote-and-price-guard). Manager acceptance and
-independent design/plan review remain required, without run authority.
+The manager accepts [Cost](#cost) and its evidence-dependent
+[pre-tag correction](#quote-and-price-guard) under delegated owner authority.
+Independent fix confirmation, evidence, and run-time approval remain gates.
 
 ## Evidence gates
 
