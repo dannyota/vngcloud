@@ -70,6 +70,29 @@ A service can map its own error shape onto `NotFound`; see the billing
 wiki page for an example. That mapping always wins over the status-derived
 fallback above. Classification uses the message before credential redaction.
 
+### Billing history
+
+`ListTransactions` and `ListPayments` withhold peer messages and arbitrary
+peer codes. HTTP failures use the status-derived codes above. HTTP 200 with
+a failing numeric envelope code keeps that decimal code and status 200;
+envelope `400` exits 1 and does not match `ErrInvalidInput`. HTTP 404 remains
+`NotFound`, exit 4. Local invalid input matches `ErrInvalidInput`, exit 2,
+before authentication or requests. HTTP 401 after recovery exits 3.
+Other API, decoding, context, and walk failures exit 1. Every failed read
+returns nil Output and empty stdout.
+
+Changed coverage or a complete-walk limit returns an `APIError` with
+`Code: "HistoryIncomplete"`, `Retryable: false`, and
+`errors.Is(err, billing.ErrHistoryIncomplete)` true. The root
+`vngcloud.ErrHistoryIncomplete` is the same sentinel. Malformed fields,
+unexpected 2xx/3xx statuses, or oversized successful responses return
+`InvalidResponse`. Oversized HTTP errors keep their status classification.
+Context cancellation and deadlines retain their identities. Malformed JSON
+retains sanitized JSON error types without peer values. History runtime
+query or formatting failures use fixed `QueryFailed` text, exit 1, and no
+partial report. See
+[Billing and Pricing](Billing-and-Pricing.md#transaction-and-payment-history).
+
 Network failure messages use fixed descriptions, such as `canceled`,
 `timed out`, or the network operation that failed. Unknown causes use
 `network request failed`. Certificate failures name the class: unknown

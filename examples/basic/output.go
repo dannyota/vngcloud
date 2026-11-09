@@ -106,6 +106,8 @@ var operationOutputPaths = map[string]string{
 	"billing.ListBudgets":                        "billing/budget",
 	"billing.GetCurrentPeriodCost":               "billing/current_period_cost",
 	"billing.GetBalances":                        "billing/balance",
+	"billing.ListTransactions":                   "billing/transaction",
+	"billing.ListPayments":                       "billing/payment",
 	"pricing.GetQuote":                           "pricing/quote",
 	"monitor.ListChecks":                         "monitor/check",
 	"monitor.GetCheck":                           "monitor/check_detail",

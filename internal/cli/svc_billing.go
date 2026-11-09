@@ -11,6 +11,8 @@ import (
 // Destructive; every other create and update is Write; every Get and List is
 // Read.
 var billingOps = []Op[billing.Client]{
+	billingTransactionsOp(),
+	billingPaymentsOp(),
 	Read[billing.Client, billing.ListResourcesInput, billing.ListResourcesOutput](
 		"list-resources", (*billing.Client).ListResources),
 	Read[billing.Client, billing.ListBudgetsInput, billing.ListBudgetsOutput](
@@ -44,7 +46,7 @@ var billingOps = []Op[billing.Client]{
 }
 
 func newBillingCmd(e *env) *cobra.Command {
-	cmd := serviceTableViews(e, "billing", "Budgets, cost, and balances", billing.New, billingOps, map[string]func(any) any{
+	cmd := serviceTableViews(e, "billing", "Budgets, cost, balances, and history", billing.New, billingOps, map[string]func(any) any{
 		"list-resources": func(out any) any {
 			result := out.(*billing.ListResourcesOutput)
 			rows := make([]map[string]any, 0, len(result.Items))
@@ -63,6 +65,9 @@ func newBillingCmd(e *env) *cobra.Command {
 	for _, child := range cmd.Commands() {
 		if child.Name() == "list-resources" {
 			child.Long = billingListResourcesNote
+		}
+		if child.Name() == "list-transactions" || child.Name() == "list-payments" {
+			child.Long = billingHistoryNote
 		}
 	}
 	return cmd

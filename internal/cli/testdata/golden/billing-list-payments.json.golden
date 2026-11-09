@@ -1,0 +1,18 @@
+{
+  "Items": [
+    {
+      "ID": 1,
+      "TypeCode": 8084,
+      "Amount": 12.5,
+      "TransactionID": "synthetic-reference",
+      "Gateway": "use_balance",
+      "Status": "1",
+      "CreatedAt": "2024-11-11T18:00:00+00:00",
+      "Description": "synthetic-description"
+    }
+  ],
+  "Page": 1,
+  "PageSize": 50,
+  "TotalPage": 1,
+  "TotalItem": 1
+}

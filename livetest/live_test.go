@@ -58,6 +58,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestLive(t *testing.T) {
+	historyToday := time.Now().In(time.FixedZone("UTC+07:00", 7*60*60))
 	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestLive(t *testing.T) {
 	// globalloadbalancer), so they run once here instead of once per region
 	// inside testLiveRegion.
 	t.Run("backup", func(t *testing.T) { testLiveBackup(ctx, t) })
-	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg) })
+	t.Run("billing", func(t *testing.T) { testLiveBilling(ctx, t, firstCfg, historyToday) })
 	t.Run("cdn", func(t *testing.T) { testLiveCDN(ctx, t, firstCfg) })
 	t.Run("monitor", func(t *testing.T) { testLiveMonitor(ctx, t, firstCfg) })
 	t.Run("monitor-quotas", func(t *testing.T) { testLiveMonitorQuotas(ctx, t, firstCfg) })
@@ -174,8 +175,27 @@ func emptyFile(t *testing.T, name string) string {
 
 // testLiveBilling reads budgets, the current period cost, and balances. It
 // logs counts and field presence only, never amounts or account values.
-func testLiveBilling(ctx context.Context, t *testing.T, cfg vngcloud.Config) {
+func testLiveBilling(ctx context.Context, t *testing.T, cfg vngcloud.Config, historyToday time.Time) {
 	client := billing.New(cfg)
+	start, end := historyToday.AddDate(0, 0, -29).Format("2006-01-02"), historyToday.Format("2006-01-02")
+	t.Run("transactions", func(t *testing.T) {
+		readCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		out, err := client.ListTransactions(readCtx, &billing.ListTransactionsInput{StartDate: start, EndDate: end, Page: 1, Size: 10, All: false})
+		if err != nil || out == nil {
+			t.Fatal("ListTransactions failed; response withheld")
+		}
+		t.Logf("transactions: %d", len(out.Items))
+	})
+	t.Run("payments", func(t *testing.T) {
+		readCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		out, err := client.ListPayments(readCtx, &billing.ListPaymentsInput{StartDate: start, EndDate: end, Page: 1, Size: 10, All: false})
+		if err != nil || out == nil {
+			t.Fatal("ListPayments failed; response withheld")
+		}
+		t.Logf("payments: %d", len(out.Items))
+	})
 
 	t.Run("budgets", func(t *testing.T) {
 		res, err := client.ListBudgets(ctx, &billing.ListBudgetsInput{})

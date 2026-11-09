@@ -24,6 +24,14 @@ import (
 	"danny.vn/vngcloud/storage"
 )
 
+func TestHistoryIncompleteClassification(t *testing.T) {
+	for _, err := range []error{vngcloud.ErrHistoryIncomplete, fmt.Errorf("wrapped: %w", vngcloud.ErrHistoryIncomplete), &vngcloud.APIError{Operation: "billing.ListTransactions", Code: "HistoryIncomplete", Err: vngcloud.ErrHistoryIncomplete}} {
+		if classify(err).Code != "HistoryIncomplete" || exitCode(err) != 1 {
+			t.Fatal("history incomplete classification lost")
+		}
+	}
+}
+
 // realStatusUnconfirmedErr drives one real monitor.PauseCheck call to the
 // error TestExitCode and TestClassify assert on below, instead of only a
 // synthetic fmt.Errorf: the pre-read returns StatusEnabled, and the toggle

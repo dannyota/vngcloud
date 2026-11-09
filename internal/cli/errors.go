@@ -200,6 +200,15 @@ const noCDNAPIKeyMessage = "no vCDN API key: pipe it to `vngcloud configure set 
 // either its "vng." prefix or an existing system tag the pre-write read
 // found, so nothing was sent).
 func classify(err error) errorEnvelope {
+	if errors.Is(err, vngcloud.ErrHistoryIncomplete) {
+		result := errorEnvelope{Code: "HistoryIncomplete", Message: "billing history is incomplete; result withheld"}
+		var api *vngcloud.APIError
+		if errors.As(err, &api) {
+			result.Operation = api.Operation
+			result.Status = api.StatusCode
+		}
+		return result
+	}
 	if errors.Is(err, monitor.ErrQuotaChanged) && !errors.Is(err, dns.ErrNotSettled) {
 		return errorEnvelope{Code: "QuotaChanged", Message: "quota guard changed"}
 	}

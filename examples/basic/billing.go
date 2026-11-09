@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
@@ -9,7 +10,7 @@ import (
 )
 
 // showBilling records the account-level billing calls: budgets, the current
-// billing period's cost, and balances. Billing ignores the configured
+// billing period's cost, balances, and history. Billing ignores the configured
 // region, so main calls this once per config, not once per region.
 func showBilling(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStore) {
 	client := billing.New(cfg)
@@ -25,6 +26,13 @@ func showBilling(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 
 	balances, err := client.GetBalances(ctx, &billing.GetBalancesInput{})
 	recordAccountOne(outputs, "billing/balance", "billing balances", balances, err)
+
+	today := time.Now().In(time.FixedZone("UTC+07:00", 7*60*60))
+	start, end := today.AddDate(0, 0, -29).Format("2006-01-02"), today.Format("2006-01-02")
+	transactions, err := client.ListTransactions(ctx, &billing.ListTransactionsInput{StartDate: start, EndDate: end, Page: 1, Size: 10})
+	recordAccountOne(outputs, "billing/transaction", "billing transactions", transactions, err)
+	payments, err := client.ListPayments(ctx, &billing.ListPaymentsInput{StartDate: start, EndDate: end, Page: 1, Size: 10})
+	recordAccountOne(outputs, "billing/payment", "billing payments", payments, err)
 }
 
 func budgetItems(result *billing.ListBudgetsOutput) []billing.Budget {

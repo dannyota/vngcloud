@@ -4,53 +4,31 @@
 and `danny.vn/vngcloud/pricing`. They are not clients on the root client from
 [Services](Services.md); each has its own `New(cfg)`.
 
-Budget, cost, balance, and price amounts are VND. Resource `Cost` has no
+Budget, cost, balance, history, and price amounts are VND. Resource `Cost` has no
 established meaning or currency.
 
-Budget, cost, and balance calls (the `billing` package) are per account: they
+Budget, cost, balance, and history calls are per account: they
 send no project ID and ignore the region in `Config`. Price quotes (the
 `pricing` package) use the region, because they call a regional gateway. A
 `Config` always needs a region, since the rest of the SDK needs one.
 
 ## Setup
 
+Use the standard `context` and `log` packages, plus `danny.vn/vngcloud`,
+`danny.vn/vngcloud/billing`, and `danny.vn/vngcloud/pricing`:
+
 ```go
-package main
-
-import (
-	"context"
-	"log"
-
-	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/billing"
-	"danny.vn/vngcloud/pricing"
+ctx := context.Background()
+cfg, err := vngcloud.NewConfig(
+    vngcloud.WithRegion("hcm-3"),
+    vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
+        RootEmail: "<root-email>", Username: "<iam-username>",
+        Password: "<password>",
+    }),
 )
-
-func main() {
-	ctx := context.Background()
-
-	cfg, err := vngcloud.NewConfig(
-		vngcloud.WithRegion("hcm-3"),
-		vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
-			RootEmail: "<root-email>",
-			Username:  "<iam-username>",
-			Password:  "<password>",
-		}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	client := billing.New(cfg)
-	priceClient := pricing.New(cfg)
-	_ = ctx
-	_ = client
-	_ = priceClient
-}
+if err != nil { log.Fatal(err) }
+client, priceClient := billing.New(cfg), pricing.New(cfg)
 ```
-
-The rest of this page assumes `cfg` and `ctx` from this setup, plus
-`client := billing.New(cfg)`.
 
 ## Budgets
 
@@ -69,9 +47,7 @@ created, err := client.CreateBudget(ctx, &billing.CreateBudgetInput{
 	Type:        billing.TypeActual,
 	LimitAmount: 5_000_000,
 })
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 
 if _, err := client.UpdateBudget(ctx, &billing.UpdateBudgetInput{
 	BudgetUUID: created.Budget.UUID,
@@ -101,9 +77,7 @@ threshold, err := client.CreateBudgetThreshold(ctx, &billing.CreateBudgetThresho
 	ThresholdType:       billing.TypeActual,
 	ThresholdPercentage: 80,
 })
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 
 if _, err := client.UpdateBudgetThreshold(ctx, &billing.UpdateBudgetThresholdInput{
 	BudgetUUID:    created.Budget.UUID,
@@ -162,9 +136,7 @@ as unconfirmed.
 
 ```go
 period, err := client.GetCurrentPeriodCost(ctx, nil)
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 log.Printf("actual cost this period: %.0f", period.PeriodCost.ActualCost)
 ```
 
@@ -202,9 +174,7 @@ Each field is nil when the account has none of that kind:
 
 ```go
 balances, err := client.GetBalances(ctx, nil)
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 if balances.Balances.Cash != nil {
 	log.Printf("cash: %.0f", *balances.Balances.Cash)
 }
@@ -214,6 +184,49 @@ Cost, balance, budget, threshold, and alert reads accept responses up to
 8 MiB. A larger 2xx response returns `InvalidResponse` with its HTTP
 status; a larger 4xx or 5xx response keeps its status-based error but is
 not retried and does not refresh the token.
+
+## Transaction and payment history
+
+`ListTransactions` and `ListPayments` are account reads verified with IAM
+users. Service-account access remains unverified. Both Inputs require
+`StartDate`; `EndDate` is optional. For example:
+
+```go
+transactions, err := client.ListTransactions(ctx, &billing.ListTransactionsInput{
+    StartDate: "2024-11-01", EndDate: "2024-11-30", All: true,
+})
+if err != nil { log.Fatal(err) }
+log.Println(len(transactions.Items))
+```
+
+```sh
+vngcloud billing list-transactions --start-date 2024-11-01 --all
+vngcloud billing list-payments --start-date 2024-11-01 \
+  --end-date 2024-11-30 --query 'Items[].Amount' --output text
+```
+
+Dates are inclusive `YYYY-MM-DD` in fixed UTC+07:00, a manager choice fitting
+observed filtering. The exact server zone and midnight behavior remain
+unproved. Empty end means today in that zone, resolved once per call; the
+wire end is the next calendar day. Timestamps keep their explicit offsets.
+`Page` is 1-based. `Size` defaults to 50 and is capped at 50. `All` starts at
+page 1 and rejects `Page > 1`. Outputs keep `Items` and paging metadata.
+
+Complete walks have a 100-page limit, at most 100 times the verified page
+size rows, 8 MiB per response, 32 MiB of decoded JSON values across pages,
+and two minutes including authentication and retries. Surrounding whitespace
+does not count toward the walk limit. Incomplete walks return
+`ErrHistoryIncomplete`, nil Output, and CLI `HistoryIncomplete`, exit 1.
+No error prints a report. A complete walk is not an atomic account snapshot;
+a narrower range may help but cannot guarantee success.
+
+JSON, text, and explicit queries can expose descriptions, references, IDs,
+times, and amounts. Default tables omit descriptions and references. These
+reads work with read-only profiles without prompts. Unknown transaction codes
+keep `TypeCode` and an empty `Type`; unknown payment values remain raw.
+Values retain the API's monetary basis. Historical VAT normalization is
+unverified: wallet credits need not equal tax-inclusive cash paid. Payments
+may describe the same economic activity as wallet charges; do not add them.
 
 ## Prepaid resources
 
@@ -262,9 +275,7 @@ changes nothing and places no order:
 quote, err := priceClient.GetQuote(ctx, &pricing.GetQuoteInput{
 	ResourceType: pricing.ResourceSnapshot,
 })
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 log.Printf("optimum price: %.0f", quote.OptimumPrice)
 ```
 
@@ -289,9 +300,7 @@ quote, err := computeClient.QuoteCreateServer(ctx, &compute.CreateServerInput{
 	ZoneID: "<zone-id>", FlavorID: "<flavor-id>", ImageID: "<image-id>",
 	RootDiskSize: 20, RootDiskTypeID: "<volume-type-id>",
 })
-if err != nil {
-	log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 log.Printf("server would cost %.0f VND a month", quote.OptimumPrice)
 ```
 

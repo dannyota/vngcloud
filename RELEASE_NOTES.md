@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.94.0 - Billing history
+
+- Add SDK `billing.ListTransactions` and `billing.ListPayments`, plus
+  `billing list-transactions` and `billing list-payments`. Dates are inclusive
+  in fixed UTC+07:00; an omitted end means today. Both reads support bounded
+  complete walks and read-only profiles. Existing billing commands and
+  JSON/query roots retain their contracts.
+- Incomplete history walks return `ErrHistoryIncomplete` with nil Output;
+  the CLI reports `HistoryIncomplete`, exit 1, with no report. Complete
+  walks detect coverage changes but do not establish an atomic snapshot.
+- JSON, text, and explicit queries can contain account data. Default tables
+  omit descriptions and references. Values preserve the API's monetary
+  basis; historical VAT normalization and service-account access remain
+  unverified. Register both reads in the example and live suite.
+
 ## v0.93.3 - Bounded billing reads
 
 - The eight billing reads (`get-cost-overview`, `list-cost-resources`,

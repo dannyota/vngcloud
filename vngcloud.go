@@ -78,6 +78,8 @@ var (
 	ErrInvalidConfig = core.ErrInvalidConfig
 	// ErrInvalidInput marks an invalid operation input.
 	ErrInvalidInput = core.ErrInvalidInput
+	// ErrHistoryIncomplete marks a history walk whose completeness is unconfirmed.
+	ErrHistoryIncomplete = core.ErrHistoryIncomplete
 	// ErrNoCredentials marks missing credentials.
 	ErrNoCredentials = core.ErrNoCredentials
 	// ErrCredentialsFile marks a credentials file failure.

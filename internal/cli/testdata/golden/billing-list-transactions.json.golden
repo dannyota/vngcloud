@@ -1,0 +1,21 @@
+{
+  "Items": [
+    {
+      "ID": 1,
+      "Type": "CHARGE",
+      "TypeCode": 5,
+      "Direction": "DEBIT",
+      "Amount": 12.5,
+      "Balance": 100,
+      "SourceReference": "synthetic-reference",
+      "Description": "synthetic-description",
+      "UserServiceReference": "synthetic-service",
+      "InvoiceID": null,
+      "CreatedAt": "2024-11-11T18:00:00+00:00"
+    }
+  ],
+  "Page": 1,
+  "PageSize": 50,
+  "TotalPage": 1,
+  "TotalItem": 1
+}

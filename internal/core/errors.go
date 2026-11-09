@@ -30,6 +30,8 @@ var (
 	ErrInvalidConfig = errors.New("vngcloud: invalid config")
 	// ErrInvalidInput marks an invalid input.
 	ErrInvalidInput = errors.New("vngcloud: invalid input")
+	// ErrHistoryIncomplete marks a history walk whose completeness is unconfirmed.
+	ErrHistoryIncomplete = errors.New("vngcloud: billing history is incomplete")
 
 	// ErrPriceAboveMax means a paid write's quote priced the order above
 	// Input.MaxPrice. Nothing was ordered.
