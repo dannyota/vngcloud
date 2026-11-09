@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.93.1 - Quote response safety
+
+- `pricing get-quote` (SDK `pricing.GetQuote`) and every command that
+  quotes before a paid write now refuse a quote response that echoes a
+  credential the call sent, raw or JSON-escaped and including a refreshed
+  token, before returning a price; the error text never contains it.
+  Routine quote responses are no longer passed to `WithResponseCapture`.
+- If a credential the call sent could be read as a number, quotes fail
+  closed with `InvalidResponse`. Real bearer tokens are long opaque strings,
+  so normal use is unaffected.
+- A malformed quote response still yields a `*json.SyntaxError` with its
+  offset through `errors.As`, without the response text.
+
 ## v0.93.0 - Server public address
 
 - Server reads (`compute get-server`, `list-servers`,
