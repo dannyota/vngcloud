@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -50,6 +52,166 @@ func TestFloatingIPHarnessGates(t *testing.T) {
 		t.Fatal("approved cap refused")
 	}
 }
+
+func TestFloatingIPHarnessRegionGate(t *testing.T) {
+	for _, tc := range []struct {
+		value, want string
+		refuse      bool
+	}{
+		{"", "hcm-3", false}, {"hcm-3", "hcm-3", false}, {"han-1", "han-1", false},
+		{"invalid", "", true}, {"HAN-1", "", true}, {" han-1", "", true}, {"han-1 ", "", true},
+	} {
+		region, err := floatingIPRegion(tc.value)
+		if region != tc.want || (err != nil) != tc.refuse {
+			t.Fatalf("region gate for %q = %q, %v; want %q, refusal %v", tc.value, region, err, tc.want, tc.refuse)
+		}
+	}
+}
+
+func TestFloatingIPHarnessRegionOptionWins(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			// Match liveWriteConfig's default-first order without loading .env
+			// or any private credential file, and make no request.
+			cfg, err := vngcloud.LoadConfig(context.Background(),
+				vngcloud.WithRegion("hcm-3"),
+				vngcloud.WithConfigFile(emptyWriteFile(t, "config")),
+				vngcloud.WithSharedCredentialsFile(emptyWriteFile(t, "credentials")),
+				vngcloud.WithProfile("default"), vngcloud.WithStaticToken("synthetic-token"),
+				vngcloud.WithRegion(region),
+			)
+			if err != nil || cfg.Region() != region {
+				t.Fatalf("later region option did not win: %v", err)
+			}
+		})
+	}
+}
+
+func TestFloatingIPHarnessRegionGuardHost(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			guard := newFloatingIPTransport(region)
+			calls := 0
+			guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Request: req}, nil
+			})
+			for _, tc := range []struct {
+				method, url string
+				allowed     bool
+			}{
+				{http.MethodGet, "https://hcm-3.console.greennode.ai/v2/project-1/wanIps", region == "hcm-3"},
+				{http.MethodGet, "https://han-1.console.greennode.ai/v2/project-1/wanIps", region == "han-1"},
+				{http.MethodGet, "https://dashboard.console.greennode.ai/", true},
+				{http.MethodGet, "https://signin.greennode.ai/", false},
+				{http.MethodGet, "https://han-1.api.vngcloud.vn/", false},
+				{http.MethodGet, "https://other.console.greennode.ai/", false},
+				{http.MethodGet, "http://" + region + ".console.greennode.ai/", false},
+				{http.MethodPost, "https://" + region + ".console.greennode.ai/v1/price", true},
+				{http.MethodPost, "https://dashboard.console.greennode.ai/v1/price", false},
+			} {
+				req, err := http.NewRequestWithContext(context.Background(), tc.method, tc.url, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before := calls
+				resp, err := guard.RoundTrip(req)
+				if resp != nil {
+					_ = resp.Body.Close()
+				}
+				if (err == nil) != tc.allowed || (calls > before) != tc.allowed {
+					t.Errorf("guard %s accepted %s %s = %v; want %v", region, tc.method, tc.url, err == nil, tc.allowed)
+				}
+			}
+		})
+	}
+}
+
+func TestFloatingIPHarnessHanoiEnabledZone(t *testing.T) {
+	zones := []portal.Zone{
+		{UUID: vngcloud.Ptr("HAN01-1A"), IsEnabled: vngcloud.Ptr(false)},
+		{UUID: vngcloud.Ptr("HAN01-1B"), IsEnabled: vngcloud.Ptr(true)},
+	}
+	if _, err := floatingIPZone(zones, "HAN01-1A"); err == nil {
+		t.Fatal("disabled Hanoi zone accepted")
+	}
+	for _, requested := range []string{"", "HAN01-1B"} {
+		if zone, err := floatingIPZone(zones, requested); err != nil || zone != "HAN01-1B" {
+			t.Fatal("enabled Hanoi zone was not selected")
+		}
+	}
+}
+
+func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		flavor, ssd bool
+		want        string
+	}{
+		{"missing flavor", false, true, "s2-general-1x2 missing in selected region or zone"},
+		{"missing SSD", true, false, "3000 IOPS SSD root type missing in selected region or zone"},
+		{"available", true, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID", "")
+			writes := 0
+			guard := newFloatingIPTransport("han-1")
+			guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
+				if req.Method != http.MethodGet {
+					writes++
+					return nil, errors.New("unexpected write during catalog selection")
+				}
+				body := ""
+				switch req.URL.Path {
+				case "/v1/project-1/flavor_zones/product":
+					body = `{"flavorZones":[{"id":"fz-1","zoneId":"HAN01-1B"}]}`
+				case "/v1/project-1/fz-1/flavors":
+					body = `{"flavors":[]}`
+					if tc.flavor {
+						body = `{"flavors":[{"flavorId":"flavor-1","name":"s2-general-1x2"}]}`
+					}
+				case "/v1/project-1/images/os":
+					body = `{"images":[{"id":"image-1","imageVersion":"Ubuntu 24.04","licence":false,"packageLimit":{"diskSize":20}}]}`
+				case "/v1/project-1/volume_type_zones":
+					body = `{"volumeTypeZones":[]}`
+					if tc.ssd {
+						body = `{"volumeTypeZones":[{"id":"vtz-1","name":"SSD"}]}`
+					}
+				case "/v1/project-1/vtz-1/volume_types":
+					body = `{"volumeTypes":[{"id":"ssd-1","iops":3000,"minSize":1,"maxSize":5000,"zoneId":"HAN01-1B"}]}`
+				default:
+					t.Errorf("unexpected catalog request: %s", req.URL.Path)
+					return nil, errors.New("unexpected catalog request")
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+			})
+			cfg, err := vngcloud.NewConfig(
+				vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("synthetic-token"),
+				vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: "https://han-1.console.greennode.ai/"}),
+				vngcloud.WithTransport(guard), vngcloud.WithRetry(0, 0),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := newFloatingIPRun(t, cfg, guard, &floatingIPCapture{dir: t.TempDir()}, "vngcloud-live-fip-1234abcd")
+			input, err := r.spec(context.Background(), "HAN01-1B")
+			if tc.want == "" {
+				if err != nil || input == nil || input.FlavorID != "flavor-1" || input.RootDiskTypeID != "ssd-1" || input.ZoneID != "HAN01-1B" {
+					t.Fatalf("regional catalog selection failed: %v", err)
+				}
+			} else if err == nil || err.Error() != tc.want || input != nil {
+				t.Fatalf("missing regional spec error = %v; want %q", err, tc.want)
+			}
+			if writes != 0 || len(r.ledger.attempted) != 0 {
+				t.Fatal("missing regional prerequisites permitted a write")
+			}
+		})
+	}
+}
+
+type floatingIPHarnessHTTP func(*http.Request) (*http.Response, error)
+
+func (f floatingIPHarnessHTTP) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestFloatingIPHarnessEnabledZone(t *testing.T) {
 	zones := []portal.Zone{
