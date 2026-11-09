@@ -18,10 +18,18 @@ The API shapes, billing model, and prices behind
 - The vServer console bundle on `hcm-3.console.greennode.ai`: the price
   request each create and resize form sends.
 - GreenNode's billing docs on `docs.greennode.ai`: prepaid and postpaid
-  users, and the create, resize, delete, and auto-renew pages.
+  users, and the create, resize, delete, and auto-renew pages. The resize
+  page (`billing-management/experience-with-billing-and-payment/
+  resource-lifecycle-management/resize-resource-configuration`) carries
+  the resize price formula and a worked downsize example as an image.
 - Read-only probes on the test account in `hcm-3` (2026-09-28): flavor
   zones, flavors, images, volume types, quotas, and price quotes. No write
   was sent.
+- One sanitized CLI observation on v0.91.0: a read-only
+  `compute quote-resize-server` from `s2-general-2x4` to a smaller flavor
+  failed with `quote response had an invalid price: -180797`, so the
+  gateway returned a negative `optimumPrice`. Its raw body is not yet
+  captured ([probe](vserver-paid-writes-checks.md#free-checks)).
 
 Every call uses the IAM vServer gateway with the `v2/{projectId}/...` paths
 the reads use, and no `portal-user-id` header, as the free writes do. A
@@ -110,7 +118,10 @@ them; the SDK sends `zoneId` only on creates.
   [billing](billing.md#price-quotes) records. The response carries no
   currency field; every price in this design, and every guard compared
   against `MaxPrice`, assumes VND, matching the account's own region and
-  the console's own display.
+  the console's own display. A downsize resize quote's `optimumPrice` is
+  negative ([resize credits](#resize-credits)); whether `originalPrice`
+  and the `propertiesPrice` lines carry the same sign is unknown until
+  the probe captures a raw body.
 
 ## Statuses
 
@@ -132,6 +143,31 @@ From Terraform's waits and the console's enums.
 
 A server whose prepaid period ended reads as expired: VNG Cloud's SDK maps
 `server is expired` on a security group change.
+
+## Waits
+
+Each write below waits unless `NoWait` is set
+([design](vserver-paid-writes.md#waits)). Each package gets a poll helper
+with the injected clock and sleep that `network` uses, and honours `ctx`.
+
+| Write | Settled | Poll | Bound |
+|-|-|-|-|
+| Server create | `ACTIVE` | 5 s | 15 min |
+| Server start, stop | `ACTIVE`, `STOPPED` | 5 s | 5 min |
+| Server reboot | `ACTIVE`, read at least 10 s after the `202` | 5 s | 5 min |
+| Server resize | New flavor, and `ACTIVE` or `STOPPED` | 5 s | 15 min |
+| Server delete | 404 or `DELETED` | 5 s | 10 min |
+| Volume create | `AVAILABLE` | 2 s | 5 min |
+| Volume resize | New size, and `AVAILABLE` or `IN-USE` | 2 s | 5 min |
+| Attach, detach | `IN-USE` with the server listed; `AVAILABLE` | 2 s | 5 min |
+| Volume delete | 404 or `DELETED` | 2 s | 5 min |
+
+- A 404 during a create wait keeps polling. `ERROR` returns the Output and
+  an error wrapping `ErrFailed`. The bound returns the Output and an error
+  wrapping `ErrNotSettled`, whose message says a create must not be
+  repeated; the other writes read first and can be rerun.
+- Unknown and moving statuses keep polling. The live runs record the
+  times; a bound changes only by amending this table.
 
 ## Server rules
 
@@ -183,7 +219,7 @@ From GreenNode's billing docs and the console.
   wallet when it is created. The console's price request for a server or
   volume always sends `period: 1`, one month. The server create body has
   no period field; that the direct API charges one month is an
-  [open question](vserver-paid-writes.md#open-questions).
+  [open question](#open-questions).
 - vServer has no hourly rate. A quote is a monthly price: `period` 1, 3,
   and 12 all returned the same `optimumPrice` (live). `period` 0 returns
   400 `period: From must be greater than zero`; no `period` returns 500.
@@ -193,10 +229,13 @@ From GreenNode's billing docs and the console.
   balance to its starting value, so servers and volumes refund to the
   minute. The docs' server example: 181,000 VND for 30 days, deleted
   with 20 days left, refunds 181,000 / 30 x 20 = 122,667 VND.
-- A resize quote prices the whole new configuration for the rest of the
-  current period, not the difference from the old one (live): the server
-  resize quoted about 315,800 VND, and the three resize quotes of the
-  paid run summed to 1,011,387 VND.
+- A resize quote is a signed difference for the rest of the current
+  period, per the published formula in [resize credits](#resize-credits):
+  positive for an upsize, negative for a downsize. The live upsize quote
+  of about 315,800 VND, and the three resize quotes of the paid run
+  summing to 1,011,387 VND, matched neither a whole-configuration nor a
+  plain difference reading exactly; the published formula is the
+  contract, and the earlier whole-configuration inference is withdrawn.
 - Auto-renew renews one month, 3 days before the end, from credit. When
   renewal fails the resource expires, and the user must recover it. A
   resource without auto-renew also expires at the end of its period.
@@ -207,6 +246,53 @@ The console creates a single server through a billing order and a payment
 page. For more than one server, and for an IAM user's public VIP, it calls
 the vServer create directly, which pays from credit. The SDK uses the
 direct call; an IAM user has no payment page.
+
+## Resize credits
+
+Evidence behind the
+[resize credit rules](vserver-paid-writes.md#resize-credits), by strength:
+
+- Published contract. GreenNode's resize page gives, for vServer and
+  "similarly applied to other resources", the price shown when a
+  configuration changes: the new configuration's unit price divided by
+  30 days times the days left in the period, minus the old
+  configuration's unit price divided by 30 times the same days. Its
+  example: a server created at 181,000 VND a month for 90 days
+  (543,000 VND), changed to a 520,000 VND flavor with 50 days left, pays
+  866,667 minus 301,667, or 565,000 VND; changed back with 20 days left,
+  it pays 120,667 minus 346,667, or -226,000 VND, "refunded ... to their
+  credit wallet". Unused value counts to the minute, and some services
+  may not refund.
+- Observation. The sanitized v0.91.0 CLI error in [sources](#sources)
+  shows the billing gateway returning a negative `optimumPrice` for a
+  server downsize, in the same `v1/price` response the SDK decodes.
+- Missing. No raw downsize response is captured yet, so the signs of
+  `originalPrice`, `discountPrice`, and the `propertiesPrice` lines, and
+  whether `discountPercent` applies to a credit, are unknown. The fixture
+  in [checks](vserver-paid-writes-checks.md#unit-tests) stays synthetic
+  and is marked so until the probe runs.
+
+What follows from the formula:
+
+- The credit is the unused value of the old configuration minus the new
+  configuration's value for the days left. Its magnitude is bounded by
+  the unused value, which a prepaid period of 3 or 12 months puts above
+  one month's price. The SDK sees neither the period nor the days left,
+  so it cannot compute a bound, and a bound from a monthly list price
+  would refuse real credits. The credit's size therefore drives no SDK
+  decision; only its sign matters to the guard, and a credit never
+  exceeds a valid `MaxPrice`.
+- Time between the quote and the write can only shrink a credit toward
+  0; it cannot turn it into a charge. A price-list change in that gap
+  stays the accepted one-request race.
+- A volume grow at the same type and unit price is always a charge, so a
+  negative volume resize quote has no formula source; the SDK refuses it
+  as `ErrUnpriced`. A load balancer downsize quotes negative by the same
+  formula (live in [vLB writes](lb-writes-api.md#price-quotes)), and its
+  write already accepts a credit through its own quote reader.
+- `pricing get-quote --action resize` returns the signed value for any
+  resource type; the SDK's `create` quotes and the CLI's create commands
+  still refuse a negative price as an `*APIError`.
 
 ## Quote requests
 
@@ -294,3 +380,17 @@ named `Volume`. The smallest server above costs about 11,600 VND a day, or
 - The OS image list returns the same 45 images with or without `zoneId`,
   each marked zone `HCM03-1A`, with a `packageLimit` of 1 vCPU, 1 GB, and a
   20 GB disk for Ubuntu.
+
+## Open questions
+
+- Whether the direct create charges one month at once.
+- Whether `deleteAllVolume` false keeps attached data volumes.
+- What happens when a period ends without renewal, and after how long an
+  expired server is deleted.
+- The status and message of a create refused for a zero balance.
+- The create responses' shapes, and whether server and volume names must
+  be unique on the server.
+- Whether a stop is graceful, and whether a reboot shows `REBOOTING`.
+- The smallest volume the SSD type accepts: 1 GB or 10 GB.
+- The signs of a downsize quote's `originalPrice`, `discountPrice`, and
+  `propertiesPrice` lines, until the probe captures a raw body.

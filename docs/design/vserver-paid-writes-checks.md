@@ -32,6 +32,30 @@ real API.
   quote; a quote without `optimumPrice`, or with it null, sends no write;
   a quote error sends no write. `errors.Is(err,
   monitor.ErrPriceAboveMax)` holds for the same value.
+- Resize credits, per [design](vserver-paid-writes.md#resize-credits).
+  `pricing.GetQuote`: a negative `optimumPrice` with `Action` `resize`
+  decodes to the signed `OptimumPrice`; with `Action` `create` or empty
+  it is an `*APIError` naming the price; null, a missing key, a bare
+  `NaN` literal, and an overflowing number are `*APIError` for both
+  actions. `QuoteResizeServer` returns the negative value.
+  `ResizeServer` with the credit fixture: `MaxPrice` 0 and `MaxPrice`
+  1000000 each send exactly one resize `PUT` and return the negative
+  `MonthlyPrice`; a quote of exactly 0 wraps `vngcloud.ErrUnpriced` and
+  sends nothing. `ResizeVolume` with the same negative body wraps
+  `vngcloud.ErrUnpriced`, whose message names the amount, and sends
+  nothing. `CreateServer` and `CreateVolume` with a negative quote return
+  the `*APIError` and send nothing.
+- Credit fixture. `testdata/pricing/GetQuoteServerResizeCredit.json` is
+  the sanitized raw body the [probe](#free-checks) captures; until then a
+  synthetic body with `optimumPrice` -180797 and one `INSTANCE TYPE` line
+  stands in, and every test name that uses it ends in `Synthetic`. The
+  decode test runs through `pricing.GetQuote` and `QuoteResizeServer`,
+  never through decoded SDK output. The CLI golden tests for
+  `quote-resize-server` render the fixture in `json`, `table`, and
+  `text`, showing `-180797`, and `resize-server --yes` without
+  `--max-price` prints the Output with the negative `MonthlyPrice` and
+  exits 0. `pricing get-quote --action resize` with the fixture exits 0;
+  `--action create` with the same body exits 1 with `RequestFailed`.
 - No resend: a create answered 502, 503, and a dropped connection is sent
   once; a resize, start, stop, and reboot answered 502 or 429 are sent
   once; rename, attach, detach, and deletes keep the transport's retries.
@@ -48,7 +72,7 @@ real API.
   `userDataBase64Encoded` true, half a data disk refused, an empty
   `SecurityGroupIDs` refused. Resize volume sends the read type as
   `newVolumeTypeId`. Delete server sends `deleteAllVolume` as set.
-- Waits: each row of the [wait table](vserver-paid-writes.md#waits) for
+- Waits: each row of the [wait table](vserver-paid-writes-api.md#waits) for
   settled, `ERROR`, a 404 then settled, unknown status, the bound,
   `NoWait`, poll spacing, a cancelled context, a resize that reads
   `ACTIVE` with the old flavor first, and a reboot that reads `ACTIVE`
@@ -87,10 +111,29 @@ counts, field names, types, and prices.
    exactly one quote request, then `ErrPriceAboveMax`, and no `POST` to
    `/servers` or `/volumes` (the test counts requests with a capturing
    transport).
+7. Resize credit probe, the one piece of raw evidence
+   [resize credits](vserver-paid-writes-api.md#resize-credits) lacks. It
+   needs an `ACTIVE` or `STOPPED` server, so it runs on an account that
+   has one, or inside L3 while its server exists. The manager runs a
+   throwaway program under a git-ignored path, deleted afterwards, that
+   builds `compute.New` with `vngcloud.WithResponseCapture` and calls
+   `QuoteResizeServer` once from the server's flavor to a cheaper one in
+   the same flavor zone, such as `s2-general-2x4` to `s2-general-1x2`.
+   The capture hook receives the body before the SDK decodes it, so the
+   probe works whether or not the SDK still refuses the price. Save the
+   body under `examples/basic/output/raw/pricing/`, then copy it to
+   `testdata/pricing/GetQuoteServerResizeCredit.json` with every ID,
+   name, and account value replaced per
+   [sanitizing](../../instructions/live-data.md#sanitizing-fixtures);
+   the prices stay. Record the signs of `originalPrice`,
+   `discountPrice`, and each `propertiesPrice` line in the API document
+   and drop the matching
+   [open question](vserver-paid-writes-api.md#open-questions). The quote
+   is free and sends no write.
 
-Prices may change; the checks assert a positive price and log it, and the
-design's [price table](vserver-paid-writes-api.md#prices) is updated when
-it moves.
+Prices may change; the checks assert a positive price (a negative one for
+the credit probe) and log it, and the design's
+[price table](vserver-paid-writes-api.md#prices) is updated when it moves.
 
 ## Refusal probe
 
@@ -132,7 +175,7 @@ variable, per [live data](../../instructions/live-data.md).
 |-|-|-|-|
 | L1 | One 10 GB SSD volume | 32,000 | 50,000 |
 | L2 | One `s2-general-1x2` server with a 20 GB root, one 10 GB volume | 379,800 | 400,000 |
-| L3 | L2's resources, then the server resized to `s2-general-2x4`, the volume to 20 GB, and the root to 30 GB | 1,011,387 VND of resize quotes plus L2's 379,800, since a resize quote prices the whole new configuration | 1,100,000 |
+| L3 | L2's resources, then the server resized to `s2-general-2x4`, the volume to 20 GB, and the root to 30 GB | 1,011,387 VND of resize quotes plus L2's 379,800, counting each resize quote in full | 1,100,000 |
 
 Deletes refund to the minute, so each run costs a few hundred VND at
 most; all runs together cost about 120 VND
@@ -216,7 +259,13 @@ On a server and a 10 GB volume created as in L2:
 4. `ResizeVolume` on the boot volume from 20 GB to 30 GB: status and
    time.
 5. Balance after each resize: the charge, against its quote.
-6. Clean up as below.
+6. Downsize, only with the owner's approval for this step: run the
+   [credit probe](#free-checks) from `s2-general-2x4` back to
+   `s2-general-1x2`, then `ResizeServer` to it with `MaxPrice` 0: the
+   negative quote, the negative `MonthlyPrice`, the statuses, the flavor
+   read back, and the balance after, against the credit. The run's spent
+   total never subtracts a credit.
+7. Clean up as below.
 
 ### Cleanup
 
@@ -247,4 +296,45 @@ password, or default security group; auto-renew off by default;
 `--yes` on every command the CLI table marks; `--delete-volumes` required
 to delete volumes with a server; path ID checks on every ID; read-only
 refusal of every write; and the live tests' cap check runs before any
-write.
+write. The resize credit release adds: a negative quote is kept only when
+`Action` is `resize`; a create's negative quote stays an `*APIError`; the
+credit's size drives no decision; and `ResizeVolume` refuses a quote at
+or below 0.
+
+### Resize credit threats
+
+Design obligations for the resize credit review, traced through the code
+that exists. Each names the invariant, the failure, the severity, the
+evidence, and the fix direction; paths marked proposed are unimplemented.
+
+- Leaked tokens in logs or errors. Invariant: a quote error names only
+  the price. `pricing/pricing.go:172` formats the refused number alone,
+  and the CLI's debug output holds no body ([CLI](cli.md#debug)). The
+  credit path adds no new message; the volume refusal names the amount
+  (proposed in `internal/core/price.go:29`). Low. Check: the error and
+  `--debug` tests assert no token, body, or header text.
+- Hostile or malformed quote. Invariant: no price the guard cannot
+  compare passes. `pricing/pricing.go:171` refuses null, NaN, and
+  infinities for every action and keeps `< 0` only for `resize`
+  (proposed). A forged negative quote for an upsize would let
+  `compute/resize_server.go:143` send at `MaxPrice` 0, the same exposure
+  a forged low positive quote already has under any positive `MaxPrice`
+  and the exposure `loadbalancer/price_guard.go:102` accepts. Medium,
+  bounded by the gateway being the same party that bills. Fix direction:
+  keep the action rule, keep `Once`, and show the signed quote in every
+  output so the caller sees it. Check: the create and volume negative
+  tests send nothing; the resize test sends once.
+- Redirect or foreign host. Invariant: the quote and the resize use the
+  routed gateway URLs (`pricing/pricing.go:124`,
+  `compute/resize_server.go:154`) with TLS verification and same-origin
+  redirect rules unchanged. The credit path changes no URL, header, or
+  hook. Not affected; the existing transport tests cover it.
+- Tampered profiles or caches. The credit path reads no file and adds no
+  credential or cache use. Not affected.
+- Concurrent or repeated paid writes. Invariant: one resize per call.
+  `compute/resize_server.go:157` sets `Once`; the same-flavor and status
+  guards at `:125` and `:128` read first. A second caller resizing the
+  same server races as before; a credit cannot become a charge in the
+  quote-to-write gap ([evidence](vserver-paid-writes-api.md#resize-credits)).
+  Low. Check: the 502 and 429 send-once tests run with the credit
+  fixture too, and the CLI never retries.

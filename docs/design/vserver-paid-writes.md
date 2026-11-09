@@ -2,11 +2,9 @@
 
 Status: Accepted (2026-09-28), except owner decision 17.
 
-This design adds the vServer writes that cost money: servers in `compute`
-and volumes in `volume`. Every paid create and resize quotes first and
-orders nothing above `MaxPrice`, which defaults to 0. The code is built
-and unit-tested now; the paid releases are tagged after their live runs,
-which wait until the owner adds credit to the test account.
+This design covers the vServer writes that cost money: servers in
+`compute` and volumes in `volume`. Every paid create and resize quotes
+first and orders nothing above `MaxPrice`, which defaults to 0.
 
 It follows [vServer free writes](vserver-writes.md) for the gateway,
 create retries, and delete guards,
@@ -14,9 +12,9 @@ create retries, and delete guards,
 [ADR 0003](../adr/0003-toggle-writes.md) for writes that read first and
 send once. The price guard copies
 [vMonitor log projects](monitor-alerts.md#log-projects). Calls, bodies,
-statuses, the billing model, and the quoted prices are in
-[vServer paid writes: API](vserver-paid-writes-api.md). Tests, live runs,
-and the security review are in
+statuses, the billing model, the quoted prices, and the open questions are
+in [vServer paid writes: API](vserver-paid-writes-api.md). Tests, live
+runs, and the security review are in
 [vServer paid writes: checks](vserver-paid-writes-checks.md).
 
 ## Non-goals
@@ -27,9 +25,8 @@ and the security review are in
   `osLicence`, and `expirePassword`.
 - Multi-attach volumes, volume type change, and host groups. Encryption
   is in [encrypted volumes](encrypted-volumes.md).
-- Volume snapshots. Creating one needs the snapshot service, which the
-  console activates through a billing order and a payment page. Server
-  snapshots, backups, and restores likewise.
+- Volume and server snapshots, backups, and restores. The snapshot service
+  is activated through a console billing order and a payment page.
 - Changing a server's security groups, network interfaces, or tags.
 - Renew, recover, and auto-renew changes after create.
 - Server groups on create beyond passing an ID; server group writes are in
@@ -38,15 +35,14 @@ and the security review are in
 
 ## Cost
 
-The test account is prepaid. A prepaid create pays one month from the
-credit wallet at once, and a delete refunds the unused minutes, per the
-[billing model](vserver-paid-writes-api.md#billing-model). There is no
-hourly rate: a quote is VND a month. The smallest server this design can
+The test account is prepaid. Per the
+[billing model](vserver-paid-writes-api.md#billing-model), a create pays
+one month from the credit wallet at once, a delete refunds the unused
+minutes, and there is no hourly rate. The smallest server this design can
 create (1 vCPU, 2 GB, 20 GB SSD root) quotes 347,800 VND a month; a 10 GB
 SSD volume quotes 32,000 ([prices](vserver-paid-writes-api.md#prices)).
-
-With a zero balance the server refuses a paid create. The SDK does not
-rely on that: with the default `MaxPrice` of 0 it never sends one.
+With a zero balance the server refuses a paid create; the SDK does not
+rely on that, since the default `MaxPrice` of 0 never sends one.
 
 ## Quote before a paid write
 
@@ -67,10 +63,12 @@ the write's own Input (ADR 0002 rule 8):
   The create's price guard calls the same builder. A quote requires only
   priced fields; see
   [CLI usability](cli-usability.md#quotes-ask-only-for-priced-values).
-- The quote's Output is `pricing.GetQuoteOutput`. `OptimumPrice` is VND a
-  month. For a resize it is the new configuration's price for the rest of
-  the current period ([billing model](vserver-paid-writes-api.md#billing-model));
-  the guard compares it the same way.
+- The quote's Output is `pricing.GetQuoteOutput`. For a create,
+  `OptimumPrice` is VND a month. For a resize it is the signed difference
+  for the rest of the current period
+  ([billing model](vserver-paid-writes-api.md#billing-model)): positive
+  for an upsize, negative for a downsize, which credits the wallet
+  ([resize credits](#resize-credits)).
 - `pricing.GetQuoteInput` gains `Action`; empty sends `create`, so
   existing callers are unchanged. The quote request is built by one
   internal helper that `pricing`, `compute`, and `volume` share.
@@ -81,9 +79,11 @@ The paid write runs these steps, in order, and stops at the first failure:
    value is `ErrInvalidInput`, since each would disable the comparison.
 2. Run the write's pre-reads and guards (below).
 3. Quote. A quote error stops the write; a response without
-   `optimumPrice` is an `*APIError`, never a price of 0.
+   `optimumPrice` is an `*APIError`, never a price of 0. A negative price
+   is an `*APIError` for a create and a credit for a resize.
 4. When `OptimumPrice` is above `MaxPrice`, return an error wrapping
-   `vngcloud.ErrPriceAboveMax` that names both amounts. Nothing is sent.
+   `vngcloud.ErrPriceAboveMax` that names both amounts. A quote of 0 is
+   `ErrUnpriced`, as is a volume resize quote below 0. Nothing is sent.
 5. Send the write once. A create is a `POST` and is not retried after a
    5xx or a network error (ADR 0002 rule 2). A resize is sent with `Once`
    (ADR 0003 rule 3): a resent resize could pay twice.
@@ -110,12 +110,11 @@ Free reads a caller needs to build a create:
 | `volume.GetDefaultVolumeType` | gains `ZoneID` | unchanged |
 
 - `ListFlavorZones` filters by `ZoneID` in the SDK, since the API returns
-  every zone. `FlavorZone` holds `ID`, `Name`, `Description`, and
-  `ZoneID`.
+  every zone. `FlavorZone` holds `ID`, `Name`, `Description`, and `ZoneID`.
 - `ListFlavors` decodes into the existing `Flavor` model, which gains
-  `RemainingVMs` and `IsSoldOut`.
-- `GetDefaultVolumeType` sends `zoneId` when set; without it the API
-  looks up the region's first zone, which can be disabled.
+  `RemainingVMs` and `IsSoldOut`. `GetDefaultVolumeType` sends `zoneId`
+  when set; without it the API uses the region's first zone, which can be
+  disabled.
 
 ## Servers
 
@@ -213,6 +212,29 @@ by reading, as ADR 0003 does for toggles:
 - The root disk grows through `volume.ResizeVolume` on the server's
   `BootVolumeID`.
 
+### Resize credits
+
+GreenNode bills a resize as the new configuration's value for the rest of
+the period minus the unused value of the old one, and refunds a negative
+result to the credit wallet, so a downsize quotes a negative
+`optimumPrice` ([evidence](vserver-paid-writes-api.md#resize-credits)).
+
+- `pricing.GetQuote` keeps a negative price when `Action` is `resize` and
+  refuses it for `create`. A missing or null price, NaN, and an infinity
+  stay `*APIError` for every action.
+- `QuoteResizeServer` returns the signed `OptimumPrice` with no extra
+  field. JSON keeps its shape; table and text cells show the minus sign.
+- `ResizeServer` sends a quoted credit at any valid `MaxPrice`, including
+  the default 0, and returns it as `MonthlyPrice`. A quote of exactly 0
+  stays `ErrUnpriced`, since a mispriced input also reads 0. The credit's
+  size drives nothing and has no bound beyond finite, because the SDK
+  cannot see the prepaid period that sets the unused value.
+- A downsize still changes the server. The same-flavor refusal, the status
+  guard, `Once`, and the CLI's `--yes` cover that; `MaxPrice` guards only
+  spending.
+- `ResizeVolume` only grows: a quote at or below 0 is `ErrUnpriced` naming
+  the amount, nothing sent. `QuoteResizeVolume` reports the gateway's value.
+
 ## Volumes
 
 All methods live in `volume`.
@@ -254,28 +276,9 @@ All methods live in `volume`.
 
 ## Waits
 
-Per ADR 0002 rule 7, each write below waits unless `NoWait` is set. Each
-package gets a poll helper with the injected clock and sleep that
-`network` uses, and honours `ctx`.
-
-| Write | Settled | Poll | Bound |
-|-|-|-|-|
-| Server create | `ACTIVE` | 5 s | 15 min |
-| Server start, stop | `ACTIVE`, `STOPPED` | 5 s | 5 min |
-| Server reboot | `ACTIVE`, read at least 10 s after the `202` | 5 s | 5 min |
-| Server resize | New flavor, and `ACTIVE` or `STOPPED` | 5 s | 15 min |
-| Server delete | 404 or `DELETED` | 5 s | 10 min |
-| Volume create | `AVAILABLE` | 2 s | 5 min |
-| Volume resize | New size, and `AVAILABLE` or `IN-USE` | 2 s | 5 min |
-| Attach, detach | `IN-USE` with the server listed; `AVAILABLE` | 2 s | 5 min |
-| Volume delete | 404 or `DELETED` | 2 s | 5 min |
-
-- A 404 during a create wait keeps polling. `ERROR` returns the Output and
-  an error wrapping `ErrFailed`. The bound returns the Output and an error
-  wrapping `ErrNotSettled`, whose message says a create must not be
-  repeated; the other writes read first and can be rerun.
-- Unknown and moving statuses keep polling. The live runs record the
-  times; a bound changes only by amending this table.
+Per ADR 0002 rule 7, each write waits unless `NoWait` is set. The settled
+states, poll spacing, bounds, and failure results are in the
+[wait table](vserver-paid-writes-api.md#waits).
 
 ## Identifiers and retries
 
@@ -289,8 +292,7 @@ package gets a poll helper with the injected clock and sleep that
   the exact name. The duplicate-name check makes a rerun safe.
 - Resize, start, stop, and reboot use `Once`. Rename, attach, detach, and
   deletes keep the transport's retries; a retried delete that finds the
-  resource gone returns `NotFound`.
-- The CLI never retries a write.
+  resource gone returns `NotFound`. The CLI never retries a write.
 
 ## CLI
 
@@ -317,7 +319,8 @@ package gets a poll helper with the injected clock and sleep that
   what runs on the server and lose what it holds only in memory, as route
   writes need `--yes` for cutting traffic
   ([network writes](vserver-network-writes.md#cli)). Resize needs `--yes`
-  because it restarts the server and may charge more.
+  because it restarts the server and may charge more. A downsize quotes a
+  credit, so it needs no `--max-price`; its `MonthlyPrice` is negative.
 - `delete-server --delete-volumes --yes` deletes attached volumes too.
   Without `--delete-volumes` they stay, and stdout lists them.
 - `detach-volume --allow-running` maps to `AllowRunning`.
@@ -327,14 +330,8 @@ package gets a poll helper with the injected clock and sleep that
   file. `UserData` has no string flag and `--cli-input-json` refuses it,
   since argv and shell history keep it.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
-  before any request. Quotes are reads and still run.
-
-```sh
-vngcloud compute quote-create-server --zone-id <zone> \
-  --flavor-id <flavor> --image-id <image> \
-  --root-disk-size 20 --root-disk-type-id <type>
-vngcloud compute create-server ... --max-price 347800
-```
+  before any request. Quotes are reads and still run. Usage examples are
+  on the generated `CLI-Compute` and `CLI-Volume` wiki pages.
 
 ## Errors
 
@@ -343,6 +340,7 @@ vngcloud compute create-server ... --max-price 347800
 | Missing field, bad ID, bad `MaxPrice`, half a data disk, same flavor, shrink, duplicate name | `ErrInvalidInput`, nothing sent | `InvalidUsage`, 2 |
 | Missing `--yes` | Nothing sent | `InvalidUsage`, 2 |
 | Quote above `MaxPrice` | `vngcloud.ErrPriceAboveMax`, nothing ordered | `PriceAboveMax`, 1 |
+| Quote of 0, or a volume resize quote below 0 | `vngcloud.ErrUnpriced`, nothing ordered | `Unpriced`, 1 |
 | Status wrong for start, stop, reboot, or resize | `ErrUnexpectedStatus`, nothing sent | `UnexpectedStatus`, 1 |
 | Delete of an attached volume | `ErrVolumeInUse` | `VolumeInUse`, 1 |
 | Detach of the boot volume | `ErrBootVolume`, nothing sent | `BootVolume`, 1 |
@@ -363,9 +361,10 @@ New sentinels: `compute.ErrFailed` and `compute.ErrUnexpectedStatus`
 ## Security
 
 The guards above are the security design: a quote at or below `MaxPrice`
-(default 0) before any paid write, no resent order, key login only, no
-public IP or default security group, auto-renew off, and `--yes` plus a
-guard on every write that can lose data. The review that checks them is in
+(default 0) before any paid write, a negative quote kept only for a
+resize, no resent order, key login only, no public IP or default security
+group, auto-renew off, and `--yes` plus a guard on every write that can
+lose data. The review that checks them is in
 [checks](vserver-paid-writes-checks.md#security-review). IDs, names, IPs,
 and user data are account data; fixtures use `<id>`, `<name>`, `<ip>`, and
 `<secret>`.
@@ -379,14 +378,16 @@ and user data are account data; fixtures use `<id>`, `<name>`, `<ip>`, and
 | P3 | `CreateServer`, `DeleteServer`, `StartServer`, `StopServer`, `RebootServer`, `RenameServer`, server waits, `[]string` flags, `--user-data-file`; CLI | After run L2 |
 | P4 | `AttachVolume`, `DetachVolume` and their guards; CLI | After run L2 |
 | P5 | `QuoteResizeServer`, `ResizeServer`, `QuoteResizeVolume`, `ResizeVolume`; CLI | After run L3 |
+| P6 | Resize credits: `pricing.GetQuote` keeps a negative `resize` quote, `ResizeServer` accepts a credit; CLI notes, wiki, release notes | After review, no live run |
 
-P1 is free and ships now. P2 to P5 are built and unit-tested now, in this
-order on one branch, and each is tagged after its
-[live run](vserver-paid-writes-checks.md#live-runs) passes. No release
-breaks callers; the reads above only start rejecting a malformed ID, and
-`monitor.ErrPriceAboveMax` changes only its message. The `Compute`,
-`Volume`, and `Billing-and-Pricing` wiki pages gain the writes, the cost
-table, the `--max-price` and `--yes` reasons, and the drift warning.
+P1 shipped free; P2 to P5 each shipped after their
+[live run](vserver-paid-writes-checks.md#live-runs) passed. P6 needs no
+live run: its only new write path sends a resize whose quote is below 0.
+No release breaks callers; the release notes state that `OptimumPrice` and
+`MonthlyPrice` can be negative after a resize quote. The `Compute-Servers`,
+`Volume`, and `Billing-and-Pricing` wiki pages describe the writes, the
+cost table, the `--max-price` and `--yes` reasons, resize credits, and the
+drift warning.
 
 ## Owner decisions
 
@@ -436,15 +437,14 @@ table, the `--max-price` and `--yes` reasons, and the drift warning.
 18. Live budget. Recommend the owner adds at least 1,000,000 VND of
     credit and approves the caps in
     [live runs](vserver-paid-writes-checks.md#live-runs).
-
-## Open questions
-
-- Whether the direct create charges one month at once.
-- Whether `deleteAllVolume` false keeps attached data volumes.
-- What happens when a period ends without renewal, and after how long an
-  expired server is deleted.
-- The status and message of a create refused for a zero balance.
-- The create responses' shapes, and whether server and volume names must
-  be unique on the server.
-- Whether a stop is graceful, and whether a reboot shows `REBOOTING`.
-- The smallest volume the SSD type accepts: 1 GB or 10 GB.
+19. Negative resize quotes. Options: `pricing.GetQuote` keeps a negative
+    price for `Action` `resize` and refuses it for `create`; a new
+    `GetQuoteInput` opt-in set only by `QuoteResizeServer`. Recommend the
+    action rule: the sign follows the published billing formula, every
+    resize write guards 0 and below itself, and `pricing get-quote` and
+    the load balancer resize quote stop failing on a downsize.
+20. Credit presentation and guard. Options: the signed `OptimumPrice` and
+    `MonthlyPrice` alone, passing the guard at the default `MaxPrice` 0;
+    an added `Credit` field or a new downsize consent. Recommend signed
+    and pass: `MaxPrice` bounds spending, a credit spends nothing, and
+    the load balancer resize already reports a signed `QuotedPrice`.
