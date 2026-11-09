@@ -20,7 +20,7 @@ Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
   listing evidence for HCM04. No new live verification is claimed.
 - PUT/GET behavior is preserved. Delete and native copy are separate releases;
   safe move/rename remains gated. See [object guidance](
-  docs/wiki/Storage-Objects.md).
+  wiki/Storage-Objects.md).
 
 ## v0.78.0 - Native vStorage Object Transfers
 
@@ -41,7 +41,7 @@ Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
   ETag remains opaque; a local digest does not verify a remote checksum.
 - Listing, HEAD, append, delete, sync, multipart uploads, and presigned URLs
   remain outside the native transfer surface. See [object transfer guidance](
-  docs/wiki/Storage-Objects.md).
+  wiki/Storage-Objects.md).
 
 ## v0.77.0 - Typed Portal Zones
 

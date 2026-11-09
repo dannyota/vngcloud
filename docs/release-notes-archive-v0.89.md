@@ -314,7 +314,7 @@ Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
 - Document application access to vStorage from vServer and VKS: dedicated
   identities, bucket grants, private S3 key handoff, rotation, retirement,
   and network prerequisites. See [Storage Workload Access](
-  docs/wiki/Storage-Workload-Access.md).
+  wiki/Storage-Workload-Access.md).
 - Clarify key retirement and ambiguous-create recovery: delete identified
   keys while attached, reconcile uncertain results with known inventory and
   other creators, and preserve unrelated keys and policy grants.
@@ -351,7 +351,7 @@ Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
   unverified. No new live verification is claimed.
 - Existing transfers, listing, HEAD, and deletion remain available. Move/rename
   stays gated on safe source removal. See [copy guidance](
-  docs/wiki/Storage-Objects-Copy.md).
+  wiki/Storage-Objects-Copy.md).
 
 ## v0.80.0 - Native vStorage Object Deletion
 
@@ -369,6 +369,6 @@ Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
 - Explicit S3 region and private credentials-file flags, safe metadata output,
   and the five-minute default timeout remain. No new live verification is
   claimed. Native copy is a separate release; move/rename remains gated.
-  See [object guidance](docs/wiki/Storage-Objects.md#current-name-deletion).
+  See [object guidance](wiki/Storage-Objects.md#current-name-deletion).
 
 Older releases are in [docs/release-notes-archive-v0.79.md](release-notes-archive-v0.79.md).
