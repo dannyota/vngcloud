@@ -1,6 +1,6 @@
 # vServer Floating IPs: API
 
-Status: Base decisions accepted; pricing revision proposed; evidence gates open.
+Status: Owner decisions accepted; evidence and independent review gates open.
 See [vServer floating IPs](vserver-floating-ips.md).
 
 Published means first-party schema/product docs. First-party code proves
@@ -216,13 +216,11 @@ The standalone Elastic IP quote is a monthly VND reference, not proof of
 an extra `attachFloating` charge. The server quote ignores that flag.
 The [price model](vserver-floating-ips.md#cost) keeps both hypotheses open.
 Server/volume refunds do not establish an IP refund.
-
 Observed, manager-supplied evidence from the console create form: Floating
 IP is checked by default and shown as enabled. The price panel contains
 only `s2-general-1x2` at 283,800 VND and 20 GB NVME at 74,800 VND; original
 and total are 358,600 VND, with no IP line. The form was not submitted.
 This differs from the 347,800 server reference; neither fixes a live price.
-
 Observed, manager-supplied ledger evidence: a one-month credit-history
 window contains no Elastic/Floating IP charge. A server reported created
 with `attach_floating = true` has only the instance order (instance, root
@@ -290,58 +288,60 @@ suppression, and finite retries; no new capture/order is authorized.
 
 ## Credit-history decision procedure
 
-The console uses `gateway/api/v1/transactions` with the IAM user token
-(manager observation, not published contract). Use approved console reads;
-never extract tokens or add CLI/harness HTTP bypasses. Transactions are
-outside [billing scope](billing.md#deferred); SDK automation needs its own
-brief. Method, filters, schema, pagination, and posting delay are missing;
-observe them privately, never guess wire fields.
+A manager credit-history console capture records this read, not a publication:
+`GET https://dashboard.console.greennode.ai/gateway/api/v1/transactions`
+with `pageNumber` (1-based), `pageSize`, `dateStart`, and `dateEnd`; dates use
+`DD/MM/YYYY`. The console sends the IAM user's bearer in `Authorization`;
+a request without it returned 401. The observed envelope has `code:200`,
+`message:"Success"`, and a `data.content` row array; `data.pageable` has integer
+`totalPages`, `totalElements`, `size`, and `number`. Rows have integer
+`transactionID`/`transactionType`, numeric VND
+`transactionValue`/`cumulativeValue`, string `sourceReference`/`description`
+and offset timestamp `createTimeStamp`, and boolean `creditStatus`.
+`transactionValue` is observed non-negative; `creditStatus` true adds credit,
+false subtracts. `userServiceReference`/`invoiceId` were null, meaning unknown.
+Keep descriptions/raw rows private. A billing history read is designed
+separately. Use approved console reads, never token extraction or CLI/harness
+bypasses. Posting delay/full paging are unverified; capture is not SDK testing.
 
-Before purchase, verify read access and complete paging for the run's
-account and time range. Capture a baseline, then snapshots after create,
-after each detach, after reattach if performed, after IP deletion, and
-after server deletion. Use the same window starting before create; extend
-its end at each read. Record privately at every checkpoint:
+Verify access/full paging before purchase. Capture baseline, then create,
+each detach, any reattach, IP deletion, and server deletion; extend the same
+approved account/window's end. Record privately at each checkpoint:
 
-- Request method, route, filters, page/cursor coverage, HTTP status,
-  content type, retrieval time, and the operation's start/settlement time.
-- Every new/changed transaction's stable ID, posted/effective times,
-  status, debit/credit direction, currency, gross amount, discounts/tax,
-  net amount, product/description, resource/order linkage, billing period,
-  reservation indicator, and linked refund/reversal, where present.
-- Map those facts to actual raw keys and mark absent fields unknown.
-  Retain raw rows privately; deduplicate IDs across overlapping snapshots.
-  Track pending/failed/reversed rows separately from settled charges.
-- Reconcile server/root/encryption and IP components with both quotes,
-  order details, wallet deltas, and unrelated activity. Gross debit and
-  refund remain separate; net zero is not proof that no IP was charged.
-  An amount or description alone cannot attribute a row to the owned IP.
+- Request method/route/filters, page/cursor coverage, HTTP status/content
+  type, retrieval time, and operation start/settlement times.
+- New/changed transaction IDs, posted/effective times, status, direction,
+  currency, gross/discount/tax/net amounts, product/description, order and
+  resource links, billing period/reservation, and refund/reversal links.
+- Map facts to actual raw keys; mark absent fields unknown. Deduplicate IDs
+  across snapshots; separate pending/failed/reversed from settled rows.
+- Reconcile server/root/encryption and IP components against both quotes,
+  order details, wallet deltas, and unrelated activity. Keep gross debits
+  and refunds separate; net zero does not prove no charge. Amount or
+  description alone cannot establish ownership of a transaction.
 
-Missing pages, denied reads, ambiguous linkage, unexplained deltas, or
-unsettled entries leave the result inconclusive. Limit each console read
-session to 5 min and 50 pages; never poll without a bound. Clean up without
-waiting for billing. A separately authorized read-only reconciliation
-within 24 hours after cleanup may finish posting; expiry without complete
-attribution keeps the release gate open. No finite empty window alone
-proves there can never be a delayed or renewal charge.
+Missing pages/access, ambiguous links, unexplained deltas, or unsettled rows
+are inconclusive. Bound reads to 5 min/50 pages per session; clean up without
+waiting. Separately authorized reconciliation within 24 hours after cleanup
+may finish posting; incomplete attribution blocks release. An empty finite
+window cannot rule out delayed or renewal charges.
 
-- Included hypothesis: the settled create order itemizes only server and
-  disk costs, reconciles to the server quote, and complete credit history
-  through cleanup/reconciliation has no attributable IP debit. Record this
-  as observed inclusion for the tested configuration, not universal free IP.
-- Separate hypothesis: a settled IP debit or explicit IP component in the
-  create order explains the additional quote amount after period, discount,
-  and tax reconciliation. Keep the reserve only if that model matches.
-- A charge beginning only on detach/reservation is a conditional outcome:
-  it does not prove an extra create charge or free retention. Stop further
-  experiments, complete approved cleanup, and return the model to design.
-- Delayed IP debits/refunds must be attributed to their effective operation;
-  deletion does not erase an earlier charge. Different amounts, missing
-  itemization, or incomplete evidence decide neither hypothesis.
+- Included: settled create order itemizes only server/disk, matches the
+  server quote, and complete history through cleanup/reconciliation has no
+  attributable IP debit. This proves observed inclusion only for tested terms.
+- Separate: settled IP debit or explicit create-order IP component matches
+  the additional quote after period/discount/tax reconciliation. Keep the
+  reserve only if that model matches.
+- Detach/reservation-only charge: conditional outcome, not an extra create
+  charge or free retention. Stop experiments, perform approved cleanup,
+  and return the model to design.
+- Attribute delayed debits/refunds by effective operation; deletion cannot
+  erase a past charge. Different amounts, missing itemization, or incomplete
+  evidence decide neither hypothesis.
 
-The delegated manager records the outcome. Inclusion requires the design's
-reviewed pre-tag correction; separate charging needs matching evidence and
-guidance. Other results block the tag. Keep detach warnings/refund gates.
+The delegated manager records the outcome: inclusion needs the reviewed
+pre-tag correction; separate charging needs matching evidence/guidance.
+Other results block tagging. Preserve detach warnings and refund gates.
 
 ## Published behavior
 
@@ -371,7 +371,7 @@ an API contract. Do not expose that project's account data in this design.
 
 ## Missing evidence
 
-- R2: raw quote fixtures decoded through SDK; pricing decision approval;
+- R2: raw quote fixtures decoded through SDK; independent fix confirmation;
   created-IP billing attribution, reservation scope, and nonzero discounts;
   IAM public create compatibility; populated server fields; settlement
   timing; a usable cleanup route and its permissions. The quote-body

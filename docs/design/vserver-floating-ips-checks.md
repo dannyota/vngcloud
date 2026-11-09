@@ -1,6 +1,6 @@
 # vServer Floating IPs: Checks
 
-Status: Base decisions accepted; pricing revision proposed; evidence gates open.
+Status: Owner decisions accepted; evidence and independent review gates open.
 See [vServer floating IPs](vserver-floating-ips.md).
 
 These are implementation and independent-review obligations, not results
@@ -212,11 +212,11 @@ Require quote evidence and cleanup before purchase. Set `VNGCLOUD_LIVE_WRITE=1`,
 manager-owned test with a 60 min timeout. Each run needs new approval;
 never reuse consent or raise the cap.
 
-One run buys one `s2-general-1x2` server, a 20 GB root volume,
-and one floating IP through create `AttachFloatingIP`. No data disk, resize,
-second IP, or auto-attach is allowed. The conservative gross quote cap is
-467,800 VND, not an expected charge. Requote before purchase and stop above
-the cap; the observed 358,600 server plus 120,000 IP would exceed it.
+Buy one `s2-general-1x2` server with a 20 GB SSD root selected by its
+verified zone-specific `RootDiskTypeID`, and one IP through create
+`AttachFloatingIP`. No data disk, resize, second IP, or auto-attach. Keep
+467,800 VND as the conservative gross quote cap, not an expected charge.
+Requote before purchase; refuse above the cap. Never use the NVME default.
 Pass the approved fresh sum as `MaxPrice`; the API cannot lock the bill.
 No refund funds another purchase. Measure IP refunds; never assume them.
 
@@ -382,7 +382,7 @@ attempt to read real credential files for this design.
 `compute/create_server.go:362` checks duplicate names and `:410` sends
 once. Neither is an atomic uniqueness guarantee. Price checks in
 `internal/core/price.go:28` compare a quote, not a locked backend price.
-The proposed reserve may overstate cost; removing it without attributable
+The accepted reserve may overstate cost; removing it without attributable
 ledger evidence could understate cost. Test both hypotheses and cap refusal.
 Two callers can read the same state and each send one request; an
 uncertain allocation may also remain invisible briefly. Repeating it can
