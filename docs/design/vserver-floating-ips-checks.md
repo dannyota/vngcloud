@@ -212,13 +212,13 @@ before purchase. Set `VNGCLOUD_LIVE_WRITE=1`, `VNGCLOUD_LIVE_FLOATING_IP=1`,
 and `VNGCLOUD_LIVE_MAX_VND=467800` in a manager-owned test with a 60 min
 timeout. Each run needs new approval; never reuse consent or raise the cap.
 
-Buy one `s2-general-1x2` server with a 20 GB SSD root selected by its
-verified zone-specific `RootDiskTypeID`, and one IP through create
-`AttachFloatingIP`. No data disk, resize, second IP, or auto-attach. Keep
-467,800 VND as the conservative gross quote cap, not an expected charge.
-Requote before purchase; refuse above the cap. Never use the NVME default.
-Pass the approved fresh sum as `MaxPrice`; the API cannot lock the bill.
-No refund funds another purchase. Measure IP refunds; never assume them.
+Buy one `s2-general-1x2` server with a 20 GB 3000 IOPS SSD root (NVME only
+where a region has no SSD, as `han-1`) by its verified zone-specific
+`RootDiskTypeID`, and one IP through `AttachFloatingIP`. No data disk,
+resize, second IP, or auto-attach. Keep 467,800 VND as the gross quote
+cap. Requote before purchase; refuse above the cap; never take a default
+type. Pass the fresh sum as `MaxPrice`. No refund funds another purchase.
+Measure IP refunds; never assume them.
 
 Follow [parent rules](vserver-paid-writes-checks.md#parents): run-owned
 restrictive group, imported throwaway key, subnet, approved VPC. No ingress
