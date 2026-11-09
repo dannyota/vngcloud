@@ -271,10 +271,21 @@ Evidence behind the [credit rules](vserver-paid-writes.md#resize-credits):
   old value over remaining time. If both rates and resource state stay
   fixed, elapsed time can reduce a credit toward zero. This conditional
   model is not a guarantee across price, discount, renewal, or state changes.
-- Missing evidence: a sanitized raw server credit response and the signs
-  of `originalPrice`, `discountPrice`, each `propertiesPrice` field, and
-  the meaning of `discountPercent` on credits. Preserve unknown fields
-  in the fixture; do not infer their sign or recompute `optimumPrice`.
+- Live capture (free check 7, `hcm-3`): a downsize quote from
+  `s2-general-2x4` to `s2-general-1x2` on a server with volume
+  encryption returned HTTP 200 with `optimumPrice` -372,552,
+  `originalPrice` 368,940, `discountPrice` 0, `discountPercent` 0,
+  `originalCurrentPrice` 737,880, `originalNewPrice` 85,140, and
+  `artifactPrices` null. Each `propertiesPrice` row carries
+  `optimumPrice` and `monthlyPrice` (the new configuration) and
+  `currentPrice` (the old): instance 283,800 against 567,600, and `CES`
+  85,140 against 170,280. The sanitized body is
+  `testdata/pricing/GetQuoteServerResizeCredit.json`.
+- Missing evidence: the formula behind `optimumPrice`, which is not the
+  plain difference of the new and old totals, and the meaning of
+  `originalCurrentPrice`, `originalNewPrice`, and `discountPercent` on
+  credits. Preserve unknown fields in the fixture; do not infer their
+  sign or recompute `optimumPrice`.
 
 No documented bound relates the credit to one month's list price. A longer
 prepaid term could exceed such a bound, and the quote contains neither
