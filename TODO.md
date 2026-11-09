@@ -27,4 +27,5 @@ permission, cost, and resource gates still apply.
 - [ ] Quote a replacement or upgrade of an existing notification quota, and point `pricing get-quote` help at the vMonitor quote commands. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
 - [ ] Show a server's public address in one field or command; a floating IP sits in `InternalInterfaces[].FloatingIP` while `ExternalInterfaces` is empty. [Server reads](docs/design/server-services.md).
 - [ ] State each list command's output root (for example `Items`) in help and the wiki so `--query` expressions work the first time, and note that `get-server-console-log` returns only the current boot. [CLI](docs/design/cli.md).
+- [ ] Record API evidence under `docs/design/` for the wire models whose type comment says no design document records it (`git grep -n "No design document records"`), then cite that record in the comment. [Go rules](instructions/go.md#formatting-and-comments).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
