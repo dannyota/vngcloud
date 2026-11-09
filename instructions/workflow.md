@@ -40,7 +40,7 @@ Confirm actions that are hard to reverse or reach outside the machine when exist
 
 ## Worktrees and parallel work
 
-Each slice uses `.claude/worktrees/<slice>` and `wip/<slice>`. Each concurrent writer gets a separate worktree and disjoint paths. Run at most three workers across all slices, counting designers, reviewers, and nested workers. Do not spawn workers to repeat verification.
+Each slice uses `.claude/worktrees/<slice>` and `wip/<slice>`. Each concurrent writer gets a separate worktree and disjoint paths. There is no fixed worker cap; run as many workers as the independent work allows. A worker cap stated in a plan or brief is superseded by this rule. Do not spawn workers to repeat verification.
 
 Run `make check`, including race tests, before every commit. Editor diagnostics can come from other worktrees; trust the checks in the owned worktree. Follow the complete [check table](testing.md#required-checks).
 
