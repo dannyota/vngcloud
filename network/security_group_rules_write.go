@@ -69,17 +69,26 @@ type createSecurityGroupRuleResponse struct {
 // not against a fixed value set, so a protocol the server adds later never
 // needs an SDK release.
 type CreateSecurityGroupRuleInput struct {
+	// SecurityGroupID is required.
 	SecurityGroupID string `vngcloud:"required"`
-	Direction       string `vngcloud:"required"`
-	Protocol        string `vngcloud:"required"`
-	RemoteIPPrefix  string `vngcloud:"required"`
+	// Direction is required.
+	Direction string `vngcloud:"required"`
+	// Protocol is required.
+	Protocol string `vngcloud:"required"`
+	// RemoteIPPrefix is required.
+	RemoteIPPrefix string `vngcloud:"required"`
 
-	EtherType    string
+	// EtherType defaults from RemoteIPPrefix and must match its address family.
+	EtherType string
+	// PortRangeMin sets the lower port bound from 0 to 65535.
 	PortRangeMin int
+	// PortRangeMax defaults to PortRangeMin when zero.
 	PortRangeMax int
-	Description  string
+	// Description is sent as description in the create body.
+	Description string
 }
 
+// CreateSecurityGroupRuleOutput holds the result of CreateSecurityGroupRule.
 type CreateSecurityGroupRuleOutput struct {
 	SecurityGroupRule SecurityGroupRule
 }
@@ -234,10 +243,13 @@ func wrapAmbiguousSecurityGroupRuleCreateErr(op string, err error) error {
 // DeleteSecurityGroupRuleInput identifies the rule to delete, within the
 // group it must belong to.
 type DeleteSecurityGroupRuleInput struct {
-	SecurityGroupID     string `vngcloud:"required"`
+	// SecurityGroupID is required.
+	SecurityGroupID string `vngcloud:"required"`
+	// SecurityGroupRuleID is required.
 	SecurityGroupRuleID string `vngcloud:"required"`
 }
 
+// DeleteSecurityGroupRuleOutput carries no result fields.
 type DeleteSecurityGroupRuleOutput struct{}
 
 // DeleteSecurityGroupRule deletes a rule from a security group. It lists

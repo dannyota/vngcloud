@@ -18,19 +18,27 @@ import (
 	"danny.vn/vngcloud/pricing"
 )
 
+// ListStoragePricesInput selects parameters for ListStoragePrices.
 type ListStoragePricesInput struct {
-	Region       string
-	Type         string
-	QuotaGB      int64
-	MaxRequests  int
+	// Region selects the storage region using the normal region resolution.
+	Region string
+	// Type filters by an exact, case-sensitive type name when nonempty.
+	Type string
+	// QuotaGB sets the quota in GB; zero selects the catalog minimum.
+	QuotaGB int64
+	// MaxRequests limits physical requests; zero selects 500 and the maximum is 2000.
+	MaxRequests int
+	// AllowPartial retains partial results and reports incomplete discovery when set.
 	AllowPartial bool
 }
 
+// ListStoragePricesOutput holds the result of ListStoragePrices.
 type ListStoragePricesOutput struct {
 	Items    []StoragePrice
 	Metadata pricing.DiscoveryMetadata
 }
 
+// StoragePrice holds a storage offering and its discovered price.
 type StoragePrice struct {
 	Region         string
 	Type           string

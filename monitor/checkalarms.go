@@ -24,9 +24,11 @@ const (
 
 // GetCheckAlarmInput identifies the check whose current alarm state to read.
 type GetCheckAlarmInput struct {
+	// CheckID is required.
 	CheckID string `vngcloud:"required"`
 }
 
+// GetCheckAlarmOutput holds the result of GetCheckAlarm.
 type GetCheckAlarmOutput struct {
 	Alarm CheckAlarm
 }
@@ -39,6 +41,7 @@ type CheckAlarm struct {
 	Locations       []CheckLocationAlarm
 }
 
+// CheckLocationAlarm holds the alarm state for one location.
 type CheckLocationAlarm struct {
 	AlarmID        string
 	LocationID     string
@@ -52,9 +55,13 @@ type CheckLocationAlarm struct {
 // ListCheckAlarmHistoryInput accepts RFC 3339 endpoints. End defaults to now;
 // Start defaults to 24 hours before the resolved End.
 type ListCheckAlarmHistoryInput struct {
-	CheckID    string `vngcloud:"required"`
-	Start      string
-	End        string
+	// CheckID is required.
+	CheckID string `vngcloud:"required"`
+	// Start accepts RFC 3339 and defaults to 24 hours before End.
+	Start string
+	// End accepts RFC 3339 and defaults to the current time.
+	End string
+	// LocationID filters the history to one location when nonempty.
 	LocationID string
 }
 
@@ -67,6 +74,7 @@ type ListCheckAlarmHistoryOutput struct {
 	End   time.Time
 }
 
+// CheckAlarmTransition holds a returned check alarm transition.
 type CheckAlarmTransition struct {
 	ID           string
 	AlarmID      string
@@ -78,11 +86,13 @@ type CheckAlarmTransition struct {
 	SubAlarms    []CheckSubAlarmState
 }
 
+// CheckSubAlarmState holds a sub-alarm state and its current values.
 type CheckSubAlarmState struct {
 	State         string
 	CurrentValues []float64
 }
 
+// GetCheckAlarm reads check alarm.
 func (c *Client) GetCheckAlarm(ctx context.Context, in *GetCheckAlarmInput) (*GetCheckAlarmOutput, error) {
 	const op = "monitor.GetCheckAlarm"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -99,6 +109,7 @@ func (c *Client) GetCheckAlarm(ctx context.Context, in *GetCheckAlarmInput) (*Ge
 	return &GetCheckAlarmOutput{Alarm: alarm}, nil
 }
 
+// ListCheckAlarmHistory reads check alarm history.
 func (c *Client) ListCheckAlarmHistory(ctx context.Context, in *ListCheckAlarmHistoryInput) (*ListCheckAlarmHistoryOutput, error) {
 	const op = "monitor.ListCheckAlarmHistory"
 	if err := core.CheckRequired(op, in); err != nil {

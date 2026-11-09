@@ -77,12 +77,16 @@ type createSecurityGroupResponse struct {
 // waitSecurityGroupActive. NoWait skips that wait and returns the mapped
 // create response instead.
 type CreateSecurityGroupInput struct {
+	// Name is required.
 	Name string `vngcloud:"required"`
 
+	// Description is sent as description in the create body.
 	Description string
-	NoWait      bool
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
+// CreateSecurityGroupOutput holds the result of CreateSecurityGroup.
 type CreateSecurityGroupOutput struct {
 	SecurityGroup SecurityGroup
 }
@@ -171,12 +175,16 @@ func wrapAmbiguousSecurityGroupCreateErr(op string, err error) error {
 // caller leaves nil unchanged; the last writer wins, since the API has no
 // condition field.
 type UpdateSecurityGroupInput struct {
+	// SecurityGroupID is required.
 	SecurityGroupID string `vngcloud:"required"`
 
-	Name        *string
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Description leaves its current value unchanged when nil.
 	Description *string
 }
 
+// UpdateSecurityGroupOutput holds the result of UpdateSecurityGroup.
 type UpdateSecurityGroupOutput struct {
 	SecurityGroup SecurityGroup
 }
@@ -250,9 +258,11 @@ func (c *Client) UpdateSecurityGroup(ctx context.Context, in *UpdateSecurityGrou
 
 // DeleteSecurityGroupInput identifies the group to delete.
 type DeleteSecurityGroupInput struct {
+	// SecurityGroupID is required.
 	SecurityGroupID string `vngcloud:"required"`
 }
 
+// DeleteSecurityGroupOutput carries no result fields.
 type DeleteSecurityGroupOutput struct{}
 
 // DeleteSecurityGroup deletes a security group. It reads the group first

@@ -36,12 +36,23 @@ func serviceAccountHash(fields []string) ServiceAccountKey {
 	return key
 }
 
-func (k ServiceAccountKey) Hash() string               { return hex.EncodeToString(k.digest[:]) }
-func (ServiceAccountKey) String() string               { return "[redacted]" }
-func (ServiceAccountKey) GoString() string             { return "[redacted]" }
-func (ServiceAccountKey) Format(f fmt.State, _ rune)   { _, _ = f.Write([]byte("[redacted]")) }
-func (ServiceAccountKey) LogValue() slog.Value         { return slog.StringValue("[redacted]") }
+// Hash returns the hexadecimal cache key digest.
+func (k ServiceAccountKey) Hash() string { return hex.EncodeToString(k.digest[:]) }
+func (ServiceAccountKey) String() string { return "[redacted]" }
+
+// GoString hides the cache key in Go formatting.
+func (ServiceAccountKey) GoString() string { return "[redacted]" }
+
+// Format hides the cache key in formatted output.
+func (ServiceAccountKey) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte("[redacted]")) }
+
+// LogValue hides the cache key in structured logs.
+func (ServiceAccountKey) LogValue() slog.Value { return slog.StringValue("[redacted]") }
+
+// MarshalJSON replaces the cache key with a redacted value.
 func (ServiceAccountKey) MarshalJSON() ([]byte, error) { return []byte(`"[redacted]"`), nil }
+
+// MarshalText replaces the cache key with a redacted value.
 func (ServiceAccountKey) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
 
 // GetServiceAccount uses the shared cache sequence with strict file checks

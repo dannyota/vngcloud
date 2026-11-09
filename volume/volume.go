@@ -42,14 +42,20 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg), pricing: pricing.New(cfg), sleep: contextSleep, now: time.Now}
 }
 
+// ListVolumesInput selects parameters for ListVolumes.
 type ListVolumesInput struct {
+	// Name is sent as the name query parameter.
 	Name string
+	// Page uses the default when not positive.
 	Page int
+	// Size uses the default when not positive.
 	Size int
 }
 
+// ListVolumesOutput holds Volume items and pagination metadata.
 type ListVolumesOutput = core.PagedList[Volume]
 
+// ListVolumes reads volumes.
 func (c *Client) ListVolumes(ctx context.Context, in *ListVolumesInput) (*ListVolumesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -83,14 +89,18 @@ func (c *Client) ListVolumes(ctx context.Context, in *ListVolumesInput) (*ListVo
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// GetVolumeInput requires VolumeID.
 type GetVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
 }
 
+// GetVolumeOutput holds the result of GetVolume.
 type GetVolumeOutput struct {
 	Volume Volume
 }
 
+// GetVolume reads volume.
 func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeOutput, error) {
 	const op = "volume.GetVolume"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -118,14 +128,18 @@ func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeO
 	return &GetVolumeOutput{Volume: resp.Data}, nil
 }
 
+// GetUnderlyingVolumeInput requires VolumeID.
 type GetUnderlyingVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
 }
 
+// GetUnderlyingVolumeOutput holds the result of GetUnderlyingVolume.
 type GetUnderlyingVolumeOutput struct {
 	Volume Volume
 }
 
+// GetUnderlyingVolume reads underlying volume.
 func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolumeInput) (*GetUnderlyingVolumeOutput, error) {
 	if err := core.CheckRequired("volume.GetUnderlyingVolume", in); err != nil {
 		return nil, err
@@ -147,10 +161,13 @@ func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolum
 	return &GetUnderlyingVolumeOutput{Volume: resp}, nil
 }
 
+// ListVolumesByServerInput requires ServerID.
 type ListVolumesByServerInput struct {
+	// ServerID is required.
 	ServerID string `vngcloud:"required"`
 }
 
+// ListVolumesByServerOutput holds Volume items.
 type ListVolumesByServerOutput = core.List[Volume]
 
 // ListVolumesByServer lists the volumes attached to one server, including
@@ -180,14 +197,18 @@ func (c *Client) ListVolumesByServer(ctx context.Context, in *ListVolumesByServe
 	return &ListVolumesByServerOutput{Items: resp.Items}, nil
 }
 
+// GetVolumeTypeInput requires VolumeTypeID.
 type GetVolumeTypeInput struct {
+	// VolumeTypeID is required.
 	VolumeTypeID string `vngcloud:"required"`
 }
 
+// GetVolumeTypeOutput holds the result of GetVolumeType.
 type GetVolumeTypeOutput struct {
 	VolumeType VolumeType
 }
 
+// GetVolumeType reads volume type.
 func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*GetVolumeTypeOutput, error) {
 	if err := core.CheckRequired("volume.GetVolumeType", in); err != nil {
 		return nil, err
@@ -213,6 +234,7 @@ func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*Ge
 	return &GetVolumeTypeOutput{VolumeType: resp.VolumeTypes[0]}, nil
 }
 
+// GetDefaultVolumeTypeInput selects parameters for GetDefaultVolumeType.
 type GetDefaultVolumeTypeInput struct {
 	// ZoneID selects which zone's default volume type to read. Without it,
 	// the API looks up the region's first zone, which can be disabled for
@@ -220,10 +242,12 @@ type GetDefaultVolumeTypeInput struct {
 	ZoneID string
 }
 
+// GetDefaultVolumeTypeOutput holds the result of GetDefaultVolumeType.
 type GetDefaultVolumeTypeOutput struct {
 	VolumeType VolumeType
 }
 
+// GetDefaultVolumeType reads default volume type.
 func (c *Client) GetDefaultVolumeType(ctx context.Context, in *GetDefaultVolumeTypeInput) (*GetDefaultVolumeTypeOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -253,10 +277,13 @@ func (c *Client) GetDefaultVolumeType(ctx context.Context, in *GetDefaultVolumeT
 	}}, nil
 }
 
+// ListEncryptionTypesInput takes no fields.
 type ListEncryptionTypesInput struct{}
 
+// ListEncryptionTypesOutput holds EncryptionType items.
 type ListEncryptionTypesOutput = core.List[EncryptionType]
 
+// ListEncryptionTypes reads encryption types.
 func (c *Client) ListEncryptionTypes(ctx context.Context, _ *ListEncryptionTypesInput) (*ListEncryptionTypesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -283,14 +310,20 @@ func (c *Client) ListEncryptionTypes(ctx context.Context, _ *ListEncryptionTypes
 	return &ListEncryptionTypesOutput{Items: resp.Items}, nil
 }
 
+// ListSnapshotsInput requires VolumeID.
 type ListSnapshotsInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
-	Page     int
-	Size     int
+	// Page uses the default when not positive.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListSnapshotsOutput holds Snapshot items and pagination metadata.
 type ListSnapshotsOutput = core.PagedList[Snapshot]
 
+// ListSnapshots reads snapshots.
 func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*ListSnapshotsOutput, error) {
 	const op = "volume.ListSnapshots"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -315,10 +348,13 @@ func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*Li
 	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPages, resp.TotalItems), nil
 }
 
+// ListAllSnapshotsInput takes no fields.
 type ListAllSnapshotsInput struct{}
 
+// ListAllSnapshotsOutput holds Snapshot items.
 type ListAllSnapshotsOutput = core.List[Snapshot]
 
+// ListAllSnapshots reads all snapshots.
 func (c *Client) ListAllSnapshots(ctx context.Context, _ *ListAllSnapshotsInput) (*ListAllSnapshotsOutput, error) {
 	volumes, err := c.ListVolumes(ctx, nil)
 	if err != nil {
@@ -458,6 +494,8 @@ func encryptionTypesFromStrings(values []string) []EncryptionType {
 	return items
 }
 
+// Volume holds volume data from the API.
+// See docs/design/sdk-and-cli.md.
 type Volume struct {
 	UUID               string   `json:"uuid"`
 	ID                 string   `json:"id"`
@@ -492,6 +530,8 @@ type Volume struct {
 	Zone               Zone     `json:"zone"`
 }
 
+// Zone holds zone data from the API.
+// See docs/design/sdk-and-cli.md.
 type Zone struct {
 	UUID          string   `json:"uuid"`
 	Name          string   `json:"name,omitempty"`
@@ -505,6 +545,8 @@ type Zone struct {
 	VolumeCount   int      `json:"volumeCount"`
 }
 
+// VolumeType holds volume type data from the API.
+// See docs/design/sdk-and-cli.md.
 type VolumeType struct {
 	ID               string `json:"id"`
 	VolumeTypeID     string `json:"volumeTypeId"`
@@ -519,6 +561,7 @@ type VolumeType struct {
 
 // VolumeTypeZone holds only the fields a live ListVolumeTypeZones item
 // carries.
+// See docs/design/pricing-discovery-api.md.
 type VolumeTypeZone struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -526,6 +569,8 @@ type VolumeTypeZone struct {
 	Zone        Zone   `json:"zone"`
 }
 
+// EncryptionType holds encryption type data from the API.
+// See docs/design/sdk-and-cli.md.
 type EncryptionType struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name,omitempty"`
@@ -535,6 +580,8 @@ type EncryptionType struct {
 	Description string `json:"description,omitempty"`
 }
 
+// Snapshot holds snapshot data from the API.
+// See docs/design/sdk-and-cli.md.
 type Snapshot struct {
 	ID               string `json:"id"`
 	UUID             string `json:"uuid"`
@@ -574,6 +621,7 @@ type Snapshot struct {
 	VolumeSnapshot   any    `json:"volumeSnapshot"`
 }
 
+// AttachedToServer checks both server ID fields for serverID.
 func (v Volume) AttachedToServer(serverID string) bool {
 	if v.ServerID == serverID {
 		return true
@@ -586,14 +634,17 @@ func (v Volume) AttachedToServer(serverID string) bool {
 	return false
 }
 
+// IsAvailable reports whether the status is AVAILABLE, ignoring case.
 func (v Volume) IsAvailable() bool {
 	return strings.EqualFold(v.Status, "AVAILABLE")
 }
 
+// IsInUse reports whether the status is IN-USE, ignoring case.
 func (v Volume) IsInUse() bool {
 	return strings.EqualFold(v.Status, "IN-USE")
 }
 
+// CanDelete allows ERROR or an AVAILABLE volume with no server IDs.
 func (v Volume) CanDelete() bool {
 	if strings.EqualFold(v.Status, "ERROR") {
 		return true

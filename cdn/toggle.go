@@ -12,7 +12,9 @@ import (
 // EnableWebAcceleratorInput identifies the CDN to enable. NoWait skips the
 // settle wait after confirmation, which may read at 0, 2, 4, and 8 seconds.
 type EnableWebAcceleratorInput struct {
-	CDNID  string `vngcloud:"required"`
+	// CDNID is required.
+	CDNID string `vngcloud:"required"`
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
@@ -47,7 +49,9 @@ func (c *Client) EnableWebAccelerator(ctx context.Context, in *EnableWebAccelera
 // DisableWebAcceleratorInput identifies the CDN to disable. NoWait skips the
 // settle wait after confirmation, which may read at 0, 2, 4, and 8 seconds.
 type DisableWebAcceleratorInput struct {
-	CDNID  string `vngcloud:"required"`
+	// CDNID is required.
+	CDNID string `vngcloud:"required"`
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
@@ -201,9 +205,11 @@ func (e *statusUnconfirmedError) Unwrap() []error {
 
 // DeleteWebAcceleratorInput identifies the CDN to delete.
 type DeleteWebAcceleratorInput struct {
+	// CDNID is required.
 	CDNID string `vngcloud:"required"`
 }
 
+// DeleteWebAcceleratorOutput carries no result fields.
 type DeleteWebAcceleratorOutput struct{}
 
 // DeleteWebAccelerator deletes a CDN that is ACTIVE or DISABLED. It reads

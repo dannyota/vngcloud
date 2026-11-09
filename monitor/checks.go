@@ -12,6 +12,7 @@ import (
 // added later without breaking callers.
 type ListChecksInput struct{}
 
+// ListChecksOutput holds Check items.
 type ListChecksOutput = core.List[Check]
 
 // ListChecks lists every check on the account. The uptime manager returns
@@ -37,13 +38,16 @@ func (c *Client) ListChecks(ctx context.Context, in *ListChecksInput) (*ListChec
 
 // GetCheckInput identifies the check to read.
 type GetCheckInput struct {
+	// CheckID is required.
 	CheckID string `vngcloud:"required"`
 }
 
+// GetCheckOutput holds the result of GetCheck.
 type GetCheckOutput struct {
 	Check Check
 }
 
+// GetCheck reads check.
 func (c *Client) GetCheck(ctx context.Context, in *GetCheckInput) (*GetCheckOutput, error) {
 	const op = "monitor.GetCheck"
 	if err := core.CheckRequired(op, in); err != nil {

@@ -10,14 +10,23 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// ErrQuotaStatusIncomplete marks a partial quota status snapshot.
 var ErrQuotaStatusIncomplete = errors.New("monitor: quota status incomplete")
 
-type GetQuotaStatusInput struct{ Kind string }
+// GetQuotaStatusInput selects parameters for GetQuotaStatus.
+type GetQuotaStatusInput struct {
+	// Kind selects synthetic, email, or SMS; empty selects all three.
+	Kind string
+}
+
+// GetQuotaStatusOutput holds the result of GetQuotaStatus.
 type GetQuotaStatusOutput struct {
 	AsOf     time.Time
 	Items    []QuotaStatusRow
 	Complete bool
 }
+
+// QuotaStatusRow holds one quota status and its known pricing.
 type QuotaStatusRow struct {
 	Kind, ClassName, PackageName, Status string
 	Quota                                *Quota
@@ -28,6 +37,8 @@ type QuotaStatusRow struct {
 	NextSafeCommand                      string
 	Error                                *QuotaStatusError
 }
+
+// QuotaStatusError holds a safe error classification for a status row.
 type QuotaStatusError struct {
 	Code, Operation string
 	Status          int

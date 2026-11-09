@@ -39,6 +39,7 @@ func (r *flexibleRoot) UnmarshalJSON(data []byte) error {
 // operators the API defines (such as "stringEquals"); the SDK does not
 // check them, since the server checks action, resource, and condition
 // values itself.
+// See docs/design/iam-writes-api.md.
 type Statement struct {
 	Effect    string                    `json:"effect"`
 	Actions   []string                  `json:"actions"`
@@ -48,12 +49,14 @@ type Statement struct {
 
 // PolicySummary is one row of a policy list: a get-policy adds Description,
 // Manager, Scope, Root, and Statements, none of which a list row carries.
+// See docs/design/iam-writes-api.md.
 type PolicySummary struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CreatedAt int64  `json:"createdAt"`
 }
 
+// UnmarshalJSON decodes CreatedAt through the flexible epoch decoder.
 func (p *PolicySummary) UnmarshalJSON(data []byte) error {
 	type alias PolicySummary
 	aux := struct {
@@ -72,6 +75,7 @@ func (p *PolicySummary) UnmarshalJSON(data []byte) error {
 // "user" for a customer policy, which sets Root to the owning account
 // number. Managed reports whether the policy is one the caller cannot
 // change or delete.
+// See docs/design/iam-writes-api.md.
 type Policy struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
@@ -89,6 +93,7 @@ func (p Policy) Managed() bool {
 	return p.Manager != "user"
 }
 
+// UnmarshalJSON accepts flexible root values and decodes CreatedAt as an epoch.
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type alias Policy
 	aux := struct {
@@ -106,12 +111,14 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 
 // GroupSummary is one row of a group list: a get-group adds Description,
 // Root, UserIDs, and PolicyIDs, none of which a list row carries.
+// See docs/design/iam-writes-api.md.
 type GroupSummary struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CreatedAt int64  `json:"createdAt"`
 }
 
+// UnmarshalJSON decodes CreatedAt through the flexible epoch decoder.
 func (g *GroupSummary) UnmarshalJSON(data []byte) error {
 	type alias GroupSummary
 	aux := struct {
@@ -127,6 +134,7 @@ func (g *GroupSummary) UnmarshalJSON(data []byte) error {
 
 // Group is a get-group response. Mode is "iam" for every group this SDK
 // creates; an "idp" group is out of scope (see the design's non-goals).
+// See docs/design/iam-writes-api.md.
 type Group struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -138,6 +146,7 @@ type Group struct {
 	CreatedAt   int64    `json:"createdAt"`
 }
 
+// UnmarshalJSON accepts flexible root values and decodes CreatedAt as an epoch.
 func (g *Group) UnmarshalJSON(data []byte) error {
 	type alias Group
 	aux := struct {
@@ -157,6 +166,7 @@ func (g *Group) UnmarshalJSON(data []byte) error {
 // once, by CreateServiceAccount and ResetServiceAccountSecret, as a
 // vngcloud.Secret alongside this model. LastUse is 0 when the service
 // account has never authenticated.
+// See docs/design/iam-writes-api.md.
 type ServiceAccount struct {
 	ID                  string `json:"id"`
 	ClientID            string `json:"clientId"`
@@ -168,6 +178,7 @@ type ServiceAccount struct {
 	LastUse             int64  `json:"lastUse"`
 }
 
+// UnmarshalJSON decodes CreatedAt and LastUse through the flexible epoch decoder.
 func (s *ServiceAccount) UnmarshalJSON(data []byte) error {
 	type alias ServiceAccount
 	aux := struct {
@@ -186,6 +197,7 @@ func (s *ServiceAccount) UnmarshalJSON(data []byte) error {
 // User is an IAM user row from the accounts API. Unlike every other model
 // in this package, CreatedAt arrives as an RFC 3339 string, so it needs no
 // flexible decode.
+// See docs/design/iam-users-api.md.
 type User struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`
@@ -193,12 +205,14 @@ type User struct {
 }
 
 // MFAFactor preserves unknown verification and activation state as nil.
+// See docs/design/iam-users-api.md.
 type MFAFactor struct {
 	Verified *bool `json:"verified"`
 	Enabled  *bool `json:"enabled"`
 }
 
 // UserMFA exposes factor state without contact or enrolment material.
+// See docs/design/iam-users-api.md.
 type UserMFA struct {
 	Email               *MFAFactor `json:"email"`
 	GoogleAuthenticator *MFAFactor `json:"googleAuthenticator"`
@@ -206,6 +220,7 @@ type UserMFA struct {
 
 // UserDetail is a user get response. CreatedAt and LastUse hold epoch
 // milliseconds; LastUse is zero when the user has never signed in.
+// See docs/design/iam-users-api.md.
 type UserDetail struct {
 	ID        string   `json:"id"`
 	Username  string   `json:"username"`
@@ -220,6 +235,7 @@ type UserDetail struct {
 // actions?product=iam). Label is "List", "Read", "Write", or "Tagging"; an
 // unrecognized label is still a write action for the guard rules in
 // guard.go.
+// See docs/design/iam-writes-api.md.
 type Action struct {
 	Action    string   `json:"action"`
 	Label     string   `json:"label"`

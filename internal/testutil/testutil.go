@@ -14,6 +14,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// NewCoreClient builds a client backed by a test HTTP server.
 func NewCoreClient(t testing.TB, handler http.Handler) *core.Client {
 	t.Helper()
 
@@ -81,6 +82,7 @@ func newConfig(t testing.TB, handler http.Handler, tcfg transport.Config) core.C
 	}, transport.New(tcfg))
 }
 
+// FixtureBody reads a fixture or fails the test.
 func FixtureBody(t testing.TB, path string) string {
 	t.Helper()
 
@@ -91,6 +93,7 @@ func FixtureBody(t testing.TB, path string) string {
 	return string(data)
 }
 
+// WriteFixture validates and writes a JSON fixture to a response.
 func WriteFixture(t testing.TB, w http.ResponseWriter, path string) {
 	t.Helper()
 

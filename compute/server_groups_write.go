@@ -52,12 +52,16 @@ type createServerGroupBody struct {
 // same safe-id pattern a path id must; the server checks that the policy
 // exists.
 type CreateServerGroupInput struct {
-	Name     string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
 
+	// Description is sent as description in the create body.
 	Description string
 }
 
+// CreateServerGroupOutput holds the result of CreateServerGroup.
 type CreateServerGroupOutput struct {
 	ServerGroup ServerGroup
 }
@@ -136,12 +140,16 @@ func wrapAmbiguousServerGroupCreateErr(op string, err error) error {
 // caller leaves nil unchanged; the last writer wins, since the API has no
 // condition field.
 type UpdateServerGroupInput struct {
+	// ServerGroupID is required.
 	ServerGroupID string `vngcloud:"required"`
 
-	Name        *string
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Description leaves its current value unchanged when nil.
 	Description *string
 }
 
+// UpdateServerGroupOutput holds the result of UpdateServerGroup.
 type UpdateServerGroupOutput struct {
 	ServerGroup ServerGroup
 }
@@ -211,10 +219,13 @@ func (c *Client) UpdateServerGroup(ctx context.Context, in *UpdateServerGroupInp
 	return &UpdateServerGroupOutput{ServerGroup: updated.ServerGroup}, nil
 }
 
+// DeleteServerGroupInput requires ServerGroupID.
 type DeleteServerGroupInput struct {
+	// ServerGroupID is required.
 	ServerGroupID string `vngcloud:"required"`
 }
 
+// DeleteServerGroupOutput carries no result fields.
 type DeleteServerGroupOutput struct{}
 
 // DeleteServerGroup deletes a server group. GetServerGroup's response never

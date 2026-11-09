@@ -14,16 +14,20 @@ type createBucketBody struct {
 	Status string `json:"status"`
 }
 
+// CreateBucketInput requires ProjectID and Bucket.
 type CreateBucketInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 	// Encryption enables default encryption before returning. False sends no
 	// encryption call, including when the bucket already exists.
 	Encryption bool
 }
 
+// CreateBucketOutput holds the result of CreateBucket.
 type CreateBucketOutput struct {
 	Bucket
 }

@@ -11,7 +11,10 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListSyntheticPackagesInput takes no fields.
 type ListSyntheticPackagesInput struct{}
+
+// ListSyntheticPackagesOutput holds the result of ListSyntheticPackages.
 type ListSyntheticPackagesOutput struct {
 	Items                      []SyntheticQuotaClass
 	Packages                   []SyntheticPackage
@@ -20,6 +23,7 @@ type ListSyntheticPackagesOutput struct {
 	PaymentMethod              string
 }
 
+// SyntheticQuotaClass holds a synthetic quota class and its options.
 type SyntheticQuotaClass struct {
 	ID, Name, Status, Description string
 	Priority                      int
@@ -35,6 +39,7 @@ type SyntheticClassPackage struct {
 	Price                 *float64
 }
 
+// SyntheticClassOption holds a class option and its supported periods.
 type SyntheticClassOption struct {
 	PackageID                      string
 	Location, MinAPI, MaxAPI, Step int
@@ -43,6 +48,7 @@ type SyntheticClassOption struct {
 	AutoRenewEligible              *bool
 }
 
+// SyntheticPackage holds a synthetic package and its supported periods.
 type SyntheticPackage struct {
 	ID, Name              string
 	TierID, API, Location int

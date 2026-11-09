@@ -39,6 +39,7 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
+// ListVNetworkRegions reads v network regions.
 func (c *Client) ListVNetworkRegions(ctx context.Context, _ *ListVNetworkRegionsInput) (*ListVNetworkRegionsOutput, error) {
 	bases := uniqueNonEmptyStrings([]string{
 		c.c.Endpoint(routes.ProductVNet),
@@ -127,6 +128,7 @@ func uniqueNonEmptyStrings(values []string) []string {
 	return out
 }
 
+// ListVPCs reads vp cs.
 func (c *Client) ListVPCs(ctx context.Context, in *ListVPCsInput) (*ListVPCsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -139,6 +141,7 @@ func (c *Client) ListVPCs(ctx context.Context, in *ListVPCsInput) (*ListVPCsOutp
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListWANIPs reads wani ps.
 func (c *Client) ListWANIPs(ctx context.Context, in *ListWANIPsInput) (*ListWANIPsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -151,6 +154,7 @@ func (c *Client) ListWANIPs(ctx context.Context, in *ListWANIPsInput) (*ListWANI
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListNetworkInterfaces reads network interfaces.
 func (c *Client) ListNetworkInterfaces(ctx context.Context, in *ListNetworkInterfacesInput) (*ListNetworkInterfacesOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -163,6 +167,7 @@ func (c *Client) ListNetworkInterfaces(ctx context.Context, in *ListNetworkInter
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListSecurityGroups reads security groups.
 func (c *Client) ListSecurityGroups(ctx context.Context, in *ListSecurityGroupsInput) (*ListSecurityGroupsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -175,6 +180,7 @@ func (c *Client) ListSecurityGroups(ctx context.Context, in *ListSecurityGroupsI
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// GetSecurityGroup reads security group.
 func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput) (*GetSecurityGroupOutput, error) {
 	if err := core.CheckRequired("network.GetSecurityGroup", in); err != nil {
 		return nil, err
@@ -200,6 +206,7 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 	return &GetSecurityGroupOutput{SecurityGroup: resp.Data}, nil
 }
 
+// ListServersBySecurityGroup reads servers by security group.
 func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServersBySecurityGroupInput) (*ListServersBySecurityGroupOutput, error) {
 	if err := core.CheckRequired("network.ListServersBySecurityGroup", in); err != nil {
 		return nil, err
@@ -225,6 +232,7 @@ func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServers
 	return &ListServersBySecurityGroupOutput{Items: resp.Data}, nil
 }
 
+// ListVirtualIPAddresses reads virtual ip addresses.
 func (c *Client) ListVirtualIPAddresses(ctx context.Context, in *ListVirtualIPAddressesInput) (*ListVirtualIPAddressesOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -237,6 +245,7 @@ func (c *Client) ListVirtualIPAddresses(ctx context.Context, in *ListVirtualIPAd
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListRouteTables reads route tables.
 func (c *Client) ListRouteTables(ctx context.Context, in *ListRouteTablesInput) (*ListRouteTablesOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -249,6 +258,7 @@ func (c *Client) ListRouteTables(ctx context.Context, in *ListRouteTablesInput) 
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListPeerings reads peerings.
 func (c *Client) ListPeerings(ctx context.Context, in *ListPeeringsInput) (*ListPeeringsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -261,6 +271,7 @@ func (c *Client) ListPeerings(ctx context.Context, in *ListPeeringsInput) (*List
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListNetworkACLs reads network ac ls.
 func (c *Client) ListNetworkACLs(ctx context.Context, in *ListNetworkACLsInput) (*ListNetworkACLsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -273,6 +284,7 @@ func (c *Client) ListNetworkACLs(ctx context.Context, in *ListNetworkACLsInput) 
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListSecurityGroupRules reads security group rules.
 func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGroupRulesInput) (*ListSecurityGroupRulesOutput, error) {
 	if err := core.CheckRequired("network.ListSecurityGroupRules", in); err != nil {
 		return nil, err
@@ -301,6 +313,7 @@ func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGro
 	return &ListSecurityGroupRulesOutput{Items: resp.Data}, nil
 }
 
+// ListAllSecurityGroupRules reads all security group rules.
 func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecurityGroupRulesInput) (*ListAllSecurityGroupRulesOutput, error) {
 	secgroups, err := c.ListSecurityGroups(ctx, nil)
 	if err != nil {
@@ -317,6 +330,7 @@ func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecuri
 	return &ListAllSecurityGroupRulesOutput{Items: items}, nil
 }
 
+// ListRouteTableRoutes reads route table routes.
 func (c *Client) ListRouteTableRoutes(ctx context.Context, _ *ListRouteTableRoutesInput) (*ListRouteTableRoutesOutput, error) {
 	tables, err := c.ListRouteTables(ctx, nil)
 	if err != nil {
@@ -338,6 +352,7 @@ func (c *Client) ListRouteTableRoutes(ctx context.Context, _ *ListRouteTableRout
 	return &ListRouteTableRoutesOutput{Items: items}, nil
 }
 
+// GetVirtualIPAddress reads virtual ip address.
 func (c *Client) GetVirtualIPAddress(ctx context.Context, in *GetVirtualIPAddressInput) (*GetVirtualIPAddressOutput, error) {
 	if err := core.CheckRequired("network.GetVirtualIPAddress", in); err != nil {
 		return nil, err
@@ -363,6 +378,7 @@ func (c *Client) GetVirtualIPAddress(ctx context.Context, in *GetVirtualIPAddres
 	return &GetVirtualIPAddressOutput{VirtualIPAddress: resp.Data}, nil
 }
 
+// ListAddressPairsByVirtualIPAddress reads address pairs by virtual ip address.
 func (c *Client) ListAddressPairsByVirtualIPAddress(ctx context.Context, in *ListAddressPairsByVirtualIPAddressInput) (*ListAddressPairsByVirtualIPAddressOutput, error) {
 	if err := core.CheckRequired("network.ListAddressPairsByVirtualIPAddress", in); err != nil {
 		return nil, err
@@ -391,6 +407,7 @@ func (c *Client) ListAddressPairsByVirtualIPAddress(ctx context.Context, in *Lis
 	return &ListAddressPairsByVirtualIPAddressOutput{Items: resp.Data}, nil
 }
 
+// ListAddressPairsByVirtualSubnet reads address pairs by virtual subnet.
 func (c *Client) ListAddressPairsByVirtualSubnet(ctx context.Context, in *ListAddressPairsByVirtualSubnetInput) (*ListAddressPairsByVirtualSubnetOutput, error) {
 	if err := core.CheckRequired("network.ListAddressPairsByVirtualSubnet", in); err != nil {
 		return nil, err
@@ -416,6 +433,7 @@ func (c *Client) ListAddressPairsByVirtualSubnet(ctx context.Context, in *ListAd
 	return &ListAddressPairsByVirtualSubnetOutput{Items: resp.Data}, nil
 }
 
+// ListAllVirtualIPAddressAddressPairs reads address pairs for all virtual IPs.
 func (c *Client) ListAllVirtualIPAddressAddressPairs(ctx context.Context, _ *ListAllVirtualIPAddressAddressPairsInput) (*ListAllVirtualIPAddressAddressPairsOutput, error) {
 	virtualIPs, err := c.ListVirtualIPAddresses(ctx, nil)
 	if err != nil {
@@ -432,6 +450,7 @@ func (c *Client) ListAllVirtualIPAddressAddressPairs(ctx context.Context, _ *Lis
 	return &ListAllVirtualIPAddressAddressPairsOutput{Items: items}, nil
 }
 
+// ListInterconnects reads interconnects.
 func (c *Client) ListInterconnects(ctx context.Context, in *ListInterconnectsInput) (*ListInterconnectsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -444,6 +463,7 @@ func (c *Client) ListInterconnects(ctx context.Context, in *ListInterconnectsInp
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListEndpoints reads endpoints.
 func (c *Client) ListEndpoints(ctx context.Context, in *ListEndpointsInput) (*ListEndpointsOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -494,6 +514,7 @@ func (c *Client) ListEndpoints(ctx context.Context, in *ListEndpointsInput) (*Li
 	return core.NewPagedList(resp.Data, resp.Page, resp.Size, resp.TotalPage, resp.Total), nil
 }
 
+// GetEndpoint reads endpoint.
 func (c *Client) GetEndpoint(ctx context.Context, in *GetEndpointInput) (*GetEndpointOutput, error) {
 	if err := core.CheckRequired("network.GetEndpoint", in); err != nil {
 		return nil, err
@@ -517,6 +538,7 @@ func (c *Client) GetEndpoint(ctx context.Context, in *GetEndpointInput) (*GetEnd
 	return &GetEndpointOutput{Endpoint: resp.Data}, nil
 }
 
+// ListEndpointTags reads endpoint tags.
 func (c *Client) ListEndpointTags(ctx context.Context, in *ListEndpointTagsInput) (*ListEndpointTagsOutput, error) {
 	if err := core.CheckRequired("network.ListEndpointTags", in); err != nil {
 		return nil, err

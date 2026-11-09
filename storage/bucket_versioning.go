@@ -8,13 +8,17 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// GetBucketVersioningInput requires ProjectID and Bucket.
 type GetBucketVersioningInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// GetBucketVersioningOutput holds the result of GetBucketVersioning.
 type GetBucketVersioningOutput struct {
 	// Enabled is true while versioning is on.
 	Enabled bool
@@ -58,17 +62,21 @@ func (c *Client) GetBucketVersioning(ctx context.Context, in *GetBucketVersionin
 	return &GetBucketVersioningOutput{Enabled: data.Versioning, Status: data.VersioningStatus}, nil
 }
 
+// PutBucketVersioningInput requires ProjectID, Bucket and Enabled.
 type PutBucketVersioningInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 	// Enabled is the target state. It is a pointer so that a caller must
 	// choose: the server reads a body without it as false, which suspends
 	// versioning.
 	Enabled *bool `vngcloud:"required"`
 }
 
+// PutBucketVersioningOutput carries no result fields.
 type PutBucketVersioningOutput struct{}
 
 type putBucketVersioningBody struct {

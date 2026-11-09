@@ -13,10 +13,14 @@ import (
 
 // CreateListenerInput's Protocol values.
 const (
-	ProtocolHTTP  = "HTTP"
+	// ProtocolHTTP is the "HTTP" listener protocol.
+	ProtocolHTTP = "HTTP"
+	// ProtocolHTTPS is the "HTTPS" listener protocol.
 	ProtocolHTTPS = "HTTPS"
-	ProtocolTCP   = "TCP"
-	ProtocolUDP   = "UDP"
+	// ProtocolTCP is the "TCP" listener protocol.
+	ProtocolTCP = "TCP"
+	// ProtocolUDP is the "UDP" listener protocol.
+	ProtocolUDP = "UDP"
 )
 
 // Timeout defaults CreateListener sends when the matching field is left at
@@ -143,28 +147,42 @@ type createListenerBody struct {
 // all being set, core.ErrInvalidInput before any request. The SDK never
 // reads the certificate itself; the server checks that it exists.
 type CreateListenerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	Name           string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 	// Protocol is one of ProtocolHTTP, ProtocolHTTPS, ProtocolTCP, or
 	// ProtocolUDP.
-	Protocol     string   `vngcloud:"required"`
-	Port         int      `vngcloud:"required"`
+	Protocol string `vngcloud:"required"`
+	// Port is required.
+	Port int `vngcloud:"required"`
+	// AllowedCIDRs is required.
 	AllowedCIDRs []string `vngcloud:"required"`
 
-	DefaultPoolID     string
-	TimeoutClient     int
-	TimeoutMember     int
+	// DefaultPoolID is sent as the default pool ID.
+	DefaultPoolID string
+	// TimeoutClient defaults to 50 seconds when zero.
+	TimeoutClient int
+	// TimeoutMember defaults to 50 seconds when zero.
+	TimeoutMember int
+	// TimeoutConnection defaults to 5 seconds when zero.
 	TimeoutConnection int
 
-	CertificateIDs       []string
+	// CertificateIDs is valid only for HTTPS listeners.
+	CertificateIDs []string
+	// DefaultCertificateID is required for HTTPS and refused for other protocols.
 	DefaultCertificateID string
-	ClientCertificateID  string
+	// ClientCertificateID is valid only for HTTPS listeners.
+	ClientCertificateID string
 
+	// InsertHeaders supplies headers for the listener.
 	InsertHeaders []ListenerInsertHeader
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreateListenerOutput holds the result of CreateListener.
 type CreateListenerOutput struct {
 	Listener Listener
 }
@@ -305,24 +323,37 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 // UpdateListenerInput changes a listener; a nil field keeps its current
 // value. Name, Protocol, and Port cannot change after create.
 type UpdateListenerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
 
-	DefaultPoolID     *string
-	TimeoutClient     *int
-	TimeoutMember     *int
+	// DefaultPoolID leaves its current value unchanged when nil.
+	DefaultPoolID *string
+	// TimeoutClient leaves its current value unchanged when nil.
+	TimeoutClient *int
+	// TimeoutMember leaves its current value unchanged when nil.
+	TimeoutMember *int
+	// TimeoutConnection leaves its current value unchanged when nil.
 	TimeoutConnection *int
-	AllowedCIDRs      *[]string
+	// AllowedCIDRs leaves its current value unchanged when nil.
+	AllowedCIDRs *[]string
 
-	CertificateIDs       *[]string
+	// CertificateIDs leaves its current value unchanged when nil.
+	CertificateIDs *[]string
+	// DefaultCertificateID leaves its current value unchanged when nil.
 	DefaultCertificateID *string
-	ClientCertificateID  *string
+	// ClientCertificateID leaves its current value unchanged when nil.
+	ClientCertificateID *string
 
+	// InsertHeaders leaves its current value unchanged when nil.
 	InsertHeaders *[]ListenerInsertHeader
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// UpdateListenerOutput holds the result of UpdateListener.
 type UpdateListenerOutput struct {
 	Listener Listener
 }
@@ -492,12 +523,16 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 
 // DeleteListenerInput identifies the listener to delete.
 type DeleteListenerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteListenerOutput carries no result fields.
 type DeleteListenerOutput struct{}
 
 // DeleteListener deletes a listener. It waits, within the pre-write bound,

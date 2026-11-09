@@ -15,16 +15,25 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// CreateSyntheticQuotaInput requires ClassID, PackageID and Quantity.
 type CreateSyntheticQuotaInput struct {
-	ClassID   string `vngcloud:"required"`
+	// ClassID is required.
+	ClassID string `vngcloud:"required"`
+	// PackageID is required.
 	PackageID string `vngcloud:"required"`
-	Quantity  int    `vngcloud:"required"`
-	MaxPrice  float64
-	NoWait    bool
+	// Quantity is required.
+	Quantity int `vngcloud:"required"`
+	// MaxPrice bounds the create quote; QuoteCreateSyntheticQuota ignores it.
+	MaxPrice float64
+	// NoWait skips the post-order wait. QuoteCreateSyntheticQuota ignores it.
+	NoWait bool
 }
 
+// QuoteCreateSyntheticQuotaOutput holds the result of
+// QuoteCreateSyntheticQuota.
 type QuoteCreateSyntheticQuotaOutput = QuotaQuote
 
+// CreateSyntheticQuotaOutput holds the result of CreateSyntheticQuota.
 type CreateSyntheticQuotaOutput struct {
 	QuotaMutationOutcome
 	Quota          *Quota

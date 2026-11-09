@@ -9,16 +9,20 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// AttachS3KeyInput requires ProjectID, UserKeyID and ServiceAccountID.
 type AttachS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
+	// UserKeyID is required.
 	UserKeyID string `vngcloud:"required"`
 	// ServiceAccountID is the IAM service account ID as the iam package
 	// returns it, with no "sa-" prefix.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
+// AttachS3KeyOutput carries no result fields.
 type AttachS3KeyOutput struct{}
 
 type attachS3KeyBody struct {
@@ -86,13 +90,17 @@ func (c *Client) AttachS3Key(ctx context.Context, in *AttachS3KeyInput) (*Attach
 	return &AttachS3KeyOutput{}, nil
 }
 
+// DetachS3KeyInput requires ProjectID and UserKeyID.
 type DetachS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
+	// UserKeyID is required.
 	UserKeyID string `vngcloud:"required"`
 }
 
+// DetachS3KeyOutput carries no result fields.
 type DetachS3KeyOutput struct{}
 
 // DetachS3Key makes an attached S3 key unrestricted again: it has its

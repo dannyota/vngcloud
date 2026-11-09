@@ -12,6 +12,7 @@ import (
 // be added later without breaking callers.
 type ListLocationsInput struct{}
 
+// ListLocationsOutput holds Location items.
 type ListLocationsOutput = core.List[Location]
 
 // ListLocations lists every probe location the account may use in a

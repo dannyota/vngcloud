@@ -209,9 +209,11 @@ func (c *Client) waitACLAbsentAfterDelete(ctx context.Context, id string) error 
 
 // GetNetworkACLInput identifies the network ACL to read.
 type GetNetworkACLInput struct {
+	// NetworkACLID is required.
 	NetworkACLID string `vngcloud:"required"`
 }
 
+// GetNetworkACLOutput holds the result of GetNetworkACL.
 type GetNetworkACLOutput struct {
 	ACL ACL
 }
@@ -272,10 +274,13 @@ type createACLBody struct {
 // same VPC succeeds, so a caller cannot tell two same-named ACLs apart by
 // Name alone; compare CreatedAt too.
 type CreateNetworkACLInput struct {
+	// VPCID is required.
 	VPCID string `vngcloud:"required"`
-	Name  string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 }
 
+// CreateNetworkACLOutput holds the result of CreateNetworkACL.
 type CreateNetworkACLOutput struct {
 	ACL ACL
 }
@@ -345,9 +350,11 @@ func wrapAmbiguousACLCreateErr(op string, err error) error {
 
 // DeleteNetworkACLInput identifies the network ACL to delete.
 type DeleteNetworkACLInput struct {
+	// NetworkACLID is required.
 	NetworkACLID string `vngcloud:"required"`
 }
 
+// DeleteNetworkACLOutput carries no result fields.
 type DeleteNetworkACLOutput struct{}
 
 // DeleteNetworkACL deletes a network ACL. It reads the ACL first with

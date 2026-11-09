@@ -16,10 +16,14 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListOperation names the billing resource list operation.
 const ListOperation = "billing.ListResources"
+
+// AccountOperation names the billing account lookup operation.
 const AccountOperation = "billingresources.GetAccount"
 
 // Resource validates typed fields before storage uses the billing list.
+// See docs/design/auto-renew.md.
 type Resource struct {
 	ArtifactID       string          `json:"artifactId"`
 	ArtifactType     string          `json:"artifactType"`
@@ -172,6 +176,7 @@ func positiveAccountID(raw json.RawMessage) (string, bool) {
 	return strconv.FormatInt(account.Num().Int64(), 10), true
 }
 
+// Setting is an auto-renew request setting. See docs/design/auto-renew.md.
 type Setting struct {
 	Product       string        `json:"product"`
 	ArtifactType  string        `json:"artifactType"`
@@ -180,6 +185,7 @@ type Setting struct {
 	AutoRenewInfo AutoRenewInfo `json:"autoRenewInfo"`
 }
 
+// AutoRenewInfo is an auto-renew request value. See docs/design/auto-renew.md.
 type AutoRenewInfo struct {
 	IsEnable bool `json:"isEnable"`
 	Period   int  `json:"period"`

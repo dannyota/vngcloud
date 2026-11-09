@@ -55,14 +55,10 @@ func New(cfg vngcloud.Config) *Client {
 	}
 }
 
-type ListLoadBalancersInput struct {
-	Name string
-	Page int
-	Size int
-}
-
+// ListLoadBalancersOutput holds LoadBalancer items and pagination metadata.
 type ListLoadBalancersOutput = core.PagedList[LoadBalancer]
 
+// ListLoadBalancers reads load balancers.
 func (c *Client) ListLoadBalancers(ctx context.Context, in *ListLoadBalancersInput) (*ListLoadBalancersOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -84,14 +80,12 @@ func (c *Client) ListLoadBalancers(ctx context.Context, in *ListLoadBalancersInp
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-type GetLoadBalancerInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-}
-
+// GetLoadBalancerOutput holds the result of GetLoadBalancer.
 type GetLoadBalancerOutput struct {
 	LoadBalancer LoadBalancer
 }
 
+// GetLoadBalancer reads load balancer.
 func (c *Client) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerInput) (*GetLoadBalancerOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetLoadBalancer", in); err != nil {
 		return nil, err
@@ -117,12 +111,10 @@ func (c *Client) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerInput) 
 	return &GetLoadBalancerOutput{LoadBalancer: resp.Data}, nil
 }
 
-type ListPackagesInput struct {
-	ZoneID string
-}
-
+// ListPackagesOutput holds Package items.
 type ListPackagesOutput = core.List[Package]
 
+// ListPackages reads packages.
 func (c *Client) ListPackages(ctx context.Context, in *ListPackagesInput) (*ListPackagesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -146,14 +138,10 @@ func (c *Client) ListPackages(ctx context.Context, in *ListPackagesInput) (*List
 	return &ListPackagesOutput{Items: resp.ListData}, nil
 }
 
-type ListCertificatesInput struct {
-	Name string
-	Page int
-	Size int
-}
-
+// ListCertificatesOutput holds Certificate items and pagination metadata.
 type ListCertificatesOutput = core.PagedList[Certificate]
 
+// ListCertificates reads certificates.
 func (c *Client) ListCertificates(ctx context.Context, in *ListCertificatesInput) (*ListCertificatesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -175,12 +163,10 @@ func (c *Client) ListCertificates(ctx context.Context, in *ListCertificatesInput
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-type ListListenersInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-}
-
+// ListListenersOutput holds Listener items.
 type ListListenersOutput = core.List[Listener]
 
+// ListListeners reads listeners.
 func (c *Client) ListListeners(ctx context.Context, in *ListListenersInput) (*ListListenersOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListListeners", in); err != nil {
 		return nil, err
@@ -195,15 +181,12 @@ func (c *Client) ListListeners(ctx context.Context, in *ListListenersInput) (*Li
 	return &ListListenersOutput{Items: items}, nil
 }
 
-type GetListenerInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-}
-
+// GetListenerOutput holds the result of GetListener.
 type GetListenerOutput struct {
 	Listener Listener
 }
 
+// GetListener reads listener.
 func (c *Client) GetListener(ctx context.Context, in *GetListenerInput) (*GetListenerOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetListener", in); err != nil {
 		return nil, err
@@ -223,12 +206,10 @@ func (c *Client) GetListener(ctx context.Context, in *GetListenerInput) (*GetLis
 	return &GetListenerOutput{Listener: resp.Data}, nil
 }
 
-type ListPoolsInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-}
-
+// ListPoolsOutput holds Pool items.
 type ListPoolsOutput = core.List[Pool]
 
+// ListPools reads pools.
 func (c *Client) ListPools(ctx context.Context, in *ListPoolsInput) (*ListPoolsOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListPools", in); err != nil {
 		return nil, err
@@ -243,15 +224,12 @@ func (c *Client) ListPools(ctx context.Context, in *ListPoolsInput) (*ListPoolsO
 	return &ListPoolsOutput{Items: items}, nil
 }
 
-type GetPoolInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-}
-
+// GetPoolOutput holds the result of GetPool.
 type GetPoolOutput struct {
 	Pool Pool
 }
 
+// GetPool reads pool.
 func (c *Client) GetPool(ctx context.Context, in *GetPoolInput) (*GetPoolOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetPool", in); err != nil {
 		return nil, err
@@ -271,15 +249,12 @@ func (c *Client) GetPool(ctx context.Context, in *GetPoolInput) (*GetPoolOutput,
 	return &GetPoolOutput{Pool: resp.Data}, nil
 }
 
-type GetPoolHealthMonitorInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-}
-
+// GetPoolHealthMonitorOutput holds the result of GetPoolHealthMonitor.
 type GetPoolHealthMonitorOutput struct {
 	HealthMonitor HealthMonitor
 }
 
+// GetPoolHealthMonitor reads pool health monitor.
 func (c *Client) GetPoolHealthMonitor(ctx context.Context, in *GetPoolHealthMonitorInput) (*GetPoolHealthMonitorOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetPoolHealthMonitor", in); err != nil {
 		return nil, err
@@ -299,13 +274,10 @@ func (c *Client) GetPoolHealthMonitor(ctx context.Context, in *GetPoolHealthMoni
 	return &GetPoolHealthMonitorOutput{HealthMonitor: resp.Data}, nil
 }
 
-type ListPoolMembersInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-}
-
+// ListPoolMembersOutput holds PoolMember items.
 type ListPoolMembersOutput = core.List[PoolMember]
 
+// ListPoolMembers reads pool members.
 func (c *Client) ListPoolMembers(ctx context.Context, in *ListPoolMembersInput) (*ListPoolMembersOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListPoolMembers", in); err != nil {
 		return nil, err
@@ -323,13 +295,10 @@ func (c *Client) ListPoolMembers(ctx context.Context, in *ListPoolMembersInput) 
 	return &ListPoolMembersOutput{Items: items}, nil
 }
 
-type ListPoliciesInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-}
-
+// ListPoliciesOutput holds Policy items.
 type ListPoliciesOutput = core.List[Policy]
 
+// ListPolicies reads policies.
 func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*ListPoliciesOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListPolicies", in); err != nil {
 		return nil, err
@@ -347,16 +316,12 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	return &ListPoliciesOutput{Items: items}, nil
 }
 
-type GetPolicyInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-	PolicyID       string `vngcloud:"required"`
-}
-
+// GetPolicyOutput holds the result of GetPolicy.
 type GetPolicyOutput struct {
 	Policy Policy
 }
 
+// GetPolicy reads policy.
 func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetPolicy", in); err != nil {
 		return nil, err
@@ -379,12 +344,10 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 	return &GetPolicyOutput{Policy: resp.Data}, nil
 }
 
-type ListTagsInput struct {
-	LoadBalancerID string `vngcloud:"required"`
-}
-
+// ListTagsOutput holds Tag items.
 type ListTagsOutput = core.List[Tag]
 
+// ListTags reads tags.
 func (c *Client) ListTags(ctx context.Context, in *ListTagsInput) (*ListTagsOutput, error) {
 	if err := core.CheckRequired("loadbalancer.ListTags", in); err != nil {
 		return nil, err
@@ -408,14 +371,12 @@ func (c *Client) ListTags(ctx context.Context, in *ListTagsInput) (*ListTagsOutp
 	return &ListTagsOutput{Items: resp}, nil
 }
 
-type GetCertificateInput struct {
-	CertificateID string `vngcloud:"required"`
-}
-
+// GetCertificateOutput holds the result of GetCertificate.
 type GetCertificateOutput struct {
 	Certificate Certificate
 }
 
+// GetCertificate reads certificate.
 func (c *Client) GetCertificate(ctx context.Context, in *GetCertificateInput) (*GetCertificateOutput, error) {
 	if err := core.CheckRequired("loadbalancer.GetCertificate", in); err != nil {
 		return nil, err
@@ -512,6 +473,8 @@ type listCertificatesResponse struct {
 	TotalItem int           `json:"totalItem"`
 }
 
+// LoadBalancer holds load balancer data from the API.
+// See docs/design/lb-writes-api.md.
 type LoadBalancer struct {
 	UUID               string `json:"uuid"`
 	Name               string `json:"name"`
@@ -541,6 +504,8 @@ type LoadBalancer struct {
 	Nodes      []Node `json:"nodes"`
 }
 
+// Node holds node data from the API.
+// See docs/design/lb-writes-api.md.
 type Node struct {
 	Status   string `json:"status"`
 	ZoneID   string `json:"zoneId"`
@@ -548,6 +513,8 @@ type Node struct {
 	SubnetID string `json:"subnetId"`
 }
 
+// Package holds package data from the API.
+// See docs/design/lb-writes-api.md.
 type Package struct {
 	UUID             string `json:"uuid"`
 	Name             string `json:"name"`
@@ -559,6 +526,8 @@ type Package struct {
 	DisplayLBType    string `json:"displayLbType"`
 }
 
+// Certificate holds certificate data from the API.
+// See docs/design/lb-writes-api.md.
 type Certificate struct {
 	UUID               string `json:"uuid"`
 	Name               string `json:"name"`
@@ -581,6 +550,8 @@ type Certificate struct {
 	SubjectAlternativeNames []string `json:"subjectAlternativeNames"`
 }
 
+// Tag holds tag data from the API.
+// See docs/design/lb-writes-api.md.
 type Tag struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
@@ -588,11 +559,15 @@ type Tag struct {
 	SystemTag bool   `json:"systemTag,omitempty"`
 }
 
+// ListenerInsertHeader holds listener insert header data from the API.
+// See docs/design/lb-writes-api.md.
 type ListenerInsertHeader struct {
 	HeaderName  string `json:"headerName"`
 	HeaderValue string `json:"headerValue"`
 }
 
+// Listener holds listener data from the API.
+// See docs/design/lb-writes-api.md.
 type Listener struct {
 	UUID                            string                 `json:"uuid"`
 	Name                            string                 `json:"name"`
@@ -616,6 +591,8 @@ type Listener struct {
 	InsertHeaders                   []ListenerInsertHeader `json:"insertHeaders"`
 }
 
+// Pool holds pool data from the API.
+// See docs/design/lb-writes-api.md.
 type Pool struct {
 	UUID              string         `json:"uuid"`
 	Name              string         `json:"name"`
@@ -630,6 +607,8 @@ type Pool struct {
 	HealthMonitor     *HealthMonitor `json:"healthMonitor"`
 }
 
+// PoolMember holds pool member data from the API.
+// See docs/design/lb-writes-api.md.
 type PoolMember struct {
 	UUID           string `json:"uuid"`
 	Address        string `json:"address"`
@@ -648,6 +627,8 @@ type PoolMember struct {
 	ProgressStatus string `json:"progressStatus"`
 }
 
+// HealthMonitor holds health monitor data from the API.
+// See docs/design/lb-writes-api.md.
 type HealthMonitor struct {
 	Timeout             int     `json:"timeout"`
 	CreatedAt           string  `json:"createdAt"`
@@ -665,6 +646,8 @@ type HealthMonitor struct {
 	DisplayStatus       string  `json:"displayStatus"`
 }
 
+// Policy holds policy data from the API.
+// See docs/design/lb-writes-api.md.
 type Policy struct {
 	UUID             string   `json:"uuid"`
 	Name             string   `json:"name"`
@@ -683,6 +666,8 @@ type Policy struct {
 	ProgressStatus   string   `json:"progressStatus"`
 }
 
+// L7Rule holds l7 rule data from the API.
+// See docs/design/lb-writes-api.md.
 type L7Rule struct {
 	UUID               string `json:"uuid"`
 	CompareType        string `json:"compareType"`

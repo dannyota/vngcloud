@@ -139,12 +139,16 @@ func is4xxAPIError(err error) bool {
 // the zone that matters is a subnet's own ZoneID. An input the server
 // ignores would tell the caller it chose a zone when it did not.
 type CreateVPCInput struct {
+	// Name is required.
 	Name string `vngcloud:"required"`
+	// CIDR is required.
 	CIDR string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreateVPCOutput holds the result of CreateVPC.
 type CreateVPCOutput struct {
 	VPC VPC
 }
@@ -234,10 +238,13 @@ func wrapAmbiguousVPCCreateErr(op string, err error) error {
 // PATCH, but a VPC has only this one editable field, so, unlike
 // UpdateSecurityGroup, there is no other field to preserve.
 type UpdateVPCInput struct {
+	// VPCID is required.
 	VPCID string `vngcloud:"required"`
-	Name  string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 }
 
+// UpdateVPCOutput holds the result of UpdateVPC.
 type UpdateVPCOutput struct {
 	VPC VPC
 }
@@ -290,11 +297,14 @@ func (c *Client) UpdateVPC(ctx context.Context, in *UpdateVPCInput) (*UpdateVPCO
 
 // DeleteVPCInput identifies the VPC to delete.
 type DeleteVPCInput struct {
+	// VPCID is required.
 	VPCID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteVPCOutput carries no result fields.
 type DeleteVPCOutput struct{}
 
 // DeleteVPC deletes a VPC and its ACLs and route tables. It reads the VPC
@@ -453,8 +463,10 @@ func (c *Client) waitVPCDeleted(ctx context.Context, op, vpcID string) error {
 // EnableVPCPrivateDNSInput identifies the VPC to enable Private DNS on.
 // There is no matching disable call; see EnableVPCPrivateDNS's doc comment.
 type EnableVPCPrivateDNSInput struct {
+	// VPCID is required.
 	VPCID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 

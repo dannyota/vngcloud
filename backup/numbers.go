@@ -40,6 +40,7 @@ func (n *exactInt) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON accepts decimal notation for whole hour and minute values.
 func (c *PolicyConfig) UnmarshalJSON(data []byte) error {
 	type plain PolicyConfig
 	var aux struct {
@@ -56,6 +57,7 @@ func (c *PolicyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON preserves absent daily settings and accepts whole decimals.
 func (c *DailyConfig) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		Retention           *exactInt `json:"retention"`

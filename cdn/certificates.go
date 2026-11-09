@@ -12,6 +12,7 @@ import (
 // so a decode never holds the key. Dates stay the server's strings, such as
 // "28 Apr 2025 06:53:20 GMT". Certificate and CARoot hold the PEM text and
 // are set by GetCertificate only.
+// See docs/design/cdn-api.md.
 type Certificate struct {
 	ID          string `json:"cdnSslcertificateId"`
 	CommonName  string `json:"commonName"`
@@ -29,6 +30,7 @@ type Certificate struct {
 // ListCertificatesInput has no fields today; a nil Input is valid.
 type ListCertificatesInput struct{}
 
+// ListCertificatesOutput holds Certificate items.
 type ListCertificatesOutput = core.List[Certificate]
 
 // ListCertificates lists every certificate of the account in one call. The
@@ -60,9 +62,11 @@ func (c *Client) ListCertificates(ctx context.Context, in *ListCertificatesInput
 
 // GetCertificateInput identifies the certificate to read.
 type GetCertificateInput struct {
+	// CertificateID is required.
 	CertificateID string `vngcloud:"required"`
 }
 
+// GetCertificateOutput holds the result of GetCertificate.
 type GetCertificateOutput struct {
 	Certificate Certificate
 }

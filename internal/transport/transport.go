@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// Token holds an access token and its expiration.
 type Token struct {
 	AccessToken string
 	ExpiresAt   time.Time
@@ -33,10 +34,13 @@ func (t Token) NeedsRefresh() bool {
 // source would otherwise hand out; a token another call already replaced is
 // left alone. Invalidate is never called with an empty string.
 type TokenSource interface {
+	// Token obtains an access token for a request.
 	Token(ctx context.Context) (Token, error)
+	// Invalidate removes the rejected token if it is still cached.
 	Invalidate(accessToken string)
 }
 
+// Client sends requests with authentication, retry, and capture settings.
 type Client struct {
 	httpClient    *http.Client
 	tokenSource   TokenSource
@@ -51,6 +55,7 @@ type Client struct {
 	refreshMu sync.Mutex
 }
 
+// Capture holds one observed response.
 type Capture struct {
 	Operation  string
 	Method     string
@@ -59,23 +64,10 @@ type Capture struct {
 	Body       []byte
 }
 
+// CaptureFunc receives an observed response.
 type CaptureFunc func(Capture)
 
-type Config struct {
-	HTTPClient    *http.Client
-	TokenSource   TokenSource
-	RetryCount    int
-	RetryInterval time.Duration
-	UserAgent     string
-	Capture       CaptureFunc
-
-	// Logger, when set, receives one Debug record named "request" per HTTP
-	// attempt, with the method, the URL path without its query string, the
-	// status (omitted when no response was received), and the duration. A
-	// nil Logger logs nothing.
-	Logger *slog.Logger
-}
-
+// New builds a transport client from its configuration.
 func New(cfg Config) *Client {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
@@ -100,6 +92,7 @@ func New(cfg Config) *Client {
 	}
 }
 
+// Request describes one transport request and its handling rules.
 type Request struct {
 	// NotSent is reset for each call and becomes true only on an error when
 	// no request bytes could have reached a connection. Acquisition and local
@@ -238,6 +231,7 @@ func (r Request) retryable(status int) bool {
 	return r.idempotent() && retryableStatus(status)
 }
 
+// DoJSON sends a request and decodes its JSON response.
 func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 	_, err := c.DoJSONStatus(ctx, req, out)
 	return err

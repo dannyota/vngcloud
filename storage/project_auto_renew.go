@@ -17,22 +17,34 @@ import (
 	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
+// GetProjectAutoRenewInput requires ProjectID.
 type GetProjectAutoRenewInput struct {
-	ProjectID    string `vngcloud:"required"`
-	Region       string
+	// ProjectID is required.
+	ProjectID string `vngcloud:"required"`
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// PeriodMonths selects the quote period when set; allowed values are 1, 3, 6, or 12.
 	PeriodMonths *int
 }
 
+// GetProjectAutoRenewOutput holds the result of GetProjectAutoRenew.
 type GetProjectAutoRenewOutput struct{ State *ProjectAutoRenew }
 
+// PutProjectAutoRenewInput requires ProjectID and Enabled.
 type PutProjectAutoRenewInput struct {
-	ProjectID    string `vngcloud:"required"`
-	Region       string
-	Enabled      *bool `vngcloud:"required"`
+	// ProjectID is required.
+	ProjectID string `vngcloud:"required"`
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// Enabled is required.
+	Enabled *bool `vngcloud:"required"`
+	// PeriodMonths selects the renewal period when set; allowed values are 1, 3, 6, or 12.
 	PeriodMonths *int
-	MaxPrice     float64
+	// MaxPrice bounds the renewal quote when enabling auto-renewal.
+	MaxPrice float64
 }
 
+// PutProjectAutoRenewOutput holds the result of PutProjectAutoRenew.
 type PutProjectAutoRenewOutput struct {
 	State   *ProjectAutoRenew
 	Changed bool

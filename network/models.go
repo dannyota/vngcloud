@@ -128,6 +128,8 @@ func (s subnetResponse) toSubnet() Subnet {
 	}
 }
 
+// VPC holds vpc data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type VPC struct {
 	UUID           string   `json:"id"`
 	Status         string   `json:"status"`
@@ -153,6 +155,7 @@ type VPC struct {
 // server gives no field marking a set as one Private DNS created, so the
 // SDK treats a Name with the dhcpOptionsSystemPrefix as a system set (see
 // dhcp_options_write.go).
+// See docs/design/vserver-network-writes-api.md.
 type DHCPOptions struct {
 	UUID       string   `json:"uuid"`
 	Name       string   `json:"name"`
@@ -164,6 +167,8 @@ type DHCPOptions struct {
 	UpdatedAt  string   `json:"updatedAt"`
 }
 
+// WANIP holds wanip data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type WANIP struct {
 	UUID               string `json:"uuid"`
 	ID                 string `json:"id"`
@@ -177,6 +182,8 @@ type WANIP struct {
 	CreatedAt          string `json:"createdAt"`
 }
 
+// ElasticNetworkInterface holds elastic network interface data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type ElasticNetworkInterface struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -194,6 +201,8 @@ type ElasticNetworkInterface struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// SecurityGroup holds security group data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type SecurityGroup struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -204,6 +213,8 @@ type SecurityGroup struct {
 	System      bool   `json:"system"`
 }
 
+// VirtualIPAddress holds virtual ip address data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type VirtualIPAddress struct {
 	UUID            string   `json:"uuid"`
 	ID              string   `json:"id"`
@@ -224,6 +235,8 @@ type VirtualIPAddress struct {
 	Zone            Zone     `json:"zone"`
 }
 
+// Route holds route data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type Route struct {
 	UUID                 string `json:"uuid"`
 	RouteTableID         string `json:"routeTableId"`
@@ -233,6 +246,8 @@ type Route struct {
 	Status               string `json:"status"`
 }
 
+// RouteTable holds route table data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type RouteTable struct {
 	UUID      string  `json:"uuid"`
 	Name      string  `json:"name"`
@@ -242,6 +257,8 @@ type RouteTable struct {
 	Routes    []Route `json:"routes"`
 }
 
+// Peering holds peering data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type Peering struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -259,6 +276,7 @@ type Peering struct {
 // which the DefaultACL, VPCID, Rules, and SubnetIDs fields' live source,
 // GetNetworkACL and CreateNetworkACL, does not return; a value read either
 // way leaves the other set's fields at their zero value.
+// See docs/design/vserver-network-writes-api.md.
 type ACL struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -292,6 +310,7 @@ type ACL struct {
 // write that leaves one out removes it. The two Priority-2000 rules are
 // protected: a write that leaves one out still keeps it, and
 // RemoveNetworkACLRule refuses to target one at all.
+// See docs/design/vserver-network-writes-api.md.
 type ACLRule struct {
 	UUID      string `json:"uuid"`
 	Direction string `json:"type"`
@@ -303,6 +322,8 @@ type ACLRule struct {
 	System    bool   `json:"system"`
 }
 
+// Subnet holds subnet data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type Subnet struct {
 	UUID                   string                  `json:"uuid"`
 	Name                   string                  `json:"name"`
@@ -325,12 +346,16 @@ type Subnet struct {
 	SecondarySubnets       []SubnetSecondarySubnet `json:"secondarySubnets"`
 }
 
+// SubnetSecondarySubnet holds subnet secondary subnet data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type SubnetSecondarySubnet struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
 	CIDR string `json:"cidr"`
 }
 
+// SecurityGroupRule holds security group rule data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type SecurityGroupRule struct {
 	ID              string `json:"id"`
 	SecurityGroupID string `json:"securityGroupId"`
@@ -347,6 +372,8 @@ type SecurityGroupRule struct {
 	CreatedAt       string `json:"createdAt"`
 }
 
+// RouteTableRoute holds route table route data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type RouteTableRoute struct {
 	RouteTableID         string `json:"routeTableId"`
 	UUID                 string `json:"uuid"`
@@ -356,6 +383,8 @@ type RouteTableRoute struct {
 	Status               string `json:"status"`
 }
 
+// Endpoint holds endpoint data from the API.
+// See docs/design/network-endpoints-api.md.
 type Endpoint struct {
 	UUID                      string `json:"uuid"`
 	ID                        string `json:"id"`
@@ -418,10 +447,13 @@ type Endpoint struct {
 	ZoneUUID                  string `json:"zoneUuid"`
 }
 
+// EndpointDetail holds endpoint detail. See docs/design/network-endpoints-api.md.
 type EndpointDetail struct {
 	Endpoint
 }
 
+// Tag holds tag data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type Tag struct {
 	UUID         string `json:"uuid"`
 	Key          string `json:"tagKey"`
@@ -433,6 +465,8 @@ type Tag struct {
 	UpdatedAt    string `json:"updatedAt"`
 }
 
+// Interconnect holds interconnect data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type Interconnect struct {
 	UUID         string `json:"uuid"`
 	ID           string `json:"id"`
@@ -453,6 +487,8 @@ type Interconnect struct {
 	RemoteGW02IP string `json:"remoteGw02Ip"`
 }
 
+// AddressPair holds address pair data from the API.
+// See docs/design/vserver-network-writes-api.md.
 type AddressPair struct {
 	UUID               string `json:"uuid"`
 	VirtualIPAddressID string `json:"virtualIpAddressId"`
@@ -463,6 +499,8 @@ type AddressPair struct {
 	CreatedAt          string `json:"createdAt"`
 }
 
+// VNetworkRegion holds v network region data from the API.
+// See docs/design/network-services-api.md.
 type VNetworkRegion struct {
 	UUID             string `json:"uuid"`
 	Name             string `json:"name"`

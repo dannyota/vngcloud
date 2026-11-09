@@ -29,19 +29,25 @@ const createServerWithheldMessage = "server message withheld: it may quote user 
 // any request, including the quote.
 type CreateServerInput struct {
 	// Name must not match an existing server's name exactly.
-	Name     string `vngcloud:"required"`
-	ZoneID   string `vngcloud:"required"`
+	Name string `vngcloud:"required"`
+	// ZoneID is required.
+	ZoneID string `vngcloud:"required"`
+	// FlavorID is required.
 	FlavorID string `vngcloud:"required"`
-	ImageID  string `vngcloud:"required"`
+	// ImageID is required.
+	ImageID string `vngcloud:"required"`
 	// VPCID is sent as networkId.
-	VPCID    string `vngcloud:"required"`
+	VPCID string `vngcloud:"required"`
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
 	// SecurityGroupIDs must hold at least one ID; the SDK picks no default.
 	SecurityGroupIDs []string `vngcloud:"required"`
 	// SSHKeyID sets up key login. CreateServer requires exactly one of
 	// SSHKeyID or UserData that installs authorized keys.
-	SSHKeyID       string
-	RootDiskSize   int    `vngcloud:"required"`
+	SSHKeyID string
+	// RootDiskSize is required.
+	RootDiskSize int `vngcloud:"required"`
+	// RootDiskTypeID is required.
 	RootDiskTypeID string `vngcloud:"required"`
 	// RootDiskEncryptionTypeID, optional, is an ID from
 	// volume.ListEncryptionTypes. It encrypts the root disk, sends
@@ -50,13 +56,16 @@ type CreateServerInput struct {
 
 	// DataDiskSize and DataDiskTypeID together add one optional data disk;
 	// set both or neither.
-	DataDiskSize   int
+	DataDiskSize int
+	// DataDiskTypeID must be set together with DataDiskSize.
 	DataDiskTypeID string
-	DataDiskName   string
+	// DataDiskName is sent as dataDiskName in the create body.
+	DataDiskName string
 	// DataDiskEncryptionTypeID, optional, encrypts the data disk like
 	// RootDiskEncryptionTypeID. It needs the data disk.
 	DataDiskEncryptionTypeID string
 
+	// ServerGroupID is sent as serverGroupId when set.
 	ServerGroupID string
 
 	// UserData is cloud-init text that must install authorized keys when

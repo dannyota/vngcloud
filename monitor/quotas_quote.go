@@ -18,13 +18,19 @@ import (
 // ErrUnpriced refuses a zero quote for a package with a positive list price.
 var ErrUnpriced = vngcloud.ErrUnpriced
 
+// CreateNotificationQuotaInput requires Kind.
 type CreateNotificationQuotaInput struct {
-	Kind      string `vngcloud:"required"`
+	// Kind is required.
+	Kind string `vngcloud:"required"`
+	// PackageID selects a package when supplied.
 	PackageID string
-	MaxPrice  float64
-	NoWait    bool
+	// MaxPrice bounds the create quote; QuoteCreateNotificationQuota ignores it.
+	MaxPrice float64
+	// NoWait skips the post-order wait. QuoteCreateNotificationQuota ignores it.
+	NoWait bool
 }
 
+// QuotaQuote holds the quoted quota order and its pricing.
 type QuotaQuote struct {
 	PackageID       string
 	Quantity        int
@@ -37,6 +43,8 @@ type QuotaQuote struct {
 	Currency        string
 }
 
+// QuoteCreateNotificationQuotaOutput holds the result of
+// QuoteCreateNotificationQuota.
 type QuoteCreateNotificationQuotaOutput = QuotaQuote
 
 // Terms contain copied values only, so later input or catalog changes cannot

@@ -22,10 +22,13 @@ type Token = transport.Token
 // provider would otherwise hand out; it is never called with an empty
 // string.
 type CredentialsProvider interface {
+	// Token obtains an access token for a request.
 	Token(ctx context.Context) (Token, error)
+	// Invalidate removes the rejected token if it is still cached.
 	Invalidate(accessToken string)
 }
 
+// ClientOption configures shared client behavior.
 type ClientOption interface {
 	apply(*clientConfig)
 }
@@ -66,6 +69,7 @@ type clientConfig struct {
 	serviceAccountClock     func() time.Time
 }
 
+// ResponseCapture holds an observed response for a capture hook.
 type ResponseCapture struct {
 	Operation  string
 	Method     string
@@ -74,26 +78,31 @@ type ResponseCapture struct {
 	Body       []byte
 }
 
+// ResponseCaptureFunc receives a captured response.
 type ResponseCaptureFunc func(ResponseCapture)
 
+// WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.httpClient = c
 	})
 }
 
+// WithTransport sets the HTTP round tripper.
 func WithTransport(t http.RoundTripper) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.transport = t
 	})
 }
 
+// WithTimeout sets the HTTP request timeout.
 func WithTimeout(timeout time.Duration) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.timeout = timeout
 	})
 }
 
+// WithRetry sets the retry count and interval.
 func WithRetry(count int, interval time.Duration) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.retryCount = count
@@ -101,6 +110,7 @@ func WithRetry(count int, interval time.Duration) ClientOption {
 	})
 }
 
+// WithUserAgent sets the request user agent.
 func WithUserAgent(userAgent string) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.userAgent = userAgent
@@ -120,6 +130,7 @@ func WithLogger(logger *slog.Logger) ClientOption {
 	})
 }
 
+// WithEndpointOverrides sets explicit service endpoints.
 func WithEndpointOverrides(overrides EndpointOverrides) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) {
 		cfg.endpoints = overrides

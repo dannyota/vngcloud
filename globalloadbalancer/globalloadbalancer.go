@@ -24,10 +24,13 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg)}
 }
 
+// ListPackagesInput takes no fields.
 type ListPackagesInput struct{}
 
+// ListPackagesOutput holds Package items.
 type ListPackagesOutput = core.List[Package]
 
+// ListPackages reads packages.
 func (c *Client) ListPackages(ctx context.Context, _ *ListPackagesInput) (*ListPackagesOutput, error) {
 	var resp []Package
 	if err := c.c.DoJSON(ctx, transport.Request{
@@ -41,10 +44,13 @@ func (c *Client) ListPackages(ctx context.Context, _ *ListPackagesInput) (*ListP
 	return &ListPackagesOutput{Items: resp}, nil
 }
 
+// ListRegionsInput takes no fields.
 type ListRegionsInput struct{}
 
+// ListRegionsOutput holds Region items.
 type ListRegionsOutput = core.List[Region]
 
+// ListRegions reads regions.
 func (c *Client) ListRegions(ctx context.Context, _ *ListRegionsInput) (*ListRegionsOutput, error) {
 	var resp []Region
 	if err := c.c.DoJSON(ctx, transport.Request{
@@ -58,12 +64,17 @@ func (c *Client) ListRegions(ctx context.Context, _ *ListRegionsInput) (*ListReg
 	return &ListRegionsOutput{Items: resp}, nil
 }
 
+// ListLoadBalancersInput selects parameters for ListLoadBalancers.
 type ListLoadBalancersInput struct {
-	Name   string
+	// Name is sent as the name query parameter.
+	Name string
+	// Offset starts at zero; negative values select zero.
 	Offset int
-	Limit  int
+	// Limit uses the default when not positive.
+	Limit int
 }
 
+// ListLoadBalancersOutput holds the result of ListLoadBalancers.
 type ListLoadBalancersOutput struct {
 	Items  []LoadBalancer
 	Offset int
@@ -71,6 +82,7 @@ type ListLoadBalancersOutput struct {
 	Total  int
 }
 
+// ListLoadBalancers reads load balancers.
 func (c *Client) ListLoadBalancers(ctx context.Context, in *ListLoadBalancersInput) (*ListLoadBalancersOutput, error) {
 	offset, limit := 0, core.DefaultPageSize
 	name := ""
@@ -99,14 +111,18 @@ func (c *Client) ListLoadBalancers(ctx context.Context, in *ListLoadBalancersInp
 	return &ListLoadBalancersOutput{Items: resp.Items, Offset: resp.Offset, Limit: resp.Limit, Total: resp.Total}, nil
 }
 
+// GetLoadBalancerInput requires LoadBalancerID.
 type GetLoadBalancerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
+// GetLoadBalancerOutput holds the result of GetLoadBalancer.
 type GetLoadBalancerOutput struct {
 	LoadBalancer LoadBalancer
 }
 
+// GetLoadBalancer reads load balancer.
 func (c *Client) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerInput) (*GetLoadBalancerOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.GetLoadBalancer", in); err != nil {
 		return nil, err
@@ -123,12 +139,16 @@ func (c *Client) GetLoadBalancer(ctx context.Context, in *GetLoadBalancerInput) 
 	return &GetLoadBalancerOutput{LoadBalancer: resp}, nil
 }
 
+// ListPoolsInput requires LoadBalancerID.
 type ListPoolsInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
+// ListPoolsOutput holds Pool items.
 type ListPoolsOutput = core.List[Pool]
 
+// ListPools reads pools.
 func (c *Client) ListPools(ctx context.Context, in *ListPoolsInput) (*ListPoolsOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.ListPools", in); err != nil {
 		return nil, err
@@ -140,12 +160,16 @@ func (c *Client) ListPools(ctx context.Context, in *ListPoolsInput) (*ListPoolsO
 	return &ListPoolsOutput{Items: items}, nil
 }
 
+// ListListenersInput requires LoadBalancerID.
 type ListListenersInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
+// ListListenersOutput holds Listener items.
 type ListListenersOutput = core.List[Listener]
 
+// ListListeners reads listeners.
 func (c *Client) ListListeners(ctx context.Context, in *ListListenersInput) (*ListListenersOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.ListListeners", in); err != nil {
 		return nil, err
@@ -157,15 +181,20 @@ func (c *Client) ListListeners(ctx context.Context, in *ListListenersInput) (*Li
 	return &ListListenersOutput{Items: items}, nil
 }
 
+// GetListenerInput requires LoadBalancerID and ListenerID.
 type GetListenerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
 }
 
+// GetListenerOutput holds the result of GetListener.
 type GetListenerOutput struct {
 	Listener Listener
 }
 
+// GetListener reads listener.
 func (c *Client) GetListener(ctx context.Context, in *GetListenerInput) (*GetListenerOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.GetListener", in); err != nil {
 		return nil, err
@@ -177,13 +206,18 @@ func (c *Client) GetListener(ctx context.Context, in *GetListenerInput) (*GetLis
 	return &GetListenerOutput{Listener: *item}, nil
 }
 
+// ListPoolMembersInput requires LoadBalancerID and PoolID.
 type ListPoolMembersInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
 }
 
+// ListPoolMembersOutput holds PoolMember items.
 type ListPoolMembersOutput = core.List[PoolMember]
 
+// ListPoolMembers reads pool members.
 func (c *Client) ListPoolMembers(ctx context.Context, in *ListPoolMembersInput) (*ListPoolMembersOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.ListPoolMembers", in); err != nil {
 		return nil, err
@@ -195,16 +229,22 @@ func (c *Client) ListPoolMembers(ctx context.Context, in *ListPoolMembersInput) 
 	return &ListPoolMembersOutput{Items: items}, nil
 }
 
+// GetPoolMemberInput requires LoadBalancerID, PoolID and PoolMemberID.
 type GetPoolMemberInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-	PoolMemberID   string `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
+	// PoolMemberID is required.
+	PoolMemberID string `vngcloud:"required"`
 }
 
+// GetPoolMemberOutput holds the result of GetPoolMember.
 type GetPoolMemberOutput struct {
 	PoolMember PoolMember
 }
 
+// GetPoolMember reads pool member.
 func (c *Client) GetPoolMember(ctx context.Context, in *GetPoolMemberInput) (*GetPoolMemberOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.GetPoolMember", in); err != nil {
 		return nil, err
@@ -216,13 +256,19 @@ func (c *Client) GetPoolMember(ctx context.Context, in *GetPoolMemberInput) (*Ge
 	return &GetPoolMemberOutput{PoolMember: *item}, nil
 }
 
+// ListUsageHistoriesInput requires LoadBalancerID.
 type ListUsageHistoriesInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	From           string
-	To             string
-	Type           string
+	// From is sent as the from query parameter when nonempty.
+	From string
+	// To is sent as the to query parameter when nonempty.
+	To string
+	// Type is sent as the type query parameter when nonempty.
+	Type string
 }
 
+// ListUsageHistoriesOutput holds the result of ListUsageHistories.
 type ListUsageHistoriesOutput struct {
 	Type  string
 	From  string
@@ -230,6 +276,7 @@ type ListUsageHistoriesOutput struct {
 	Items []UsageHistory
 }
 
+// ListUsageHistories reads usage histories.
 func (c *Client) ListUsageHistories(ctx context.Context, in *ListUsageHistoriesInput) (*ListUsageHistoriesOutput, error) {
 	if err := core.CheckRequired("globalloadbalancer.ListUsageHistories", in); err != nil {
 		return nil, err
@@ -310,6 +357,8 @@ type listUsageHistoriesResponse struct {
 	To    string         `json:"to"`
 }
 
+// Package holds package data from the API.
+// See docs/design/cli-reads.md.
 type Package struct {
 	ID                          string            `json:"id"`
 	Name                        string            `json:"name"`
@@ -329,6 +378,8 @@ type Package struct {
 	VLBPackages                 []RegionalPackage `json:"vlbPackages"`
 }
 
+// RegionalPackage holds regional package data from the API.
+// See docs/design/cli-reads.md.
 type RegionalPackage struct {
 	ID           int    `json:"id"`
 	GLBPackageID string `json:"glb_package_id"`
@@ -337,6 +388,8 @@ type RegionalPackage struct {
 	CreatedAt    string `json:"created_at"`
 }
 
+// Region holds region data from the API.
+// See docs/design/cli-reads.md.
 type Region struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
@@ -347,6 +400,8 @@ type Region struct {
 	UIServerEndpoint string `json:"uiServerEndpoint"`
 }
 
+// LoadBalancer holds load balancer data from the API.
+// See docs/design/cli-reads.md.
 type LoadBalancer struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -362,6 +417,8 @@ type LoadBalancer struct {
 	Domains     []Domain `json:"domains"`
 }
 
+// VIP holds vip data from the API.
+// See docs/design/cli-reads.md.
 type VIP struct {
 	ID                   int    `json:"id"`
 	Address              string `json:"address"`
@@ -373,6 +430,8 @@ type VIP struct {
 	DeletedAt            string `json:"deletedAt"`
 }
 
+// Domain holds domain data from the API.
+// See docs/design/cli-reads.md.
 type Domain struct {
 	ID                   int    `json:"id"`
 	Hostname             string `json:"hostname"`
@@ -385,6 +444,8 @@ type Domain struct {
 	DeletedAt            string `json:"deletedAt"`
 }
 
+// Pool holds pool data from the API.
+// See docs/design/cli-reads.md.
 type Pool struct {
 	ID                   string             `json:"id"`
 	Name                 string             `json:"name"`
@@ -401,6 +462,8 @@ type Pool struct {
 	DeletedAt            *string            `json:"deletedAt"`
 }
 
+// PoolHealthMonitor holds pool health monitor data from the API.
+// See docs/design/cli-reads.md.
 type PoolHealthMonitor struct {
 	ID                   string  `json:"id"`
 	GlobalPoolID         string  `json:"globalPoolId"`
@@ -421,6 +484,8 @@ type PoolHealthMonitor struct {
 	DeletedAt            *string `json:"deletedAt"`
 }
 
+// PoolMember holds pool member data from the API.
+// See docs/design/cli-reads.md.
 type PoolMember struct {
 	ID                   string             `json:"id"`
 	Name                 string             `json:"name"`
@@ -438,6 +503,8 @@ type PoolMember struct {
 	DeletedAt            *string            `json:"deletedAt"`
 }
 
+// PoolMemberDetail holds pool member detail data from the API.
+// See docs/design/cli-reads.md.
 type PoolMemberDetail struct {
 	ID                   string  `json:"id"`
 	Name                 string  `json:"name"`
@@ -456,6 +523,8 @@ type PoolMemberDetail struct {
 	DeletedAt            *string `json:"deletedAt"`
 }
 
+// Listener holds listener data from the API.
+// See docs/design/cli-reads.md.
 type Listener struct {
 	ID                   string  `json:"id"`
 	Name                 string  `json:"name"`
@@ -475,6 +544,8 @@ type Listener struct {
 	DeletedAt            *string `json:"deletedAt"`
 }
 
+// UsageHistory holds usage history data from the API.
+// See docs/design/cli-reads.md.
 type UsageHistory struct {
 	Timestamp string  `json:"timestamp"`
 	Value     float64 `json:"value"`

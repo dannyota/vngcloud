@@ -8,6 +8,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListDHCPOptions reads dhcp options.
 func (c *Client) ListDHCPOptions(ctx context.Context, in *ListDHCPOptionsInput) (*ListDHCPOptionsOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {

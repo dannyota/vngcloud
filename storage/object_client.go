@@ -21,16 +21,21 @@ const DefaultMaxDownloadBytes int64 = 5_000_000_000
 
 // ObjectCredentials holds an explicit S3 credential pair, separate from IAM.
 type ObjectCredentials struct {
-	AccessKeyID     vngcloud.Secret
+	// AccessKeyID is required and must not contain control bytes.
+	AccessKeyID vngcloud.Secret
+	// SecretAccessKey is required and must not contain control bytes.
 	SecretAccessKey vngcloud.Secret
 }
 
 // ObjectConfig selects a fixed S3 region and an operation timeout. Zero
 // Timeout selects five minutes; positive values cannot exceed one hour.
 type ObjectConfig struct {
-	Region      string
+	// Region must be HCM04 or HAN02.
+	Region string
+	// Credentials supplies the required S3 credential pair.
 	Credentials ObjectCredentials
-	Timeout     time.Duration
+	// Timeout defaults to five minutes and cannot exceed one hour.
+	Timeout time.Duration
 }
 
 // ObjectClient owns native S3 traffic independently of the management client.

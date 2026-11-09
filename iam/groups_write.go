@@ -13,10 +13,13 @@ import (
 // CreateGroupInput names the new group. It has no guard: creating a group
 // with no initial members or policies changes no one's rights.
 type CreateGroupInput struct {
-	Name        string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Description is sent as description in the create body.
 	Description string
 }
 
+// CreateGroupOutput holds the result of CreateGroup.
 type CreateGroupOutput struct {
 	Group Group
 }
@@ -95,16 +98,20 @@ func wrapAmbiguousGroupCreateErr(op string, err error) error {
 	return fmt.Errorf("%s: create may have already reached the server; check with list-groups before creating it again: %w", op, err)
 }
 
-// UpdateGroupInput's Name is read from the group's current state when left
+// UpdateGroupInput reads Name from the group's current state when left
 // nil, because the PATCH requires a name; Description is sent only when
 // non-nil. It has no guard beyond read-only: changing a group's name or
 // description changes no one's rights.
 type UpdateGroupInput struct {
-	GroupID     string `vngcloud:"required"`
-	Name        *string
+	// GroupID is required.
+	GroupID string `vngcloud:"required"`
+	// Name uses the current group name when nil.
+	Name *string
+	// Description is sent only when non-nil.
 	Description *string
 }
 
+// UpdateGroupOutput holds the result of UpdateGroup.
 type UpdateGroupOutput struct {
 	Group Group
 }
@@ -171,9 +178,11 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 // DeleteGroupInput identifies the group to delete. It must have no member
 // and no attached policy; see group_guard.go.
 type DeleteGroupInput struct {
+	// GroupID is required.
 	GroupID string `vngcloud:"required"`
 }
 
+// DeleteGroupOutput carries no result fields.
 type DeleteGroupOutput struct{}
 
 // DeleteGroup deletes a group. The guard runs first and sends nothing when

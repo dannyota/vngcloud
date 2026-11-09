@@ -13,6 +13,7 @@ import (
 // may be added later without breaking callers.
 type ListChannelTypesInput struct{}
 
+// ListChannelTypesOutput holds ChannelType items.
 type ListChannelTypesOutput = core.List[ChannelType]
 
 // ListChannelTypes lists the notification channel types the account may
@@ -45,11 +46,15 @@ func (c *Client) ListChannelTypes(ctx context.Context, in *ListChannelTypesInput
 // field query keys for a name search the SDK does not expose yet; the SDK
 // always sends them empty, as the console does outside a name search.
 type ListChannelsInput struct {
+	// Type is sent as a channel type filter when nonempty.
 	Type string
+	// Page uses the default when not positive.
 	Page int
+	// Size uses the default when not positive.
 	Size int
 }
 
+// ListChannelsOutput holds Channel items and pagination metadata.
 type ListChannelsOutput = core.PagedList[Channel]
 
 // ListChannels lists notification channels on the account. A nil Input is
@@ -94,9 +99,11 @@ type listChannelsResponse struct {
 
 // GetChannelInput identifies the channel to read.
 type GetChannelInput struct {
+	// ChannelID is required.
 	ChannelID string `vngcloud:"required"`
 }
 
+// GetChannelOutput holds the result of GetChannel.
 type GetChannelOutput struct {
 	Channel Channel
 }

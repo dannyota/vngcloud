@@ -21,20 +21,33 @@ import (
 // job alone. UpdateCheck accepts a check in any status, including
 // StatusDisabled, and never touches it.
 type UpdateCheckInput struct {
+	// CheckID is required.
 	CheckID string `vngcloud:"required"`
 
-	Name            *string
-	URL             *string
-	Method          *string
-	Headers         *map[string]string
-	Query           *map[string]string
-	Body            *string
-	Timeout         *int
-	TestFrequency   *int
-	Tests           *int
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// URL leaves its current value unchanged when nil.
+	URL *string
+	// Method leaves its current value unchanged when nil.
+	Method *string
+	// Headers leaves its current value unchanged when nil.
+	Headers *map[string]string
+	// Query leaves its current value unchanged when nil.
+	Query *map[string]string
+	// Body leaves its current value unchanged when nil.
+	Body *string
+	// Timeout leaves its current value unchanged when nil.
+	Timeout *int
+	// TestFrequency leaves its current value unchanged when nil.
+	TestFrequency *int
+	// Tests leaves its current value unchanged when nil.
+	Tests *int
+	// FailedLocations leaves its current value unchanged when nil.
 	FailedLocations *int
-	Locations       *[]string
-	Assertions      *[]Assertion
+	// Locations leaves its current value unchanged when nil.
+	Locations *[]string
+	// Assertions leaves its current value unchanged when nil.
+	Assertions *[]Assertion
 
 	// Notifications, when set, replaces all three of the check's
 	// notification lists at once: In-alarm, Up, and Undetermined together,
@@ -45,6 +58,7 @@ type UpdateCheckInput struct {
 	Notifications *CheckNotifications
 }
 
+// UpdateCheckOutput holds the result of UpdateCheck.
 type UpdateCheckOutput struct {
 	Check Check
 }

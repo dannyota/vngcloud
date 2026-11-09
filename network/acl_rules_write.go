@@ -270,18 +270,28 @@ func aclRulesEqual(rules []ACLRule, entries []aclRuleEntry) bool {
 // together is refused, since that pairing is never live-verified to mean a
 // single port rather than every port.
 type AddNetworkACLRuleInput struct {
+	// NetworkACLID is required.
 	NetworkACLID string `vngcloud:"required"`
-	Direction    string `vngcloud:"required"`
-	Priority     int    `vngcloud:"required"`
-	Protocol     string `vngcloud:"required"`
-	CIDR         string `vngcloud:"required"`
-	Action       string `vngcloud:"required"`
+	// Direction is required.
+	Direction string `vngcloud:"required"`
+	// Priority is required.
+	Priority int `vngcloud:"required"`
+	// Protocol is required.
+	Protocol string `vngcloud:"required"`
+	// CIDR is required.
+	CIDR string `vngcloud:"required"`
+	// Action is required.
+	Action string `vngcloud:"required"`
 
+	// PortRangeMin sets the lower port bound with PortRangeMax.
 	PortRangeMin int
+	// PortRangeMax sets the upper port bound with PortRangeMin.
 	PortRangeMax int
-	NoWait       bool
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
+// AddNetworkACLRuleOutput holds the result of AddNetworkACLRule.
 type AddNetworkACLRuleOutput struct {
 	ACL     ACL
 	Changed bool
@@ -391,13 +401,18 @@ func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInp
 // isDefaultACLRule). A negative value, which no rule can ever hold, is
 // still refused before any request.
 type RemoveNetworkACLRuleInput struct {
+	// NetworkACLID is required.
 	NetworkACLID string `vngcloud:"required"`
-	Direction    string `vngcloud:"required"`
-	Priority     int
+	// Direction is required.
+	Direction string `vngcloud:"required"`
+	// Priority must not be negative; default rules are refused.
+	Priority int
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// RemoveNetworkACLRuleOutput holds the result of RemoveNetworkACLRule.
 type RemoveNetworkACLRuleOutput struct {
 	ACL     ACL
 	Changed bool

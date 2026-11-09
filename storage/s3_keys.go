@@ -24,6 +24,7 @@ var ErrNoSecret = errors.New("storage: no secret returned")
 // SubUserID is the key's restriction state. Empty means the key is
 // unrestricted. "<account user>:sa-<service account name>" means the key is
 // attached to that service account (AttachS3Key) and acts as it.
+// See docs/design/storage-api.md.
 type S3Key struct {
 	UserKeyID   string `json:"userKeyId"`
 	AccessKey   string `json:"accessKey"`
@@ -35,12 +36,15 @@ type S3Key struct {
 	Status      int    `json:"status"`
 }
 
+// ListS3KeysInput requires ProjectID.
 type ListS3KeysInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
 }
 
+// ListS3KeysOutput holds S3Key items.
 type ListS3KeysOutput = core.List[S3Key]
 
 // ListS3Keys lists the S3 keys of a project. The list carries a secretKey
@@ -73,13 +77,15 @@ func (c *Client) ListS3Keys(ctx context.Context, in *ListS3KeysInput) (*ListS3Ke
 	return &ListS3KeysOutput{Items: items}, nil
 }
 
+// CreateS3KeyInput requires ProjectID.
 type CreateS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
 }
 
-// CreateS3KeyOutput's SecretKey is a vngcloud.Secret: printing, logging, or
+// CreateS3KeyOutput holds SecretKey as a vngcloud.Secret: printing, logging, or
 // JSON-encoding the Output gives "[redacted]" for it, and Reveal is the only
 // way to read the value. It is empty only when CreateS3Key also returns
 // ErrNoSecret.
@@ -152,13 +158,17 @@ func (c *Client) CreateS3Key(ctx context.Context, in *CreateS3KeyInput) (*Create
 	return out, nil
 }
 
+// DeleteS3KeyInput requires ProjectID and UserKeyID.
 type DeleteS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
+	// UserKeyID is required.
 	UserKeyID string `vngcloud:"required"`
 }
 
+// DeleteS3KeyOutput carries no result fields.
 type DeleteS3KeyOutput struct{}
 
 // DeleteS3Key deletes an S3 key, attached or not. It stops working at once

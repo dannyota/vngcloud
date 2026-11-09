@@ -8,13 +8,18 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// Renewal types are returned as strings in prepaid resource responses.
 const (
+	// RenewTypeNonRenewable is the "NON-RENEWABLE" renewal type.
 	RenewTypeNonRenewable = "NON-RENEWABLE"
-	RenewTypeManual       = "MANUAL"
-	RenewTypeAutoRenew    = "AUTO-RENEW"
+	// RenewTypeManual is the "MANUAL" renewal type.
+	RenewTypeManual = "MANUAL"
+	// RenewTypeAutoRenew is the "AUTO-RENEW" renewal type.
+	RenewTypeAutoRenew = "AUTO-RENEW"
 )
 
 // Resource describes renewal state. Cost has no established meaning or currency.
+// See docs/design/auto-renew.md.
 type Resource struct {
 	ArtifactID       string                   `json:"artifactId"`
 	ArtifactName     string                   `json:"artifactName"`
@@ -34,18 +39,25 @@ type Resource struct {
 	BillingElements  []ResourceBillingElement `json:"billingElements"`
 }
 
+// ResourceBillingElement holds a billing element from a resource response.
+// See docs/design/auto-renew.md.
 type ResourceBillingElement struct {
 	SKU      string          `json:"sku"`
 	Quantity json.RawMessage `json:"quantity"`
 	MetaKey  json.RawMessage `json:"metaKey"`
 }
 
+// ResourceThresholds holds threshold data from a resource response.
+// See docs/design/auto-renew.md.
 type ResourceThresholds struct {
 	WarningThresholds json.RawMessage `json:"warningThresholds"`
 	AlarmThresholds   json.RawMessage `json:"alarmThresholds"`
 }
 
+// ListResourcesInput has no filters.
 type ListResourcesInput struct{}
+
+// ListResourcesOutput holds prepaid resources and their aggregate counts.
 type ListResourcesOutput struct {
 	Items                 []Resource
 	TotalAutoRenews       *int64

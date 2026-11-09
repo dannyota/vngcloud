@@ -20,13 +20,17 @@ const (
 
 // CreateLoadBalancerInput's Type values.
 const (
+	// TypeLayer4 is the "Layer 4" load balancer type.
 	TypeLayer4 = "Layer 4"
+	// TypeLayer7 is the "Layer 7" load balancer type.
 	TypeLayer7 = "Layer 7"
 )
 
 // CreateLoadBalancerInput's Scheme values.
 const (
+	// SchemeInternet is the "Internet" load balancer scheme.
 	SchemeInternet = "Internet"
+	// SchemeInternal is the "Internal" load balancer scheme.
 	SchemeInternal = "Internal"
 )
 
@@ -39,16 +43,20 @@ const (
 // unlike the console's Internet: an Internet load balancer gets a public
 // address, and the caller names that exposure by setting Scheme itself.
 type CreateLoadBalancerInput struct {
-	Name      string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// PackageID is required.
 	PackageID string `vngcloud:"required"`
 	// Type is TypeLayer4 or TypeLayer7.
 	Type string `vngcloud:"required"`
 	// Scheme must be exactly SchemeInternet or SchemeInternal: any other
 	// value, including one padded or cased differently, or an invented
 	// value such as "Public", is refused before any request.
-	Scheme   string `vngcloud:"required"`
+	Scheme string `vngcloud:"required"`
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
-	ZoneID   string `vngcloud:"required"`
+	// ZoneID is required.
+	ZoneID string `vngcloud:"required"`
 
 	// MaxPrice is VND a month; a paid CreateLoadBalancer refuses to order
 	// above it. QuoteCreateLoadBalancer ignores it.

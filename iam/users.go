@@ -17,10 +17,13 @@ const (
 	userListMaxBody   = 4 << 20
 )
 
+// GetUserInput requires UserID.
 type GetUserInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
 }
 
+// GetUserOutput holds the result of GetUser.
 type GetUserOutput struct {
 	User UserDetail
 }

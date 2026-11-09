@@ -20,6 +20,7 @@ const listBucketsLimit = "1000"
 var bucketNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`)
 
 // Bucket is a vStorage bucket. Dates stay strings, as the API sends them.
+// See docs/design/storage-api.md.
 type Bucket struct {
 	Name            string `json:"name"`
 	ObjectCount     int64  `json:"count"`
@@ -32,13 +33,16 @@ type Bucket struct {
 	VersionLocation string `json:"versionLocation"`
 }
 
+// ListBucketsInput requires ProjectID.
 type ListBucketsInput struct {
 	// Region is the vStorage region name, such as HCM04. Empty maps the
 	// config region: hcm-3 to HCM04 and han-1 to HAN02.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
 }
 
+// ListBucketsOutput holds Bucket items.
 type ListBucketsOutput = core.List[Bucket]
 
 // ListBuckets lists every bucket in a project.
@@ -70,13 +74,17 @@ func (c *Client) ListBuckets(ctx context.Context, in *ListBucketsInput) (*ListBu
 	return &ListBucketsOutput{Items: items}, nil
 }
 
+// GetBucketInput requires ProjectID and Bucket.
 type GetBucketInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// GetBucketOutput holds the result of GetBucket.
 type GetBucketOutput struct {
 	Bucket
 }

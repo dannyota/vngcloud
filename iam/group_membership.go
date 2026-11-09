@@ -12,10 +12,13 @@ import (
 // guard refuses, with no request sent, when the user or the group is
 // protected; see group_guard.go.
 type AddUserToGroupInput struct {
+	// GroupID is required.
 	GroupID string `vngcloud:"required"`
-	UserID  string `vngcloud:"required"`
+	// UserID is required.
+	UserID string `vngcloud:"required"`
 }
 
+// AddUserToGroupOutput carries no result fields.
 type AddUserToGroupOutput struct{}
 
 // AddUserToGroup adds UserID as a member of GroupID.
@@ -59,10 +62,13 @@ func (c *Client) AddUserToGroup(ctx context.Context, in *AddUserToGroupInput) (*
 // it. The guard refuses, with no request sent, when the user or the group
 // is protected; see group_guard.go.
 type RemoveUserFromGroupInput struct {
+	// GroupID is required.
 	GroupID string `vngcloud:"required"`
-	UserID  string `vngcloud:"required"`
+	// UserID is required.
+	UserID string `vngcloud:"required"`
 }
 
+// RemoveUserFromGroupOutput carries no result fields.
 type RemoveUserFromGroupOutput struct{}
 
 // RemoveUserFromGroup removes UserID as a member of GroupID.

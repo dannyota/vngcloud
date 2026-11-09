@@ -13,24 +13,35 @@ import (
 
 // CreatePoolInput's Protocol values.
 const (
-	PoolProtocolHTTP  = "HTTP"
-	PoolProtocolTCP   = "TCP"
-	PoolProtocolUDP   = "UDP"
+	// PoolProtocolHTTP is the "HTTP" pool protocol.
+	PoolProtocolHTTP = "HTTP"
+	// PoolProtocolTCP is the "TCP" pool protocol.
+	PoolProtocolTCP = "TCP"
+	// PoolProtocolUDP is the "UDP" pool protocol.
+	PoolProtocolUDP = "UDP"
+	// PoolProtocolPROXY is the "PROXY" pool protocol.
 	PoolProtocolPROXY = "PROXY"
 )
 
 // CreatePoolInput's Algorithm values. Empty sends AlgorithmRoundRobin.
 const (
-	AlgorithmRoundRobin      = "ROUND_ROBIN"
+	// AlgorithmRoundRobin is the "ROUND_ROBIN" pool algorithm.
+	AlgorithmRoundRobin = "ROUND_ROBIN"
+	// AlgorithmLeastConnection is the "LEAST_CONNECTIONS" pool algorithm.
 	AlgorithmLeastConnection = "LEAST_CONNECTIONS"
-	AlgorithmSourceIP        = "SOURCE_IP"
+	// AlgorithmSourceIP is the "SOURCE_IP" pool algorithm.
+	AlgorithmSourceIP = "SOURCE_IP"
 )
 
 // CreatePoolInput's HealthCheckProtocol values.
 const (
-	HealthCheckProtocolTCP     = "TCP"
-	HealthCheckProtocolHTTP    = "HTTP"
-	HealthCheckProtocolHTTPS   = "HTTPS"
+	// HealthCheckProtocolTCP is the "TCP" health check protocol.
+	HealthCheckProtocolTCP = "TCP"
+	// HealthCheckProtocolHTTP is the "HTTP" health check protocol.
+	HealthCheckProtocolHTTP = "HTTP"
+	// HealthCheckProtocolHTTPS is the "HTTPS" health check protocol.
+	HealthCheckProtocolHTTPS = "HTTPS"
+	// HealthCheckProtocolPingUDP is the "PING-UDP" health check protocol.
 	HealthCheckProtocolPingUDP = "PING-UDP"
 )
 
@@ -123,32 +134,43 @@ func boolOrFalse(b *bool) *bool {
 // or "1.1", since the server refuses the check without all four.
 // HealthCheckDomainName has no default and is sent only when set.
 type CreatePoolInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	Name           string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 	// Protocol is one of the PoolProtocol constants.
-	Protocol  string `vngcloud:"required"`
+	Protocol string `vngcloud:"required"`
+	// Algorithm defaults to AlgorithmRoundRobin when empty.
 	Algorithm string
 
-	Stickiness    *bool
+	// Stickiness defaults to false for HTTP pools when nil.
+	Stickiness *bool
+	// TLSEncryption defaults to false for HTTP pools when nil.
 	TLSEncryption *bool
 
 	// HealthCheckProtocol is one of the HealthCheckProtocol constants.
-	HealthCheckProtocol    string `vngcloud:"required"`
-	HealthCheckPath        string
-	HealthCheckMethod      string
+	HealthCheckProtocol string `vngcloud:"required"`
+	// HealthCheckPath defaults to / for an HTTP health check when empty.
+	HealthCheckPath string
+	// HealthCheckMethod defaults to GET for an HTTP health check when empty.
+	HealthCheckMethod string
+	// HealthCheckHTTPVersion defaults to 1.1 for an HTTP health check when empty.
 	HealthCheckHTTPVersion string
-	HealthCheckDomainName  string
+	// HealthCheckDomainName is sent only for HTTP or HTTPS checks when set.
+	HealthCheckDomainName string
+	// HealthCheckSuccessCode defaults to 200 for an HTTP health check when empty.
 	HealthCheckSuccessCode string
-	HealthyThreshold       int
-	UnhealthyThreshold     int
-	HealthCheckInterval    int
-	HealthCheckTimeout     int
+	// HealthyThreshold defaults to 3 when zero.
+	HealthyThreshold int
+	// UnhealthyThreshold defaults to 3 when zero.
+	UnhealthyThreshold int
+	// HealthCheckInterval defaults to 30 when zero.
+	HealthCheckInterval int
+	// HealthCheckTimeout defaults to 5 when zero.
+	HealthCheckTimeout int
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
-}
-
-type CreatePoolOutput struct {
-	Pool Pool
 }
 
 // checkPoolHTTPFields returns core.ErrInvalidInput, naming the first field
@@ -331,28 +353,39 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 // TLS encryption; a nil field keeps its current value. The health check
 // protocol cannot change after create, so there is no field for it here.
 type UpdatePoolInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
 
-	Algorithm     *string
-	Stickiness    *bool
+	// Algorithm leaves its current value unchanged when nil.
+	Algorithm *string
+	// Stickiness leaves its current value unchanged when nil.
+	Stickiness *bool
+	// TLSEncryption leaves its current value unchanged when nil.
 	TLSEncryption *bool
 
-	HealthCheckPath        *string
-	HealthCheckMethod      *string
+	// HealthCheckPath leaves its current value unchanged when nil.
+	HealthCheckPath *string
+	// HealthCheckMethod leaves its current value unchanged when nil.
+	HealthCheckMethod *string
+	// HealthCheckHTTPVersion leaves its current value unchanged when nil.
 	HealthCheckHTTPVersion *string
-	HealthCheckDomainName  *string
+	// HealthCheckDomainName leaves its current value unchanged when nil.
+	HealthCheckDomainName *string
+	// HealthCheckSuccessCode leaves its current value unchanged when nil.
 	HealthCheckSuccessCode *string
-	HealthyThreshold       *int
-	UnhealthyThreshold     *int
-	HealthCheckInterval    *int
-	HealthCheckTimeout     *int
+	// HealthyThreshold leaves its current value unchanged when nil.
+	HealthyThreshold *int
+	// UnhealthyThreshold leaves its current value unchanged when nil.
+	UnhealthyThreshold *int
+	// HealthCheckInterval leaves its current value unchanged when nil.
+	HealthCheckInterval *int
+	// HealthCheckTimeout leaves its current value unchanged when nil.
+	HealthCheckTimeout *int
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
-}
-
-type UpdatePoolOutput struct {
-	Pool Pool
 }
 
 // updatePoolAnySet reports whether in sets at least one field, so
@@ -558,13 +591,14 @@ func poolBusyWaiter(c *Client, op, lbID, poolID string) func(ctx context.Context
 
 // DeletePoolInput identifies the pool to delete.
 type DeletePoolInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
-
-type DeletePoolOutput struct{}
 
 // DeletePool deletes a pool. It lists the load balancer's listeners first
 // and returns ErrInUse, sending nothing, when one names PoolID as its

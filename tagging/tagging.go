@@ -53,6 +53,7 @@ const ResourceTypeVirtualIPAddress = "VIRTUAL-IP-ADDRESS"
 
 // Tag is one key/value pair on a resource. SystemTag is true for a tag the
 // platform manages.
+// See docs/design/vserver-network-writes-2-api.md.
 type Tag struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
@@ -74,9 +75,11 @@ func New(cfg vngcloud.Config) *Client {
 
 // ListResourceTagsInput reads every tag on a resource, whatever its type.
 type ListResourceTagsInput struct {
+	// ResourceID identifies the resource and must be a valid path ID.
 	ResourceID string `vngcloud:"required"`
 }
 
+// ListResourceTagsOutput holds the resource's system and user tags.
 type ListResourceTagsOutput struct {
 	Items []Tag
 }
@@ -109,10 +112,14 @@ const systemTagPrefix = "vng."
 // on the resource unchanged. ResourceType is sent exactly as given; see the
 // package doc for the resource types confirmed or named for it.
 type TagResourceInput struct {
-	ResourceID   string `vngcloud:"required"`
+	// ResourceID identifies the resource and must be a valid path ID.
+	ResourceID string `vngcloud:"required"`
+	// ResourceType is required and sent unchanged to the server.
 	ResourceType string `vngcloud:"required"`
-	Key          string `vngcloud:"required"`
+	// Key must be nonempty and must not identify a system tag.
+	Key string `vngcloud:"required"`
 
+	// Value is the value to set; an empty value is allowed.
 	Value string
 }
 
@@ -171,9 +178,12 @@ func (c *Client) TagResource(ctx context.Context, in *TagResourceInput) (*TagRes
 
 // UntagResourceInput removes Key from ResourceID's tags.
 type UntagResourceInput struct {
-	ResourceID   string `vngcloud:"required"`
+	// ResourceID identifies the resource and must be a valid path ID.
+	ResourceID string `vngcloud:"required"`
+	// ResourceType is required and sent unchanged to the server.
 	ResourceType string `vngcloud:"required"`
-	Key          string `vngcloud:"required"`
+	// Key must be nonempty and must not identify a system tag.
+	Key string `vngcloud:"required"`
 }
 
 // UntagResourceOutput is the resource's whole tag list, system tags

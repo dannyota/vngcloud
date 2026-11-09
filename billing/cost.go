@@ -18,12 +18,18 @@ const maxCostResourcesSize = 200
 // GetCostOverviewInput scopes the cost explorer overview to a date range and
 // optional filters.
 type GetCostOverviewInput struct {
-	StartDate    string `vngcloud:"required"`
-	EndDate      string `vngcloud:"required"`
-	Product      string
+	// StartDate is required in YYYY-MM-DD form.
+	StartDate string `vngcloud:"required"`
+	// EndDate is required in YYYY-MM-DD form.
+	EndDate string `vngcloud:"required"`
+	// Product is sent as the product filter when nonempty.
+	Product string
+	// ResourceType is sent as the resourceType filter when nonempty.
 	ResourceType string
-	ResourceID   string
-	Query        string
+	// ResourceID is sent as the resourceId filter when nonempty.
+	ResourceID string
+	// Query is sent as the q filter when nonempty.
+	Query string
 
 	// GroupBy is "product", "resourceType", or "resourceId"; empty sends "product".
 	GroupBy string
@@ -31,6 +37,7 @@ type GetCostOverviewInput struct {
 	Interval string
 }
 
+// GetCostOverviewOutput holds the cost summary and grouped series.
 type GetCostOverviewOutput struct {
 	Summary   CostSummary
 	Series    []CostSeries
@@ -50,6 +57,7 @@ type costOverviewData struct {
 	GroupBy   string       `json:"groupBy"`
 }
 
+// GetCostOverview reads a cost summary for the selected dates and filters.
 func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) (*GetCostOverviewOutput, error) {
 	const op = "billing.GetCostOverview"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -98,18 +106,29 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 // optional filters, and a page. Page starts at 1; non-positive values select
 // the first page.
 type ListCostResourcesInput struct {
-	StartDate    string `vngcloud:"required"`
-	EndDate      string `vngcloud:"required"`
-	Product      string
+	// StartDate is required in YYYY-MM-DD form.
+	StartDate string `vngcloud:"required"`
+	// EndDate is required in YYYY-MM-DD form.
+	EndDate string `vngcloud:"required"`
+	// Product is sent as the product filter when nonempty.
+	Product string
+	// ResourceType is sent as the resourceType filter when nonempty.
 	ResourceType string
-	ResourceID   string
-	Query        string
-	Page         int
-	Size         int
-	Sort         string
-	Order        string
+	// ResourceID is sent as the resourceId filter when nonempty.
+	ResourceID string
+	// Query is sent as the q filter when nonempty.
+	Query string
+	// Page starts at 1; nonpositive values select the first page.
+	Page int
+	// Size defaults to 200 when nonpositive or above 200.
+	Size int
+	// Sort is sent as the sort parameter when nonempty.
+	Sort string
+	// Order is sent as the order parameter when nonempty.
+	Order string
 }
 
+// ListCostResourcesOutput holds a page of resource costs and its summary.
 type ListCostResourcesOutput struct {
 	core.PagedList[CostResource]
 	Summary CostResourceSummary
@@ -129,6 +148,7 @@ type costResourcesData struct {
 	Summary    CostResourceSummary `json:"summary"`
 }
 
+// ListCostResources reads a page of resource costs for the selected dates.
 func (c *Client) ListCostResources(ctx context.Context, in *ListCostResourcesInput) (*ListCostResourcesOutput, error) {
 	const op = "billing.ListCostResources"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -207,10 +227,12 @@ func costQuery(startDate, endDate, product, resourceType, resourceID, query stri
 // caller is authenticated as.
 type GetBalancesInput struct{}
 
+// GetBalancesOutput holds the account balances.
 type GetBalancesOutput struct {
 	Balances Balances
 }
 
+// GetBalances reads balances for the authenticated account.
 func (c *Client) GetBalances(ctx context.Context, in *GetBalancesInput) (*GetBalancesOutput, error) {
 	const op = "billing.GetBalances"
 	if err := core.CheckRequired(op, in); err != nil {

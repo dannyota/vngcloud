@@ -46,15 +46,19 @@ func checkPolicyStatements(op string, statements []Statement) error {
 	return nil
 }
 
-// CreatePolicyInput's Statements go through checkPolicyStatements (shape
+// CreatePolicyInput sends Statements through checkPolicyStatements (shape
 // only) and then the privileged-policy guard, before any request; see
 // guard.go.
 type CreatePolicyInput struct {
-	Name        string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Description is sent as description in the create body.
 	Description string
-	Statements  []Statement `vngcloud:"required"`
+	// Statements is required.
+	Statements []Statement `vngcloud:"required"`
 }
 
+// CreatePolicyOutput holds the result of CreatePolicy.
 type CreatePolicyOutput struct {
 	Policy Policy
 }
@@ -134,17 +138,22 @@ func wrapAmbiguousPolicyCreateErr(op string, err error) error {
 	return fmt.Errorf("%s: create may have already reached the server; check with list-policies --name before creating it again: %w", op, err)
 }
 
-// UpdatePolicyInput's nil fields are filled from the policy's current state
+// UpdatePolicyInput fills nil fields from the policy's current state
 // before sending, because the API's PUT may replace the whole policy; see
 // guard.go and CreatePolicyInput's Statements note. PolicyID must not be
 // managed and must not be, or become, privileged; see guard.go.
 type UpdatePolicyInput struct {
-	PolicyID    string `vngcloud:"required"`
-	Name        *string
+	// PolicyID is required.
+	PolicyID string `vngcloud:"required"`
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Description leaves its current value unchanged when nil.
 	Description *string
-	Statements  *[]Statement
+	// Statements leaves its current value unchanged when nil.
+	Statements *[]Statement
 }
 
+// UpdatePolicyOutput holds the result of UpdatePolicy.
 type UpdatePolicyOutput struct {
 	Policy Policy
 }
@@ -224,9 +233,11 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 // DeletePolicyInput identifies the policy to delete. It must not be managed
 // and must not be attached to anything; see guard.go.
 type DeletePolicyInput struct {
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
 }
 
+// DeletePolicyOutput carries no result fields.
 type DeletePolicyOutput struct{}
 
 // DeletePolicy deletes a customer policy. The guard runs first and sends

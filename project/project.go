@@ -23,12 +23,16 @@ func New(cfg vngcloud.Config) *Client {
 // Project is a GreenNode project.
 type Project = core.Project
 
+// ListProjectsInput optionally selects a region for project discovery.
 type ListProjectsInput struct {
+	// Region overrides the configured region when nonempty.
 	Region string
 }
 
+// ListProjectsOutput holds the projects visible in the selected region.
 type ListProjectsOutput = core.List[Project]
 
+// ListProjects reads projects visible to the configured account.
 func (c *Client) ListProjects(ctx context.Context, in *ListProjectsInput) (*ListProjectsOutput, error) {
 	var opts *core.ListProjectsOptions
 	if in != nil {

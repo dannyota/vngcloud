@@ -12,8 +12,10 @@ import (
 // paging.
 type ListGroupsInput struct{}
 
+// ListGroupsOutput holds GroupSummary items.
 type ListGroupsOutput = core.List[GroupSummary]
 
+// ListGroups reads groups.
 func (c *Client) ListGroups(ctx context.Context, in *ListGroupsInput) (*ListGroupsOutput, error) {
 	const op = "iam.ListGroups"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -33,14 +35,18 @@ func (c *Client) ListGroups(ctx context.Context, in *ListGroupsInput) (*ListGrou
 	return &ListGroupsOutput{Items: groups}, nil
 }
 
+// GetGroupInput requires GroupID.
 type GetGroupInput struct {
+	// GroupID is required.
 	GroupID string `vngcloud:"required"`
 }
 
+// GetGroupOutput holds the result of GetGroup.
 type GetGroupOutput struct {
 	Group Group
 }
 
+// GetGroup reads group.
 func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutput, error) {
 	const op = "iam.GetGroup"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -76,13 +82,18 @@ func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutp
 // ListGroupPoliciesInput pages GroupID's attached policies. A non-positive
 // Size sends core.DefaultPageSize, and Page 0 is the first page.
 type ListGroupPoliciesInput struct {
+	// GroupID is required.
 	GroupID string `vngcloud:"required"`
-	Page    int
-	Size    int
+	// Page starts at zero; negative values select zero.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListGroupPoliciesOutput holds PolicySummary items.
 type ListGroupPoliciesOutput = core.List[PolicySummary]
 
+// ListGroupPolicies reads group policies.
 func (c *Client) ListGroupPolicies(ctx context.Context, in *ListGroupPoliciesInput) (*ListGroupPoliciesOutput, error) {
 	const op = "iam.ListGroupPolicies"
 	if err := core.CheckRequired(op, in); err != nil {

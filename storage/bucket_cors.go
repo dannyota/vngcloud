@@ -38,13 +38,17 @@ type CORSRule struct {
 	ExposedHeaders []string
 }
 
+// GetBucketCORSInput requires ProjectID and Bucket.
 type GetBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// GetBucketCORSOutput holds the result of GetBucketCORS.
 type GetBucketCORSOutput struct {
 	// Rules is empty, never nil, when the bucket has no rules.
 	Rules []CORSRule
@@ -103,15 +107,19 @@ func (c *Client) GetBucketCORS(ctx context.Context, in *GetBucketCORSInput) (*Ge
 	return out, nil
 }
 
+// PutBucketCORSInput requires ProjectID, Bucket and Rules.
 type PutBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 	// Rules replaces every rule of the bucket. It is not empty.
 	Rules []CORSRule `vngcloud:"required"`
 }
 
+// PutBucketCORSOutput carries no result fields.
 type PutBucketCORSOutput struct{}
 
 // corsPutRule is the body the server reads: capitalised keys. The server
@@ -216,13 +224,17 @@ func checkCORSRules(op string, rules []CORSRule) error {
 	return nil
 }
 
+// DeleteBucketCORSInput requires ProjectID and Bucket.
 type DeleteBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// DeleteBucketCORSOutput carries no result fields.
 type DeleteBucketCORSOutput struct{}
 
 // DeleteBucketCORS removes every CORS rule of a bucket. A bucket with none

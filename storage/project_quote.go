@@ -17,14 +17,22 @@ import (
 // CreateProjectInput describes a one-month package. Quotes ignore Name,
 // MaxPrice, and NoWait.
 type CreateProjectInput struct {
-	Region   string
-	Name     string
-	Type     string `vngcloud:"required"`
-	QuotaGB  int64  `vngcloud:"required"`
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// Name names the project and is ignored by QuoteCreateProject.
+	Name string
+	// Type is required.
+	Type string `vngcloud:"required"`
+	// QuotaGB is required.
+	QuotaGB int64 `vngcloud:"required"`
+	// MaxPrice bounds the selected term's VND quote; QuoteCreateProject ignores it.
 	MaxPrice float64
-	NoWait   bool
+	// NoWait skips the post-order wait; QuoteCreateProject ignores it.
+	NoWait bool
 }
 
+// ProjectPriceProperty holds project price property data from the API.
+// See docs/design/storage-projects-api.md.
 type ProjectPriceProperty struct {
 	OptimumPrice    float64  `json:"optimumPrice"`
 	MonthlyPrice    float64  `json:"monthlyPrice"`
@@ -33,6 +41,7 @@ type ProjectPriceProperty struct {
 	Description     *string  `json:"description"`
 }
 
+// QuoteCreateProjectOutput holds the result of QuoteCreateProject.
 type QuoteCreateProjectOutput struct {
 	OptimumPrice    float64
 	OriginalPrice   float64

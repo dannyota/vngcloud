@@ -9,6 +9,7 @@ import (
 // Project is a vStorage project, a paid storage package in one region.
 // TotalQuota is in GB. Fields the API leaves null, such as Period, decode as
 // zero.
+// See docs/design/storage-projects-api.md.
 type Project struct {
 	ID               string  `json:"projectId"`
 	Name             string  `json:"projectName"`
@@ -27,10 +28,13 @@ type Project struct {
 	AutoRenewPeriod  *int    `json:"autoRenewPeriod"`
 }
 
+// ListProjectsInput selects parameters for ListProjects.
 type ListProjectsInput struct {
+	// Region selects the storage region using normal region resolution.
 	Region string
 }
 
+// ListProjectsOutput holds Project items.
 type ListProjectsOutput = core.List[Project]
 
 // ListProjects lists the vStorage projects in a region.

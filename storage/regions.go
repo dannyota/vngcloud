@@ -11,6 +11,7 @@ import (
 )
 
 // Region is a vStorage region.
+// See docs/design/storage-projects-api.md.
 type Region struct {
 	ID             string `json:"regionId"`
 	Name           string `json:"regionName"`
@@ -24,8 +25,10 @@ type Region struct {
 	Status         int    `json:"status"`
 }
 
+// ListRegionsInput takes no fields.
 type ListRegionsInput struct{}
 
+// ListRegionsOutput holds Region items.
 type ListRegionsOutput = core.List[Region]
 
 // ListRegions lists the vStorage regions.

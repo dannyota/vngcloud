@@ -15,6 +15,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ErrLimit marks an exceeded discovery request or row limit.
 var ErrLimit = errors.New("discovery limit exceeded")
 
 // Session belongs to one serial invocation, never to a shared client.
@@ -55,11 +56,15 @@ func WithTestContextObserver(ctx context.Context, observe func(context.Context))
 	return context.WithValue(ctx, testContextObserverKey{}, observe)
 }
 
+// Exchanger sends discovery requests and wraps their errors.
 type Exchanger interface {
+	// WrapDiscoveryError converts an exchange failure for discovery.
 	WrapDiscoveryError(error) error
+	// DoDiscoveryJSONStatus sends one bounded JSON exchange.
 	DoDiscoveryJSONStatus(context.Context, transport.Request, any, func(context.Context) error) (int, error)
 }
 
+// New creates a bounded discovery session; zero requests selects 500.
 func New(ctx context.Context, maxRequests int) (*Session, error) {
 	if maxRequests == 0 {
 		maxRequests = 500
@@ -78,11 +83,20 @@ func New(ctx context.Context, maxRequests int) (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) Close()                   { s.cancel() }
+// Close cancels the discovery session.
+func (s *Session) Close() { s.cancel() }
+
+// Context returns the bounded session context.
 func (s *Session) Context() context.Context { return s.ctx }
-func (s *Session) MaxRequests() int         { return s.max }
-func (s *Session) Requests() int            { return s.requests }
-func (s *Session) CompletedAt() time.Time   { return s.now().UTC() }
+
+// MaxRequests returns the session request limit.
+func (s *Session) MaxRequests() int { return s.max }
+
+// Requests returns the number of requests attempted.
+func (s *Session) Requests() int { return s.requests }
+
+// CompletedAt returns the session clock in UTC.
+func (s *Session) CompletedAt() time.Time { return s.now().UTC() }
 
 func sleep(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
@@ -95,6 +109,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// BeforeAttempt enforces the session limits before a request.
 func (s *Session) BeforeAttempt(ctx context.Context) error {
 	if err := s.ctx.Err(); err != nil {
 		return err
@@ -133,6 +148,7 @@ func (s *Session) Preflight(calls int) error {
 	return nil
 }
 
+// AddRows reserves rows within the 10000-row limit.
 func (s *Session) AddRows(n int) error {
 	if err := s.ctx.Err(); err != nil {
 		return err

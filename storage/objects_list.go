@@ -22,11 +22,16 @@ import (
 
 // ListObjectsInput selects one bounded page of object names in one bucket.
 type ListObjectsInput struct {
-	Bucket            string
-	Prefix            string
-	Delimiter         string
+	// Bucket names the bucket to list.
+	Bucket string
+	// Prefix limits the returned names and must be valid UTF-8 up to 1024 bytes.
+	Prefix string
+	// Delimiter is empty or a slash.
+	Delimiter string
+	// ContinuationToken resumes a previous page when nonempty.
 	ContinuationToken string
-	MaxKeys           int
+	// MaxKeys is at most 1000; zero selects 1000.
+	MaxKeys int
 }
 
 // ObjectSummary describes one listed object without downloading it.

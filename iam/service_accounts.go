@@ -12,13 +12,18 @@ import (
 // filtered by Name. A non-positive Size sends core.DefaultPageSize, and
 // Page 0 is the first page.
 type ListServiceAccountsInput struct {
+	// Name is sent as the name query parameter when nonempty.
 	Name string
+	// Page starts at zero; negative values select zero.
 	Page int
+	// Size uses the default when not positive.
 	Size int
 }
 
+// ListServiceAccountsOutput holds ServiceAccount items.
 type ListServiceAccountsOutput = core.List[ServiceAccount]
 
+// ListServiceAccounts reads service accounts.
 func (c *Client) ListServiceAccounts(ctx context.Context, in *ListServiceAccountsInput) (*ListServiceAccountsOutput, error) {
 	const op = "iam.ListServiceAccounts"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -47,14 +52,18 @@ func (c *Client) ListServiceAccounts(ctx context.Context, in *ListServiceAccount
 	return &ListServiceAccountsOutput{Items: resp.Data}, nil
 }
 
+// GetServiceAccountInput requires ServiceAccountID.
 type GetServiceAccountInput struct {
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
+// GetServiceAccountOutput holds the result of GetServiceAccount.
 type GetServiceAccountOutput struct {
 	ServiceAccount ServiceAccount
 }
 
+// GetServiceAccount reads service account.
 func (c *Client) GetServiceAccount(ctx context.Context, in *GetServiceAccountInput) (*GetServiceAccountOutput, error) {
 	const op = "iam.GetServiceAccount"
 	if err := core.CheckRequired(op, in); err != nil {

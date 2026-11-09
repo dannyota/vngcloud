@@ -15,9 +15,13 @@ import (
 const userWriteMaxBody = 64 << 10
 const userWriteWithheld = "IAM user request failed; response withheld"
 
+// CreateUserInput requires Username.
 type CreateUserInput struct {
-	Username       string `vngcloud:"required"`
-	Password       vngcloud.Secret
+	// Username is required.
+	Username string `vngcloud:"required"`
+	// Password is used when set; empty generates a password.
+	Password vngcloud.Secret
+	// PasswordLength sets the generated password length and requires an empty Password.
 	PasswordLength int
 }
 
@@ -136,9 +140,13 @@ func userCreateUncertain(cause error) error {
 	return fmt.Errorf("%s: %w", message, ErrUserCreateUncertain)
 }
 
+// DeleteUserInput requires UserID.
 type DeleteUserInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
 }
+
+// DeleteUserOutput carries no result fields.
 type DeleteUserOutput struct{}
 
 // DeleteUser refuses self and non-IAM targets before deleting. It retains

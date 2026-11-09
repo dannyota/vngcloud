@@ -10,7 +10,9 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// GetServerConsoleLogInput requires ServerID.
 type GetServerConsoleLogInput struct {
+	// ServerID is required.
 	ServerID string `vngcloud:"required"`
 }
 
@@ -20,6 +22,7 @@ type GetServerConsoleLogOutput struct {
 	Log vngcloud.Secret
 }
 
+// GetServerConsoleLog reads server console log.
 func (c *Client) GetServerConsoleLog(ctx context.Context, in *GetServerConsoleLogInput) (*GetServerConsoleLogOutput, error) {
 	const op = "compute.GetServerConsoleLog"
 	if err := core.CheckRequired(op, in); err != nil {

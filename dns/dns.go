@@ -69,18 +69,23 @@ func (c *Client) url(parts []string, q url.Values) string {
 	return c.c.RouteURL(routes.Route{Product: routes.ProductDNS, Version: "v1", Parts: parts, Query: q})
 }
 
-// ListHostedZonesInput's Page and Size page through the account's zones; a
+// ListHostedZonesInput selects a page of the account's zones; a
 // caller that must see every zone, such as a cleanup routine, loops from
 // Page 1 to the Output's TotalPage rather than assuming one call returns
 // them all.
 type ListHostedZonesInput struct {
+	// Name is sent as the name filter when nonempty.
 	Name string
+	// Page selects a page; a nonpositive value uses the default.
 	Page int
+	// Size selects the page size; a nonpositive value uses the default.
 	Size int
 }
 
+// ListHostedZonesOutput holds a page of hosted zones.
 type ListHostedZonesOutput = core.PagedList[HostedZone]
 
+// ListHostedZones reads one page of hosted zones.
 func (c *Client) ListHostedZones(ctx context.Context, in *ListHostedZonesInput) (*ListHostedZonesOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -102,14 +107,18 @@ func (c *Client) ListHostedZones(ctx context.Context, in *ListHostedZonesInput) 
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// GetHostedZoneInput identifies a hosted zone to read.
 type GetHostedZoneInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
 }
 
+// GetHostedZoneOutput holds the returned hosted zone.
 type GetHostedZoneOutput struct {
 	HostedZone HostedZone
 }
 
+// GetHostedZone reads a hosted zone by ID.
 func (c *Client) GetHostedZone(ctx context.Context, in *GetHostedZoneInput) (*GetHostedZoneOutput, error) {
 	const op = "dns.GetHostedZone"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -132,13 +141,18 @@ func (c *Client) GetHostedZone(ctx context.Context, in *GetHostedZoneInput) (*Ge
 	return &GetHostedZoneOutput{HostedZone: resp.Data}, nil
 }
 
+// ListRecordsInput selects records in a hosted zone.
 type ListRecordsInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
-	Name         string
+	// Name is sent as the name filter when nonempty.
+	Name string
 }
 
+// ListRecordsOutput holds the returned records and page metadata.
 type ListRecordsOutput = core.PagedList[Record]
 
+// ListRecords reads records in a hosted zone.
 func (c *Client) ListRecords(ctx context.Context, in *ListRecordsInput) (*ListRecordsOutput, error) {
 	const op = "dns.ListRecords"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -163,15 +177,20 @@ func (c *Client) ListRecords(ctx context.Context, in *ListRecordsInput) (*ListRe
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// GetRecordInput identifies a record to read.
 type GetRecordInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
-	RecordID     string `vngcloud:"required"`
+	// RecordID identifies the record and must be a valid path ID.
+	RecordID string `vngcloud:"required"`
 }
 
+// GetRecordOutput holds the returned record.
 type GetRecordOutput struct {
 	Record Record
 }
 
+// GetRecord reads a hosted zone record by ID.
 func (c *Client) GetRecord(ctx context.Context, in *GetRecordInput) (*GetRecordOutput, error) {
 	const op = "dns.GetRecord"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -213,11 +232,14 @@ type listRecordsResponse struct {
 	TotalItem int      `json:"totalItem"`
 }
 
+// VPCMapRegion maps a VPC to a region in a hosted zone response.
+// See docs/design/dns.md.
 type VPCMapRegion struct {
 	VPCID  string `json:"vpcId"`
 	Region string `json:"region"`
 }
 
+// HostedZone holds a hosted zone response. See docs/design/dns.md.
 type HostedZone struct {
 	ID                string         `json:"hostedZoneId"`
 	DomainName        string         `json:"domainName"`
@@ -233,12 +255,14 @@ type HostedZone struct {
 	UpdatedAt         time.Time      `json:"updatedAt"`
 }
 
+// RecordValue holds a DNS record value. See docs/design/dns.md.
 type RecordValue struct {
 	Value    string  `json:"value"`
 	Location *string `json:"location,omitempty"`
 	Weight   *int    `json:"weight,omitempty"`
 }
 
+// Record holds a DNS record response. See docs/design/dns.md.
 type Record struct {
 	ID                  string        `json:"recordId"`
 	SubDomain           string        `json:"subDomain"`

@@ -16,21 +16,31 @@ import (
 	"danny.vn/vngcloud/pricing"
 )
 
+// ListVolumePricesInput selects parameters for ListVolumePrices.
 type ListVolumePricesInput struct {
-	ZoneID       string
+	// ZoneID selects one returned zone; empty selects all zones in the configured region.
+	ZoneID string
+	// VolumeTypeID filters by the volume type ID when nonempty.
 	VolumeTypeID string
-	IOPS         int
-	Size         int
-	Encryption   string
-	MaxRequests  int
+	// IOPS filters by exact IOPS when positive; zero leaves it unbounded.
+	IOPS int
+	// Size sets the volume size; zero uses each offering minimum.
+	Size int
+	// Encryption selects all, none, or an encryption key; empty selects all.
+	Encryption string
+	// MaxRequests limits physical requests; zero selects 500 and the maximum is 2000.
+	MaxRequests int
+	// AllowPartial retains partial results and reports incomplete discovery when set.
 	AllowPartial bool
 }
 
+// ListVolumePricesOutput holds the result of ListVolumePrices.
 type ListVolumePricesOutput struct {
 	Items    []VolumePrice
 	Metadata pricing.DiscoveryMetadata
 }
 
+// VolumePrice holds a volume offering and its discovered price.
 type VolumePrice struct {
 	VolumeType       VolumeType
 	ZoneID           string

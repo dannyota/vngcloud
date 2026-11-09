@@ -211,15 +211,22 @@ type createChannelResponse struct {
 // either one set with the other empty fails with core.ErrInvalidInput
 // before any request, since Validate OTP needs both.
 type CreateChannelInput struct {
-	Name    string `vngcloud:"required"`
-	Type    string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Type is required.
+	Type string `vngcloud:"required"`
+	// Address is required.
 	Address string `vngcloud:"required"`
 
+	// Headers sends no header value when nil or empty.
 	Headers []ChannelHeader
-	OTPRef  string
-	OTP     string
+	// OTPRef must be set with OTP for channel types that need an OTP.
+	OTPRef string
+	// OTP must be set with OTPRef for channel types that need an OTP.
+	OTP string
 }
 
+// CreateChannelOutput holds the result of CreateChannel.
 type CreateChannelOutput struct {
 	Channel Channel
 }
@@ -331,15 +338,22 @@ type updateChannelBody struct {
 // channel takes neither; UpdateChannel refuses one set for it once
 // GetChannel's read shows the channel's type, before validating anything.
 type UpdateChannelInput struct {
+	// ChannelID is required.
 	ChannelID string `vngcloud:"required"`
 
-	Name    *string
+	// Name keeps the current name when nil.
+	Name *string
+	// Address keeps the current address when nil.
 	Address *string
+	// Headers keeps current headers when nil; an empty slice clears them.
 	Headers *[]ChannelHeader
-	OTPRef  string
-	OTP     string
+	// OTPRef must be set together with OTP or left empty with it.
+	OTPRef string
+	// OTP must be set together with OTPRef or left empty with it.
+	OTP string
 }
 
+// UpdateChannelOutput holds the result of UpdateChannel.
 type UpdateChannelOutput struct {
 	Channel Channel
 }
@@ -480,9 +494,11 @@ func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*Up
 
 // DeleteChannelInput identifies the channel to delete.
 type DeleteChannelInput struct {
+	// ChannelID is required.
 	ChannelID string `vngcloud:"required"`
 }
 
+// DeleteChannelOutput carries no result fields.
 type DeleteChannelOutput struct{}
 
 // DeleteChannel deletes a channel. Deleting a channel a check still names in

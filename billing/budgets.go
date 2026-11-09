@@ -16,8 +16,10 @@ type ListBudgetsInput struct {
 	Status string
 }
 
+// ListBudgetsOutput holds the returned budget summaries.
 type ListBudgetsOutput = core.List[Budget]
 
+// ListBudgets reads budget summaries, optionally filtered by status.
 func (c *Client) ListBudgets(ctx context.Context, in *ListBudgetsInput) (*ListBudgetsOutput, error) {
 	if err := core.CheckRequired("billing.ListBudgets", in); err != nil {
 		return nil, err
@@ -46,13 +48,16 @@ func (c *Client) ListBudgets(ctx context.Context, in *ListBudgetsInput) (*ListBu
 
 // GetBudgetInput identifies the budget to read.
 type GetBudgetInput struct {
+	// BudgetUUID identifies the budget and must be a valid path ID.
 	BudgetUUID string `vngcloud:"required"`
 }
 
+// GetBudgetOutput holds the returned budget.
 type GetBudgetOutput struct {
 	Budget Budget
 }
 
+// GetBudget reads a budget by ID.
 func (c *Client) GetBudget(ctx context.Context, in *GetBudgetInput) (*GetBudgetOutput, error) {
 	const op = "billing.GetBudget"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -79,10 +84,12 @@ func (c *Client) GetBudget(ctx context.Context, in *GetBudgetInput) (*GetBudgetO
 // current billing period.
 type GetCurrentPeriodCostInput struct{}
 
+// GetCurrentPeriodCostOutput holds the account's current period cost.
 type GetCurrentPeriodCostOutput struct {
 	PeriodCost PeriodCost
 }
 
+// GetCurrentPeriodCost reads the account's current period cost.
 func (c *Client) GetCurrentPeriodCost(ctx context.Context, in *GetCurrentPeriodCostInput) (*GetCurrentPeriodCostOutput, error) {
 	const op = "billing.GetCurrentPeriodCost"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -104,11 +111,14 @@ func (c *Client) GetCurrentPeriodCost(ctx context.Context, in *GetCurrentPeriodC
 
 // ListBudgetThresholdsInput identifies the budget whose thresholds to list.
 type ListBudgetThresholdsInput struct {
+	// BudgetUUID identifies the budget and must be a valid path ID.
 	BudgetUUID string `vngcloud:"required"`
 }
 
+// ListBudgetThresholdsOutput holds the budget's thresholds.
 type ListBudgetThresholdsOutput = core.List[Threshold]
 
+// ListBudgetThresholds reads thresholds for a budget.
 func (c *Client) ListBudgetThresholds(ctx context.Context, in *ListBudgetThresholdsInput) (*ListBudgetThresholdsOutput, error) {
 	const op = "billing.ListBudgetThresholds"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -134,12 +144,16 @@ func (c *Client) ListBudgetThresholds(ctx context.Context, in *ListBudgetThresho
 // ListBudgetAlertsInput identifies the budget whose alerts to list, and
 // optionally the billing period, in "YYYY-MM" form, to filter to.
 type ListBudgetAlertsInput struct {
+	// BudgetUUID identifies the budget and must be a valid path ID.
 	BudgetUUID string `vngcloud:"required"`
-	PeriodKey  string
+	// PeriodKey filters by billing period in YYYY-MM form when nonempty.
+	PeriodKey string
 }
 
+// ListBudgetAlertsOutput holds the returned alerts.
 type ListBudgetAlertsOutput = core.List[Alert]
 
+// ListBudgetAlerts reads a budget's alerts, optionally filtered by period.
 func (c *Client) ListBudgetAlerts(ctx context.Context, in *ListBudgetAlertsInput) (*ListBudgetAlertsOutput, error) {
 	const op = "billing.ListBudgetAlerts"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -173,13 +187,18 @@ var writeOK = []int{200, 201, 204}
 // CreateBudgetInput creates a budget. Status empty sends ACTIVE.
 type CreateBudgetInput struct {
 	// Name must match ^[a-zA-Z][a-zA-Z0-9 _.@-]*$; the server enforces it.
-	Name        string `vngcloud:"required"`
-	PeriodType  string `vngcloud:"required"`
-	Type        string `vngcloud:"required"`
-	LimitAmount int64  `vngcloud:"required"`
-	Status      string
+	Name string `vngcloud:"required"`
+	// PeriodType is required and sent as periodType.
+	PeriodType string `vngcloud:"required"`
+	// Type is required and sent as type.
+	Type string `vngcloud:"required"`
+	// LimitAmount is required and sent as limitAmount.
+	LimitAmount int64 `vngcloud:"required"`
+	// Status defaults to ACTIVE when empty.
+	Status string
 }
 
+// CreateBudgetOutput holds the created budget.
 type CreateBudgetOutput struct {
 	Budget Budget
 }
@@ -232,16 +251,24 @@ func (c *Client) CreateBudget(ctx context.Context, in *CreateBudgetInput) (*Crea
 // pausing a budget is UpdateBudget with Status set to StatusPaused and every
 // other field left nil.
 type UpdateBudgetInput struct {
-	BudgetUUID  string `vngcloud:"required"`
-	Name        *string
-	PeriodType  *string
-	Type        *string
+	// BudgetUUID identifies the budget and must be a valid path ID.
+	BudgetUUID string `vngcloud:"required"`
+	// Name sets the name when non-nil.
+	Name *string
+	// PeriodType sets periodType when non-nil.
+	PeriodType *string
+	// Type sets type when non-nil.
+	Type *string
+	// LimitAmount sets limitAmount when non-nil.
 	LimitAmount *int64
-	Status      *string
+	// Status sets status when non-nil.
+	Status *string
 }
 
+// UpdateBudgetOutput confirms the update request succeeded.
 type UpdateBudgetOutput struct{}
 
+// UpdateBudget sends the fields selected by non-nil pointers.
 func (c *Client) UpdateBudget(ctx context.Context, in *UpdateBudgetInput) (*UpdateBudgetOutput, error) {
 	const op = "billing.UpdateBudget"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -287,11 +314,14 @@ func (c *Client) UpdateBudget(ctx context.Context, in *UpdateBudgetInput) (*Upda
 // DeleteBudgetInput identifies the budget to delete. Deleting a budget
 // deletes its thresholds on the server; the SDK does not delete them first.
 type DeleteBudgetInput struct {
+	// BudgetUUID identifies the budget and must be a valid path ID.
 	BudgetUUID string `vngcloud:"required"`
 }
 
+// DeleteBudgetOutput confirms the delete request succeeded.
 type DeleteBudgetOutput struct{}
 
+// DeleteBudget deletes a budget and its server-managed thresholds.
 func (c *Client) DeleteBudget(ctx context.Context, in *DeleteBudgetInput) (*DeleteBudgetOutput, error) {
 	const op = "billing.DeleteBudget"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -322,7 +352,9 @@ const (
 // CreateBudgetThresholdInput creates an alert threshold on a budget. The SDK
 // always sends comparisonOperator "GTE", the only value the console offers.
 type CreateBudgetThresholdInput struct {
-	BudgetUUID    string `vngcloud:"required"`
+	// BudgetUUID identifies the budget and must be a valid path ID.
+	BudgetUUID string `vngcloud:"required"`
+	// ThresholdType is required and sent as thresholdType.
 	ThresholdType string `vngcloud:"required"`
 	// ThresholdPercentage must be 1 or more; the server enforces it.
 	ThresholdPercentage int `vngcloud:"required"`
@@ -332,6 +364,7 @@ type CreateBudgetThresholdInput struct {
 	ReminderIntervalHours int
 }
 
+// CreateBudgetThresholdOutput holds the created threshold.
 type CreateBudgetThresholdOutput struct {
 	Threshold Threshold
 }
@@ -346,6 +379,7 @@ type createThresholdBody struct {
 	ReminderIntervalHours int    `json:"reminderIntervalHours"`
 }
 
+// CreateBudgetThreshold creates a threshold for a budget.
 func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThresholdInput) (*CreateBudgetThresholdOutput, error) {
 	const op = "billing.CreateBudgetThreshold"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -390,16 +424,24 @@ func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThre
 
 // UpdateBudgetThresholdInput changes a threshold. Only non-nil fields are sent.
 type UpdateBudgetThresholdInput struct {
-	BudgetUUID            string `vngcloud:"required"`
-	ThresholdUUID         string `vngcloud:"required"`
-	ThresholdPercentage   *int
-	Enabled               *bool
-	MaxAlertsPerPeriod    *int
+	// BudgetUUID identifies the budget and must be a valid path ID.
+	BudgetUUID string `vngcloud:"required"`
+	// ThresholdUUID identifies the threshold and must be a valid path ID.
+	ThresholdUUID string `vngcloud:"required"`
+	// ThresholdPercentage sets thresholdPercentage when non-nil.
+	ThresholdPercentage *int
+	// Enabled sets enabled when non-nil.
+	Enabled *bool
+	// MaxAlertsPerPeriod sets maxAlertsPerPeriod when non-nil.
+	MaxAlertsPerPeriod *int
+	// ReminderIntervalHours sets reminderIntervalHours when non-nil.
 	ReminderIntervalHours *int
 }
 
+// UpdateBudgetThresholdOutput confirms the update request succeeded.
 type UpdateBudgetThresholdOutput struct{}
 
+// UpdateBudgetThreshold sends the fields selected by non-nil pointers.
 func (c *Client) UpdateBudgetThreshold(ctx context.Context, in *UpdateBudgetThresholdInput) (*UpdateBudgetThresholdOutput, error) {
 	const op = "billing.UpdateBudgetThreshold"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -444,12 +486,16 @@ func (c *Client) UpdateBudgetThreshold(ctx context.Context, in *UpdateBudgetThre
 
 // DeleteBudgetThresholdInput identifies the threshold to delete.
 type DeleteBudgetThresholdInput struct {
-	BudgetUUID    string `vngcloud:"required"`
+	// BudgetUUID identifies the budget and must be a valid path ID.
+	BudgetUUID string `vngcloud:"required"`
+	// ThresholdUUID identifies the threshold and must be a valid path ID.
 	ThresholdUUID string `vngcloud:"required"`
 }
 
+// DeleteBudgetThresholdOutput confirms the delete request succeeded.
 type DeleteBudgetThresholdOutput struct{}
 
+// DeleteBudgetThreshold deletes a budget threshold by ID.
 func (c *Client) DeleteBudgetThreshold(ctx context.Context, in *DeleteBudgetThresholdInput) (*DeleteBudgetThresholdOutput, error) {
 	const op = "billing.DeleteBudgetThreshold"
 	if err := core.CheckRequired(op, in); err != nil {

@@ -30,17 +30,21 @@ const (
 	deletePollBound    = 30 * time.Second
 )
 
+// DeleteBucketInput requires ProjectID and Bucket.
 type DeleteBucketInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 
 	// NoWait returns as soon as the server accepts the delete, without
 	// waiting for the bucket to disappear.
 	NoWait bool
 }
 
+// DeleteBucketOutput carries no result fields.
 type DeleteBucketOutput struct{}
 
 // bucketUsage holds the details fields the delete guard reads. Pointers tell

@@ -18,9 +18,12 @@ import (
 // not change the price and never reach the billing gateway.
 type CreateVolumeInput struct {
 	// Name must not match an existing volume's name exactly.
-	Name         string `vngcloud:"required"`
-	ZoneID       string `vngcloud:"required"`
-	Size         int    `vngcloud:"required"`
+	Name string `vngcloud:"required"`
+	// ZoneID is required.
+	ZoneID string `vngcloud:"required"`
+	// Size is required.
+	Size int `vngcloud:"required"`
+	// VolumeTypeID is required.
 	VolumeTypeID string `vngcloud:"required"`
 
 	// EncryptionTypeID, optional, is an ID from ListEncryptionTypes. It is

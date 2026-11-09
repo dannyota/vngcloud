@@ -12,9 +12,12 @@ import (
 
 // AttachVolumeInput identifies the volume and the server to attach it to.
 type AttachVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
+	// ServerID is required.
 	ServerID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
@@ -92,11 +95,15 @@ func (c *Client) AttachVolume(ctx context.Context, in *AttachVolumeInput) (*Atta
 // can lose unwritten data; stop the server first, or unmount and pass
 // AllowRunning.
 type DetachVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
+	// ServerID is required.
 	ServerID string `vngcloud:"required"`
 
+	// AllowRunning allows detachment without requiring the server to be stopped.
 	AllowRunning bool
-	NoWait       bool
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
 // DetachVolumeOutput is the volume after the call, and whether the call

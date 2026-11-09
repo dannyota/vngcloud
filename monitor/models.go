@@ -12,14 +12,19 @@ import (
 // recognize is returned to the caller as is; PauseCheck and ResumeCheck
 // refuse to toggle it rather than guess what it means.
 const (
-	StatusEnabled  = "ENABLED"
+	// StatusEnabled is the "ENABLED" check status.
+	StatusEnabled = "ENABLED"
+	// StatusDisabled is the "DISABLED" check status.
 	StatusDisabled = "DISABLED"
 )
 
 // MonitorStatus constants name known probe states. Unknown states pass through.
 const (
-	MonitorStatusOK           = "OK"
-	MonitorStatusAlarm        = "ALARM"
+	// MonitorStatusOK is the "OK" monitor status.
+	MonitorStatusOK = "OK"
+	// MonitorStatusAlarm is the "ALARM" monitor status.
+	MonitorStatusAlarm = "ALARM"
+	// MonitorStatusUndetermined is the "UNDETERMINED" monitor status.
 	MonitorStatusUndetermined = "UNDETERMINED"
 )
 
@@ -28,6 +33,7 @@ const (
 // state. Added fields can affect unkeyed literals and exact JSON snapshots.
 // CreatedAt and UpdatedAt hold the API's formatted local-time strings;
 // the SDK does not parse them.
+// See docs/design/monitor.md.
 type Check struct {
 	ID             string             `json:"id"`
 	Name           string             `json:"name"`
@@ -46,6 +52,7 @@ type Check struct {
 
 // CheckNotifications names, by ID, which Channels a check alerts on each
 // alarm transition. CreateCheck sends [] for every list left nil.
+// See docs/design/monitor.md.
 type CheckNotifications struct {
 	InAlarm      []string `json:"In-alarm"`
 	Up           []string `json:"Up"`
@@ -54,6 +61,7 @@ type CheckNotifications struct {
 
 // CheckConfig holds the request a check sends and the assertions it
 // evaluates on the response.
+// See docs/design/monitor.md.
 type CheckConfig struct {
 	Request    CheckRequest `json:"request"`
 	Assertions []Assertion  `json:"assertions"`
@@ -63,6 +71,7 @@ type CheckConfig struct {
 // Query decode as string-valued maps; the live capture behind this design
 // has only shown them empty, so a header or query parameter sent with more
 // than one value, if the API allows one, is not yet confirmed to decode.
+// See docs/design/monitor.md.
 type CheckRequest struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method"`
@@ -96,6 +105,7 @@ func (r *CheckRequest) UnmarshalJSON(data []byte) error {
 // response. The console's default checks the response status is not a 4xx
 // or 5xx: Type "status_code", Operator "does_not_match_regex", Target
 // "[4-5][0-9][0-9]".
+// See docs/design/monitor.md.
 type Assertion struct {
 	Type     string `json:"type"`
 	Operator string `json:"operator"`
@@ -105,6 +115,7 @@ type Assertion struct {
 // CheckOptions controls how often and where a check runs, and how many
 // failing locations mark it down. The API sends all three fields as an
 // integral decimal, such as 60.0; UnmarshalJSON accepts either shape.
+// See docs/design/monitor.md.
 type CheckOptions struct {
 	// TestFrequency is in minutes.
 	TestFrequency   int `json:"test_frequency"`
@@ -137,16 +148,22 @@ func (o *CheckOptions) UnmarshalJSON(data []byte) error {
 // console no longer creates one. Channel.Type is a plain string field, so a
 // type the console adds later reaches the caller unchanged.
 const (
-	ChannelTypeEmail    = "Email"
-	ChannelTypeSlack    = "Slack"
-	ChannelTypeSMS      = "SMS"
+	// ChannelTypeEmail is the "Email" channel type.
+	ChannelTypeEmail = "Email"
+	// ChannelTypeSlack is the "Slack" channel type.
+	ChannelTypeSlack = "Slack"
+	// ChannelTypeSMS is the "SMS" channel type.
+	ChannelTypeSMS = "SMS"
+	// ChannelTypeTelegram is the "Telegram" channel type.
 	ChannelTypeTelegram = "Telegram"
-	ChannelTypeWebhook  = "Webhook"
+	// ChannelTypeWebhook is the "Webhook" channel type.
+	ChannelTypeWebhook = "Webhook"
 )
 
 // ChannelType is one kind of notification channel ListChannelTypes can
 // return, and the shape of the typeNotification object a Channel read
 // embeds.
+// See docs/design/monitor.md.
 type ChannelType struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -155,6 +172,7 @@ type ChannelType struct {
 
 // ChannelHeader is one key/value pair a Webhook channel sends with every
 // notification.
+// See docs/design/monitor.md.
 type ChannelHeader struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -167,6 +185,7 @@ type ChannelHeader struct {
 // hold a secret, such as a webhook URL or a header value carrying a token:
 // the SDK returns them unchanged, because UpdateChannel needs them to resend
 // the full body, and the CLI redacts them on print.
+// See docs/design/monitor.md.
 type Channel struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -271,6 +290,7 @@ func decodeChannelHeaders(raw string) []ChannelHeader {
 // sends api_key, user_id, uptimes, and deleted_at; the SDK drops them, the
 // same way it drops any field a caller's struct omits. Both locations seen
 // so far have Type PUBLIC.
+// See docs/design/monitor.md.
 type Location struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

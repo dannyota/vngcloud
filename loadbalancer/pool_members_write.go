@@ -282,19 +282,29 @@ func (c *Client) poolPreWritePool(ctx context.Context, op, lbID, poolID string) 
 
 // AddPoolMemberInput adds one member to a pool.
 type AddPoolMemberInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-	Address        string `vngcloud:"required"`
-	Port           int    `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
+	// Address is required.
+	Address string `vngcloud:"required"`
+	// Port is required.
+	Port int `vngcloud:"required"`
 
-	Name        string
-	Weight      int
+	// Name is sent with the new member.
+	Name string
+	// Weight defaults to 1 when zero.
+	Weight int
+	// MonitorPort defaults to Port when zero.
 	MonitorPort int
-	Backup      bool
+	// Backup is sent with the new member.
+	Backup bool
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// AddPoolMemberOutput holds the result of AddPoolMember.
 type AddPoolMemberOutput struct {
 	Pool    Pool
 	Changed bool
@@ -392,19 +402,29 @@ func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*Ad
 // the member and cannot themselves be changed: remove it and add it again
 // under a new address or port.
 type UpdatePoolMemberInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-	Address        string `vngcloud:"required"`
-	Port           int    `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
+	// Address is required.
+	Address string `vngcloud:"required"`
+	// Port is required.
+	Port int `vngcloud:"required"`
 
-	Name        *string
-	Weight      *int
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Weight leaves its current value unchanged when nil.
+	Weight *int
+	// MonitorPort leaves its current value unchanged when nil.
 	MonitorPort *int
-	Backup      *bool
+	// Backup leaves its current value unchanged when nil.
+	Backup *bool
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// UpdatePoolMemberOutput holds the result of UpdatePoolMember.
 type UpdatePoolMemberOutput struct {
 	Pool    Pool
 	Changed bool
@@ -505,14 +525,20 @@ func (c *Client) UpdatePoolMember(ctx context.Context, in *UpdatePoolMemberInput
 // RemovePoolMemberInput identifies the member to remove by Address and
 // Port.
 type RemovePoolMemberInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	PoolID         string `vngcloud:"required"`
-	Address        string `vngcloud:"required"`
-	Port           int    `vngcloud:"required"`
+	// PoolID is required.
+	PoolID string `vngcloud:"required"`
+	// Address is required.
+	Address string `vngcloud:"required"`
+	// Port is required.
+	Port int `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// RemovePoolMemberOutput holds the result of RemovePoolMember.
 type RemovePoolMemberOutput struct {
 	Pool    Pool
 	Changed bool

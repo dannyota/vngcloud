@@ -9,12 +9,16 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListVolumeTypeZonesInput selects parameters for ListVolumeTypeZones.
 type ListVolumeTypeZonesInput struct {
+	// ZoneID is sent as the zoneId filter when nonempty.
 	ZoneID string
 }
 
+// ListVolumeTypeZonesOutput holds VolumeTypeZone items.
 type ListVolumeTypeZonesOutput = core.List[VolumeTypeZone]
 
+// ListVolumeTypeZones reads volume type zones.
 func (c *Client) ListVolumeTypeZones(ctx context.Context, in *ListVolumeTypeZonesInput) (*ListVolumeTypeZonesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -39,6 +43,7 @@ func (c *Client) ListVolumeTypeZones(ctx context.Context, in *ListVolumeTypeZone
 	return &ListVolumeTypeZonesOutput{Items: resp.VolumeTypeZones}, nil
 }
 
+// ListVolumeTypesInput selects parameters for ListVolumeTypes.
 type ListVolumeTypesInput struct {
 	// VolumeTypeZoneID lists the volume types of one volume type zone. At
 	// most one of VolumeTypeZoneID and ZoneID may be set; with neither, the
@@ -52,6 +57,7 @@ type ListVolumeTypesInput struct {
 	IOPS int
 }
 
+// ListVolumeTypesOutput holds VolumeType items.
 type ListVolumeTypesOutput = core.List[VolumeType]
 
 // ListVolumeTypes lists volume types project-wide, in one volume type zone,

@@ -58,6 +58,7 @@ func (n *snapshotInteger) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON accepts integral decimal hour and minute values.
 func (c *SnapshotPolicyConfig) UnmarshalJSON(data []byte) error {
 	type wire SnapshotPolicyConfig
 	decoded := struct {
@@ -73,6 +74,7 @@ func (c *SnapshotPolicyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON preserves absent values and accepts integral decimals.
 func (c *SnapshotPolicyHourlyConfig) UnmarshalJSON(data []byte) error {
 	var decoded struct {
 		Interval  *snapshotInteger `json:"interval"`
@@ -86,6 +88,7 @@ func (c *SnapshotPolicyHourlyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON preserves absent values and accepts integral decimals.
 func (c *SnapshotPolicyDailyConfig) UnmarshalJSON(data []byte) error {
 	var decoded struct {
 		Retention *snapshotInteger `json:"retention"`

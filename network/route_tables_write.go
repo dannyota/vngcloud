@@ -66,9 +66,11 @@ var (
 
 // GetRouteTableInput identifies the route table to read.
 type GetRouteTableInput struct {
+	// RouteTableID is required.
 	RouteTableID string `vngcloud:"required"`
 }
 
+// GetRouteTableOutput holds the result of GetRouteTable.
 type GetRouteTableOutput struct {
 	RouteTable RouteTable
 }
@@ -120,12 +122,16 @@ type createRouteTableResponse struct {
 // CreateRouteTableInput creates an empty route table in a VPC. Route tables
 // are created with no routes; add one afterward with AddRoute.
 type CreateRouteTableInput struct {
+	// VPCID is required.
 	VPCID string `vngcloud:"required"`
-	Name  string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreateRouteTableOutput holds the result of CreateRouteTable.
 type CreateRouteTableOutput struct {
 	RouteTable RouteTable
 }
@@ -206,11 +212,14 @@ func wrapAmbiguousRouteTableCreateErr(op string, err error) error {
 
 // DeleteRouteTableInput identifies the route table to delete.
 type DeleteRouteTableInput struct {
+	// RouteTableID is required.
 	RouteTableID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteRouteTableOutput carries no result fields.
 type DeleteRouteTableOutput struct{}
 
 // DeleteRouteTable deletes a route table. It reads the table first with

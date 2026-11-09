@@ -16,8 +16,11 @@ import (
 // GetObjectInput selects one object and a finite download bound.
 // Zero MaxBytes selects DefaultMaxDownloadBytes.
 type GetObjectInput struct {
-	Bucket   string
-	Key      string
+	// Bucket names the bucket containing the object.
+	Bucket string
+	// Key identifies the object to download.
+	Key string
+	// MaxBytes bounds the download; zero selects DefaultMaxDownloadBytes.
 	MaxBytes int64
 }
 

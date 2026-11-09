@@ -34,13 +34,18 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
 }
 
+// ListRepositoriesInput selects parameters for ListRepositories.
 type ListRepositoriesInput struct {
+	// AccessLevel defaults to ALL when empty.
 	AccessLevel string
-	Name        string
+	// Name is sent as the name query parameter.
+	Name string
 }
 
+// ListRepositoriesOutput holds Repository items and pagination metadata.
 type ListRepositoriesOutput = core.PagedList[Repository]
 
+// ListRepositories reads repositories.
 func (c *Client) ListRepositories(ctx context.Context, in *ListRepositoriesInput) (*ListRepositoriesOutput, error) {
 	q := url.Values{}
 	accessLevel := "ALL"
@@ -66,14 +71,20 @@ func (c *Client) ListRepositories(ctx context.Context, in *ListRepositoriesInput
 	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
+// ListUsersInput selects parameters for ListUsers.
 type ListUsersInput struct {
+	// Name is sent as the name query parameter.
 	Name string
+	// Page uses the default when not positive.
 	Page int
+	// Size uses the default when not positive.
 	Size int
 }
 
+// ListUsersOutput holds User items and pagination metadata.
 type ListUsersOutput = core.PagedList[User]
 
+// ListUsers reads users.
 func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersOutput, error) {
 	name, page, size := "", 0, 0
 	if in != nil {
@@ -94,12 +105,17 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 
 // ListRepositoryUsersInput identifies the repository whose users are listed.
 type ListRepositoryUsersInput struct {
+	// RepositoryID is required.
 	RepositoryID string `vngcloud:"required"`
-	Name         string
-	Page         int
-	Size         int
+	// Name is sent as the name query parameter.
+	Name string
+	// Page uses the default when not positive.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListRepositoryUsersOutput holds User items and pagination metadata.
 type ListRepositoryUsersOutput = core.PagedList[User]
 
 // ListRepositoryUsers lists the users attached to a repository.
@@ -129,6 +145,7 @@ func (c *Client) ListRepositoryUsers(ctx context.Context, in *ListRepositoryUser
 // repository or user.
 type ListPermissionsInput struct{}
 
+// ListPermissionsOutput holds Permission items.
 type ListPermissionsOutput = core.List[Permission]
 
 // ListPermissions reads every action the server accepts in a user's
@@ -225,6 +242,7 @@ func (r *listUsersResponse) UnmarshalJSON(data []byte) error {
 // field: the API never reports one, so CreateRepository and
 // DeleteRepository confirm by reading the repository rather than waiting on
 // a status value.
+// See docs/design/vcr-writes.md.
 type Repository struct {
 	ID            string  `json:"uuid"`
 	Name          string  `json:"name"`
@@ -283,6 +301,7 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 // the server expects. UserID's own relation to the account has not been
 // confirmed by a live capture; UnmarshalJSON below handles a live capture
 // showing the server sends it as a JSON number, not a string.
+// See docs/design/vcr-writes.md.
 type User struct {
 	ID                   string                 `json:"uuid"`
 	Name                 string                 `json:"name"`
@@ -337,6 +356,7 @@ func (u *User) UnmarshalJSON(data []byte) error {
 
 // RepositoryPermission is one repository a User can act on, and the
 // policies it grants there.
+// See docs/design/vcr-writes.md.
 type RepositoryPermission struct {
 	RepositoryID          string       `json:"repoId"`
 	RepositoryName        string       `json:"repoName"`
@@ -348,6 +368,7 @@ type RepositoryPermission struct {
 // policy id CreateUser sends for it. ListPermissions returns the server's
 // whole list; a RepositoryPermission's own Policies field reuses the same
 // shape for the policies a particular user already holds.
+// See docs/design/vcr-writes.md.
 type Permission struct {
 	ID     string `json:"uuid"`
 	Action string `json:"action"`

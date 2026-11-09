@@ -9,6 +9,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// Project holds project data from the API. See docs/design/sdk-and-cli.md.
 type Project struct {
 	ID        string `json:"projectId"`
 	Name      string `json:"name,omitempty"`
@@ -18,7 +19,9 @@ type Project struct {
 	UserID    int    `json:"userId,omitempty"`
 }
 
+// ListProjectsOptions selects the region used to filter projects.
 type ListProjectsOptions struct {
+	// Region overrides the configured region when nonempty.
 	Region string
 }
 
@@ -26,6 +29,7 @@ type listProjectsResponse struct {
 	Projects []Project `json:"projects"`
 }
 
+// ListProjects reads projects.
 func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([]Project, error) {
 	if c.err != nil {
 		return nil, c.err
@@ -84,10 +88,12 @@ func (c *Client) discoverProjectLocked(ctx context.Context) error {
 	}
 }
 
+// IsProjectNotFound reports whether project discovery found no project.
 func IsProjectNotFound(err error) bool {
 	return errors.Is(err, ErrProjectNotFound)
 }
 
+// IsProjectAmbiguous reports whether project discovery found multiple projects.
 func IsProjectAmbiguous(err error) bool {
 	return errors.Is(err, ErrProjectAmbiguous)
 }

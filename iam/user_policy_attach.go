@@ -12,10 +12,13 @@ import (
 // The guard refuses, with no request sent, when the policy is privileged or
 // the target is protected; see group_guard.go.
 type AttachUserPolicyInput struct {
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
-	UserID   string `vngcloud:"required"`
+	// UserID is required.
+	UserID string `vngcloud:"required"`
 }
 
+// AttachUserPolicyOutput carries no result fields.
 type AttachUserPolicyOutput struct{}
 
 // AttachUserPolicy attaches PolicyID directly to UserID.
@@ -59,10 +62,13 @@ func (c *Client) AttachUserPolicy(ctx context.Context, in *AttachUserPolicyInput
 // The guard refuses, with no request sent, when the policy is privileged or
 // the target is protected; see group_guard.go.
 type DetachUserPolicyInput struct {
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
-	UserID   string `vngcloud:"required"`
+	// UserID is required.
+	UserID string `vngcloud:"required"`
 }
 
+// DetachUserPolicyOutput carries no result fields.
 type DetachUserPolicyOutput struct{}
 
 // DetachUserPolicy detaches PolicyID from UserID.

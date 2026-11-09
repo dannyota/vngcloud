@@ -17,12 +17,17 @@ var ErrProjectNotEmpty = errors.New("storage: project has buckets")
 
 const projectDeleteRecovery = "List projects in the same region and inspect billing before another delete attempt."
 
+// DeleteProjectInput requires ProjectID.
 type DeleteProjectInput struct {
-	Region    string
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	NoWait    bool
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
+// DeleteProjectOutput carries no result fields.
 type DeleteProjectOutput struct{}
 
 // DeleteProject deletes a project only after a complete list proves it exists

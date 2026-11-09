@@ -11,13 +11,19 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// EnableUserMFAInput requires UserID and Method.
 type EnableUserMFAInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
+	// Method is required.
 	Method string `vngcloud:"required"`
 }
 
+// DisableUserMFAInput requires UserID and Method.
 type DisableUserMFAInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
+	// Method is required.
 	Method string `vngcloud:"required"`
 }
 

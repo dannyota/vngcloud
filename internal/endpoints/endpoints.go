@@ -9,10 +9,14 @@ import (
 // hosts 301-redirect here, but Go strips the Authorization header on
 // cross-domain redirects, so the SDK must target these hosts directly.
 const (
-	ConsoleDomain    = "console.greennode.ai"
-	DefaultSignin    = "https://signin.greennode.ai"
+	// ConsoleDomain is the GreenNode console domain.
+	ConsoleDomain = "console.greennode.ai"
+	// DefaultSignin is the default sign-in endpoint.
+	DefaultSignin = "https://signin.greennode.ai"
+	// DefaultDashboard is the default dashboard endpoint.
 	DefaultDashboard = "https://dashboard.console.greennode.ai/"
-	DefaultToken     = DefaultDashboard + "accounts-api/v1/auth/token"
+	// DefaultToken is the default token endpoint.
+	DefaultToken = DefaultDashboard + "accounts-api/v1/auth/token"
 
 	// DefaultCDNDocs is the public FAQ page listing GreenNode's CDN IP
 	// ranges. It must stay on greennode.ai: the old docs.vngcloud.vn URL
@@ -43,6 +47,7 @@ const (
 	DefaultCDN = "https://vcdn-api.vngcloud.vn/vcdn-api/"
 )
 
+// Overrides supplies explicit service endpoints.
 type Overrides struct {
 	VServer            string
 	VLB                string
@@ -67,6 +72,7 @@ type Overrides struct {
 	BackupCenter       string
 }
 
+// Set holds resolved service endpoints for a region.
 type Set struct {
 	Region        string
 	VServer       string
@@ -95,6 +101,7 @@ var backupCenterEndpoints = map[string]string{
 	"hcm-3": "https://hcm-3.api.vngcloud.vn/vbackup-gateway/",
 }
 
+// ResolveIAMUser resolves regional endpoints and applies overrides.
 func ResolveIAMUser(region string, overrides Overrides) Set {
 	set := Set{
 		Region:        region,

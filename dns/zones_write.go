@@ -25,13 +25,18 @@ type createHostedZoneBody struct {
 // post-create wait for StatusActive; see the package doc's discussion of
 // waits.
 type CreateHostedZoneInput struct {
-	DomainName string   `vngcloud:"required"`
-	VPCIDs     []string `vngcloud:"required"`
+	// DomainName is required and names the private zone.
+	DomainName string `vngcloud:"required"`
+	// VPCIDs must contain at least one VPC association.
+	VPCIDs []string `vngcloud:"required"`
 
+	// Description is sent with the create request.
 	Description string
-	NoWait      bool
+	// NoWait skips the post-create wait.
+	NoWait bool
 }
 
+// CreateHostedZoneOutput holds the created zone, including when settling fails.
 type CreateHostedZoneOutput struct {
 	HostedZone HostedZone
 }
@@ -112,13 +117,18 @@ type updateHostedZoneBody struct {
 // keeps the zone's current VPCs and never sends []. At least one of VPCIDs
 // and Description must be set.
 type UpdateHostedZoneInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
 
-	VPCIDs      *[]string
+	// VPCIDs replaces associations; nil retains them and an empty slice detaches all.
+	VPCIDs *[]string
+	// Description replaces the description; nil retains it.
 	Description *string
-	NoWait      bool
+	// NoWait skips the post-update wait but still reads once.
+	NoWait bool
 }
 
+// UpdateHostedZoneOutput holds the last zone read or the fields sent.
 type UpdateHostedZoneOutput struct {
 	HostedZone HostedZone
 }
@@ -222,10 +232,13 @@ func (c *Client) UpdateHostedZone(ctx context.Context, in *UpdateHostedZoneInput
 
 // DeleteHostedZoneInput identifies the zone to delete.
 type DeleteHostedZoneInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
-	NoWait       bool
+	// NoWait skips the post-delete wait.
+	NoWait bool
 }
 
+// DeleteHostedZoneOutput confirms the delete request succeeded.
 type DeleteHostedZoneOutput struct{}
 
 // DeleteHostedZone deletes a zone. Deleting a zone that still holds any

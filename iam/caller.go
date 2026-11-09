@@ -79,11 +79,15 @@ func (c *Client) getCallerIdentity(ctx context.Context, in *GetCallerIdentityInp
 // core.DefaultPageSize, and Page 0 is the first page. Name is an optional
 // server-side filter, sent without trimming or case normalization.
 type ListUsersInput struct {
+	// Page starts at zero; negative values select zero.
 	Page int
+	// Size uses the default when not positive.
 	Size int
+	// Name is sent as the name query parameter when nonempty.
 	Name string
 }
 
+// ListUsersOutput holds User items.
 type ListUsersOutput = core.List[User]
 
 // ListUsers lists one page of the account's IAM users. The server has been

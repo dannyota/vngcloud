@@ -39,12 +39,16 @@ type sendOTPBody struct {
 // same way CreateChannel and UpdateChannel encode theirs, so the caller
 // passes the same value to both calls.
 type SendChannelOTPInput struct {
-	Type    string `vngcloud:"required"`
+	// Type is required.
+	Type string `vngcloud:"required"`
+	// Address is required.
 	Address string `vngcloud:"required"`
 
+	// Headers uses the same encoding as the channel write.
 	Headers []ChannelHeader
 }
 
+// SendChannelOTPOutput holds the result of SendChannelOTP.
 type SendChannelOTPOutput struct {
 	// Ref identifies this OTP to the validate step CreateChannel or
 	// UpdateChannel performs internally when the caller sets OTPRef and OTP.

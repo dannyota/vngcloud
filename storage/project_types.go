@@ -17,6 +17,7 @@ import (
 )
 
 // ProjectType holds catalog metadata and regional package prices.
+// See docs/design/storage-projects-api.md.
 type ProjectType struct {
 	ID                int                       `json:"id"`
 	Name              string                    `json:"name"`
@@ -38,6 +39,7 @@ type ProjectType struct {
 }
 
 // ProjectBillableResource identifies a catalog billing option.
+// See docs/design/storage-projects-api.md.
 type ProjectBillableResource struct {
 	ID             int    `json:"id"`
 	Name           string `json:"name"`
@@ -61,7 +63,13 @@ type ProjectOffer struct {
 	Currency         string
 }
 
-type ListProjectTypesInput struct{ Region string }
+// ListProjectTypesInput selects parameters for ListProjectTypes.
+type ListProjectTypesInput struct {
+	// Region selects the storage region using normal region resolution.
+	Region string
+}
+
+// ListProjectTypesOutput holds ProjectType items.
 type ListProjectTypesOutput = core.List[ProjectType]
 
 type projectPurchaseType struct {

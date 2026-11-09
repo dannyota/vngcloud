@@ -11,16 +11,22 @@ import (
 
 // Budget enum values, sent and received on the wire as is.
 const (
-	PeriodMonthly   = "MONTHLY"
+	// PeriodMonthly is the "MONTHLY" budget period.
+	PeriodMonthly = "MONTHLY"
+	// PeriodQuarterly is the "QUARTERLY" budget period.
 	PeriodQuarterly = "QUARTERLY"
-	TypeActual      = "ACTUAL"
-	TypeForecasted  = "FORECASTED"
-	StatusActive    = "ACTIVE"
-	StatusPaused    = "PAUSED"
+	// TypeActual is the "ACTUAL" budget type.
+	TypeActual = "ACTUAL"
+	// TypeForecasted is the "FORECASTED" budget type.
+	TypeForecasted = "FORECASTED"
+	// StatusActive is the "ACTIVE" budget status.
+	StatusActive = "ACTIVE"
+	// StatusPaused is the "PAUSED" budget status.
+	StatusPaused = "PAUSED"
 )
 
 // Budget is a spend cap on one period type. GetBudget may omit the cost and
-// percentage fields, so they are pointers.
+// percentage fields, so they are pointers. See docs/design/billing.md.
 type Budget struct {
 	UUID                 string   `json:"uuid"`
 	ID                   int64    `json:"id"`
@@ -80,6 +86,7 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 }
 
 // PeriodCost is the current billing period's actual and forecasted cost.
+// See docs/design/billing.md.
 type PeriodCost struct {
 	PeriodKey      string  `json:"periodKey"`
 	PeriodStart    string  `json:"periodStart"`
@@ -89,6 +96,7 @@ type PeriodCost struct {
 }
 
 // Threshold triggers a budget alert once its percentage is reached.
+// See docs/design/billing.md.
 type Threshold struct {
 	UUID                  string  `json:"uuid"`
 	ThresholdType         string  `json:"thresholdType"`
@@ -101,7 +109,7 @@ type Threshold struct {
 	LastAlertAt           string  `json:"lastAlertAt"`
 }
 
-// Alert is one threshold breach notification.
+// Alert is one threshold breach notification. See docs/design/billing.md.
 type Alert struct {
 	TriggeredAt         string
 	ThresholdType       string
@@ -127,6 +135,7 @@ type alertWire struct {
 	Recipients          string  `json:"recipients"`
 }
 
+// UnmarshalJSON preserves an unrecognized recipients string as RecipientsRaw.
 func (a *Alert) UnmarshalJSON(data []byte) error {
 	var wire alertWire
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -149,12 +158,14 @@ func (a *Alert) UnmarshalJSON(data []byte) error {
 }
 
 // CostBreakdown is one entry in a cost summary's per-key breakdown.
+// See docs/design/billing.md.
 type CostBreakdown struct {
 	Key  string  `json:"key"`
 	Cost float64 `json:"cost"`
 }
 
 // CostSummary is the cost explorer overview's headline numbers.
+// See docs/design/billing.md.
 type CostSummary struct {
 	CurrentCost    float64         `json:"currentCost"`
 	LastPeriodCost float64         `json:"lastPeriodCost"`
@@ -165,12 +176,14 @@ type CostSummary struct {
 }
 
 // CostSeries is one point in the cost explorer overview's trend chart.
+// See docs/design/billing.md.
 type CostSeries struct {
 	Date string  `json:"date"`
 	Cost float64 `json:"cost"`
 }
 
 // CostResource is one row of the per-resource cost list.
+// See docs/design/billing.md.
 type CostResource struct {
 	ResourceID   string `json:"resourceId"`
 	ResourceName string `json:"resourceName"`
@@ -184,6 +197,7 @@ type CostResource struct {
 }
 
 // CostResourceSummary totals the per-resource cost list.
+// See docs/design/billing.md.
 type CostResourceSummary struct {
 	TotalAll       float64 `json:"totalAll"`
 	ActiveCount    int     `json:"activeCount"`
@@ -192,6 +206,7 @@ type CostResourceSummary struct {
 
 // Balances holds an account's cash and POC (pay-on-credit) balances. Each
 // field is nil when the account has no balance of that kind.
+// See docs/design/billing.md.
 type Balances struct {
 	Cash          *float64
 	POC           *float64
@@ -208,6 +223,7 @@ type balancesWire struct {
 	POCHolding    json.RawMessage `json:"pocHolding"`
 }
 
+// UnmarshalJSON accepts numeric strings, numbers, and null balance values.
 func (b *Balances) UnmarshalJSON(data []byte) error {
 	var wire balancesWire
 	if err := json.Unmarshal(data, &wire); err != nil {

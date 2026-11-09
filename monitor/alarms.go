@@ -15,8 +15,10 @@ import (
 // AlarmKindMetric and AlarmKindLog name the two kinds of Alarm ListAlarms
 // filters on, matching the type-alarm query value the console sends.
 const (
+	// AlarmKindMetric is the "Metric" alarm kind.
 	AlarmKindMetric = "Metric"
-	AlarmKindLog    = "Log"
+	// AlarmKindLog is the "Log" alarm kind.
+	AlarmKindLog = "Log"
 )
 
 // alarmRoute builds a URL under the Monitor endpoint's alarm API prefix,
@@ -33,14 +35,21 @@ func (c *Client) alarmRoute(parts []string, q url.Values) string {
 // result; a non-positive value sends core.DefaultPage and
 // core.DefaultPageSize, as core.PageQuery does for other services.
 type ListAlarmsInput struct {
-	Kind     string `vngcloud:"required"`
-	Name     string
-	Status   string
+	// Kind is required.
+	Kind string `vngcloud:"required"`
+	// Name filters by name when nonempty.
+	Name string
+	// Status filters by status when nonempty.
+	Status string
+	// Severity filters by severity when nonempty.
 	Severity string
-	Page     int
-	Size     int
+	// Page uses the default when not positive.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListAlarmsOutput holds Alarm items and pagination metadata.
 type ListAlarmsOutput = core.PagedList[Alarm]
 
 // ListAlarms lists alarms of one Kind on the account. It always sends the
@@ -107,9 +116,11 @@ type listAlarmsResponse struct {
 
 // GetAlarmInput identifies the alarm to read.
 type GetAlarmInput struct {
+	// AlarmID is required.
 	AlarmID string `vngcloud:"required"`
 }
 
+// GetAlarmOutput holds the result of GetAlarm.
 type GetAlarmOutput struct {
 	Alarm Alarm
 }
@@ -164,6 +175,7 @@ func (c *Client) getAlarm(ctx context.Context, op, id string) (*Alarm, error) {
 // leaves it empty); ListAlarms then overwrites it from its own Kind filter,
 // since a list is always filtered to one kind regardless of what the wire
 // sends. Nothing else is modeled until a live read confirms more.
+// See docs/design/monitor.md.
 type Alarm struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

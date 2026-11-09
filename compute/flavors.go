@@ -10,6 +10,7 @@ import (
 
 // FlavorZone is one flavor group in a network zone, such as "General
 // Purpose". ListFlavors takes its ID to list the flavors it groups.
+// See docs/design/sdk-and-cli.md.
 type FlavorZone struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -17,6 +18,7 @@ type FlavorZone struct {
 	ZoneID      string `json:"zoneId"`
 }
 
+// ListFlavorZonesInput selects parameters for ListFlavorZones.
 type ListFlavorZonesInput struct {
 	// ZoneID filters the result to flavor zones in this network zone. The
 	// API returns every flavor zone regardless of network zone; the SDK
@@ -24,6 +26,7 @@ type ListFlavorZonesInput struct {
 	ZoneID string
 }
 
+// ListFlavorZonesOutput holds FlavorZone items.
 type ListFlavorZonesOutput = core.List[FlavorZone]
 
 // ListFlavorZones lists every flavor zone, or only those in Input.ZoneID
@@ -57,6 +60,7 @@ func (c *Client) ListFlavorZones(ctx context.Context, in *ListFlavorZonesInput) 
 	return &ListFlavorZonesOutput{Items: items}, nil
 }
 
+// ListFlavorsInput selects parameters for ListFlavors.
 type ListFlavorsInput struct {
 	// FlavorZoneID lists the flavors of one flavor zone. Set exactly one of
 	// FlavorZoneID and ZoneID.
@@ -68,6 +72,7 @@ type ListFlavorsInput struct {
 	Name string
 }
 
+// ListFlavorsOutput holds Flavor items.
 type ListFlavorsOutput = core.List[Flavor]
 
 // ListFlavors lists the flavors in one flavor zone, or in every flavor zone

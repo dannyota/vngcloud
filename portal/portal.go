@@ -25,12 +25,15 @@ func New(cfg vngcloud.Config) *Client {
 	return &Client{c: core.ClientOf(cfg)}
 }
 
+// GetUserInfoInput has no filters.
 type GetUserInfoInput struct{}
 
+// GetUserInfoOutput holds the user information returned by the portal.
 type GetUserInfoOutput struct {
 	UserInfo UserInfo
 }
 
+// GetUserInfo reads the current portal user's information.
 func (c *Client) GetUserInfo(ctx context.Context, _ *GetUserInfoInput) (*GetUserInfoOutput, error) {
 	var resp flexibleObject[UserInfo]
 	if err := c.c.DoJSON(ctx, transport.Request{
@@ -44,10 +47,13 @@ func (c *Client) GetUserInfo(ctx context.Context, _ *GetUserInfoInput) (*GetUser
 	return &GetUserInfoOutput{UserInfo: resp.Value}, nil
 }
 
+// ListZonesInput has no filters.
 type ListZonesInput struct{}
 
+// ListZonesOutput holds the project zones.
 type ListZonesOutput = core.List[Zone]
 
+// ListZones reads zones for the configured project.
 func (c *Client) ListZones(ctx context.Context, _ *ListZonesInput) (*ListZonesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -65,10 +71,13 @@ func (c *Client) ListZones(ctx context.Context, _ *ListZonesInput) (*ListZonesOu
 	return &ListZonesOutput{Items: resp.Items}, nil
 }
 
+// ListQuotaUsedInput has no filters.
 type ListQuotaUsedInput struct{}
 
+// ListQuotaUsedOutput holds the project's quota entries.
 type ListQuotaUsedOutput = core.List[Quota]
 
+// ListQuotaUsed reads quota entries for the configured project.
 func (c *Client) ListQuotaUsed(ctx context.Context, _ *ListQuotaUsedInput) (*ListQuotaUsedOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -86,14 +95,18 @@ func (c *Client) ListQuotaUsed(ctx context.Context, _ *ListQuotaUsedInput) (*Lis
 	return &ListQuotaUsedOutput{Items: resp.Items}, nil
 }
 
+// GetQuotaInput selects a quota entry by name.
 type GetQuotaInput struct {
+	// Name is matched case-insensitively against the returned quota fields.
 	Name string `vngcloud:"required"`
 }
 
+// GetQuotaOutput holds the matching quota entry.
 type GetQuotaOutput struct {
 	Quota Quota
 }
 
+// GetQuota reads project quotas and returns the first entry matching Name.
 func (c *Client) GetQuota(ctx context.Context, in *GetQuotaInput) (*GetQuotaOutput, error) {
 	if err := core.CheckRequired("portal.GetQuota", in); err != nil {
 		return nil, err
@@ -110,12 +123,15 @@ func (c *Client) GetQuota(ctx context.Context, in *GetQuotaInput) (*GetQuotaOutp
 	return nil, fmt.Errorf("%w: quota %s", core.ErrNotFound, in.Name)
 }
 
+// GetTagQuotaInput has no filters.
 type GetTagQuotaInput struct{}
 
+// GetTagQuotaOutput holds the project's tag quota.
 type GetTagQuotaOutput struct {
 	TagQuota TagQuota
 }
 
+// GetTagQuota reads the tag quota for the configured project.
 func (c *Client) GetTagQuota(ctx context.Context, _ *GetTagQuotaInput) (*GetTagQuotaOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -202,6 +218,7 @@ func (r *flexibleList[T]) UnmarshalJSON(data []byte) error {
 type UserInfo map[string]any
 
 // Zone describes a portal zone. ID and UUID are separate API fields.
+// See docs/design/sdk-and-cli.md.
 type Zone struct {
 	ID            *string   `json:"id"`
 	UUID          *string   `json:"uuid"`

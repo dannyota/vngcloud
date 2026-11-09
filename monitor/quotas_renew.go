@@ -14,13 +14,19 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// RenewSyntheticQuotaInput requires ExpectedEndTime.
 type RenewSyntheticQuotaInput struct {
+	// ExpectedEndTime is required.
 	ExpectedEndTime string `vngcloud:"required"`
-	MaxPrice        float64
-	MaxDaysLeft     int
-	NoWait          bool
+	// MaxPrice bounds the renewal quote.
+	MaxPrice float64
+	// MaxDaysLeft skips an early renewal when positive; zero disables that skip.
+	MaxDaysLeft int
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
+// RenewQuotaOutput holds the result of RenewQuota.
 type RenewQuotaOutput struct {
 	QuotaMutationOutcome
 	PreviousEndTime *time.Time
@@ -29,7 +35,11 @@ type RenewQuotaOutput struct {
 	PaymentPending  bool
 	Renewed         bool
 }
+
+// RenewSyntheticQuotaOutput uses the RenewQuotaOutput result shape.
 type RenewSyntheticQuotaOutput = RenewQuotaOutput
+
+// QuoteRenewSyntheticQuotaOutput holds the result of QuoteRenewSyntheticQuota.
 type QuoteRenewSyntheticQuotaOutput = QuotaQuote
 
 type syntheticMutationInput struct {

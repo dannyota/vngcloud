@@ -13,14 +13,20 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListSnapshotPoliciesInput requires BackendID.
 type ListSnapshotPoliciesInput struct {
+	// BackendID is required.
 	BackendID string `vngcloud:"required"`
-	Page      int
-	Size      int
+	// Page defaults to 1 when zero and must not be negative.
+	Page int
+	// Size defaults to 10 when zero and must not be negative.
+	Size int
 }
 
+// ListSnapshotPoliciesOutput holds SnapshotPolicy items and pagination metadata.
 type ListSnapshotPoliciesOutput = core.PagedList[SnapshotPolicy]
 
+// ListSnapshotPolicies reads snapshot policies.
 func (c *Client) ListSnapshotPolicies(ctx context.Context, in *ListSnapshotPoliciesInput) (*ListSnapshotPoliciesOutput, error) {
 	const op = "volume.ListSnapshotPolicies"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -91,6 +97,8 @@ func (r *snapshotPoliciesResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// SnapshotPolicy holds snapshot policy data from the API.
+// See docs/design/server-services-api.md.
 type SnapshotPolicy struct {
 	ID                  string               `json:"id"`
 	Name                string               `json:"name"`
@@ -102,6 +110,8 @@ type SnapshotPolicy struct {
 	SnapshotVolumeCount int                  `json:"snapshotVolumeCount"`
 }
 
+// SnapshotPolicyConfig holds snapshot policy config data from the API.
+// See docs/design/server-services-api.md.
 type SnapshotPolicyConfig struct {
 	Hour              int                         `json:"hour"`
 	Minute            int                         `json:"minute"`
@@ -116,11 +126,15 @@ type SnapshotPolicyConfig struct {
 	StatusSendEmail   []string                    `json:"statusSendEmail"`
 }
 
+// SnapshotPolicyHourlyConfig holds snapshot policy hourly config data from the API.
+// See docs/design/server-services-api.md.
 type SnapshotPolicyHourlyConfig struct {
 	Interval  *int `json:"interval,omitempty"`
 	Retention *int `json:"retention,omitempty"`
 }
 
+// SnapshotPolicyDailyConfig holds snapshot policy daily config data from the API.
+// See docs/design/server-services-api.md.
 type SnapshotPolicyDailyConfig struct {
 	Retention *int `json:"retention,omitempty"`
 }

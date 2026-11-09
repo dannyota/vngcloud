@@ -50,13 +50,10 @@ func New(cfg vngcloud.Config) *Client {
 	}
 }
 
-type ListServersInput struct {
-	Page int
-	Size int
-}
-
+// ListServersOutput holds Server items and pagination metadata.
 type ListServersOutput = core.PagedList[Server]
 
+// ListServers reads servers.
 func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (*ListServersOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -78,14 +75,12 @@ func (c *Client) ListServers(ctx context.Context, in *ListServersInput) (*ListSe
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-type GetServerInput struct {
-	ServerID string `vngcloud:"required"`
-}
-
+// GetServerOutput holds the result of GetServer.
 type GetServerOutput struct {
 	Server Server
 }
 
+// GetServer reads server.
 func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerOutput, error) {
 	const op = "compute.GetServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -112,14 +107,10 @@ func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (*GetServerO
 	return &GetServerOutput{Server: resp.Data}, nil
 }
 
-type ListSSHKeysInput struct {
-	Name string
-	Page int
-	Size int
-}
-
+// ListSSHKeysOutput holds SSHKey items and pagination metadata.
 type ListSSHKeysOutput = core.PagedList[SSHKey]
 
+// ListSSHKeys reads ssh keys.
 func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSSHKeysOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -153,10 +144,7 @@ func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSS
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-type GetSSHKeyInput struct {
-	SSHKeyID string `vngcloud:"required"`
-}
-
+// GetSSHKeyOutput holds the result of GetSSHKey.
 type GetSSHKeyOutput struct {
 	SSHKey SSHKey
 }
@@ -194,16 +182,10 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 	return &GetSSHKeyOutput{SSHKey: resp.Data}, nil
 }
 
-type ListServerGroupsInput struct {
-	Name string
-	// Page is an offset, not a page number: it starts at 0, and each
-	// value names the index of the first item to return.
-	Page int
-	Size int
-}
-
+// ListServerGroupsOutput holds ServerGroup items and pagination metadata.
 type ListServerGroupsOutput = core.PagedList[ServerGroup]
 
+// ListServerGroups reads server groups.
 func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput) (*ListServerGroupsOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -235,10 +217,7 @@ func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
 }
 
-type GetServerGroupInput struct {
-	ServerGroupID string `vngcloud:"required"`
-}
-
+// GetServerGroupOutput holds the result of GetServerGroup.
 type GetServerGroupOutput struct {
 	ServerGroup ServerGroup
 }
@@ -278,10 +257,10 @@ func (c *Client) GetServerGroup(ctx context.Context, in *GetServerGroupInput) (*
 	return &GetServerGroupOutput{ServerGroup: resp.Data}, nil
 }
 
-type ListServerSecurityGroupsInput struct{}
-
+// ListServerSecurityGroupsOutput holds ServerSecurityGroup items.
 type ListServerSecurityGroupsOutput = core.List[ServerSecurityGroup]
 
+// ListServerSecurityGroups reads server security groups.
 func (c *Client) ListServerSecurityGroups(ctx context.Context, _ *ListServerSecurityGroupsInput) (*ListServerSecurityGroupsOutput, error) {
 	servers, err := c.ListServers(ctx, nil)
 	if err != nil {
@@ -300,10 +279,10 @@ func (c *Client) ListServerSecurityGroups(ctx context.Context, _ *ListServerSecu
 	return &ListServerSecurityGroupsOutput{Items: items}, nil
 }
 
-type ListServerGroupMembersInput struct{}
-
+// ListServerGroupMembersOutput holds ServerGroupMembership items.
 type ListServerGroupMembersOutput = core.List[ServerGroupMembership]
 
+// ListServerGroupMembers reads server group members.
 func (c *Client) ListServerGroupMembers(ctx context.Context, _ *ListServerGroupMembersInput) (*ListServerGroupMembersOutput, error) {
 	groups, err := c.ListServerGroups(ctx, nil)
 	if err != nil {
@@ -322,10 +301,10 @@ func (c *Client) ListServerGroupMembers(ctx context.Context, _ *ListServerGroupM
 	return &ListServerGroupMembersOutput{Items: items}, nil
 }
 
-type ListServerGroupPoliciesInput struct{}
-
+// ListServerGroupPoliciesOutput holds ServerGroupPolicy items.
 type ListServerGroupPoliciesOutput = core.List[ServerGroupPolicy]
 
+// ListServerGroupPolicies reads server group policies.
 func (c *Client) ListServerGroupPolicies(ctx context.Context, _ *ListServerGroupPoliciesInput) (*ListServerGroupPoliciesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -349,12 +328,10 @@ func (c *Client) ListServerGroupPolicies(ctx context.Context, _ *ListServerGroup
 	return &ListServerGroupPoliciesOutput{Items: policies}, nil
 }
 
-type ListOSImagesInput struct {
-	ZoneID string
-}
-
+// ListOSImagesOutput holds OSImage items.
 type ListOSImagesOutput = core.List[OSImage]
 
+// ListOSImages reads os images.
 func (c *Client) ListOSImages(ctx context.Context, in *ListOSImagesInput) (*ListOSImagesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -378,10 +355,10 @@ func (c *Client) ListOSImages(ctx context.Context, in *ListOSImagesInput) (*List
 	return &ListOSImagesOutput{Items: resp.Images}, nil
 }
 
-type ListGPUImagesInput struct{}
-
+// ListGPUImagesOutput holds OSImage items.
 type ListGPUImagesOutput = core.List[OSImage]
 
+// ListGPUImages reads gpu images.
 func (c *Client) ListGPUImages(ctx context.Context, _ *ListGPUImagesInput) (*ListGPUImagesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -401,13 +378,10 @@ func (c *Client) ListGPUImages(ctx context.Context, _ *ListGPUImagesInput) (*Lis
 	return &ListGPUImagesOutput{Items: resp.Images}, nil
 }
 
-type ListUserImagesInput struct {
-	Page int
-	Size int
-}
-
+// ListUserImagesOutput holds UserImage items and pagination metadata.
 type ListUserImagesOutput = core.PagedList[UserImage]
 
+// ListUserImages reads user images.
 func (c *Client) ListUserImages(ctx context.Context, in *ListUserImagesInput) (*ListUserImagesOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -495,6 +469,8 @@ func (p serverGroupPolicyResp) toPolicy() ServerGroupPolicy {
 // not need to import network to name Server.Zone's type.
 type Zone = core.NetworkZone
 
+// Server holds server data from the API.
+// See docs/design/sdk-and-cli.md.
 type Server struct {
 	BootVolumeID          string             `json:"bootVolumeId"`
 	CreatedAt             string             `json:"createdAt"`
@@ -534,6 +510,8 @@ type Server struct {
 	HostGroupID           string             `json:"hostGroupId"`
 }
 
+// NetworkInterface holds network interface data from the API.
+// See docs/design/sdk-and-cli.md.
 type NetworkInterface struct {
 	CreatedAt     string `json:"createdAt"`
 	FixedIP       string `json:"fixedIp"`
@@ -556,6 +534,7 @@ type NetworkInterface struct {
 // ZoneID comes from the embedded shape; FlavorZoneID comes from ListFlavors,
 // which groups flavors by flavor zone rather than network zone. A value
 // decoded from one source leaves the other's field at its zero value.
+// See docs/design/sdk-and-cli.md.
 type Flavor struct {
 	Bandwidth              int64  `json:"bandwidth"`
 	BandwidthUnit          string `json:"bandwidthUnit"`
@@ -573,6 +552,8 @@ type Flavor struct {
 	ZoneID                 string `json:"zoneId"`
 }
 
+// Image holds image data from the API.
+// See docs/design/sdk-and-cli.md.
 type Image struct {
 	FlavorZoneIDs []string     `json:"flavorZoneIds"`
 	ID            string       `json:"id"`
@@ -582,12 +563,16 @@ type Image struct {
 	PackageLimit  PackageLimit `json:"packageLimit"`
 }
 
+// PackageLimit holds package limit data from the API.
+// See docs/design/sdk-and-cli.md.
 type PackageLimit struct {
 	CPU      int64 `json:"cpu"`
 	DiskSize int64 `json:"diskSize"`
 	Memory   int64 `json:"memory"`
 }
 
+// ServerSecgroup holds server secgroup data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerSecgroup struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
@@ -597,6 +582,7 @@ type ServerSecgroup struct {
 // even if it did, this model would drop it rather than hold it. CreateSSHKey
 // is the only call that returns a private key, and it returns it separately
 // as a vngcloud.Secret, never on this type.
+// See docs/design/sdk-and-cli.md.
 type SSHKey struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -605,6 +591,8 @@ type SSHKey struct {
 	Status    string `json:"status"`
 }
 
+// ServerGroup holds server group data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerGroup struct {
 	UUID          string              `json:"uuid"`
 	ServerGroupID any                 `json:"serverGroupId"`
@@ -616,23 +604,31 @@ type ServerGroup struct {
 	Servers       []ServerGroupMember `json:"servers"`
 }
 
+// ServerGroupMember holds server group member data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerGroupMember struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
 }
 
+// ServerSecurityGroup holds server security group data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerSecurityGroup struct {
 	ServerID string `json:"serverId"`
 	Name     string `json:"name"`
 	UUID     string `json:"uuid"`
 }
 
+// ServerGroupMembership holds server group membership data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerGroupMembership struct {
 	ServerGroupID string `json:"serverGroupId"`
 	Name          string `json:"name"`
 	UUID          string `json:"uuid"`
 }
 
+// ServerGroupPolicy holds server group policy data from the API.
+// See docs/design/sdk-and-cli.md.
 type ServerGroupPolicy struct {
 	Name          string            `json:"name"`
 	UUID          string            `json:"uuid"`
@@ -642,6 +638,8 @@ type ServerGroupPolicy struct {
 	Descriptions  map[string]string `json:"descriptions"`
 }
 
+// OSImage holds os image data from the API.
+// See docs/design/sdk-and-cli.md.
 type OSImage struct {
 	ID            string       `json:"id"`
 	ImageType     string       `json:"imageType"`
@@ -655,6 +653,8 @@ type OSImage struct {
 	Description   string       `json:"description"`
 }
 
+// UserImage holds user image data from the API.
+// See docs/design/sdk-and-cli.md.
 type UserImage struct {
 	UUID      string  `json:"uuid"`
 	ProjectID string  `json:"projectId"`
@@ -666,10 +666,12 @@ type UserImage struct {
 	Metadata  string  `json:"metaData"`
 }
 
+// IsRunning reports whether the status is ACTIVE, ignoring case.
 func (sv Server) IsRunning() bool {
 	return strings.EqualFold(sv.Status, "ACTIVE")
 }
 
+// CanDelete reports whether the status is ACTIVE, ERROR, or STOPPED.
 func (sv Server) CanDelete() bool {
 	switch strings.ToUpper(sv.Status) {
 	case "ACTIVE", "ERROR", "STOPPED":

@@ -82,22 +82,36 @@ type checkWriteBody struct {
 // location is a known UUID; the SDK only checks that the required fields
 // are set (ADR 0002 rule 5).
 type CreateCheckInput struct {
-	Name      string   `vngcloud:"required"`
-	URL       string   `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// URL is required.
+	URL string `vngcloud:"required"`
+	// Locations is required.
 	Locations []string `vngcloud:"required"`
 
-	Method          string
-	Headers         map[string]string
-	Query           map[string]string
-	Body            string
-	Timeout         int
-	TestFrequency   int
-	Tests           int
+	// Method defaults to GET when empty.
+	Method string
+	// Headers sends an empty object when nil.
+	Headers map[string]string
+	// Query sends an empty object when nil.
+	Query map[string]string
+	// Body sends an empty string when unset.
+	Body string
+	// Timeout defaults to 10 seconds when zero.
+	Timeout int
+	// TestFrequency defaults to one minute when zero.
+	TestFrequency int
+	// Tests defaults to one when zero.
+	Tests int
+	// FailedLocations defaults to the number of locations when zero.
 	FailedLocations int
-	Assertions      []Assertion
-	Notifications   CheckNotifications
+	// Assertions uses the default HTTP status assertion when empty.
+	Assertions []Assertion
+	// Notifications sends empty channel lists when unset.
+	Notifications CheckNotifications
 }
 
+// CreateCheckOutput holds the result of CreateCheck.
 type CreateCheckOutput struct {
 	Check Check
 }
@@ -199,9 +213,11 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 
 // DeleteCheckInput identifies the check to delete.
 type DeleteCheckInput struct {
+	// CheckID is required.
 	CheckID string `vngcloud:"required"`
 }
 
+// DeleteCheckOutput carries no result fields.
 type DeleteCheckOutput struct{}
 
 // DeleteCheck deletes a check and its history. DELETE is idempotent, so the

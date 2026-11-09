@@ -7,6 +7,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListSubnets reads subnets.
 func (c *Client) ListSubnets(ctx context.Context, _ *ListSubnetsInput) (*ListSubnetsOutput, error) {
 	vpcs, err := c.ListVPCs(ctx, nil)
 	if err != nil {
@@ -23,6 +24,7 @@ func (c *Client) ListSubnets(ctx context.Context, _ *ListSubnetsInput) (*ListSub
 	return &ListSubnetsOutput{Items: items}, nil
 }
 
+// ListSubnetsByVPC reads subnets by vpc.
 func (c *Client) ListSubnetsByVPC(ctx context.Context, in *ListSubnetsByVPCInput) (*ListSubnetsByVPCOutput, error) {
 	if err := core.CheckRequired("network.ListSubnetsByVPC", in); err != nil {
 		return nil, err
@@ -50,6 +52,7 @@ func (c *Client) ListSubnetsByVPC(ctx context.Context, in *ListSubnetsByVPCInput
 	return &ListSubnetsByVPCOutput{Items: items}, nil
 }
 
+// GetVPC reads vpc.
 func (c *Client) GetVPC(ctx context.Context, in *GetVPCInput) (*GetVPCOutput, error) {
 	if err := core.CheckRequired("network.GetVPC", in); err != nil {
 		return nil, err
@@ -75,6 +78,7 @@ func (c *Client) GetVPC(ctx context.Context, in *GetVPCInput) (*GetVPCOutput, er
 	return &GetVPCOutput{VPC: resp}, nil
 }
 
+// GetSubnet reads subnet.
 func (c *Client) GetSubnet(ctx context.Context, in *GetSubnetInput) (*GetSubnetOutput, error) {
 	if err := core.CheckRequired("network.GetSubnet", in); err != nil {
 		return nil, err

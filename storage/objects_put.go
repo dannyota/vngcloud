@@ -17,11 +17,16 @@ import (
 // PutObjectInput describes one immutable, seekable object starting at offset zero.
 // The caller owns Body. Replace permits unconditional whole-object replacement.
 type PutObjectInput struct {
-	Bucket        string
-	Key           string
-	Body          io.ReadSeeker `json:"-"`
+	// Bucket names the destination bucket.
+	Bucket string
+	// Key identifies the destination object.
+	Key string
+	// Body must be seekable and is not closed by the SDK.
+	Body io.ReadSeeker `json:"-"`
+	// ContentLength is the byte count and cannot exceed MaxPutObjectSize.
 	ContentLength int64
-	Replace       bool
+	// Replace permits unconditional replacement of an existing object.
+	Replace bool
 }
 
 // PutObjectOutput describes accepted bytes. ETag is optional and opaque.

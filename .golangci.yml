@@ -19,6 +19,7 @@ linters:
     - nilerr
 
     # Style and simplification
+    - revive
     - unused
     - unconvert
     - wastedassign
@@ -41,6 +42,12 @@ linters:
     - dupword
 
   settings:
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - checkPublicInterface
+            - disableStutteringCheck
     gosec:
       excludes:
         - G101  # endpoint constants are public service URLs, not credentials

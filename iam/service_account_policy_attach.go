@@ -12,10 +12,13 @@ import (
 // to attach it to. The guard refuses, with no request sent, when the policy
 // is privileged or the target is protected; see guard.go.
 type AttachServiceAccountPolicyInput struct {
-	PolicyID         string `vngcloud:"required"`
+	// PolicyID is required.
+	PolicyID string `vngcloud:"required"`
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
+// AttachServiceAccountPolicyOutput carries no result fields.
 type AttachServiceAccountPolicyOutput struct{}
 
 // AttachServiceAccountPolicy attaches PolicyID to ServiceAccountID.
@@ -60,10 +63,13 @@ func (c *Client) AttachServiceAccountPolicy(ctx context.Context, in *AttachServi
 // to detach it from. The guard refuses, with no request sent, when the
 // policy is privileged or the target is protected; see guard.go.
 type DetachServiceAccountPolicyInput struct {
-	PolicyID         string `vngcloud:"required"`
+	// PolicyID is required.
+	PolicyID string `vngcloud:"required"`
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
+// DetachServiceAccountPolicyOutput carries no result fields.
 type DetachServiceAccountPolicyOutput struct{}
 
 // DetachServiceAccountPolicy detaches PolicyID from ServiceAccountID.

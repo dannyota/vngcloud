@@ -10,9 +10,11 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// EnsureServiceAccountPrincipalInput requires ProjectID and ServiceAccountID.
 type EnsureServiceAccountPrincipalInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
 	// ServiceAccountID is the IAM service account ID as the iam package
 	// returns it, with no "sa-" prefix.

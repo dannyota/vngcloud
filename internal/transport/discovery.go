@@ -10,6 +10,7 @@ import (
 	"sync"
 )
 
+// DiscoveryMaxBody bounds a discovery response body.
 const DiscoveryMaxBody = 8 << 20
 
 type discoveryCredentialsKey struct{}

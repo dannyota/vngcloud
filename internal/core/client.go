@@ -17,6 +17,7 @@ import (
 
 const defaultUserAgent = "danny.vn/vngcloud"
 
+// Client shares authentication, endpoints, and project discovery state.
 type Client struct {
 	iamUserLogin        bool
 	serviceAccountLogin bool
@@ -201,22 +202,26 @@ func (s staticTokenSource) Token(context.Context) (transport.Token, error) {
 // SDK never refreshes it.
 func (s staticTokenSource) Invalidate(string) {}
 
+// Region returns the configured region.
 func (c *Client) Region() string {
 	return c.region
 }
 
+// ProjectID returns the cached project ID without discovery.
 func (c *Client) ProjectID() string {
 	c.projectMu.Lock()
 	defer c.projectMu.Unlock()
 	return c.projectID
 }
 
+// ProjectUserID returns the cached project user ID.
 func (c *Client) ProjectUserID() int {
 	c.projectMu.Lock()
 	defer c.projectMu.Unlock()
 	return c.projectUserID
 }
 
+// RequireProjectID discovers and caches a project ID when needed.
 func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
 	if c.err != nil {
 		return "", c.err
@@ -235,6 +240,7 @@ func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
 	return c.projectID, nil
 }
 
+// RequireProject resolves the configured project and its user ID.
 func (c *Client) RequireProject(ctx context.Context) (Project, error) {
 	if c.err != nil {
 		return Project{}, c.err
@@ -269,6 +275,7 @@ func (c *Client) RequireProject(ctx context.Context) (Project, error) {
 	}
 }
 
+// Endpoint returns the configured endpoint for a product.
 func (c *Client) Endpoint(product routes.Product) string {
 	switch product {
 	case routes.ProductVServer:
@@ -310,10 +317,12 @@ func (c *Client) Endpoint(product routes.Product) string {
 	}
 }
 
+// RouteURL builds a URL using the configured endpoints.
 func (c *Client) RouteURL(route routes.Route) string {
 	return routes.URL(c, route)
 }
 
+// DoJSON sends a request and decodes its JSON response.
 func (c *Client) DoJSON(ctx context.Context, req transport.Request, out any) error {
 	_, err := c.DoJSONStatus(ctx, req, out)
 	return err

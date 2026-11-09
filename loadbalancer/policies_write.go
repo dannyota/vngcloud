@@ -11,22 +11,31 @@ import (
 
 // CreatePolicyInput's Action values.
 const (
+	// ActionRedirectToPool is the "REDIRECT_TO_POOL" policy action.
 	ActionRedirectToPool = "REDIRECT_TO_POOL"
-	ActionRedirectToURL  = "REDIRECT_TO_URL"
+	// ActionRedirectToURL is the "REDIRECT_TO_URL" policy action.
+	ActionRedirectToURL = "REDIRECT_TO_URL"
 )
 
 // PolicyRuleInput's Type values.
 const (
-	PolicyRuleTypePath     = "PATH"
+	// PolicyRuleTypePath is the "PATH" policy rule type.
+	PolicyRuleTypePath = "PATH"
+	// PolicyRuleTypeHostName is the "HOST_NAME" policy rule type.
 	PolicyRuleTypeHostName = "HOST_NAME"
 )
 
 // PolicyRuleInput's CompareType values.
 const (
-	CompareTypeContains   = "CONTAINS"
-	CompareTypeEndsWith   = "ENDS_WITH"
-	CompareTypeEqualTo    = "EQUAL_TO"
-	CompareTypeRegex      = "REGEX"
+	// CompareTypeContains is the "CONTAINS" policy comparison type.
+	CompareTypeContains = "CONTAINS"
+	// CompareTypeEndsWith is the "ENDS_WITH" policy comparison type.
+	CompareTypeEndsWith = "ENDS_WITH"
+	// CompareTypeEqualTo is the "EQUAL_TO" policy comparison type.
+	CompareTypeEqualTo = "EQUAL_TO"
+	// CompareTypeRegex is the "REGEX" policy comparison type.
+	CompareTypeRegex = "REGEX"
+	// CompareTypeStartsWith is the "STARTS_WITH" policy comparison type.
 	CompareTypeStartsWith = "STARTS_WITH"
 )
 
@@ -34,9 +43,12 @@ const (
 // and CompareType a CompareType constant; the server accepts other values
 // too (ADR 0002 rule 5), but every field is required.
 type PolicyRuleInput struct {
-	Type        string `vngcloud:"required"`
+	// Type is required.
+	Type string `vngcloud:"required"`
+	// CompareType is required.
 	CompareType string `vngcloud:"required"`
-	Value       string `vngcloud:"required"`
+	// Value is required.
+	Value string `vngcloud:"required"`
 }
 
 // policyRuleBody is one entry of the rules list a policy write sends.
@@ -192,21 +204,31 @@ func newPolicyWriteBody(name, action string, f policyRedirectFields, rules []pol
 // fields its action carries. Rules needs at least one rule, and every rule
 // must set Type, CompareType, and Value.
 type CreatePolicyInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-	Name           string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 	// Action is ActionRedirectToPool, ActionRedirectToURL, or another value
 	// the server accepts.
-	Action           string `vngcloud:"required"`
-	RedirectPoolID   string
-	RedirectURL      string
+	Action string `vngcloud:"required"`
+	// RedirectPoolID is required for ActionRedirectToPool.
+	RedirectPoolID string
+	// RedirectURL is required for ActionRedirectToURL.
+	RedirectURL string
+	// RedirectHTTPCode is sent only for a URL redirect.
 	RedirectHTTPCode int
-	KeepQueryString  bool
-	Rules            []PolicyRuleInput
+	// KeepQueryString is sent only for a URL redirect.
+	KeepQueryString bool
+	// Rules must contain at least one rule.
+	Rules []PolicyRuleInput
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreatePolicyOutput holds the result of CreatePolicy.
 type CreatePolicyOutput struct {
 	Policy Policy
 }
@@ -318,20 +340,31 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 // A set Rules replaces the whole rule list; an unset one resends the rules
 // read.
 type UpdatePolicyInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-	PolicyID       string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
+	// PolicyID is required.
+	PolicyID string `vngcloud:"required"`
 
-	Action           *string
-	RedirectPoolID   *string
-	RedirectURL      *string
+	// Action leaves its current value unchanged when nil.
+	Action *string
+	// RedirectPoolID leaves its current value unchanged when nil.
+	RedirectPoolID *string
+	// RedirectURL leaves its current value unchanged when nil.
+	RedirectURL *string
+	// RedirectHTTPCode leaves its current value unchanged when nil.
 	RedirectHTTPCode *int
-	KeepQueryString  *bool
-	Rules            *[]PolicyRuleInput
+	// KeepQueryString leaves its current value unchanged when nil.
+	KeepQueryString *bool
+	// Rules leaves its current value unchanged when nil.
+	Rules *[]PolicyRuleInput
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// UpdatePolicyOutput holds the result of UpdatePolicy.
 type UpdatePolicyOutput struct {
 	Policy Policy
 }
@@ -467,13 +500,18 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 
 // DeletePolicyInput identifies the policy to delete.
 type DeletePolicyInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
-	ListenerID     string `vngcloud:"required"`
-	PolicyID       string `vngcloud:"required"`
+	// ListenerID is required.
+	ListenerID string `vngcloud:"required"`
+	// PolicyID is required.
+	PolicyID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeletePolicyOutput carries no result fields.
 type DeletePolicyOutput struct{}
 
 // DeletePolicy deletes an L7 policy. It waits, within the pre-write bound,

@@ -14,13 +14,16 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// Client reads Backup Center backends and policies.
 type Client struct{ c *core.Client }
 
 // New shares cfg's credential provider with other service clients.
 func New(cfg vngcloud.Config) *Client { return &Client{c: core.ClientOf(cfg)} }
 
+// ListBackendsInput has no filters; the read uses token scope.
 type ListBackendsInput struct{}
 
+// ListBackendsOutput holds the backend list and its nullable page metadata.
 type ListBackendsOutput struct {
 	Items     []Backend
 	Page      *int
@@ -29,10 +32,15 @@ type ListBackendsOutput struct {
 	TotalItem int
 }
 
+// ListPoliciesInput selects a page of policies.
 type ListPoliciesInput struct {
+	// Page selects the page, starting at 1. Zero selects page 1.
 	Page int
+	// Size selects the page size. Zero selects 200.
 	Size int
 }
+
+// ListPoliciesOutput holds a page of policies.
 type ListPoliciesOutput = core.PagedList[Policy]
 
 // ListBackends reads the unpaged backend list. ProjectID does not scope this read.

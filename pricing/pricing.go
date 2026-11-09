@@ -16,17 +16,24 @@ import (
 
 // Verified resource types for GetQuote. Other types work through the string.
 const (
-	ResourceSnapshot     = "snapshot"
-	ResourcePublicVIP    = "public-vip"
-	ResourceServer       = "server"
-	ResourceVolume       = "volume"
+	// ResourceSnapshot is the "snapshot" quote resource type.
+	ResourceSnapshot = "snapshot"
+	// ResourcePublicVIP is the "public-vip" quote resource type.
+	ResourcePublicVIP = "public-vip"
+	// ResourceServer is the "server" quote resource type.
+	ResourceServer = "server"
+	// ResourceVolume is the "volume" quote resource type.
+	ResourceVolume = "volume"
+	// ResourceLoadBalancer is the "load-balancer" quote resource type.
 	ResourceLoadBalancer = "load-balancer"
 )
 
 // GetQuoteInput.Action values. ActionCreate is also GetQuoteInput's default
 // when Action is left empty.
 const (
+	// ActionCreate is the "create" quote action.
 	ActionCreate = "create"
+	// ActionResize is the "resize" quote action.
 	ActionResize = "resize"
 )
 

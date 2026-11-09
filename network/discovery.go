@@ -18,7 +18,9 @@ import (
 
 // ListNetworkPricesInput bounds public-IP discovery.
 type ListNetworkPricesInput struct {
-	MaxRequests  int
+	// MaxRequests limits physical requests; zero selects 500 and the maximum is 2000.
+	MaxRequests int
+	// AllowPartial retains partial results and reports incomplete discovery when set.
 	AllowPartial bool
 }
 

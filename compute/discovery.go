@@ -16,24 +16,37 @@ import (
 	"danny.vn/vngcloud/pricing"
 )
 
+// ListFlavorPricesInput selects parameters for ListFlavorPrices.
 type ListFlavorPricesInput struct {
-	ZoneID           string
-	Family           string
-	Platform         string
-	Name             string
-	MinRAM           int64
-	MaxRAM           int64
+	// ZoneID selects one returned zone; empty selects all zones in the configured region.
+	ZoneID string
+	// Family filters by exact, case-sensitive family key when nonempty.
+	Family string
+	// Platform filters by exact, case-sensitive platform key when nonempty.
+	Platform string
+	// Name filters by exact, case-sensitive flavor name when nonempty.
+	Name string
+	// MinRAM is the lower raw memory bound; zero leaves it unbounded.
+	MinRAM int64
+	// MaxRAM is the upper raw memory bound; zero leaves it unbounded.
+	MaxRAM int64
+	// IncludeNonPublic includes non-public catalogs when set.
 	IncludeNonPublic bool
-	AvailableOnly    bool
-	MaxRequests      int
-	AllowPartial     bool
+	// AvailableOnly excludes sold-out flavors and flavors without remaining VMs.
+	AvailableOnly bool
+	// MaxRequests limits physical requests; zero selects 500 and the maximum is 2000.
+	MaxRequests int
+	// AllowPartial retains partial results and reports incomplete discovery when set.
+	AllowPartial bool
 }
 
+// ListFlavorPricesOutput holds the result of ListFlavorPrices.
 type ListFlavorPricesOutput struct {
 	Items    []FlavorPrice
 	Metadata pricing.DiscoveryMetadata
 }
 
+// FlavorPrice holds one flavor price and its discovery metadata.
 type FlavorPrice struct {
 	Flavor          Flavor
 	ZoneID          string
@@ -51,6 +64,7 @@ type FlavorPrice struct {
 	Price           pricing.DiscoveryPrice
 }
 
+// FlavorPriceReference identifies the reference server used to price a flavor.
 type FlavorPriceReference struct {
 	ImageID        string
 	ImageType      string

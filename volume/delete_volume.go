@@ -13,11 +13,14 @@ import (
 // DeleteVolumeInput identifies the volume to delete. Delete destroys the
 // volume's data; there is no undo.
 type DeleteVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteVolumeOutput carries no result fields.
 type DeleteVolumeOutput struct{}
 
 // DeleteVolume deletes a volume. It reads the volume first and refuses,

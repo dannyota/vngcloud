@@ -15,8 +15,10 @@ import (
 
 // DeleteObjectInput selects the current object name without a version or condition.
 type DeleteObjectInput struct {
+	// Bucket names the bucket containing the object.
 	Bucket string
-	Key    string
+	// Key identifies the current object name to delete.
+	Key string
 }
 
 // DeleteObjectOutput contains optional observations from an accepted deletion.

@@ -18,25 +18,35 @@ import (
 // a log alarm's Severity. It is a plain string field, so a new value the
 // console adds later reaches the server unchanged.
 const (
-	LogAlarmSeverityLow    = "LOW"
+	// LogAlarmSeverityLow is the "LOW" log alarm severity.
+	LogAlarmSeverityLow = "LOW"
+	// LogAlarmSeverityMedium is the "MEDIUM" log alarm severity.
 	LogAlarmSeverityMedium = "MEDIUM"
-	LogAlarmSeverityHigh   = "HIGH"
+	// LogAlarmSeverityHigh is the "HIGH" log alarm severity.
+	LogAlarmSeverityHigh = "HIGH"
 )
 
 // LogAlarmThresholdTypeFrequency, LogAlarmThresholdTypeFlatline, and
 // LogAlarmThresholdTypeMetricAggregation name a log alarm's ThresholdType.
 const (
-	LogAlarmThresholdTypeFrequency         = "frequency"
-	LogAlarmThresholdTypeFlatline          = "flatline"
+	// LogAlarmThresholdTypeFrequency is the "frequency" log alarm threshold type.
+	LogAlarmThresholdTypeFrequency = "frequency"
+	// LogAlarmThresholdTypeFlatline is the "flatline" log alarm threshold type.
+	LogAlarmThresholdTypeFlatline = "flatline"
+	// LogAlarmThresholdTypeMetricAggregation is the "metric_aggregation" log alarm threshold type.
 	LogAlarmThresholdTypeMetricAggregation = "metric_aggregation"
 )
 
 // LogAlarmConditionGT, LogAlarmConditionGTE, LogAlarmConditionLT, and
 // LogAlarmConditionLTE name a log alarm's Condition.
 const (
-	LogAlarmConditionGT  = "gt"
+	// LogAlarmConditionGT is the "gt" log alarm condition.
+	LogAlarmConditionGT = "gt"
+	// LogAlarmConditionGTE is the "gte" log alarm condition.
 	LogAlarmConditionGTE = "gte"
-	LogAlarmConditionLT  = "lt"
+	// LogAlarmConditionLT is the "lt" log alarm condition.
+	LogAlarmConditionLT = "lt"
+	// LogAlarmConditionLTE is the "lte" log alarm condition.
 	LogAlarmConditionLTE = "lte"
 )
 
@@ -45,8 +55,11 @@ const (
 // right after a create the read shows an empty status for about 30 seconds,
 // and the server refuses an update (403) until it shows ACTIVE.
 const (
-	LogAlarmStatusActive   = "ACTIVE"
+	// LogAlarmStatusActive is the "ACTIVE" log alarm status.
+	LogAlarmStatusActive = "ACTIVE"
+	// LogAlarmStatusCreating is the "CREATING" log alarm status.
 	LogAlarmStatusCreating = "CREATING"
+	// LogAlarmStatusUpdating is the "UPDATING" log alarm status.
 	LogAlarmStatusUpdating = "UPDATING"
 )
 

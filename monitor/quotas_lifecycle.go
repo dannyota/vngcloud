@@ -12,15 +12,25 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// SetNotificationQuotaAutoRenewInput requires Kind and Enabled.
 type SetNotificationQuotaAutoRenewInput struct {
-	Kind            string `vngcloud:"required"`
-	Enabled         *bool  `vngcloud:"required"`
-	MaxPrice        float64
+	// Kind is required.
+	Kind string `vngcloud:"required"`
+	// Enabled is required.
+	Enabled *bool `vngcloud:"required"`
+	// MaxPrice bounds the quoted price when enabling renewal.
+	MaxPrice float64
+	// ExpectedQuotaID checks the selected quota identity when nonempty.
 	ExpectedQuotaID string
 }
+
+// SetSyntheticQuotaAutoRenewInput requires Enabled.
 type SetSyntheticQuotaAutoRenewInput struct {
-	Enabled         *bool `vngcloud:"required"`
-	MaxPrice        float64
+	// Enabled is required.
+	Enabled *bool `vngcloud:"required"`
+	// MaxPrice bounds the quoted price when enabling renewal.
+	MaxPrice float64
+	// ExpectedQuotaID checks the selected quota identity when nonempty.
 	ExpectedQuotaID string
 }
 
@@ -31,16 +41,30 @@ type SetQuotaAutoRenewOutput struct {
 	Stage   string
 	Changed bool
 }
+
+// SetNotificationQuotaAutoRenewOutput uses the SetQuotaAutoRenewOutput result
+// shape.
 type SetNotificationQuotaAutoRenewOutput = SetQuotaAutoRenewOutput
+
+// SetSyntheticQuotaAutoRenewOutput uses the SetQuotaAutoRenewOutput result
+// shape.
 type SetSyntheticQuotaAutoRenewOutput = SetQuotaAutoRenewOutput
 
+// DeleteNotificationQuotaInput requires Kind.
 type DeleteNotificationQuotaInput struct {
-	Kind            string `vngcloud:"required"`
-	Purge           bool
+	// Kind is required.
+	Kind string `vngcloud:"required"`
+	// Purge is refused because quota purge is not supported.
+	Purge bool
+	// ExpectedQuotaID checks the selected quota identity when nonempty.
 	ExpectedQuotaID string
 }
+
+// DeleteSyntheticQuotaInput requires ExpectedQuotaID.
 type DeleteSyntheticQuotaInput struct {
-	Purge           bool
+	// Purge is refused because quota purge is not supported.
+	Purge bool
+	// ExpectedQuotaID is required.
 	ExpectedQuotaID string `vngcloud:"required"`
 }
 
@@ -51,7 +75,11 @@ type DeleteQuotaOutput struct {
 	Stage  string
 	Purged bool
 }
+
+// DeleteNotificationQuotaOutput uses the DeleteQuotaOutput result shape.
 type DeleteNotificationQuotaOutput = DeleteQuotaOutput
+
+// DeleteSyntheticQuotaOutput uses the DeleteQuotaOutput result shape.
 type DeleteSyntheticQuotaOutput = DeleteQuotaOutput
 
 type quotaLifecycleInput struct {

@@ -49,6 +49,7 @@ func (c *Client) logBillingRouteV1(parts []string) string {
 // order response carries none of these fields; it is confirmed live to
 // hold only amount, orderId, and paymentUrl (see CreateLogProject's doc
 // comment).
+// See docs/design/monitor.md.
 type LogProject struct {
 	ID                 string `json:"id"`
 	ProjectName        string `json:"name"`
@@ -72,12 +73,17 @@ type LogProject struct {
 // a Size over the API's own maximum of 100 is sent unchanged and rejected by
 // the server (ADR 0002 rule 5).
 type ListLogProjectsInput struct {
-	Query         string
+	// Query filters by name when nonempty.
+	Query string
+	// BillingStatus filters by billing status when nonempty.
 	BillingStatus string
-	Page          int
-	Size          int
+	// Page is zero-based; negative values select page zero.
+	Page int
+	// Size defaults to 100 when not positive.
+	Size int
 }
 
+// ListLogProjectsOutput holds LogProject items and pagination metadata.
 type ListLogProjectsOutput = core.PagedList[LogProject]
 
 type listLogProjectsResponse struct {
@@ -161,9 +167,11 @@ func logProjectPageQuery(page, size int) url.Values {
 
 // GetLogProjectInput identifies the log project to read.
 type GetLogProjectInput struct {
+	// LogProjectID is required.
 	LogProjectID string `vngcloud:"required"`
 }
 
+// GetLogProjectOutput holds the result of GetLogProject.
 type GetLogProjectOutput struct {
 	LogProject LogProject
 }
@@ -218,15 +226,19 @@ const LogProjectStatusActive = "ACTIVE"
 // never needs to name it on purpose. Class is a plain string field, so a
 // class the console adds later still reaches the server unchanged.
 const (
+	// LogProjectClassBasic is the "Basic" log project class.
 	LogProjectClassBasic = "Basic"
-	LogProjectClassPro   = "Pro"
+	// LogProjectClassPro is the "Pro" log project class.
+	LogProjectClassPro = "Pro"
 )
 
 // LogProjectClassStatusActive and LogProjectClassStatusDisabled are the two
 // LogProjectClass.Status values seen live: Basic and Pro are active,
 // Enterprise is disabled.
 const (
-	LogProjectClassStatusActive   = "ACTIVE"
+	// LogProjectClassStatusActive is the "ACTIVE" log project class status.
+	LogProjectClassStatusActive = "ACTIVE"
+	// LogProjectClassStatusDisabled is the "DISABLED" log project class status.
 	LogProjectClassStatusDisabled = "DISABLED"
 )
 
@@ -248,6 +260,7 @@ type LogProjectClass struct {
 // its nested config.retentions list. The API also sends a per-option
 // priority and status, seen live always matching the parent class's; the
 // SDK drops them.
+// See docs/design/monitor.md.
 type LogProjectRetention struct {
 	Amount    int    `json:"amount"`
 	MinSize   int    `json:"minSize"`
@@ -287,6 +300,7 @@ func (lc *LogProjectClass) UnmarshalJSON(data []byte) error {
 // Fields may be added later without breaking callers.
 type ListLogProjectClassesInput struct{}
 
+// ListLogProjectClassesOutput holds LogProjectClass items.
 type ListLogProjectClassesOutput = core.List[LogProjectClass]
 
 // ListLogProjectClasses lists the log project classes the account may order
@@ -343,14 +357,21 @@ const logProjectRedirectURL = "https://vmonitor.console.vngcloud.vn/quota-usages
 // RetentionDays ranges; the SDK only checks that the named class and
 // retention option exist (ADR 0002 rule 5).
 type CreateLogProjectInput struct {
+	// Name is required.
 	Name string `vngcloud:"required"`
 
-	Description   string
-	Class         string
+	// Description is sent as projectDescription in the order.
+	Description string
+	// Class defaults to LogProjectClassBasic when empty.
+	Class string
+	// RetentionDays selects a retention option; zero chooses the only option when unique.
 	RetentionDays int
-	GBPerDay      int
-	MaxPrice      float64
-	NoWait        bool
+	// GBPerDay defaults to the selected option minimum when zero.
+	GBPerDay int
+	// MaxPrice bounds the monthly VND quote; QuoteCreateLogProject ignores it.
+	MaxPrice float64
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
 // logProjectOrderBody is CreateLogProject and QuoteCreateLogProject's shared

@@ -3,7 +3,9 @@ package core
 import "fmt"
 
 const (
-	DefaultPage     = 1
+	// DefaultPage is the default one-based page number.
+	DefaultPage = 1
+	// DefaultPageSize is the default list page size.
 	DefaultPageSize = 10000
 )
 
@@ -27,6 +29,7 @@ type PagedList[T any] struct {
 	TotalItem int
 }
 
+// NewPagedList wraps items with the returned pagination metadata.
 func NewPagedList[T any](items []T, page, size, totalPage, totalItem int) *PagedList[T] {
 	return &PagedList[T]{Items: items, Page: page, PageSize: size, TotalPage: totalPage, TotalItem: totalItem}
 }

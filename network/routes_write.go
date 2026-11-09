@@ -144,13 +144,18 @@ func checkRouteTarget(op, target string) error {
 
 // AddRouteInput adds one route to a route table.
 type AddRouteInput struct {
-	RouteTableID    string `vngcloud:"required"`
+	// RouteTableID is required.
+	RouteTableID string `vngcloud:"required"`
+	// DestinationCIDR is required.
 	DestinationCIDR string `vngcloud:"required"`
-	Target          string `vngcloud:"required"`
+	// Target is required.
+	Target string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// AddRouteOutput holds the result of AddRoute.
 type AddRouteOutput struct {
 	RouteTable RouteTable
 	Changed    bool
@@ -235,12 +240,16 @@ func (c *Client) AddRoute(ctx context.Context, in *AddRouteInput) (*AddRouteOutp
 // RemoveRouteInput removes one route, named by its destination, from a
 // route table.
 type RemoveRouteInput struct {
-	RouteTableID    string `vngcloud:"required"`
+	// RouteTableID is required.
+	RouteTableID string `vngcloud:"required"`
+	// DestinationCIDR is required.
 	DestinationCIDR string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// RemoveRouteOutput holds the result of RemoveRoute.
 type RemoveRouteOutput struct {
 	RouteTable RouteTable
 	Changed    bool

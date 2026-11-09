@@ -57,13 +57,17 @@ type createUserResponse struct {
 // set, must be at least 1. All of this is checked, and nothing sent, before
 // any request.
 type CreateUserInput struct {
-	Name         string `vngcloud:"required"`
-	Description  string
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Description is sent as description in the create body.
+	Description string
+	// DurationDays must be at least one when set.
 	DurationDays *int
-	Permissions  []UserPermission `vngcloud:"required"`
+	// Permissions is required.
+	Permissions []UserPermission `vngcloud:"required"`
 }
 
-// CreateUserOutput's SecretKey is a vngcloud.Secret, never a plain string:
+// CreateUserOutput holds SecretKey as a vngcloud.Secret, never a plain string:
 // printing, logging, or JSON-encoding the Output gives "[redacted]" for
 // this field, and Reveal is the only way to read the value back out. User
 // itself never carries a secret. SecretKey is filled whenever the create
@@ -319,9 +323,11 @@ func (c *Client) findCreatedUser(ctx context.Context, op, name string) (*User, e
 // DeleteUserInput identifies the user to delete: the robot account's own id
 // (User.ID, the "uuid" field), not its UserID field.
 type DeleteUserInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
 }
 
+// DeleteUserOutput carries no result fields.
 type DeleteUserOutput struct{}
 
 // DeleteUser deletes a repository user. A user holds no data of its own, so

@@ -15,7 +15,9 @@ import (
 // ResizeServerInput changes a server's flavor. FlavorID must differ from
 // the server's current flavor.
 type ResizeServerInput struct {
+	// ServerID is required.
 	ServerID string `vngcloud:"required"`
+	// FlavorID is required.
 	FlavorID string `vngcloud:"required"`
 
 	// MaxPrice is VND a month; a paid ResizeServer refuses to send above

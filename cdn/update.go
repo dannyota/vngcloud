@@ -15,18 +15,26 @@ import (
 // one it adds an origin. UpstreamType is httpOrigin when empty. OriginValue
 // is nil for an HTTP origin.
 type UpstreamInput struct {
-	ID           string
-	Priority     int
-	IPAddress    string `vngcloud:"required"`
+	// ID selects an existing origin; empty adds one.
+	ID string
+	// Priority is sent in the origin update.
+	Priority int
+	// IPAddress is required.
+	IPAddress string `vngcloud:"required"`
+	// UpstreamType defaults to httpOrigin when empty.
 	UpstreamType string
-	OriginValue  *string
-	UseSSL       bool
+	// OriginValue is nil for an HTTP origin.
+	OriginValue *string
+	// UseSSL is sent in the origin update.
+	UseSSL bool
 }
 
 // RuleActionInput names a default rule action and its value. Value is the
 // server's string; for hsts and minify it is JSON text, as in RuleAction.
 type RuleActionInput struct {
-	Name  string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Value is the server string; hsts and minify use JSON text.
 	Value string
 }
 
@@ -45,18 +53,29 @@ type RuleActionInput struct {
 // NoWait returns after one read of the CDN instead of waiting for it to
 // settle.
 type UpdateWebAcceleratorInput struct {
-	CDNID              string `vngcloud:"required"`
-	SetRuleActions     []RuleActionInput
-	RemoveRuleActions  []string
-	Upstreams          []UpstreamInput
-	LBType             *string
+	// CDNID is required.
+	CDNID string `vngcloud:"required"`
+	// SetRuleActions adds or changes actions by name.
+	SetRuleActions []RuleActionInput
+	// RemoveRuleActions removes actions by name.
+	RemoveRuleActions []string
+	// Upstreams adds or updates the given origins without removing others.
+	Upstreams []UpstreamInput
+	// LBType replaces lbType when non-nil.
+	LBType *string
+	// FailOverErrorCodes replaces the list when non-nil; an empty list clears it.
 	FailOverErrorCodes []string
-	CertificateID      *string
-	OriginHostHeader   *string
-	CNames             []string
-	NoWait             bool
+	// CertificateID replaces sslId when non-nil.
+	CertificateID *string
+	// OriginHostHeader replaces originHostHeader when non-nil.
+	OriginHostHeader *string
+	// CNames replaces the list when non-nil; an empty list clears it.
+	CNames []string
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
+// UpdateWebAcceleratorOutput holds the last accelerator read.
 type UpdateWebAcceleratorOutput struct {
 	WebAccelerator WebAccelerator
 }

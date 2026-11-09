@@ -31,10 +31,14 @@ type Range struct {
 }
 
 type (
-	GetTrafficInput     Range
+	// GetTrafficInput selects CDNs and a time range for traffic analytics.
+	GetTrafficInput Range
+	// GetRequestRateInput selects CDNs and a time range for request analytics.
 	GetRequestRateInput Range
+	// GetCacheStatusInput selects CDNs and a time range for cache analytics.
 	GetCacheStatusInput Range
-	GetHTTPCodesInput   Range
+	// GetHTTPCodesInput selects CDNs and a time range for HTTP code analytics.
+	GetHTTPCodesInput Range
 )
 
 // CacheSample is one point of a traffic or request series.
@@ -44,13 +48,18 @@ type CacheSample struct {
 	Uncached float64
 }
 
+// GetTrafficOutput holds the result of GetTraffic.
 type GetTrafficOutput struct{ Points []CacheSample }
+
+// GetRequestRateOutput holds the result of GetRequestRate.
 type GetRequestRateOutput struct{ Points []CacheSample }
 
 // GetCacheStatusOutput and GetHTTPCodesOutput hold counts by name. With no
 // data in the window the map is empty. No call has returned a non-zero
 // value, so no unit is stated.
 type GetCacheStatusOutput struct{ Counts map[string]float64 }
+
+// GetHTTPCodesOutput holds the result of GetHTTPCodes.
 type GetHTTPCodesOutput struct{ Counts map[string]float64 }
 
 // GetTraffic reads the traffic series of the CDNs. Points are not evenly
@@ -93,9 +102,12 @@ func (c *Client) GetHTTPCodes(ctx context.Context, in *GetHTTPCodesInput) (*GetH
 // GetTrafficReportInput selects CDNs and a date window. The report takes no
 // Period.
 type GetTrafficReportInput struct {
+	// CDNDomains is required.
 	CDNDomains []string `vngcloud:"required"`
-	From       string   `vngcloud:"required"`
-	To         string   `vngcloud:"required"`
+	// From is required.
+	From string `vngcloud:"required"`
+	// To is required.
+	To string `vngcloud:"required"`
 }
 
 // Sample is one daily value of a traffic report.
@@ -114,6 +126,7 @@ type DomainTraffic struct {
 	Points      []Sample
 }
 
+// GetTrafficReportOutput holds DomainTraffic items.
 type GetTrafficReportOutput = core.List[DomainTraffic]
 
 // GetTrafficReport reads the daily traffic report of the CDNs between two

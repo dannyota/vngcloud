@@ -19,11 +19,14 @@ const (
 
 // DeleteLoadBalancerInput identifies the load balancer to delete.
 type DeleteLoadBalancerInput struct {
+	// LoadBalancerID is required.
 	LoadBalancerID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteLoadBalancerOutput carries no result fields.
 type DeleteLoadBalancerOutput struct{}
 
 // DeleteLoadBalancer deletes a load balancer. It reads the load balancer

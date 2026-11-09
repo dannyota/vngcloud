@@ -29,24 +29,41 @@ import (
 // checks that the required fields are set and that IDs match
 // core.CheckPathID's pattern (ADR 0002 rule 5).
 type CreateLogAlarmInput struct {
-	Name           string   `vngcloud:"required"`
-	LogProjectID   string   `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// LogProjectID is required.
+	LogProjectID string `vngcloud:"required"`
+	// ThresholdValue is required.
 	ThresholdValue *float64 `vngcloud:"required"`
 
-	Description   string
-	Severity      string
-	QueryString   string
-	Filter        json.RawMessage
+	// Description is sent in the create body.
+	Description string
+	// Severity defaults to LogAlarmSeverityLow when empty.
+	Severity string
+	// QueryString must be set together with Filter or both left empty.
+	QueryString string
+	// Filter must be set together with QueryString or both left empty.
+	Filter json.RawMessage
+	// ThresholdType defaults to LogAlarmThresholdTypeFrequency when empty.
 	ThresholdType string
-	Condition     string
-	TimeFrame     int
-	GroupByField  string
-	AggField      string
-	AggType       string
-	InAlarm       []string
-	OK            []string
-	Resend        *LogAlarmResend
-	NoWait        bool
+	// Condition uses a default selected by ThresholdType when empty.
+	Condition string
+	// TimeFrame defaults to five minutes when zero.
+	TimeFrame int
+	// GroupByField sends null when empty.
+	GroupByField string
+	// AggField is sent only when set.
+	AggField string
+	// AggType is sent only when set.
+	AggType string
+	// InAlarm identifies channels for the in-alarm notification list.
+	InAlarm []string
+	// OK identifies channels for the OK notification list.
+	OK []string
+	// Resend uses the console defaults when nil.
+	Resend *LogAlarmResend
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
 // CreateLogAlarmOutput is CreateLogAlarm's result. AlarmID is empty only
@@ -205,25 +222,43 @@ func isLogAlarmCreateOKStatus(status int) bool {
 // for a match-all query); leaving both nil resends the read's exact
 // pairing unchanged, even if it was never valid to create.
 type UpdateLogAlarmInput struct {
+	// AlarmID is required.
 	AlarmID string `vngcloud:"required"`
-	NoWait  bool
+	// NoWait skips the post-operation wait.
+	NoWait bool
 
-	Name           *string
-	Description    *string
-	Severity       *string
-	LogProjectID   *string
-	QueryString    *string
-	Filter         *json.RawMessage
-	ThresholdType  *string
-	Condition      *string
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Description leaves its current value unchanged when nil.
+	Description *string
+	// Severity leaves its current value unchanged when nil.
+	Severity *string
+	// LogProjectID leaves its current value unchanged when nil.
+	LogProjectID *string
+	// QueryString leaves its current value unchanged when nil.
+	QueryString *string
+	// Filter leaves its current value unchanged when nil.
+	Filter *json.RawMessage
+	// ThresholdType leaves its current value unchanged when nil.
+	ThresholdType *string
+	// Condition leaves its current value unchanged when nil.
+	Condition *string
+	// ThresholdValue leaves its current value unchanged when nil.
 	ThresholdValue *float64
-	TimeFrame      *int
-	GroupByField   *string
-	AggField       *string
-	AggType        *string
-	InAlarm        *[]string
-	OK             *[]string
-	Resend         *LogAlarmResend
+	// TimeFrame leaves its current value unchanged when nil.
+	TimeFrame *int
+	// GroupByField leaves its current value unchanged when nil.
+	GroupByField *string
+	// AggField leaves its current value unchanged when nil.
+	AggField *string
+	// AggType leaves its current value unchanged when nil.
+	AggType *string
+	// InAlarm leaves its current value unchanged when nil.
+	InAlarm *[]string
+	// OK leaves its current value unchanged when nil.
+	OK *[]string
+	// Resend leaves its current value unchanged when nil.
+	Resend *LogAlarmResend
 }
 
 // UpdateLogAlarmOutput is UpdateLogAlarm's result. Alarm is set once the
@@ -466,9 +501,11 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 
 // DeleteLogAlarmInput identifies the log alarm to delete.
 type DeleteLogAlarmInput struct {
+	// AlarmID is required.
 	AlarmID string `vngcloud:"required"`
 }
 
+// DeleteLogAlarmOutput carries no result fields.
 type DeleteLogAlarmOutput struct{}
 
 // DeleteLogAlarm reads the alarm first with GetAlarm and refuses with

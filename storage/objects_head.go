@@ -15,8 +15,10 @@ import (
 
 // HeadObjectInput selects one exact object key.
 type HeadObjectInput struct {
+	// Bucket names the bucket containing the object.
 	Bucket string
-	Key    string
+	// Key identifies the object whose metadata to read.
+	Key string
 }
 
 // HeadObjectOutput contains filtered metadata observations, not object content.

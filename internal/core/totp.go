@@ -13,20 +13,26 @@ import (
 	"time"
 )
 
+// TOTPProvider supplies time-based one-time codes.
 type TOTPProvider interface {
+	// GetCode returns a time-based one-time code.
 	GetCode(ctx context.Context) (string, error)
 }
 
+// TOTPFunc adapts a function to TOTPProvider.
 type TOTPFunc func(ctx context.Context) (string, error)
 
+// GetCode calls the wrapped function.
 func (f TOTPFunc) GetCode(ctx context.Context) (string, error) {
 	return f(ctx)
 }
 
+// SecretTOTP generates a code from its configured secret.
 type SecretTOTP struct {
 	Secret string
 }
 
+// GetCode generates the current six-digit code.
 func (s *SecretTOTP) GetCode(context.Context) (string, error) {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(
 		normalizeTOTPSecret(s.Secret),

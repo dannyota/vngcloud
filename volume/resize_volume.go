@@ -15,8 +15,10 @@ import (
 // current size; a shrink or an equal size is refused, since shrinking would
 // cut off the end of the data.
 type ResizeVolumeInput struct {
+	// VolumeID is required.
 	VolumeID string `vngcloud:"required"`
-	Size     int    `vngcloud:"required"`
+	// Size is required.
+	Size int `vngcloud:"required"`
 
 	// MaxPrice is VND a month; a paid ResizeVolume refuses to send above
 	// it. QuoteResizeVolume ignores it.

@@ -14,13 +14,17 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// GetBucketPolicyInput requires ProjectID and Bucket.
 type GetBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// GetBucketPolicyOutput holds the result of GetBucketPolicy.
 type GetBucketPolicyOutput struct {
 	// Policy is the bucket policy document as the server stores it, or ""
 	// when the bucket has none.
@@ -68,17 +72,21 @@ func (c *Client) GetBucketPolicy(ctx context.Context, in *GetBucketPolicyInput) 
 	return &GetBucketPolicyOutput{Policy: policy}, nil
 }
 
+// PutBucketPolicyInput requires ProjectID, Bucket and Policy.
 type PutBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 	// Policy is the policy document as JSON text. It must be a JSON object
 	// whose Statement member is an array of complete statements; see
 	// PutBucketPolicy.
 	Policy string `vngcloud:"required"`
 }
 
+// PutBucketPolicyOutput carries no result fields.
 type PutBucketPolicyOutput struct{}
 
 type putBucketPolicyBody struct {
@@ -141,13 +149,17 @@ func (c *Client) PutBucketPolicy(ctx context.Context, in *PutBucketPolicyInput) 
 	return &PutBucketPolicyOutput{}, nil
 }
 
+// DeleteBucketPolicyInput requires ProjectID and Bucket.
 type DeleteBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region    string
+	Region string
+	// ProjectID is required.
 	ProjectID string `vngcloud:"required"`
-	Bucket    string `vngcloud:"required"`
+	// Bucket is required.
+	Bucket string `vngcloud:"required"`
 }
 
+// DeleteBucketPolicyOutput carries no result fields.
 type DeleteBucketPolicyOutput struct{}
 
 // DeleteBucketPolicy removes a bucket's policy. A bucket with no policy also

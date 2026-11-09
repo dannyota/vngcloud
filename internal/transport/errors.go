@@ -13,6 +13,7 @@ import (
 	"unicode"
 )
 
+// APIError describes a failed transport request.
 type APIError struct {
 	// KeptObservedStatus marks only an opted-in response body read or close
 	// failure, whose mapped SDK sentinel must retain the sanitized cause.

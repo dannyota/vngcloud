@@ -33,17 +33,26 @@ type createRecordBody struct {
 // sends "simple-routing". NoWait skips the post-create wait for
 // StatusActive; see the package doc's discussion of waits.
 type CreateRecordInput struct {
-	HostedZoneID string        `vngcloud:"required"`
-	Type         string        `vngcloud:"required"`
-	Values       []RecordValue `vngcloud:"required"`
+	// HostedZoneID identifies the zone and must be a valid path ID.
+	HostedZoneID string `vngcloud:"required"`
+	// Type is required and is sent as the record type.
+	Type string `vngcloud:"required"`
+	// Values must contain at least one record value.
+	Values []RecordValue `vngcloud:"required"`
 
-	SubDomain     string
-	TTL           int
+	// SubDomain is relative to the zone; empty selects the apex.
+	SubDomain string
+	// TTL defaults to 300 when zero.
+	TTL int
+	// RoutingPolicy defaults to simple-routing when empty.
 	RoutingPolicy string
+	// StickySession is omitted when nil.
 	StickySession *bool
-	NoWait        bool
+	// NoWait skips the post-create wait.
+	NoWait bool
 }
 
+// CreateRecordOutput holds the created record, including when settling fails.
 type CreateRecordOutput struct {
 	Record Record
 }
@@ -143,18 +152,28 @@ func (c *Client) CreateRecord(ctx context.Context, in *CreateRecordInput) (*Crea
 // the API itself applies a partial body; unlike UpdateHostedZone, the SDK
 // does no read-merge here. At least one field must be set.
 type UpdateRecordInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
-	RecordID     string `vngcloud:"required"`
+	// RecordID identifies the record and must be a valid path ID.
+	RecordID string `vngcloud:"required"`
 
-	SubDomain     *string
-	Type          *string
-	TTL           *int
+	// SubDomain sets the relative label; nil leaves it unchanged.
+	SubDomain *string
+	// Type sets the record type; nil leaves it unchanged.
+	Type *string
+	// TTL sets the TTL; nil leaves it unchanged.
+	TTL *int
+	// RoutingPolicy sets the routing policy; nil leaves it unchanged.
 	RoutingPolicy *string
-	Values        *[]RecordValue
+	// Values replaces the record values; nil leaves them unchanged.
+	Values *[]RecordValue
+	// StickySession sets the sticky session flag; nil leaves it unchanged.
 	StickySession *bool
-	NoWait        bool
+	// NoWait skips the post-update wait but still reads once.
+	NoWait bool
 }
 
+// UpdateRecordOutput holds the last record read or the fields sent.
 type UpdateRecordOutput struct {
 	Record Record
 }
@@ -361,11 +380,15 @@ func ptrEqual[T comparable](a, b *T) bool {
 
 // DeleteRecordInput identifies the record to delete.
 type DeleteRecordInput struct {
+	// HostedZoneID identifies the zone and must be a valid path ID.
 	HostedZoneID string `vngcloud:"required"`
-	RecordID     string `vngcloud:"required"`
-	NoWait       bool
+	// RecordID identifies the record and must be a valid path ID.
+	RecordID string `vngcloud:"required"`
+	// NoWait skips the post-delete wait.
+	NoWait bool
 }
 
+// DeleteRecordOutput confirms the delete request succeeded.
 type DeleteRecordOutput struct{}
 
 // DeleteRecord deletes a record. The server refuses to delete its own NS

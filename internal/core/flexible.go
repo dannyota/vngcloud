@@ -2,6 +2,7 @@ package core
 
 import "encoding/json"
 
+// DecodeFlexibleList accepts a direct array or a supported list envelope.
 func DecodeFlexibleList[T any](data []byte) ([]T, int, int, int, int, error) {
 	var direct []T
 	if err := json.Unmarshal(data, &direct); err == nil && direct != nil {

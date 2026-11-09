@@ -18,8 +18,10 @@ import (
 // server), but only CertificateTypeTLS changes which fields ImportCertificate
 // allows; see its doc comment.
 const (
+	// CertificateTypeTLS is the "TLS/SSL" certificate type.
 	CertificateTypeTLS = "TLS/SSL"
-	CertificateTypeCA  = "CA"
+	// CertificateTypeCA is the "CA" certificate type.
+	CertificateTypeCA = "CA"
 )
 
 // ErrCertificateInUse means a certificate delete was refused because a
@@ -121,14 +123,21 @@ type importCertificateBody struct {
 // should not leave the machine. Every check runs before any request and
 // never echoes the rejected value, only the field name.
 type ImportCertificateInput struct {
-	Name             string `vngcloud:"required"`
-	Type             string `vngcloud:"required"`
-	Certificate      string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Type is required.
+	Type string `vngcloud:"required"`
+	// Certificate is required.
+	Certificate string `vngcloud:"required"`
+	// CertificateChain must contain only PEM certificate blocks and is valid only for TLS.
 	CertificateChain string
-	PrivateKey       vngcloud.Secret
-	Passphrase       vngcloud.Secret
+	// PrivateKey is required for TLS and must hold one PEM private key.
+	PrivateKey vngcloud.Secret
+	// Passphrase must be empty when Type is not TLS.
+	Passphrase vngcloud.Secret
 }
 
+// ImportCertificateOutput holds the result of ImportCertificate.
 type ImportCertificateOutput struct {
 	Certificate Certificate
 }
@@ -347,10 +356,13 @@ func (c *Client) mapCertificateNotFound(ctx context.Context, op, id string, err 
 	return fmt.Errorf("%w: %s: certificate %s", core.ErrNotFound, op, id)
 }
 
+// DeleteCertificateInput requires CertificateID.
 type DeleteCertificateInput struct {
+	// CertificateID is required.
 	CertificateID string `vngcloud:"required"`
 }
 
+// DeleteCertificateOutput carries no result fields.
 type DeleteCertificateOutput struct{}
 
 // DeleteCertificate reads the certificate first with GetCertificate and

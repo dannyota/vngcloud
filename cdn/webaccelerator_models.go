@@ -9,10 +9,15 @@ import (
 
 // Web Accelerator status values.
 const (
-	StatusDisabled  = 0
-	StatusActive    = 1
+	// StatusDisabled is the 0 web accelerator status.
+	StatusDisabled = 0
+	// StatusActive is the 1 web accelerator status.
+	StatusActive = 1
+	// StatusDeploying is the 3 web accelerator status.
 	StatusDeploying = 3
-	StatusDeleting  = 4
+	// StatusDeleting is the 4 web accelerator status.
+	StatusDeleting = 4
+	// StatusDisabling is the 5 web accelerator status.
 	StatusDisabling = 5
 )
 
@@ -61,6 +66,7 @@ func (f *flexID) UnmarshalJSON(b []byte) error {
 
 // WebAcceleratorSummary is one item of ListWebAccelerators. The list fills
 // only these fields of a CDN; GetWebAccelerator holds the rest.
+// See docs/design/cdn-api.md.
 type WebAcceleratorSummary struct {
 	CDNID      string   `json:"cdnId"`
 	DomainName string   `json:"domainName"`
@@ -70,6 +76,7 @@ type WebAcceleratorSummary struct {
 	StatusName string   `json:"statusName"`
 }
 
+// UnmarshalJSON accepts string or numeric IDs and derives the status name.
 func (s *WebAcceleratorSummary) UnmarshalJSON(b []byte) error {
 	type plain WebAcceleratorSummary
 	aux := struct {
@@ -89,6 +96,7 @@ func (s *WebAcceleratorSummary) UnmarshalJSON(b []byte) error {
 // certificate. The model has no field for the account fields the server
 // sends. PageRules and AdvancedRule stay the server's JSON: no call writes
 // them, and an update sends them back unchanged.
+// See docs/design/cdn-api.md.
 type WebAccelerator struct {
 	CDNID              string          `json:"cdnId"`
 	Type               string          `json:"type"`
@@ -110,6 +118,7 @@ type WebAccelerator struct {
 	AdvancedRule       json.RawMessage `json:"childrenAdvanceRule"`
 }
 
+// UnmarshalJSON accepts string or numeric IDs and derives the status name.
 func (w *WebAccelerator) UnmarshalJSON(b []byte) error {
 	type plain WebAccelerator
 	aux := struct {
@@ -126,6 +135,7 @@ func (w *WebAccelerator) UnmarshalJSON(b []byte) error {
 
 // Upstream is one origin of a CDN. The detail read has no upstream type,
 // origin value, or per-origin SSL flag.
+// See docs/design/cdn-api.md.
 type Upstream struct {
 	ID        string `json:"cdnUpstreamId"`
 	Priority  int    `json:"priority"`
@@ -133,6 +143,7 @@ type Upstream struct {
 	Status    int    `json:"status"`
 }
 
+// UnmarshalJSON accepts string or numeric IDs.
 func (u *Upstream) UnmarshalJSON(b []byte) error {
 	type plain Upstream
 	aux := struct {
@@ -148,6 +159,7 @@ func (u *Upstream) UnmarshalJSON(b []byte) error {
 
 // RuleAction is one default rule action of a CDN. Value stays the server's
 // string: for hsts it is JSON object text, and for minify JSON array text.
+// See docs/design/cdn-api.md.
 type RuleAction struct {
 	ID    string `json:"id"`
 	Name  string `json:"actionName"`
@@ -155,6 +167,7 @@ type RuleAction struct {
 	Order int    `json:"order"`
 }
 
+// UnmarshalJSON accepts string or numeric IDs.
 func (a *RuleAction) UnmarshalJSON(b []byte) error {
 	type plain RuleAction
 	aux := struct {

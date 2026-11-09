@@ -1,10 +1,12 @@
 package backup
 
+// Backend is a Backup Center backend described in docs/design/backup-services-api.md.
 type Backend struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
+// Policy is a Backup Center policy described in docs/design/backup-services-api.md.
 type Policy struct {
 	ID                  string       `json:"id"`
 	BackendID           string       `json:"backendId"`
@@ -18,7 +20,8 @@ type Policy struct {
 	UpdatedAt           string       `json:"updatedAt"`
 }
 
-// PolicyConfig keeps verified daily settings and cadence enable flags.
+// PolicyConfig keeps verified daily settings and cadence enable flags, as
+// described in docs/design/backup-services-api.md.
 // Hourly, weekly, and monthly configuration details are withheld.
 type PolicyConfig struct {
 	Hour              int          `json:"hour"`
@@ -33,6 +36,7 @@ type PolicyConfig struct {
 }
 
 // DailyConfig preserves absent settings as nil, including in an empty object.
+// Its response shape is described in docs/design/backup-services-api.md.
 type DailyConfig struct {
 	Retention           *int    `json:"retention"`
 	BackupType          *string `json:"backupType"`

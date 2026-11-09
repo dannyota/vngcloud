@@ -81,10 +81,13 @@ type importSSHKeyBody struct {
 // ("ecdsa-sha2-nistp256") keys are refused with 400 "Invalid public key".
 // Key type and size are otherwise not checked here; the server decides.
 type ImportSSHKeyInput struct {
-	Name      string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// PublicKey is required.
 	PublicKey string `vngcloud:"required"`
 }
 
+// ImportSSHKeyOutput holds the result of ImportSSHKey.
 type ImportSSHKeyOutput struct {
 	SSHKey SSHKey
 }
@@ -139,11 +142,13 @@ type createSSHKeyBody struct {
 	Name string `json:"name"`
 }
 
+// CreateSSHKeyInput requires Name.
 type CreateSSHKeyInput struct {
+	// Name is required.
 	Name string `vngcloud:"required"`
 }
 
-// CreateSSHKeyOutput's PrivateKey is a vngcloud.Secret, never a plain
+// CreateSSHKeyOutput holds PrivateKey as a vngcloud.Secret, never a plain
 // string: printing, logging, or JSON-encoding the Output gives "[redacted]"
 // for this field, and Reveal is the only way to read the value back out.
 // SSHKey itself never carries a private key.
@@ -241,10 +246,13 @@ func mapSSHKeyDeleteNotFound(op, sshKeyID string, err error) error {
 	return err
 }
 
+// DeleteSSHKeyInput requires SSHKeyID.
 type DeleteSSHKeyInput struct {
+	// SSHKeyID is required.
 	SSHKeyID string `vngcloud:"required"`
 }
 
+// DeleteSSHKeyOutput carries no result fields.
 type DeleteSSHKeyOutput struct{}
 
 // DeleteSSHKey deletes a key. DELETE is idempotent and keeps the

@@ -9,11 +9,16 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// EnsureSyntheticQuotaInput selects parameters for EnsureSyntheticQuota.
 type EnsureSyntheticQuotaInput struct {
+	// ExpectedQuotaID checks the selected quota identity when nonempty.
 	ExpectedQuotaID string
-	MaxPrice        float64
-	MaxDaysLeft     int
-	NoWait          bool
+	// MaxPrice bounds the quote for a selected renewal or recovery.
+	MaxPrice float64
+	// MaxDaysLeft skips an early renewal when positive; zero disables that skip.
+	MaxDaysLeft int
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
 // EnsureSyntheticQuotaOutput identifies the selected action independently of

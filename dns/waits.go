@@ -16,10 +16,14 @@ import (
 // know keeps every wait below polling rather than treating it as either
 // ready or settled.
 const (
+	// StatusCreating is the "CREATING" DNS resource status.
 	StatusCreating = "CREATING"
-	StatusActive   = "ACTIVE"
+	// StatusActive is the "ACTIVE" DNS resource status.
+	StatusActive = "ACTIVE"
+	// StatusUpdating is the "UPDATING" DNS resource status.
 	StatusUpdating = "UPDATING"
-	StatusError    = "ERROR"
+	// StatusError is the "ERROR" DNS resource status.
+	StatusError = "ERROR"
 )
 
 var (

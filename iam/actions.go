@@ -12,6 +12,7 @@ import (
 // ListActionsInput takes no fields; the SDK always asks for product "iam".
 type ListActionsInput struct{}
 
+// ListActionsOutput holds Action items.
 type ListActionsOutput = core.List[Action]
 
 // ListActions lists the account's IAM actions (GET actions?product=iam).

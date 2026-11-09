@@ -22,6 +22,7 @@ func NewConfig(opts ...Option) (Config, error) {
 	return Config{client: c}, nil
 }
 
+// Region returns the configured region.
 func (c Config) Region() string { return ClientOf(c).Region() }
 
 // ProfileSetting returns key's value in the resolved profile's config
@@ -44,6 +45,7 @@ func ClientOf(c Config) *Client {
 	return c.client
 }
 
+// EndpointOverrides supplies explicit service endpoints.
 type EndpointOverrides struct {
 	VServer            string
 	VLB                string

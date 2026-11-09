@@ -22,115 +22,16 @@ import (
 )
 
 const (
+	// NotificationKindEmail selects email notification quota.
 	NotificationKindEmail = "Email"
-	NotificationKindSMS   = "SMS"
-	QuotaStatusActive     = "ACTIVE"
-	QuotaStatusInTrash    = "IN-TRASH"
-	quotaMaxBody          = 1 << 20
+	// NotificationKindSMS selects SMS notification quota.
+	NotificationKindSMS = "SMS"
+	// QuotaStatusActive identifies an active quota.
+	QuotaStatusActive = "ACTIVE"
+	// QuotaStatusInTrash identifies a quota in trash.
+	QuotaStatusInTrash = "IN-TRASH"
+	quotaMaxBody       = 1 << 20
 )
-
-type GetQuotaUsageInput struct{}
-type GetQuotaUsageOutput struct{ Usage QuotaUsage }
-
-type QuotaUsage struct {
-	SyntheticUsages      []UsageCounts
-	EmailUsages          []NotificationUsage
-	FreeEmailQuota       int
-	FreeSMSQuota         int
-	LogSeverity          string
-	MetricSeverity       string
-	SyntheticSeverity    string
-	EmailSeverity        string
-	SMSSeverity          string
-	NotificationSeverity string
-	// UnmodeledKinds names nonempty log, metric, or SMS arrays whose item
-	// shapes are unknown. These items do not contribute modeled totals.
-	UnmodeledKinds []string
-}
-
-type UsageCounts struct {
-	API      int `json:"api"`
-	Location int `json:"location"`
-	Email    int `json:"email"`
-	SMS      int `json:"sms"`
-	Slack    int `json:"slack"`
-	Webhook  int `json:"webhook"`
-	Telegram int `json:"telegram"`
-	Teams    int `json:"teams"`
-}
-
-type NotificationUsage struct {
-	Amount int `json:"amount"`
-}
-
-type Quota struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	Status          string    `json:"status"`
-	PackageID       string    `json:"packageId"`
-	StartTime       time.Time `json:"startTime"`
-	EndTime         time.Time `json:"endTime"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	AutoRenew       bool      `json:"autoRenew"`
-	POC             bool      `json:"poc"`
-	System          bool      `json:"system"`
-	AutoRenewPeriod int       `json:"autoRenewPeriod"`
-}
-
-type SyntheticNotificationLimits struct {
-	Email, SMS, Slack, Webhook, Telegram, Teams *int
-}
-
-type SyntheticQuotaDetail struct {
-	ChannelLimits SyntheticNotificationLimits
-	API           int
-	Location      int
-	Email         int
-	SMS           int
-	Slack         int
-	Webhook       int
-	Telegram      int
-	Teams         int
-	ClassName     string
-	TierName      string
-	// Price is in VND. An absent or null price is unknown, not free.
-	Price *float64
-}
-
-type QuotaUsageDetail struct {
-	// Counts is present only for synthetic usage; notification usage omits it.
-	Counts       UsageCounts `json:",omitzero"`
-	Amount       int
-	Descriptions map[string]UsageDescription
-}
-
-type UsageDescription struct {
-	Name  string `json:"name"`
-	Specs string `json:"specs"`
-	Unit  string `json:"unit"`
-}
-
-type NotificationPackage struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	// Price is in VND. An absent or null price is unknown, not free.
-	Price  *float64 `json:"price"`
-	Amount int      `json:"amount"`
-}
-
-type ListNotificationPackagesInput struct {
-	Kind string `vngcloud:"required"`
-}
-type ListNotificationPackagesOutput = core.List[NotificationPackage]
-type GetSyntheticQuotaInput struct{}
-type GetSyntheticQuotaOutput struct {
-	Quota  Quota
-	Detail SyntheticQuotaDetail
-}
-type GetSyntheticQuotaUsageInput struct{}
-type GetSyntheticQuotaUsageOutput struct{ Usage QuotaUsageDetail }
 
 type syntheticPackage struct {
 	ID       string
@@ -419,6 +320,7 @@ func quotaArray(raw json.RawMessage) ([]json.RawMessage, bool) {
 	return items, true
 }
 
+// GetQuotaUsage reads quota usage.
 func (c *Client) GetQuotaUsage(ctx context.Context, in *GetQuotaUsageInput) (*GetQuotaUsageOutput, error) {
 	const op = "monitor.GetQuotaUsage"
 	raw, err := c.quotaRead(ctx, op, "quotas", "usages")
@@ -470,6 +372,7 @@ func (c *Client) GetQuotaUsage(ctx context.Context, in *GetQuotaUsageInput) (*Ge
 	return &GetQuotaUsageOutput{Usage: u}, nil
 }
 
+// ListNotificationPackages reads notification packages.
 func (c *Client) ListNotificationPackages(ctx context.Context, in *ListNotificationPackagesInput) (*ListNotificationPackagesOutput, error) {
 	var credentials monitorReadCredentials
 	return c.listNotificationPackages(ctx, "monitor.ListNotificationPackages", in, &credentials)
@@ -508,12 +411,14 @@ func (c *Client) listNotificationPackages(ctx context.Context, op string, in *Li
 	return out, nil
 }
 
+// GetSyntheticQuota reads synthetic quota.
 func (c *Client) GetSyntheticQuota(ctx context.Context, in *GetSyntheticQuotaInput) (*GetSyntheticQuotaOutput, error) {
 	const op = "monitor.GetSyntheticQuota"
 	var credentials monitorReadCredentials
 	return c.readSyntheticQuota(ctx, op, &credentials)
 }
 
+// GetSyntheticQuotaUsage reads synthetic quota usage.
 func (c *Client) GetSyntheticQuotaUsage(ctx context.Context, in *GetSyntheticQuotaUsageInput) (*GetSyntheticQuotaUsageOutput, error) {
 	const op = "monitor.GetSyntheticQuotaUsage"
 	raw, err := c.quotaRead(ctx, op, "synthetic", "quota", "usages")
@@ -574,15 +479,6 @@ func decodeQuota(op string, raw json.RawMessage) (Quota, error) {
 	return q, nil
 }
 
-type GetNotificationQuotaInput struct {
-	Kind string `vngcloud:"required"`
-}
-type GetNotificationQuotaOutput struct{ Quota Quota }
-type GetNotificationQuotaUsageInput struct {
-	Kind string `vngcloud:"required"`
-}
-type GetNotificationQuotaUsageOutput struct{ Usage QuotaUsageDetail }
-
 // Only the evidenced quota route's exact absence envelope permits creation.
 type notificationQuotaAbsent struct{ err error }
 
@@ -606,6 +502,7 @@ func (o *quotaObject) updatedTimestamp() time.Time {
 	return o.timestamp("updatedAt")
 }
 
+// GetNotificationQuota reads notification quota.
 func (c *Client) GetNotificationQuota(ctx context.Context, in *GetNotificationQuotaInput) (*GetNotificationQuotaOutput, error) {
 	const op = "monitor.GetNotificationQuota"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -641,6 +538,7 @@ func (c *Client) readNotificationQuota(ctx context.Context, op, kind string, cre
 	return decodeQuota(op, raw)
 }
 
+// GetNotificationQuotaUsage reads notification quota usage.
 func (c *Client) GetNotificationQuotaUsage(ctx context.Context, in *GetNotificationQuotaUsageInput) (*GetNotificationQuotaUsageOutput, error) {
 	const op = "monitor.GetNotificationQuotaUsage"
 	if err := core.CheckRequired(op, in); err != nil {

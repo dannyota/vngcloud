@@ -2,14 +2,19 @@ package network
 
 import "danny.vn/vngcloud/internal/core"
 
+// ListVPNConnectionsInput selects parameters for ListVPNConnections.
 type ListVPNConnectionsInput struct {
+	// Page defaults to 1 when zero and must not be negative.
 	Page int
+	// Size defaults to 10 when zero and must not be negative.
 	Size int
 }
 
+// ListVPNConnectionsOutput holds VPNConnection items and pagination metadata.
 type ListVPNConnectionsOutput = core.PagedList[VPNConnection]
 
 // VPNConnection is VPN inventory. Status describes provisioning, not connectivity.
+// See docs/design/network-services-api.md.
 type VPNConnection struct {
 	UUID               string     `json:"uuid"`
 	VPNName            string     `json:"vpnName"`
@@ -28,6 +33,8 @@ type VPNConnection struct {
 	VPNSites           []VPNSite  `json:"vpnSites"`
 }
 
+// VPNSubnet holds vpn subnet data from the API.
+// See docs/design/network-services-api.md.
 type VPNSubnet struct {
 	UUID         string `json:"uuid"`
 	Name         string `json:"name"`
@@ -39,6 +46,8 @@ type VPNSubnet struct {
 	ZoneID       string `json:"zoneId"`
 }
 
+// VPNVPC holds vpnvpc data from the API.
+// See docs/design/network-services-api.md.
 type VPNVPC struct {
 	UUID         string `json:"uuid"`
 	Name         string `json:"name"`
@@ -50,12 +59,16 @@ type VPNVPC struct {
 	DNSStatus    string `json:"dnsStatus"`
 }
 
+// VPNProject holds vpn project data from the API.
+// See docs/design/network-services-api.md.
 type VPNProject struct {
 	ID               string `json:"id"`
 	BackendProjectID string `json:"backendProjectId"`
 	VServerProjectID string `json:"vserverProjectId"`
 }
 
+// VPNPackage holds vpn package data from the API.
+// See docs/design/network-services-api.md.
 type VPNPackage struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -64,6 +77,8 @@ type VPNPackage struct {
 	Default     bool   `json:"default"`
 }
 
+// VPNSite holds vpn site data from the API.
+// See docs/design/network-services-api.md.
 type VPNSite struct {
 	RemoteGatewayIP string            `json:"remoteGatewayIp"`
 	UUID            string            `json:"uuid"`
@@ -74,6 +89,8 @@ type VPNSite struct {
 	Tunnels         []VPNTunnel       `json:"tunnels"`
 }
 
+// VPNPhase1Config holds vpn phase1 config data from the API.
+// See docs/design/network-services-api.md.
 type VPNPhase1Config struct {
 	Phase1Algorithm   string `json:"phase1Algorithm"`
 	Phase1Hash        string `json:"phase1Hash"`
@@ -81,6 +98,8 @@ type VPNPhase1Config struct {
 	Phase1IKELifetime string `json:"phase1IkeLifeTime"`
 }
 
+// VPNTunnel holds vpn tunnel data from the API.
+// See docs/design/network-services-api.md.
 type VPNTunnel struct {
 	SiteUUID          string            `json:"siteUuid"`
 	TunnelName        string            `json:"tunnelName"`
@@ -91,6 +110,8 @@ type VPNTunnel struct {
 	Phase2Configs     []VPNPhase2Config `json:"phase2Configs"`
 }
 
+// VPNPhase2Config holds vpn phase2 config data from the API.
+// See docs/design/network-services-api.md.
 type VPNPhase2Config struct {
 	Phase2Algorithm   string `json:"phase2Algorithm"`
 	Phase2Hash        string `json:"phase2Hash"`

@@ -13,13 +13,18 @@ import (
 // Name. A non-positive Size sends core.DefaultPageSize, and Page 0 is the
 // first page.
 type ListPoliciesInput struct {
+	// Name is sent as the name query parameter when nonempty.
 	Name string
+	// Page starts at zero; negative values select zero.
 	Page int
+	// Size uses the default when not positive.
 	Size int
 }
 
+// ListPoliciesOutput holds PolicySummary items.
 type ListPoliciesOutput = core.List[PolicySummary]
 
+// ListPolicies reads policies.
 func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*ListPoliciesOutput, error) {
 	const op = "iam.ListPolicies"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -48,14 +53,18 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	return &ListPoliciesOutput{Items: resp.Data}, nil
 }
 
+// GetPolicyInput requires PolicyID.
 type GetPolicyInput struct {
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
 }
 
+// GetPolicyOutput holds the result of GetPolicy.
 type GetPolicyOutput struct {
 	Policy Policy
 }
 
+// GetPolicy reads policy.
 func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyOutput, error) {
 	return c.getPolicy(ctx, in)
 }
@@ -112,6 +121,7 @@ func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...u
 // ListPolicyAttachmentsInput identifies the policy whose attachments to
 // list.
 type ListPolicyAttachmentsInput struct {
+	// PolicyID is required.
 	PolicyID string `vngcloud:"required"`
 }
 

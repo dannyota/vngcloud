@@ -49,13 +49,16 @@ type PricingNote struct {
 	Evidence  string
 }
 
+// ErrDiscoveryIncomplete marks a discovery invocation with incomplete coverage.
 var ErrDiscoveryIncomplete = errors.New("pricing discovery incomplete")
 
 // DiscoveryError retains the original causes of a partial invocation.
 // Errors must contain only errors from guarded exchanges or local validation.
 type DiscoveryError struct{ Errors []error }
 
-func (e *DiscoveryError) Error() string        { return ErrDiscoveryIncomplete.Error() }
+func (e *DiscoveryError) Error() string { return ErrDiscoveryIncomplete.Error() }
+
+// Is reports whether target is ErrDiscoveryIncomplete.
 func (e *DiscoveryError) Is(target error) bool { return target == ErrDiscoveryIncomplete }
 func (e *DiscoveryError) Unwrap() []error      { return e.Errors }
 

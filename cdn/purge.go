@@ -16,8 +16,10 @@ var ErrPurgeCooldown = errors.New("cdn: purge cooldown")
 
 // PurgePathsInput identifies a CDN and the cached paths to purge.
 type PurgePathsInput struct {
-	CDNDomain string   `vngcloud:"required"`
-	Paths     []string `vngcloud:"required"`
+	// CDNDomain is required.
+	CDNDomain string `vngcloud:"required"`
+	// Paths is required.
+	Paths []string `vngcloud:"required"`
 }
 
 // PurgePathsOutput is empty when the purge is accepted.

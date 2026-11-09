@@ -12,6 +12,7 @@ import (
 // APIKey is one vCDN API key of the account. Times are RFC 3339. The server
 // also sends each key's token and the account email; the model has no field
 // for them. Current marks the key this client sends.
+// See docs/design/cdn-api.md.
 type APIKey struct {
 	ID                int       `json:"apiKeyId"`
 	ExpiresAt         time.Time `json:"expiredDate"`
@@ -35,6 +36,7 @@ type apiKeyWire struct {
 // ListAPIKeysInput has no fields today; a nil Input is valid.
 type ListAPIKeysInput struct{}
 
+// ListAPIKeysOutput holds APIKey items.
 type ListAPIKeysOutput = core.List[APIKey]
 
 // ListAPIKeys lists every API key of the account. Exactly the key this

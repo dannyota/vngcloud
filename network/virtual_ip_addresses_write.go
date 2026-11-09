@@ -17,7 +17,9 @@ import (
 // refusal, per the rule that the SDK checks only required fields and input
 // shape, not value rules.
 const (
-	VirtualIPModeActiveActive  = "Active/Active"
+	// VirtualIPModeActiveActive is the "Active/Active" virtual IP mode.
+	VirtualIPModeActiveActive = "Active/Active"
+	// VirtualIPModeActivePassive is the "Active/Passive" virtual IP mode.
 	VirtualIPModeActivePassive = "Active/Passive"
 )
 
@@ -104,14 +106,20 @@ func checkIPv4Address(op, field, value string) error {
 // address; otherwise it is chosen by the server. CreateVirtualIPAddress
 // never sends tags, zoneId, or a public type.
 type CreateVirtualIPAddressInput struct {
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
-	Name     string `vngcloud:"required"`
-	Mode     string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Mode is required.
+	Mode string `vngcloud:"required"`
 
-	IPAddress   string
+	// IPAddress must be IPv4 when set; otherwise the server selects it.
+	IPAddress string
+	// Description is sent as description in the create body.
 	Description string
 }
 
+// CreateVirtualIPAddressOutput holds the result of CreateVirtualIPAddress.
 type CreateVirtualIPAddressOutput struct {
 	VirtualIPAddress VirtualIPAddress
 }
@@ -258,13 +266,18 @@ func (c *Client) waitVirtualIPActive(ctx context.Context, op, virtualIPID string
 // call, so UpdateVirtualIPAddress reads the virtual IP first and resends
 // whichever field the caller leaves nil unchanged.
 type UpdateVirtualIPAddressInput struct {
+	// VirtualIPAddressID is required.
 	VirtualIPAddressID string `vngcloud:"required"`
 
-	Name        *string
+	// Name leaves its current value unchanged when nil.
+	Name *string
+	// Description leaves its current value unchanged when nil.
 	Description *string
-	Mode        *string
+	// Mode leaves its current value unchanged when nil.
+	Mode *string
 }
 
+// UpdateVirtualIPAddressOutput holds the result of UpdateVirtualIPAddress.
 type UpdateVirtualIPAddressOutput struct {
 	VirtualIPAddress VirtualIPAddress
 }
@@ -347,9 +360,11 @@ func (c *Client) UpdateVirtualIPAddress(ctx context.Context, in *UpdateVirtualIP
 
 // DeleteVirtualIPAddressInput identifies the virtual IP to delete.
 type DeleteVirtualIPAddressInput struct {
+	// VirtualIPAddressID is required.
 	VirtualIPAddressID string `vngcloud:"required"`
 }
 
+// DeleteVirtualIPAddressOutput carries no result fields.
 type DeleteVirtualIPAddressOutput struct{}
 
 // DeleteVirtualIPAddress deletes a private virtual IP. It reads the virtual

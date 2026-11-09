@@ -11,6 +11,7 @@ import (
 // ListWebAcceleratorsInput has no fields today; a nil Input is valid.
 type ListWebAcceleratorsInput struct{}
 
+// ListWebAcceleratorsOutput holds WebAcceleratorSummary items.
 type ListWebAcceleratorsOutput = core.List[WebAcceleratorSummary]
 
 // ListWebAccelerators lists every Web Accelerator CDN of the account in one
@@ -35,9 +36,11 @@ func (c *Client) ListWebAccelerators(ctx context.Context, in *ListWebAccelerator
 
 // GetWebAcceleratorInput identifies the CDN to read.
 type GetWebAcceleratorInput struct {
+	// CDNID is required.
 	CDNID string `vngcloud:"required"`
 }
 
+// GetWebAcceleratorOutput holds the result of GetWebAccelerator.
 type GetWebAcceleratorOutput struct {
 	WebAccelerator WebAccelerator
 }

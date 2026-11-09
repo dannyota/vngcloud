@@ -8,6 +8,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// NewTestClient builds a shared client around a test transport.
 func NewTestClient(region, projectID string, endpointSet endpoints.Set, tc *transport.Client) *Client {
 	logger := slog.New(nopHandler{})
 	return &Client{
@@ -40,6 +41,7 @@ func WithStorageTestClock(now func() time.Time) ClientOption {
 	return clientOptionFunc(func(cfg *clientConfig) { cfg.storageTestClock = now })
 }
 
+// StorageClock returns the injected storage clock or time.Now.
 func StorageClock(cfg Config) func() time.Time {
 	if now := ClientOf(cfg).storageTestClock; now != nil {
 		return now

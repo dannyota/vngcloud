@@ -32,16 +32,26 @@ const (
 type FailureStep string
 
 const (
-	StepSigninPage     FailureStep = "signin page"
-	StepSigninSubmit   FailureStep = "signin submission"
+	// StepSigninPage identifies failure to load the sign-in page.
+	StepSigninPage FailureStep = "signin page"
+	// StepSigninSubmit identifies a sign-in submission failure.
+	StepSigninSubmit FailureStep = "signin submission"
+	// StepSigninRejected identifies a rejected sign-in.
 	StepSigninRejected FailureStep = "signin rejection"
-	StepTOTPRequired   FailureStep = "totp requirement"
-	StepTOTPPage       FailureStep = "totp page"
-	StepTOTPCode       FailureStep = "totp code"
-	StepTOTPSubmit     FailureStep = "totp submission"
-	StepTOTPRejected   FailureStep = "totp rejection"
-	StepAuthCode       FailureStep = "authorization code"
-	StepTokenExchange  FailureStep = "token exchange"
+	// StepTOTPRequired identifies a missing required one-time code.
+	StepTOTPRequired FailureStep = "totp requirement"
+	// StepTOTPPage identifies failure to load the one-time code page.
+	StepTOTPPage FailureStep = "totp page"
+	// StepTOTPCode identifies failure to obtain a one-time code.
+	StepTOTPCode FailureStep = "totp code"
+	// StepTOTPSubmit identifies a one-time code submission failure.
+	StepTOTPSubmit FailureStep = "totp submission"
+	// StepTOTPRejected identifies a rejected one-time code.
+	StepTOTPRejected FailureStep = "totp rejection"
+	// StepAuthCode identifies an authorization code failure.
+	StepAuthCode FailureStep = "authorization code"
+	// StepTokenExchange identifies a token exchange failure.
+	StepTokenExchange FailureStep = "token exchange"
 )
 
 // LoginFailure reports which step of the login flow failed, the HTTP status
@@ -61,10 +71,13 @@ type LoginFailure struct {
 func (f *LoginFailure) Error() string { return f.cause.Error() }
 func (f *LoginFailure) Unwrap() error { return f.cause }
 
+// TOTPProvider supplies a time-based one-time code.
 type TOTPProvider interface {
+	// GetCode returns a time-based one-time code.
 	GetCode(ctx context.Context) (string, error)
 }
 
+// LoginRequest holds the settings for an IAM user login.
 type LoginRequest struct {
 	RootEmail     string
 	Username      string
@@ -84,6 +97,7 @@ type Result struct {
 	RefreshToken string
 }
 
+// Login exchanges IAM user credentials for an access token.
 func Login(ctx context.Context, req LoginRequest) (Result, error) {
 	signinBaseURL := req.SigninBaseURL
 	if signinBaseURL == "" {

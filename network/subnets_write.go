@@ -50,14 +50,20 @@ type subnetWriteResponse struct {
 // it, in a zone the caller did not choose. list-zones (CLI) or the
 // equivalent portal read finds an enabled zone.
 type CreateSubnetInput struct {
-	VPCID  string `vngcloud:"required"`
+	// VPCID is required.
+	VPCID string `vngcloud:"required"`
+	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`
-	Name   string `vngcloud:"required"`
-	CIDR   string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// CIDR is required.
+	CIDR string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreateSubnetOutput holds the result of CreateSubnet.
 type CreateSubnetOutput struct {
 	Subnet Subnet
 }
@@ -151,11 +157,15 @@ func wrapAmbiguousSubnetCreateErr(op string, err error) error {
 
 // UpdateSubnetInput renames a subnet.
 type UpdateSubnetInput struct {
-	VPCID    string `vngcloud:"required"`
+	// VPCID is required.
+	VPCID string `vngcloud:"required"`
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
-	Name     string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
 }
 
+// UpdateSubnetOutput holds the result of UpdateSubnet.
 type UpdateSubnetOutput struct {
 	Subnet Subnet
 }
@@ -226,12 +236,16 @@ func (c *Client) UpdateSubnet(ctx context.Context, in *UpdateSubnetInput) (*Upda
 // DeleteSubnetInput identifies the subnet to delete, within the VPC it must
 // belong to.
 type DeleteSubnetInput struct {
-	VPCID    string `vngcloud:"required"`
+	// VPCID is required.
+	VPCID string `vngcloud:"required"`
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteSubnetOutput carries no result fields.
 type DeleteSubnetOutput struct{}
 
 // DeleteSubnet deletes a subnet. It reads the subnet first with GetSubnet
@@ -545,8 +559,11 @@ func (c *Client) waitSubnetDeleted(ctx context.Context, op, vpcID, subnetID stri
 
 // ListServersBySubnetInput identifies the subnet to list servers in.
 type ListServersBySubnetInput struct {
+	// SubnetID is required.
 	SubnetID string `vngcloud:"required"`
 }
+
+// ListServersBySubnetOutput holds the result of ListServersBySubnet.
 type ListServersBySubnetOutput struct {
 	Items []compute.Server
 }

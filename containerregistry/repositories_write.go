@@ -124,9 +124,11 @@ func (c *Client) repositoryFoundAfterServerError(ctx context.Context, id string)
 
 // GetRepositoryInput identifies the repository to read.
 type GetRepositoryInput struct {
+	// RepositoryID is required.
 	RepositoryID string `vngcloud:"required"`
 }
 
+// GetRepositoryOutput holds the result of GetRepository.
 type GetRepositoryOutput struct {
 	Repository Repository
 }
@@ -180,12 +182,16 @@ func (c *Client) GetRepository(ctx context.Context, in *GetRepositoryInput) (*Ge
 // a 400 naming the rule. The SDK does not check this itself: it is a value
 // rule, which ADR 0002 rule 5 leaves to the server.
 type CreateRepositoryInput struct {
-	Name         string `vngcloud:"required"`
-	QuotaLimitGB int    `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// QuotaLimitGB is required.
+	QuotaLimitGB int `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// CreateRepositoryOutput holds the result of CreateRepository.
 type CreateRepositoryOutput struct {
 	Repository Repository
 }
@@ -308,11 +314,14 @@ func (c *Client) waitRepositoryConfirmed(ctx context.Context, op, repositoryID s
 
 // DeleteRepositoryInput identifies the repository to delete.
 type DeleteRepositoryInput struct {
+	// RepositoryID is required.
 	RepositoryID string `vngcloud:"required"`
 
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
 
+// DeleteRepositoryOutput carries no result fields.
 type DeleteRepositoryOutput struct{}
 
 // DeleteRepository reads the repository first and returns

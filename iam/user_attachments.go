@@ -11,13 +11,18 @@ import (
 // ListUserPoliciesInput pages UserID's attached policies. A non-positive
 // Size sends core.DefaultPageSize, and Page 0 is the first page.
 type ListUserPoliciesInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
-	Page   int
-	Size   int
+	// Page starts at zero; negative values select zero.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListUserPoliciesOutput holds PolicySummary items.
 type ListUserPoliciesOutput = core.List[PolicySummary]
 
+// ListUserPolicies reads user policies.
 func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput) (*ListUserPoliciesOutput, error) {
 	const op = "iam.ListUserPolicies"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -46,11 +51,14 @@ func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput
 // returns a bare array of full Group objects, unlike ListGroups, which
 // returns summary rows only.
 type ListUserGroupsInput struct {
+	// UserID is required.
 	UserID string `vngcloud:"required"`
 }
 
+// ListUserGroupsOutput holds Group items.
 type ListUserGroupsOutput = core.List[Group]
 
+// ListUserGroups reads user groups.
 func (c *Client) ListUserGroups(ctx context.Context, in *ListUserGroupsInput) (*ListUserGroupsOutput, error) {
 	const op = "iam.ListUserGroups"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -77,13 +85,18 @@ func (c *Client) ListUserGroups(ctx context.Context, in *ListUserGroupsInput) (*
 // policies. A non-positive Size sends core.DefaultPageSize, and Page 0 is
 // the first page.
 type ListServiceAccountPoliciesInput struct {
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
-	Page             int
-	Size             int
+	// Page starts at zero; negative values select zero.
+	Page int
+	// Size uses the default when not positive.
+	Size int
 }
 
+// ListServiceAccountPoliciesOutput holds PolicySummary items.
 type ListServiceAccountPoliciesOutput = core.List[PolicySummary]
 
+// ListServiceAccountPolicies reads service account policies.
 func (c *Client) ListServiceAccountPolicies(ctx context.Context, in *ListServiceAccountPoliciesInput) (*ListServiceAccountPoliciesOutput, error) {
 	const op = "iam.ListServiceAccountPolicies"
 	if err := core.CheckRequired(op, in); err != nil {

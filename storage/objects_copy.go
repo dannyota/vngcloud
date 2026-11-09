@@ -22,11 +22,16 @@ import (
 // region and credential/project scope. Replace must explicitly permit replacing
 // any current destination, including one changed by a concurrent writer.
 type CopyObjectInput struct {
+	// SourceBucket names the bucket containing the source object.
 	SourceBucket string
-	SourceKey    string
-	Bucket       string
-	Key          string
-	Replace      bool
+	// SourceKey identifies the current source object.
+	SourceKey string
+	// Bucket names the destination bucket in the same project and region.
+	Bucket string
+	// Key identifies the destination and must differ from the source name.
+	Key string
+	// Replace must be true because create-only copy is unavailable.
+	Replace bool
 }
 
 // CopyObjectOutput contains bounded metadata observations, not a lossless clone

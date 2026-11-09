@@ -11,12 +11,16 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ListSnapshotBackendsInput requires Name.
 type ListSnapshotBackendsInput struct {
+	// Name is required.
 	Name string `vngcloud:"required"`
 }
 
+// ListSnapshotBackendsOutput holds SnapshotBackend items.
 type ListSnapshotBackendsOutput = core.List[SnapshotBackend]
 
+// ListSnapshotBackends reads snapshot backends.
 func (c *Client) ListSnapshotBackends(ctx context.Context, in *ListSnapshotBackendsInput) (*ListSnapshotBackendsOutput, error) {
 	const op = "volume.ListSnapshotBackends"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -38,6 +42,8 @@ func (c *Client) ListSnapshotBackends(ctx context.Context, in *ListSnapshotBacke
 	return &ListSnapshotBackendsOutput{Items: resp.Items}, nil
 }
 
+// SnapshotBackend holds snapshot backend data from the API.
+// See docs/design/server-services-api.md.
 type SnapshotBackend struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`

@@ -10,6 +10,7 @@ import (
 	"danny.vn/vngcloud/internal/core"
 )
 
+// ListClusters reads one zero-based page of clusters.
 func (c *Client) ListClusters(ctx context.Context, in *ListClustersInput) (*ListClustersOutput, error) {
 	const op = "vks.ListClusters"
 	if err := c.validate(); err != nil {
@@ -58,6 +59,7 @@ func (c *Client) ListClusters(ctx context.Context, in *ListClustersInput) (*List
 
 func maxInt() int { return int(^uint(0) >> 1) }
 
+// ListClusterVersions reads the version catalog.
 func (c *Client) ListClusterVersions(ctx context.Context, _ *ListClusterVersionsInput) (*ListClusterVersionsOutput, error) {
 	const op = "vks.ListClusterVersions"
 	var resp []*struct {
@@ -86,6 +88,7 @@ func (c *Client) ListClusterVersions(ctx context.Context, _ *ListClusterVersions
 	return &ListClusterVersionsOutput{Items: items}, nil
 }
 
+// GetQuota reads the account quota for the configured region.
 func (c *Client) GetQuota(ctx context.Context, _ *GetQuotaInput) (*GetQuotaOutput, error) {
 	const op = "vks.GetQuota"
 	var resp struct {

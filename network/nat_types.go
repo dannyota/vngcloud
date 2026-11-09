@@ -2,15 +2,21 @@ package network
 
 import "danny.vn/vngcloud/internal/core"
 
+// ListNATInstancesInput selects parameters for ListNATInstances.
 type ListNATInstancesInput struct {
+	// ZoneID selects the zone; empty discovers one.
 	ZoneID string
-	Page   int
-	Size   int
+	// Page defaults to 1 when zero and must not be negative.
+	Page int
+	// Size defaults to 10 when zero and must not be negative.
+	Size int
 }
 
+// ListNATInstancesOutput holds NATInstance items and pagination metadata.
 type ListNATInstancesOutput = core.PagedList[NATInstance]
 
 // NATInstance is a Public NAT inventory row. Status describes provisioning.
+// See docs/design/network-services-api.md.
 type NATInstance struct {
 	UUID          string     `json:"uuid"`
 	NATName       string     `json:"natName"`
@@ -27,6 +33,8 @@ type NATInstance struct {
 	VPC           NATVPC     `json:"vpc"`
 }
 
+// NATPackage holds nat package data from the API.
+// See docs/design/network-services-api.md.
 type NATPackage struct {
 	ID        string   `json:"id"`
 	UUID      string   `json:"uuid"`
@@ -37,6 +45,8 @@ type NATPackage struct {
 	Image     NATImage `json:"image"`
 }
 
+// NATImage holds nat image data from the API.
+// See docs/design/network-services-api.md.
 type NATImage struct {
 	ID            string          `json:"id"`
 	UUID          string          `json:"uuid"`
@@ -48,12 +58,15 @@ type NATImage struct {
 }
 
 // NATPackageLimit preserves the API's integers; their units are unverified.
+// See docs/design/network-services-api.md.
 type NATPackageLimit struct {
 	CPU      int `json:"cpu"`
 	Memory   int `json:"memory"`
 	DiskSize int `json:"diskSize"`
 }
 
+// NATVPC holds natvpc data from the API.
+// See docs/design/network-services-api.md.
 type NATVPC struct {
 	UUID         string `json:"uuid"`
 	Name         string `json:"name"`
@@ -65,14 +78,28 @@ type NATVPC struct {
 	DNSStatus    string `json:"dnsStatus"`
 }
 
-type ListNATZonesInput struct{ ZoneID string }
+// ListNATZonesInput selects parameters for ListNATZones.
+type ListNATZonesInput struct {
+	// ZoneID selects the zone scope; empty discovers one.
+	ZoneID string
+}
+
+// ListNATZonesOutput holds NATAvailabilityZone items.
 type ListNATZonesOutput = core.List[NATAvailabilityZone]
+
+// ListNATPackagesInput requires AvailabilityZoneID.
 type ListNATPackagesInput struct {
-	ZoneID             string
+	// ZoneID selects the zone scope; empty discovers one.
+	ZoneID string
+	// AvailabilityZoneID is required.
 	AvailabilityZoneID string `vngcloud:"required"`
 }
+
+// ListNATPackagesOutput holds NATPackageOffer items.
 type ListNATPackagesOutput = core.List[NATPackageOffer]
 
+// NATAvailabilityZone holds nat availability zone data from the API.
+// See docs/design/network-services-api.md.
 type NATAvailabilityZone struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -82,6 +109,8 @@ type NATAvailabilityZone struct {
 	Description string `json:"description"`
 }
 
+// NATOfferPrice holds nat offer price data from the API.
+// See docs/design/network-services-api.md.
 type NATOfferPrice struct {
 	OptimumPrice    float64 `json:"optimumPrice"`
 	OriginalPrice   float64 `json:"originalPrice"`
@@ -89,6 +118,8 @@ type NATOfferPrice struct {
 	DiscountPercent float64 `json:"discountPercent"`
 }
 
+// NATPackageOffer holds nat package offer data from the API.
+// See docs/design/network-services-api.md.
 type NATPackageOffer struct {
 	UUID              string        `json:"uuid"`
 	Name              string        `json:"name"`
@@ -104,15 +135,24 @@ type NATPackageOffer struct {
 	Price             NATOfferPrice `json:"price"`
 }
 
+// CreateNATInstanceInput requires Name, ZoneID, AvailabilityZoneID, PackageID
+// and VPCID.
 type CreateNATInstanceInput struct {
-	Name               string `vngcloud:"required"`
-	ZoneID             string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// ZoneID is required.
+	ZoneID string `vngcloud:"required"`
+	// AvailabilityZoneID is required.
 	AvailabilityZoneID string `vngcloud:"required"`
-	PackageID          string `vngcloud:"required"`
-	VPCID              string `vngcloud:"required"`
-	MaxPrice           float64
+	// PackageID is required.
+	PackageID string `vngcloud:"required"`
+	// VPCID is required.
+	VPCID string `vngcloud:"required"`
+	// MaxPrice bounds the create quote; QuoteCreateNATInstance ignores it.
+	MaxPrice float64
 }
 
+// CreateNATInstanceOutput holds the result of CreateNATInstance.
 type CreateNATInstanceOutput struct {
 	NATInstance  *NATInstance
 	OrderID      string
@@ -122,14 +162,23 @@ type CreateNATInstanceOutput struct {
 	AutoRenew    *bool
 }
 
+// DeleteNATInstanceInput requires ZoneID, VPCID and NATID.
 type DeleteNATInstanceInput struct {
+	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`
-	VPCID  string `vngcloud:"required"`
-	NATID  string `vngcloud:"required"`
+	// VPCID is required.
+	VPCID string `vngcloud:"required"`
+	// NATID is required.
+	NATID string `vngcloud:"required"`
+	// NoWait skips the post-operation wait.
 	NoWait bool
 }
+
+// DeleteNATInstanceOutput carries no result fields.
 type DeleteNATInstanceOutput struct{}
 
+// NetworkPriceProperty holds network price property data from the API.
+// See docs/design/network-services-api.md.
 type NetworkPriceProperty struct {
 	OptimumPrice    float64  `json:"optimumPrice"`
 	MonthlyPrice    float64  `json:"monthlyPrice"`
@@ -139,6 +188,7 @@ type NetworkPriceProperty struct {
 	Description     string   `json:"description"`
 }
 
+// NetworkQuoteOutput holds the result of NetworkQuote.
 type NetworkQuoteOutput struct {
 	OptimumPrice    float64
 	OriginalPrice   float64

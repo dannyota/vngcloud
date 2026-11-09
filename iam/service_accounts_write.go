@@ -14,11 +14,13 @@ import (
 // CreateServiceAccountInput names the new service account. It has no guard:
 // creating a service account changes no one's rights.
 type CreateServiceAccountInput struct {
-	Name        string `vngcloud:"required"`
+	// Name is required.
+	Name string `vngcloud:"required"`
+	// Description is sent as description in the create body.
 	Description string
 }
 
-// CreateServiceAccountOutput's ClientSecret is a vngcloud.Secret, never a
+// CreateServiceAccountOutput holds ClientSecret as a vngcloud.Secret, never a
 // plain string: printing, logging, or JSON-encoding the Output gives
 // "[redacted]" for this field, and Reveal is the only way to read the value
 // back out. ClientSecret is empty when the create response holds none, in
@@ -123,11 +125,15 @@ func wrapAmbiguousServiceAccountCreateErr(op, name string, err error) error {
 // must not be the caller and must not hold a privileged policy; see
 // guard.go.
 type UpdateServiceAccountInput struct {
-	ServiceAccountID    string `vngcloud:"required"`
-	Description         *string
+	// ServiceAccountID is required.
+	ServiceAccountID string `vngcloud:"required"`
+	// Description is sent only when non-nil.
+	Description *string
+	// AccessTokenLifeSpan is sent only when non-nil.
 	AccessTokenLifeSpan *int
 }
 
+// UpdateServiceAccountOutput holds the result of UpdateServiceAccount.
 type UpdateServiceAccountOutput struct {
 	ServiceAccount ServiceAccount
 }
@@ -182,9 +188,11 @@ func (c *Client) UpdateServiceAccount(ctx context.Context, in *UpdateServiceAcco
 // must not be the caller and must not hold a privileged policy; see
 // guard.go.
 type DeleteServiceAccountInput struct {
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
+// DeleteServiceAccountOutput carries no result fields.
 type DeleteServiceAccountOutput struct{}
 
 // DeleteServiceAccount deletes a service account. The guard runs first and
@@ -219,10 +227,11 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, in *DeleteServiceAcco
 // client secret to reset. It must not be the caller and must not hold a
 // privileged policy; see guard.go.
 type ResetServiceAccountSecretInput struct {
+	// ServiceAccountID is required.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
-// ResetServiceAccountSecretOutput's ClientSecret is a vngcloud.Secret; see
+// ResetServiceAccountSecretOutput holds ClientSecret as a vngcloud.Secret; see
 // CreateServiceAccountOutput's doc comment. ClientSecret is empty only when
 // ResetServiceAccountSecret also returns ErrNoSecret: the reset itself still
 // succeeded.

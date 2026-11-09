@@ -11,9 +11,13 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+// ResetUserPasswordInput requires UserID.
 type ResetUserPasswordInput struct {
-	UserID         string `vngcloud:"required"`
-	Password       vngcloud.Secret
+	// UserID is required.
+	UserID string `vngcloud:"required"`
+	// Password is used when set; empty generates a password.
+	Password vngcloud.Secret
+	// PasswordLength sets the generated password length and requires an empty Password.
 	PasswordLength int
 }
 

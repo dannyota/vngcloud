@@ -14,13 +14,17 @@ import (
 // encryption setup did not finish. Read its encryption state before uploading.
 var ErrBucketEncryptionIncomplete = errors.New("storage: bucket encryption setup incomplete")
 
+// GetBucketEncryptionInput requires ProjectID and BucketName.
 type GetBucketEncryptionInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region     string
-	ProjectID  string `vngcloud:"required"`
+	Region string
+	// ProjectID is required.
+	ProjectID string `vngcloud:"required"`
+	// BucketName is required.
 	BucketName string `vngcloud:"required"`
 }
 
+// GetBucketEncryptionOutput holds the result of GetBucketEncryption.
 type GetBucketEncryptionOutput struct{ Enabled bool }
 
 // GetBucketEncryption reads the server-managed default encryption state.
@@ -50,15 +54,19 @@ func (c *Client) GetBucketEncryption(ctx context.Context, in *GetBucketEncryptio
 	return &GetBucketEncryptionOutput{Enabled: *enabled}, nil
 }
 
+// PutBucketEncryptionInput requires ProjectID and BucketName.
 type PutBucketEncryptionInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
-	Region     string
-	ProjectID  string `vngcloud:"required"`
+	Region string
+	// ProjectID is required.
+	ProjectID string `vngcloud:"required"`
+	// BucketName is required.
 	BucketName string `vngcloud:"required"`
 	// Enabled is the complete target state. Its zero value disables encryption.
 	Enabled bool
 }
 
+// PutBucketEncryptionOutput carries no result fields.
 type PutBucketEncryptionOutput struct{}
 
 type putBucketEncryptionBody struct {

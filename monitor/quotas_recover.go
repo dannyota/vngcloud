@@ -5,10 +5,14 @@ import (
 	"time"
 )
 
+// RecoverSyntheticQuotaInput requires ExpectedQuotaID.
 type RecoverSyntheticQuotaInput struct {
+	// ExpectedQuotaID is required.
 	ExpectedQuotaID string `vngcloud:"required"`
-	MaxPrice        float64
-	NoWait          bool
+	// MaxPrice bounds the recovery quote.
+	MaxPrice float64
+	// NoWait skips the post-operation wait.
+	NoWait bool
 }
 
 // RecoverSyntheticQuotaOutput confirms only a read of the frozen quota and a

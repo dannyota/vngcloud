@@ -1,5 +1,6 @@
 package vks
 
+// Cluster holds cluster inventory described in docs/design/vks-api.md.
 type Cluster struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
@@ -14,6 +15,7 @@ type Cluster struct {
 	EnablePrivateCluster bool   `json:"enablePrivateCluster"`
 }
 
+// ClusterVersion holds a version entry described in docs/design/vks-api.md.
 type ClusterVersion struct {
 	Version      string `json:"version"`
 	Enable       bool   `json:"enable"`
@@ -21,6 +23,7 @@ type ClusterVersion struct {
 	DeprecatedAt string `json:"deprecatedAt"`
 }
 
+// Quota holds account quota described in docs/design/vks-api.md.
 type Quota struct {
 	MaxClusters             int `json:"maxClusters"`
 	NumClusters             int `json:"numClusters"`

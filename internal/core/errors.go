@@ -11,16 +11,25 @@ import (
 
 var (
 	// ErrTokenCache reports service-account cache availability failures without paths or causes.
-	ErrTokenCache       = errors.New("vngcloud: token cache unavailable")
-	ErrAuth             = errors.New("vngcloud: authentication failed")
-	ErrNotFound         = errors.New("vngcloud: resource not found")
-	ErrPermission       = errors.New("vngcloud: permission denied")
-	ErrRateLimited      = errors.New("vngcloud: rate limited")
-	ErrProjectNotFound  = errors.New("vngcloud: no project found for region")
+	ErrTokenCache = errors.New("vngcloud: token cache unavailable")
+	// ErrAuth marks an authentication failure.
+	ErrAuth = errors.New("vngcloud: authentication failed")
+	// ErrNotFound marks a missing resource.
+	ErrNotFound = errors.New("vngcloud: resource not found")
+	// ErrPermission marks a permission failure.
+	ErrPermission = errors.New("vngcloud: permission denied")
+	// ErrRateLimited marks a rate limit response.
+	ErrRateLimited = errors.New("vngcloud: rate limited")
+	// ErrProjectNotFound marks an empty regional project discovery.
+	ErrProjectNotFound = errors.New("vngcloud: no project found for region")
+	// ErrProjectAmbiguous marks project discovery with multiple matches.
 	ErrProjectAmbiguous = errors.New("vngcloud: multiple projects found for region")
+	// ErrMissingProjectID marks a missing required project ID.
 	ErrMissingProjectID = errors.New("vngcloud: project id is required")
-	ErrInvalidConfig    = errors.New("vngcloud: invalid config")
-	ErrInvalidInput     = errors.New("vngcloud: invalid input")
+	// ErrInvalidConfig marks an invalid configuration.
+	ErrInvalidConfig = errors.New("vngcloud: invalid config")
+	// ErrInvalidInput marks an invalid input.
+	ErrInvalidInput = errors.New("vngcloud: invalid input")
 
 	// ErrPriceAboveMax means a paid write's quote priced the order above
 	// Input.MaxPrice. Nothing was ordered.
@@ -80,23 +89,28 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// IsNotFound reports a missing resource or HTTP 404.
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || statusIs(err, 404)
 }
 
+// IsPermissionDenied reports denied permission or HTTP 403.
 func IsPermissionDenied(err error) bool {
 	return errors.Is(err, ErrPermission) || statusIs(err, 403)
 }
 
+// IsRateLimited reports rate limiting or HTTP 429.
 func IsRateLimited(err error) bool {
 	return errors.Is(err, ErrRateLimited) || statusIs(err, 429)
 }
 
+// IsRetryable reports whether an API error is marked retryable.
 func IsRetryable(err error) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && apiErr.Retryable
 }
 
+// ErrorCode returns the API error code or an empty string.
 func ErrorCode(err error) string {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {

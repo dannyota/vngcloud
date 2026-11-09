@@ -1,5 +1,6 @@
 package core
 
+// NetworkZone holds zone data from the API. See docs/design/sdk-and-cli.md.
 type NetworkZone struct {
 	UUID          string   `json:"uuid"`
 	Name          string   `json:"name"`
