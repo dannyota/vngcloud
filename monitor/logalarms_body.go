@@ -86,11 +86,52 @@ func consoleMatchAllLogFilter(query string) json.RawMessage {
 	if query == "" {
 		return json.RawMessage(matchAllLogFilter)
 	}
-	q, err := json.Marshal(query)
+	type phraseValue struct {
+		Type    string `json:"type"`
+		Query   string `json:"query"`
+		Lenient bool   `json:"lenient"`
+	}
+	type phrase struct {
+		Type  string      `json:"type"`
+		Value phraseValue `json:"value"`
+	}
+	type innerValue struct {
+		Filter  []struct{} `json:"filter"`
+		Must    []phrase   `json:"must"`
+		Should  []struct{} `json:"should"`
+		MustNot []struct{} `json:"mustNot"`
+	}
+	type innerFilter struct {
+		Type  string     `json:"type"`
+		Value innerValue `json:"value"`
+	}
+	type outerValue struct {
+		Filter  []struct{}    `json:"filter"`
+		Should  []struct{}    `json:"should"`
+		Must    []innerFilter `json:"must"`
+		MustNot []struct{}    `json:"mustNot"`
+	}
+	filter := struct {
+		Type  string     `json:"type"`
+		Value outerValue `json:"value"`
+	}{
+		Type: "bool",
+		Value: outerValue{
+			Filter: []struct{}{}, Should: []struct{}{}, MustNot: []struct{}{},
+			Must: []innerFilter{{
+				Type: "bool",
+				Value: innerValue{
+					Filter: []struct{}{}, Should: []struct{}{}, MustNot: []struct{}{},
+					Must: []phrase{{Type: "multi_match", Value: phraseValue{Type: "phrase", Query: query, Lenient: true}}},
+				},
+			}},
+		},
+	}
+	encoded, err := json.Marshal(filter)
 	if err != nil {
 		return json.RawMessage(matchAllLogFilter)
 	}
-	return json.RawMessage(`{"type":"bool","value":{"filter":[],"should":[],"must":[{"type":"bool","value":{"filter":[],"must":[{"type":"multi_match","value":{"type":"phrase","query":` + string(q) + `,"lenient":true}}],"should":[],"mustNot":[]}}],"mustNot":[]}}`)
+	return json.RawMessage(encoded)
 }
 
 // logAlarmFields holds a log alarm's fields already resolved to their final

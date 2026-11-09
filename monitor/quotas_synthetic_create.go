@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -193,7 +192,7 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 		return t, quotaResponseError(op)
 	}
 	for _, period := range periods {
-		item := quotaObjectOf(json.RawMessage(`{"period":` + string(period) + `}`))
+		item := quotaObjectOf(quotaPeriodJSON(period))
 		value := item.integer("period", false)
 		if item.invalid {
 			return t, quotaResponseError(op)

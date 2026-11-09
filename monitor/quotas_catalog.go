@@ -96,7 +96,7 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 	out := &ListSyntheticPackagesOutput{Items: items, Packages: packages, MonthPeriods: make([]int, 0, len(periods)), MaxMonthPeriodForFreeQuota: o.integer("maxMonthPeriodForFreeQuota", false), PaymentMethod: o.text("paymentMethod", false)}
 	seen := map[int]bool{}
 	for _, period := range periods {
-		p := quotaObjectOf(json.RawMessage(`{"period":` + string(period) + `}`))
+		p := quotaObjectOf(quotaPeriodJSON(period))
 		value := p.integer("period", false)
 		if p.invalid || value <= 0 || seen[value] {
 			return nil, quotaResponseError(op)
@@ -171,6 +171,17 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 		return strings.Compare(a.ID, b.ID)
 	})
 	return out, nil
+}
+
+func quotaPeriodJSON(period json.RawMessage) json.RawMessage {
+	value := struct {
+		Period json.RawMessage `json:"period"`
+	}{Period: period}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func (c *Client) scrubCatalogText(credentials *monitorReadCredentials, values ...*string) {
