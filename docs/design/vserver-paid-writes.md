@@ -434,13 +434,12 @@ results and the quote-to-charge race. No new dependency or CLI bypass is needed.
     other actions. An action rule keeps the public shape and lets every
     resize quote reader report credits. A server-only opt-in would leave
     the generic and load balancer quote readers inconsistent.
-20. Credit presentation and guard. Open on the write guard despite the
-    delegated acceptance: a concurrent change can turn a quoted credit
-    into a charge at `MaxPrice` 0; no conditional write is documented.
-    Keep signed `OptimumPrice` and `MonthlyPrice`, with no new credit
-    field. Recommend accepting the residual race explicitly before
-    allowing credits at every valid `MaxPrice`; zero stays `ErrUnpriced`.
-    Otherwise defer the write change while releasing signed reads. A
-    magnitude cap, another pre-read, or an extra consent flag cannot
-    enforce a charge ceiling. The existing vLB policy is not proof of
-    server resize safety.
+20. Credit presentation and guard. Decided: keep signed `OptimumPrice`
+    and `MonthlyPrice`, with no new credit field, and let a credit pass
+    `ResizeServer` at every valid `MaxPrice`; zero stays `ErrUnpriced`.
+    The residual race is accepted explicitly: a concurrent change can
+    turn a quoted credit into a charge at `MaxPrice` 0, because the write
+    carries no price or state condition. This is the same quote-to-send
+    window every paid write already accepts. A magnitude cap, another
+    pre-read, or an extra consent flag cannot enforce a charge ceiling.
+    The existing vLB policy is not proof of server resize safety.
