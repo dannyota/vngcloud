@@ -1,14 +1,13 @@
 # vServer Floating IPs: API
 
-Status: Decisions accepted; evidence gates remain open.
+Status: Base decisions accepted; pricing revision proposed; evidence gates open.
 See [vServer floating IPs](vserver-floating-ips.md).
 
-Published means a first-party API schema or product page. First-party
-code proves what that client sends or expects, not what this SDK has
-verified. Recorded live means evidence described in an existing
-repository document; this pass does not inspect private captures or run
-cloud calls. Reported means unverified external experience. Missing and
-inferred contracts stay gated.
+Published means first-party schema/product docs. First-party code proves
+client expectations, not SDK verification. Recorded live means repository
+or manager-supplied sanitized evidence; console/ledger observations are not
+published contracts. This pass reads no captures or cloud API. Reported
+means unverified external experience. Missing/inferred contracts stay gated.
 
 ## Sources
 
@@ -25,15 +24,16 @@ inferred contracts stay gated.
   auto-attach and detach routes, with expected status 204.
 - [Paid-write prices](vserver-paid-writes-api.md#prices) and
   [quote requests](vserver-paid-writes-api.md#quote-requests): recorded
-  server quote exclusion of `attachFloating`, and a 120,000 VND
-  `elastic-ip` quote whose request details are not recorded.
+  server quote exclusion of `attachFloating`. The exact IP quote bodies
+  and manager-supplied observations are recorded below.
 - `testdata/server/instance.json` has empty `externalInterfaces` and
   empty internal `floatingIp`/`floatingIpId` fields. It does not prove
   populated floating IP behavior. `testdata/network/list_wan_ips.json`
   has no recorded raw-response provenance and differs from `WanIpDto`.
 
-Provider and SDK links pin the inspected source revisions. No claim here
-comes from a browser console session, account record, or third-party API.
+Provider and SDK links pin the inspected source revisions. The manager
+supplied sanitized quote, console, and ledger evidence; no account identity,
+private capture path, or ledger row belongs in this document.
 
 ## Terms and records
 
@@ -212,16 +212,31 @@ the reference provides no conditional version or idempotency token.
 
 ## Billing
 
-The recorded IP quote is VND per month. A server quote does not include
-it. Whether direct public create charges exactly the sum immediately,
-and whether IP deletion refunds unused minutes, remains unverified.
+The standalone Elastic IP quote is a monthly VND reference, not proof of
+an extra `attachFloating` charge. The server quote ignores that flag.
+The [price model](vserver-floating-ips.md#cost) keeps both hypotheses open.
 Server/volume refunds do not establish an IP refund.
 
+Observed, manager-supplied evidence from the console create form: Floating
+IP is checked by default and shown as enabled. The price panel contains
+only `s2-general-1x2` at 283,800 VND and 20 GB NVME at 74,800 VND; original
+and total are 358,600 VND, with no IP line. The form was not submitted.
+This differs from the 347,800 server reference; neither fixes a live price.
+
+Observed, manager-supplied ledger evidence: a one-month credit-history
+window contains no Elastic/Floating IP charge. A server reported created
+with `attach_floating = true` has only the instance order (instance, root
+disk, encryption) on create and renewal; cost explorer lists no IP resource.
+This supports inclusion but cannot establish a universal billing rule or
+exclude delayed, bundled, discounted, or reservation-dependent charges.
+
+The [wizard][wizard] documents assignment at create and paid reservation;
+the [address comparison][addresses] ties billing to reservation requests.
 The [Floating IP page][fip] says billing continues after disassociation.
-The [address comparison][addresses] ties floating IP billing to
-reservation requests. Preserve both statements: detach is not a billing
-stop, while the exact retained rate and reservation effects need evidence.
-The SDK neither changes reservation nor promises a zero retained cost.
+None explicitly prices `attachFloating` at create; inclusion is inference.
+Preserve all three statements: detach is not a billing stop; exact rates
+and reservation effects need evidence. Never change reservation implicitly
+or promise zero retained cost.
 
 The [FAQ][faq] says deletion loses the address permanently. Whether
 server deletion also removes its floating IP is unknown. Prefer explicit
@@ -235,58 +250,98 @@ That risk gates the optional allocation extension, not existing-IP reuse.
 
 ## Elastic IP quote
 
-The recorded `elastic-ip` result lacks `resourceInfo`, line items, and
-reservation/zone dimensions. It cannot implement a reliable builder yet.
-The following free probe is a specification for a separately authorized
-manager run, not permission to run it during this design pass.
-
-Use public `pricing.GetQuote` on the manager's approved IAM configuration
-in `hcm-3`. Obtain the intended zone UUID from public
-`portal.Client.ListZones` and match the chosen enabled zone exactly; never
-use a display name as an ID. Keep IDs and captures private. The normal
-route builder selects the portal `/v1/price` URL and the existing
-credential provider supplies auth.
-Do not invent an endpoint, `portal-user-id`, or credential argument.
-
-Send these two requests in order, once each, with 30 s contexts and
-1 MiB quote-response limits, as `pricing.GetQuote` already enforces.
-A manager-only capturing transport must allow only
-`GET <VServer>/v1/{projectId}/zones` and the exact price POST, reject
-redirects and every mutation, and suppress credentials. Keep the zone
-read bounded at 8 MiB; never raise the quote bound for capture.
+The manager's free IAM `hcm-3` probe used public `pricing.GetQuote` on the
+regional portal `POST v1/price` route. Both bodies returned HTTP 200 with
+identical raw bodies, satisfying the body probe, not the create-charge gate.
 
 ```json
 {"resourceType":"elastic-ip","action":"create","resourceInfo":{
   "period":1,"isPoc":false}}
-```
-
-```json
 {"resourceType":"elastic-ip","action":"create","resourceInfo":{
   "period":1,"isPoc":false,"zoneId":"zone-1"}}
 ```
 
-`zone-1` is synthetic; substitute only the verified zone UUID. Do not add
-other candidate keys or retry with guessed reservation settings. Stop on
-401/403 or a transport failure; a failed candidate is recorded, not an
-invitation to mutate resources. Record both statuses, exact sanitized
-request bodies, raw response bodies, types/presence of all totals, and
-`propertiesPrice` names, values, and units. Keep `artifactPrices` or other
-unknown fields in raw evidence rather than silently dropping them.
+`zone-1` replaces the enabled zone code from `ListZones.UUID`. It did not
+change the price; this does not prove global zone independence. Select the
+zone-bearing body with the validated create zone for the conservative
+reference quote. No reservation selector is verified; never invent one.
 
-A 200 with a positive optimum proves acceptance, not correct pricing.
-Before closing R2's gate, obtain first-party evidence that the accepted
-body prices the same unreserved IP created by `attachFloating` in that
-zone. A separately authorized read-only console price capture for the
-same selection can supply this comparison; never submit its order form.
-If the console uses a different type, body, period, or reservation mode,
-return to design instead of choosing whichever candidate was positive.
+The supplied raw-body excerpt is identical for both candidates:
 
-Prefer the zone-bearing body if it matches that evidence. Record the
-selected complete contract here before implementation. Verify finite
-positive monthly optimum, finite/non-negative other totals, discount
-relationships, and line item meanings through `pricing.GetQuote` using
-the sanitized raw fixture. Missing evidence or both candidates failing
-keeps the gate closed. No returned price authorizes a paid test.
+```json
+{"optimumPrice":120000,"discountPercent":0.0,"originalPrice":120000,
+ "discountPrice":0,"propertiesPrice":[{"optimumPrice":120000,
+ "monthlyPrice":120000,"currentPrice":null,"discountPercent":0.0,
+ "name":"Elastic IP","description":null}],"artifactPrices":null}
+```
+
+The unenveloped object has numeric totals, one property, null current
+price/description/`artifactPrices`, equal original/optimum, and zero
+discount. `period:1` and `monthlyPrice` support monthly units; currency is
+absent, so VND follows the console. Nonzero discounts remain unobserved;
+checked arithmetic is an SDK rule, not new API evidence.
+
+Provenance: manager-supplied sanitized excerpts of saved raw responses,
+not SDK output. Before implementation acceptance, obtain both raw fixtures,
+content type and sanitation metadata, compare raw versus SDK privately,
+and test `pricing.GetQuote` decoding, nulls, and retained unknown raw fields.
+This fixture gate stays open. Keep 1 MiB bounds, 30 s contexts, credential
+suppression, and finite retries; no new capture/order is authorized.
+
+## Credit-history decision procedure
+
+The console uses `gateway/api/v1/transactions` with the IAM user token
+(manager observation, not published contract). Use approved console reads;
+never extract tokens or add CLI/harness HTTP bypasses. Transactions are
+outside [billing scope](billing.md#deferred); SDK automation needs its own
+brief. Method, filters, schema, pagination, and posting delay are missing;
+observe them privately, never guess wire fields.
+
+Before purchase, verify read access and complete paging for the run's
+account and time range. Capture a baseline, then snapshots after create,
+after each detach, after reattach if performed, after IP deletion, and
+after server deletion. Use the same window starting before create; extend
+its end at each read. Record privately at every checkpoint:
+
+- Request method, route, filters, page/cursor coverage, HTTP status,
+  content type, retrieval time, and the operation's start/settlement time.
+- Every new/changed transaction's stable ID, posted/effective times,
+  status, debit/credit direction, currency, gross amount, discounts/tax,
+  net amount, product/description, resource/order linkage, billing period,
+  reservation indicator, and linked refund/reversal, where present.
+- Map those facts to actual raw keys and mark absent fields unknown.
+  Retain raw rows privately; deduplicate IDs across overlapping snapshots.
+  Track pending/failed/reversed rows separately from settled charges.
+- Reconcile server/root/encryption and IP components with both quotes,
+  order details, wallet deltas, and unrelated activity. Gross debit and
+  refund remain separate; net zero is not proof that no IP was charged.
+  An amount or description alone cannot attribute a row to the owned IP.
+
+Missing pages, denied reads, ambiguous linkage, unexplained deltas, or
+unsettled entries leave the result inconclusive. Limit each console read
+session to 5 min and 50 pages; never poll without a bound. Clean up without
+waiting for billing. A separately authorized read-only reconciliation
+within 24 hours after cleanup may finish posting; expiry without complete
+attribution keeps the release gate open. No finite empty window alone
+proves there can never be a delayed or renewal charge.
+
+- Included hypothesis: the settled create order itemizes only server and
+  disk costs, reconciles to the server quote, and complete credit history
+  through cleanup/reconciliation has no attributable IP debit. Record this
+  as observed inclusion for the tested configuration, not universal free IP.
+- Separate hypothesis: a settled IP debit or explicit IP component in the
+  create order explains the additional quote amount after period, discount,
+  and tax reconciliation. Keep the reserve only if that model matches.
+- A charge beginning only on detach/reservation is a conditional outcome:
+  it does not prove an extra create charge or free retention. Stop further
+  experiments, complete approved cleanup, and return the model to design.
+- Delayed IP debits/refunds must be attributed to their effective operation;
+  deletion does not erase an earlier charge. Different amounts, missing
+  itemization, or incomplete evidence decide neither hypothesis.
+
+The delegated manager records the outcome. Inclusion requires the design's
+reviewed pre-tag correction; separate charging needs matching evidence and
+guidance. Other results block the tag. Keep detach warnings/refund gates.
 
 ## Published behavior
 
@@ -316,10 +371,11 @@ an API contract. Do not expose that project's account data in this design.
 
 ## Missing evidence
 
-- R2: accepted quote body tied to the created IP's zone, period, and
-  reservation mode; component totals and discount meanings; IAM public
-  create compatibility; actual sum charged; populated server fields;
-  settlement timing; a usable cleanup route and its permissions.
+- R2: raw quote fixtures decoded through SDK; pricing decision approval;
+  created-IP billing attribution, reservation scope, and nonzero discounts;
+  IAM public create compatibility; populated server fields; settlement
+  timing; a usable cleanup route and its permissions. The quote-body
+  probe is complete, not the create-charge or fixture gate.
 - R3: populated WAN list envelope and attached/unattached rows, stable
   identity and zone fields, empty-list encoding, IAM attach/detach/delete
   acknowledgements, existing-IP attachment charge, and final conflict
@@ -333,9 +389,9 @@ an API contract. Do not expose that project's account data in this design.
   without evidence; cleanup must not depend on a cascade or refund.
 
 [api]: https://docs.api.greennode.ai/service-docs/vserver.html
-[fip]: https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/floating-ip.md
-[addresses]: https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/instance-ip-address.md
-[wizard]: https://docs.greennode.ai/vserver/compute-hcm03-1a/instance/create-an-instance-by-using-the-wizard.md
+[fip]: https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/floating-ip
+[addresses]: https://docs.greennode.ai/vserver/compute-hcm03-1a/vpc/instance-ip-address
+[wizard]: https://docs.greennode.ai/vserver/compute-hcm03-1a/instance/create-an-instance-by-using-the-wizard
 [groups]: https://docs.greennode.ai/vserver/compute-hcm03-1a/security/security-groups.md
 [connect]: https://docs.greennode.ai/vserver/compute-hcm03-1a/instance/connect-to-virtual-server.md
 [faq]: https://docs.greennode.ai/faq/vserver.md
