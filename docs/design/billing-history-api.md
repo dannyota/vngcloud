@@ -178,7 +178,7 @@ handling under the existing transport contract, not captured behavior.
 | HTTP 400 | `APIError`, status-derived `BadRequest`; 1 |
 | HTTP 401 after recovery | `APIError`, `ErrAuth`, `Unauthorized`; 3 |
 | HTTP 403 | `APIError`, `ErrPermission`, `Forbidden`; 1 |
-| HTTP 404 | `APIError`, `ErrNotFound`, `NotFound`; 1 |
+| HTTP 404 | `APIError`, `ErrNotFound`, `NotFound`; 4 |
 | HTTP 429 exhausted | `APIError`, `ErrRateLimited`, `Throttled`; 1 |
 | HTTP 500/502/503/504 exhausted | `APIError`, `ServerError`; 1 |
 | Unexpected 2xx or any 3xx | `APIError`, `InvalidResponse`; 1 |
@@ -277,23 +277,32 @@ Run the following for transactions, then independently for payments:
    Walk each successful result to completion to test witness membership;
    absence on page 1 alone proves nothing. Reuse identical requests within
    this step. Record memberships by ID privately and check all returned
-   timestamps. Require exactly one consistent candidate calendar and
-   boundary interpretation across rows; ambiguity keeps the gate open.
+   timestamps. Record only the calendar and boundary hypotheses these
+   memberships distinguish. A unique match among these candidates does
+   not establish the filtering zone or clear its gate.
 7. Query `(E+1,E+2)` at page 1 and the proved size as a candidate empty
    range. If it contains rows, it is not empty evidence. A 400 is also not
    empty evidence. Record the exact successful empty shape if available.
 
-The candidate zones are hypotheses to distinguish, not the only possible
-zones. Witnesses away from midnight cannot establish exact midnight
-inclusivity. If the results do not distinguish whole-day inclusive bounds
-from midnight cutoffs, obtain first-party documentation or additional
-existing boundary witnesses in another approved run. Never choose a rule
-by majority or infer it from the console's local display.
+Require first-party documentation or written first-party confirmation
+explicitly naming the date-filtering zone for each endpoint. The current
+witness protocol cannot establish that zone: rows at 18:xx UTC can have
+identical memberships under UTC+07:00 and UTC+08:00. Record which hypotheses
+remain compatible, considering at least UTC, UTC+07:00, and UTC+08:00.
+Without the first-party evidence, keep the zone gate open for effective
+`EndDate` and `GetSpend` day boundaries, even if only one tested candidate
+matches. Never infer the filtering zone from the console's local display.
+
+Witnesses away from midnight also cannot establish exact midnight
+inclusivity. If whole-day inclusive bounds and midnight cutoffs remain
+indistinguishable, obtain first-party evidence or additional existing
+boundary witnesses in another approved run; keep the boundary gate open.
 
 Stop when any budget is exhausted and list each unresolved step. Record
 per endpoint: proved cap, numbering/empty convention, timestamp syntax,
-date filtering zone, and inclusive-public-to-wire conversion. Each fact
-needs raw request/response provenance; update this document before coding.
+surviving zone/boundary hypotheses, and any verified wire conversion. Cite
+first-party zone evidence or mark the zone unresolved; retain raw probe
+provenance for observed facts. Update this document before coding.
 Service-account probing is optional and needs a separately approved profile
 and run; repeat baseline only. Do not create credentials or widen policy.
 
@@ -341,12 +350,17 @@ synthetic hostile bodies. No unit test contacts a cloud endpoint.
   overflow, and `All` with `Page>1`: invalid input, zero authentication/GETs.
 - Empty end uses one clock read in the proved zone across midnight/pages;
   host local zone changes nothing. Check UTC versus local date transitions.
+- Synthetic rows at 18:xx UTC matching both UTC+07:00 and UTC+08:00 must
+  leave the zone gate open; a UTC-versus-UTC+07:00 result cannot clear it.
 - Decode every field through the SDK. Missing/null false/zero fields,
   wrong types, negative amounts, bad offsets, overflow, empty body,
   unenveloped body, and null data/content/metadata fail with no Output.
 - Exercise each error-table row on both endpoints, including HTTP 200
   failing envelopes. Assert `errors.Is`, `errors.As`, status, fixed message,
   code, Retryable, stdout emptiness, and absence of peer values in chains.
+- Regress HTTP 404 on both history commands: `NotFound`, exit 4, empty
+  stdout. Run existing `TestClassify` and `TestExitCode` assertions unchanged
+  in `internal/cli/errors_test.go`, including wrapped not-found errors.
 - Test body overflow on 200, 403, and 503 separately. Assert request-size,
   cumulative-byte, page, row, time, and cancellation bounds; exactly-at-limit
   succeeds. Cancel during authentication, retries, paging, and aggregation.
