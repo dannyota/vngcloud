@@ -11,7 +11,7 @@ import (
 )
 
 // Region is a vStorage region.
-// See docs/design/storage-projects-api.md.
+// See docs/design/storage-api.md.
 type Region struct {
 	ID             string `json:"regionId"`
 	Name           string `json:"regionName"`

@@ -155,7 +155,7 @@ type VPC struct {
 // server gives no field marking a set as one Private DNS created, so the
 // SDK treats a Name with the dhcpOptionsSystemPrefix as a system set (see
 // dhcp_options_write.go).
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/vserver-network-writes-2-api.md.
 type DHCPOptions struct {
 	UUID       string   `json:"uuid"`
 	Name       string   `json:"name"`
@@ -168,7 +168,7 @@ type DHCPOptions struct {
 }
 
 // WANIP holds wanip data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type WANIP struct {
 	UUID               string `json:"uuid"`
 	ID                 string `json:"id"`
@@ -183,7 +183,7 @@ type WANIP struct {
 }
 
 // ElasticNetworkInterface holds elastic network interface data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type ElasticNetworkInterface struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -202,7 +202,7 @@ type ElasticNetworkInterface struct {
 }
 
 // SecurityGroup holds security group data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/vserver-writes.md.
 type SecurityGroup struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -214,7 +214,7 @@ type SecurityGroup struct {
 }
 
 // VirtualIPAddress holds virtual ip address data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/vserver-network-writes-2-api.md.
 type VirtualIPAddress struct {
 	UUID            string   `json:"uuid"`
 	ID              string   `json:"id"`
@@ -236,7 +236,7 @@ type VirtualIPAddress struct {
 }
 
 // Route holds route data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/vserver-network-writes.md.
 type Route struct {
 	UUID                 string `json:"uuid"`
 	RouteTableID         string `json:"routeTableId"`
@@ -258,7 +258,7 @@ type RouteTable struct {
 }
 
 // Peering holds peering data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type Peering struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -347,7 +347,7 @@ type Subnet struct {
 }
 
 // SubnetSecondarySubnet holds subnet secondary subnet data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type SubnetSecondarySubnet struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
@@ -355,7 +355,7 @@ type SubnetSecondarySubnet struct {
 }
 
 // SecurityGroupRule holds security group rule data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/vserver-writes.md.
 type SecurityGroupRule struct {
 	ID              string `json:"id"`
 	SecurityGroupID string `json:"securityGroupId"`
@@ -372,8 +372,7 @@ type SecurityGroupRule struct {
 	CreatedAt       string `json:"createdAt"`
 }
 
-// RouteTableRoute holds route table route data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// RouteTableRoute holds a route with its parent route table ID.
 type RouteTableRoute struct {
 	RouteTableID         string `json:"routeTableId"`
 	UUID                 string `json:"uuid"`
@@ -466,7 +465,7 @@ type Tag struct {
 }
 
 // Interconnect holds interconnect data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type Interconnect struct {
 	UUID         string `json:"uuid"`
 	ID           string `json:"id"`
@@ -488,7 +487,7 @@ type Interconnect struct {
 }
 
 // AddressPair holds address pair data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type AddressPair struct {
 	UUID               string `json:"uuid"`
 	VirtualIPAddressID string `json:"virtualIpAddressId"`

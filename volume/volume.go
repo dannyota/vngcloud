@@ -495,7 +495,7 @@ func encryptionTypesFromStrings(values []string) []EncryptionType {
 }
 
 // Volume holds volume data from the API.
-// See docs/design/cli-reads.md.
+// See docs/design/encrypted-volumes.md.
 type Volume struct {
 	UUID               string   `json:"uuid"`
 	ID                 string   `json:"id"`
@@ -581,7 +581,7 @@ type EncryptionType struct {
 }
 
 // Snapshot holds snapshot data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type Snapshot struct {
 	ID               string `json:"id"`
 	UUID             string `json:"uuid"`

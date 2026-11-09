@@ -511,7 +511,7 @@ type Server struct {
 }
 
 // NetworkInterface holds network interface data from the API.
-// See docs/design/vserver-paid-writes-api.md.
+// No design document records the API evidence for this type.
 type NetworkInterface struct {
 	CreatedAt     string `json:"createdAt"`
 	FixedIP       string `json:"fixedIp"`
@@ -572,7 +572,7 @@ type PackageLimit struct {
 }
 
 // ServerSecgroup holds server secgroup data from the API.
-// See docs/design/vserver-paid-writes.md.
+// No design document records the API evidence for this type.
 type ServerSecgroup struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
@@ -605,14 +605,14 @@ type ServerGroup struct {
 }
 
 // ServerGroupMember holds server group member data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// No design document records the API evidence for this type.
 type ServerGroupMember struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
 }
 
 // ServerSecurityGroup holds server security group data from the API.
-// See docs/design/vserver-writes.md.
+// No design document records the API evidence for this type.
 type ServerSecurityGroup struct {
 	ServerID string `json:"serverId"`
 	Name     string `json:"name"`
@@ -620,7 +620,7 @@ type ServerSecurityGroup struct {
 }
 
 // ServerGroupMembership holds server group membership data from the API.
-// See docs/design/vserver-network-writes.md.
+// No design document records the API evidence for this type.
 type ServerGroupMembership struct {
 	ServerGroupID string `json:"serverGroupId"`
 	Name          string `json:"name"`
@@ -628,7 +628,7 @@ type ServerGroupMembership struct {
 }
 
 // ServerGroupPolicy holds server group policy data from the API.
-// See docs/design/vserver-network-writes.md.
+// No design document records the API evidence for this type.
 type ServerGroupPolicy struct {
 	Name          string            `json:"name"`
 	UUID          string            `json:"uuid"`
@@ -654,7 +654,7 @@ type OSImage struct {
 }
 
 // UserImage holds user image data from the API.
-// See docs/design/sdk-and-cli.md.
+// No design document records the API evidence for this type.
 type UserImage struct {
 	UUID      string  `json:"uuid"`
 	ProjectID string  `json:"projectId"`

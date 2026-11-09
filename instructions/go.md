@@ -14,7 +14,7 @@ The SDK remains standard-library only. The CLI and tooling have standing approva
 
 ## Formatting and comments
 
-Every exported symbol, every exported field of an operation Input type, and every exported field of the SDK's client configuration types has a doc comment; wire model types that mirror API responses cite the API evidence under `docs/design/`, using the domain's `*-api.md` when it exists or the domain design otherwise, and their fields carry comments only where the meaning is verified.
+Every exported symbol, every exported field of an operation Input type, and every exported field of the SDK's client configuration types has a doc comment; wire model types that mirror API responses cite a `docs/design/` document recording their fields, response, or observations, or state that no design document records their evidence, and their fields carry comments only where the meaning is verified.
 
 Follow Google Go style and the repository's `golangci-lint` configuration. `make fmt` uses `golangci-lint fmt` with `gofmt` and `gci`; import groups are standard library, other imports, then `danny.vn/vngcloud`. Do not add a separate `goimports` dependency.
 

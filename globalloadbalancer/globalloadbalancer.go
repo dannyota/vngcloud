@@ -379,7 +379,7 @@ type Package struct {
 }
 
 // RegionalPackage holds regional package data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type RegionalPackage struct {
 	ID           int    `json:"id"`
 	GLBPackageID string `json:"glb_package_id"`
@@ -401,7 +401,7 @@ type Region struct {
 }
 
 // LoadBalancer holds load balancer data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type LoadBalancer struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -418,7 +418,7 @@ type LoadBalancer struct {
 }
 
 // VIP holds vip data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type VIP struct {
 	ID                   int    `json:"id"`
 	Address              string `json:"address"`
@@ -431,7 +431,7 @@ type VIP struct {
 }
 
 // Domain holds domain data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type Domain struct {
 	ID                   int    `json:"id"`
 	Hostname             string `json:"hostname"`
@@ -445,7 +445,7 @@ type Domain struct {
 }
 
 // Pool holds pool data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type Pool struct {
 	ID                   string             `json:"id"`
 	Name                 string             `json:"name"`
@@ -463,7 +463,7 @@ type Pool struct {
 }
 
 // PoolHealthMonitor holds pool health monitor data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type PoolHealthMonitor struct {
 	ID                   string  `json:"id"`
 	GlobalPoolID         string  `json:"globalPoolId"`
@@ -485,7 +485,7 @@ type PoolHealthMonitor struct {
 }
 
 // PoolMember holds pool member data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type PoolMember struct {
 	ID                   string             `json:"id"`
 	Name                 string             `json:"name"`
@@ -504,7 +504,7 @@ type PoolMember struct {
 }
 
 // PoolMemberDetail holds pool member detail data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type PoolMemberDetail struct {
 	ID                   string  `json:"id"`
 	Name                 string  `json:"name"`
@@ -524,7 +524,7 @@ type PoolMemberDetail struct {
 }
 
 // Listener holds listener data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type Listener struct {
 	ID                   string  `json:"id"`
 	Name                 string  `json:"name"`
@@ -545,7 +545,7 @@ type Listener struct {
 }
 
 // UsageHistory holds usage history data from the API.
-// See docs/design/cli-reads.md.
+// No design document records the API evidence for this type.
 type UsageHistory struct {
 	Timestamp string  `json:"timestamp"`
 	Value     float64 `json:"value"`

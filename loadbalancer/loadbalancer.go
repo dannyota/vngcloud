@@ -505,7 +505,7 @@ type LoadBalancer struct {
 }
 
 // Node holds node data from the API.
-// See docs/design/lb-writes-api.md.
+// No design document records the API evidence for this type.
 type Node struct {
 	Status   string `json:"status"`
 	ZoneID   string `json:"zoneId"`
@@ -527,7 +527,7 @@ type Package struct {
 }
 
 // Certificate holds certificate data from the API.
-// See docs/design/lb-writes-api.md.
+// See docs/design/lb-certificates.md.
 type Certificate struct {
 	UUID               string `json:"uuid"`
 	Name               string `json:"name"`
@@ -551,7 +551,7 @@ type Certificate struct {
 }
 
 // Tag holds tag data from the API.
-// See docs/design/lb-writes-api.md.
+// No design document records the API evidence for this type.
 type Tag struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
@@ -560,7 +560,7 @@ type Tag struct {
 }
 
 // ListenerInsertHeader holds listener insert header data from the API.
-// See docs/design/lb-writes-api.md.
+// No design document records the API evidence for this type.
 type ListenerInsertHeader struct {
 	HeaderName  string `json:"headerName"`
 	HeaderValue string `json:"headerValue"`
@@ -628,7 +628,7 @@ type PoolMember struct {
 }
 
 // HealthMonitor holds health monitor data from the API.
-// See docs/design/lb-writes-api.md.
+// See docs/design/lb-writes.md.
 type HealthMonitor struct {
 	Timeout             int     `json:"timeout"`
 	CreatedAt           string  `json:"createdAt"`
@@ -667,7 +667,7 @@ type Policy struct {
 }
 
 // L7Rule holds l7 rule data from the API.
-// See docs/design/lb-writes-api.md.
+// No design document records the API evidence for this type.
 type L7Rule struct {
 	UUID               string `json:"uuid"`
 	CompareType        string `json:"compareType"`

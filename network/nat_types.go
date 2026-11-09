@@ -100,7 +100,7 @@ type ListNATPackagesInput struct {
 type ListNATPackagesOutput = core.List[NATPackageOffer]
 
 // NATAvailabilityZone holds nat availability zone data from the API.
-// See docs/design/network-services-api.md.
+// See docs/design/network-writes-api.md.
 type NATAvailabilityZone struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -120,7 +120,7 @@ type NATOfferPrice struct {
 }
 
 // NATPackageOffer holds nat package offer data from the API.
-// See docs/design/network-services-api.md.
+// See docs/design/network-writes-api.md.
 type NATPackageOffer struct {
 	UUID              string        `json:"uuid"`
 	Name              string        `json:"name"`

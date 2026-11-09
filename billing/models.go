@@ -158,14 +158,14 @@ func (a *Alert) UnmarshalJSON(data []byte) error {
 }
 
 // CostBreakdown is one entry in a cost summary's per-key breakdown.
-// See docs/design/billing.md.
+// No design document records the API evidence for this type.
 type CostBreakdown struct {
 	Key  string  `json:"key"`
 	Cost float64 `json:"cost"`
 }
 
 // CostSummary is the cost explorer overview's headline numbers.
-// See docs/design/billing.md.
+// No design document records the API evidence for this type.
 type CostSummary struct {
 	CurrentCost    float64         `json:"currentCost"`
 	LastPeriodCost float64         `json:"lastPeriodCost"`
@@ -176,7 +176,7 @@ type CostSummary struct {
 }
 
 // CostSeries is one point in the cost explorer overview's trend chart.
-// See docs/design/billing.md.
+// No design document records the API evidence for this type.
 type CostSeries struct {
 	Date string  `json:"date"`
 	Cost float64 `json:"cost"`
@@ -197,7 +197,7 @@ type CostResource struct {
 }
 
 // CostResourceSummary totals the per-resource cost list.
-// See docs/design/billing.md.
+// No design document records the API evidence for this type.
 type CostResourceSummary struct {
 	TotalAll       float64 `json:"totalAll"`
 	ActiveCount    int     `json:"activeCount"`
