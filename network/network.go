@@ -208,7 +208,7 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 }
 
 // ListServersBySecurityGroup reads servers by security group.
-func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServersBySecurityGroupInput) (*ListServersBySecurityGroupOutput, error) {
+func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServersBySecurityGroupInput) (out *ListServersBySecurityGroupOutput, err error) {
 	const op = "network.ListServersBySecurityGroup"
 	invalid := func() error {
 		return &core.APIError{Operation: op, Code: "InvalidResponse", Message: "invalid server response; body withheld"}
@@ -216,6 +216,7 @@ func (c *Client) ListServersBySecurityGroup(ctx context.Context, in *ListServers
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var credentials []string
+	defer func() { err = sanitizeServerError(err, credentials) }()
 	ctx = transport.WithCredentialObserver(ctx, func(value string) ([]string, error) {
 		if value != "" {
 			found := false

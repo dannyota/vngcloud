@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,75 @@ import (
 
 	"danny.vn/vngcloud"
 )
+
+func TestSecurityGroupServerErrorMetadataSafety(t *testing.T) {
+	for _, tc := range []struct {
+		name, credential string
+		status           int
+		expose           bool
+		identity         error
+	}{
+		{"numeric status", "503", http.StatusServiceUnavailable, false, nil},
+		{"numeric permission", "403", http.StatusForbidden, false, vngcloud.ErrPermission},
+		{"safe metadata", "synthetic-token", http.StatusServiceUnavailable, true, nil},
+		{"reflected sentinel", "permission", http.StatusForbidden, true, vngcloud.ErrPermission},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"code":"SafeCode","message":"request refused"}`))
+			}))
+			defer srv.Close()
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken(tc.credential), vngcloud.WithHTTPClient(srv.Client()), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL}), vngcloud.WithRetry(0, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := New(cfg).ListServersBySecurityGroup(context.Background(), &ListServersBySecurityGroupInput{SecurityGroupID: "group-1"})
+			if out != nil || err == nil {
+				t.Fatal("failed server read returned output or no error")
+			}
+			if tc.identity != nil && !errors.Is(err, tc.identity) {
+				t.Fatal("error sanitization lost the SDK sentinel identity")
+			}
+			var api *vngcloud.APIError
+			if exposed := errors.As(err, &api); exposed != tc.expose {
+				t.Fatalf("API metadata exposed=%v, want %v", exposed, tc.expose)
+			}
+			if api != nil && (api.StatusCode != tc.status || api.Code != "SafeCode" || api.Operation != "network.ListServersBySecurityGroup") {
+				t.Fatal("safe API metadata changed")
+			}
+			assertSafeSecurityGroupServerError(t, err, tc.credential)
+		})
+	}
+}
+
+//nolint:errorlint // Inspect every direct cause rather than skipping branches with errors.As.
+func assertSafeSecurityGroupServerError(t *testing.T, err error, credential string) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if strings.Contains(err.Error(), credential) {
+		t.Error("credential remains in an error cause")
+	}
+	var api *vngcloud.APIError
+	if errors.As(err, &api) {
+		for _, text := range []string{api.Error(), api.Operation, api.Code, api.Message} {
+			if strings.Contains(text, credential) {
+				t.Error("credential remains in API metadata")
+			}
+		}
+		assertSafeSecurityGroupServerError(t, api.Err, credential)
+	}
+	switch cause := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, child := range cause.Unwrap() {
+			assertSafeSecurityGroupServerError(t, child, credential)
+		}
+	case interface{ Unwrap() error }:
+		assertSafeSecurityGroupServerError(t, cause.Unwrap(), credential)
+	}
+}
 
 func TestSecurityGroupServerResponseSafety(t *testing.T) {
 	for _, tc := range []struct {

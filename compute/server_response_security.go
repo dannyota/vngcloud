@@ -175,7 +175,7 @@ func sanitizeServerCause(err error, credentials []string, allowAPI func(*core.AP
 		safe.Message = transport.RedactErrorText(cause.Message, credentials...)
 		// APIError can regenerate fixed cause text or a numeric status. Keep
 		// identities separate when its rendered metadata is unsafe.
-		if !allowAPI(&safe) {
+		if !allowAPI(&safe) || changed || childChanged || safe.Operation != cause.Operation || safe.Code != cause.Code || safe.Message != cause.Message {
 			result := new(serverResponseError)
 			result.message = transport.RedactErrorText(safe.Error(), credentials...)
 			result.cause = safe.Err
@@ -186,9 +186,6 @@ func sanitizeServerCause(err error, credentials []string, allowAPI func(*core.AP
 			}
 			result.api, result.allowAPI = &safe, allowAPI
 			return result, true
-		}
-		if changed || childChanged || safe.Operation != cause.Operation || safe.Code != cause.Code || safe.Message != cause.Message {
-			return &safe, true
 		}
 	case interface{ Unwrap() []error }:
 		children := cause.Unwrap()

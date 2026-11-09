@@ -455,6 +455,54 @@ func TestResizeServerCreditTokenFailureBeforeSendSynthetic(t *testing.T) {
 	}
 }
 
+func TestResizeServerCreditRedactedProviderErrorBeforeSendSynthetic(t *testing.T) {
+	for _, field := range []string{"operation", "code", "message", "cause"} {
+		t.Run(field, func(t *testing.T) {
+			const credential = "synthetic-resize-token"
+			original := &vngcloud.APIError{Operation: "synthetic.Token", StatusCode: 503, Code: "TokenFailure", Message: "token acquisition failed", Retryable: true, Err: context.Canceled}
+			switch field {
+			case "operation":
+				original.Operation += credential
+			case "code":
+				original.Code += credential
+			case "message":
+				original.Message += credential
+			case "cause":
+				original.Err = fmt.Errorf("%s: %w", credential, context.Canceled)
+			}
+			var reads, quotes, puts atomic.Int64
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeServerRequest(t, w, r,
+					func(w http.ResponseWriter, _ *http.Request) {
+						reads.Add(1)
+						_, _ = w.Write([]byte(serverBodyWithFlavor("ACTIVE", "flavor-1")))
+					},
+					func(w http.ResponseWriter, _ *http.Request) {
+						quotes.Add(1)
+						_, _ = w.Write([]byte(serverResizeCreditSynthetic))
+					},
+					func(w http.ResponseWriter, _ *http.Request) { puts.Add(1) })
+			}))
+			defer srv.Close()
+			source := &resizeCreditPreSendTokens{failure: original}
+			clientTransport := transport.New(transport.Config{HTTPClient: srv.Client(), TokenSource: source})
+			c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VServer: srv.URL + "/", Portal: srv.URL + "/"}, clientTransport))
+			out, err := c.ResizeServer(context.Background(), validResizeServerInput())
+			if out != nil || puts.Load() != 0 || reads.Load() != 1 || quotes.Load() != 1 || source.calls.Load() != 3 || errors.Is(err, ErrNotSettled) {
+				t.Fatalf("out = %+v, err = %v, reads = %d, quotes = %d, puts = %d, token calls = %d", out, err, reads.Load(), quotes.Load(), puts.Load(), source.calls.Load())
+			}
+			if !errors.Is(err, original) || !errors.Is(err, context.Canceled) {
+				t.Fatal("redaction lost the provider APIError or its cancellation identity")
+			}
+			var safe *vngcloud.APIError
+			if !errors.As(err, &safe) || safe == original || safe.StatusCode != 503 || !safe.Retryable {
+				t.Fatal("sanitized provider API metadata was lost or the original was exposed")
+			}
+			assertSafeServerCauseTree(t, err, credential)
+		})
+	}
+}
+
 func TestResizeServerCreditProvenFailedDialSynthetic(t *testing.T) {
 	var refuseDial atomic.Bool
 	var failedDials, puts atomic.Int64
